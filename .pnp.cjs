@@ -7293,20 +7293,12 @@ const RAW_RUNTIME_STATE =
       }]\
     ]],\
     ["brace-expansion", [\
-      ["npm:1.1.11", {\
-        "packageLocation": "./.yarn/cache/brace-expansion-npm-1.1.11-fb95eb05ad-faf34a7bb0.zip/node_modules/brace-expansion/",\
+      ["npm:1.1.18", {\
+        "packageLocation": "./.yarn/cache/brace-expansion-npm-1.1.18-2759b99171-b55a3c0323.zip/node_modules/brace-expansion/",\
         "packageDependencies": [\
           ["balanced-match", "npm:1.0.2"],\
-          ["brace-expansion", "npm:1.1.11"],\
+          ["brace-expansion", "npm:1.1.18"],\
           ["concat-map", "npm:0.0.1"]\
-        ],\
-        "linkType": "HARD"\
-      }],\
-      ["npm:2.0.1", {\
-        "packageLocation": "./.yarn/cache/brace-expansion-npm-2.0.1-17aa2616f9-a61e7cd2e8.zip/node_modules/brace-expansion/",\
-        "packageDependencies": [\
-          ["balanced-match", "npm:1.0.2"],\
-          ["brace-expansion", "npm:2.0.1"]\
         ],\
         "linkType": "HARD"\
       }],\
@@ -14264,7 +14256,7 @@ const RAW_RUNTIME_STATE =
       ["npm:3.1.2", {\
         "packageLocation": "./.yarn/cache/minimatch-npm-3.1.2-9405269906-e0b25b04cd.zip/node_modules/minimatch/",\
         "packageDependencies": [\
-          ["brace-expansion", "npm:1.1.11"],\
+          ["brace-expansion", "npm:1.1.18"],\
           ["minimatch", "npm:3.1.2"]\
         ],\
         "linkType": "HARD"\
@@ -14272,7 +14264,7 @@ const RAW_RUNTIME_STATE =
       ["npm:9.0.1", {\
         "packageLocation": "./.yarn/cache/minimatch-npm-9.0.1-277fdc6fbd-b4e98f4dc7.zip/node_modules/minimatch/",\
         "packageDependencies": [\
-          ["brace-expansion", "npm:2.0.1"],\
+          ["brace-expansion", "npm:2.1.4"],\
           ["minimatch", "npm:9.0.1"]\
         ],\
         "linkType": "HARD"\
@@ -14280,7 +14272,7 @@ const RAW_RUNTIME_STATE =
       ["npm:9.0.3", {\
         "packageLocation": "./.yarn/cache/minimatch-npm-9.0.3-69d7d6fad5-c81b47d281.zip/node_modules/minimatch/",\
         "packageDependencies": [\
-          ["brace-expansion", "npm:2.0.1"],\
+          ["brace-expansion", "npm:2.1.4"],\
           ["minimatch", "npm:9.0.3"]\
         ],\
         "linkType": "HARD"\
@@ -14288,7 +14280,7 @@ const RAW_RUNTIME_STATE =
       ["npm:9.0.5", {\
         "packageLocation": "./.yarn/cache/minimatch-npm-9.0.5-9aa93d97fa-dd6a8927b0.zip/node_modules/minimatch/",\
         "packageDependencies": [\
-          ["brace-expansion", "npm:2.0.1"],\
+          ["brace-expansion", "npm:2.1.4"],\
           ["minimatch", "npm:9.0.5"]\
         ],\
         "linkType": "HARD"\
