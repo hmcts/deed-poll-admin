@@ -88,7 +88,7 @@ const RAW_RUNTIME_STATE =
           ["jest-junit", "npm:16.0.0"],\
           ["jquery", "npm:3.7.1"],\
           ["lint-staged", "npm:13.2.2"],\
-          ["lodash", "npm:4.17.21"],\
+          ["lodash", "npm:4.18.1"],\
           ["mini-css-extract-plugin", "virtual:5c86d93bc614dcc07528a847be8e69a11d4241faf459870c8d05a1091ebe7795b3662598c52ebf26e4b4ca32b1afcdc5b785498f8d4aecbf706a70c82f8b004d#npm:2.7.6"],\
           ["nock", "npm:13.3.1"],\
           ["nodemon", "npm:2.0.22"],\
@@ -3557,7 +3557,7 @@ const RAW_RUNTIME_STATE =
           ["globals", "npm:13.24.0"],\
           ["ignore", "npm:5.3.2"],\
           ["import-fresh", "npm:3.3.1"],\
-          ["js-yaml", "npm:4.1.1"],\
+          ["js-yaml", "npm:4.3.1"],\
           ["minimatch", "npm:3.1.2"],\
           ["strip-json-comments", "npm:3.1.1"]\
         ],\
@@ -3652,7 +3652,7 @@ const RAW_RUNTIME_STATE =
           ["@hmcts/info-provider", "virtual:5c86d93bc614dcc07528a847be8e69a11d4241faf459870c8d05a1091ebe7795b3662598c52ebf26e4b4ca32b1afcdc5b785498f8d4aecbf706a70c82f8b004d#npm:1.3.0"],\
           ["@types/express", "npm:4.17.23"],\
           ["express", "npm:5.1.0"],\
-          ["js-yaml", "npm:4.1.1"]\
+          ["js-yaml", "npm:4.3.1"]\
         ],\
         "packagePeers": [\
           "@types/express",\
@@ -3667,7 +3667,7 @@ const RAW_RUNTIME_STATE =
         "packageDependencies": [\
           ["@hmcts/nodejs-healthcheck", "npm:1.8.6"],\
           ["@hmcts/nodejs-logging", "npm:4.0.4"],\
-          ["js-yaml", "npm:4.1.1"],\
+          ["js-yaml", "npm:4.3.1"],\
           ["superagent", "npm:10.2.3"]\
         ],\
         "linkType": "HARD"\
@@ -3800,7 +3800,7 @@ const RAW_RUNTIME_STATE =
           ["camelcase", "npm:5.3.1"],\
           ["find-up", "npm:4.1.0"],\
           ["get-package-type", "npm:0.1.0"],\
-          ["js-yaml", "npm:4.1.1"],\
+          ["js-yaml", "npm:4.3.1"],\
           ["resolve-from", "npm:5.0.0"]\
         ],\
         "linkType": "HARD"\
@@ -8395,7 +8395,7 @@ const RAW_RUNTIME_STATE =
           ["cosmiconfig", "virtual:fa225bdb634e1cbc539c15f52d21e8c24930965df910bda33d9b1290d228e0a64585d7b53da6663575dc8acfbfbe07bcf6d81ab99b1b2b3701c454c9cc8cf6e7#npm:9.0.0"],\
           ["env-paths", "npm:2.2.1"],\
           ["import-fresh", "npm:3.3.1"],\
-          ["js-yaml", "npm:4.1.1"],\
+          ["js-yaml", "npm:4.3.1"],\
           ["parse-json", "npm:5.2.0"],\
           ["typescript", null]\
         ],\
@@ -9754,7 +9754,7 @@ const RAW_RUNTIME_STATE =
           ["imurmurhash", "npm:0.1.4"],\
           ["is-glob", "npm:4.0.3"],\
           ["is-path-inside", "npm:3.0.3"],\
-          ["js-yaml", "npm:4.1.1"],\
+          ["js-yaml", "npm:4.3.1"],\
           ["json-stable-stringify-without-jsonify", "npm:1.0.1"],\
           ["levn", "npm:0.4.1"],\
           ["lodash.merge", "npm:4.6.2"],\
@@ -13024,11 +13024,11 @@ const RAW_RUNTIME_STATE =
       }]\
     ]],\
     ["js-yaml", [\
-      ["npm:4.1.1", {\
-        "packageLocation": "./.yarn/cache/js-yaml-npm-4.1.1-86ec786790-a52d0519f0.zip/node_modules/js-yaml/",\
+      ["npm:4.3.1", {\
+        "packageLocation": "./.yarn/cache/js-yaml-npm-4.3.1-6383f7fb93-2ce71b5d63.zip/node_modules/js-yaml/",\
         "packageDependencies": [\
           ["argparse", "npm:2.0.1"],\
-          ["js-yaml", "npm:4.1.1"]\
+          ["js-yaml", "npm:4.3.1"]\
         ],\
         "linkType": "HARD"\
       }]\
@@ -13435,6 +13435,13 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "./.yarn/cache/lodash-npm-4.17.21-6382451519-c08619c038.zip/node_modules/lodash/",\
         "packageDependencies": [\
           ["lodash", "npm:4.17.21"]\
+        ],\
+        "linkType": "HARD"\
+      }],\
+      ["npm:4.18.1", {\
+        "packageLocation": "./.yarn/cache/lodash-npm-4.18.1-a64c3070ac-306fea53df.zip/node_modules/lodash/",\
+        "packageDependencies": [\
+          ["lodash", "npm:4.18.1"]\
         ],\
         "linkType": "HARD"\
       }]\
@@ -14295,7 +14302,7 @@ const RAW_RUNTIME_STATE =
           ["glob", "npm:10.5.0"],\
           ["he", "npm:1.2.0"],\
           ["is-path-inside", "npm:3.0.3"],\
-          ["js-yaml", "npm:4.1.1"],\
+          ["js-yaml", "npm:4.3.1"],\
           ["log-symbols", "npm:4.1.0"],\
           ["minimatch", "npm:9.0.9"],\
           ["mocha", "npm:11.7.5"],\
@@ -16495,7 +16502,7 @@ const RAW_RUNTIME_STATE =
           ["jest-junit", "npm:16.0.0"],\
           ["jquery", "npm:3.7.1"],\
           ["lint-staged", "npm:13.2.2"],\
-          ["lodash", "npm:4.17.21"],\
+          ["lodash", "npm:4.18.1"],\
           ["mini-css-extract-plugin", "virtual:5c86d93bc614dcc07528a847be8e69a11d4241faf459870c8d05a1091ebe7795b3662598c52ebf26e4b4ca32b1afcdc5b785498f8d4aecbf706a70c82f8b004d#npm:2.7.6"],\
           ["nock", "npm:13.3.1"],\
           ["nodemon", "npm:2.0.22"],\
