@@ -47,6 +47,7 @@ const RAW_RUNTIME_STATE =
           ["@types/glob", "npm:8.1.0"],\
           ["@types/helmet", "npm:4.0.0"],\
           ["@types/jest", "npm:29.5.14"],\
+          ["@types/lodash", "npm:4.14.195"],\
           ["@types/node", "npm:22.16.0"],\
           ["@types/nunjucks", "npm:3.2.6"],\
           ["@types/pa11y", "npm:5.3.7"],\
@@ -87,6 +88,7 @@ const RAW_RUNTIME_STATE =
           ["jest-junit", "npm:16.0.0"],\
           ["jquery", "npm:3.7.1"],\
           ["lint-staged", "npm:13.2.2"],\
+          ["lodash", "npm:4.18.1"],\
           ["mini-css-extract-plugin", "virtual:5c86d93bc614dcc07528a847be8e69a11d4241faf459870c8d05a1091ebe7795b3662598c52ebf26e4b4ca32b1afcdc5b785498f8d4aecbf706a70c82f8b004d#npm:2.7.6"],\
           ["nock", "npm:13.3.1"],\
           ["nodemon", "npm:2.0.22"],\
@@ -5146,6 +5148,15 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "./.yarn/cache/@types-json5-npm-0.0.29-f63a7916bd-4e5aed58ca.zip/node_modules/@types/json5/",\
         "packageDependencies": [\
           ["@types/json5", "npm:0.0.29"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["@types/lodash", [\
+      ["npm:4.14.195", {\
+        "packageLocation": "./.yarn/cache/@types-lodash-npm-4.14.195-a2a8254638-d7c0902684.zip/node_modules/@types/lodash/",\
+        "packageDependencies": [\
+          ["@types/lodash", "npm:4.14.195"]\
         ],\
         "linkType": "HARD"\
       }]\
@@ -11724,10 +11735,10 @@ const RAW_RUNTIME_STATE =
       }]\
     ]],\
     ["immutable", [\
-      ["npm:4.3.7", {\
-        "packageLocation": "./.yarn/cache/immutable-npm-4.3.7-a76ac3621b-37d963c505.zip/node_modules/immutable/",\
+      ["npm:4.3.9", {\
+        "packageLocation": "./.yarn/cache/immutable-npm-4.3.9-04378617c7-bb951f0b69.zip/node_modules/immutable/",\
         "packageDependencies": [\
-          ["immutable", "npm:4.3.7"]\
+          ["immutable", "npm:4.3.9"]\
         ],\
         "linkType": "HARD"\
       }]\
@@ -16601,6 +16612,7 @@ const RAW_RUNTIME_STATE =
           ["@types/glob", "npm:8.1.0"],\
           ["@types/helmet", "npm:4.0.0"],\
           ["@types/jest", "npm:29.5.14"],\
+          ["@types/lodash", "npm:4.14.195"],\
           ["@types/node", "npm:22.16.0"],\
           ["@types/nunjucks", "npm:3.2.6"],\
           ["@types/pa11y", "npm:5.3.7"],\
@@ -16641,6 +16653,7 @@ const RAW_RUNTIME_STATE =
           ["jest-junit", "npm:16.0.0"],\
           ["jquery", "npm:3.7.1"],\
           ["lint-staged", "npm:13.2.2"],\
+          ["lodash", "npm:4.18.1"],\
           ["mini-css-extract-plugin", "virtual:5c86d93bc614dcc07528a847be8e69a11d4241faf459870c8d05a1091ebe7795b3662598c52ebf26e4b4ca32b1afcdc5b785498f8d4aecbf706a70c82f8b004d#npm:2.7.6"],\
           ["nock", "npm:13.3.1"],\
           ["nodemon", "npm:2.0.22"],\
@@ -16800,7 +16813,7 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "./.yarn/cache/sass-npm-1.77.8-d0ad322666-4bf6e3007f.zip/node_modules/sass/",\
         "packageDependencies": [\
           ["chokidar", "npm:3.6.0"],\
-          ["immutable", "npm:4.3.7"],\
+          ["immutable", "npm:4.3.9"],\
           ["sass", "npm:1.77.8"],\
           ["source-map-js", "npm:1.2.1"]\
         ],\
