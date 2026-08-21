@@ -38,7 +38,7 @@ describe("validateNoteText", () => {
 
   it("measures length after trimming, so trailing whitespace cannot push it over", () => {
     // The value that gets stored is the trimmed one, so the limit must apply to that.
-    expect(validateNoteText("x".repeat(MAX_NOTE_LENGTH) + "     ")).toBeNull();
+    expect(validateNoteText(`${"x".repeat(MAX_NOTE_LENGTH)}     `)).toBeNull();
   });
 
   it("applies the same rule to an amendment as to a new note", () => {

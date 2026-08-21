@@ -43,9 +43,10 @@ function readField(field: FieldDef, body: Record<string, unknown>): unknown {
     }
     case "multiselect":
       return toIntArray(body[field.name]);
-    case "enum":
-    case "text":
-    case "textarea":
+    // Everything else is read as a plain string: `enum`, `text` and `textarea`, plus any
+    // kind added later. The prototype listed those three explicitly ahead of `default`;
+    // they are named here instead, because the branch behaves identically for all of them
+    // and an empty value always becomes null rather than "".
     default: {
       const v = str(body[field.name]);
       return v === "" ? null : v;

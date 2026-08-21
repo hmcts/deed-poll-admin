@@ -46,7 +46,7 @@ export interface CaseHeader {
 function label(set: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return NOT_RECORDED;
   const map = (LABELS as Record<string, Record<string, string>>)[set];
-  return (map && map[String(value)]) ?? String(value);
+  return map?.[String(value)] ?? String(value);
 }
 
 /**
