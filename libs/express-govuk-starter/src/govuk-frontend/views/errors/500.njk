@@ -1,0 +1,25 @@
+{% extends "layouts/default.njk" %}
+
+{% set title = "Sorry, there is a problem with the service" %}
+
+{% block page_content %}
+  <h1 class="govuk-heading-l">Sorry, there is a problem with the service</h1>
+  <p class="govuk-body">Try again later.</p>
+  <p class="govuk-body"><a href="/contact-us" class="govuk-link">Contact us</a> if you need to speak to someone about this service.</p>
+  
+  {% if error %}
+    <details class="govuk-details" data-module="govuk-details">
+      <summary class="govuk-details__summary">
+        <span class="govuk-details__summary-text">
+          Error details (development mode only)
+        </span>
+      </summary>
+      <div class="govuk-details__text">
+        <p class="govuk-body"><strong>Error:</strong> {{ error }}</p>
+        {% if stack %}
+          <pre style="background: #f3f2f1; padding: 15px; overflow-x: auto;">{{ stack }}</pre>
+        {% endif %}
+      </div>
+    </details>
+  {% endif %}
+{% endblock %}

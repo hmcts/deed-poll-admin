@@ -1,0 +1,71 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/date-input/macro.njk" import govukDateInput %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/back-link/macro.njk" import govukBackLink %}
+
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if errorSummary %}
+      {{ govukErrorSummary(errorSummary) }}
+    {% endif %}
+
+    <form method="post" novalidate>
+
+      {% set dayError = errors.day %}
+      {% set monthError = errors.month %}
+      {% set yearError = errors.year %}
+      {% set dateError = dayError or monthError or yearError %}
+
+      {{ govukDateInput({
+        id: "date-of-birth",
+        namePrefix: "",
+        fieldset: {
+          legend: {
+            text: heading,
+            isPageHeading: true,
+            classes: "govuk-fieldset__legend--l"
+          }
+        },
+        hint: {
+          text: hint
+        },
+        errorMessage: dateError,
+        items: [
+          {
+            id: "day",
+            name: "day",
+            label: dayLabel,
+            classes: "govuk-input--width-2",
+            value: data.day if data else "",
+            autocomplete: "bday-day"
+          },
+          {
+            id: "month",
+            name: "month",
+            label: monthLabel,
+            classes: "govuk-input--width-2",
+            value: data.month if data else "",
+            autocomplete: "bday-month"
+          },
+          {
+            id: "year",
+            name: "year",
+            label: yearLabel,
+            classes: "govuk-input--width-4",
+            value: data.year if data else "",
+            autocomplete: "bday-year"
+          }
+        ]
+      }) }}
+
+      {{ govukButton({
+        text: continue
+      }) }}
+    </form>
+
+  </div>
+</div>
+{% endblock %}

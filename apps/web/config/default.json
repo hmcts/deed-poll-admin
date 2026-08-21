@@ -1,0 +1,19 @@
+{
+  "port": 3000,
+  "session": {
+    "secret": "session-secret"
+  },
+  "gtm": {
+    "containerId": "GTM-XXXXXX",
+    "enabled": false
+  },
+  "dynatrace": {
+    "url": "https://your-dynatrace-url.com",
+    "enabled": false
+  },
+  "applicationInsights": {
+    "serviceName": "deed-poll-admin-web",
+    "connectionString": "InstrumentationKey=your-instrumentation-key;IngestionEndpoint=https://dc.services.visualstudio.com/",
+    "enabled": false
+  }
+}

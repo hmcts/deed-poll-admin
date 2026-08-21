@@ -1,0 +1,21 @@
+global:
+  jobKind: CronJob
+  enableKeyVaults: true
+  tenantId: "531ff96d-0ae9-462a-8d2d-bec7c0b42082"
+job:
+  releaseNameOverride: "{{ .Release.Name }}-crons"
+  disableActiveClusterCheck: true
+  image: hmctsprod.azurecr.io/deed-poll/deed-poll-admin-crons:latest
+  aadIdentityName: deed-poll
+  environment:
+    SCRIPT_NAME: 'example'
+  keyVaults:
+    deed-poll:
+      secrets:
+        - name: ExpressJsAppInsightsConnectionString
+          alias: APPLICATION_INSIGHTS_CONNECTION_STRING
+        - name: postgres-url
+          alias: DATABASE_URL
+  schedule: "0 0/10 * * *" # this is just a placeholder, configure in your flux
+  concurrencyPolicy: Forbid
+

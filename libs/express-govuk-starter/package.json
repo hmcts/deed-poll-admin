@@ -1,0 +1,44 @@
+{
+  "name": "@hmcts-cft/express-govuk-starter",
+  "version": "0.1.6",
+  "private": true,
+  "description": "GOV.UK Frontend integration for Express 5 — Nunjucks, Helmet CSP, i18n, cookie consent, and error handlers with sensible defaults.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hmcts/deed-poll-admin.git",
+    "directory": "libs/express-govuk-starter"
+  },
+  "homepage": "https://github.com/hmcts/deed-poll-admin/tree/master/libs/express-govuk-starter#readme",
+  "bugs": "https://github.com/hmcts/deed-poll-admin/issues",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc && cp -r src/govuk-frontend/views dist/govuk-frontend/ && cp -r src/cookies/views dist/cookies/",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
+  },
+  "peerDependencies": {
+    "@hmcts/cookie-manager": "^1.1.0",
+    "express": "^5.1.0",
+    "govuk-frontend": "^6.0.0",
+    "helmet": "^8.0.0",
+    "nunjucks": "^3.2.4"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/nunjucks": "3.2.6"
+  }
+}

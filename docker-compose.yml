@@ -1,14 +1,21 @@
-version: '2'
-
 services:
-  # TODO: change this name to match the name of your app
-  expressjs-template:
-    build:
-      context: .
-      args:
-        - http_proxy
-        - https_proxy
-        - no_proxy
+  postgres:
+    image: postgres:18-alpine
+    container_name: deed-poll-postgres
+    environment:
+      POSTGRES_USER: hmcts
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_DB: postgres
     ports:
-      # TODO: change this mapping to map the port your application listens on
-      - '3100:3100'
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hmcts -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data:

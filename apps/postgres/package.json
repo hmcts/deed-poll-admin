@@ -1,0 +1,27 @@
+{
+  "name": "@hmcts/postgres",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "yarn workspace @hmcts/postgres-prisma run generate",
+    "start": "npx prisma migrate deploy && npx prisma studio --hostname 0.0.0.0 --browser none",
+    "migrate": "yarn build && npx prisma migrate deploy",
+    "migrate:dev": "yarn build && npx prisma migrate dev",
+    "migrate:reset": "yarn build && npx prisma migrate reset",
+    "studio": "yarn build && npx prisma studio",
+    "test": "echo 'No tests for migration runner'",
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
+  },
+  "dependencies": {
+    "@hmcts/postgres-prisma": "workspace:*",
+    "http-proxy": "1.18.1"
+  },
+  "devDependencies": {
+    "@prisma/client": "7.8.0",
+    "@types/node": "*",
+    "prisma": "7.8.0"
+  }
+}

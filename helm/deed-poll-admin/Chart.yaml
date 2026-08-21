@@ -1,0 +1,29 @@
+apiVersion: v2
+name: deed-poll-admin
+description: Umbrella chart for deploying all services
+type: application
+version: 0.0.1
+annotations:
+  team: deed-poll
+home: https://github.com/hmcts/deed-poll-admin
+dependencies:
+  - name: deed-poll-admin-postgres
+    version: 0.0.1
+    repository: "file://../../apps/postgres/helm"
+    condition: postgres.enabled
+  - name: deed-poll-admin-web
+    version: 0.0.1
+    repository: "file://../../apps/web/helm"
+    condition: web.enabled
+  - name: deed-poll-admin-api
+    version: 0.0.1
+    repository: "file://../../apps/api/helm"
+    condition: api.enabled
+  - name: deed-poll-admin-crons
+    version: 0.0.1
+    repository: "file://../../apps/crons/helm"
+    condition: crons.enabled
+  - name: postgresql
+    version: 1.1.1
+    repository: oci://hmctsprod.azurecr.io/helm
+    condition: postgresql.enabled

@@ -1,0 +1,106 @@
+name: PR Comment Job
+
+on:
+  workflow_call:
+    inputs:
+      change-id:
+        required: true
+        type: string
+        description: "PR number or change identifier"
+      urls:
+        required: true
+        type: string
+        description: "Base64-encoded JSON of deployment URLs"
+
+env:
+  CHANGE_ID: ${{ inputs.change-id }}
+
+jobs:
+  pr-comment:
+    name: Add PR Comment
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set environment variables
+        run: |
+          # Read metadata from root Helm chart
+          CHART_PATH="helm/deed-poll-admin/Chart.yaml"
+
+          TEAM_NAME=$(grep -A 1 'annotations:' "$CHART_PATH" | grep 'team:' | awk '{print $2}' | tr -d '"')
+          APPLICATION_NAME=$(grep '^name:' "$CHART_PATH" | awk '{print $2}' | tr -d '"')
+
+          echo "TEAM_NAME=${TEAM_NAME}" >> $GITHUB_ENV
+          echo "APPLICATION_NAME=${APPLICATION_NAME}" >> $GITHUB_ENV
+
+      - name: Add PR labels for cleanup
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const teamName = '${{ env.TEAM_NAME }}';
+            const applicationName = '${{ env.APPLICATION_NAME }}';
+            const labels = [
+              `ns:${teamName}`,
+              `prd:${teamName}`,
+              `rel:${applicationName}-pr-${{ env.CHANGE_ID }}`
+            ];
+
+            for (const label of labels) {
+              try {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  labels: [label]
+                });
+              } catch (error) {
+                console.log(`Failed to add label ${label}: ${error.message}`);
+              }
+            }
+
+      - name: Comment preview URLs
+        uses: actions/github-script@v9
+        with:
+          script: |
+            // Decode base64-encoded URLs
+            const urlsB64 = '${{ inputs.urls }}';
+            let urls = {};
+            try {
+              const urlsJson = Buffer.from(urlsB64, 'base64').toString('utf-8');
+              urls = JSON.parse(urlsJson);
+              console.log('Parsed deployment URLs:', urls);
+            } catch (error) {
+              console.error('Failed to decode or parse deployment URLs:', error.message);
+              console.log('Using empty URL map; deployment URLs will show as not found');
+            }
+
+            // Build URL list dynamically from ingress resources
+            const urlList = Object.entries(urls)
+              .map(([app, url]) => {
+                const appName = app.split('_').map(word =>
+                  word.charAt(0).toUpperCase() + word.slice(1)
+                ).join(' ');
+                return `- **${appName}**: ${url}`;
+              })
+              .join('\n');
+
+            const body = [
+              '## Preview Deployment Successful 🚀',
+              '',
+              'Your preview environment is ready:',
+              '',
+              urlList || '_(No ingress URLs found)_',
+              '',
+              'The environment will be automatically cleaned up when this PR is closed.'
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });

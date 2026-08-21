@@ -1,0 +1,121 @@
+{% extends "layouts/default.njk" %}
+
+{% macro cookiesList(cookies) %}
+<details class="govuk-details govuk-!-margin-top-2" data-module="govuk-details">
+  <summary class="govuk-details__summary">
+    <span class="govuk-details__summary-text">
+      {{ cookiesUsed }}
+    </span>
+  </summary>
+  <div class="govuk-details__text">
+    <ul class="govuk-list govuk-list--bullet">
+      {% for cookie in cookies %}
+      <li>{{ cookie }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</details>
+{% endmacro %}
+
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+    {% if saved %}
+    <div class="govuk-notification-banner govuk-notification-banner--success" role="alert" aria-labelledby="govuk-notification-banner-title" data-module="govuk-notification-banner">
+      <div class="govuk-notification-banner__header">
+        <h2 class="govuk-notification-banner__title" id="govuk-notification-banner-title">
+          {{ successBanner }}
+        </h2>
+      </div>
+      <div class="govuk-notification-banner__content">
+        <p class="govuk-notification-banner__heading">
+          {{ successMessage }}
+        </p>
+      </div>
+    </div>
+    {% endif %}
+
+    <h1 class="govuk-heading-l">{{ title }}</h1>
+    
+    <p class="govuk-body">{{ intro }}</p>
+
+    <form action="/cookies/save-preferences" method="POST" class="cookie-preferences-form">
+      <input type="hidden" name="_csrf" value="{{ csrfToken }}">
+      
+      <h2 class="govuk-heading-m">{{ essentialTitle }}</h2>
+      <p class="govuk-body">{{ essentialDescription }}</p>
+      {% if categories.analytics %}
+      {{ cookiesList(categories.essential) }}
+      {% endif %}
+
+      {% if categories.analytics %}
+      <div class="govuk-form-group">
+        <fieldset class="govuk-fieldset">
+          <legend class="govuk-fieldset__legend govuk-fieldset__legend--m">
+            <h2 class="govuk-fieldset__heading">
+              {{ analyticsTitle }}
+            </h2>
+          </legend>
+          <div class="govuk-hint">
+            {{ analyticsDescription }}
+            {% if categories.analytics %}
+            {{ cookiesList(categories.analytics) }}
+            {% endif %}
+          </div>
+          <div class="govuk-radios" data-module="govuk-radios">
+            <div class="govuk-radios__item">
+              <input class="govuk-radios__input" id="analytics-yes" name="analytics" type="radio" value="on" {% if cookiePreferences.analytics %}checked{% endif %}>
+              <label class="govuk-label govuk-radios__label" for="analytics-yes">
+                {{ useAnalytics }}
+              </label>
+            </div>
+            <div class="govuk-radios__item">
+              <input class="govuk-radios__input" id="analytics-no" name="analytics" type="radio" value="off" {% if not cookiePreferences.analytics %}checked{% endif %}>
+              <label class="govuk-label govuk-radios__label" for="analytics-no">
+                {{ doNotUseAnalytics }}
+              </label>
+            </div>
+          </div>
+        </fieldset>
+      </div>
+      {% endif %}
+      
+      {% if categories.preferences %}
+      <div class="govuk-form-group">
+        <fieldset class="govuk-fieldset">
+          <legend class="govuk-fieldset__legend govuk-fieldset__legend--m">
+            <h2 class="govuk-fieldset__heading">
+              {{ preferencesTitle }}
+            </h2>
+          </legend>
+          <div class="govuk-hint">
+            {{ preferencesDescription }}
+            {% if categories.preferences %}
+            {{ cookiesList(categories.preferences) }}
+            {% endif %}
+          </div>
+          <div class="govuk-radios" data-module="govuk-radios">
+            <div class="govuk-radios__item">
+              <input class="govuk-radios__input" id="preferences-yes" name="preferences" type="radio" value="on" {% if cookiePreferences.preferences %}checked{% endif %}>
+              <label class="govuk-label govuk-radios__label" for="preferences-yes">
+                {{ usePreferences }}
+              </label>
+            </div>
+            <div class="govuk-radios__item">
+              <input class="govuk-radios__input" id="preferences-no" name="preferences" type="radio" value="off" {% if not cookiePreferences.preferences %}checked{% endif %}>
+              <label class="govuk-label govuk-radios__label" for="preferences-no">
+                {{ doNotUsePreferences }}
+              </label>
+            </div>
+          </div>
+        </fieldset>
+      </div>
+      {% endif %}
+      
+      <button type="submit" class="govuk-button" data-module="govuk-button">
+        {{ saveButton }}
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

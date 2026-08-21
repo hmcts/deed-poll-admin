@@ -1,0 +1,34 @@
+# Terraform Format Check Job
+#
+# Checks that all Terraform files are properly formatted.
+# This is a thin wrapper around the cnp-githubactions-library terraform-fmt action.
+#
+# Usage:
+#   terraform-fmt:
+#     needs: [detect-infra-changes]
+#     if: needs.detect-infra-changes.outputs.has-changes == 'true'
+#     uses: ./.github/workflows/job.terraform-fmt.yml
+
+name: Terraform Format Check
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        required: false
+        type: string
+        default: "infrastructure"
+
+jobs:
+  terraform-fmt:
+    name: Terraform Format
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Terraform Format Check
+        uses: hmcts/cnp-githubactions-library/terraform-fmt@main
+        with:
+          working-directory: ${{ inputs.working-directory }}

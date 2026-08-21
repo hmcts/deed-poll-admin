@@ -1,0 +1,58 @@
+{
+  "name": "Development Container",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "runArgs": ["--privileged"],
+  "remoteUser": "vscode",
+
+  "initializeCommand": "touch ~/.bash_history ~/.zsh_history && mkdir -p ~/.claude ~/.azure ~/.kube",
+  "mounts": [
+    "source=${localEnv:HOME}/.bash_history,target=/home/vscode/.bash_history,type=bind",
+    "source=${localEnv:HOME}/.zsh_history,target=/home/vscode/.zsh_history,type=bind",
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
+    "source=${localEnv:HOME}/.azure,target=/home/vscode/.azure,type=bind",
+    "source=${localEnv:HOME}/.kube,target=/home/vscode/.kube,type=bind"
+  ],
+
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:3": {},
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "installOhMyZsh": true,
+      "upgradePackages": true
+    },
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/azure-cli:1": {},
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {},
+    "ghcr.io/devcontainers/features/node:2": {
+      "version": "lts",
+      "nvmInstallPath": "/usr/local/share/nvm"
+    }
+  },
+
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postStartCommand": "sudo sysctl -w fs.inotify.max_user_instances=512 fs.inotify.max_user_watches=524288 >/dev/null 2>&1 || true",
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "files.autoSave": "onFocusChange",
+        "files.watcherExclude": {
+          "**/node_modules/**": true,
+          "**/dist/**": true,
+          "**/build/**": true,
+          "**/.yarn/**": true,
+          "**/.turbo/**": true,
+          "**/coverage/**": true,
+          "**/.git/objects/**": true,
+          "**/.git/subtree-cache/**": true
+        }
+      },
+      "extensions": [
+        "ms-azuretools.vscode-docker",
+        "ms-playwright.playwright",
+        "CodeRabbit.coderabbit-vscode"
+      ]
+    }
+  }
+}

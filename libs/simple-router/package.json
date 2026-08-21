@@ -1,0 +1,39 @@
+{
+  "name": "@hmcts-cft/simple-router",
+  "version": "2.2.0",
+  "private": true,
+  "description": "Lightweight file-system router for Express, inspired by Next.js routing.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hmcts/deed-poll-admin.git",
+    "directory": "libs/simple-router"
+  },
+  "homepage": "https://github.com/hmcts/deed-poll-admin/tree/master/libs/simple-router#readme",
+  "bugs": "https://github.com/hmcts/deed-poll-admin/issues",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
+  },
+  "peerDependencies": {
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6"
+  }
+}

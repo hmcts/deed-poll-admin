@@ -1,0 +1,22 @@
+name: Cleanup Stage
+
+on:
+  workflow_call:
+    inputs:
+      release-name:
+        required: true
+        type: string
+        description: "Helm release name to delete"
+      namespace:
+        required: true
+        type: string
+        description: "Kubernetes namespace"
+
+jobs:
+  helm-cleanup:
+    name: Cleanup
+    uses: ./.github/workflows/job.helm-cleanup.yml
+    with:
+      release-name: ${{ inputs.release-name }}
+      namespace: ${{ inputs.namespace }}
+    secrets: inherit

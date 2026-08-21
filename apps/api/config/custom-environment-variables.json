@@ -1,0 +1,6 @@
+{
+  "port": "PORT",
+  "applicationInsights": {
+    "connectionString": "APPLICATION_INSIGHTS_CONNECTION_STRING"
+  }
+}

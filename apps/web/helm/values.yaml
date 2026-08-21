@@ -1,0 +1,15 @@
+nodejs:
+  releaseNameOverride: "{{ .Release.Name }}-web"
+  applicationPort: 3000
+  aadIdentityName: deed-poll
+  ingressHost: deed-poll-admin-web.{{ .Values.global.environment }}.platform.hmcts.net
+  image: 'hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:latest'
+  environment:
+    POSTGRES_DATABASE: deed-poll-admin
+  keyVaults:
+    deed-poll:
+      secrets:
+        - name: ExpressJsAppInsightsConnectionString
+          alias: APPLICATION_INSIGHTS_CONNECTION_STRING
+        - name: postgres-url
+          alias: DATABASE_URL

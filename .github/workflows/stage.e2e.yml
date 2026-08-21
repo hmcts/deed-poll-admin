@@ -1,0 +1,23 @@
+name: E2E Stage
+
+on:
+  workflow_call:
+    inputs:
+      urls:
+        required: true
+        type: string
+        description: "Base64-encoded JSON of deployment URLs"
+      runner-group:
+        required: false
+        type: string
+        description: "GitHub Actions runner group"
+        default: "azure-nonprod"
+
+jobs:
+  e2e-test:
+    name: E2E Tests
+    uses: ./.github/workflows/job.e2e-test.yml
+    with:
+      urls: ${{ inputs.urls }}
+      runner-group: ${{ inputs.runner-group }}
+    secrets: inherit

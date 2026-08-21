@@ -1,0 +1,48 @@
+{
+  "name": "@hmcts-cft/express-session-postgres",
+  "version": "0.1.3",
+  "private": true,
+  "description": "Express session store backed by PostgreSQL with auto table creation and background expiry cleanup.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hmcts/deed-poll-admin.git",
+    "directory": "libs/express-session-postgres"
+  },
+  "homepage": "https://github.com/hmcts/deed-poll-admin/tree/master/libs/express-session-postgres#readme",
+  "bugs": "https://github.com/hmcts/deed-poll-admin/issues",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
+  },
+  "dependencies": {
+    "pg": "8.21.0",
+    "pg-format": "1.0.4"
+  },
+  "peerDependencies": {
+    "express": "^5.1.0",
+    "express-session": "^1.18.2"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/express-session": "1.19.0",
+    "@types/pg": "8.20.0",
+    "@types/pg-format": "1.0.5",
+    "express-session": "1.19.0"
+  }
+}

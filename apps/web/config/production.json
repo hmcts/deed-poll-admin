@@ -1,0 +1,11 @@
+{
+  "gtm": {
+    "enabled": true
+  },
+  "dynatrace": {
+    "enabled": true
+  },
+  "applicationInsights": {
+    "enabled": true
+  }
+}

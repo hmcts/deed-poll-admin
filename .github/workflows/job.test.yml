@@ -1,0 +1,80 @@
+name: Test Job
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    name: Test Changed Packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'yarn'
+          cache-dependency-path: '**/yarn.lock'
+
+      - name: Cache Yarn dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            .yarn/cache
+            .yarn/install-state.gz
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Generate Prisma client
+        run: yarn db:generate
+
+      - name: Run unit tests for changed packages
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            npx turbo test --filter="...[origin/${{ github.base_ref }}]" -- --coverage
+          else
+            # Run full test suite on master pushes to ensure coverage data
+            npx turbo test -- --coverage
+          fi
+
+      - name: Merge coverage reports
+        run: npx lcov-result-merger **/coverage/lcov.info lcov.info --prepend-source-files
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage-reports-${{ github.run_id }}
+          path: 'lcov.info'
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: coverage-reports-${{ github.run_id }}
+
+      - name: Setup SonarCloud Project
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          .github/scripts/setup-sonarcloud-project.sh
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

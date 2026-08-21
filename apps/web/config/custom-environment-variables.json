@@ -1,0 +1,10 @@
+{
+  "port": "PORT",
+  "session": {
+    "secret": "SESSION_SECRET"
+  },
+  "applicationInsights": {
+    "serviceName": "SERVICE_NAME",
+    "connectionString": "APPLICATION_INSIGHTS_CONNECTION_STRING"
+  }
+}

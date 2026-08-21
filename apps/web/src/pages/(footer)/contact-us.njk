@@ -1,0 +1,28 @@
+{% extends "layouts/default.njk" %}
+
+{% block page_content %}
+  <h1 class="govuk-heading-xl">{{ title }}</h1>
+
+  <ul class="govuk-list">
+    <li>
+      <h2 class="govuk-heading-m">{{ sections.sendMessage.heading }}</h2>
+      <p class="govuk-body">
+        <a href="{{ serviceConfig.contactFormUrl }}" class="govuk-link">{{ sections.sendMessage.linkText }}</a>
+      </p>
+    </li>
+
+    <li>
+      <h2 class="govuk-heading-m">{{ sections.telephone.heading }}</h2>
+      <p class="govuk-body">{{ serviceConfig.contactPhone }}</p>
+      <p class="govuk-body">
+        <a href="{{ common.callChargesLink }}" class="govuk-link">{{ common.findOutAboutCallCharges }}</a>
+      </p>
+    </li>
+
+    <li>
+      <h2 class="govuk-heading-m">{{ sections.openingHours.heading }}</h2>
+      <p class="govuk-body">{{ serviceConfig.openingHours }}</p>
+      <p class="govuk-body">{{ sections.openingHours.closed }}</p>
+    </li>
+  </ul>
+{% endblock %}
