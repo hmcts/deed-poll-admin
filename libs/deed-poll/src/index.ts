@@ -1,0 +1,24 @@
+// Deed-poll domain logic, ported from the power_app_nest prototype.
+//
+// Framework-agnostic by design: no Express, no HTTP concerns, no Nest DI. The apps
+// (apps/web pages, apps/api routes) import named functions from here.
+//
+// The prototype expressed these as Nest @Injectable() classes. They held no state, so
+// per this repo's conventions they are plain exported functions here.
+
+export * from "./auth/current-user.js";
+export * from "./auth/roles.js";
+export * from "./deed-poll/card-layout.js";
+export * from "./deed-poll/case-header.js";
+export * from "./deed-poll/case-state.js";
+export * from "./deed-poll/computed.js";
+export * from "./deed-poll/deed-poll-validation.js";
+export * from "./deed-poll/enums/dynamics-values.js";
+export * from "./deed-poll/form-fields.js";
+export * from "./deed-poll/form-payload.js";
+export * from "./deed-poll/form-presentation.js";
+export * from "./deed-poll/form-validation.js";
+export * from "./deed-poll/reference-number.js";
+export * from "./errors.js";
+export * from "./notes/note-form.js";
+export * from "./notes/notes-view.js";

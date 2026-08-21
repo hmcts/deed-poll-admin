@@ -904,6 +904,16 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@hmcts/deed-poll@workspace:libs/deed-poll":
+  version: 0.0.0-use.local
+  resolution: "@hmcts/deed-poll@workspace:libs/deed-poll"
+  dependencies:
+    "@hmcts/postgres-prisma": "workspace:*"
+    typescript: "npm:6.0.3"
+    vitest: "npm:*"
+  languageName: unknown
+  linkType: soft
+
 "@hmcts/onboarding@workspace:*, @hmcts/onboarding@workspace:libs/onboarding":
   version: 0.0.0-use.local
   resolution: "@hmcts/onboarding@workspace:libs/onboarding"
