@@ -31,7 +31,8 @@
     "db:migrate:dev": "yarn workspace @hmcts/postgres run migrate:dev",
     "db:generate": "yarn workspace @hmcts/postgres-prisma run generate",
     "db:studio": "yarn workspace @hmcts/postgres run studio",
-    "db:drop": "yarn workspace @hmcts/postgres run migrate:reset"
+    "db:drop": "yarn workspace @hmcts/postgres run migrate:reset",
+    "db:migrate:ccd": "yarn workspace @hmcts/postgres run migrate:ccd"
   },
   "keywords": [],
   "author": "HMCTS",

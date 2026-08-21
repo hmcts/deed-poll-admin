@@ -33,6 +33,9 @@ lcov.info
 # Yarn
 .yarn/
 
+# macOS
+.DS_Store
+
 # intellij
 .idea/
 

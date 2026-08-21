@@ -150,18 +150,15 @@ model DeedPoll {
   minorDateOfBirth DateTime?
   parents          String?
 
-  // --- Public-journey fields (added for deed_poll_public_web) -----------------------------
+  // --- Public-journey fields -----------------------------------------------------------
   //
-  // All NULLABLE, so this addition is backward-compatible: the caseworker app needs no change
-  // and existing rows are unaffected.
+  // All NULLABLE, so the caseworker app needs no change and existing rows are unaffected.
   //
-  // MIGRATION NOTE: these were authored when power_app_nest owned migrations and
-  // deed_poll_public_web ran `prisma generate` only (deed_poll_public_web/DECISIONS.md D1).
-  // Migration ownership has since moved here, to libs/postgres-prisma — so that contract needs
-  // restating for whatever now consumes this schema. Do not assume the D1 split still holds.
+  // These exist because the schema is otherwise a faithful port of the Dynamics entity, and the
+  // source entity cannot store what a redesigned public-facing application journey needs to
+  // capture. Each field below documents the specific gap it closes.
   //
-  // Why they are needed: the schema is a faithful port of the Dynamics entity and cannot store
-  // what the public journey's redesign requires. See DECISIONS.md D2.
+  // Migrations for this schema are owned here, in libs/postgres-prisma.
 
   /// Country of birth, from a managed register. Required to DERIVE the British Nationality Act
   /// section rather than asking an applicant to self-classify (redesign NAT-7 / MIN-7). Not
