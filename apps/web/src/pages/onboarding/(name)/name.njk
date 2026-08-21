@@ -1,0 +1,55 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/input/macro.njk" import govukInput %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/back-link/macro.njk" import govukBackLink %}
+
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if errorSummary %}
+      {{ govukErrorSummary(errorSummary) }}
+    {% endif %}
+
+    <form method="post" novalidate>
+      <div class="govuk-form-group">
+        <fieldset class="govuk-fieldset">
+          <legend class="govuk-fieldset__legend govuk-fieldset__legend--l">
+            <h1 class="govuk-fieldset__heading">{{ heading }}</h1>
+          </legend>
+
+          {{ govukInput({
+            id: "firstName",
+            name: "firstName",
+            type: "text",
+            autocomplete: "given-name",
+            label: {
+              text: firstNameLabel
+            },
+            errorMessage: errors.firstName,
+            value: data.firstName if data else ""
+          }) }}
+
+          {{ govukInput({
+            id: "lastName",
+            name: "lastName",
+            type: "text",
+            autocomplete: "family-name",
+            label: {
+              text: lastNameLabel
+            },
+            errorMessage: errors.lastName,
+            value: data.lastName if data else ""
+          }) }}
+        </fieldset>
+      </div>
+
+      {{ govukButton({
+        text: continue
+      }) }}
+    </form>
+
+  </div>
+</div>
+{% endblock %}

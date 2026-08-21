@@ -1,0 +1,47 @@
+{
+  "name": "@hmcts-cft/cloud-native-platform",
+  "version": "2.3.0",
+  "private": true,
+  "description": "HMCTS cloud-native-platform helpers for Express: health checks, Application Insights monitoring middleware, exception tracking, and properties-volume / Azure Key Vault secret loading.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hmcts/deed-poll-admin.git",
+    "directory": "libs/cloud-native-platform"
+  },
+  "homepage": "https://github.com/hmcts/deed-poll-admin/tree/master/libs/cloud-native-platform#readme",
+  "bugs": "https://github.com/hmcts/deed-poll-admin/issues",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
+  },
+  "peerDependencies": {
+    "config": "^3.3.12 || ^4.0.0",
+    "express": "^5.1.0"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.2.1",
+    "@azure/keyvault-secrets": "^4.7.0",
+    "applicationinsights": "3.15.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/js-yaml": "^4.0.9"
+  }
+}

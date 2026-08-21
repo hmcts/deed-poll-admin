@@ -1,0 +1,47 @@
+{
+  "name": "@hmcts/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "dev:nowatch": "yarn build:dev && VITE_MIDDLEWARE=false tsx src/server.ts",
+    "build:dev": "vite build --config vite.build.ts --configLoader runner",
+    "build": "tsc && vite build --config vite.build.ts --configLoader runner",
+    "clean": "rm -rf dist",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
+  },
+  "dependencies": {
+    "@hmcts-cft/cloud-native-platform": "workspace:*",
+    "@hmcts-cft/express-govuk-starter": "workspace:*",
+    "@hmcts-cft/express-session-postgres": "workspace:*",
+    "@hmcts-cft/simple-router": "workspace:*",
+    "@hmcts/cookie-manager": "1.1.0",
+    "@hmcts/onboarding": "workspace:*",
+    "@hmcts/postgres-prisma": "workspace:*",
+    "config": "4.4.2",
+    "cookie-parser": "1.4.7",
+    "express": "5.2.1",
+    "express-session": "1.19.0",
+    "glob": "13.0.6",
+    "govuk-frontend": "6.2.0",
+    "helmet": "8.2.0",
+    "nunjucks": "3.2.4"
+  },
+  "devDependencies": {
+    "@types/config": "4.4.0",
+    "@types/cookie-parser": "1.4.10",
+    "@types/express": "5.0.6",
+    "@types/express-session": "1.19.0",
+    "@types/govuk-frontend": "5.11.0",
+    "@types/nunjucks": "3.2.6",
+    "sass": "1.102.0",
+    "vite": "8.0.16",
+    "vite-plugin-static-copy": "4.1.1"
+  }
+}

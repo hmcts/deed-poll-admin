@@ -1,11 +1,64 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>hmcts/.github//renovate/automerge-all", "local>hmcts/.github:renovate-config"],
+  "extends": ["config:recommended"],
+  "automerge": true,
+  "node": {
+    "enabled": true
+  },
+  "regexManagers": [
+    {
+      "description": "Update Node.js version in .nvmrc",
+      "fileMatch": ["^\\.nvmrc$"],
+      "matchStrings": ["(?<currentValue>.*?)\\n"],
+      "depNameTemplate": "node",
+      "datasourceTemplate": "node-version",
+      "versioningTemplate": "node"
+    },
+    {
+      "description": "Update Node.js version in Dockerfiles",
+      "fileMatch": ["(^|/)Dockerfile[^/]*$"],
+      "matchStrings": [
+        "FROM node:(?<currentValue>[0-9]+(?:\\.[0-9]+)?(?:\\.[0-9]+)?)-(?<currentVariant>alpine|slim|bullseye|bookworm)(?:\\s|$)"
+      ],
+      "depNameTemplate": "node",
+      "datasourceTemplate": "docker",
+      "packageNameTemplate": "node",
+      "versioningTemplate": "node"
+    },
+    {
+      "description": "Update Node.js version in GitHub Actions",
+      "fileMatch": ["^\\.github/workflows/.*\\.ya?ml$"],
+      "matchStrings": [
+        "node-version:\\s*['\"]?(?<currentValue>[0-9]+(?:\\.[0-9]+)?(?:\\.[0-9]+)?)['\"]?"
+      ],
+      "depNameTemplate": "node",
+      "datasourceTemplate": "node-version",
+      "versioningTemplate": "node"
+    }
+  ],
   "packageRules": [
     {
-      "matchPackageNames": ["copy-webpack-plugin"],
-      "allowedVersions": "<=10",
-      "description": "https://canary.discord.com/channels/226791405589233664/1019534554073157642 and https://github.com/webpack-contrib/copy-webpack-plugin/issues/643 doesn't work even though issue closed"
+      "description": "Group all Node.js version updates",
+      "groupName": "Node.js version",
+      "matchPackageNames": ["node"],
+      "matchManagers": ["regex", "nvm"],
+      "matchDatasources": ["node-version", "docker"],
+      "enabled": true
+    },
+    {
+      "description": "Auto-merge Node.js minor and patch updates",
+      "matchPackageNames": ["node"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+    {
+      "description": "Require approval for Node.js major updates",
+      "matchPackageNames": ["node"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false
     }
-  ]
+  ],
+  "constraints": {
+    "node": ">=22"
+  }
 }

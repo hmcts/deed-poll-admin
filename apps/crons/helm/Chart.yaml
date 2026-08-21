@@ -1,0 +1,12 @@
+apiVersion: v2
+appVersion: '1.0'
+description: A Helm chart for deed-poll-admin crons
+name: deed-poll-admin-crons
+annotations:
+  team: deed-poll
+home: https://github.com/hmcts/deed-poll-admin
+version: 0.0.1
+dependencies:
+  - name: job
+    version: 2.2.1
+    repository: 'oci://hmctsprod.azurecr.io/helm'

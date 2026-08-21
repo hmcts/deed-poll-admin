@@ -1,18 +1,68 @@
-# exclude all by default
+# Git
+.git/
+.gitignore
+.gitattributes
 
-*
+# Development files
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# exceptions from `exclude all` rule
+# Dependencies
+node_modules/
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
 
-!package.json
-!yarn.lock
-!version
-!.yarn/**
-!.yarnrc.yml
-!.pnp.cjs
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+coverage/
+.nyc_output/
+lcov.info
 
-!tsconfig.json
-!webpack/**
-!src/main/**
-!config/**
-!webpack.config.js
+# Testing
+test-results/
+playwright-report/
+e2e-tests/
+*.test.ts
+*.spec.ts
+.playwright-mcp/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+*.md
+!README.md
+docs/
+DEMO.md
+CLAUDE.md
+
+# CI/CD
+.github/
+.turbo/
+.dockerignore
+Dockerfile*
+
+# MCP
+.mcp.env
+.claude/
+
+# Temporary files
+tmp/
+temp/

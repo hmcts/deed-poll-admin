@@ -1,0 +1,8 @@
+# OSV Scanner Configuration
+# https://google.github.io/osv-scanner/configuration/
+
+[[IgnoredVulns]]
+id = "GHSA-g9mf-h72j-4rw9"
+reason = "This vulnerability doesn't affect our usage because we don't use the affected feature"
+ignoreUntil = "2026-12-31T00:00:00Z"
+

@@ -1,0 +1,53 @@
+name: Deploy Stage
+
+on:
+  workflow_call:
+    inputs:
+      change-id:
+        required: true
+        type: string
+        description: "PR number or change identifier"
+      timestamp:
+        required: true
+        type: string
+        description: "Build timestamp for image tagging"
+      short-sha:
+        required: true
+        type: string
+        description: "Short git SHA for image tagging"
+      affected-apps:
+        required: true
+        type: string
+        description: "JSON array of affected apps"
+      helm-apps:
+        required: true
+        type: string
+        description: "JSON array of all Helm apps"
+      environment:
+        required: false
+        type: string
+        description: "Deployment environment (preview or aat)"
+        default: "preview"
+    outputs:
+      urls:
+        description: "Base64-encoded JSON of deployment URLs"
+        value: ${{ jobs.helm-deploy.outputs.urls }}
+      release-name:
+        description: "Helm release name"
+        value: ${{ jobs.helm-deploy.outputs.release-name }}
+      namespace:
+        description: "Kubernetes namespace"
+        value: ${{ jobs.helm-deploy.outputs.namespace }}
+
+jobs:
+  helm-deploy:
+    name: Deploy
+    uses: ./.github/workflows/job.helm-deploy.yml
+    with:
+      change-id: ${{ inputs.change-id }}
+      timestamp: ${{ inputs.timestamp }}
+      short-sha: ${{ inputs.short-sha }}
+      affected-apps: ${{ inputs.affected-apps }}
+      helm-apps: ${{ inputs.helm-apps }}
+      environment: ${{ inputs.environment }}
+    secrets: inherit

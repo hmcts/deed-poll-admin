@@ -1,0 +1,117 @@
+name: Main
+
+on:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: main
+  cancel-in-progress: false
+
+jobs:
+  detect-code-changes:
+    name: Detect Code Changes
+    uses: ./.github/workflows/job.detect-changes.yml
+    with:
+      paths: "^(yarn\\.lock|apps/|libs/|helm/|\\.github/workflows/)"
+      cache-key: code
+
+  detect-infra-changes:
+    name: Detect Infrastructure Changes
+    uses: ./.github/workflows/job.detect-changes.yml
+    with:
+      paths: "^(infrastructure/|\\.github/workflows/)"
+      cache-key: infra
+
+  build-stage:
+    name: Build
+    needs: [detect-code-changes]
+    if: needs.detect-code-changes.outputs.has-changes == 'true'
+    uses: ./.github/workflows/stage.build.yml
+    with:
+      change-id: staging
+    secrets: inherit
+
+  infrastructure-stage:
+    name: Infrastructure
+    needs: [detect-infra-changes]
+    if: needs.detect-infra-changes.outputs.has-changes == 'true'
+    uses: ./.github/workflows/stage.infrastructure.yml
+    with:
+      plan-only: false
+    secrets: inherit
+
+  deploy-stage:
+    name: Deploy to AAT
+    needs: [build-stage, infrastructure-stage]
+    if: |
+      always() &&
+      needs.build-stage.result == 'success' &&
+      (needs.infrastructure-stage.result == 'success' || needs.infrastructure-stage.result == 'skipped')
+    uses: ./.github/workflows/stage.deploy.yml
+    with:
+      change-id: staging
+      timestamp: ${{ needs.build-stage.outputs.timestamp }}
+      short-sha: ${{ needs.build-stage.outputs.short-sha }}
+      affected-apps: ${{ needs.build-stage.outputs.affected-apps }}
+      helm-apps: ${{ needs.build-stage.outputs.helm-apps }}
+      environment: aat
+    secrets: inherit
+
+  smoke-test-stage:
+    name: Smoke Test
+    needs: [deploy-stage]
+    if: always() && needs.deploy-stage.result == 'success'
+    uses: ./.github/workflows/stage.smoke-test.yml
+    with:
+      change-id: staging
+      urls: ${{ needs.deploy-stage.outputs.urls }}
+      runner-group: azure-prod
+
+  e2e-stage:
+    name: E2E
+    needs: [smoke-test-stage, deploy-stage]
+    if: always() && needs.deploy-stage.result == 'success' && needs.smoke-test-stage.result == 'success'
+    uses: ./.github/workflows/stage.e2e.yml
+    with:
+      urls: ${{ needs.deploy-stage.outputs.urls }}
+      runner-group: azure-prod
+    secrets: inherit
+
+  cleanup-stage:
+    name: Cleanup
+    needs: [e2e-stage, deploy-stage]
+    if: always() && needs.e2e-stage.result == 'success'
+    uses: ./.github/workflows/stage.cleanup.yml
+    with:
+      release-name: ${{ needs.deploy-stage.outputs.release-name }}
+      namespace: ${{ needs.deploy-stage.outputs.namespace }}
+    secrets: inherit
+
+  promote-stage:
+    name: Promote
+    needs: [e2e-stage, build-stage]
+    if: always() && needs.e2e-stage.result == 'success'
+    uses: ./.github/workflows/stage.promote-images.yml
+    with:
+      short-sha: ${{ needs.build-stage.outputs.short-sha }}
+      affected-apps: ${{ needs.build-stage.outputs.affected-apps }}
+      helm-apps: ${{ needs.build-stage.outputs.helm-apps }}
+    secrets: inherit
+
+  save-code-success:
+    name: Save Code SHA
+    needs: [build-stage]
+    if: always() && needs.build-stage.result == 'success'
+    uses: ./.github/workflows/job.save-successful-sha.yml
+    with:
+      cache-key: code
+
+  save-infra-success:
+    name: Save Infra SHA
+    needs: [infrastructure-stage]
+    if: always() && needs.infrastructure-stage.result == 'success'
+    uses: ./.github/workflows/job.save-successful-sha.yml
+    with:
+      cache-key: infra

@@ -1,0 +1,98 @@
+name: Smoke Test Job
+
+on:
+  workflow_call:
+    inputs:
+      urls:
+        required: true
+        type: string
+        description: "Base64-encoded JSON of deployment URLs"
+      runner-group:
+        required: false
+        type: string
+        description: "GitHub Actions runner group"
+        default: "azure-nonprod"
+
+jobs:
+  smoke-test:
+    name: Smoke Test
+    runs-on:
+      group: ${{ inputs.runner-group }}
+
+    steps:
+      - name: Decode deployment URLs
+        id: urls
+        run: |
+          URLS_B64="${{ inputs.urls }}"
+          URLS_JSON=$(echo -n "${URLS_B64}" | base64 -d)
+          echo "Deployment URLs JSON: ${URLS_JSON}"
+          echo "urls=${URLS_JSON}" >> "$GITHUB_OUTPUT"
+
+      - name: Health check - Web
+        run: |
+          URLS_JSON='${{ steps.urls.outputs.urls }}'
+          WEB_URL=$(echo "${URLS_JSON}" | jq -r '.web // empty')
+
+          if [ -n "${WEB_URL}" ]; then
+            echo "Checking web health: ${WEB_URL}"
+            MAX_RETRIES=10
+            RETRY_DELAY=10
+
+            for i in $(seq 1 $MAX_RETRIES); do
+              HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "${WEB_URL}" || echo "000")
+              echo "Attempt ${i}/${MAX_RETRIES}: HTTP Status ${HTTP_STATUS}"
+
+              if [ "${HTTP_STATUS}" -ge 200 ] && [ "${HTTP_STATUS}" -lt 400 ]; then
+                echo "Web service is healthy"
+                exit 0
+              fi
+
+              if [ "$i" -lt "$MAX_RETRIES" ]; then
+                echo "Retrying in ${RETRY_DELAY}s..."
+                sleep $RETRY_DELAY
+              fi
+            done
+
+            echo "Web service failed after ${MAX_RETRIES} attempts"
+            exit 1
+          else
+            echo "No web URL found, skipping web health check"
+          fi
+
+      - name: Health check - API
+        run: |
+          URLS_JSON='${{ steps.urls.outputs.urls }}'
+          API_URL=$(echo "${URLS_JSON}" | jq -r '.api // empty')
+
+          if [ -n "${API_URL}" ]; then
+            echo "Checking API health: ${API_URL}"
+            MAX_RETRIES=10
+            RETRY_DELAY=10
+
+            for i in $(seq 1 $MAX_RETRIES); do
+              HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "${API_URL}" || echo "000")
+              echo "Attempt ${i}/${MAX_RETRIES}: HTTP Status ${HTTP_STATUS}"
+
+              if [ "${HTTP_STATUS}" -ge 200 ] && [ "${HTTP_STATUS}" -lt 400 ]; then
+                echo "API service is healthy"
+                exit 0
+              fi
+
+              if [ "$i" -lt "$MAX_RETRIES" ]; then
+                echo "Retrying in ${RETRY_DELAY}s..."
+                sleep $RETRY_DELAY
+              fi
+            done
+
+            echo "API service failed after ${MAX_RETRIES} attempts"
+            exit 1
+          else
+            echo "No API URL found, skipping API health check"
+          fi
+
+      - name: Smoke test summary
+        run: |
+          echo "=========================================="
+          echo "Smoke Test Summary"
+          echo "=========================================="
+          echo "All health checks passed successfully!"

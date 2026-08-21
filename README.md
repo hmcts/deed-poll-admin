@@ -1,169 +1,272 @@
-# Express application template
+# Deed Poll Admin
 
-## Purpose
+Admin service for HMCTS deed poll applications, built with Express.js, TypeScript and the GOV.UK Design System.
 
-The purpose of this template is to speed up the creation of new [Express](http://expressjs.com/) frontend
-applications within HMCTS and help keep the same development standards across multiple teams.
-If you need to create a new application, you can simply use this one as a starting point and build on top of it.
+## 🚀 Overview
 
-## What's inside
+This monorepo contains the apps, libraries, and infrastructure for the Deed Poll Admin service. It was scaffolded from
+[hmcts/expressjs-monorepo-template](https://github.com/hmcts/expressjs-monorepo-template); the `libs/` packages are
+vendored copies of that template's shared libraries, kept private to this repo.
 
-The template is a working application with a minimal setup. It contains:
+Sessions are stored in PostgreSQL. There is no Redis in this service — the template's Redis support was removed during
+scaffolding.
 
-- application skeleton
-- common dependencies
-- Docker setup
-- static analysis set up
-- integration with Travis CI
-- HTTPS set up for development environment
-- CSRF prevention set up
-- Header-based security provided by [Helmet](https://helmetjs.github.io/)
-- basic health endpoint
-- pa11y set up for accessibility testing
-- MIT license and contribution information
+## ✨ Key Features
 
-## Setup
+### Cloud Native Platform
+- **Health Checks**: Configurable health endpoints with readiness and liveness probes for Kubernetes deployments
+- **Properties Volume**: Secure configuration management through mounted volumes with automatic environment variable injection
+- **Azure Integration**: Built-in support for Azure Key Vault secrets management and properties volume mounting
+- **Application Insights**: Comprehensive monitoring with Azure Application Insights including custom metrics and distributed tracing
 
-Located in `./bin/init.sh`. Simply run and follow the explanation how to execute it.
+### Express GOV.UK Starter for frontends
+- **GOV.UK Design System**: Fully integrated GOV.UK Frontend with Nunjucks templates and automatic asset compilation
+- **Internationalization**: Welsh language support with locale middleware and translation management system
+- **Security Headers**: Pre-configured Helmet.js with CSP, HSTS, and nonce-based script protection
+- **Asset Pipeline**: Vite-powered asset compilation with SCSS support and production optimization
+- **Cookie Management**: Built-in support for cookie consent
+- **Session Handling**: Session management backed by PostgreSQL
 
-## Getting Started
+### Simple Router  
+A lightweight file-system router for Express applications, inspired by Next.js routing.
+
+- **File-based Routing**: Maps files in directories to Express routes automatically
+- **Dynamic Parameters**: Support for dynamic route segments using `[param]` syntax (e.g., `/users/[id]`)
+- **HTTP Method Exports**: Export handlers for any HTTP method (GET, POST, PUT, DELETE, etc.)
+- **Middleware Support**: Single handlers or arrays of middleware for complex request pipelines
+- **Multiple Mount Points**: Mount different directories with different URL prefixes
+- **Zero Dependencies**: Lightweight implementation with no external dependencies
+
+### Monorepo Architecture
+- Single repository for multiple applications (e.g. multiple frontends sharing common code, APIs or libraries)
+- Workspace-based structure with Yarn workspaces
+- Shared libraries for common functionality
+- Testing with Vitest and Playwright
+- Helm charts for Kubernetes deployment
+- GitHub Actions CI/CD pipeline
+- Biome for fast linting and formatting
+
+## Project Structure
+
+```
+deed-poll-admin/
+├── apps/                       # Deployable applications
+│   ├── api/                    # REST API server (Express 5.x)
+│   ├── crons/                  # Cron jobs
+│   ├── postgres/               # Migration runner + Prisma S
+│   └── web/                    # Web frontend (Express 5.x + Nunjucks)
+├── libs/                       # Modular packages (explicitly registered)
+│   ├── cloud-native-platform/  # Cloud Native Platform features
+│   ├── express-gov-uk-starter/ # GOV.UK Frontend integration
+│   ├── postgres-prisma/        # Database client (Prisma)
+│   ├── simple-router/          # Simple Router features
+│   └── [your-module]/          # Your feature modules
+│       └── src/
+│           ├── pages/          # Page routes (imported in web app)
+│           ├── routes/         # API routes (imported in API app)
+│           ├── prisma/         # Prisma schema
+│           ├── locales/        # Translations (loaded by govuk-starter)
+│           └── assets/         # Module assets (compiled by vite)
+├── e2e-tests/                  # End-to-end tests (Playwright)
+├── docs/                       # Documentation and ADRs
+├── helm/                       # Helm charts for Kubernetes deployment
+└── package.json                # Root configuration
+```
+
+## 🏁 Getting Started
 
 ### Prerequisites
 
-Running the application requires the following tools to be installed in your environment:
+- Node.js 22+
+- Yarn 4+
+- Docker (optional, for PostgreSQL)
 
-- [Node.js](https://nodejs.org/) v12.0.0 or later
-- [yarn](https://yarnpkg.com/)
-- [Docker](https://www.docker.com)
-
-### Running the application
-
-Install dependencies by executing the following command:
+### Quick Setup
 
 ```bash
+# Install dependencies
 yarn install
+
+# Run development server
+yarn dev
 ```
 
-Bundle:
+### Services
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| Web Application | http://localhost:3000 | Main web interface with GOV.UK styling |
+| API Server | http://localhost:3001 | REST API backend |
+| Prisma Studio | http://localhost:5555 | Database management UI |
+
+
+## 📦 Development
+
+### Available Commands
 
 ```bash
-yarn webpack
+# Development
+yarn dev                        # Start all services concurrently
+
+# Testing
+yarn test                       # Run all tests across workspaces
+yarn test:e2e                   # Playwright E2E tests
+yarn test:coverage              # Generate coverage report
+
+# Code Quality
+yarn lint:fix                    # Run Biome linter
+yarn format                     # Format code with Biome
+
+# Database Operations
+yarn db:migrate                 # Apply migrations  
+yarn db:migrate:dev             # Auto apply migrations, add new migrations if necessary
+yarn db:generate                # Generate the Prisma client
+yarn db:studio                  # Open Prisma Studio
+yarn db:drop                    # Drop all tables and reset the database
+
 ```
 
-Run:
+### Shared libraries
 
+The `libs/` packages under the `@hmcts-cft` scope are vendored copies of
+[hmcts/expressjs-monorepo-template](https://github.com/hmcts/expressjs-monorepo-template)'s shared libraries. They are
+marked `private` here: this repo consumes them via `workspace:*` and must not publish them to the shared HMCTS Azure
+Artifacts `hmcts-lib` feed, which the template owns.
+
+To pick up an upstream fix, port the change from the template repo rather than editing and republishing.
+
+### Creating a New Feature Module
+
+Feature libs under `libs/` hold **pure domain logic** — services, queries, validation, navigation. Pages, route handlers, and assets live in the consuming apps (`apps/web/src/pages/`, `apps/api/src/routes/`, `apps/web/src/assets/`). Prisma schemas live in `libs/postgres-prisma/prisma/schema/`. There is no per-module registration metadata; apps import named functions directly.
+
+1. **Create the lib**:
 ```bash
-yarn start
+mkdir -p libs/my-feature/src/my-feature
+cd libs/my-feature
 ```
 
-The applications's home page will be available at http://localhost:3100
-
-### Running with Docker
-
-Create docker image:
-
-```bash
-docker-compose build
-```
-
-Run the application by executing the following command:
-
-```bash
-docker-compose up
-```
-
-This will start the frontend container exposing the application's port
-(set to `3100` in this template app).
-
-In order to test if the application is up, you can visit https://localhost:3100 in your browser.
-You should get a very basic home page (no styles, etc.).
-
-## Developing
-
-### Code style
-
-We use [ESLint](https://github.com/typescript-eslint/typescript-eslint)
-alongside [sass-lint](https://github.com/sasstools/sass-lint)
-
-Running the linting with auto fix:
-
-```bash
-yarn lint --fix
-```
-
-### Running the tests
-
-This template app uses [Jest](https://jestjs.io//) as the test engine. You can run unit tests by executing
-the following command:
-
-```bash
-yarn test
-```
-
-Here's how to run functional tests (the template contains just one sample test):
-
-```bash
-yarn test:routes
-```
-
-Running accessibility tests:
-
-```bash
-yarn test:a11y
-```
-
-Make sure all the paths in your application are covered by accessibility tests (see [a11y.ts](src/test/a11y/a11y.ts)).
-
-### Security
-
-#### CSRF prevention
-
-[Cross-Site Request Forgery](https://github.com/pillarjs/understanding-csrf) prevention has already been
-set up in this template, at the application level. However, you need to make sure that CSRF token
-is present in every HTML form that requires it. For that purpose you can use the `csrfProtection` macro,
-included in this template app. Your njk file would look like this:
-
-```
-{% from "macros/csrf.njk" import csrfProtection %}
-...
-<form ...>
-  ...
-    {{ csrfProtection(csrfToken) }}
-  ...
-</form>
-...
-```
-
-#### Helmet
-
-This application uses [Helmet](https://helmetjs.github.io/), which adds various security-related HTTP headers
-to the responses. Apart from default Helmet functions, following headers are set:
-
-- [Referrer-Policy](https://helmetjs.github.io/docs/referrer-policy/)
-- [Content-Security-Policy](https://helmetjs.github.io/docs/csp/)
-
-There is a configuration section related with those headers, where you can specify:
-
-- `referrerPolicy` - value of the `Referrer-Policy` header
-
-Here's an example setup:
-
+2. **`package.json`**:
 ```json
-    "security": {
-      "referrerPolicy": "origin",
+{
+  "name": "@hmcts/my-feature",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
+  },
+  "peerDependencies": {
+    "express": "^5.1.0"
+  }
+}
 ```
 
-Make sure you have those values set correctly for your application.
+3. **`tsconfig.json`**:
+```json
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": true,
+    "declarationMap": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts", "dist", "node_modules"]
+}
+```
 
-### Healthcheck
+4. **Add a path mapping in the root `tsconfig.json`** — used by IDE/tsserver and by `vitest` (via `vite-tsconfig-paths`) to resolve `@hmcts/my-feature` to `src/` before `dist/` exists:
+```json
+{
+  "compilerOptions": {
+    "paths": {
+      "@hmcts/my-feature": ["libs/my-feature/src"]
+    }
+  }
+}
+```
 
-The application exposes a health endpoint (https://localhost:3100/health), created with the use of
-[Nodejs Healthcheck](https://github.com/hmcts/nodejs-healthcheck) library. This endpoint is defined
-in [health.ts](src/main/routes/health.ts) file. Make sure you adjust it correctly in your application.
-In particular, remember to replace the sample check with checks specific to your frontend app,
-e.g. the ones verifying the state of each service it depends on.
+5. **Write the domain code** under `src/my-feature/` — typically `service.ts`, `queries.ts`, `validation.ts`, with co-located `*.test.ts` files. Re-export from `src/index.ts`:
+```typescript
+export * from "./my-feature/service.js";
+export * from "./my-feature/queries.js";
+export * from "./my-feature/validation.js";
+```
+
+6. **Add the lib as a dependency** of each consuming app:
+```jsonc
+// apps/web/package.json (or apps/api/package.json)
+"dependencies": {
+  "@hmcts/my-feature": "workspace:*"
+}
+```
+Then run `yarn install` from the repo root.
+
+7. **Use it from the apps** with named imports:
+```typescript
+// apps/api/src/routes/my-feature/index.ts
+import { createMyFeature } from "@hmcts/my-feature";
+
+export const POST = async (req, res) => {
+  const result = await createMyFeature(req.body);
+  res.status(201).json(result);
+};
+```
+
+That's it — no further wiring. `turbo run dev` picks the new lib up automatically and runs its `tsc --watch`; the apps' nodemon watches `../../libs/*/dist` so they restart whenever the lib emits.
+
+#### If the feature needs database tables
+
+Add a Prisma model file under `libs/postgres-prisma/prisma/schema/`:
+```
+libs/postgres-prisma/prisma/schema/my-feature.prisma
+```
+Prisma's multi-file schema picks it up automatically. While `yarn dev` is running, saving a `.prisma` file regenerates the Prisma client and triggers an app restart — no manual step needed for the client side. When you're ready to land the schema change, run `yarn db:migrate:dev` to create + apply the migration (this stays a deliberate step so you control the migration name).
+
+#### If the feature needs pages or static assets
+
+Pages, templates, and assets are **app-scoped**, not lib-scoped:
+- **Web pages** — `apps/web/src/pages/my-feature/(group)/page.{ts,njk}`. `simple-router` discovers them; `(group)` segments don't appear in the URL.
+- **API routes** — `apps/api/src/routes/my-feature/[id].ts` (dynamic) or `apps/api/src/routes/my-feature/index.ts`.
+- **SCSS/JS bundles** — `apps/web/src/assets/css/my-feature.scss`, `apps/web/src/assets/js/my-feature.ts`. Vite picks them up from `apps/web/src/assets/`.
+
+Each handler imports its lib's domain functions directly (`import { … } from "@hmcts/my-feature"`).
+
+## 🧪 Testing Strategy
+
+| Type | Tool | Location | Purpose |
+|------|------|----------|---------|
+| **Unit Tests** | Vitest | Co-located `*.test.ts` | Business logic validation |
+| **E2E Tests** | Playwright | `e2e-tests/` | User journey validation |
+| **Accessibility Tests** | Axe-core + Playwright | `e2e-tests/` | WCAG 2.1 AA compliance |
+
+```bash
+# Run specific test suites
+yarn test                   # Unit tests
+yarn test:e2e               # E2E tests
+yarn test:coverage          # Coverage report
+```
+
+## Security
+
+The GitHub Action pipelines contain a number of security checks, including:
+
+- **Dependency Scanning**: Automatically scans for vulnerabilities in dependencies
+- **SonarQube**: SAST analysis for code quality and security
+- **Claude Security Scans**: Claude AI-powered security scans for code vulnerabilities
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details
+MIT

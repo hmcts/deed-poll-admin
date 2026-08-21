@@ -1,0 +1,579 @@
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read # Required for Claude to read CI results on PRs
+    steps:
+      - name: Get PR information
+        id: get-pr
+        if: github.event.issue.pull_request || github.event.pull_request
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            return pr.data;
+
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.CLAUDE_CODE_APP_ID }}
+          private-key: ${{ secrets.CLAUDE_CODE_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          repository: ${{ (github.event.issue.pull_request || github.event.pull_request) && fromJSON(steps.get-pr.outputs.result).head.repo.full_name || github.repository }}
+          ref: ${{ (github.event.issue.pull_request || github.event.pull_request) && fromJSON(steps.get-pr.outputs.result).head.ref || github.ref }}
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "claude-code-bot[bot]"
+          git config user.email "claude-code-bot[bot]@users.noreply.github.com"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'yarn'
+          cache-dependency-path: '**/yarn.lock'
+
+      - name: Cache Yarn dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            .yarn/cache
+            .yarn/install-state.gz
+            node_modules
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Generate Prisma client
+        run: yarn db:generate
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::313941174580:role/HMCTSClaudeGitHubActionsRole
+          aws-region: eu-west-1
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_DEFAULT_OPUS_MODEL: 'eu.anthropic.claude-opus-5'
+          ANTHROPIC_DEFAULT_SONNET_MODEL: 'eu.anthropic.claude-sonnet-5'
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'eu.anthropic.claude-haiku-4-5-20251001-v1:0'
+        with:
+          use_bedrock: "true"
+          github_token: ${{ steps.app-token.outputs.token }}
+          prompt: |
+            Repository: ${{ github.repository }}
+            Issue/PR: #${{ github.event.issue.number || github.event.pull_request.number }}
+
+            ${{ github.event.comment.body || github.event.review.body || github.event.issue.body }}
+          claude_args: |
+            --dangerously-skip-permissions
+            --append-system-prompt "You are running in a GitHub Action. The environment has been set up and yarn install has been run. You can use bash and yarn commands. Read @CLAUDE.md. Run yarn format, yarn lint and yarn test before committing changes. IMPORTANT: After committing, you MUST push the changes using 'git push'."
+            --allowedTools "Bash(corepack:*),Bash(yarn:*),Bash(git:*)"
+
+  spec:
+    # Generates technical specifications from templates
+    # Usage: @spec [template-name] (default: new-feature)
+    # Available templates: new-feature, bugs, enhancement, technical-task, spike, non-functional-requirement
+    if: |
+      github.event_name == 'issue_comment' &&
+      !github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@spec') &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.CLAUDE_CODE_APP_ID }}
+          private-key: ${{ secrets.CLAUDE_CODE_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Parse template type
+        id: parse
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          COMMENT="$COMMENT_BODY"
+          # Extract template name after @spec (default: new-feature)
+          if [[ "$COMMENT" =~ @spec[[:space:]]+([a-zA-Z0-9_-]+) ]]; then
+            TEMPLATE="${BASH_REMATCH[1]}"
+          else
+            TEMPLATE="new-feature"
+          fi
+
+          # Validate template exists
+          if [[ -f "templates/$TEMPLATE.md" ]]; then
+            echo "template=$TEMPLATE" >> $GITHUB_OUTPUT
+            echo "valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "template=$TEMPLATE" >> $GITHUB_OUTPUT
+            echo "valid=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post error if template not found
+        if: steps.parse.outputs.valid == 'false'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const templates = fs.readdirSync('templates').join(', ');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `❌ Template \`${{ steps.parse.outputs.template }}\` not found.\n\nAvailable templates: ${templates}\n\nUsage: \`@spec [template-name]\``
+            });
+
+      - name: Configure AWS credentials
+        if: steps.parse.outputs.valid == 'true'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::313941174580:role/HMCTSClaudeGitHubActionsRole
+          aws-region: eu-west-1
+
+      - name: Run Claude Code for spec generation
+        if: steps.parse.outputs.valid == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_DEFAULT_OPUS_MODEL: 'eu.anthropic.claude-opus-5'
+          ANTHROPIC_DEFAULT_SONNET_MODEL: 'eu.anthropic.claude-sonnet-5'
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'eu.anthropic.claude-haiku-4-5-20251001-v1:0'
+        with:
+          use_bedrock: "true"
+          github_token: ${{ steps.app-token.outputs.token }}
+          prompt: |
+            Generate a technical specification for this GitHub issue using the specified template.
+
+            ## Template
+            Read the template from: templates/${{ steps.parse.outputs.template }}.md
+
+            ## Issue Details
+            Issue #${{ github.event.issue.number }}
+            Title: ${{ github.event.issue.title }}
+            Body:
+            ${{ github.event.issue.body }}
+
+            ## Instructions
+            1. Read the template file from templates/${{ steps.parse.outputs.template }}.md
+            2. Read .claude/rules/design.md for GOV.UK Design System guidance
+            3. Search the codebase for similar implementations to understand existing patterns
+            4. Fill in ALL sections of the template with specific, actionable content based on the issue
+            5. Replace all placeholder text [in brackets] with real content
+            6. For wireframes, use ASCII art diagrams
+            7. For Welsh translations, use markers: [TRANSLATE: "English text here"]
+               - These markers will be processed by a translation script after generation
+               - Use markers for ALL Welsh text - the script handles lookups and missing translations
+            8. Write the completed specification to /tmp/spec-output.md using the Write tool
+
+            Do not post comments directly. Do not create other files or make commits.
+          claude_args: |
+            --allowedTools "Read,Glob,Grep,Write"
+            --append-system-prompt "You are generating a technical specification. Use the Write tool to write the spec to /tmp/spec-output.md. Do not post comments directly. For Welsh translations, use [TRANSLATE: \"English text\"] markers - a post-processing script will handle the actual translations."
+
+      - name: Process Welsh translations and post spec
+        if: steps.parse.outputs.valid == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          if [ -f /tmp/spec-output.md ]; then
+            node scripts/translate-welsh.js < /tmp/spec-output.md > /tmp/spec-translated.md
+            gh issue comment ${{ github.event.issue.number }} --body-file /tmp/spec-translated.md
+          else
+            echo "::error::Spec file not generated at /tmp/spec-output.md"
+            exit 1
+          fi
+
+  claude-plan:
+    if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '@plan')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.CLAUDE_CODE_APP_ID }}
+          private-key: ${{ secrets.CLAUDE_CODE_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "claude-code-bot[bot]"
+          git config user.email "claude-code-bot[bot]@users.noreply.github.com"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'yarn'
+          cache-dependency-path: '**/yarn.lock'
+
+      - name: Cache Yarn dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            .yarn/cache
+            .yarn/install-state.gz
+            node_modules
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Generate Prisma client
+        run: yarn db:generate
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::313941174580:role/HMCTSClaudeGitHubActionsRole
+          aws-region: eu-west-1
+
+      - name: Run Claude Code Plan
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_DEFAULT_OPUS_MODEL: 'eu.anthropic.claude-opus-5'
+          ANTHROPIC_DEFAULT_SONNET_MODEL: 'eu.anthropic.claude-sonnet-5'
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'eu.anthropic.claude-haiku-4-5-20251001-v1:0'
+        with:
+          use_bedrock: "true"
+          github_token: ${{ steps.app-token.outputs.token }}
+          prompt: |
+            Run the /qk-plan #${{ github.event.issue.number }}.
+
+            After completing the plan:
+            1. Create a new branch named: feature/${{ github.event.issue.number }}-<short-description>
+               (derive short-description from the issue title, lowercase, hyphens, max 30 chars)
+            2. Commit the generated files (docs/tickets/${{ github.event.issue.number }}/)
+            3. Push the branch
+            4. Read the generated plan.md and extract any "CLARIFICATIONS NEEDED" section
+            5. Post a comment on issue #${{ github.event.issue.number }} using gh issue comment with:
+               - A header: "## 📋 Technical Plan Created"
+               - A link to the branch
+               - Links to the plan files in that branch
+               - The "CLARIFICATIONS NEEDED" section (if any questions exist)
+               - A note: "Run `/qk-implement` when ready to implement"
+          claude_args: |
+            --dangerously-skip-permissions
+            --append-system-prompt "You are running in a GitHub Action. The environment has been set up and yarn install has been run. Read @CLAUDE.md. After generating the plan, you MUST: 1) Create a feature branch, 2) Commit and push the plan files, 3) Post clarifications to the issue."
+            --allowedTools "Bash(corepack:*),Bash(yarn:*),Bash(git:*),Bash(gh issue:*),Bash(mkdir:*),Read,Write,Edit,Grep,Glob,TodoWrite,Skill"
+
+  claude-ready:
+    if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '@ready')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      repository-projects: write
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.CLAUDE_CODE_APP_ID }}
+          private-key: ${{ secrets.CLAUDE_CODE_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "claude-code-bot[bot]"
+          git config user.email "claude-code-bot[bot]@users.noreply.github.com"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'yarn'
+          cache-dependency-path: '**/yarn.lock'
+
+      - name: Cache Yarn dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            .yarn/cache
+            .yarn/install-state.gz
+            node_modules
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Generate Prisma client
+        run: yarn db:generate
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::313941174580:role/HMCTSClaudeGitHubActionsRole
+          aws-region: eu-west-1
+
+      - name: Run Claude Code Ready
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_DEFAULT_OPUS_MODEL: 'eu.anthropic.claude-opus-5'
+          ANTHROPIC_DEFAULT_SONNET_MODEL: 'eu.anthropic.claude-sonnet-5'
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'eu.anthropic.claude-haiku-4-5-20251001-v1:0'
+        with:
+          use_bedrock: "true"
+          github_token: ${{ steps.app-token.outputs.token }}
+          prompt: |
+            Review issue #${{ github.event.issue.number }} and update the technical plan if needed.
+
+            Steps:
+            1. Checkout the feature branch for this issue (feature/${{ github.event.issue.number }}-*)
+            2. Read docs/tickets/${{ github.event.issue.number }}/ticket.md to see existing comments
+            3. Fetch latest comments: gh issue view ${{ github.event.issue.number }} --json comments
+            4. Compare and identify any NEW comments not in ticket.md
+            5. If new comments exist:
+               - Update ticket.md with the new comments
+               - Review if they contain new requirements, clarifications, or answers
+               - Update plan.md and tasks.md if the approach needs to change
+               - Commit and push changes to the feature branch
+            6. Post a comment on the issue with:
+               - Summary of what changed (or "No changes needed")
+               - Note: "Run `/qk-implement` when ready to implement"
+          claude_args: |
+            --dangerously-skip-permissions
+            --append-system-prompt "You are running in a GitHub Action. Read @CLAUDE.md. Checkout the feature branch for this issue before making changes."
+            --allowedTools "Bash(git:*),Bash(gh:*),Read,Write,Edit,Grep,Glob,TodoWrite"
+
+      - name: Update GitHub Project Status
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          # Get the project item ID for this issue (GraphQL needed to query issue's project items)
+          ITEM_ID=$(gh api graphql -f query='
+            query($owner: String!, $repo: String!, $issueNumber: Int!) {
+              repository(owner: $owner, name: $repo) {
+                issue(number: $issueNumber) {
+                  projectItems(first: 10) {
+                    nodes { id project { id } }
+                  }
+                }
+              }
+            }
+          ' -f owner="${{ github.repository_owner }}" -f repo="${{ github.event.repository.name }}" -F issueNumber=${{ github.event.issue.number }} \
+            --jq '.data.repository.issue.projectItems.nodes[] | select(.project.id == "PVT_kwDOAVwpV84BMvy3") | .id' 2>/dev/null | head -1) || true
+
+          if [ -z "$ITEM_ID" ]; then
+            echo "::warning::Issue not found in project. Ensure GitHub App has 'Organization projects: Read and write' permission."
+            exit 0
+          fi
+
+          # Update status to "Refined Tickets" using gh CLI
+          gh project item-edit \
+            --id "$ITEM_ID" \
+            --project-id "PVT_kwDOAVwpV84BMvy3" \
+            --field-id "PVTSSF_lADOAVwpV84BMvy3zg78TBM" \
+            --single-select-option-id "03294712" \
+          && echo "✅ Updated project status to 'Refined Tickets'" \
+          || echo "::warning::Failed to update project status"
+
+  analyse:
+    # Performs conflict detection and provides an impact rating for an issue
+    # Usage: @analyse
+    # Detects conflicts with other issues, conflicts with existing code, and provides an impact rating
+    if: |
+      github.event_name == 'issue_comment' &&
+      !github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@analyse') &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.CLAUDE_CODE_APP_ID }}
+          private-key: ${{ secrets.CLAUDE_CODE_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::313941174580:role/HMCTSClaudeGitHubActionsRole
+          aws-region: eu-west-1
+
+      - name: Run Claude Code for Requirements Analysis
+        id: claude-analysis
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_DEFAULT_OPUS_MODEL: 'eu.anthropic.claude-opus-5'
+          ANTHROPIC_DEFAULT_SONNET_MODEL: 'eu.anthropic.claude-sonnet-5'
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'eu.anthropic.claude-haiku-4-5-20251001-v1:0'
+        with:
+          use_bedrock: "true"
+          github_token: ${{ steps.app-token.outputs.token }}
+          prompt: |
+            Perform conflict detection and impact analysis for Issue #${{ github.event.issue.number }}.
+
+            ## PHASE 1: Gather Context
+
+            1. Read the current issue:
+               - Title: ${{ github.event.issue.title }}
+               - Body: ${{ github.event.issue.body }}
+               - Check for spec in docs/tickets/${{ github.event.issue.number }}/
+
+            2. Read the output template from templates/requirements-analysis.md
+
+            3. Fetch other issues for comparison:
+               gh issue list --state all --limit 100 --json number,title,labels,body,state
+
+            4. Search codebase for relevant implementations:
+               - URLs mentioned in the issue → check libs/*/src/pages/
+               - API endpoints mentioned → check libs/*/src/routes/
+               - Database entities mentioned → check libs/*/prisma/
+
+            ## PHASE 2: Conflict Analysis
+
+            ### 2.1 Conflicts with Other Issues
+            Compare this issue's requirements against other open/recent issues:
+            - Same URL paths proposed?
+            - Same user journey/flow described differently?
+            - Contradictory acceptance criteria?
+            - Overlapping scope (both claim to implement same feature)?
+
+            ### 2.2 Conflicts with Existing Code
+            Check if this issue's requirements contradict what's already built:
+            - Does the proposed URL already exist with different behaviour?
+            - Does the proposed data model conflict with existing schema?
+            - Would implementing this break existing functionality?
+            - Are there assumptions that don't match current implementation?
+
+            ## PHASE 3: Impact Rating
+
+            Assess the overall impact on existing code:
+            - **Low**: Greenfield feature, no existing code affected
+            - **Medium**: Some existing modules would need changes
+            - **High**: Core systems affected, significant refactoring needed
+
+            Provide ONLY the rating and a one-line reason.
+            Do NOT list specific files, modules, or patterns — that is @plan's job.
+
+            ## PHASE 4: Output
+
+            Always produce output using the template from templates/requirements-analysis.md.
+            Include:
+            - Conflicts with other issues (if any)
+            - Conflicts with existing code (if any)
+            - Impact rating (Low/Medium/High) with one-line reason
+
+            Do NOT include:
+            - Lists of files to modify
+            - Patterns to follow
+            - Implementation recommendations
+            Those are @plan's job.
+
+            Write the completed analysis to /tmp/analysis-output.md using the Write tool.
+          claude_args: |
+            --allowedTools "Read,Glob,Grep,Bash(gh:*),Write"
+            --append-system-prompt "You are detecting CONFLICTS and providing an IMPACT RATING only. Do not list files to modify, patterns to follow, or implementation guidance — that is @plan's job. Always provide output with conflicts (if any) and impact rating. Be specific with issue numbers when reporting conflicts."
+
+      - name: Post analysis to issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          if [ "${{ steps.claude-analysis.outcome }}" != "success" ] || [ ! -f /tmp/analysis-output.md ] || [ ! -s /tmp/analysis-output.md ]; then
+            printf '## Requirements Analysis: Issue #%s\n\n⚠️ Analysis failed to generate output. Check the [workflow run](%s) for details.\n\n---\n*Generated by @analyse workflow*\n' \
+              "${{ github.event.issue.number }}" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              > /tmp/analysis-output.md
+          fi
+          gh issue comment ${{ github.event.issue.number }} --body-file /tmp/analysis-output.md
+          echo "✅ Analysis posted to issue #${{ github.event.issue.number }}"

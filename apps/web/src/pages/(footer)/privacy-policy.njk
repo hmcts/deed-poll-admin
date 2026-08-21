@@ -1,0 +1,88 @@
+{% extends "layouts/default.njk" %}
+
+{% block page_content %}
+  <h1 class="govuk-heading-xl">{{ title }}</h1>
+
+  <h2 class="govuk-heading-l">{{ sections.whoManages.heading }}</h2>
+  {% for paragraph in sections.whoManages.content %}
+    <p class="govuk-body">{{ paragraph }}</p>
+  {% endfor %}
+
+  <h2 class="govuk-heading-l">{{ sections.personalData.heading }}</h2>
+  <p class="govuk-body">{{ sections.personalData.intro }} {{ serviceName }} service we need to collect:</p>
+  <ul class="govuk-list govuk-list--bullet">
+    {% for item in sections.personalData.list %}
+      <li>{{ item }}</li>
+    {% endfor %}
+  </ul>
+  <p class="govuk-body">{{ sections.personalData.extra }}</p>
+
+  <h2 class="govuk-heading-l">{{ sections.notifications.heading }}</h2>
+  <p class="govuk-body">You need to sign up to receive notifications to use the {{ serviceName }} service. This is a legal requirement so that the application can proceed.</p>
+
+  <h2 class="govuk-heading-l">{{ sections.storingData.heading }}</h2>
+  <p class="govuk-body">{{ sections.storingData.content[0] }}</p>
+  <p class="govuk-body">Information you save is held for {{ serviceConfig.dataRetentionPeriod }}. If you don't return to complete your application during this time, your saved information will be deleted.</p>
+
+  <h2 class="govuk-heading-l">{{ sections.afterSubmission.heading }}</h2>
+  <p class="govuk-body">{{ sections.afterSubmission.content }}</p>
+
+  <h2 class="govuk-heading-l">{{ sections.whyWeCollect.heading }}</h2>
+  <p class="govuk-body">{{ sections.whyWeCollect.content }}</p>
+  <ul class="govuk-list govuk-list--bullet">
+    {% for item in sections.whyWeCollect.list %}
+      <li>{{ item }}</li>
+    {% endfor %}
+  </ul>
+  <p class="govuk-body">{{ sections.whyWeCollect.extra }}</p>
+
+  <h2 class="govuk-heading-l">{{ sections.usingData.heading }}</h2>
+  
+  <h3 class="govuk-heading-m">{{ sections.usingData.subsections.emails.heading }}</h3>
+  {% for paragraph in sections.usingData.subsections.emails.content %}
+    <p class="govuk-body">{{ paragraph }}</p>
+  {% endfor %}
+
+  <h3 class="govuk-heading-m">{{ sections.usingData.subsections.cookies.heading }}</h3>
+  <p class="govuk-body">{{ sections.usingData.subsections.cookies.content }}</p>
+  <p class="govuk-body">{{ sections.usingData.subsections.cookies.extra }}</p>
+
+  <h2 class="govuk-heading-l">{{ sections.sharingData.heading }}</h2>
+  {% for paragraph in sections.sharingData.content %}
+    <p class="govuk-body">{{ paragraph }}</p>
+  {% endfor %}
+
+  <h2 class="govuk-heading-l">{{ sections.international.heading }}</h2>
+  {% for paragraph in sections.international.content %}
+    <p class="govuk-body">{{ paragraph }}</p>
+  {% endfor %}
+
+  <h2 class="govuk-heading-l">{{ sections.yourRights.heading }}</h2>
+  <p class="govuk-body">{{ sections.yourRights.content }}</p>
+  <ul class="govuk-list govuk-list--bullet">
+    {% for item in sections.yourRights.list %}
+      <li>{{ item }}</li>
+    {% endfor %}
+  </ul>
+  <p class="govuk-body">{{ sections.yourRights.extra }}</p>
+
+  <h3 class="govuk-heading-m">{{ sections.contactDetails.heading }}</h3>
+  <p class="govuk-body">{{ sections.contactDetails.email }}</p>
+  <p class="govuk-body">
+    {% for line in sections.contactDetails.address %}
+      {{ line }}<br>
+    {% endfor %}
+  </p>
+
+  <h2 class="govuk-heading-l">{{ sections.complaints.heading }}</h2>
+  {% for paragraph in sections.complaints.content %}
+    <p class="govuk-body">{{ paragraph }}</p>
+  {% endfor %}
+  <p class="govuk-body">
+    {% for line in sections.complaints.address %}
+      {{ line }}<br>
+    {% endfor %}
+  </p>
+  <p class="govuk-body">{{ sections.complaints.email }}</p>
+  <p class="govuk-body">{{ sections.complaints.ico }}</p>
+{% endblock %}

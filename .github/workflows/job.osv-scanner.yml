@@ -1,0 +1,22 @@
+name: OSV Scanner Job
+
+on:
+  workflow_call:
+
+permissions:
+  # Required to upload SARIF file to CodeQL
+  actions: read
+  # Required to upload SARIF file to security tab
+  security-events: write
+  # Only need to read contents
+  contents: read
+
+jobs:
+  scan:
+    name: Dependency Scan
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.5.1
+    with:
+      scan-args: |-
+        --config=.github/osv-scanner.toml
+        --fail-on-severity=HIGH
+        ./

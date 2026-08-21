@@ -1,0 +1,51 @@
+{% extends "govuk/template.njk" %}
+
+{% block head %}
+  {% if not isProduction %}
+    <script type="module" src="/@vite/client"></script>
+  {% endif %}
+  <link href="{{ index_css }}" rel="stylesheet">
+
+  {% include "components/head-analytics.njk" %}
+{% endblock %}
+
+{% block bodyStart %}
+  {% include "components/body-start-analytics.njk" %}
+{% endblock %}
+
+{% block pageTitle %}
+  {% include "components/page-title.njk" %}
+{% endblock %}
+
+{% block header %}
+  {% include "components/site-header.njk" %}
+{% endblock %}
+
+{% block beforeContent %}
+  {% include "components/phase-banner-content.njk" %}
+  {% block backLink %}
+    {% if backLink %}
+      <a href="{{ backLink}}" class="govuk-back-link">{{ back }}</a>
+    {% endif %}
+  {% endblock %}
+{% endblock %}
+
+{% block content %}
+  {% block error_summary %}
+    {# Error summary would go here #}
+  {% endblock %}
+
+  {% block page_content %}
+    {% if title %}
+      <h1 class="govuk-heading-l">{{ title }}</h1>
+    {% endif %}
+  {% endblock %}
+{% endblock %}
+
+{% block footer %}
+  {% include "components/site-footer.njk" %}
+{% endblock %}
+
+{% block bodyEnd %}
+  {% include "components/body-end-scripts.njk" %}
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends "layouts/default.njk" %}
+
+{% block page_content %}
+  <h1 class="govuk-heading-xl">{{ title }}</h1>
+
+  <p class="govuk-body">{{ sections.intro.content }}</p>
+
+  <p class="govuk-body">{{ sections.intro.commitment }}</p>
+  <ul class="govuk-list govuk-list--bullet">
+    {% for feature in sections.intro.features %}
+      <li>{{ feature }}</li>
+    {% endfor %}
+  </ul>
+
+  <p class="govuk-body">{{ sections.intro.simpleLanguage }}</p>
+  <p class="govuk-body">
+    <a href="https://mcmw.abilitynet.org.uk/" class="govuk-link">{{ sections.intro.abilityNet }}</a>
+  </p>
+
+  <h2 class="govuk-heading-l">{{ sections.howAccessible.heading }}</h2>
+  <p class="govuk-body">{{ sections.howAccessible.content }}</p>
+  <ul class="govuk-list govuk-list--bullet">
+    {% for issue in sections.howAccessible.issues %}
+      <li>{{ issue }}</li>
+    {% endfor %}
+  </ul>
+
+  <h2 class="govuk-heading-l">{{ sections.feedback.heading }}</h2>
+  <p class="govuk-body">{{ sections.feedback.content }}</p>
+  <p class="govuk-body">
+    {{ sections.feedback.contact.email }}<br>
+    {{ sections.feedback.contact.phone }}<br>
+    {{ sections.feedback.contact.hours }}
+  </p>
+  <p class="govuk-body">{{ sections.feedback.response }}</p>
+
+  <h2 class="govuk-heading-l">{{ sections.reporting.heading }}</h2>
+  <p class="govuk-body">{{ sections.reporting.content }}</p>
+  <p class="govuk-body">
+    {{ sections.reporting.contact.email }}<br>
+    {{ sections.reporting.contact.phone }}
+  </p>
+
+  <h2 class="govuk-heading-l">{{ sections.enforcement.heading }}</h2>
+  {% for paragraph in sections.enforcement.content %}
+    <p class="govuk-body">{{ paragraph }}</p>
+  {% endfor %}
+
+  <h2 class="govuk-heading-l">{{ sections.technical.heading }}</h2>
+  <p class="govuk-body">{{ sections.technical.content }}</p>
+
+  <h2 class="govuk-heading-l">{{ sections.compliance.heading }}</h2>
+  <p class="govuk-body">{{ sections.compliance.content }}</p>
+
+  <h2 class="govuk-heading-l">{{ sections.nonAccessible.heading }}</h2>
+  <p class="govuk-body">{{ sections.nonAccessible.intro }}</p>
+
+  <h3 class="govuk-heading-m">{{ sections.nonAccessible.nonCompliance.heading }}</h3>
+  <ul class="govuk-list govuk-list--bullet">
+    {% for issue in sections.nonAccessible.nonCompliance.issues %}
+      <li>{{ issue }}</li>
+    {% endfor %}
+  </ul>
+  <p class="govuk-body">{{ sections.nonAccessible.nonCompliance.fixing }}</p>
+
+  <h3 class="govuk-heading-m">{{ sections.nonAccessible.disproportionateBurden.heading }}</h3>
+  <p class="govuk-body">{{ sections.nonAccessible.disproportionateBurden.content }}</p>
+
+  <h3 class="govuk-heading-m">{{ sections.nonAccessible.outsideScope.heading }}</h3>
+  <h4 class="govuk-heading-s">{{ sections.nonAccessible.outsideScope.pdfs.heading }}</h4>
+  {% for paragraph in sections.nonAccessible.outsideScope.pdfs.content %}
+    <p class="govuk-body">{{ paragraph }}</p>
+  {% endfor %}
+
+  <h2 class="govuk-heading-l">{{ sections.testing.heading }}</h2>
+  <p class="govuk-body">{{ sections.testing.content }}</p>
+
+  <h2 class="govuk-heading-l">{{ sections.preparation.heading }}</h2>
+  {% for paragraph in sections.preparation.content %}
+    <p class="govuk-body">{{ paragraph }}</p>
+  {% endfor %}
+{% endblock %}

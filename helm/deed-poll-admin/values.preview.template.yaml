@@ -1,0 +1,110 @@
+# Global values shared by all subcharts
+global:
+  environment: preview
+  security:
+    allowInsecureImages: true
+
+# Enable/disable subcharts
+postgres:
+  enabled: true
+web:
+  enabled: true
+api:
+  enabled: true
+crons:
+  enabled: true
+
+# Web application configuration
+deed-poll-admin-web:
+  nodejs:
+    image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:${WEB_IMAGE}"
+    ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-web.preview.platform.hmcts.net"
+    environment:
+      POSTGRES_DATABASE: "{{ .Release.Name }}"
+    secrets:
+      POSTGRES_HOST:
+        secretRef: postgres
+        key: HOST
+      POSTGRES_USER:
+        secretRef: postgres
+        key: USER
+      POSTGRES_PASSWORD:
+        secretRef: postgres
+        key: PASSWORD
+      POSTGRES_PORT:
+        secretRef: postgres
+        key: PORT
+
+# API application configuration
+deed-poll-admin-api:
+  nodejs:
+    image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-api:${API_IMAGE}"
+    ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-api.preview.platform.hmcts.net"
+    environment:
+      POSTGRES_DATABASE: "{{ .Release.Name }}"
+    secrets:
+      POSTGRES_HOST:
+        secretRef: postgres
+        key: HOST
+      POSTGRES_USER:
+        secretRef: postgres
+        key: USER
+      POSTGRES_PASSWORD:
+        secretRef: postgres
+        key: PASSWORD
+      POSTGRES_PORT:
+        secretRef: postgres
+        key: PORT
+
+# Crons application configuration
+deed-poll-admin-crons:
+  job:
+    image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-crons:${CRONS_IMAGE}"
+    schedule: "*/5 * * * *"  # Every 5 minutes
+    suspend: false
+    kind: CronJob
+    environment:
+      SCRIPT_NAME: 'example'
+      POSTGRES_DATABASE: "{{ .Release.Name }}"
+    secrets:
+      POSTGRES_HOST:
+        secretRef: postgres
+        key: HOST
+      POSTGRES_USER:
+        secretRef: postgres
+        key: USER
+      POSTGRES_PASSWORD:
+        secretRef: postgres
+        key: PASSWORD
+      POSTGRES_PORT:
+        secretRef: postgres
+        key: PORT
+
+# Postgres Prisma Studio service configuration
+deed-poll-admin-postgres:
+  nodejs:
+    image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-postgres:${POSTGRES_IMAGE}"
+    ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-postgres.preview.platform.hmcts.net"
+    environment:
+      POSTGRES_DATABASE: "{{ .Release.Name }}"
+    secrets:
+      POSTGRES_HOST:
+        secretRef: postgres
+        key: HOST
+      POSTGRES_USER:
+        secretRef: postgres
+        key: USER
+      POSTGRES_PASSWORD:
+        secretRef: postgres
+        key: PASSWORD
+      POSTGRES_PORT:
+        secretRef: postgres
+        key: PORT
+
+# PostgreSQL database configuration
+postgresql:
+  enabled: true
+  flexibleserver: deed-poll-preview
+  setup:
+    databases:
+      - name: "{{ .Release.Name }}"

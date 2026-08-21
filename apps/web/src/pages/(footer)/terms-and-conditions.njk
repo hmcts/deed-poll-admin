@@ -1,0 +1,80 @@
+{% extends "layouts/default.njk" %}
+
+{% block page_content %}
+  <h1 class="govuk-heading-xl">{{ title }}</h1>
+
+  <p class="govuk-body">{{ intro }}</p>
+
+  <h2 class="govuk-heading-l">{{ sections.whoWeAre.heading }}</h2>
+  {% for paragraph in sections.whoWeAre.content %}
+    <p class="govuk-body">{{ paragraph }}</p>
+  {% endfor %}
+
+  <h2 class="govuk-heading-l">{{ sections.information.heading }}</h2>
+  {% for paragraph in sections.information.content %}
+    <p class="govuk-body">{{ paragraph }}</p>
+  {% endfor %}
+
+  <h2 class="govuk-heading-l">{{ sections.dataStorage.heading }}</h2>
+  <p class="govuk-body">{{ sections.dataStorage.content[0] }}</p>
+  <p class="govuk-body">We use GOV.UK Notify to send emails. Until the point where emails are handed over to your email provider, they are processed within the EEA. Your data is stored for {{ serviceConfig.temporaryDataPeriod }}, and is deleted after this.</p>
+
+  <h2 class="govuk-heading-l">{{ sections.applicableLaw.heading }}</h2>
+  <p class="govuk-body">{{ sections.applicableLaw.content }}</p>
+  <ul class="govuk-list govuk-list--bullet">
+    {% for law in sections.applicableLaw.laws %}
+      <li>{{ law }}</li>
+    {% endfor %}
+  </ul>
+
+  <h2 class="govuk-heading-l">{{ sections.responsibleUse.heading }}</h2>
+  <p class="govuk-body">{{ sections.responsibleUse.content }}</p>
+  
+  <p class="govuk-body">{{ sections.responsibleUse.warning }}</p>
+
+  <p class="govuk-body">{{ sections.responsibleUse.precautions }}</p>
+  <ul class="govuk-list govuk-list--bullet">
+    {% for risk in sections.responsibleUse.risks %}
+      <li>{{ risk }}</li>
+    {% endfor %}
+  </ul>
+
+  {% for paragraph in sections.responsibleUse.prohibited %}
+    <p class="govuk-body">{{ paragraph }}</p>
+  {% endfor %}
+
+  <h2 class="govuk-heading-l">{{ sections.changes.heading }}</h2>
+  {% for paragraph in sections.changes.content %}
+    <p class="govuk-body">{{ paragraph }}</p>
+  {% endfor %}
+
+  <h2 class="govuk-heading-l">{{ sections.contactUs.heading }}</h2>
+  
+  <p class="govuk-body">
+    {% for line in serviceConfig.postalAddress %}
+      {{ line }}<br>
+    {% endfor %}
+  </p>
+
+  <h3 class="govuk-heading-m">{{ sections.contactUs.helpHeading }}</h3>
+
+  <ul class="govuk-list">
+    <li>
+      <h4 class="govuk-heading-s">{{ sections.contactUs.sendMessage.heading }}</h4>
+      <p class="govuk-body">
+        <a href="{{ serviceConfig.contactFormUrl }}" class="govuk-link">{{ sections.contactUs.sendMessage.linkText }}</a>
+      </p>
+    </li>
+
+    <li>
+      <h4 class="govuk-heading-s">{{ sections.contactUs.telephone.heading }}</h4>
+      <p class="govuk-body">{{ serviceConfig.contactPhone }}</p>
+    </li>
+
+    <li>
+      <h4 class="govuk-heading-s">{{ sections.contactUs.openingHours.heading }}</h4>
+      <p class="govuk-body">{{ serviceConfig.openingHours }}</p>
+      <p class="govuk-body">{{ sections.contactUs.openingHours.closed }}</p>
+    </li>
+  </ul>
+{% endblock %}

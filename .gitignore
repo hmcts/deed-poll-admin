@@ -1,40 +1,50 @@
+# Dependency directories
 node_modules/
-.nyc_output
-.sass-cache
-*.css
 
-.idea/
-*.iml
-
-*swp
-*log
-.DS_Store
-
-src/main/public/img/lib/*
-src/main/public/js/lib/**/*.js
-src/main/public/stylesheets/lib/*
-src/main/resources/localhost-ssl
-
-node-rpm-packaging/
-mochawesome-report/
-npm-debug.log.*
-
-.project
-.settings/
+# Build output
 dist/
-public/
-src/main/views/govuk
+build/
+public/build/
+database/build
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment variables
+.env.*.local
+.env.local
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Testing
+test-results/
+playwright-report/
 coverage/
-smoke-output/
-functional-output/
-version
+.nyc_output/
+lcov.info
+.playwright-mcp/
 
-.eslintcache
+# Turborepo
+.turbo/
 
-.yarn/*
-!.yarn/cache/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/sdks
-!.yarn/versions
+# Yarn
+.yarn/
+
+# intellij
+.idea/
+
+# agentic env vars
+.mcp.env
+.claude/claude.env
+.claude/analytics
+.claude/settings.local.json
+
+# Helm
+**/Chart.lock
+**/charts/*.tgz
+values.preview.yaml
+
+# Prisma generated client
+libs/postgres-prisma/generated/
