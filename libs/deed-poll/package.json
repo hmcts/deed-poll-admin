@@ -22,6 +22,7 @@
     "vitest": "*"
   },
   "dependencies": {
-    "@hmcts/postgres-prisma": "workspace:*"
+    "@hmcts/postgres-prisma": "workspace:*",
+    "zod": "4.4.3"
   }
 }
