@@ -72,7 +72,8 @@ No CCD dependency. Deployable on its own.
 - **Phase 1 — schema into the monorepo.** ✅ Done.
 - **Phase 2 — domain logic → `libs/deed-poll/`.** ✅ Done. Includes the DTO→Zod conversion, which
   was originally Phase 3 but moved forward because Phase 2 could not compile without it.
-- **Phase 3 — JSON API → `apps/api/src/routes/`.** ⬅ **next**
+- **Phase 3 — JSON API → `apps/api/src/routes/`.** ⬅ **in progress.** Foundations (error mapping,
+  role middleware) done; the 29 handlers remain.
 - **Phase 4 — SSR pages → `apps/web/src/pages/`.**
 - **Phase 5 — authentication (IDAM/Entra).**
 - **Phase 6 — config, Helm, deployment.**

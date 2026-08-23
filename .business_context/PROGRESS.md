@@ -112,7 +112,10 @@ What changed in the move:
 - **The `ccd` schema tests skip when no database is reachable** — CI has no Postgres. Run
   `docker compose up -d` locally to exercise them.
 
-## Phase 3 — the JSON API (next)
+## Phase 3 — the JSON API (in progress)
+
+**Foundations are done** (`caf4e03`); the 29 handlers themselves are not. See "Phase 3 foundations"
+below for what landed and the two decisions it embeds.
 
 Move the 29 JSON handlers from the prototype's controllers into `apps/api/src/routes/` as
 `simple-router` files. The domain functions they need all exist and are tested.
@@ -140,24 +143,58 @@ Source controllers to port (then delete):
 
 Specific work:
 
-1. **Error mapping.** `NotFoundError` → 404, `InvalidInputError` → 400 with its `errors` array in the
-   body. This is new code; nothing does it yet.
-2. **Validation per route.** Replace the global `ValidationPipe` with `safeParse` against the Zod
+1. ✅ **Error mapping.** Done — see below.
+2. ⬅ **Validation per route.** Replace the global `ValidationPipe` with `safeParse` against the Zod
    schemas from `@hmcts/deed-poll`. Follow `libs/onboarding/src/onboarding/validation.ts` and the
-   existing `apps/api/src/routes/onboarding/` handlers for shape.
-3. **`RolesGuard` → Express middleware.** Keep the `Role` / `DEEDPOLL_ADMIN` model unchanged; only
-   the extraction mechanism changes. `simple-router` supports handler arrays, so `@Roles(...)`
-   becomes a middleware entry. Rewrite the 6 dropped `roles.guard.spec` tests against it.
-   **The current scheme reads roles from the `x-user-roles` header — anyone can send
-   `x-user-roles: deedpoll-admin` and become an admin.** Phase 3 should not entrench that; Phase 5
-   replaces it with IDAM, and nothing should be deployed outside localhost until it has.
-4. **Multer.** `uploadDocument` now takes a plain `UploadedFile` (`buffer`, `originalname`,
+   existing `apps/api/src/routes/onboarding/` handlers for shape. `zodErrorToFieldErrors` and the
+   400 mapping are in place, so a handler can simply `throw result.error` on a failed `safeParse`.
+   **This is per-handler work and is the bulk of what remains.**
+3. ✅ **`RolesGuard` → Express middleware.** Done — see below.
+4. ⬅ **Multer.** `uploadDocument` now takes a plain `UploadedFile` (`buffer`, `originalname`,
    `mimetype`, `size`) rather than `Express.Multer.File`. The app maps its upload middleware onto it.
 
-Verification: `yarn test` must still show 441 in `libs/deed-poll` plus whatever the new route tests
-add; `yarn lint` and `yarn build` clean; and exercise the handlers against a running app
-(`docker compose up -d && yarn dev`), including `GET /api/deed-polls/field-rules` and
-`POST /api/deed-polls/:id/validate`, which are the conditional-rule surface.
+Verification: `yarn test` must show at least 450 in `libs/deed-poll` and 67 in `apps/api` plus
+whatever the new route tests add; `yarn lint` and `yarn build` clean; and exercise the handlers
+against a running app (`docker compose up -d && yarn dev`), including
+`GET /api/deed-polls/field-rules` and `POST /api/deed-polls/:id/validate`, which are the
+conditional-rule surface. **Send `x-user-roles: deedpoll-admin` when exercising guarded routes**, and
+note that it is ignored unless `NODE_ENV` is non-production.
+
+### Phase 3 foundations (done, `caf4e03`)
+
+| File | What |
+|---|---|
+| `libs/deed-poll/src/errors.ts` | adds `ForbiddenError` and `zodErrorToFieldErrors` |
+| `apps/api/src/errors.ts` | `errorHandler()`, mounted last in `app.ts` |
+| `apps/api/src/auth/current-user.ts` | `userFromRequest` — header extraction, the Phase 5 seam |
+| `apps/api/src/auth/require-roles.ts` | `requireRoles(...)`, replacing `RolesGuard` |
+
+Two decisions worth not relitigating:
+
+- **Error mapping is app-level middleware, not try/catch per route**, which is what
+  `.claude/rules/backend.md` illustrates. `app.ts` already had a catch-all error handler, so this
+  extends it rather than adding a pattern. It means the 29 handlers cannot disagree about what a
+  missing case returns, and a handler that forgets to catch cannot leak a stack trace as a 500.
+  Handlers may still catch locally for bespoke cases. **A guarded route restricts itself by exporting
+  an array** — `export const DELETE = [requireRoles(DEEDPOLL_ADMIN), handler]` — which is how
+  `simple-router`'s `normalizeHandlers` expects a multi-handler route.
+
+  This depends on Express 5 forwarding a rejected handler promise to error middleware, which Express
+  4 did not. `apps/api/src/errors.wiring.test.ts` drives that through a real router with `supertest`
+  so a regression cannot hide behind unit tests that call `errorHandler` directly. **Do not delete
+  that file** on the grounds that it duplicates `errors.test.ts` — it is testing the framework
+  contract, not the mapper.
+
+- **Header auth now fails closed in production.** With `NODE_ENV=production` the `x-user-roles` and
+  `x-user-name` headers are ignored, every caller resolves to no roles, and guarded routes return
+  403, with one log line explaining why. The scheme is an admin bypass, so an accidental deploy ahead
+  of Phase 5 should not appear to work. This does not make the service deployable — Phase 5 still
+  gates that — it only removes the worst failure mode. Phase 5 replaces `current-user.ts` wholesale.
+
+The 6 tests dropped from `roles.guard.spec` are rewritten and accounted for. The guard's two
+"open route" cases (no `@Roles` metadata, empty roles array) collapse into one: in Express an
+unguarded route is simply one that does not mount the middleware, so only `requireRoles()` with no
+arguments remains testable.
 
 Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/web`, replacing
 `nunjucks.setup.ts` entirely with `configureGovuk` from `@hmcts-cft/express-govuk-starter`.
