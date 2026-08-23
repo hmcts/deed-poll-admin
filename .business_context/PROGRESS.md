@@ -7,6 +7,9 @@ already in. Start at ["Phase 3 — the JSON API"](#phase-3--the-json-api-in-prog
 ["Phase 3 foundations"](#phase-3-foundations-done-caf4e03) before writing a handler, because two
 decisions there change how a handler is written.
 
+**Four questions are open with Steve** — see "Questions waiting on Steve" below. Each has a stated
+default, so none of them blocks starting.
+
 ## State
 
 Branch `feat/deed-poll-migration`, 13 commits, pushed and tracking
@@ -36,6 +39,26 @@ skipped (no database in CI — `docker compose up -d` to run them).
 **Before running anything, Yarn needs sideloading** — Corepack cannot reach `repo.yarnpkg.com` from
 the devcontainer. See the bullet under "Things a future session should not have to rediscover"; it
 cost a chunk of a session to rediscover once already.
+
+## Questions waiting on Steve
+
+Raised at the end of the 2026-08-23 session and **not yet answered**. Each has a default so nothing
+is blocked; ask, but proceed on the default if there is no answer.
+
+1. **Confirm the CNP product code with Platform Operations.** Open item 1 in
+   [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md) — the oldest open item and the one with external lead
+   time, so it wants starting well before Phase 6 rather than at it. Offered to draft the question for
+   Steve to send. *Default: raise it at the start of Phase 6 work, which is late but not fatal.*
+2. **Renovate PR #31 (`applicationinsights` 3.16.0)** would clear 11 of the remaining 18 alerts in one
+   go — the whole `protobufjs` cluster. It is open and unreviewed. *Default: check it merges cleanly
+   and say so, do not merge it unasked.*
+3. **How to slice Phase 3.** Recommendation was: `deed-polls` first (7 handlers, and it contains
+   `field-rules` and `validate`, the conditional-rule surface and the riskiest part), then
+   notes and witnesses, then documents last because they need the Multer wiring. The alternative is
+   one pass over all 29 for a single review. *Default: the sliced order above.*
+4. **Prisma query logging is now live under `yarn dev`** — see Loose ends 3. Believed an improvement,
+   since the line was dead before, but it is new noise Steve did not have yesterday.
+   *Default: leave it on.*
 
 ## Done
 
