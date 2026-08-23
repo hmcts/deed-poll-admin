@@ -175,6 +175,10 @@ open for weeks. Revisit once Track A is green.
 
 ## Dependency alerts on master
 
+**Resolved 2026-08-23** — [PR #36](https://github.com/hmcts/deed-poll-admin/pull/36) is merged
+(`8bf8563`) and this branch has merged master to pick it up (`ce73cc5`). Kept for the reasoning, and
+because the residue below is still live. History, in case the numbers are ever questioned again:
+
 **Do not repeat the mistake this section replaces.** An earlier note in this file claimed the 97
 Dependabot alerts were an artefact of the migration branch adding dependencies "to a tree that still
 contains the old lockfile entries on master", and would "drop sharply once `power_app_nest/` is
@@ -209,11 +213,11 @@ the declared ranges already admit the patched versions:
 So this was fixable with a targeted `yarn up -R` and no manifest changes — it was **not** work to
 defer to Phase 4.
 
-**Remediated in [PR #36](https://github.com/hmcts/deed-poll-admin/pull/36)**, on
-`chore/refresh-lockfile-security` off master — deliberately kept out of the re-platforming diff, so
-this branch picks it up on its next rebase. `yarn npm audit --all --recursive` went from 99 advisories
-(2 critical, 41 high, 51 moderate, 5 low) to 20 (0 critical, 7 high, 13 moderate), lockfile-only, with
-lint, build and test clean.
+**Remediated in [PR #36](https://github.com/hmcts/deed-poll-admin/pull/36)**, merged to master on
+2026-08-23 from `chore/refresh-lockfile-security` — deliberately kept out of the re-platforming diff.
+`yarn npm audit --all --recursive` went from 99 advisories (2 critical, 41 high, 51 moderate, 5 low) to
+20 (0 critical, 7 high, 13 moderate), lockfile-only, with lint, build and test clean. This branch
+merged master at `ce73cc5` and audits at the same 20; `libs/deed-poll` is unchanged at 441 tests.
 
 The 20 that remain are pinned by their dependents rather than by us, so each needs the dependent
 bumped. **11 of them are a single `protobufjs@8.0.1`**, pinned exactly by the OpenTelemetry stack under
