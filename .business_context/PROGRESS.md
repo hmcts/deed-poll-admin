@@ -2,13 +2,26 @@
 
 Last updated: 2026-08-23. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
-**Next thing to pick up: Phase 3 — the JSON API.** Detail at the bottom.
+**Next thing to pick up: Phase 3, the 29 route handlers.** The Phase 3 foundations they depend on are
+already in. Start at ["Phase 3 — the JSON API"](#phase-3--the-json-api-in-progress); read
+["Phase 3 foundations"](#phase-3-foundations-done-caf4e03) before writing a handler, because two
+decisions there change how a handler is written.
 
 ## State
 
-Branch `feat/deed-poll-migration`, 5 commits, **not yet pushed** and no upstream configured.
+Branch `feat/deed-poll-migration`, 13 commits, pushed and tracking
+`origin/feat/deed-poll-migration`. 127 files, +10,648 lines against master. No PR, deliberately —
+see "Branch state". Working tree clean as of 2026-08-23.
 
 ```
+31f290e  Make the header-auth bypass opt-in by environment rather than opt-out
+290e5cf  Record the Phase 3 foundations in the handover docs
+caf4e03  Add the Phase 3 foundations: error mapping and role middleware
+0132bd4  Record PR #36 as merged and narrow the open item to the residue
+ce73cc5  Merge master to pick up the refreshed lockfile
+2b42a14  Point the dependency-alert note at the remediation PR
+ae51462  Correct the dependency-alert note in the handover docs
+9754a8d  Record the migration plan and progress in .business_context
 94e1715  Complete Phase 2: move the Prisma-backed services and conformance harness
 4c81c16  Convert the class-validator DTOs to Zod schemas
 c58e161  Move deed-poll domain logic into libs/deed-poll (part 1: pure modules)
@@ -16,7 +29,13 @@ a5e0d6e  Add the CCD decentralised-persistence ccd schema, vendored from the SDK
 b17fac5  Port the deed-poll case model into the shared Prisma schema
 ```
 
-`yarn lint`, `yarn build` and `yarn test` are all clean across the workspace (11 tasks).
+`yarn lint`, `yarn build` and `yarn test` are all clean across the workspace (11 tasks). Current test
+counts, so a regression is obvious: `libs/deed-poll` **450**, `apps/api` **71**, `apps/postgres` 11
+skipped (no database in CI — `docker compose up -d` to run them).
+
+**Before running anything, Yarn needs sideloading** — Corepack cannot reach `repo.yarnpkg.com` from
+the devcontainer. See the bullet under "Things a future session should not have to rediscover"; it
+cost a chunk of a session to rediscover once already.
 
 ## Done
 
@@ -218,10 +237,50 @@ Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/
 `nunjucks.setup.ts` entirely with `configureGovuk` from `@hmcts-cft/express-govuk-starter`.
 `power_app_nest/` is deleted at the end of Phase 4, not before.
 
+## Loose ends
+
+Small, real, and deliberately not done. None blocks Phase 3.
+
+1. **Upstream the async-handler wrap into the template, once Phase 3's handlers exist.** The error
+   mapping depends on Express 5 forwarding a rejected handler promise to error middleware.
+   `normalizeHandlers` in `@hmcts-cft/simple-router` is the natural chokepoint to guarantee it
+   instead of relying on framework behaviour — it is currently just
+   `Array.isArray(x) ? x : [x]`, and upstream's copy at `hmcts/expressjs-monorepo-template` is
+   byte-identical, so a patch applies cleanly.
+
+   **Do not patch it locally.** `libs/simple-router` is template-provided (`@hmcts-cft/` scope,
+   arrived wholesale in the re-scaffold `82e8b0d`). This repo was re-scaffolded on 2026-08-21 and
+   will be again; a local patch would either be silently dropped or land as a conflict. Contribute it
+   upstream so every service on the template benefits. Deferred until the 29 handlers are written,
+   because they are the argument for the change.
+
+   One trap for whoever writes it: **Express distinguishes error middleware by `fn.length`**, so a
+   naive variadic wrapper (arity 0) would silently reclassify every 4-arg error handler as a normal
+   one. `simple-router` already arity-checks (`>= 2 && <= 4`) for this reason. The wrapper must
+   declare parameters explicitly and branch on the original's arity.
+
+   The risk this mitigates is currently low: `apps/api` and `apps/web` pin `express` **exactly** at
+   `5.2.1`, so the behaviour cannot drift away via semver or a lockfile refresh — it needs a
+   deliberate major bump, which `errors.wiring.test.ts` would fail on. That is the intended signal.
+
+2. **`libs/deed-poll/package.json` declares `"tsx": "*"` and `"vitest": "*"`.** Wildcards, which
+   `CLAUDE.md` forbids ("Pinned dependencies: specific versions only"). Pre-existing on this branch,
+   unrelated to any of the above. Root pins `vitest` at `4.1.10`; match it.
+
+3. **Prisma query logging is now live under `yarn dev`.** Setting `NODE_ENV=development` revived
+   `libs/postgres-prisma/src/index.ts:34`, which had never fired. If it proves noisy that line is the
+   place to look, and `CLAUDE.md`'s `DEBUG=prisma:query` suggestion is now redundant rather than
+   necessary.
+
+4. **`power_app_nest/` is untracked but *not* ignored on master.** The Phase 0 `.gitignore` entry
+   exists only on this branch. Harmless while working here, but on master a stray `git add -A` would
+   try to commit ~498M of `node_modules` and 57 document blobs. Cherry-picking that one `.gitignore`
+   line to master would close it.
+
 ## Branch state
 
 [`feat/deed-poll-migration`](https://github.com/hmcts/deed-poll-admin/tree/feat/deed-poll-migration)
-is published with upstream tracking configured; 116 files, +9,800 lines. The diff was scanned for
+is published with upstream tracking configured; 127 files, +10,648 lines. The diff was scanned for
 secrets before publishing — no `.env`, keys or credential-shaped strings. The only hits were the
 template's `SESSION_SECRET` placeholder and Helm `secretRef` names, which are references, not values.
 

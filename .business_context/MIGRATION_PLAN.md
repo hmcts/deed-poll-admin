@@ -129,7 +129,7 @@ a single narrow seam (`saveFile` / `createFileReadStream` / `deleteFile`) plus a
 | Risk | Handling |
 |---|---|
 | CCD decentralisation unproven for Node | Track B separable; Azure Blob off-ramp preserved |
-| Header auth is an admin bypass | Phase 5; hard gate before any non-local deploy |
+| Header auth is an admin bypass | Phase 5; hard gate before any non-local deploy. Narrowed 2026-08-23: the scheme is now opt-in by `NODE_ENV` and fails closed elsewhere, so an early deploy 403s rather than granting admin. **Unguarded routes are still open** — this is not authentication |
 | Two rule gaps in `CONFORMANCE_HARNESS_PLAN.md` (migrated-record relaxation unimplemented; Gazette-date gate only on the relinquishment branch) | Carry across as failing tests and fix — do not silently lose them |
 | Prototype has no Welsh, no a11y tests | Structure in Phase 4; axe in Phase 4 verification |
 | Local disk document storage | Cannot go to AKS — pods ephemeral, replicas share no volume. Phase 10 or the Blob off-ramp |
