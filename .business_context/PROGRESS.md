@@ -206,7 +206,17 @@ the declared ranges already admit the patched versions:
 | `@grpc/grpc-js` | 1.14.3 | 1.14.4 | `^1.14.3` — a refresh resolves it |
 | `protobufjs` | 8.0.1 | 8.6.6 | pinned exact; needs its dependent bumped |
 
-So this is fixable now with a targeted `yarn up -R` and no manifest changes — it is **not** work to
-defer to Phase 4. Being remediated on a separate branch off master, deliberately kept out of the
-re-platforming diff; this branch picks it up on its next rebase. Renovate PR #31
-(`applicationinsights` 3.16.0) covers the largest cluster.
+So this was fixable with a targeted `yarn up -R` and no manifest changes — it was **not** work to
+defer to Phase 4.
+
+**Remediated in [PR #36](https://github.com/hmcts/deed-poll-admin/pull/36)**, on
+`chore/refresh-lockfile-security` off master — deliberately kept out of the re-platforming diff, so
+this branch picks it up on its next rebase. `yarn npm audit --all --recursive` went from 99 advisories
+(2 critical, 41 high, 51 moderate, 5 low) to 20 (0 critical, 7 high, 13 moderate), lockfile-only, with
+lint, build and test clean.
+
+The 20 that remain are pinned by their dependents rather than by us, so each needs the dependent
+bumped. **11 of them are a single `protobufjs@8.0.1`**, pinned exactly by the OpenTelemetry stack under
+`applicationinsights`; Renovate PR #31 (`applicationinsights` 3.16.0) should carry it. Two are not
+vulnerabilities at all — `@types/config` is a stub package that `config` supersedes (delete the
+dependency from `apps/api` to clear it), and `tsconfck` is merely flagged unmaintained.
