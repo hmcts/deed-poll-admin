@@ -157,8 +157,9 @@ Verification: `yarn test` must show at least 450 in `libs/deed-poll` and 67 in `
 whatever the new route tests add; `yarn lint` and `yarn build` clean; and exercise the handlers
 against a running app (`docker compose up -d && yarn dev`), including
 `GET /api/deed-polls/field-rules` and `POST /api/deed-polls/:id/validate`, which are the
-conditional-rule surface. **Send `x-user-roles: deedpoll-admin` when exercising guarded routes**, and
-note that it is ignored unless `NODE_ENV` is non-production.
+conditional-rule surface. **Send `x-user-roles: deedpoll-admin` when exercising guarded routes** —
+`yarn dev` sets `NODE_ENV=development`, so the header is honoured; under any other `NODE_ENV` it is
+ignored and guarded routes 403.
 
 ### Phase 3 foundations (done, `caf4e03`)
 
@@ -185,11 +186,28 @@ Two decisions worth not relitigating:
   that file** on the grounds that it duplicates `errors.test.ts` — it is testing the framework
   contract, not the mapper.
 
-- **Header auth now fails closed in production.** With `NODE_ENV=production` the `x-user-roles` and
-  `x-user-name` headers are ignored, every caller resolves to no roles, and guarded routes return
-  403, with one log line explaining why. The scheme is an admin bypass, so an accidental deploy ahead
-  of Phase 5 should not appear to work. This does not make the service deployable — Phase 5 still
-  gates that — it only removes the worst failure mode. Phase 5 replaces `current-user.ts` wholesale.
+- **Header auth is opt-in by environment and fails closed.** It is honoured only when `NODE_ENV` is
+  `development` or `test` (`HEADER_AUTH_ENVIRONMENTS` in `current-user.ts`). Anywhere else the
+  `x-user-roles` and `x-user-name` headers are ignored, every caller resolves to no roles, and
+  guarded routes return 403 — with one log line naming the `NODE_ENV` actually seen, since an
+  unexpected or absent value is the likeliest cause.
+
+  **The allowlist polarity is deliberate and should not be "corrected" to match the codebase.**
+  Everything else here asks `NODE_ENV === "production"` and treats all other values as development.
+  That default-open reading is right for a log level and wrong for an authorisation bypass: it would
+  leave the bypass live for anything that merely is not the literal string `production` — an unset
+  variable, a Helm `env:` override, `node dist/server.js` run outside the image, or a deployed
+  environment named `aat`. Tests pin all four cases.
+
+  `apps/api` and `apps/web` now set `NODE_ENV=development` in their `dev` scripts, mirroring the
+  root's `start:api` / `start:web` which already state `production`. Previously dev relied on the
+  variable being unset, which an allowlist cannot read as consent. Side benefit: it revives
+  `libs/postgres-prisma/src/index.ts:34`, whose `=== "development"` query logging never fired.
+
+  None of this makes the service deployable — Phase 5 still gates that, and **unguarded routes remain
+  open regardless**, since the check only runs where `requireRoles` is mounted. It removes the worst
+  failure mode: deployed early, appears to work, anyone is an admin. Phase 5 replaces
+  `current-user.ts` wholesale.
 
 The 6 tests dropped from `roles.guard.spec` are rewritten and accounted for. The guard's two
 "open route" cases (no `@Roles` metadata, empty roles array) collapse into one: in Express an

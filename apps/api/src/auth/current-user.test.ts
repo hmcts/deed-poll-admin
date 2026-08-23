@@ -25,7 +25,12 @@ describe("userFromRequest", () => {
   });
 
   afterEach(() => {
-    process.env.NODE_ENV = originalNodeEnv;
+    // Assigning undefined would set the literal string "undefined", so restore by deleting.
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
     vi.restoreAllMocks();
   });
 
@@ -72,6 +77,49 @@ describe("userFromRequest", () => {
     expect(user.roles).toEqual([]);
     expect(user.isAdmin).toBe(false);
     expect(user.name).toBe(SERVICE_ACCOUNT_NAME);
+  });
+
+  it("should fail closed when NODE_ENV is not set at all", async () => {
+    // The bypass must be opted into, not merely left un-disabled. An unset variable is the
+    // likeliest way a deployed process ends up outside the allowlist.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    delete process.env.NODE_ENV;
+    const userFromRequest = await freshUserFromRequest();
+
+    const user = userFromRequest(requestWith({ "x-user-roles": DEEDPOLL_ADMIN }));
+
+    expect(user.roles).toEqual([]);
+    expect(user.isAdmin).toBe(false);
+  });
+
+  it("should fail closed for an environment name it does not recognise", async () => {
+    // e.g. a deployed environment named aat or ithc, which is not "production" and so would
+    // have kept the bypass live under a `!== "production"` check.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    process.env.NODE_ENV = "aat";
+    const userFromRequest = await freshUserFromRequest();
+
+    const user = userFromRequest(requestWith({ "x-user-roles": DEEDPOLL_ADMIN }));
+
+    expect(user.roles).toEqual([]);
+    expect(user.isAdmin).toBe(false);
+  });
+
+  it("should honour the header under NODE_ENV=test, which is what vitest sets", async () => {
+    process.env.NODE_ENV = "test";
+    const userFromRequest = await freshUserFromRequest();
+
+    expect(userFromRequest(requestWith({ "x-user-roles": DEEDPOLL_ADMIN })).isAdmin).toBe(true);
+  });
+
+  it("should name the offending NODE_ENV in the warning, since that is the likely cause", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    process.env.NODE_ENV = "aat";
+    const userFromRequest = await freshUserFromRequest();
+
+    userFromRequest(requestWith({}));
+
+    expect(consoleError.mock.calls[0]?.[0]).toContain('"aat"');
   });
 
   it("should explain the production lockout once, not on every request", async () => {
