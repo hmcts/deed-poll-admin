@@ -8,11 +8,28 @@
  * equivalents; the route and page handlers map them to status codes.
  */
 
+import type { ZodError } from "zod";
+
 /** A record that was asked for does not exist, or is not visible in the given scope. */
 export class NotFoundError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "NotFoundError";
+  }
+}
+
+/**
+ * The caller is known but does not hold a role the operation requires.
+ * Replaces the `ForbiddenException` the prototype's `RolesGuard` threw.
+ *
+ * Authorisation is a domain rule here, not a transport one — which role gates which
+ * operation is part of the deed-poll model (see `auth/roles.ts`), so the error belongs
+ * with the other domain errors even though only the apps currently throw it.
+ */
+export class ForbiddenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ForbiddenError";
   }
 }
 
@@ -43,4 +60,20 @@ export class InvalidInputError extends Error {
     this.name = "InvalidInputError";
     this.errors = errors;
   }
+}
+
+/**
+ * Flatten a `ZodError` into the same `FieldError[]` an `InvalidInputError` carries, so a
+ * schema rejection and a domain rejection are indistinguishable to whatever renders them.
+ * Without this the two arrive in different shapes and the caller needs two code paths.
+ *
+ * Nested and indexed paths are dotted (`["witnesses", 0, "name"]` → `witnesses.0.name`).
+ * An issue with an empty path — a `.refine()` on the object as a whole — yields an empty
+ * `field`, which callers should treat as addressed to the form rather than to an input.
+ */
+export function zodErrorToFieldErrors(error: ZodError): FieldError[] {
+  return error.issues.map((issue) => ({
+    field: issue.path.map(String).join("."),
+    message: issue.message
+  }));
 }

@@ -7,6 +7,7 @@ import compression from "compression";
 import cors from "cors";
 import type { Express } from "express";
 import express from "express";
+import { errorHandler } from "./errors.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,10 +39,8 @@ export async function createApp(): Promise<Express> {
     res.status(404).json({ error: "Not found" });
   });
 
-  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error(err.stack);
-    res.status(500).json({ error: "Internal server error" });
-  });
+  // Maps domain errors onto status codes; falls through to a generic 500. Must be last.
+  app.use(errorHandler());
 
   return app;
 }

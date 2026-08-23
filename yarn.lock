@@ -853,6 +853,7 @@ __metadata:
   dependencies:
     "@hmcts-cft/cloud-native-platform": "workspace:*"
     "@hmcts-cft/simple-router": "workspace:*"
+    "@hmcts/deed-poll": "workspace:*"
     "@hmcts/onboarding": "workspace:*"
     "@hmcts/postgres-prisma": "workspace:*"
     "@types/compression": "npm:1.8.1"
@@ -885,7 +886,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@hmcts/deed-poll@workspace:libs/deed-poll":
+"@hmcts/deed-poll@workspace:*, @hmcts/deed-poll@workspace:libs/deed-poll":
   version: 0.0.0-use.local
   resolution: "@hmcts/deed-poll@workspace:libs/deed-poll"
   dependencies:
