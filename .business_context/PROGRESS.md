@@ -1,6 +1,6 @@
 # Migration progress — handover
 
-Last updated: 2026-08-21. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
+Last updated: 2026-08-23. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
 **Next thing to pick up: Phase 3 — the JSON API.** Detail at the bottom.
 
@@ -162,3 +162,51 @@ add; `yarn lint` and `yarn build` clean; and exercise the handlers against a run
 Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/web`, replacing
 `nunjucks.setup.ts` entirely with `configureGovuk` from `@hmcts-cft/express-govuk-starter`.
 `power_app_nest/` is deleted at the end of Phase 4, not before.
+
+## Branch state
+
+[`feat/deed-poll-migration`](https://github.com/hmcts/deed-poll-admin/tree/feat/deed-poll-migration)
+is published with upstream tracking configured; 116 files, +9,800 lines. The diff was scanned for
+secrets before publishing — no `.env`, keys or credential-shaped strings. The only hits were the
+template's `SESSION_SECRET` placeholder and Helm `secretRef` names, which are references, not values.
+
+**No PR is open, deliberately.** This is work in progress through Phase 2 of 6, so a PR would sit
+open for weeks. Revisit once Track A is green.
+
+## Dependency alerts on master
+
+**Do not repeat the mistake this section replaces.** An earlier note in this file claimed the 97
+Dependabot alerts were an artefact of the migration branch adding dependencies "to a tree that still
+contains the old lockfile entries on master", and would "drop sharply once `power_app_nest/` is
+deleted at the end of Phase 4". That is wrong in three ways, checked on 2026-08-23:
+
+- **`power_app_nest/` has never been tracked.** Zero files on `origin/master`, and no commit on any
+  branch has ever touched the path. Its dependencies were never in the tracked lockfile, so deleting
+  the directory at the end of Phase 4 cannot change the alert count.
+- **There is one tracked lockfile**, root `yarn.lock`, on both master and this branch.
+- **Alerts are computed against the default branch.** This branch's lockfile change is not on
+  master, so the count is master's and is unaffected by the migration either way.
+
+The real cause of the 82 → 97 jump is the re-scaffold itself. `82e8b0d` (PR #23) replaced master's
+`yarn.lock` wholesale with the template's, and it is the only change to that file on master since the
+2026-08-20 Renovate bumps. The template pulls in `applicationinsights` (`libs/cloud-native-platform`),
+and with it `@opentelemetry/otlp-transformer` → `@grpc/proto-loader` → `protobufjs`, plus
+`@grpc/grpc-js`. That cluster alone accounts for 11 of the 41 high alerts and one of the two criticals.
+
+Composition: 2 critical, 41 high, 49 medium, 5 low. Concentrated in a handful of transitive roots —
+`protobufjs` 11, `tar` 5, `fast-uri` 5, `brace-expansion` 3.
+
+Most of it is a stale-lockfile artefact rather than a dependency the workspace actually pins, because
+the declared ranges already admit the patched versions:
+
+| Package | Locked | First patched | Range in lockfile |
+|---|---|---|---|
+| `protobufjs` | 7.5.4 | 7.5.5 | `^7.5.3` — a refresh resolves it |
+| `tar` | 7.5.9 | 7.5.21 | `^7.4.3` — a refresh resolves it |
+| `@grpc/grpc-js` | 1.14.3 | 1.14.4 | `^1.14.3` — a refresh resolves it |
+| `protobufjs` | 8.0.1 | 8.6.6 | pinned exact; needs its dependent bumped |
+
+So this is fixable now with a targeted `yarn up -R` and no manifest changes — it is **not** work to
+defer to Phase 4. Being remediated on a separate branch off master, deliberately kept out of the
+re-platforming diff; this branch picks it up on its next rebase. Renovate PR #31
+(`applicationinsights` 3.16.0) covers the largest cluster.

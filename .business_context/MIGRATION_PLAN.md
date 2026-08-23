@@ -117,6 +117,9 @@ a single narrow seam (`saveFile` / `createFileReadStream` / `deleteFile`) plus a
    `hmcts/cnp-githubactions-library` and need org secrets plus an AKS/ACR deploy identity.
 4. **`catalog-info.yaml` was not recreated** — it needs a real Backstage owner, system and Slack
    channel, and inventing those would register false ownership.
+5. **Master carries 97 Dependabot alerts, 2 of them critical**, inherited from the re-scaffold rather
+   than from this migration. Mostly a stale-lockfile artefact and cheap to clear; see
+   "Dependency alerts on master" in `PROGRESS.md`. The two criticals are a gate before any deploy.
 
 ## Known risks
 
