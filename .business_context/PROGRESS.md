@@ -36,7 +36,7 @@ defects of the same shape that only running the app revealed.
 work locally and are a development story until Phase 10 (CDAM) or the Azure Blob off-ramp.
 `.gitignore` now covers `data/` so uploaded blobs are never committable.
 
-**Two tasks are parked, not questions** — see "Parked tasks" below. Neither blocks Phase 4.
+**One task is parked, not a question** — see "Parked tasks" below (task 1 is closed).
 
 ## At a glance
 
@@ -60,7 +60,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
  4  SSR pages → apps/web       ████████████████████░░  12/12 ported, unverified
  5  authentication (IDAM)      ███████████████████░░░  ◀── HERE. both apps done; needs a real client
- 6  config, Helm, deployment   ██████████████░░░░░░░░  code done; needs the CNP product code
+ 6  config, Helm, deployment   ██████████████░░░░░░░░  code done; needs shared infra + a namespace
 
 TRACK B — CCD adoption (separable; start only once Track A is green)
 ════════════════════════════════════════════════════════════════════════════
@@ -76,7 +76,7 @@ Three things gate a deploy, none of them code in this branch:
 | Gate | Why it blocks |
 |---|---|
 | Phase 5 auth | Both apps authenticate now, but there is no registered IDAM client to point them at, and neither `idam-client-secret` nor `session-secret` exists in the vault — so nobody can log in to a deployed instance, and `assertIdamSettings` refuses to start without them |
-| CNP product code | Unverified; drives the ACR namespace, key vaults and `deed-poll-preview` Postgres. External, longest lead time — hence Parked task 1 |
+| Shared infrastructure | `deed-poll-shared-infrastructure` does not exist, and `infrastructure/` **references** the resource group and key vault it would create — so the terraform plan fails before anything deploys. Longest lead time of anything left |
 | CI has no database | The `ccd` schema tests skip in CI. Honest, but not coverage |
 
 <!-- BEGIN GENERATED DASHBOARD -->
@@ -122,8 +122,8 @@ total                                  1505 passed
 
 ```
 feat/deed-poll-migration
-41 commits ahead of master
-HEAD  7a31506  Test apps/web's IDAM flow, and check the tests by breaking the code
+42 commits ahead of master
+HEAD  c4c1ced  Close Phase 6's code: readiness that means something, and a redirect URI that matches
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -169,15 +169,14 @@ cost a chunk of a session to rediscover once already.
 ## Parked tasks
 
 Answered by Steve on 2026-09-01: do these later, but **do not lose them**. Neither is a question
-any more — the decision is "yes, just not now".
+any more — the decision is "yes, just not now". Task 1 is now closed; task 2 still stands.
 
-1. **Draft the CNP product-code question for Platform Operations.** Open item 1 in
-   [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md) — the oldest open item and the one with external lead
-   time, so it wants sending well before Phase 6 rather than at it. The re-scaffold assumed team
-   `deed-poll`, product `admin`; the old `Jenkinsfile_CNP` said `rpe` and was never updated, so
-   there is no reliable source. It drives the ACR namespace, `aadIdentityName`, key vault names and
-   `flexibleserver: deed-poll-preview`. **Deliverable: a drafted message for Steve to send**, not a
-   code change.
+1. ~~**Draft the CNP product-code question for Platform Operations.**~~ **Closed 2026-09-01 — it is
+   `deed-poll-admin`.** No message was needed in the end: HMCTS repos are named `{product}-{component}`
+   ([`docs/how-to/new-component/github-repo.md`](../../docs/how-to/new-component/github-repo.md)), so
+   the repo name settles it — product `deed-poll`, component `admin`, exactly what the re-scaffold
+   assumed. The old `Jenkinsfile_CNP`'s `rpe` was a template leftover and can be ignored. See
+   "The product code is settled" under Phase 6 for the two things that did fall out of it.
 2. **Check Renovate PR #31 (`applicationinsights` 3.16.0) merges cleanly and report.** It should
    carry `protobufjs@8.0.1` and so clear 11 of the 20 remaining advisories in one go. **Do not merge
    it unasked** — report only.
@@ -1171,14 +1170,73 @@ ACR and need auth.
 PR gets its own hostname. Without one, preview environments cannot log in at all. That is now question 2
 of the registration request.
 
-### Still to do in Phase 6
+### The product code is settled, and it changed almost nothing
 
-- **The CNP product code**, Parked task 1, and it reaches further than "a name": `var.product` alone
-  names the key vault (`${product}-${env}`, `infrastructure/keyvault.tf:5`), the Postgres flexible
-  server (`postgres.tf:7`), the resource group and App Insights; `annotations.team` becomes the
-  Kubernetes namespace; and the ACR path `hmctsprod.azurecr.io/deed-poll/…` is hardcoded throughout.
-  **Every redirect URI above changes if it is not `deed-poll`** — which is why it wants confirming
-  before, or alongside, the IDAM request.
+`deed-poll-admin`. Per [`docs/how-to/new-component/github-repo.md`](../../docs/how-to/new-component/github-repo.md)
+in the workspace, an HMCTS repo is named `{product}-{component}` — so the product is `deed-poll` and this
+component is `admin`, which is what every file already assumed: `annotations.team: deed-poll`, the
+`hmctsprod.azurecr.io/deed-poll/…` image path, the `deed-poll-{env}` shared vault, `aadIdentityName`.
+The hostnames in the IDAM request are final. Parked task 1 is closed.
+
+Two things fall out of it:
+
+- **Key vaults are `{product}-{component}-{env}` with a hard 24-character Azure limit**, so
+  `{product}-{component}` must be ≤ 15. `deed-poll-admin` is **exactly 15** and
+  `deed-poll-admin-perftest` is exactly 24. It fits with no headroom — nothing can be appended.
+- **`var.component` was still the template's `expressjs`.** Not a harmless default:
+  `cnp-githubactions-library/terraform-deploy` passes `env`, `product`, `subscription`,
+  `aks_subscription_id`, `tenant_id`, `builtFrom` and `ci_service_principal_object_id` — and **not
+  `component`**. It derives `product` from `annotations.team` in the chart and leaves `component` to its
+  default, so the resource group would have been `deed-poll-aat-expressjs` and the Postgres server tagged
+  the same. Now `admin`.
+
+### Still to do in Phase 6 — all external, and none of it is code
+
+Read from `infrastructure/` and the workspace's ported CNP docs, in rough dependency order. The first
+item has the longest lead time and nothing else can be tested without it.
+
+1. **A `deed-poll-shared-infrastructure` repo.** `main.tf:16` and `keyvault.tf:5` are `data` blocks —
+   they **reference** resource group `deed-poll-{env}` and key vault `deed-poll-{env}` and fail the plan
+   if either is absent. The docs require product-level infrastructure to live in
+   `{product}-shared-infrastructure`, built with the common pipeline. It does not exist yet. It also
+   needs to create the `deed-poll` workload identity (`aadIdentityName` in both charts) with access to
+   that vault, via `cnp-module-key-vault`.
+2. **The `deed-poll` Kubernetes namespace**, which `job.helm-deploy.yml:138` deploys into. Platform-level.
+   *Not verified from here* — `platops/` is not cloned in this workspace copy, so which repo declares
+   namespaces is worth checking rather than assuming.
+3. **Federated credentials for GitHub Actions OIDC** — the deploy uses `azure/login@v3` with
+   `id-token: write`. See [`docs/how-to/federated-credentials.md`](../../docs/how-to/federated-credentials.md).
+4. **ACR push rights to `hmctsprod`** for `job.helm-publish.yml:38`. See
+   [`docs/how-to/publishing-acr-images.md`](../../docs/how-to/publishing-acr-images.md).
+5. **The two key vault secrets**, `idam-client-secret` and `session-secret`. The chart fails on a missing
+   secret, deliberately.
+6. **Path to live**, for production only: Front Door, load balancer, TLS, shutter, public DNS, OAT. See
+   [`docs/how-to/path-to-live/`](../../docs/how-to/path-to-live/). Much of it may not apply — this is an
+   internal caseworker service on `platform.hmcts.net`, not a public one.
+
+Our own terraform then creates resource group `deed-poll-{env}-admin` and a Postgres flexible server
+`deed-poll-{env}` holding a `deed-poll-admin` database.
+
+### The onboarding docs assume Jenkins. This repo does not use it.
+
+**The single most important thing to confirm with Platform Operations**, because it is not a detail this
+repo can settle. Every page under `docs/how-to/new-component/` assumes the Jenkins route: add the repo to
+`cnp-jenkins-config`, publish charts to the `hmcts-charts` repo, let Flux reconcile them onto the
+cluster, and template `values.aat.template.yaml` with `${SERVICE_FQDN}` and `${IMAGE_NAME}`.
+
+This repo does none of that. It is the GitHub Actions monorepo template:
+
+| Docs assume | This repo does |
+|---|---|
+| Jenkins job via `cnp-jenkins-config` | GitHub Actions (`.github/workflows/workflow.main.yml`) |
+| charts published to `hmcts-charts` git repo | `helm push` to `oci://hmctsprod.azurecr.io/helm` (`job.helm-publish.yml:70`) |
+| Flux reconciles `HelmRelease` onto the cluster | `hmcts/cnp-githubactions-library/helm-deploy@main` runs `helm upgrade` directly (`job.helm-deploy.yml:98`) |
+| `values.aat.template.yaml`, `${SERVICE_FQDN}` | `values.template.yaml`, `${TEAM_NAME}` / `${ENVIRONMENT}` |
+
+`cnp-githubactions-library` is HMCTS's own, so the route is presumably sanctioned and the docs simply
+have not caught up — but **that is an inference, not a confirmation.** Ask before building anything on
+it. If Flux is required after all, a `cnp-flux-config` PR joins the list above.
+
 - **CI has no database**, so the `ccd` schema tests skip. Unchanged by this work.
 
 ### Still to do in Phase 5

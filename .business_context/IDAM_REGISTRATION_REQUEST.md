@@ -38,15 +38,17 @@ answers, the client secret and the role name, are the ones that block.
 >    - preview: `https://deed-poll-deed-poll-admin-pr-<n>-web.preview.platform.hmcts.net/oauth2/callback`
 >    - production: to follow
 >
->    **A wildcard for preview would help a great deal** — something covering
->    `deed-poll-deed-poll-admin-pr-*-web.preview.platform.hmcts.net`. Every pull request gets its own
->    hostname, so without one, preview environments cannot log in at all and each PR would need its own
->    registration. If a wildcard is not possible, we would like to know that early, because it changes
->    how we test.
+>    **How should we handle the preview ones?** Every pull request gets its own hostname, so there is no
+>    fixed URI to register — and without something, no preview environment can log in at all. The
+>    platform docs point at `hmcts/chart-idam-pr` for exactly this, but that chart is archived and
+>    states it has done nothing since IDAM 8.2 in February 2023, which we read as IDAM having taken the
+>    job over. So: is there a wildcard or pattern registration we should ask for
+>    (`deed-poll-deed-poll-admin-pr-*-web.preview.platform.hmcts.net`), or another mechanism teams use
+>    now? We would rather match what everyone else does than invent something.
 >
->    *(The team and product segments depend on the CNP product code, which is itself unconfirmed — see
->    the note below. If it comes back as something other than `deed-poll`, every hostname above
->    changes.)*
+>    *(Our product is `deed-poll` and this component is `admin`, per the `{product}-{component}` repo
+>    naming convention — hence the doubled segment in the hostnames, which is the platform's pattern and
+>    not a typo.)*
 > 3. **Issuer URL per environment**, for discovery.
 > 4. **Scopes.** We currently request `openid profile roles` and read the user's roles and name from
 >    `/o/userinfo` after the code exchange, rather than from the ID token — matching what
@@ -80,10 +82,15 @@ answers, the client secret and the role name, are the ones that block.
 
 ## Notes for whoever sends this
 
-**It is coupled to the CNP product code**, which is Parked task 1 and still unconfirmed. If Platform
-Operations comes back with something other than `deed-poll`, every redirect URI above changes — so
-**either confirm the product code first, or warn IDAM that the hostnames are provisional.** Sending both
-requests together is probably fastest.
+**The product code is settled: `deed-poll-admin`.** Per `docs/how-to/new-component/github-repo.md` an
+HMCTS repo is named `{product}-{component}`, so that decomposes to product `deed-poll`, component
+`admin` — which is what the repo already assumed everywhere (`annotations.team: deed-poll`, the
+`hmctsprod.azurecr.io/deed-poll/…` image path, the `deed-poll-{env}` shared vault, `aadIdentityName`).
+So the hostnames above are final and this no longer blocks sending the request.
+
+Worth knowing: key vaults are `{product}-{component}-{env}` and cannot exceed 24 characters, so
+`{product}-{component}` must be ≤ 15. `deed-poll-admin` is **exactly 15**, and
+`deed-poll-admin-perftest` is exactly 24 — it fits, with no room to append anything later.
 
 **The hostnames were wrong in an earlier draft of this file**, and the way they were wrong is worth
 knowing because it is easy to repeat. `apps/web/helm/values.yaml` declares
