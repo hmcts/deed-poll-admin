@@ -2,22 +2,23 @@
 
 Last updated: 2026-09-01. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
-**Next thing to pick up: Phase 3, the notes and witnesses handlers (10 of the 29).** The
-`deed-polls` slice — 7 handlers — is done; see
-["Phase 3 slice 1: deed-polls"](#phase-3-slice-1-deed-polls-done). Documents last, because they
-need the Multer wiring. Read ["Phase 3 foundations"](#phase-3-foundations-done-caf4e03) and the
-slice-1 section before writing a handler: between them they settle five things a handler must not
-decide for itself.
+**Next thing to pick up: Phase 3, the documents handlers (12 of the 29).** `deed-polls` (7) and
+notes + witnesses (10) are done — 17 of 29. Documents were left last because they are the only ones
+needing the Multer wiring, which is the remaining unsolved piece; `document-types` (5 of the 12) has
+no upload in it and can go first. Read ["Phase 3 foundations"](#phase-3-foundations-done-caf4e03)
+and ["Phase 3 slice 1"](#phase-3-slice-1-deed-polls-done) before writing a handler: between them
+they settle six things a handler must not decide for itself.
 
 **Two tasks are parked, not questions** — see "Parked tasks" below. Neither blocks Phase 3.
 
 ## State
 
-Branch `feat/deed-poll-migration`, 16 commits, pushed and tracking
+Branch `feat/deed-poll-migration`, 18 commits, pushed and tracking
 `origin/feat/deed-poll-migration`. No PR, deliberately — see "Branch state".
 
 ```
-(this session)  Port the deed-polls JSON handlers and fix the reference-number error class
+(this session)  Port the notes and witnesses JSON handlers
+1c23f72  Port the deed-polls JSON handlers and fix the reference-number error class
 b1ef30c  Capture the four open questions as open questions
 8ec90f2  Refresh the handover for the next session
 31f290e  Make the header-auth bypass opt-in by environment rather than opt-out
@@ -36,7 +37,7 @@ b17fac5  Port the deed-poll case model into the shared Prisma schema
 ```
 
 `yarn lint`, `yarn build` and `yarn test` are all clean across the workspace (11 tasks). Current test
-counts, so a regression is obvious: `libs/deed-poll` **452**, `apps/api` **110**, `apps/postgres` 11
+counts, so a regression is obvious: `libs/deed-poll` **452**, `apps/api` **149**, `apps/postgres` 11
 (they **pass** with `docker compose up -d`, and skip without it — CI has no database).
 
 **Before running anything, Yarn needs sideloading** — Corepack cannot reach `repo.yarnpkg.com` from
@@ -61,7 +62,7 @@ any more — the decision is "yes, just not now".
 
 Decided and closed, recorded so they are not reopened:
 
-- **Phase 3 is sliced**, not one pass: `deed-polls` (done) → notes + witnesses → documents last.
+- **Phase 3 is sliced**, not one pass: `deed-polls` (done) → notes + witnesses (done) → documents.
 - **Prisma query logging stays on** under `yarn dev`. See Loose ends 3 for where to turn it off if
   it proves noisy.
 
@@ -161,32 +162,39 @@ What changed in the move:
 
 ## Phase 3 — the JSON API (in progress)
 
-**Foundations are done** (`caf4e03`) and **the `deed-polls` slice is done** — 7 of 29 handlers. 22
-remain. See "Phase 3 foundations" and "Phase 3 slice 1" below.
+**Foundations are done** (`caf4e03`), **the `deed-polls` slice is done** (7 handlers) and **notes +
+witnesses are done** (10). 12 remain, all of them documents. See "Phase 3 foundations", "Phase 3
+slice 1" and "Phase 3 slice 2" below.
 
 Move the 29 JSON handlers from the prototype's controllers into `apps/api/src/routes/` as
 `simple-router` files. The domain functions they need all exist and are tested.
 
 ```
-routes/deed-polls/index.ts            ✅ GET list, POST create
-routes/deed-polls/field-rules.ts      ✅ GET
-routes/deed-polls/[id].ts             ✅ GET, PATCH, DELETE
-routes/deed-polls/[id]/validate.ts    ✅ POST
-routes/deed-polls/[deedPollId]/notes/{index,[noteId]}.ts
-routes/deed-polls/[deedPollId]/witnesses/{index,[witnessId]}.ts
-routes/deed-polls/[deedPollId]/documents/{index,[documentId]}.ts
+routes/deed-polls/index.ts                        ✅ GET list, POST create
+routes/deed-polls/field-rules.ts                  ✅ GET
+routes/deed-polls/[id].ts                         ✅ GET, PATCH, DELETE
+routes/deed-polls/[id]/validate.ts                ✅ POST
+routes/deed-polls/[id]/notes/{index,[noteId]}.ts       ✅ GET/POST, GET/PATCH/DELETE
+routes/deed-polls/[id]/witnesses/{index,[witnessId]}.ts ✅ GET/POST, GET/PATCH/DELETE
+routes/deed-polls/[id]/documents/{index,[documentId]}.ts
 routes/document-types/{index,[id]}.ts
 ```
+
+**Note the nested paths use `[id]`, not the `[deedPollId]` earlier revisions of this table showed.**
+See slice 2 below for why.
 
 Source controllers to port (then delete):
 
 | Prototype file | Handlers | |
 |---|---|---|
-| `deed-poll/deed-poll.controller.ts` | 7 | ✅ ported, not yet deleted — delete with `power_app_nest/` at the end of Phase 4 |
-| `notes/notes.controller.ts` | 5 | ⬅ next |
-| `witnesses/witnesses.controller.ts` | 5 | ⬅ next |
-| `documents/documents.controller.ts` | 7 | needs Multer |
-| `documents/document-types.controller.ts` | 5 | |
+| `deed-poll/deed-poll.controller.ts` | 7 | ✅ ported |
+| `notes/notes.controller.ts` | 5 | ✅ ported |
+| `witnesses/witnesses.controller.ts` | 5 | ✅ ported |
+| `documents/document-types.controller.ts` | 5 | ⬅ next — no upload, so no Multer dependency |
+| `documents/documents.controller.ts` | 7 | ⬅ last — needs the Multer wiring |
+
+None of the ported controllers are deleted yet; `power_app_nest/` goes as a whole at the end of
+Phase 4.
 
 Specific work:
 
@@ -200,7 +208,7 @@ Specific work:
 4. ⬅ **Multer.** `uploadDocument` now takes a plain `UploadedFile` (`buffer`, `originalname`,
    `mimetype`, `size`) rather than `Express.Multer.File`. The app maps its upload middleware onto it.
 
-Verification: `yarn test` must show at least 452 in `libs/deed-poll` and 110 in `apps/api` plus
+Verification: `yarn test` must show at least 452 in `libs/deed-poll` and 149 in `apps/api` plus
 whatever the new route tests add; `yarn lint` and `yarn build` clean; and exercise the handlers
 against a running app — see the recipe under "Exercising the API locally" below, which is worth
 following rather than improvising, because two of the four things in it cost time to work out.
@@ -343,6 +351,51 @@ Its docstring also claimed the year fell "back to created-now", which the code h
 throw is right — inventing a year from the clock would put a case in the wrong year's permanent,
 external-facing serial sequence — so the comment was corrected to match the code, not the reverse.
 
+### Phase 3 slice 2: notes and witnesses (done)
+
+Ten handlers across four files, under `apps/api/src/routes/deed-polls/[id]/{notes,witnesses}/`.
+`apps/api` 110 → 149 tests. No domain change was needed — both services were already
+parent-scoped and already threw `NotFoundError`, so the handlers are genuinely thin.
+
+- **Nested under `[id]/`, not `[deedPollId]/`.** Earlier revisions of the route table above said
+  `[deedPollId]`, copied from the prototype's `@Controller('api/deed-polls/:deedPollId/notes')`. Nest
+  needed a distinct name because the parent segment is part of the controller's own path string;
+  here the parent segment *is* the directory, and `[id]/` already existed for `validate.ts`. Two
+  sibling parameter directories naming the same URL position would both work — `discoverRoutes` keys
+  on the URL path, so there is no conflict raised — but it would read as an accident by whoever
+  arrives next. So it is `req.params.id` for the case and `req.params.noteId` /
+  `req.params.witnessId` for the child, everywhere.
+
+- **Both ids go into every child call.** `findNote`/`findWitness` match on `{ id, deedPollId }`, so
+  a child id belonging to another case answers 404. Passing only the child id would compile and
+  would quietly make every note in the database reachable through any case's URL. Verified against
+  a running app on all three verbs: reading, patching and deleting a note through the wrong case's
+  URL all 404, and the note was still intact afterwards.
+
+- **Notes take `{ userName }` only; witnesses take no user context at all.** Notes have
+  `createdBy`/`modifiedBy` columns to stamp; `DeedPollWitness` has neither, and `createWitness`
+  accordingly has no author parameter. Neither takes `isAdmin` — there is no privileged field on
+  either, so passing it would imply a rule that does not exist. Pinned by tests in both directions,
+  because "we forgot to pass the user" and "there is deliberately no user here" look identical in a
+  diff.
+
+- **Witnesses reject an empty body where cases accept one.** `createWitnessSchema` requires all four
+  fields; `createDeedPollSchema` requires none. Not an inconsistency — a case is logged
+  incrementally through its lifecycle, a witness is entered once from a form that has all of it.
+
+- **`routes.wiring.test.ts` gained a second `describe` block** rather than a second file. The case
+  routes' trap is route *ordering*; the nested routes' trap is parameter *binding*, which the unit
+  tests structurally cannot catch because the request double supplies whatever params the test names.
+  A handler that read the parent's id for the child, or swapped the two, passes its own unit test.
+
+One wart, faithful to the prototype and left alone: **a list under a non-existent case answers `[]`
+with 200, not 404.** `findNotes`/`findWitnesses` filter by `deedPollId` without checking the parent
+exists, exactly as the prototype's `findAll` did — only the create path calls `assertCaseExists`. So
+a typo'd case id in `GET /deed-polls/<typo>/notes` reads as "this case has no notes". Confirmed live.
+Fixing it means adding a parent check to both list functions, which is a domain change and an extra
+query per list; recorded here rather than done, because it is a real API wart but not a defect
+introduced by the port.
+
 Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/web`, replacing
 `nunjucks.setup.ts` entirely with `configureGovuk` from `@hmcts-cft/express-govuk-starter`.
 `power_app_nest/` is deleted at the end of Phase 4, not before.
@@ -387,13 +440,16 @@ Small, real, and deliberately not done. None blocks Phase 3.
    try to commit ~498M of `node_modules` and 57 document blobs. Cherry-picking that one `.gitignore`
    line to master would close it.
 
-5. **Nothing restricts who can delete a case.** `DELETE /deed-polls/:id` hard-deletes the record and
-   its notes, witnesses and documents, and it is open — faithfully, because the prototype guarded
-   nothing. Raised as a question, not a fix: `requireRoles(DEEDPOLL_ADMIN)` on it would be one line
+5. **Nothing restricts who can delete a case, and the delete cascades.** `DELETE /deed-polls/:id` is
+   open — faithfully, because the prototype guarded nothing. **The cascade is confirmed, not assumed:**
+   deleting a case with a note left zero rows in `deedpoll_notes`, checked directly against Postgres.
+   So one unauthenticated request destroys a case and all its children. Raised as a question, not a
+   fix: `requireRoles(DEEDPOLL_ADMIN)` would be one line
    (`export const DELETE = [requireRoles(DEEDPOLL_ADMIN), handler]`), but whether a caseworker may
-   delete a case, and whether deletion should be a soft delete given `retainPermanently` exists in
-   the schema, is a business decision. Worth settling before Phase 5, since after Phase 5 the answer
-   becomes an IDAM role mapping rather than a code change.
+   delete a case, and whether deletion should be soft given `retainPermanently` exists in the schema,
+   is a business decision. Worth settling before Phase 5, since after Phase 5 the answer becomes an
+   IDAM role mapping rather than a code change. The same question applies to the nested
+   `DELETE .../notes/:noteId` and `.../witnesses/:witnessId`.
 
 6. **A create can never succeed without `dateReceived`, but the schema calls it optional.**
    `createDeedPollSchema` marks every field optional on the stated grounds that a case is logged
@@ -404,6 +460,13 @@ Small, real, and deliberately not done. None blocks Phase 3.
    surface it at parse time and make the API self-documenting. Not done unasked: it changes a schema
    the conformance harness and the Phase 4 forms both read, so it wants a deliberate look rather than
    being smuggled in with a route port.
+
+7. **A child list under a non-existent case answers `[]` with 200, not 404.** `findNotes` and
+   `findWitnesses` filter by `deedPollId` without checking the parent exists — only the create paths
+   call `assertCaseExists` — so a typo'd case id reads as "this case has no notes". Faithful to the
+   prototype and confirmed live; see "Phase 3 slice 2" for detail. The fix is a parent check in both
+   list functions, at the cost of a query per list. `documents` will have the same shape, so decide
+   it once for all three rather than three times.
 
 ## Branch state
 

@@ -1,16 +1,22 @@
 /**
- * Pins what the per-handler unit tests structurally cannot see: how these four files behave once
- * `createSimpleRouter` has discovered them and Express is matching real paths.
+ * Pins what the per-handler unit tests structurally cannot see: how every route file under this
+ * directory behaves once `createSimpleRouter` has discovered it and Express is matching real paths.
+ * Two different traps, hence two describe blocks.
  *
- * The trap being pinned is route ordering. `/deed-polls/field-rules` and `/deed-polls/:id` both
+ * **Route ordering**, for the case routes. `/deed-polls/field-rules` and `/deed-polls/:id` both
  * match the request `GET /deed-polls/field-rules`, and Express takes the first registered. It
- * happens to be correct here because `sortRoutes` orders by parameter count — but nothing in
+ * happens to be correct because `sortRoutes` orders by parameter count — but nothing in
  * `field-rules.ts` states that dependency, and if the ordering rule ever changed, every unit test
  * in this directory would still pass while the live endpoint started answering 404 for the string
- * "field-rules" read as a case id. That is the kind of regression a unit test cannot reach.
+ * "field-rules" read as a case id.
  *
- * The router is built over this directory rather than a fixture, so the file layout under test is
- * the real one.
+ * **Parameter binding**, for the nested notes and witnesses routes. Those paths carry two
+ * parameters, and a handler that mixed them up — or read the parent's id for the child — would
+ * still satisfy its own unit test, because the request double supplies whatever params the test
+ * names. Only a real request proves which segment lands where.
+ *
+ * Both are regressions a unit test cannot reach. The router is built over this directory rather
+ * than a fixture, so the file layout under test is the real one.
  */
 import { fileURLToPath } from "node:url";
 import { findDeedPoll, findDeedPolls, getCaseFieldRules, NotFoundError } from "@hmcts/deed-poll";
@@ -29,7 +35,17 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   updateDeedPoll: vi.fn(),
   removeDeedPoll: vi.fn(),
   validateCaseForSubmit: vi.fn(),
-  getCaseFieldRules: vi.fn()
+  getCaseFieldRules: vi.fn(),
+  findNotes: vi.fn(),
+  createNote: vi.fn(),
+  findNote: vi.fn(),
+  updateNote: vi.fn(),
+  removeNote: vi.fn(),
+  findWitnesses: vi.fn(),
+  createWitness: vi.fn(),
+  findWitness: vi.fn(),
+  updateWitness: vi.fn(),
+  removeWitness: vi.fn()
 }));
 
 const routesDir = fileURLToPath(new URL(".", import.meta.url));
@@ -167,5 +183,108 @@ describe("deed-poll routes wired through simple-router", () => {
       .send({});
 
     expect(createDeedPoll).toHaveBeenCalledWith({}, { isAdmin: true, userName: "A Caseworker" });
+  });
+});
+
+// Nested children get their own block because the thing worth pinning is different: not "does the
+// static route win" but "does each of the two path parameters land in the right place". A handler
+// that read `req.params.id` for the child id, or passed the ids the wrong way round, would still
+// satisfy its own unit test — the double supplies whatever params the test names — but would make
+// every note in the database reachable through any case's URL.
+describe("nested notes and witnesses wired through simple-router", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NODE_ENV = "test";
+  });
+
+  it("should pass the case id and the note id from their own path segments, in that order", async () => {
+    const { findNote } = await import("@hmcts/deed-poll");
+    vi.mocked(findNote).mockResolvedValue({ id: "note-9" } as never);
+
+    const response = await request(await appWithDeedPollRoutes()).get("/deed-polls/case-1/notes/note-9");
+
+    expect(response.status).toBe(200);
+    expect(findNote).toHaveBeenCalledWith("case-1", "note-9");
+  });
+
+  it("should pass the case id and the witness id from their own path segments, in that order", async () => {
+    const { findWitness } = await import("@hmcts/deed-poll");
+    vi.mocked(findWitness).mockResolvedValue({ id: "witness-9" } as never);
+
+    const response = await request(await appWithDeedPollRoutes()).get("/deed-polls/case-1/witnesses/witness-9");
+
+    expect(response.status).toBe(200);
+    expect(findWitness).toHaveBeenCalledWith("case-1", "witness-9");
+  });
+
+  it("should route the notes collection to the collection handler, not to the single-note route", async () => {
+    const { findNotes, findNote } = await import("@hmcts/deed-poll");
+    vi.mocked(findNotes).mockResolvedValue([] as never);
+
+    const response = await request(await appWithDeedPollRoutes()).get("/deed-polls/case-1/notes");
+
+    expect(response.status).toBe(200);
+    expect(findNotes).toHaveBeenCalledWith("case-1");
+    expect(findNote).not.toHaveBeenCalled();
+  });
+
+  it("should not let /deed-polls/:id/notes be swallowed by the single-case route", async () => {
+    // /deed-polls/:id has fewer segments, so it registers first; Express matches on the full path
+    // so it cannot claim this one, but that is worth a test rather than an assumption.
+    const { findNotes, findDeedPoll } = await import("@hmcts/deed-poll");
+    vi.mocked(findNotes).mockResolvedValue([] as never);
+
+    await request(await appWithDeedPollRoutes()).get("/deed-polls/case-1/notes");
+
+    expect(findDeedPoll).not.toHaveBeenCalled();
+  });
+
+  it("should answer 201 on a nested create and 204 on a nested delete", async () => {
+    const { createNote, removeWitness } = await import("@hmcts/deed-poll");
+    vi.mocked(createNote).mockResolvedValue({ id: "note-1" } as never);
+    vi.mocked(removeWitness).mockResolvedValue(undefined);
+    const app = await appWithDeedPollRoutes();
+
+    const created = await request(app).post("/deed-polls/case-1/notes").send({ note: "Called" });
+    const deleted = await request(app).delete("/deed-polls/case-1/witnesses/witness-1");
+
+    expect(created.status).toBe(201);
+    expect(deleted.status).toBe(204);
+    expect(deleted.text).toBe("");
+  });
+
+  it("should answer 404 when a child belongs to a different case", async () => {
+    const { findNote } = await import("@hmcts/deed-poll");
+    vi.mocked(findNote).mockRejectedValue(new NotFoundError("Note note-9 not found"));
+
+    const response = await request(await appWithDeedPollRoutes()).get("/deed-polls/other-case/notes/note-9");
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: "Note note-9 not found" });
+  });
+
+  it("should answer 400 with a field error for a blank note, using the same rule as the SSR forms", async () => {
+    const { createNote } = await import("@hmcts/deed-poll");
+
+    const response = await request(await appWithDeedPollRoutes())
+      .post("/deed-polls/case-1/notes")
+      .send({ note: "   " });
+
+    expect(response.status).toBe(400);
+    expect(response.body.errors).toEqual([expect.objectContaining({ field: "note" })]);
+    expect(createNote).not.toHaveBeenCalled();
+  });
+
+  it("should attribute a nested note write to the x-user-name caller and pass no isAdmin", async () => {
+    const { createNote } = await import("@hmcts/deed-poll");
+    vi.mocked(createNote).mockResolvedValue({ id: "note-1" } as never);
+
+    await request(await appWithDeedPollRoutes())
+      .post("/deed-polls/case-1/notes")
+      .set("x-user-roles", "deedpoll-admin")
+      .set("x-user-name", "A Caseworker")
+      .send({ note: "Called the applicant" });
+
+    expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called the applicant" }, { userName: "A Caseworker" });
   });
 });

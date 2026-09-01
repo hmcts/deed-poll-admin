@@ -72,9 +72,10 @@ No CCD dependency. Deployable on its own.
 - **Phase 1 — schema into the monorepo.** ✅ Done.
 - **Phase 2 — domain logic → `libs/deed-poll/`.** ✅ Done. Includes the DTO→Zod conversion, which
   was originally Phase 3 but moved forward because Phase 2 could not compile without it.
-- **Phase 3 — JSON API → `apps/api/src/routes/`.** ⬅ **in progress.** Foundations (error mapping,
-  role middleware) done. Sliced by resource: `deed-polls` done (7 of 29 handlers, 2026-09-01), then
-  notes + witnesses, then documents last because they need the Multer wiring.
+- **Phase 3 — JSON API → `apps/api/src/routes/`.** ⬅ **in progress, 17 of 29 handlers.** Foundations
+  (error mapping, role middleware) done. Sliced by resource: `deed-polls` (7) and notes + witnesses
+  (10) done 2026-09-01; documents (12) remain, left last because they are the only ones needing the
+  Multer wiring.
 - **Phase 4 — SSR pages → `apps/web/src/pages/`.**
 - **Phase 5 — authentication (IDAM/Entra).**
 - **Phase 6 — config, Helm, deployment.**
