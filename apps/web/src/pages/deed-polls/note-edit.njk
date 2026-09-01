@@ -1,0 +1,66 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/character-count/macro.njk" import govukCharacterCount %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{#
+  Amend-a-note form. Same single-textarea shape as the create form and for the same reasons. Two
+  differences:
+
+  1. The page is titled with the note's short code. The source titles it `0000068`, its unported
+     autonumber; the code is the nearest thing to a human-readable handle for the row. The full uuid is
+     not shown alongside it — the code never resolves a note, so the raw value has no user-facing job.
+  2. The four audit values the source shows in its form header are rendered as a summary list below the
+     heading, using the same formatting helper as the notes grid, so the two pages cannot disagree
+     about one note.
+
+  Delete is a second submit button on the SAME form rather than its own route: two forms would mean two
+  routes that could drift. The handler branches on `action`, checking delete first. No confirmation
+  step — the note is one field of text, and an interstitial on every deletion is friction paid on the
+  safe path. Styled as a warning so it cannot be mistaken for the primary action.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if error %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [{ text: error, href: "#note" }] }) }}
+    {% endif %}
+
+    <span class="govuk-caption-l">{{ case.displayReference }}</span>
+    <h1 class="govuk-heading-xl govuk-!-margin-bottom-4">{{ note.code }}</h1>
+
+    {#
+      The audit pairs. Modified reads "Not edited" on a note that has only ever been created — the same
+      statement the grid makes, not a repeat of the created pair.
+    #}
+    {% set modifiedValue = notEdited if note.unmodified else note.modifiedBy + ", " + note.modifiedOn %}
+    {{ govukSummaryList({
+      rows: [
+        { key: { text: createdLabel }, value: { text: note.createdBy + ", " + note.createdOn } },
+        { key: { text: modifiedLabel }, value: { text: modifiedValue } }
+      ]
+    }) }}
+
+    <form method="post" action="/deed-polls/{{ case.id }}/notes/{{ note.id }}/edit" novalidate>
+      {{ govukCharacterCount({
+        id: "note",
+        name: "note",
+        maxlength: maxLength,
+        rows: 8,
+        value: value,
+        label: { text: noteLabel, classes: "govuk-label--m" },
+        hint: { text: noteHint },
+        errorMessage: { text: error } if error
+      }) }}
+
+      <div class="govuk-button-group">
+        {{ govukButton({ text: save, name: "action", value: "save" }) }}
+        {{ govukButton({ text: delete, name: "action", value: "delete", classes: "govuk-button--warning" }) }}
+        <a class="govuk-link" href="/deed-polls/{{ case.id }}#notes">{{ cancel }}</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

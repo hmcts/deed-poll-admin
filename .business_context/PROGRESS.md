@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-01. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
-**Phase 3 is complete. Phase 4 is in progress — 5 of its 12 SSR page handlers are done.**
+**Phase 3 is complete. Phase 4 is in progress — 9 of its 12 SSR page handlers are done.**
 
 See ["Phase 4 — SSR pages"](#phase-4--ssr-pages-in-progress) for what is done, what remains, and the
 template-name trap that cost time and would cost it again.
@@ -47,7 +47,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  1  schema → monorepo          ██████████████████████  done
  2  domain → libs/deed-poll    ██████████████████████  done
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
- 4  SSR pages → apps/web       ██████████░░░░░░░░░░░░  5/12 handlers ◀── HERE
+ 4  SSR pages → apps/web       ████████████████░░░░░░  9/12 handlers ◀── HERE
  5  authentication (IDAM)      ░░░░░░░░░░░░░░░░░░░░░░  hard gate before any deploy
  6  config, Helm, deployment   ░░░░░░░░░░░░░░░░░░░░░░  needs the CNP product code
 
@@ -705,11 +705,11 @@ Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/
 
 ## Phase 4 — SSR pages (in progress)
 
-**5 of 12 page handlers done**: the case list, the new-case form, the case detail page and the edit
-tab (GET and POST) — plus a
+**9 of 12 page handlers done**: the case list, the new-case form, the case detail page, the edit tab
+(GET and POST) and the four note handlers — plus a
 document download route the prototype did not have, and the pages' own domain-error mapping. Foundations are in
-`libs/deed-poll` (`date-parts`, `list-filters`, `list-view`, `edit-view`). Remaining: notes (4), document upload (2),
-and then deleting `power_app_nest/`.
+`libs/deed-poll` (`date-parts`, `list-filters`, `list-view`, `edit-view`). Remaining: document upload (2), and then
+deleting `power_app_nest/`.
 
 **The templating swap the plan lists is already done.** `nunjucks.setup.ts` exists only in the
 prototype; `apps/web` has always used `configureGovuk`. That file goes when the prototype does. Its
@@ -734,6 +734,28 @@ basename, and following that literally is what produced the wrong page.
 
 **One trap while verifying:** `tsx src/server.ts` does not watch. An edit appears to have no effect
 and it is easy to conclude the fix did not work; restart between changes.
+
+### The note forms re-render instead of redirecting with `?error=`
+
+The prototype's note and upload handlers redirected to `?error=<message>` on a validation failure, and
+its own comment justified that on the grounds that these forms "carry one field". That is true, and it
+is an argument about **how much** there is to lose rather than about whether losing it is acceptable.
+
+`validateNoteText` rejects a note over 2000 characters, so the failure most likely to be hit is
+precisely the one where the caseworker has typed the most — and a redirect discards the whole thing.
+Both note forms therefore re-render with the submitted text and a 400, like the edit form and the
+new-case form. Verified live: a 2001-character amendment comes back 400 with the text still in the
+textarea and the stored note unchanged.
+
+They validate through `createNoteSchema` rather than calling `validateNoteText` directly, because the
+schema trims first and the trimmed value is what gets stored — so the page and the API accept exactly
+the same input.
+
+**Delete is checked before validation, deliberately.** It is a second submit button on the same form,
+branching on `action`, so a note whose text would fail validation can still be deleted — the text is
+irrelevant to a row about to disappear. Only the literal `"delete"` deletes; a missing `action` falls
+through to save, so an absent value is never destructive. All three are pinned by tests and were
+checked live, including that a delete routed through the wrong case 404s and leaves the note intact.
 
 ### The edit form is strict on write and lenient on read, deliberately
 

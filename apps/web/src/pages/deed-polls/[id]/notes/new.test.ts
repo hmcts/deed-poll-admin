@@ -1,0 +1,122 @@
+import { createNote, findDeedPoll, MAX_NOTE_LENGTH, NotFoundError, SERVICE_ACCOUNT_NAME } from "@hmcts/deed-poll";
+import type { Request, Response } from "express";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { GET, POST } from "./new.js";
+
+// createNoteSchema and validateNoteText are the domain's, so they run for real here — the trimming
+// and the length limit are the behaviour under test as much as the handler is.
+vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  findDeedPoll: vi.fn(),
+  createNote: vi.fn()
+}));
+
+const found = { id: "case-1", displayReference: "KBDP2026-00001", notes: [], witnesses: [], documents: [] };
+
+function request(body: Record<string, unknown> = {}, userName?: string): Request {
+  return {
+    params: { id: "case-1" },
+    body,
+    header: (name: string) => (name.toLowerCase() === "x-user-name" ? userName : undefined)
+  } as unknown as Request;
+}
+
+function response() {
+  const res = { render: vi.fn(), redirect: vi.fn(), status: vi.fn() } as unknown as Response & {
+    render: ReturnType<typeof vi.fn>;
+    redirect: ReturnType<typeof vi.fn>;
+    status: ReturnType<typeof vi.fn>;
+  };
+  res.status.mockReturnValue(res);
+  return res;
+}
+
+describe("add a note page", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NODE_ENV = "test";
+    vi.mocked(findDeedPoll).mockResolvedValue(found as never);
+    vi.mocked(createNote).mockResolvedValue({ id: "note-1" } as never);
+  });
+
+  describe("GET", () => {
+    it("renders an empty form against the case in the path", async () => {
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][0]).toBe("deed-polls/note-form");
+      expect(res.render.mock.calls[0][1].value).toBe("");
+      expect(res.render.mock.calls[0][1].case.displayReference).toBe("KBDP2026-00001");
+    });
+
+    it("passes the shared maximum length, so the counter and the validator agree", async () => {
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].en.maxLength).toBe(MAX_NOTE_LENGTH);
+    });
+
+    it("404s for a missing case rather than rendering a form against nothing", async () => {
+      vi.mocked(findDeedPoll).mockRejectedValue(new NotFoundError("DeedPoll nope not found"));
+
+      await expect(GET(request(), response())).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe("POST", () => {
+    it("stores the trimmed note and redirects to the notes tab", async () => {
+      const res = response();
+
+      await POST(request({ note: "  Called the applicant  " }), res);
+
+      expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called the applicant" }, { userName: SERVICE_ACCOUNT_NAME });
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1#notes");
+    });
+
+    it("attributes the note to the caller", async () => {
+      await POST(request({ note: "Called" }, "A Caseworker"), response());
+
+      expect(createNote).toHaveBeenCalledWith("case-1", expect.anything(), { userName: "A Caseworker" });
+    });
+
+    it("re-renders with a 400 for a blank note rather than storing whitespace", async () => {
+      const res = response();
+
+      await POST(request({ note: "   " }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(createNote).not.toHaveBeenCalled();
+      expect(res.render.mock.calls[0][1].error).toBeTruthy();
+    });
+
+    it("keeps an over-long note on screen instead of discarding it", async () => {
+      // This is the case the prototype's `?error=` redirect handled worst: the failure most likely to
+      // be hit is the one where the caseworker has typed the most.
+      const tooLong = "x".repeat(MAX_NOTE_LENGTH + 1);
+      const res = response();
+
+      await POST(request({ note: tooLong }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].value).toBe(tooLong);
+      expect(createNote).not.toHaveBeenCalled();
+    });
+
+    it("accepts a note exactly at the limit, so the boundary is not off by one", async () => {
+      await POST(request({ note: "x".repeat(MAX_NOTE_LENGTH) }), response());
+
+      expect(createNote).toHaveBeenCalled();
+    });
+
+    it("re-renders with a 400 when no note field was submitted at all", async () => {
+      const res = response();
+
+      await POST(request({}), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(createNote).not.toHaveBeenCalled();
+    });
+  });
+});
