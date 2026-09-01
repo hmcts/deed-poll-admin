@@ -122,8 +122,8 @@ total                                  1505 passed
 
 ```
 feat/deed-poll-migration
-42 commits ahead of master
-HEAD  c4c1ced  Close Phase 6's code: readiness that means something, and a redirect URI that matches
+43 commits ahead of master
+HEAD  bda9c28  Settle the product code, and map what is actually left to deploy
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -1201,9 +1201,11 @@ item has the longest lead time and nothing else can be tested without it.
    `{product}-shared-infrastructure`, built with the common pipeline. It does not exist yet. It also
    needs to create the `deed-poll` workload identity (`aadIdentityName` in both charts) with access to
    that vault, via `cnp-module-key-vault`.
-2. **The `deed-poll` Kubernetes namespace**, which `job.helm-deploy.yml:138` deploys into. Platform-level.
-   *Not verified from here* — `platops/` is not cloned in this workspace copy, so which repo declares
-   namespaces is worth checking rather than assuming.
+2. **The `deed-poll` Kubernetes namespace**, which `job.helm-deploy.yml:138` deploys into and
+   `helm-deploy` takes as an input. Platform-level. `platops/hmcts.github.io` and
+   `platops/cnp-githubactions-library` are now cloned, but `cnp-flux-config` is not — so **which repo
+   declares namespaces is still unconfirmed.** Worth asking rather than assuming; it is a one-line answer
+   for anyone who has done it before.
 3. **Federated credentials for GitHub Actions OIDC** — the deploy uses `azure/login@v3` with
    `id-token: write`. See [`docs/how-to/federated-credentials.md`](../../docs/how-to/federated-credentials.md).
 4. **ACR push rights to `hmctsprod`** for `job.helm-publish.yml:38`. See
@@ -1217,14 +1219,18 @@ item has the longest lead time and nothing else can be tested without it.
 Our own terraform then creates resource group `deed-poll-{env}-admin` and a Postgres flexible server
 `deed-poll-{env}` holding a `deed-poll-admin` database.
 
-### The onboarding docs assume Jenkins. This repo does not use it.
+### The HMCTS Way documents the Jenkins pipeline only — confirmed, not inferred
 
-**The single most important thing to confirm with Platform Operations**, because it is not a detail this
-repo can settle. Every page under `docs/how-to/new-component/` assumes the Jenkins route: add the repo to
-`cnp-jenkins-config`, publish charts to the `hmcts-charts` repo, let Flux reconcile them onto the
-cluster, and template `values.aat.template.yaml` with `${SERVICE_FQDN}` and `${IMAGE_NAME}`.
+Checked directly against the source repo (`hmcts/hmcts.github.io`, cloned to
+`platops/hmcts.github.io`; the workspace `docs/` are a port of it). **`cnp-githubactions-library` and
+`expressjs-monorepo` appear nowhere in its `source/` tree.** Only five pages mention GitHub Actions at
+all, and just one is about deployment — the federated-credentials guide below. The port is complete, so
+nothing is missing locally: 10 upstream `new-component` pages, 10 ported.
 
-This repo does none of that. It is the GitHub Actions monorepo template:
+So the answer to "does the HMCTS Way tell us how to build our pipeline" is **no, not this pipeline.** It
+describes the Jenkins route in full — `cnp-jenkins-config`, charts published to `hmcts-charts`, Flux
+reconciling a `HelmRelease`, `values.aat.template.yaml` templated with `${SERVICE_FQDN}` — and this repo
+does none of that:
 
 | Docs assume | This repo does |
 |---|---|
@@ -1233,9 +1239,44 @@ This repo does none of that. It is the GitHub Actions monorepo template:
 | Flux reconciles `HelmRelease` onto the cluster | `hmcts/cnp-githubactions-library/helm-deploy@main` runs `helm upgrade` directly (`job.helm-deploy.yml:98`) |
 | `values.aat.template.yaml`, `${SERVICE_FQDN}` | `values.template.yaml`, `${TEAM_NAME}` / `${ENVIRONMENT}` |
 
-`cnp-githubactions-library` is HMCTS's own, so the route is presumably sanctioned and the docs simply
-have not caught up — but **that is an inference, not a confirmation.** Ask before building anything on
-it. If Flux is required after all, a `cnp-flux-config` PR joins the list above.
+`cnp-githubactions-library` is HMCTS's own and actively maintained, so the route is real — it is just
+undocumented in the HMCTS Way. **The practical consequence is that the pipeline is already built**: what
+is missing is credentials and platform prerequisites, not workflow code. Worth one confirmation from
+Platform Operations that GHA is a supported route for a CFT service rather than a template experiment,
+because if Flux turns out to be required for production, a `cnp-flux-config` PR joins the list above.
+
+#### The credentials the pipeline needs
+
+Every secret the workflows reference, and what each is for:
+
+| Secret | Used by | How to get it |
+|---|---|---|
+| `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` | `azure/login` for ACR in `job.helm-publish.yml:34`, `job.promote-images.yml:68`, `job.helm-deploy.yml:88` | Self-service: a PR to [`azure-github-federation-config`](https://github.com/hmcts/azure-github-federation-config), per the guide below |
+| `AZURE_CREDENTIALS_CFT_PREVIEW` | `terraform-deploy` (`job.terraform.yml:95`) and preview `helm-deploy` (`job.helm-deploy.yml:103`) | Service-principal JSON — see the note on OIDC below |
+| `AZURE_CREDENTIALS_CFT_AAT` | AAT `helm-deploy` (`:118`) and `job.helm-cleanup.yml:27` | as above |
+| `SONAR_TOKEN` | `job.test.yml:73` | SonarCloud project setup |
+| `DATABASE_URL` | `job.lint.yml:46` | Only needed if lint runs Prisma against a database; likely removable, see Loose ends |
+
+The federated-credentials route is **self-service and documented**:
+[`docs/how-to/federated-credentials.md`](../../docs/how-to/federated-credentials.md). Add an entry to
+`app-registrations.yaml` naming the subjects (`repo:hmcts/deed-poll-admin:ref:refs/heads/master`,
+`repo:hmcts/deed-poll-admin:pull_request`) and the roles/scopes, then raise a PR; the terraform pipeline
+creates the app registration, service principal, federated credentials and role assignments on merge.
+**Cap: 20 federated credentials per app registration**, one per subject line.
+
+#### Two long-lived credentials that do not need to exist
+
+`cnp-githubactions-library` ships `helm-deploy-openid` and `terraform-deploy-openid` — drop-in
+equivalents that authenticate by OIDC and need **no stored credentials**. This repo uses the non-OIDC
+variants for both, which is why `AZURE_CREDENTIALS_CFT_AAT` and `AZURE_CREDENTIALS_CFT_PREVIEW` exist as
+service-principal JSON blobs — and those two cover the most privileged operations there are here:
+`terraform apply` and `helm upgrade` into AKS.
+
+The HMCTS Way is explicit that federated credentials are "a more secure approach than storing service
+principal secrets", and the repo already uses OIDC for the ACR steps, so this is inconsistent as well as
+weaker. **Switching to the `-openid` actions would remove both secrets.** Not done here: it cannot be
+tested without Azure access, and a broken deploy pipeline is worse than a working one with two secrets in
+it. Do it as its own change, against a real environment.
 
 - **CI has no database**, so the `ccd` schema tests skip. Unchanged by this work.
 
