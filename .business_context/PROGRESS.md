@@ -980,12 +980,20 @@ signed ID token checked against the issuer's JWKS, `state` echoed and checked, r
 `privacy=Private` is honoured while a role-less caseworker's is **dropped and their other edits on the
 same tab still save**, and that writes carry the IDAM name.
 
-**One thing is NOT verified locally, and switching to the real simulator did not change it: PKCE.**
-`openid-client` sends a correct S256 challenge and verifier, but neither the deleted stub nor
-`rse-idam-simulator` has any `code_challenge` handling at all — checked in its source. So local runs
-prove the client's half and nothing else. Real IDAM is expected to enforce it, since the workspace
-standard mandates PKCE, but that is an expectation. An earlier version of this file claimed PKCE was
+**Two things are NOT verified locally, and switching to the real simulator changed neither:
+PKCE and the client secret.** `openid-client` sends a correct S256 challenge and a `client_secret`,
+and `rse-idam-simulator` checks neither — it has no `code_challenge` handling at all, and
+`getOpenIdToken` takes `client_secret` as a parameter and never reads it
+(`IdamSimulatorController.java:237`). Both were true of the deleted stub too. So local runs prove the
+client's half of each and nothing more. Real IDAM is expected to enforce both, since the workspace
+standard mandates PKCE and the client is confidential — but that is an expectation, and the
+registration request now asks them to confirm it. An earlier version of this file claimed PKCE was
 verified end to end; it was not.
+
+What the simulator *does* enforce, so these were verified rather than assumed: `state` is echoed and
+checked, the authorization code is invalidated on exchange (`invalidateAuthCode`), so replay is
+refused by the issuer and not merely by this app, and `/o/userinfo` requires a bearer token it
+actually issued.
 
 **What only real IDAM will settle**, now that the simulator has answered the rest: whether the role
 string is really `deedpoll-admin`, and whether CFT IDAM's own `/o/userinfo` matches the simulator's

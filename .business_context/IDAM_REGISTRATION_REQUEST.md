@@ -85,8 +85,10 @@ So the reply is a config change, not a build:
   `IDAM_REDIRECT_URI`, `IDAM_SCOPE`.
 - Verified end to end against `hmcts/rse-idam-simulator` built from source and run via
   `docker compose` — including that roles arrive from `/o/userinfo` rather than the ID token.
-  **PKCE is the exception:** the client sends a correct S256 challenge, but the simulator has no
-  `code_challenge` handling, so nothing local enforces it. Worth confirming your end does.
+  **Two exceptions, both worth confirming at your end:** the client sends a correct S256 PKCE
+  challenge and a `client_secret`, and the simulator verifies neither, so nothing local proves they
+  are enforced. `state`, single-use codes and bearer-gated `/o/userinfo` are enforced by it and were
+  verified.
 
 **What the stub cannot tell us**, now that `rse-idam-simulator` has answered the rest: whether the role
 string is really `deedpoll-admin`, and whether CFT IDAM's `/o/userinfo` matches the simulator's
