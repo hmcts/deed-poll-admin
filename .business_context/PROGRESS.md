@@ -2,14 +2,18 @@
 
 Last updated: 2026-09-01. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
-**Next thing to pick up: Phase 3, the documents handlers (12 of the 29).** `deed-polls` (7) and
-notes + witnesses (10) are done — 17 of 29. Documents were left last because they are the only ones
-needing the Multer wiring, which is the remaining unsolved piece; `document-types` (5 of the 12) has
-no upload in it and can go first. Read ["Phase 3 foundations"](#phase-3-foundations-done-caf4e03),
-["Phase 3 slice 1"](#phase-3-slice-1-deed-polls-done) and
-["Phase 3 slice 2"](#phase-3-slice-2-notes-and-witnesses-done) before writing a handler — between
-them they settle every decision a handler should not be making for itself, and the documents service
-has already been brought in line with the child-scoping rule in slice 2.
+**Next thing to pick up: Phase 3, the `documents` handlers — the last 7 of the 29.** `deed-polls`
+(7), notes + witnesses (10) and `document-types` (5) are done — 22 of 29. Documents are last because
+they are the only ones needing the **Multer wiring**, which is the remaining unsolved piece of
+Phase 3. Read ["Phase 3 foundations"](#phase-3-foundations-done-caf4e03) and slices
+[1](#phase-3-slice-1-deed-polls-done), [2](#phase-3-slice-2-notes-and-witnesses-done) and
+[3](#phase-3-slice-3-document-types-done) before writing a handler — between them they settle every
+decision a handler should not be making for itself. The documents *service* is already in line with
+both the child-scoping rule (slice 2) and the list-404 rule, so only the HTTP layer remains.
+
+**Before starting documents, know that local disk storage cannot go to AKS** — pods are ephemeral and
+replicas share no volume. Whatever Multer writes is a local-development story until Phase 10 (CDAM)
+or the Azure Blob off-ramp. That is a deployment constraint, not a reason to delay the port.
 
 **Two tasks are parked, not questions** — see "Parked tasks" below. Neither blocks Phase 3.
 
@@ -66,10 +70,10 @@ resource          progress  ported       notes
 deed-polls        ███████   7/7    done  incl. field-rules, validate
 notes             █████     5/5    done
 witnesses         █████     5/5    done
-document-types    ░░░░░     0/5          no upload
+document-types    █████     5/5    done  no upload
 documents         ░░░░░░░   0/7          needs Multer wiring
                             ──────────────
-                            17/29  59%
+                            22/29  76%
 ```
 
 ### Phase 4 — SSR pages, not started
@@ -83,22 +87,22 @@ documents         ░░░░░░░   0/7          needs Multer wiring
 @hmcts-cft/express-govuk-starter        127 passed
 @hmcts-cft/express-session-postgres      23 passed
 @hmcts-cft/simple-router                 41 passed
-@hmcts/api                              152 passed
+@hmcts/api                              175 passed
 @hmcts/crons                             10 passed
-@hmcts/deed-poll                        465 passed
+@hmcts/deed-poll                        475 passed
 @hmcts/onboarding                        72 passed
 @hmcts/postgres                          11 passed
 @hmcts/web                               44 passed
 ─────────────────────────────────────────────────────
-total                                  1068 passed
+total                                  1101 passed
 ```
 
 ### Branch
 
 ```
 feat/deed-poll-migration
-21 commits ahead of master
-HEAD  83d54c4  404 a child list when its parent case does not exist
+22 commits ahead of master
+HEAD  7843eec  Add an at-a-glance dashboard to PROGRESS.md, with the numbers generated
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -110,6 +114,7 @@ Branch, commit count and test counts live in the generated dashboard above rathe
 there is only one place for them to be wrong.
 
 ```
+7843eec  Add an at-a-glance dashboard to PROGRESS.md, with the numbers generated
 83d54c4  404 a child list when its parent case does not exist
 2e41014  Scope the nested child writes to their parent case
 14d3936  Port the notes and witnesses JSON handlers
@@ -272,7 +277,7 @@ routes/deed-polls/[id]/validate.ts                ✅ POST
 routes/deed-polls/[id]/notes/{index,[noteId]}.ts       ✅ GET/POST, GET/PATCH/DELETE
 routes/deed-polls/[id]/witnesses/{index,[witnessId]}.ts ✅ GET/POST, GET/PATCH/DELETE
 routes/deed-polls/[id]/documents/{index,[documentId]}.ts
-routes/document-types/{index,[id]}.ts
+routes/document-types/{index,[id]}.ts                   ✅ GET/POST, GET/PATCH/DELETE
 ```
 
 **Note the nested paths use `[id]`, not the `[deedPollId]` earlier revisions of this table showed.**
@@ -285,8 +290,8 @@ Source controllers to port (then delete):
 | `deed-poll/deed-poll.controller.ts` | 7 | ✅ ported |
 | `notes/notes.controller.ts` | 5 | ✅ ported |
 | `witnesses/witnesses.controller.ts` | 5 | ✅ ported |
-| `documents/document-types.controller.ts` | 5 | ⬅ next — no upload, so no Multer dependency |
-| `documents/documents.controller.ts` | 7 | ⬅ last — needs the Multer wiring |
+| `documents/document-types.controller.ts` | 5 | ✅ ported |
+| `documents/documents.controller.ts` | 7 | ⬅ **all that remains** — needs the Multer wiring |
 
 None of the ported controllers are deleted yet; `power_app_nest/` goes as a whole at the end of
 Phase 4.
@@ -303,7 +308,7 @@ Specific work:
 4. ⬅ **Multer.** `uploadDocument` now takes a plain `UploadedFile` (`buffer`, `originalname`,
    `mimetype`, `size`) rather than `Express.Multer.File`. The app maps its upload middleware onto it.
 
-Verification: `yarn test` must show at least 465 in `libs/deed-poll` and 152 in `apps/api` plus
+Verification: `yarn test` must show at least 475 in `libs/deed-poll` and 175 in `apps/api` plus
 whatever the new route tests add; `yarn lint` and `yarn build` clean; and exercise the handlers
 against a running app — see the recipe under "Exercising the API locally" below, which is worth
 following rather than improvising, because two of the four things in it cost time to work out.
@@ -330,7 +335,7 @@ cd apps/api && NODE_ENV=development ../../node_modules/.bin/tsx src/server.ts
 
 | File | What |
 |---|---|
-| `libs/deed-poll/src/errors.ts` | adds `ForbiddenError` and `zodErrorToFieldErrors` |
+| `libs/deed-poll/src/errors.ts` | adds `ForbiddenError` and `zodErrorToFieldErrors`; `ConflictError` followed in slice 3 |
 | `apps/api/src/errors.ts` | `errorHandler()`, mounted last in `app.ts` |
 | `apps/api/src/auth/current-user.ts` | `userFromRequest` — header extraction, the Phase 5 seam |
 | `apps/api/src/auth/require-roles.ts` | `requireRoles(...)`, replacing `RolesGuard` |
@@ -551,6 +556,56 @@ Both directions are pinned by tests and were verified live, because a fix like t
 `if` away from 404ing every legitimately-empty list: a missing case 404s with the case id in the
 message, and a real case with no children still answers `[]` with 200. `documents` has no HTTP route
 yet, so it is covered by domain tests only until that slice lands.
+
+### Phase 3 slice 3: document-types (done)
+
+Five handlers in `apps/api/src/routes/document-types/`. `apps/api` 152 → 175 tests,
+`libs/deed-poll` 465 → 475.
+
+- **The only Phase 3 resource outside `routes/deed-polls/`.** Document types are global reference
+  data — the list of things a supporting document can *be*, plus the marital statuses and case types
+  each applies to — so they mount at the top level, while the documents referencing them will live
+  under `/deed-polls/:id/documents`. There is no parent to scope against; the type's own id
+  identifies it.
+
+- **`DELETE` can answer 409, the only one in the phase.** Everything else in Phase 3 answers 200,
+  201, 204, 400, 403 or 404.
+
+- **`document-types.ts` had no unit tests before this**, only its Zod schemas. A Phase 2 gap rather
+  than anything introduced here — the five domain functions were never covered. Now they are.
+
+#### A second 500 for an ordinary action, same shape as slice 1's
+
+`removeDocumentType` deleted straight through to Prisma. The `documentType` relation is required and
+declares no `onDelete`, so Postgres refuses to orphan documents — but that refusal arrives through
+the `PrismaPg` adapter as a **`DriverAdapterError`** carrying SQLSTATE **23001** on `err.cause.code`,
+which is not a domain error, so `errorHandler` fell through to a generic 500. A caseworker deleting a
+type that happened to be in use was told the server had broken.
+
+The module's own docstring claimed this "surfaces as a 409-style failure". Nothing implemented that.
+It does now:
+
+- **`ConflictError`** added to `libs/deed-poll/src/errors.ts`, mapped to **409** in `apps/api`.
+  Deliberately not `InvalidInputError`/400 — nothing about the input is wrong, and the same request
+  succeeds unchanged once the references are gone. There is no field to blame, so no `errors` array.
+- **`removeDocumentType` counts referencing documents itself** rather than catching the driver error.
+  A count gives a message naming the number, which is actionable, and it does not depend on the
+  driver's internal error shape — that would be fragile across a Prisma upgrade and would fail by
+  silently reverting to 500.
+- **Known, accepted gap:** a document created between the count and the delete still hits the FK and
+  yields that 500. The window is tiny, the database refuses either way so integrity holds, and
+  closing it would mean parsing the driver internals the check exists to avoid.
+
+Verified live, both directions: deleting an in-use type answers
+`409 {"error":"Cannot delete this document type: 1 document(s) still reference it"}` and the type
+survives; once the referencing document is gone the same request answers 204; and a second delete
+answers 404 rather than 409, so "already gone" and "still in use" stay distinct.
+
+**This is the second defect of exactly this shape** — after slice 1's bare `Error` from
+`yearFromDateReceived`. Both were expected, caller-caused conditions that reached the error
+middleware as something it did not recognise, and both were invisible to unit tests on either side.
+**When porting the `documents` handlers, assume there is a third**: check what every domain function
+on that path throws, and confirm each one maps to a status a caller should see.
 
 Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/web`, replacing
 `nunjucks.setup.ts` entirely with `configureGovuk` from `@hmcts-cft/express-govuk-starter`.

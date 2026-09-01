@@ -11,7 +11,7 @@
  * handlers can throw and rely on this. Express only recognises a middleware as an error
  * handler if it declares four parameters, hence the unused `_next`.
  */
-import { type FieldError, ForbiddenError, InvalidInputError, NotFoundError, zodErrorToFieldErrors } from "@hmcts/deed-poll";
+import { ConflictError, type FieldError, ForbiddenError, InvalidInputError, NotFoundError, zodErrorToFieldErrors } from "@hmcts/deed-poll";
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
 
@@ -53,6 +53,12 @@ function mapError(err: Error): MappedError | undefined {
 
   if (err instanceof ForbiddenError) {
     return { status: 403, body: { error: err.message } };
+  }
+
+  // 409 rather than 400: the request is well-formed and permitted, and would succeed unchanged
+  // once the conflicting data is gone. Nothing for the caller to correct in the payload.
+  if (err instanceof ConflictError) {
+    return { status: 409, body: { error: err.message } };
   }
 
   return undefined;

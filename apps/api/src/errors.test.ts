@@ -1,4 +1,4 @@
-import { ForbiddenError, InvalidInputError, NotFoundError } from "@hmcts/deed-poll";
+import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError } from "@hmcts/deed-poll";
 import type { NextFunction, Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -38,6 +38,25 @@ describe("errorHandler", () => {
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith({ error: "Requires one of the following roles: deedpoll-admin" });
+  });
+
+  it("should map ConflictError to 409, not 400, because the input is not what is wrong", () => {
+    // Deleting a document type in use is a well-formed, permitted request that would succeed
+    // unchanged once the references are gone — nothing for the caller to correct in a field.
+    const res = responseSpy();
+
+    errorHandler()(new ConflictError("Cannot delete this document type: 2 document(s) still reference it"), req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({ error: "Cannot delete this document type: 2 document(s) still reference it" });
+  });
+
+  it("should not attach an errors array to a ConflictError, which has no field to blame", () => {
+    const res = responseSpy();
+
+    errorHandler()(new ConflictError("Still in use"), req, res, next);
+
+    expect(res.json).toHaveBeenCalledWith({ error: "Still in use" });
   });
 
   it("should map InvalidInputError to 400 and preserve its field errors", () => {

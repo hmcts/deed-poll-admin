@@ -33,6 +33,25 @@ export class ForbiddenError extends Error {
   }
 }
 
+/**
+ * The request is well-formed and permitted, but the current state of the data forbids it.
+ *
+ * Distinct from `InvalidInputError` because nothing about the input is wrong: deleting a
+ * document type is a perfectly good request that fails only because documents still reference
+ * it, and it would succeed unchanged once they no longer do. That is a 409, not a 400 — the
+ * caller should retry later or remove the references, not correct a field.
+ *
+ * Introduced for `removeDocumentType`, whose restrict-on-delete FK previously surfaced as a
+ * `DriverAdapterError` that `errorHandler` could not recognise, making an ordinary caseworker
+ * action answer 500.
+ */
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConflictError";
+  }
+}
+
 /** A failure addressed to a specific field, so a form can render it in place. */
 export interface FieldError {
   field: string;
