@@ -8,8 +8,13 @@ nodejs:
     POSTGRES_DATABASE: deed-poll-admin
     IDAM_ISSUER_URL: https://idam-web-public.{{ .Values.global.environment }}.platform.hmcts.net/o
     IDAM_CLIENT_ID: deed-poll-admin
-    IDAM_REDIRECT_URI: https://deed-poll-admin-web.{{ .Values.global.environment }}.platform.hmcts.net/oauth2/callback
     IDAM_SCOPE: openid profile roles
+    # IDAM_REDIRECT_URI is deliberately NOT set here. It has to equal this app's ingressHost plus
+    # /oauth2/callback, and `ingressHost` above is overridden per environment by
+    # helm/deed-poll-admin/values.template.yaml — so a value written here would be quietly wrong
+    # everywhere it is actually deployed, which is what it was. It is set alongside the ingressHost in
+    # those root templates instead, and `assertIdamSettings` refuses to start if it is missing or
+    # still points at localhost.
   keyVaults:
     deed-poll:
       secrets:

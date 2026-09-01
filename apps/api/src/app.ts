@@ -1,6 +1,7 @@
 // API Application Entry Point
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { deedPollDatabaseChecks } from "@hmcts/deed-poll";
 import { getPropertiesVolumeSecrets, healthcheck, monitoringMiddleware } from "@hmcts-cft/cloud-native-platform";
 import { createSimpleRouter } from "@hmcts-cft/simple-router";
 import compression from "compression";
@@ -21,7 +22,13 @@ export async function createApp(): Promise<Express> {
   const { default: config } = await import("config");
   const app = express();
 
-  app.use(healthcheck());
+  // Database checks are readiness only, never liveness. `healthcheck()` defaults `readinessChecks` to
+  // `checks`, so passing them as `checks` would put them on both — and a Postgres blip would then fail
+  // liveness and have Kubernetes restart every pod, which cannot fix someone else's database and turns
+  // a recoverable dependency outage into a rolling one. Liveness is empty on purpose: the process
+  // answering at all is the signal. This previously called `healthcheck()` bare, so readiness passed
+  // unconditionally and AKS would route traffic to a pod that could not reach Postgres.
+  app.use(healthcheck({ checks: {}, readinessChecks: deedPollDatabaseChecks() }));
   app.use(monitoringMiddleware(config.get("applicationInsights")));
 
   app.use(compression());

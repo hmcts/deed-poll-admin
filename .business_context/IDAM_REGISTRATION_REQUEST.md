@@ -30,14 +30,23 @@ answers, the client secret and the role name, are the ones that block.
 >
 > 1. **Client ID and secret** for a confidential client. We have assumed a client id of
 >    `deed-poll-admin`; happy to take whatever you prefer.
-> 2. **Registered redirect URIs.** The path is `/oauth2/callback` on the web app. We need one per
->    environment — for a preview/PR environment, a wildcard or a pattern would help, since the hostname
->    contains the PR number:
+> 2. **Registered redirect URIs.** The path is `/oauth2/callback` on the web app. Our hostnames are
+>    `<team>-<release>-web.<env>.platform.hmcts.net`, where the release name is `deed-poll-admin-staging`
+>    on our main branch and `deed-poll-admin-pr-<n>` for a pull request:
 >    - local: `http://localhost:3000/oauth2/callback`
->    - AAT: `https://deed-poll-admin-web.aat.platform.hmcts.net/oauth2/callback`
->    - preview: `https://deed-poll-admin-web-pr-<n>.preview.platform.hmcts.net/oauth2/callback`
+>    - AAT: `https://deed-poll-deed-poll-admin-staging-web.aat.platform.hmcts.net/oauth2/callback`
+>    - preview: `https://deed-poll-deed-poll-admin-pr-<n>-web.preview.platform.hmcts.net/oauth2/callback`
 >    - production: to follow
->    *(The hostnames depend on the CNP product code, which is itself unconfirmed — see the note below.)*
+>
+>    **A wildcard for preview would help a great deal** — something covering
+>    `deed-poll-deed-poll-admin-pr-*-web.preview.platform.hmcts.net`. Every pull request gets its own
+>    hostname, so without one, preview environments cannot log in at all and each PR would need its own
+>    registration. If a wildcard is not possible, we would like to know that early, because it changes
+>    how we test.
+>
+>    *(The team and product segments depend on the CNP product code, which is itself unconfirmed — see
+>    the note below. If it comes back as something other than `deed-poll`, every hostname above
+>    changes.)*
 > 3. **Issuer URL per environment**, for discovery.
 > 4. **Scopes.** We currently request `openid profile roles` and read the user's roles and name from
 >    `/o/userinfo` after the code exchange, rather than from the ID token — matching what
@@ -71,10 +80,21 @@ answers, the client secret and the role name, are the ones that block.
 
 ## Notes for whoever sends this
 
-**It is coupled to the CNP product code**, which is Parked task 1 and still unconfirmed. The redirect
-URI hostnames above assume team `deed-poll` / product `admin`. If Platform Operations comes back with
-something different, the redirect URIs change — so **either confirm the product code first, or warn
-IDAM that the hostnames are provisional.** Sending both requests together is probably fastest.
+**It is coupled to the CNP product code**, which is Parked task 1 and still unconfirmed. If Platform
+Operations comes back with something other than `deed-poll`, every redirect URI above changes — so
+**either confirm the product code first, or warn IDAM that the hostnames are provisional.** Sending both
+requests together is probably fastest.
+
+**The hostnames were wrong in an earlier draft of this file**, and the way they were wrong is worth
+knowing because it is easy to repeat. `apps/web/helm/values.yaml` declares
+`ingressHost: deed-poll-admin-web.<env>...`, which looks authoritative — but
+`helm/deed-poll-admin/values.template.yaml` **overrides** it with
+`${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}...`, and `TEAM_NAME` comes from
+`annotations.team` in `Chart.yaml` while `RELEASE_NAME` is `<chart name>-pr-<n>` or
+`<chart name>-<change id>`. The subchart value is the one you would read first and the one that never
+applies. `IDAM_REDIRECT_URI` is now set beside the `ingressHost` it has to match, in the root
+templates, and `assertIdamSettings` refuses to start if it is still localhost — because the failure it
+prevents happens on IDAM's page, after a successful login, where no request reaches our logs.
 
 **The role name is the answer with the most downstream reach.** `deedpoll-admin` appears in
 `libs/deed-poll/src/auth/roles.ts` and is the only value `userFromClaims` recognises. Changing it is a

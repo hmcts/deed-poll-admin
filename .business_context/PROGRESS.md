@@ -60,7 +60,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
  4  SSR pages → apps/web       ████████████████████░░  12/12 ported, unverified
  5  authentication (IDAM)      ███████████████████░░░  ◀── HERE. both apps done; needs a real client
- 6  config, Helm, deployment   ░░░░░░░░░░░░░░░░░░░░░░  needs the CNP product code
+ 6  config, Helm, deployment   ██████████████░░░░░░░░  code done; needs the CNP product code
 
 TRACK B — CCD adoption (separable; start only once Track A is green)
 ════════════════════════════════════════════════════════════════════════════
@@ -75,7 +75,7 @@ Three things gate a deploy, none of them code in this branch:
 
 | Gate | Why it blocks |
 |---|---|
-| Phase 5 auth | Both apps authenticate now, but there is no registered IDAM client to point them at, and neither `idam-client-secret` nor `session-secret` exists in the vault — so nobody can actually log in to a deployed instance |
+| Phase 5 auth | Both apps authenticate now, but there is no registered IDAM client to point them at, and neither `idam-client-secret` nor `session-secret` exists in the vault — so nobody can log in to a deployed instance, and `assertIdamSettings` refuses to start without them |
 | CNP product code | Unverified; drives the ACR namespace, key vaults and `deed-poll-preview` Postgres. External, longest lead time — hence Parked task 1 |
 | CI has no database | The `ccd` schema tests skip in CI. Honest, but not coverage |
 
@@ -104,26 +104,26 @@ documents         ███████   7/7    done  incl. multipart upload, d
 ### Tests
 
 ```
-@hmcts-cft/cloud-native-platform        123 passed
+@hmcts-cft/cloud-native-platform        140 passed
 @hmcts-cft/express-govuk-starter        127 passed
 @hmcts-cft/express-session-postgres      23 passed
 @hmcts-cft/simple-router                 41 passed
 @hmcts/api                              255 passed
 @hmcts/crons                             10 passed
-@hmcts/deed-poll                        583 passed
+@hmcts/deed-poll                        590 passed
 @hmcts/onboarding                        72 passed
 @hmcts/postgres                          11 passed
-@hmcts/web                              223 passed
+@hmcts/web                              236 passed
 ─────────────────────────────────────────────────────
-total                                  1468 passed
+total                                  1505 passed
 ```
 
 ### Branch
 
 ```
 feat/deed-poll-migration
-40 commits ahead of master
-HEAD  94b8c67  Mark loose end 12 done in the handover
+41 commits ahead of master
+HEAD  7a31506  Test apps/web's IDAM flow, and check the tests by breaking the code
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -1107,6 +1107,79 @@ That last one is the bug that shipped and was found by accident. It now fails a 
 The one thing deliberately **not** asserted is that the *whole* flow works against a live issuer: that
 is what running it against the simulator is for, and an e2e test of it belongs with the Playwright work
 under Phase 4 outstanding.
+
+### Phase 6 — config, Helm, deployment (code done)
+
+The plan's three bullets ([`ORIGINAL_PLAN_2026-08-21.md:191`](ORIGINAL_PLAN_2026-08-21.md)) are all
+closed in code. What remains is external.
+
+**Readiness now covers the tables, not just the connection.** `missingDeedPollTables()` and
+`deedPollDatabaseChecks()` are in `libs/deed-poll/src/health.ts` — shared, because both apps ask the
+same question of the same schema. One `information_schema` query, and it names the missing tables,
+because a health check reduces to UP/DOWN and being paged for "readiness DOWN" with no further detail
+wastes most of the diagnosis. `DEED_POLL_TABLES` cannot be derived (Prisma has no runtime
+introspection), so `health.test.ts` checks the list against `deed-poll.prisma` itself — **a model added
+without updating that list would otherwise leave readiness passing on a database lacking its table.**
+
+Three defects found doing it, each worse than the gap the plan named:
+
+1. **`apps/api` had no checks at all.** `healthcheck()` bare means `checks = {}` and
+   `readinessChecks = checks`, so readiness passed unconditionally: AKS would route traffic to a pod
+   that could not reach Postgres.
+2. **`apps/web` had its database check on liveness.** `readinessChecks` defaults to `checks`, so
+   passing them as `checks` puts them on **both** — and a Postgres blip would fail liveness and have
+   Kubernetes restart every web pod. Restarting cannot fix someone else's database; it turns a
+   recoverable dependency outage into a rolling one. Liveness is now empty on purpose: the process
+   answering at all is the signal.
+3. **Every probe returned HTTP 200, DOWN or not.** `libs/cloud-native-platform` did
+   `res.json(result).status(...)` — Express has already flushed by then, so the status was ignored.
+   Kubernetes reads the status code and not the body, so **no probe could ever have acted on a
+   failure.** Its unit tests could not see it: `status` and `json` are both `mockReturnThis()`, so the
+   two calls pass in either order. Fixed, with `healthcheck-middleware.wiring.test.ts` driving a real
+   request — 11 of its assertions fail if the order is put back. **This is template-library code and
+   wants upstreaming with loose end 11.**
+
+Verified by stopping Postgres against a running `apps/api`: readiness 200 → **503** → 200 on recovery,
+liveness 200 throughout.
+
+### The deployed redirect URI was wrong, and the way it was wrong is worth knowing
+
+`apps/web/helm/values.yaml` sets `ingressHost: deed-poll-admin-web.<env>...`, which reads as
+authoritative. `helm/deed-poll-admin/values.template.yaml` **overrides** it with
+`${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}...` — and `TEAM_NAME` comes from
+`annotations.team` in `Chart.yaml`, while `RELEASE_NAME` is `<chart>-staging` on main and
+`<chart>-pr-<n>` for a PR. So the real hostnames are:
+
+```
+AAT      deed-poll-deed-poll-admin-staging-web.aat.platform.hmcts.net
+preview  deed-poll-deed-poll-admin-pr-<n>-web.preview.platform.hmcts.net
+```
+
+The subchart value is the one you read first and the one that never applies. An `IDAM_REDIRECT_URI`
+written there — which is what the last commit did — is silently wrong in every deployed environment, and
+**IDAM refuses a `redirect_uri` that does not match a registered one**, so the failure lands on IDAM's
+own page after a successful login, where no request reaches our logs.
+
+It is now set beside the `ingressHost` it has to match, in both root templates, and `assertIdamSettings`
+refuses to start on a localhost or cleartext redirect URI, or an empty client secret, outside
+development and test. Confirmed by rendering: `IDAM_REDIRECT_URI == https://<ingressHost>/oauth2/callback`
+for both environments. The parent-overrides-subchart semantics this relies on were checked against a
+throwaway local chart — the real ones cannot be rendered here, since `nodejs` and `postgresql` come from
+ACR and need auth.
+
+**Preview needs a wildcard registration** (`deed-poll-deed-poll-admin-pr-*-web.preview…`) because every
+PR gets its own hostname. Without one, preview environments cannot log in at all. That is now question 2
+of the registration request.
+
+### Still to do in Phase 6
+
+- **The CNP product code**, Parked task 1, and it reaches further than "a name": `var.product` alone
+  names the key vault (`${product}-${env}`, `infrastructure/keyvault.tf:5`), the Postgres flexible
+  server (`postgres.tf:7`), the resource group and App Insights; `annotations.team` becomes the
+  Kubernetes namespace; and the ACR path `hmctsprod.azurecr.io/deed-poll/…` is hardcoded throughout.
+  **Every redirect URI above changes if it is not `deed-poll`** — which is why it wants confirming
+  before, or alongside, the IDAM request.
+- **CI has no database**, so the `ccd` schema tests skip. Unchanged by this work.
 
 ### Still to do in Phase 5
 
