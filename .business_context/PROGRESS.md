@@ -2,7 +2,8 @@
 
 Last updated: 2026-09-01. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
-**Phase 3 is complete. Phase 4 is in progress — 9 of its 12 SSR page handlers are done.**
+**Phase 3 is complete. Phase 4 is in progress — all 12 SSR page handlers are ported. What remains is
+deleting `power_app_nest/` and the verification pass the plan asks for (axe, Welsh, e2e).**
 
 See ["Phase 4 — SSR pages"](#phase-4--ssr-pages-in-progress) for what is done, what remains, and the
 template-name trap that cost time and would cost it again.
@@ -47,7 +48,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  1  schema → monorepo          ██████████████████████  done
  2  domain → libs/deed-poll    ██████████████████████  done
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
- 4  SSR pages → apps/web       ████████████████░░░░░░  9/12 handlers ◀── HERE
+ 4  SSR pages → apps/web       ████████████████████░░  12/12 ported  ◀── HERE
  5  authentication (IDAM)      ░░░░░░░░░░░░░░░░░░░░░░  hard gate before any deploy
  6  config, Helm, deployment   ░░░░░░░░░░░░░░░░░░░░░░  needs the CNP product code
 
@@ -705,11 +706,11 @@ Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/
 
 ## Phase 4 — SSR pages (in progress)
 
-**9 of 12 page handlers done**: the case list, the new-case form, the case detail page, the edit tab
-(GET and POST) and the four note handlers — plus a
+**All 12 page handlers ported**: the case list, the new-case form, the case detail page, the edit tab
+(GET and POST), the four note handlers and the two upload handlers — plus a
 document download route the prototype did not have, and the pages' own domain-error mapping. Foundations are in
-`libs/deed-poll` (`date-parts`, `list-filters`, `list-view`, `edit-view`). Remaining: document upload (2), and then
-deleting `power_app_nest/`.
+`libs/deed-poll` (`date-parts`, `list-filters`, `list-view`, `edit-view`). Remaining: delete `power_app_nest/`, then the
+Phase 4 verification the plan asks for — axe accessibility checks and the Welsh/e2e pass.
 
 **The templating swap the plan lists is already done.** `nunjucks.setup.ts` exists only in the
 prototype; `apps/web` has always used `configureGovuk`. That file goes when the prototype does. Its
@@ -734,6 +735,28 @@ basename, and following that literally is what produced the wrong page.
 
 **One trap while verifying:** `tsx src/server.ts` does not watch. An edit appears to have no effect
 and it is easy to conclude the fix did not work; restart between changes.
+
+### Middleware validation errors needed a different route out
+
+Propagating the upload parser's rejection produced a **500**, not a 400. `domainErrorHandler`
+deliberately passes `InvalidInputError` on, on the grounds that a page which validates is expected to
+have caught it and re-rendered its own form. That is true of a **handler** and false of **middleware
+running before one**: the multipart parser rejects an over-size or wrong-type file before the handler
+exists to catch anything.
+
+Diagnosing it was slower than it should have been because the starter's development 500 page prints
+`err.message`, so the response contained the *correct* message — "The file must be smaller than 10MB" —
+on the wrong status. It read as a status bug rather than a routing one.
+
+So `apps/web`'s parser **records** its rejection on `res.locals` and calls `next()` normally, leaving
+the handler to re-render. That is the one real difference from `apps/api`'s copy, where propagating is
+right because its error middleware turns the rejection into a JSON 400 and there is no form to
+re-render. Pinned by a test.
+
+The upload **policy** — the 10 MB limit, the accepted-type list, the messages — moved into
+`libs/deed-poll/src/documents/upload-policy.ts` so both apps enforce one set. The limit is the figure
+the handover flags as needing confirmation with the service team; in two places, someone confirms it and
+changes one. Only the Multer wiring is duplicated, because Multer is Express middleware.
 
 ### The note forms re-render instead of redirecting with `?error=`
 

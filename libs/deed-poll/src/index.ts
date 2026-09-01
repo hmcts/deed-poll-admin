@@ -32,6 +32,7 @@ export * from "./documents/documents-view.js";
 export * from "./documents/file-storage.js";
 export * from "./documents/schemas.js";
 export * from "./documents/service.js";
+export * from "./documents/upload-policy.js";
 export * from "./errors.js";
 export * from "./notes/note-form.js";
 export * from "./notes/notes-view.js";
