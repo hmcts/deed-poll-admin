@@ -1,18 +1,21 @@
 /**
- * Resolves the caller from an Express request, for the SSR pages.
+ * The caller, for the SSR pages.
  *
- * Deliberately identical to `apps/api/src/auth/current-user.ts`: both are one-line adapters over
- * `userFromHeaders`, which holds the scheme and the fail-closed `NODE_ENV` allowlist. The
- * duplication is the adapter only, not the decision — see that function for why it lives in the
- * domain rather than being copied per app.
+ * **The header scheme is gone from this app.** It read `x-user-roles`, so anyone who could reach the
+ * service could assert `deedpoll-admin`. Phase 5 replaces it with a real IDAM session, and this file
+ * is the whole of the replacement — the pages call it exactly as before, so nothing downstream
+ * changed. `libs/deed-poll/src/auth/header-user.ts` still exists for `apps/api`, which has no session
+ * and is dealt with separately.
  *
- * The pages need this because privacy editability and the privacy banner depend on `isAdmin`.
- * Replacing this file and its twin is the whole of the work when IDAM arrives in Phase 5.
+ * `requireAuth` runs before every non-public page, so a page reaching this always has a user. The
+ * fallback is not a "logged out" state: it is `currentUser([])`, which holds no roles and is
+ * attributed to the service account — so a bug that let an unauthenticated request through would fail
+ * closed rather than silently acting as an admin.
  */
-import { type CurrentUser, userFromHeaders } from "@hmcts/deed-poll";
+import { type CurrentUser, currentUser } from "@hmcts/deed-poll";
 import type { Request } from "express";
+import { sessionUser } from "./session.js";
 
 export function userFromRequest(req: Request): CurrentUser {
-  // `req.header` is case-insensitive, which is why it is passed rather than `req.headers`.
-  return userFromHeaders((name) => req.header(name));
+  return sessionUser(req) ?? currentUser([]);
 }

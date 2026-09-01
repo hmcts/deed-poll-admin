@@ -6,7 +6,7 @@
     "composite": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "src/assets/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "src/assets/**/*", "src/express-doubles.ts"],
   "references": [
     {
       "path": "../../libs/cloud-native-platform"

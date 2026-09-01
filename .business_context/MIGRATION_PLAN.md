@@ -80,9 +80,11 @@ No CCD dependency. Deployable on its own.
   `PROGRESS.md` under "Phase 4 outstanding": the verification pass (axe, Playwright journeys, Welsh
   content), and deleting `power_app_nest/` — kept as a reference by Steve's decision, since it was
   never committed and so cannot be recovered once gone.
-- **Phase 5 — authentication (IDAM/Entra).** ⬅ **next.** The seam is
-  `libs/deed-poll/src/auth/header-user.ts` plus the one-line adapter in each app; nothing else reads
-  request headers for identity.
+- **Phase 5 — authentication (IDAM/Entra).** ⬅ **in progress.** `apps/web`'s OIDC login is built and
+  verified against a local stub issuer — authorization code + PKCE, discovery, session, global
+  `requireAuth`, logout. **Blocked on an IDAM client registration**, drafted at
+  [`IDAM_REGISTRATION_REQUEST.md`](IDAM_REGISTRATION_REQUEST.md) and needing to be sent. `apps/api`
+  still uses the header bypass and needs bearer-token validation, which is separate work.
 - **Phase 6 — config, Helm, deployment.**
 
 See `PROGRESS.md` for per-slice detail, the decisions already settled, and the outstanding items.
@@ -136,7 +138,7 @@ a single narrow seam (`saveFile` / `createFileReadStream` / `deleteFile`) plus a
 | Risk | Handling |
 |---|---|
 | CCD decentralisation unproven for Node | Track B separable; Azure Blob off-ramp preserved |
-| Header auth is an admin bypass | Phase 5; hard gate before any non-local deploy. Narrowed 2026-08-23: the scheme is now opt-in by `NODE_ENV` and fails closed elsewhere, so an early deploy 403s rather than granting admin. **Unguarded routes are still open** — this is not authentication |
+| Header auth is an admin bypass (**`apps/api` only** since Phase 5; `apps/web` now uses IDAM) | Phase 5; hard gate before any non-local deploy. Narrowed 2026-08-23: the scheme is now opt-in by `NODE_ENV` and fails closed elsewhere, so an early deploy 403s rather than granting admin. **Unguarded routes are still open** — this is not authentication |
 | Every ported route is unguarded, including hard-delete | Faithful to the prototype, which guarded nothing. Privilege is enforced inside the domain (`isAdmin` gates `privacy`) rather than at the route. Whether `DELETE` should be admin-only, and whether deletion should be soft given `retainPermanently`, is an open business question — Loose ends 5 in `PROGRESS.md`. Settle before Phase 5 |
 | ~~Two rule gaps in `CONFORMANCE_HARNESS_PLAN.md`~~ | **Closed, verified 2026-09-01.** `getFieldRules` with `migrated: true` relaxes all 8 type-required fields to 0, and the Gazette gate hides the notice date for `Adult` as well as `DeedOfRelinquishment`. The plan itself is preserved at [`CONFORMANCE_HARNESS_PLAN.md`](CONFORMANCE_HARNESS_PLAN.md) — it lived only inside `power_app_nest/`, which was never committed, so deleting that directory would have destroyed it |
 | Prototype has no Welsh, no a11y tests | Structure in Phase 4; axe in Phase 4 verification |

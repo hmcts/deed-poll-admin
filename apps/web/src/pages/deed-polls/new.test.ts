@@ -1,6 +1,7 @@
 import { createDeedPoll, InvalidInputError } from "@hmcts/deed-poll";
-import type { Request, Response } from "express";
+import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET, POST } from "./new.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -18,18 +19,10 @@ const validBody = {
 };
 
 function request(body: Record<string, string> = {}): Request {
-  return { body } as unknown as Request;
+  return pageRequest({ body, name: "A Caseworker" });
 }
 
-function response() {
-  const res = {
-    render: vi.fn(),
-    redirect: vi.fn(),
-    status: vi.fn()
-  } as unknown as Response & { render: ReturnType<typeof vi.fn>; redirect: ReturnType<typeof vi.fn>; status: ReturnType<typeof vi.fn> };
-  res.status.mockReturnValue(res);
-  return res;
-}
+const response = pageResponse;
 
 describe("new deed poll page", () => {
   beforeEach(() => {

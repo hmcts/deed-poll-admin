@@ -2,7 +2,12 @@
 
 Last updated: 2026-09-01. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
-**Phases 0–4 are done as far as code goes. Next thing to pick up: Phase 5, authentication.**
+**Phases 0–4 are done as far as code goes, and Phase 5's login flow is built and working.**
+
+**Next thing to pick up: send the IDAM registration request** —
+[`IDAM_REGISTRATION_REQUEST.md`](IDAM_REGISTRATION_REQUEST.md) is drafted and waiting. It is the only
+thing standing between a login that works against a local stub and one that works against real IDAM,
+and it has external lead time, so it wants sending before any further code.
 
 Phase 4's 12 page handlers are all ported and exercised against a running app. **Two pieces of
 Phase 4 are deliberately outstanding rather than done** — neither blocks Phase 5, and both are
@@ -54,7 +59,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  2  domain → libs/deed-poll    ██████████████████████  done
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
  4  SSR pages → apps/web       ████████████████████░░  12/12 ported, unverified
- 5  authentication (IDAM)      ░░░░░░░░░░░░░░░░░░░░░░  ◀── HERE. hard gate before deploy
+ 5  authentication (IDAM)      ████████████████░░░░░░  ◀── HERE. flow works; needs a real client
  6  config, Helm, deployment   ░░░░░░░░░░░░░░░░░░░░░░  needs the CNP product code
 
 TRACK B — CCD adoption (separable; start only once Track A is green)
@@ -105,20 +110,20 @@ documents         ███████   7/7    done  incl. multipart upload, d
 @hmcts-cft/simple-router                 41 passed
 @hmcts/api                              211 passed
 @hmcts/crons                             10 passed
-@hmcts/deed-poll                        571 passed
+@hmcts/deed-poll                        584 passed
 @hmcts/onboarding                        72 passed
 @hmcts/postgres                          11 passed
-@hmcts/web                              127 passed
+@hmcts/web                              137 passed
 ─────────────────────────────────────────────────────
-total                                  1316 passed
+total                                  1339 passed
 ```
 
 ### Branch
 
 ```
 feat/deed-poll-migration
-32 commits ahead of master
-HEAD  47a9ad2  Preserve the conformance harness plan before deleting the prototype
+33 commits ahead of master
+HEAD  24d2d45  Close off Phase 4, keeping power_app_nest by decision
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -861,6 +866,79 @@ holds English text** — the migration plan's decision is to build the shape and
 workspace catalogue at `templates/tech-spec-references/welsh-translations.json` is 1,148 entries of
 court-listing terminology and covers none of this vocabulary, so there was nothing to draw on.
 Translating later is a content change rather than a page rewrite, which is the point of the shape.
+
+## Phase 5 — authentication (in progress)
+
+**The login flow is built and verified.** `apps/web` no longer reads `x-user-roles` at all: identity
+comes from an IDAM OIDC session. What is missing is a real IDAM client, which is an external request.
+
+### What is done
+
+| Where | What |
+|---|---|
+| `libs/deed-poll/src/auth/idam-claims.ts` | `userFromClaims` — reduces an ID token's claims to the domain's `CurrentUser` |
+| `apps/web/src/auth/idam.ts` | the OIDC client: discovery, PKCE, code exchange, end-session |
+| `apps/web/src/auth/session.ts` | sign-in/out, single-use flow state, session-id regeneration |
+| `apps/web/src/auth/require-auth.ts` | global gate with a public allowlist |
+| `apps/web/src/auth/current-user.ts` | now reads the session; the header scheme is **gone from this app** |
+| `apps/web/src/pages/{login,logout}.ts`, `pages/oauth2/callback.ts` | the three flow endpoints |
+| `scripts/stub-idam.mjs` | a local compliant-enough issuer, so the flow can actually be run |
+
+### Decisions worth not relitigating
+
+- **Endpoints are discovered, not configured.** This was written without access to a real IDAM, so any
+  hardcoded path would have been a guess. `openid-client`'s `discovery()` reads
+  `/.well-known/openid-configuration`, so the paths come from whoever operates the issuer.
+- **`openid-client`, not a hand-rolled flow.** PKCE, `state`, the code exchange and ID-token validation
+  against a rotating JWKS are all easy to implement almost-correctly, and an almost-correct one accepts
+  tokens it should not.
+- **`requireAuth` is global with an allowlist, not per-page.** A page added tomorrow is protected by
+  default rather than protected when someone remembers, and the failure mode of the alternative is
+  silent. Same polarity argument as the `NODE_ENV` allowlist. **Do not invert it to a denylist.**
+- **An unauthenticated POST gets 403, not a redirect.** Replaying a POST after login would resubmit a
+  form the user has not seen since — for the edit tab, 46 fields they may not have intended.
+- **Plain-HTTP issuers are permitted only under `NODE_ENV` development or test.** `openid-client`
+  refuses cleartext by default and is right to: the code exchange carries the client secret. The
+  allowlist is the same shape and for the same reason as `header-user.ts`'s. **Do not relax it to a
+  negation.**
+- **Unrecognised IDAM roles are dropped.** IDAM issues roles across the whole CFT estate; keeping them
+  would put strings this service has no rules for into the object its authorization decisions are made
+  from.
+
+### Two defects found, both by running it
+
+1. **The new-case page hardcoded `{ isAdmin: false, userName: undefined }`.** Introduced in Phase 4
+   slice 2 and invisible until identity became real. It meant every case created through the form was
+   attributed to the service account **and** that an admin creating a Private case silently got Normal,
+   because `defaultPrivacy` was told nobody was an admin. Every other page read the user correctly;
+   this was the only one.
+2. **A forged `state` produced a 500.** The security check was working — `openid-client` rejected it —
+   but the rejection propagated to the starter's error handler. Now a 403, with the real error logged,
+   because the operator's reading of "nobody can log in" differs entirely from the user's. Same shape
+   as the upload-parser defect, and the fourth instance overall.
+
+### What the stub cannot tell us
+
+Verified end to end against `scripts/stub-idam.mjs`: discovery, the redirect out with an S256
+challenge, the code exchange, a real signed ID token checked against a real JWKS, roles reaching the
+domain, logout, replay refusal, and forged-state refusal. Specifically checked that a caseworker's
+`privacy=Private` is silently dropped while an admin's is honoured, and that writes are attributed to
+the IDAM name.
+
+**What only real IDAM will settle:** whether the claim names match (`roles`, `name`, `given_name`,
+`family_name`, `sub`), whether the role string is really `deedpoll-admin`, and whether discovery
+advertises an `end_session_endpoint`. All three are handled defensively — which means they **fail
+closed**, not that they work. A wrong role string shows up as "nobody can edit privacy", not as an
+error.
+
+### Still to do in Phase 5
+
+- **Send the registration request.** [`IDAM_REGISTRATION_REQUEST.md`](IDAM_REGISTRATION_REQUEST.md).
+- **`apps/api` still uses the header scheme.** It has no session, so it needs bearer-token validation
+  against the same JWKS — a separate mechanism, deliberately not attempted yet. Until then the API's
+  `x-user-roles` bypass is live, and `header-user.ts` exists only for it.
+- **Helm secrets.** `apps/web/helm/values.yaml` has an empty `secrets:`; the client secret needs
+  wiring from Key Vault once its name is known.
 
 ## Phase 4 outstanding
 

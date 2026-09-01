@@ -15,5 +15,12 @@
     "serviceName": "deed-poll-admin-web",
     "connectionString": "InstrumentationKey=your-instrumentation-key;IngestionEndpoint=https://dc.services.visualstudio.com/",
     "enabled": false
+  },
+  "idam": {
+    "issuerUrl": "http://localhost:5062/o",
+    "clientId": "deed-poll-admin",
+    "clientSecret": "",
+    "redirectUri": "http://localhost:3000/oauth2/callback",
+    "scope": "openid profile roles"
   }
 }

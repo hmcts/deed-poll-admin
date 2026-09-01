@@ -1,6 +1,7 @@
 import { findDeedPoll, NotFoundError } from "@hmcts/deed-poll";
-import type { Request, Response } from "express";
+import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET } from "./[id].js";
 
 // Only the query is replaced. The tabs, header, notes and documents view models are the domain's and
@@ -30,11 +31,8 @@ const found = {
   documents: []
 };
 
-function request(roles?: string): Request {
-  return {
-    params: { id: "case-1" },
-    header: (name: string) => (name.toLowerCase() === "x-user-roles" ? roles : undefined)
-  } as unknown as Request;
+function request(admin = false): Request {
+  return pageRequest({ params: { id: "case-1" }, admin });
 }
 
 /** Every summary-list key rendered across every tab, which is what type rules add to or remove. */
@@ -51,9 +49,7 @@ function keysOf(res: { render: ReturnType<typeof vi.fn> }): string[] {
   );
 }
 
-function response() {
-  return { render: vi.fn() } as unknown as Response & { render: ReturnType<typeof vi.fn> };
-}
+const response = pageResponse;
 
 describe("case detail page", () => {
   beforeEach(() => {
@@ -118,7 +114,7 @@ describe("case detail page", () => {
   it("treats an admin caller as able to edit privacy", async () => {
     const res = response();
 
-    await GET(request("deedpoll-admin"), res);
+    await GET(request(true), res);
 
     expect(res.render.mock.calls[0][1].presentation.privacy.editable).toBe(true);
   });

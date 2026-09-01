@@ -32,7 +32,8 @@
     "glob": "13.0.6",
     "govuk-frontend": "6.2.0",
     "helmet": "8.2.0",
-    "nunjucks": "3.2.4"
+    "nunjucks": "3.2.4",
+    "openid-client": "6.8.7"
   },
   "devDependencies": {
     "@types/config": "4.4.0",

@@ -1,6 +1,7 @@
 import { createNote, findDeedPoll, MAX_NOTE_LENGTH, NotFoundError, SERVICE_ACCOUNT_NAME } from "@hmcts/deed-poll";
-import type { Request, Response } from "express";
+import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { pageRequest, pageResponse } from "../../../../express-doubles.js";
 import { GET, POST } from "./new.js";
 
 // createNoteSchema and validateNoteText are the domain's, so they run for real here — the trimming
@@ -13,23 +14,13 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
 
 const found = { id: "case-1", displayReference: "KBDP2026-00001", notes: [], witnesses: [], documents: [] };
 
+const PARAMS = { id: "case-1" };
+
 function request(body: Record<string, unknown> = {}, userName?: string): Request {
-  return {
-    params: { id: "case-1" },
-    body,
-    header: (name: string) => (name.toLowerCase() === "x-user-name" ? userName : undefined)
-  } as unknown as Request;
+  return pageRequest({ params: PARAMS, body, name: userName });
 }
 
-function response() {
-  const res = { render: vi.fn(), redirect: vi.fn(), status: vi.fn() } as unknown as Response & {
-    render: ReturnType<typeof vi.fn>;
-    redirect: ReturnType<typeof vi.fn>;
-    status: ReturnType<typeof vi.fn>;
-  };
-  res.status.mockReturnValue(res);
-  return res;
-}
+const response = pageResponse;
 
 describe("add a note page", () => {
   beforeEach(() => {

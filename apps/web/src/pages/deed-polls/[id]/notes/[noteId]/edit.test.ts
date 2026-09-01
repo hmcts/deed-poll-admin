@@ -1,6 +1,7 @@
 import { findDeedPoll, findNote, MAX_NOTE_LENGTH, NotFoundError, removeNote, SERVICE_ACCOUNT_NAME, updateNote } from "@hmcts/deed-poll";
-import type { Request, Response } from "express";
+import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { pageRequest, pageResponse } from "../../../../../express-doubles.js";
 import { GET, POST } from "./edit.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -22,23 +23,13 @@ const note = {
   modifiedOn: new Date("2026-03-01T09:00:00.000Z")
 };
 
+const PARAMS = { id: "case-1", noteId: note.id };
+
 function request(body: Record<string, unknown> = {}, userName?: string): Request {
-  return {
-    params: { id: "case-1", noteId: note.id },
-    body,
-    header: (name: string) => (name.toLowerCase() === "x-user-name" ? userName : undefined)
-  } as unknown as Request;
+  return pageRequest({ params: PARAMS, body, name: userName });
 }
 
-function response() {
-  const res = { render: vi.fn(), redirect: vi.fn(), status: vi.fn() } as unknown as Response & {
-    render: ReturnType<typeof vi.fn>;
-    redirect: ReturnType<typeof vi.fn>;
-    status: ReturnType<typeof vi.fn>;
-  };
-  res.status.mockReturnValue(res);
-  return res;
-}
+const response = pageResponse;
 
 describe("amend a note page", () => {
   beforeEach(() => {

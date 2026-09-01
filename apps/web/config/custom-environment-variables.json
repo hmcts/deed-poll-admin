@@ -6,5 +6,12 @@
   "applicationInsights": {
     "serviceName": "SERVICE_NAME",
     "connectionString": "APPLICATION_INSIGHTS_CONNECTION_STRING"
+  },
+  "idam": {
+    "issuerUrl": "IDAM_ISSUER_URL",
+    "clientId": "IDAM_CLIENT_ID",
+    "clientSecret": "IDAM_CLIENT_SECRET",
+    "redirectUri": "IDAM_REDIRECT_URI",
+    "scope": "IDAM_SCOPE"
   }
 }

@@ -12,6 +12,7 @@
  */
 import { composeDateParts, createDeedPoll, createDeedPollSchema, DEED_POLL_TYPE_LABEL, InvalidInputError } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
+import { userFromRequest } from "../../auth/current-user.js";
 
 const en = {
   title: "New deed poll case",
@@ -58,7 +59,12 @@ export const POST = async (req: Request, res: Response) => {
   }
 
   try {
-    const created = await createDeedPoll(parsed.data, { isAdmin: false, userName: undefined });
+    // Read from the request, not hardcoded. This page carried `{ isAdmin: false, userName: undefined }`
+    // until Phase 5 made identity real, which meant two things: every case created through the form
+    // was attributed to the service account, and an admin creating a Private case silently got Normal,
+    // because `defaultPrivacy` is told nobody is an admin.
+    const { isAdmin, name } = userFromRequest(req);
+    const created = await createDeedPoll(parsed.data, { isAdmin, userName: name });
     return res.redirect(`/deed-polls/${created.id}`);
   } catch (error) {
     // A missing or unusable Date Received surfaces here rather than from the schema, because the

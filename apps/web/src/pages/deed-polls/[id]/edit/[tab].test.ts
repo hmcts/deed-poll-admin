@@ -1,6 +1,7 @@
 import { FORM_TABS, findDeedPoll, InvalidInputError, NotFoundError, updateDeedPoll } from "@hmcts/deed-poll";
-import type { Request, Response } from "express";
+import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { pageRequest, pageResponse } from "../../../../express-doubles.js";
 import { GET, POST } from "./[tab].js";
 
 // Only persistence is replaced. buildEditView, buildUpdatePatch and collectDateErrors are the
@@ -29,23 +30,11 @@ const found = {
   documents: []
 };
 
-function request(tab: string, body: Record<string, unknown> = {}, roles?: string): Request {
-  return {
-    params: { id: "case-1", tab },
-    body,
-    header: (name: string) => (name.toLowerCase() === "x-user-roles" ? roles : undefined)
-  } as unknown as Request;
+function request(tab: string, body: Record<string, unknown> = {}, admin = false): Request {
+  return pageRequest({ params: { id: "case-1", tab }, body, admin, name: "A Caseworker" });
 }
 
-function response() {
-  const res = { render: vi.fn(), redirect: vi.fn(), status: vi.fn() } as unknown as Response & {
-    render: ReturnType<typeof vi.fn>;
-    redirect: ReturnType<typeof vi.fn>;
-    status: ReturnType<typeof vi.fn>;
-  };
-  res.status.mockReturnValue(res);
-  return res;
-}
+const response = pageResponse;
 
 /** A body that fills every editable field on a tab, so a patch is not confused with a blanking. */
 function bodyFor(tabId: string): Record<string, string> {
@@ -108,7 +97,7 @@ describe("case edit tab page", () => {
       const asCaseworker = response();
       await GET(request(APPLICATION), asCaseworker);
       const asAdmin = response();
-      await GET(request(APPLICATION, {}, "deedpoll-admin"), asAdmin);
+      await GET(request(APPLICATION, {}, true), asAdmin);
 
       expect(privacyField(asCaseworker).locked).toBe(true);
       expect(privacyField(asAdmin).locked).toBe(false);
@@ -158,7 +147,7 @@ describe("case edit tab page", () => {
     });
 
     it("passes the caller's name and admin status to the domain", async () => {
-      await POST(request(APPLICATION, bodyFor(APPLICATION), "deedpoll-admin"), response());
+      await POST(request(APPLICATION, bodyFor(APPLICATION), true), response());
 
       expect(updateDeedPoll).toHaveBeenCalledWith("case-1", expect.anything(), { isAdmin: true, userName: expect.any(String) });
     });

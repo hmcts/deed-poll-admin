@@ -8,6 +8,7 @@ import { createSimpleRouter } from "@hmcts-cft/simple-router";
 import cookieParser from "cookie-parser";
 import type { Express } from "express";
 import express from "express";
+import { requireAuth } from "./auth/require-auth.js";
 import { domainErrorHandler } from "./errors.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -65,6 +66,10 @@ export async function createApp(): Promise<Express> {
       preferences: ["language"]
     }
   });
+
+  // Before the router, so a page is authenticated unless it is on the allowlist rather than because
+  // someone remembered to guard it. See ./auth/require-auth.ts for why the polarity is that way.
+  app.use(requireAuth());
 
   app.use(await createSimpleRouter({ path: `${__dirname}/pages` }));
   app.use(notFoundHandler());
