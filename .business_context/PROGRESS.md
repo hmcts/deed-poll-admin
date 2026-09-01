@@ -2,7 +2,10 @@
 
 Last updated: 2026-09-01. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
-**Phase 3 is complete — all 29 handlers are ported. Next up is Phase 4, the SSR pages.**
+**Phase 3 is complete. Phase 4 is in progress — 2 of its 12 SSR page handlers are done.**
+
+See ["Phase 4 — SSR pages"](#phase-4--ssr-pages-in-progress) for what is done, what remains, and the
+template-name trap that cost time and would cost it again.
 
 Phase 4 moves the 12 page handlers and 9 Nunjucks templates into `apps/web`, replacing
 `nunjucks.setup.ts` with `configureGovuk` from `@hmcts-cft/express-govuk-starter`, and it is where
@@ -44,7 +47,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  1  schema → monorepo          ██████████████████████  done
  2  domain → libs/deed-poll    ██████████████████████  done
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
- 4  SSR pages → apps/web       ░░░░░░░░░░░░░░░░░░░░░░  not started   ◀── HERE
+ 4  SSR pages → apps/web       ████░░░░░░░░░░░░░░░░░░  2/12 handlers ◀── HERE
  5  authentication (IDAM)      ░░░░░░░░░░░░░░░░░░░░░░  hard gate before any deploy
  6  config, Helm, deployment   ░░░░░░░░░░░░░░░░░░░░░░  needs the CNP product code
 
@@ -699,6 +702,44 @@ on that path throws, and confirm each one maps to a status a caller should see.
 Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/web`, replacing
 `nunjucks.setup.ts` entirely with `configureGovuk` from `@hmcts-cft/express-govuk-starter`.
 `power_app_nest/` is deleted at the end of Phase 4, not before.
+
+## Phase 4 — SSR pages (in progress)
+
+**2 of 12 page handlers done**: the case list and the new-case form. Foundations are in
+`libs/deed-poll` (`date-parts`, `list-filters`, `list-view`, `edit-view`). Remaining: detail (1),
+edit tabs (2), notes (4), document upload (2), and then deleting `power_app_nest/`.
+
+**The templating swap the plan lists is already done.** `nunjucks.setup.ts` exists only in the
+prototype; `apps/web` has always used `configureGovuk`. That file goes when the prototype does. Its
+two custom Nunjucks filters (`govdate`, `label`) are *not* reproduced — formatting moved into the
+view model instead (`list-view.ts`), which needs no bespoke Nunjucks environment and is testable.
+
+### Template names are global, and a collision fails silently
+
+**`res.render("index")` from `pages/deed-polls/index.ts` rendered the template's own home page**,
+with a 200 and no error. `collectViewPaths` in the govuk starter adds *every* page directory to the
+Nunjucks search path as a flat list, parent first — so `pages/index.njk` always shadows
+`pages/deed-polls/index.njk`. The page's own directory gives it no precedence.
+
+**Always render with a directory-qualified name: `res.render("deed-polls/index")`.** That resolves
+unambiguously against the `pages/` entry. Every existing template in `apps/web` happens to have a
+globally unique basename, so nothing had hit this before; the remaining pages include `detail`,
+`edit` and `upload`, which are exactly the names most likely to collide with something later.
+
+This deviates from `.claude/rules/frontend.md`, which says the template name must match the file
+name. It still does — the qualified name *is* the path — but the rule as written implies the bare
+basename, and following that literally is what produced the wrong page.
+
+**One trap while verifying:** `tsx src/server.ts` does not watch. An edit appears to have no effect
+and it is easy to conclude the fix did not work; restart between changes.
+
+### Welsh
+
+Every page carries `en` and `cy` with matching keys, per `.claude/rules/frontend.md`, but **`cy`
+holds English text** — the migration plan's decision is to build the shape and translate later. The
+workspace catalogue at `templates/tech-spec-references/welsh-translations.json` is 1,148 entries of
+court-listing terminology and covers none of this vocabulary, so there was nothing to draw on.
+Translating later is a content change rather than a page rewrite, which is the point of the shape.
 
 ## Loose ends
 

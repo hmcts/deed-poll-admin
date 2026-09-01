@@ -9,13 +9,16 @@
   "exclude": ["node_modules", "dist", "**/*.test.ts", "src/assets/**/*"],
   "references": [
     {
+      "path": "../../libs/cloud-native-platform"
+    },
+    {
+      "path": "../../libs/deed-poll"
+    },
+    {
       "path": "../../libs/express-govuk-starter"
     },
     {
       "path": "../../libs/express-session-postgres"
-    },
-    {
-      "path": "../../libs/cloud-native-platform"
     },
     {
       "path": "../../libs/postgres-prisma"

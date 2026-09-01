@@ -948,6 +948,7 @@ __metadata:
     "@hmcts-cft/express-session-postgres": "workspace:*"
     "@hmcts-cft/simple-router": "workspace:*"
     "@hmcts/cookie-manager": "npm:1.1.0"
+    "@hmcts/deed-poll": "workspace:*"
     "@hmcts/onboarding": "workspace:*"
     "@hmcts/postgres-prisma": "workspace:*"
     "@types/config": "npm:4.4.0"

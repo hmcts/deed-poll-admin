@@ -22,6 +22,7 @@
     "@hmcts-cft/express-session-postgres": "workspace:*",
     "@hmcts-cft/simple-router": "workspace:*",
     "@hmcts/cookie-manager": "1.1.0",
+    "@hmcts/deed-poll": "workspace:*",
     "@hmcts/onboarding": "workspace:*",
     "@hmcts/postgres-prisma": "workspace:*",
     "config": "4.4.2",

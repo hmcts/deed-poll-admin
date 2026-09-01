@@ -22,6 +22,7 @@ export * from "./deed-poll/form-payload.js";
 export * from "./deed-poll/form-presentation.js";
 export * from "./deed-poll/form-validation.js";
 export * from "./deed-poll/list-filters.js";
+export * from "./deed-poll/list-view.js";
 export * from "./deed-poll/reference-number.js";
 export * from "./deed-poll/schemas.js";
 export * from "./deed-poll/service.js";
