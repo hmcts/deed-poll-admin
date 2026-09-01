@@ -72,15 +72,20 @@ No CCD dependency. Deployable on its own.
 - **Phase 1 — schema into the monorepo.** ✅ Done.
 - **Phase 2 — domain logic → `libs/deed-poll/`.** ✅ Done. Includes the DTO→Zod conversion, which
   was originally Phase 3 but moved forward because Phase 2 could not compile without it.
-- **Phase 3 — JSON API → `apps/api/src/routes/`.** ⬅ **in progress, 17 of 29 handlers.** Foundations
-  (error mapping, role middleware) done. Sliced by resource: `deed-polls` (7) and notes + witnesses
-  (10) done 2026-09-01; documents (12) remain, left last because they are the only ones needing the
-  Multer wiring.
-- **Phase 4 — SSR pages → `apps/web/src/pages/`.**
-- **Phase 5 — authentication (IDAM/Entra).**
+- **Phase 3 — JSON API → `apps/api/src/routes/`.** ✅ **All 29 handlers done** 2026-09-01. Sliced by
+  resource: `deed-polls` (7), notes + witnesses (10), `document-types` (5), `documents` (7). Three
+  defects of one shape were found by running the app rather than by testing it — see `PROGRESS.md`.
+- **Phase 4 — SSR pages → `apps/web/src/pages/`.** ✅ **All 12 page handlers ported** 2026-09-01,
+  each exercised against a running app. Two pieces deliberately outstanding, tracked in
+  `PROGRESS.md` under "Phase 4 outstanding": the verification pass (axe, Playwright journeys, Welsh
+  content), and deleting `power_app_nest/` — kept as a reference by Steve's decision, since it was
+  never committed and so cannot be recovered once gone.
+- **Phase 5 — authentication (IDAM/Entra).** ⬅ **next.** The seam is
+  `libs/deed-poll/src/auth/header-user.ts` plus the one-line adapter in each app; nothing else reads
+  request headers for identity.
 - **Phase 6 — config, Helm, deployment.**
 
-See `PROGRESS.md` for detail on what is done and what Phase 3 involves.
+See `PROGRESS.md` for per-slice detail, the decisions already settled, and the outstanding items.
 
 ## Track B — CCD adoption
 

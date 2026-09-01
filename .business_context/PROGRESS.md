@@ -2,19 +2,24 @@
 
 Last updated: 2026-09-01. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
-**Phase 3 is complete. Phase 4 is in progress — all 12 SSR page handlers are ported. What remains is
-deleting `power_app_nest/` and the verification pass the plan asks for (axe, Welsh, e2e).**
+**Phases 0–4 are done as far as code goes. Next thing to pick up: Phase 5, authentication.**
 
-See ["Phase 4 — SSR pages"](#phase-4--ssr-pages-in-progress) for what is done, what remains, and the
-template-name trap that cost time and would cost it again.
+Phase 4's 12 page handlers are all ported and exercised against a running app. **Two pieces of
+Phase 4 are deliberately outstanding rather than done** — neither blocks Phase 5, and both are
+recorded below rather than lost:
 
-Phase 4 moves the 12 page handlers and 9 Nunjucks templates into `apps/web`, replacing
-`nunjucks.setup.ts` with `configureGovuk` from `@hmcts-cft/express-govuk-starter`, and it is where
-`power_app_nest/` finally gets deleted. Two things from Phase 3 make it easier than it looks: the
-Zod schemas the routes validate against are the same ones the forms need, and `uploadSingleFile()`
-in `apps/api/src/documents/upload.ts` is the pattern `apps/web` will want for its upload form — it
-is app-level middleware, so `apps/web` needs its own copy of the mount rather than importing it
-across apps.
+1. **The Phase 4 verification pass** the plan asks for: axe accessibility checks, an e2e journey in
+   `e2e-tests/`, and Welsh content. See ["Phase 4 outstanding"](#phase-4-outstanding).
+2. **`power_app_nest/` is deliberately NOT deleted.** Steve's call on 2026-09-01: it is gitignored,
+   costs nothing but disk, and — as the rescue commit `47a9ad2` establishes — it has never been
+   committed, so deleting it is unrecoverable rather than a revert away. Keeping it as a reference is
+   cheap insurance. The one thing in it that mattered, `CONFORMANCE_HARNESS_PLAN.md`, is preserved in
+   `.business_context/` regardless, so the directory going later loses nothing.
+
+**Before writing any Phase 5 code, read ["Phase 4 — SSR pages"](#phase-4--ssr-pages-in-progress).**
+Phase 5 replaces `userFromHeaders` in `libs/deed-poll/src/auth/header-user.ts` and the two one-line
+app adapters that call it. That is the whole seam, and knowing why it is shaped that way saves
+rediscovering it.
 
 Read ["Phase 3 foundations"](#phase-3-foundations-done-caf4e03) and slices
 [1](#phase-3-slice-1-deed-polls-done), [2](#phase-3-slice-2-notes-and-witnesses-done),
@@ -48,8 +53,8 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  1  schema → monorepo          ██████████████████████  done
  2  domain → libs/deed-poll    ██████████████████████  done
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
- 4  SSR pages → apps/web       ████████████████████░░  12/12 ported  ◀── HERE
- 5  authentication (IDAM)      ░░░░░░░░░░░░░░░░░░░░░░  hard gate before any deploy
+ 4  SSR pages → apps/web       ████████████████████░░  12/12 ported, unverified
+ 5  authentication (IDAM)      ░░░░░░░░░░░░░░░░░░░░░░  ◀── HERE. hard gate before deploy
  6  config, Helm, deployment   ░░░░░░░░░░░░░░░░░░░░░░  needs the CNP product code
 
 TRACK B — CCD adoption (separable; start only once Track A is green)
@@ -87,9 +92,9 @@ documents         ███████   7/7    done  incl. multipart upload, d
                             29/29  100%
 ```
 
-### Phase 4 — SSR pages, not started
+### Phase 4 — SSR pages
 
-- **12 page handlers** in `deed-poll-pages.controller.ts`, **9 Nunjucks templates** under `src/views/`.
+- **13 page handlers** ported in `apps/web/src/pages/deed-polls/`, against **12** in the prototype's `deed-poll-pages.controller.ts` and **9** Nunjucks templates.
 
 ### Tests
 
@@ -98,22 +103,22 @@ documents         ███████   7/7    done  incl. multipart upload, d
 @hmcts-cft/express-govuk-starter        127 passed
 @hmcts-cft/express-session-postgres      23 passed
 @hmcts-cft/simple-router                 41 passed
-@hmcts/api                              219 passed
+@hmcts/api                              211 passed
 @hmcts/crons                             10 passed
-@hmcts/deed-poll                        477 passed
+@hmcts/deed-poll                        571 passed
 @hmcts/onboarding                        72 passed
 @hmcts/postgres                          11 passed
-@hmcts/web                               44 passed
+@hmcts/web                              127 passed
 ─────────────────────────────────────────────────────
-total                                  1147 passed
+total                                  1316 passed
 ```
 
 ### Branch
 
 ```
 feat/deed-poll-migration
-23 commits ahead of master
-HEAD  346e623  Port the document-types handlers and give the in-use refusal a 409
+32 commits ahead of master
+HEAD  47a9ad2  Preserve the conformance harness plan before deleting the prototype
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -856,6 +861,30 @@ holds English text** — the migration plan's decision is to build the shape and
 workspace catalogue at `templates/tech-spec-references/welsh-translations.json` is 1,148 entries of
 court-listing terminology and covers none of this vocabulary, so there was nothing to draw on.
 Translating later is a content change rather than a page rewrite, which is the point of the shape.
+
+## Phase 4 outstanding
+
+Two things the plan lists under Phase 4 that are **not done**. Recorded here so they are tracked work
+rather than a silent gap; neither blocks Phase 5.
+
+1. **The verification pass.** The plan's Phase 4 line asks for accessibility and Welsh work, and the
+   repo's own `.claude/rules/testing.md` asks for a Playwright happy-path journey per new page. None of
+   it exists yet:
+   - **axe/accessibility**: `e2e-tests/` has the axe-core+Playwright setup, but no deed-poll page is
+     covered. Every page was built from GOV.UK components with the Design System's own markup, and the
+     detail page's only bespoke CSS is scoped label widths — so the expectation is that it largely
+     passes. That is an expectation, not a measurement.
+   - **e2e journeys**: nothing in `e2e-tests/tests/` touches `/deed-polls`. The journeys worth pinning
+     are create → detail → edit a tab → save, and add a note → amend → delete.
+   - **Welsh content**: every page carries `en` and `cy` with matching keys, but `cy` holds English.
+     See the Welsh note under Phase 4. Translating is a content change, not a page rewrite — that was
+     the point of building the shape.
+
+2. **`power_app_nest/` is not deleted**, by decision. See the note at the top of this file.
+
+The pages *are* exercised: every one was driven against a running app with a real database, and the
+findings are recorded per slice. What is missing is automated regression cover for the browser
+journeys, not evidence that they work.
 
 ## Loose ends
 

@@ -148,12 +148,23 @@ function countNestHandlers(relativePath) {
   return (readFileSync(full, "utf8").match(NEST_ROUTE_DECORATOR) ?? []).length;
 }
 
-/** Phase 4's scope: the SSR page handlers and the templates behind them. */
+/**
+ * Phase 4: the prototype's scope, and what `apps/web` has ported against it.
+ *
+ * `ported` can legitimately exceed `scope`. `apps/web` has one handler the prototype did not need —
+ * a document download route — because the prototype served its API and its pages from one Nest app
+ * and could link at `/api/...`, whereas these are separate origins.
+ */
 function collectPhase4() {
   return {
-    handlers: countNestHandlers("deed-poll/deed-poll-pages.controller.ts"),
-    templates: countTemplates(join(ROOT, "power_app_nest/src/views"))
+    scope: countNestHandlers("deed-poll/deed-poll-pages.controller.ts"),
+    templates: countTemplates(join(ROOT, "power_app_nest/src/views")),
+    ported: countPageHandlers(join(ROOT, "apps/web/src/pages/deed-polls"))
   };
+}
+
+function countPageHandlers(dir) {
+  return routeFiles(dir).reduce((total, file) => total + (readFileSync(file, "utf8").match(METHOD_EXPORT) ?? []).length, 0);
 }
 
 function countTemplates(dir) {
@@ -282,11 +293,9 @@ function renderDashboard({ phase3, phase4, tests, git }) {
     "```",
     "",
     ...renderMismatches(phase3),
-    "### Phase 4 — SSR pages, not started",
+    "### Phase 4 — SSR pages",
     "",
-    phase4.handlers === null
-      ? "- `power_app_nest/` is gone, so the scope can no longer be counted from source."
-      : `- **${phase4.handlers} page handlers** in \`deed-poll-pages.controller.ts\`, **${phase4.templates} Nunjucks templates** under \`src/views/\`.`,
+    ...renderPhase4(phase4),
     "",
     ...renderTests(tests),
     "### Branch",
@@ -301,6 +310,22 @@ function renderDashboard({ phase3, phase4, tests, git }) {
   ];
 
   return lines.join("\n");
+}
+
+/**
+ * Phase 4's line. `ported` is counted from `apps/web`, which survives the prototype's deletion; the
+ * prototype's own scope is reported only while it is still there to count.
+ */
+function renderPhase4(phase4) {
+  const ported = `**${phase4.ported} page handlers** ported in \`apps/web/src/pages/deed-polls/\``;
+
+  if (phase4.scope === null) {
+    return [`- ${ported}. \`power_app_nest/\` is gone, so the original scope can no longer be counted from source.`];
+  }
+
+  // Ported legitimately exceeds scope by the download route the split apps need — see collectPhase4.
+  const against = `against **${phase4.scope}** in the prototype's \`deed-poll-pages.controller.ts\` and **${phase4.templates}** Nunjucks templates`;
+  return [`- ${ported}, ${against}.`];
 }
 
 function renderResource(resource) {
