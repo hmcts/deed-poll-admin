@@ -12,12 +12,13 @@
  * cannot show which status a caller receives; only a real request can.
  */
 import { fileURLToPath } from "node:url";
-import { ConflictError, findDocumentType, findDocumentTypes, NotFoundError, removeDocumentType } from "@hmcts/deed-poll";
+import { ConflictError, DEEDPOLL_ADMIN, findDocumentType, findDocumentTypes, NotFoundError, removeDocumentType } from "@hmcts/deed-poll";
 import { createSimpleRouter } from "@hmcts-cft/simple-router";
 import express, { type Express } from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { errorHandler } from "../../errors.js";
+import { attachUserDouble } from "../../express-doubles.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
@@ -33,6 +34,7 @@ const routesDir = fileURLToPath(new URL(".", import.meta.url));
 async function appWithDocumentTypeRoutes(): Promise<Express> {
   const app = express();
   app.use(express.json());
+  app.use(attachUserDouble(DEEDPOLL_ADMIN));
   app.use(await createSimpleRouter({ path: routesDir, prefix: "/document-types" }));
   app.use(errorHandler());
   return app;

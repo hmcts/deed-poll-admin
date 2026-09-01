@@ -16,12 +16,13 @@
  */
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { downloadDocument, findDocument, NotFoundError, uploadDocument } from "@hmcts/deed-poll";
+import { DEEDPOLL_ADMIN, downloadDocument, findDocument, NotFoundError, uploadDocument } from "@hmcts/deed-poll";
 import { createSimpleRouter } from "@hmcts-cft/simple-router";
 import express, { type Express } from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { errorHandler } from "../../../../errors.js";
+import { attachUserDouble } from "../../../../express-doubles.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
@@ -40,6 +41,7 @@ const TYPE_ID = "07f3f0e0-0000-4000-8000-000000000000";
 async function appWithDocumentRoutes(): Promise<Express> {
   const app = express();
   app.use(express.json());
+  app.use(attachUserDouble(DEEDPOLL_ADMIN));
   app.use(await createSimpleRouter({ path: routesDir, prefix: "/deed-polls/:id/documents" }));
   app.use(errorHandler());
   return app;

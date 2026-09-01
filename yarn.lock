@@ -865,6 +865,7 @@ __metadata:
     config: "npm:4.4.2"
     cors: "npm:2.8.6"
     express: "npm:5.2.1"
+    jose: "npm:6.2.10"
     multer: "npm:2.3.0"
     zod: "npm:4.4.3"
   languageName: unknown
@@ -5038,7 +5039,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"jose@npm:^6.2.8":
+"jose@npm:6.2.10, jose@npm:^6.2.8":
   version: 6.2.10
   resolution: "jose@npm:6.2.10"
   checksum: 10c0/799fd8d3d92fe748ebe1f57dbd3dfd917d2e61d9fb39912c72cc674ae61d69414b7cc0ce773df8a0160e849926fc31853aec9caab88c481563d5a8ab6558e107

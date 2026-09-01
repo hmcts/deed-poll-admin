@@ -15,7 +15,7 @@
  * an almost-correct one accepts tokens it should not. This library is maintained by the author of
  * `jose` and is ESM-only, which matches the workspace.
  */
-import { type IdamClaims, userFromClaims } from "@hmcts/deed-poll";
+import { type IdamClaims, plainHttpPermitted, userFromClaims } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import * as client from "openid-client";
 
@@ -53,30 +53,16 @@ export function resetIdamDiscovery(): void {
 export async function idamConfiguration(config: IdamConfig): Promise<client.Configuration> {
   if (!discovered) {
     discovered = client.discovery(new URL(config.issuerUrl), config.clientId, config.clientSecret, undefined, {
+      // `openid-client` refuses a cleartext issuer by default, and is right to: the code exchange
+      // sends the client secret over the same connection the tokens come back on. That default is why
+      // `/login` 500s against the local simulator until this is granted. The allowlist behind
+      // `plainHttpPermitted` is shared with `apps/api`, which has to make the opposite call — reject
+      // rather than permit — from the same decision.
       ...(plainHttpPermitted() ? { execute: [client.allowInsecureRequests] } : {})
     });
   }
   return discovered;
 }
-
-/**
- * Whether `openid-client` may talk to the issuer over plain HTTP.
- *
- * It refuses by default, and it is right to: the code exchange sends the client secret, and the token
- * response comes back over the same connection. Over cleartext both are readable by anything on the
- * path. That default is why `/login` 500s against an `http://` issuer until this is granted.
- *
- * Granted only for the local stub, by the **same allowlist polarity** as `header-user.ts`, and for the
- * same reason: `NODE_ENV !== "production"` would leave cleartext permitted for an unset variable, a
- * Helm override, or an environment named `aat`. An allowlist requires it to be asked for. **Do not
- * relax this to a negation.**
- */
-function plainHttpPermitted(): boolean {
-  return PLAIN_HTTP_ENVIRONMENTS.has(process.env.NODE_ENV ?? "");
-}
-
-/** The only environments in which a cleartext issuer is tolerated. */
-export const PLAIN_HTTP_ENVIRONMENTS = new Set(["development", "test"]);
 
 /**
  * Begin the flow: build the URL to send the browser to, and the state to remember.

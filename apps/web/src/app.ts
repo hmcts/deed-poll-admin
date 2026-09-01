@@ -9,6 +9,7 @@ import cookieParser from "cookie-parser";
 import type { Express } from "express";
 import express from "express";
 import { requireAuth } from "./auth/require-auth.js";
+import { assertSessionSecret } from "./auth/session.js";
 import { domainErrorHandler } from "./errors.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -28,7 +29,9 @@ export async function createApp(): Promise<Express> {
   app.use(monitoringMiddleware(config.get("applicationInsights")));
   app.use(configureNonce());
   app.use(configureHelmet());
-  app.use(expressSessionPostgres({ pgConnection: pgPool, sessionOptions: { secret: config.get<string>("session.secret") } }));
+  const sessionSecret = config.get<string>("session.secret");
+  assertSessionSecret(sessionSecret);
+  app.use(expressSessionPostgres({ pgConnection: pgPool, sessionOptions: { secret: sessionSecret } }));
   app.use(
     healthcheck({
       checks: {

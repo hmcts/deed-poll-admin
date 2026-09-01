@@ -7,8 +7,8 @@
 // per this repo's conventions they are plain exported functions here.
 
 export * from "./auth/current-user.js";
-export * from "./auth/header-user.js";
 export * from "./auth/idam-claims.js";
+export * from "./auth/plain-http.js";
 export * from "./auth/roles.js";
 export * from "./deed-poll/card-layout.js";
 export * from "./deed-poll/case-header.js";

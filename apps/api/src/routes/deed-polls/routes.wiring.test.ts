@@ -19,13 +19,14 @@
  * than a fixture, so the file layout under test is the real one.
  */
 import { fileURLToPath } from "node:url";
-import { findDeedPoll, findDeedPolls, getCaseFieldRules, NotFoundError } from "@hmcts/deed-poll";
+import { DEEDPOLL_ADMIN, findDeedPoll, findDeedPolls, getCaseFieldRules, NotFoundError } from "@hmcts/deed-poll";
 import { DeedPollType } from "@hmcts/postgres-prisma";
 import { createSimpleRouter } from "@hmcts-cft/simple-router";
 import express, { type Express } from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { errorHandler } from "../../errors.js";
+import { attachUserDouble } from "../../express-doubles.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
@@ -53,6 +54,9 @@ const routesDir = fileURLToPath(new URL(".", import.meta.url));
 async function appWithDeedPollRoutes(): Promise<Express> {
   const app = express();
   app.use(express.json());
+  // Stands in for `authenticate()`, which needs a live issuer. Admin and named, because two of the
+  // tests below are about the caller reaching the domain at all.
+  app.use(attachUserDouble(DEEDPOLL_ADMIN, "A Caseworker"));
   app.use(await createSimpleRouter({ path: routesDir, prefix: "/deed-polls" }));
   app.use(errorHandler());
   return app;
@@ -172,14 +176,16 @@ describe("deed-poll routes wired through simple-router", () => {
     expect(response.body.errors).toEqual([{ field: "dateReceived", message: "Enter the date the application was received" }]);
   });
 
-  it("should honour the x-user-roles header in test and dev, so an admin-only privacy write reaches the domain flagged", async () => {
+  it("should pass the authenticated caller's admin flag and name through to the domain", async () => {
+    // Previously this set `x-user-roles` and proved the header scheme was wired. There is no header
+    // scheme now; identity comes from a bearer token, which cannot be minted here. So this pins the
+    // narrower thing it can: whoever `authenticate()` resolved reaches the domain unaltered. That the
+    // middleware resolves them correctly is `auth/authenticate.test.ts` and `auth/idam.test.ts`.
     const { createDeedPoll } = await import("@hmcts/deed-poll");
     vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
 
     await request(await appWithDeedPollRoutes())
       .post("/deed-polls")
-      .set("x-user-roles", "deedpoll-admin")
-      .set("x-user-name", "A Caseworker")
       .send({});
 
     expect(createDeedPoll).toHaveBeenCalledWith({}, { isAdmin: true, userName: "A Caseworker" });
@@ -298,14 +304,12 @@ describe("nested notes and witnesses wired through simple-router", () => {
     expect(createNote).not.toHaveBeenCalled();
   });
 
-  it("should attribute a nested note write to the x-user-name caller and pass no isAdmin", async () => {
+  it("should attribute a nested note write to the authenticated caller and pass no isAdmin", async () => {
     const { createNote } = await import("@hmcts/deed-poll");
     vi.mocked(createNote).mockResolvedValue({ id: "note-1" } as never);
 
     await request(await appWithDeedPollRoutes())
       .post("/deed-polls/case-1/notes")
-      .set("x-user-roles", "deedpoll-admin")
-      .set("x-user-name", "A Caseworker")
       .send({ note: "Called the applicant" });
 
     expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called the applicant" }, { userName: "A Caseworker" });

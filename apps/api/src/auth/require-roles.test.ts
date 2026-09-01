@@ -1,11 +1,14 @@
-import { DEEDPOLL_ADMIN, ForbiddenError } from "@hmcts/deed-poll";
+import { currentUser, DEEDPOLL_ADMIN, ForbiddenError, type Role } from "@hmcts/deed-poll";
 import type { NextFunction, Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setCurrentUser } from "./current-user.js";
 import { requireRoles } from "./require-roles.js";
 
-/** A request carrying the given x-user-roles header. */
-function requestWith(rolesHeader?: string): Request {
-  return { header: (name: string) => (name.toLowerCase() === "x-user-roles" ? rolesHeader : undefined) } as unknown as Request;
+/** A request already authenticated, holding the given roles — as `authenticate()` leaves it. */
+function requestWith(...roles: string[]): Request {
+  const req = {} as Request;
+  setCurrentUser(req, currentUser(roles as Role[]));
+  return req;
 }
 
 const res = {} as Response;
@@ -14,7 +17,6 @@ describe("requireRoles", () => {
   let next: NextFunction;
 
   beforeEach(() => {
-    process.env.NODE_ENV = "development";
     next = vi.fn();
   });
 
@@ -37,7 +39,7 @@ describe("requireRoles", () => {
   });
 
   it("should forbid the request when the caller has no roles", () => {
-    requireRoles(DEEDPOLL_ADMIN)(requestWith(""), res, next);
+    requireRoles(DEEDPOLL_ADMIN)(requestWith(), res, next);
 
     expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
   });
@@ -49,7 +51,7 @@ describe("requireRoles", () => {
   });
 
   it("should name the required roles in the error, so the caller knows what is missing", () => {
-    requireRoles(DEEDPOLL_ADMIN)(requestWith(""), res, next);
+    requireRoles(DEEDPOLL_ADMIN)(requestWith(), res, next);
 
     expect(vi.mocked(next).mock.calls[0]?.[0]).toMatchObject({
       message: `Requires one of the following roles: ${DEEDPOLL_ADMIN}`
@@ -61,7 +63,7 @@ describe("requireRoles", () => {
     // would diverge from the shape errorHandler produces.
     const responded = { status: vi.fn().mockReturnThis(), json: vi.fn() } as unknown as Response;
 
-    requireRoles(DEEDPOLL_ADMIN)(requestWith(""), responded, next);
+    requireRoles(DEEDPOLL_ADMIN)(requestWith(), responded, next);
 
     expect(responded.status).not.toHaveBeenCalled();
     expect(responded.json).not.toHaveBeenCalled();

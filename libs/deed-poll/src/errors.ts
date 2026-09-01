@@ -34,6 +34,25 @@ export class ForbiddenError extends Error {
 }
 
 /**
+ * The caller is not identified at all — no credential, or one that does not hold up.
+ *
+ * The distinction from `ForbiddenError` is the one HTTP draws between 401 and 403, and it is worth
+ * keeping: a 401 tells the caller to present a credential, a 403 tells them theirs will never be
+ * enough for this operation. Collapsing the two sends a caseworker whose token has simply expired to
+ * ask for a role they already have.
+ *
+ * Introduced with bearer-token authentication in `apps/api`. Nothing in the domain throws it — the
+ * same as `ForbiddenError` when it was added — but it belongs with the others so both apps map one
+ * vocabulary of failure rather than inventing their own.
+ */
+export class UnauthorizedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnauthorizedError";
+  }
+}
+
+/**
  * The request is well-formed and permitted, but the current state of the data forbids it.
  *
  * Distinct from `InvalidInputError` because nothing about the input is wrong: deleting a

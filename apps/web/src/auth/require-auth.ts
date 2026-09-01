@@ -5,7 +5,7 @@
  * more, so per-page mounting means a new page is unauthenticated until someone remembers — and the
  * failure is silent, because an unguarded page looks exactly like a guarded one that happens to work.
  * And the polarity matters: an allowlist requires a page to be *asked* to be public, which is the same
- * argument that shaped the `NODE_ENV` allowlist in `header-user.ts`. Do not invert this to a denylist.
+ * argument that shaped the `NODE_ENV` allowlist in `plain-http.ts`. Do not invert this to a denylist.
  *
  * A GET is redirected to `/login` remembering where it was going. Anything else gets 403 rather than a
  * redirect: replaying a POST after login would resubmit a form the user has not seen since, and for

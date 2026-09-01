@@ -1,45 +1,51 @@
 /**
- * The scheme itself — the fail-closed NODE_ENV allowlist, the header parsing, the once-only
- * warning — is tested in `libs/deed-poll/src/auth/header-user.test.ts`, where it now lives. What is
- * left to test here is the adapter: that it reads through Express's case-insensitive `req.header`
- * rather than poking at `req.headers` directly, which is the one thing this file decides.
+ * What this file decides is narrow: a caller attached by `authenticate()` comes back unchanged, and
+ * reading one that was never attached is an error rather than a quietly role-less user. The reduction
+ * of IDAM's claims to a `CurrentUser` is `libs/deed-poll/src/auth/idam-claims.test.ts`'s, and the token
+ * validation that produces those claims is `idam.test.ts`'s.
  */
-import { DEEDPOLL_ADMIN, SERVICE_ACCOUNT_NAME } from "@hmcts/deed-poll";
+import { currentUser, DEEDPOLL_ADMIN } from "@hmcts/deed-poll";
 import type { Request } from "express";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { userFromRequest } from "./current-user.js";
+import { describe, expect, it } from "vitest";
+import { setCurrentUser, userFromRequest } from "./current-user.js";
 
-function requestWith(headers: Record<string, string | undefined>): Request {
-  return { header: (name: string) => headers[name.toLowerCase()] } as unknown as Request;
+function request(): Request {
+  return {} as Request;
 }
 
 describe("userFromRequest", () => {
-  const originalNodeEnv = process.env.NODE_ENV;
+  it("returns the caller that was attached to the request", () => {
+    const req = request();
+    setCurrentUser(req, currentUser([DEEDPOLL_ADMIN], "A Caseworker"));
 
-  beforeEach(() => {
-    process.env.NODE_ENV = "test";
-  });
-
-  afterEach(() => {
-    process.env.NODE_ENV = originalNodeEnv;
-  });
-
-  it("should resolve roles and name from the request's headers", async () => {
-    const user = userFromRequest(requestWith({ "x-user-roles": DEEDPOLL_ADMIN, "x-user-name": "A Caseworker" }));
+    const user = userFromRequest(req);
 
     expect(user.isAdmin).toBe(true);
     expect(user.name).toBe("A Caseworker");
   });
 
-  it("should read headers through req.header, so casing does not matter", async () => {
-    // Express lower-cases incoming header names, but a caller may not. Going through req.header is
-    // what makes that irrelevant; reading req.headers directly would not.
-    const user = userFromRequest({ header: (name: string) => (name === "x-user-roles" ? DEEDPOLL_ADMIN : undefined) } as unknown as Request);
-
-    expect(user.isAdmin).toBe(true);
+  it("throws rather than inventing a role-less caller when none was attached", () => {
+    // A role-less fallback also fails closed, but it fails as a 403 on a route that should have
+    // worked — which reads as a permissions problem and sends whoever debugs it to IDAM.
+    expect(() => userFromRequest(request())).toThrow(/authenticate\(\)/);
   });
 
-  it("should fall back to the service account when the request carries no name", async () => {
-    expect(userFromRequest(requestWith({})).name).toBe(SERVICE_ACCOUNT_NAME);
+  it("does not expose the caller as an enumerable property, so it cannot be serialised by accident", () => {
+    // A JSON-serialised request is a plausible thing for logging middleware to do, and the caller is
+    // not something to write to a log by accident. A symbol key is not visited by JSON.stringify or
+    // Object.keys.
+    const req = request();
+    setCurrentUser(req, currentUser([DEEDPOLL_ADMIN], "A Caseworker"));
+
+    expect(Object.keys(req)).toHaveLength(0);
+    expect(JSON.stringify(req)).toBe("{}");
+  });
+
+  it("replaces the caller when set twice, so a re-authenticated request cannot keep the old one", () => {
+    const req = request();
+    setCurrentUser(req, currentUser([DEEDPOLL_ADMIN], "First"));
+    setCurrentUser(req, currentUser([], "Second"));
+
+    expect(userFromRequest(req)).toMatchObject({ isAdmin: false, name: "Second" });
   });
 });

@@ -7,6 +7,8 @@ import compression from "compression";
 import cors from "cors";
 import type { Express } from "express";
 import express from "express";
+import { authenticate } from "./auth/authenticate.js";
+import { idamApiConfig } from "./auth/idam.js";
 import { errorHandler } from "./errors.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -32,6 +34,10 @@ export async function createApp(): Promise<Express> {
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  // Before the router, so a route is authenticated by default rather than when someone remembers.
+  // After the healthcheck above, which must stay reachable without a token for AKS probes to work.
+  app.use(authenticate(idamApiConfig(config.get("idam"))));
 
   app.use(await createSimpleRouter({ path: `${__dirname}/routes` }));
 

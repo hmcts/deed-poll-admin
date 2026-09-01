@@ -4,5 +4,9 @@
     "serviceName": "deed-poll-admin-api",
     "connectionString": "InstrumentationKey=your-instrumentation-key;IngestionEndpoint=https://dc.services.visualstudio.com/",
     "enabled": false
+  },
+  "idam": {
+    "issuerUrl": "http://localhost:5556/o",
+    "audiences": "deed-poll-admin"
   }
 }

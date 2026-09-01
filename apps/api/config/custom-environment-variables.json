@@ -2,5 +2,9 @@
   "port": "PORT",
   "applicationInsights": {
     "connectionString": "APPLICATION_INSIGHTS_CONNECTION_STRING"
+  },
+  "idam": {
+    "issuerUrl": "IDAM_ISSUER_URL",
+    "audiences": "IDAM_API_AUDIENCES"
   }
 }

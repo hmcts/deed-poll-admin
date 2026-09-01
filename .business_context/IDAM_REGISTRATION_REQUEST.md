@@ -46,9 +46,19 @@ answers, the client secret and the role name, are the ones that block.
 >    from the Dynamics security role "Deed Poll Admin User". It gates one thing: whether a caseworker
 >    may set a case's privacy to Private. Everyone else has read/write on everything else. We have used
 >    the placeholder `deedpoll-admin`. What should it actually be, and how do we get it assigned?
-> 6. **Whether we need S2S** at this stage. Our API is not yet called by another CFT service; S2S
+> 6. **The `aud` claim on access tokens, and whether we need a second client for the API.** Our backend
+>    validates the bearer token itself — signature against your JWKS, plus `iss`, `exp` and `aud` — and
+>    refuses a token whose `aud` is not one we expect, so that a token issued to another CFT service
+>    cannot be replayed against us. Today we expect `aud` to be the web client's id. Is that right, and
+>    would you rather the API were a separately registered client?
+> 7. **Whether `tokenName` is present on your access tokens.** We use it to refuse an ID token
+>    presented as a bearer credential, since both carry the same `aud`. We only check it when present,
+>    so no answer breaks us — we would just like to know whether the check is doing anything.
+> 8. **Whether you enforce PKCE and the client secret** at the token endpoint. We send both. The local
+>    simulator verifies neither, so we have not been able to prove our end is correct against anything.
+> 9. **Whether we need S2S** at this stage. Our API is not yet called by another CFT service; S2S
 >    becomes relevant when we integrate with CDAM for document storage, which is later work.
-> 7. **`post_logout_redirect_uri`.** We send the user to your `end_session_endpoint` with
+> 10. **`post_logout_redirect_uri`.** We send the user to your `end_session_endpoint` with
 >    `id_token_hint` and a `post_logout_redirect_uri` of the service root. Does that need registering
 >    too?
 >
@@ -77,6 +87,8 @@ So the reply is a config change, not a build:
 
 - Authorization code flow with PKCE, `state`, and ID-token validation against the issuer's JWKS
   (`apps/web/src/auth/idam.ts`), using discovery rather than hardcoded endpoints.
+- Bearer-token validation in the API (`apps/api/src/auth/idam.ts`): signature against your JWKS via
+  `jose`'s `createRemoteJWKSet`, then `iss`, `aud` and `exp`, with roles from `/o/userinfo`.
 - Session-backed sign-in with session-id regeneration on login, in `apps/web/src/auth/session.ts`.
 - `requireAuth` mounted globally with a public allowlist, so a new page is protected by default.
 - Logout, local first then IDAM's `end_session_endpoint`.
@@ -87,8 +99,8 @@ So the reply is a config change, not a build:
   `docker compose` — including that roles arrive from `/o/userinfo` rather than the ID token.
   **Two exceptions, both worth confirming at your end:** the client sends a correct S256 PKCE
   challenge and a `client_secret`, and the simulator verifies neither, so nothing local proves they
-  are enforced. `state`, single-use codes and bearer-gated `/o/userinfo` are enforced by it and were
-  verified.
+  are enforced — hence question 8. `state`, single-use codes and bearer-gated `/o/userinfo` are
+  enforced by it and were verified.
 
 **What the stub cannot tell us**, now that `rse-idam-simulator` has answered the rest: whether the role
 string is really `deedpoll-admin`, and whether CFT IDAM's `/o/userinfo` matches the simulator's

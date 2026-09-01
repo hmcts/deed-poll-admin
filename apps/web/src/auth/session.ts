@@ -9,7 +9,7 @@
  * Namespaced under `deedPoll` per `.claude/rules/frontend.md`, so it cannot collide with the
  * onboarding journey's session data in the same store.
  */
-import type { CurrentUser } from "@hmcts/deed-poll";
+import { type CurrentUser, plainHttpPermitted } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import type { AuthFlowState } from "./idam.js";
 
@@ -27,6 +27,34 @@ function namespace(req: Request): DeedPollSession {
   const session = req.session as SessionWithDeedPoll;
   session.deedPoll ??= {};
   return session.deedPoll;
+}
+
+/**
+ * The placeholder in `config/default.json`, which is checked into a public repository.
+ *
+ * A session cookie is signed with this secret, and after Phase 5 the session is what says a caller is
+ * signed in and which roles they hold. So a known secret is not a weak secret — it is no
+ * authentication at all: anyone can mint a cookie asserting `deedpoll-admin` and skip IDAM entirely.
+ * The login flow this app now has would be decoration.
+ */
+const PLACEHOLDER_SESSION_SECRET = "session-secret";
+
+/**
+ * Refuse to start with the checked-in session secret outside development and test.
+ *
+ * Failing at startup rather than warning, because the failure it prevents is silent: everything works,
+ * users log in, and the sessions are forgeable. Nothing about running would reveal it.
+ *
+ * Same allowlist as `plainHttpPermitted` and for the same reason — a `!== "production"` test would
+ * leave the placeholder acceptable in `aat`, in a preview environment, and anywhere `NODE_ENV` is
+ * simply unset.
+ */
+export function assertSessionSecret(secret: string): void {
+  if (secret !== PLACEHOLDER_SESSION_SECRET || plainHttpPermitted()) return;
+
+  throw new Error(
+    `SESSION_SECRET is still the placeholder from config/default.json under NODE_ENV ${JSON.stringify(process.env.NODE_ENV)}. Session cookies signed with it are forgeable, so anyone could assert any role without logging in. Set it from the key vault.`
+  );
 }
 
 /** The signed-in user, or undefined. Undefined means not signed in — never "signed in with no roles". */

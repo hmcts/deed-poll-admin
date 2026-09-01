@@ -11,7 +11,7 @@
  * handlers can throw and rely on this. Express only recognises a middleware as an error
  * handler if it declares four parameters, hence the unused `_next`.
  */
-import { ConflictError, type FieldError, ForbiddenError, InvalidInputError, NotFoundError, zodErrorToFieldErrors } from "@hmcts/deed-poll";
+import { ConflictError, type FieldError, ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError, zodErrorToFieldErrors } from "@hmcts/deed-poll";
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
 
@@ -34,6 +34,10 @@ export function errorHandler() {
       return res.status(500).json({ error: GENERIC_MESSAGE });
     }
 
+    if (mapped.headers) {
+      res.set(mapped.headers);
+    }
+
     res.status(mapped.status).json(mapped.body);
   };
 }
@@ -49,6 +53,13 @@ function mapError(err: Error): MappedError | undefined {
 
   if (err instanceof NotFoundError) {
     return { status: 404, body: { error: err.message } };
+  }
+
+  // 401 rather than 403: the caller has not proved who they are, so the fix is to present a token
+  // rather than to acquire a role. `WWW-Authenticate` is what makes it a 401 and not just a number —
+  // RFC 9110 §11.6.1 requires it, and it is how a client knows which scheme to retry with.
+  if (err instanceof UnauthorizedError) {
+    return { status: 401, headers: { "WWW-Authenticate": "Bearer" }, body: { error: err.message } };
   }
 
   if (err instanceof ForbiddenError) {
@@ -67,4 +78,5 @@ function mapError(err: Error): MappedError | undefined {
 interface MappedError {
   status: number;
   body: { error: string; errors?: FieldError[] };
+  headers?: Record<string, string>;
 }

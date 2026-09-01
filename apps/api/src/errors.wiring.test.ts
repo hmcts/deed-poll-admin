@@ -10,9 +10,10 @@
 import { DEEDPOLL_ADMIN, InvalidInputError, NotFoundError } from "@hmcts/deed-poll";
 import express, { type Express, type Request, type Response } from "express";
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { requireRoles } from "./auth/require-roles.js";
 import { errorHandler } from "./errors.js";
+import { attachUserDouble } from "./express-doubles.js";
 
 function appThrowing(error: Error): Express {
   const app = express();
@@ -24,10 +25,6 @@ function appThrowing(error: Error): Express {
 }
 
 describe("error handling wired into an app", () => {
-  beforeEach(() => {
-    process.env.NODE_ENV = "development";
-  });
-
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -53,6 +50,7 @@ describe("error handling wired into an app", () => {
 
   it("should return 403 when requireRoles rejects the caller", async () => {
     const app = express();
+    app.use(attachUserDouble());
     app.get("/thing", requireRoles(DEEDPOLL_ADMIN), (_req, res) => res.json({ ok: true }));
     app.use(errorHandler());
 
@@ -64,10 +62,11 @@ describe("error handling wired into an app", () => {
 
   it("should let the request through when requireRoles is satisfied", async () => {
     const app = express();
+    app.use(attachUserDouble(DEEDPOLL_ADMIN));
     app.get("/thing", requireRoles(DEEDPOLL_ADMIN), (_req, res) => res.json({ ok: true }));
     app.use(errorHandler());
 
-    const response = await request(app).get("/thing").set("x-user-roles", DEEDPOLL_ADMIN);
+    const response = await request(app).get("/thing");
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ok: true });
@@ -88,6 +87,7 @@ describe("error handling wired into an app", () => {
     // simple-router normalises `export const DELETE = [requireRoles(...), handler]` into an
     // array of handlers, so the throw happens in the second element rather than the first.
     const app = express();
+    app.use(attachUserDouble(DEEDPOLL_ADMIN));
     app.delete("/thing", [
       requireRoles(DEEDPOLL_ADMIN),
       async () => {
@@ -96,7 +96,7 @@ describe("error handling wired into an app", () => {
     ]);
     app.use(errorHandler());
 
-    const response = await request(app).delete("/thing").set("x-user-roles", DEEDPOLL_ADMIN);
+    const response = await request(app).delete("/thing");
 
     expect(response.status).toBe(404);
     expect(response.body).toEqual({ error: "Deed poll not found" });

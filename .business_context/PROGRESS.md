@@ -59,7 +59,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  2  domain → libs/deed-poll    ██████████████████████  done
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
  4  SSR pages → apps/web       ████████████████████░░  12/12 ported, unverified
- 5  authentication (IDAM)      ████████████████░░░░░░  ◀── HERE. flow works; needs a real client
+ 5  authentication (IDAM)      ███████████████████░░░  ◀── HERE. both apps done; needs a real client
  6  config, Helm, deployment   ░░░░░░░░░░░░░░░░░░░░░░  needs the CNP product code
 
 TRACK B — CCD adoption (separable; start only once Track A is green)
@@ -75,7 +75,7 @@ Three things gate a deploy, none of them code in this branch:
 
 | Gate | Why it blocks |
 |---|---|
-| Phase 5 auth | `apps/web` now requires an IDAM login, but there is no registered client to point it at, and `apps/api` still trusts an `x-user-roles` header — so anyone who can reach the API directly can read any case and hard-delete it with its children |
+| Phase 5 auth | Both apps authenticate now, but there is no registered IDAM client to point them at, and neither `idam-client-secret` nor `session-secret` exists in the vault — so nobody can actually log in to a deployed instance |
 | CNP product code | Unverified; drives the ACR namespace, key vaults and `deed-poll-preview` Postgres. External, longest lead time — hence Parked task 1 |
 | CI has no database | The `ccd` schema tests skip in CI. Honest, but not coverage |
 
@@ -108,22 +108,22 @@ documents         ███████   7/7    done  incl. multipart upload, d
 @hmcts-cft/express-govuk-starter        127 passed
 @hmcts-cft/express-session-postgres      23 passed
 @hmcts-cft/simple-router                 41 passed
-@hmcts/api                              211 passed
+@hmcts/api                              255 passed
 @hmcts/crons                             10 passed
-@hmcts/deed-poll                        584 passed
+@hmcts/deed-poll                        583 passed
 @hmcts/onboarding                        72 passed
 @hmcts/postgres                          11 passed
-@hmcts/web                              137 passed
+@hmcts/web                              146 passed
 ─────────────────────────────────────────────────────
-total                                  1339 passed
+total                                  1391 passed
 ```
 
 ### Branch
 
 ```
 feat/deed-poll-migration
-35 commits ahead of master
-HEAD  0f6b8bc  Read IDAM roles from /o/userinfo, not the ID token
+37 commits ahead of master
+HEAD  a0e1d0e  Correct the local-verification claim: no client_secret check either
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -352,8 +352,17 @@ cd apps/api && NODE_ENV=development ../../node_modules/.bin/tsx src/server.ts
 - **Startup takes ~20 seconds**, nearly all of it one Azure Key Vault DNS lookup timing out
   (`getaddrinfo EAI_AGAIN deed-poll-aat.vault.azure.net`). Two `Warning:` lines about the vault and
   `/mnt/secrets` are expected and harmless. Poll `/health` rather than guessing a sleep.
-- **Send `x-user-roles: deedpoll-admin`** to act as an admin. `NODE_ENV=development` is what makes
-  the header honoured at all; under any other value every caller has no roles.
+- **The API needs a bearer token.** `x-user-roles` does nothing now — it is deleted, not disabled. Get
+  a token from the local simulator and use it:
+
+      ADMIN=$(curl -s -X POST http://localhost:5556/o/token -d grant_type=password \
+        -d username=admin@example.com -d password=x -d client_id=deed-poll-admin \
+        | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).access_token))')
+      curl -s http://localhost:3001/deed-polls -H "authorization: Bearer $ADMIN"
+
+  The password grant is used only because it needs no browser; the code flow is what `apps/web` uses.
+  `caseworker@example.com` is the same but role-less, which is how the privacy gate gets tested from
+  both sides. `yarn idam:users` creates both.
 - Local writes consume reference-number serials permanently, so `KBDP2026-…` will not start at
   00001 on a database that has been exercised. That is the counter working, not a bug.
 
@@ -363,7 +372,7 @@ cd apps/api && NODE_ENV=development ../../node_modules/.bin/tsx src/server.ts
 |---|---|
 | `libs/deed-poll/src/errors.ts` | adds `ForbiddenError` and `zodErrorToFieldErrors`; `ConflictError` followed in slice 3 |
 | `apps/api/src/errors.ts` | `errorHandler()`, mounted last in `app.ts` |
-| `apps/api/src/auth/current-user.ts` | `userFromRequest` — header extraction, the Phase 5 seam |
+| `apps/api/src/auth/current-user.ts` | `userFromRequest` — header extraction then; **the headers are gone, see Phase 5** |
 | `apps/api/src/auth/require-roles.ts` | `requireRoles(...)`, replacing `RolesGuard` |
 
 Two decisions worth not relitigating:
@@ -382,7 +391,9 @@ Two decisions worth not relitigating:
   that file** on the grounds that it duplicates `errors.test.ts` — it is testing the framework
   contract, not the mapper.
 
-- **Header auth is opt-in by environment and fails closed.** It is honoured only when `NODE_ENV` is
+- **Header auth is opt-in by environment and fails closed.** *(History — Phase 5 deleted the header
+  scheme outright. The polarity argument below outlived it and now lives in `plain-http.ts`.)* It is
+  honoured only when `NODE_ENV` is
   `development` or `test` (`HEADER_AUTH_ENVIRONMENTS` in `current-user.ts`). Anywhere else the
   `x-user-roles` and `x-user-name` headers are ignored, every caller resolves to no roles, and
   guarded routes return 403 — with one log line naming the `NODE_ENV` actually seen, since an
@@ -869,8 +880,9 @@ Translating later is a content change rather than a page rewrite, which is the p
 
 ## Phase 5 — authentication (in progress)
 
-**The login flow is built and verified.** `apps/web` no longer reads `x-user-roles` at all: identity
-comes from an IDAM OIDC session. What is missing is a real IDAM client, which is an external request.
+**Both apps now authenticate, and the header bypass is deleted from the codebase.** `apps/web` takes a
+browser OIDC session; `apps/api` takes an IDAM bearer token. What is missing is a real IDAM client,
+which is an external request with lead time.
 
 ### What is done
 
@@ -885,6 +897,12 @@ comes from an IDAM OIDC session. What is missing is a real IDAM client, which is
 | `docker-compose.yml` → `idam` | `hmcts/rse-idam-simulator`, the HMCTS-standard local issuer |
 | `scripts/build-idam-simulator.mjs` | builds that image; the published one is unusable, see below |
 | `scripts/seed-idam-users.mjs` | creates an admin and a role-less caseworker to sign in as |
+| `apps/api/src/auth/idam.ts` | the resource-server half: JWKS signature check, `iss`/`aud`/`exp`, roles from userinfo |
+| `apps/api/src/auth/authenticate.ts` | global bearer gate; 401 with `WWW-Authenticate` |
+| `apps/api/src/auth/current-user.ts` | now reads the caller `authenticate()` resolved, not headers |
+| `libs/deed-poll/src/auth/plain-http.ts` | the one cleartext-issuer decision both apps make |
+| `apps/{api,web}/helm/values.yaml` | IDAM env vars, and the two secrets that must exist before a deploy |
+| ~~`libs/deed-poll/src/auth/header-user.ts`~~ | **deleted.** The `x-user-roles` bypass no longer exists anywhere |
 
 ### Decisions worth not relitigating
 
@@ -1000,14 +1018,79 @@ string is really `deedpoll-admin`, and whether CFT IDAM's own `/o/userinfo` matc
 `IdamUserInfo` shape. Both are handled defensively, which means they **fail closed** — a wrong role
 string shows up as "nobody can edit privacy", not as an error.
 
+### How `apps/api` authenticates
+
+A bearer token, validated with `jose` — not `openid-client`, which models a *client* and wants a
+secret and redirects. `createRemoteJWKSet` is the part worth not hand-rolling: it caches keys,
+refetches on an unknown `kid`, and rate-limits that refetch so a stream of bogus `kid`s cannot be
+turned into a denial of service against IDAM.
+
+`jwtVerify` checks signature, `iss`, `aud`, `exp` and `nbf` in one call, deliberately — doing them
+separately is how one gets forgotten. Then two checks it does not cover:
+
+- **`tokenName` must not say `id_token`.** An ID token carries the same `aud` and the same signature
+  as an access token, so nothing above separates them, and it is not a credential for calling an API.
+  Checked only when present, since nothing in OIDC requires the claim.
+- **`aud` must be one of `IDAM_API_AUDIENCES`.** IDAM signs for the whole CFT estate, so a valid
+  signature alone only proves "some IDAM token". Empty config refuses every request rather than
+  accepting any.
+
+**Roles come from `/o/userinfo`, per request.** Not cached, deliberately: it is authorisation data, and
+the operation the admin role gates is the one worth withdrawing it for. Discovery *is* cached, because
+that is metadata and caching it keeps IDAM's availability out of the path of every call.
+
+**A caller's fault is a 401; ours is a 500.** IDAM unreachable, discovery failing, or no configured
+audience are all our problems, and answering 401 would tell every caller their credentials are wrong
+while hiding an outage behind a status that reads as client error. `UnauthorizedError` is new in the
+domain for the 401 half.
+
+An unknown path answers 401 rather than 404, because the gate runs before routing. That is the right way
+round: which paths exist is not something an unauthenticated caller needs to learn.
+
+### Verified against the real simulator, not only in tests
+
+```
+no token                    401 + WWW-Authenticate: Bearer
+garbage token               401
+x-user-roles: deedpoll-admin  401   <- the old bypass, now inert
+real admin token            200, privacy=Private honoured,   createdBy "An Admin"
+real caseworker token       200, privacy silently -> Normal, createdBy "A Caseworker"
+unknown path, no token      401
+unknown path, with token    404
+```
+
+The token came from the simulator's password grant, whose claims match what the code expects exactly:
+`iss: http://localhost:5556/o`, `aud: deed-poll-admin`, `tokenName: access_token`, `sub` the email,
+**and no roles** — which is why they are read from userinfo.
+
+`idam.test.ts` signs its own tokens with a generated key pair and serves a real JWKS over HTTP, so the
+refusals are exercised rather than asserted: wrong key, expired, wrong audience, wrong issuer, an ID
+token, an HS256 token, no subject, a revoked token, and a userinfo response for a different subject.
+That test double decides **only the cryptography**, never the contract — the contract comes from the
+simulator's source. That distinction is the whole lesson of the stub that was deleted.
+
+### The session secret was a hole big enough to make all of this decoration
+
+`config/default.json` ships `session.secret: "session-secret"`, and nothing overrode it. The session is
+what asserts a user is signed in and which roles they hold, so a signing key checked into a public
+repository means anyone can mint a cookie claiming `deedpoll-admin` and never touch IDAM at all.
+
+`assertSessionSecret` now refuses to start on the placeholder outside development and test, and
+`SESSION_SECRET` is wired from the key vault. **Failing at startup rather than warning**, because there
+is nothing about running that would reveal it: everything works, users log in, and the sessions are
+forgeable.
+
 ### Still to do in Phase 5
 
 - **Send the registration request.** [`IDAM_REGISTRATION_REQUEST.md`](IDAM_REGISTRATION_REQUEST.md).
-- **`apps/api` still uses the header scheme.** It has no session, so it needs bearer-token validation
-  against the same JWKS — a separate mechanism, deliberately not attempted yet. Until then the API's
-  `x-user-roles` bypass is live, and `header-user.ts` exists only for it.
-- **Helm secrets.** `apps/web/helm/values.yaml` has an empty `secrets:`; the client secret needs
-  wiring from Key Vault once its name is known.
+  Nothing else here can move until it is answered.
+- **Put the two secrets in the vault.** `apps/web/helm/values.yaml` now names `idam-client-secret` and
+  `session-secret`, and the chart fails on a missing secret — which is the right way round for both. The
+  client secret's value comes from IDAM; the session secret is ours, and just needs to be random.
+- **`apps/web`'s flow has no unit tests.** `login.ts`, `logout.ts`, `oauth2/callback.ts`, `auth/idam.ts`
+  and `auth/session.ts` are covered only by having been run by hand, plus `require-auth.test.ts` and the
+  new `session.test.ts`. `apps/api`'s equivalent is now tested properly, so this is the asymmetry to
+  close — and the file with the fewest tests is the one where a mistake is silent.
 
 ## Phase 4 outstanding
 
