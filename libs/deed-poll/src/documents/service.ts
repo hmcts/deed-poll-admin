@@ -71,8 +71,18 @@ export async function updateDocument(deedPollId: string, id: string, dto: Update
 export async function removeDocument(deedPollId: string, id: string): Promise<void> {
   const doc = await findDocument(deedPollId, id);
   await prisma.deedPollSupportingDocument.delete({ where: { id, deedPollId } });
-  // Best-effort blob cleanup after the row is gone (delete is idempotent).
-  await deleteFile(doc.storageKey);
+
+  // Blob cleanup, and now genuinely best-effort — the comment here used to claim that while an
+  // unawaited-failure propagated. The row is already gone at this point, so a failed unlink turned
+  // a completed delete into a 500: the caller retries, gets a 404, and has no way to tell the
+  // delete had in fact worked. An orphaned blob is recoverable and cheap; a status code that
+  // contradicts what happened is neither. `deleteFile` already no-ops on a missing file, so this
+  // only swallows real I/O failures, and it says so in the log rather than silently.
+  try {
+    await deleteFile(doc.storageKey);
+  } catch (error) {
+    console.error(`Deleted document ${id} but could not remove its stored file (key ${doc.storageKey}):`, error);
+  }
 }
 
 /**

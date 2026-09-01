@@ -48,8 +48,8 @@ const PHASE_3_RESOURCES = [
   { name: "deed-polls", total: 7, controller: "deed-poll/deed-poll.controller.ts", note: "incl. field-rules, validate" },
   { name: "notes", total: 5, controller: "notes/notes.controller.ts", note: "" },
   { name: "witnesses", total: 5, controller: "witnesses/witnesses.controller.ts", note: "" },
-  { name: "document-types", total: 5, controller: "documents/document-types.controller.ts", note: "no upload" },
-  { name: "documents", total: 7, controller: "documents/documents.controller.ts", note: "needs Multer wiring" }
+  { name: "document-types", total: 5, controller: "documents/document-types.controller.ts", note: "global reference data" },
+  { name: "documents", total: 7, controller: "documents/documents.controller.ts", note: "incl. multipart upload, download" }
 ];
 
 const METHOD_EXPORT = /^export const (GET|POST|PUT|PATCH|DELETE)\b/gm;

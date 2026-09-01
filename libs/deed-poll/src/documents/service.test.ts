@@ -124,6 +124,35 @@ describe("documents/service", () => {
     expect(storage.delete).toHaveBeenCalledWith("k1");
   });
 
+  it("still succeeds when the blob cleanup fails, because the row is already gone", async () => {
+    // The comment here claimed best-effort cleanup while a failed unlink propagated, so a delete
+    // that had actually worked answered 500. The caller then retries and gets a 404, with no way to
+    // tell the difference. An orphaned blob is recoverable; a contradictory status is not.
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    prisma.deedPollSupportingDocument.findFirst.mockResolvedValue({ id: "d1", storageKey: "k1" });
+    prisma.deedPollSupportingDocument.delete.mockResolvedValue({ id: "d1" });
+    storage.delete.mockRejectedValue(new Error("EACCES: permission denied, unlink"));
+
+    await expect(removeDocument("case1", "d1")).resolves.toBeUndefined();
+
+    expect(prisma.deedPollSupportingDocument.delete).toHaveBeenCalled();
+    expect(logged).toHaveBeenCalled();
+    logged.mockRestore();
+  });
+
+  it("names the document and storage key when cleanup fails, so the orphan can be found", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    prisma.deedPollSupportingDocument.findFirst.mockResolvedValue({ id: "d1", storageKey: "k1" });
+    prisma.deedPollSupportingDocument.delete.mockResolvedValue({ id: "d1" });
+    storage.delete.mockRejectedValue(new Error("EACCES"));
+
+    await removeDocument("case1", "d1");
+
+    expect(logged.mock.calls[0][0]).toContain("d1");
+    expect(logged.mock.calls[0][0]).toContain("k1");
+    logged.mockRestore();
+  });
+
   const file = {
     originalname: "birth.pdf",
     mimetype: "application/pdf",

@@ -58,3 +58,9 @@ libs/postgres-prisma/generated/
 # committed by accident. Remove this entry once the migration is complete and
 # the directory is deleted.
 power_app_nest/
+
+# Uploaded document blobs. file-storage.ts writes to DATA_DIR, defaulting to <cwd>/data, and the
+# running app decides the cwd — apps/api/data when the API serves the upload route, apps/web/data
+# once the Phase 4 form does. Hence a glob rather than one path. These are real case documents, so
+# they must never be committable; no tracked path has a data/ component, so this catches nothing else.
+data/

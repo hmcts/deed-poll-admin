@@ -2,20 +2,27 @@
 
 Last updated: 2026-09-01. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
-**Next thing to pick up: Phase 3, the `documents` handlers — the last 7 of the 29.** `deed-polls`
-(7), notes + witnesses (10) and `document-types` (5) are done — 22 of 29. Documents are last because
-they are the only ones needing the **Multer wiring**, which is the remaining unsolved piece of
-Phase 3. Read ["Phase 3 foundations"](#phase-3-foundations-done-caf4e03) and slices
-[1](#phase-3-slice-1-deed-polls-done), [2](#phase-3-slice-2-notes-and-witnesses-done) and
-[3](#phase-3-slice-3-document-types-done) before writing a handler — between them they settle every
-decision a handler should not be making for itself. The documents *service* is already in line with
-both the child-scoping rule (slice 2) and the list-404 rule, so only the HTTP layer remains.
+**Phase 3 is complete — all 29 handlers are ported. Next up is Phase 4, the SSR pages.**
 
-**Before starting documents, know that local disk storage cannot go to AKS** — pods are ephemeral and
-replicas share no volume. Whatever Multer writes is a local-development story until Phase 10 (CDAM)
-or the Azure Blob off-ramp. That is a deployment constraint, not a reason to delay the port.
+Phase 4 moves the 12 page handlers and 9 Nunjucks templates into `apps/web`, replacing
+`nunjucks.setup.ts` with `configureGovuk` from `@hmcts-cft/express-govuk-starter`, and it is where
+`power_app_nest/` finally gets deleted. Two things from Phase 3 make it easier than it looks: the
+Zod schemas the routes validate against are the same ones the forms need, and `uploadSingleFile()`
+in `apps/api/src/documents/upload.ts` is the pattern `apps/web` will want for its upload form — it
+is app-level middleware, so `apps/web` needs its own copy of the mount rather than importing it
+across apps.
 
-**Two tasks are parked, not questions** — see "Parked tasks" below. Neither blocks Phase 3.
+Read ["Phase 3 foundations"](#phase-3-foundations-done-caf4e03) and slices
+[1](#phase-3-slice-1-deed-polls-done), [2](#phase-3-slice-2-notes-and-witnesses-done),
+[3](#phase-3-slice-3-document-types-done) and [4](#phase-3-slice-4-documents-done) before touching a
+handler or a form — between them they settle every decision that is already made, including three
+defects of the same shape that only running the app revealed.
+
+**Local disk storage cannot go to AKS** — pods are ephemeral and replicas share no volume. Uploads
+work locally and are a development story until Phase 10 (CDAM) or the Azure Blob off-ramp.
+`.gitignore` now covers `data/` so uploaded blobs are never committable.
+
+**Two tasks are parked, not questions** — see "Parked tasks" below. Neither blocks Phase 4.
 
 ## At a glance
 
@@ -36,8 +43,8 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  0  hygiene & blocked inputs   ██████████████████████  done
  1  schema → monorepo          ██████████████████████  done
  2  domain → libs/deed-poll    ██████████████████████  done
- 3  JSON API → apps/api        █████████████░░░░░░░░░  in progress   ◀── HERE
- 4  SSR pages → apps/web       ░░░░░░░░░░░░░░░░░░░░░░  not started
+ 3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
+ 4  SSR pages → apps/web       ░░░░░░░░░░░░░░░░░░░░░░  not started   ◀── HERE
  5  authentication (IDAM)      ░░░░░░░░░░░░░░░░░░░░░░  hard gate before any deploy
  6  config, Helm, deployment   ░░░░░░░░░░░░░░░░░░░░░░  needs the CNP product code
 
@@ -70,10 +77,10 @@ resource          progress  ported       notes
 deed-polls        ███████   7/7    done  incl. field-rules, validate
 notes             █████     5/5    done
 witnesses         █████     5/5    done
-document-types    █████     5/5    done  no upload
-documents         ░░░░░░░   0/7          needs Multer wiring
+document-types    █████     5/5    done  global reference data
+documents         ███████   7/7    done  incl. multipart upload, download
                             ──────────────
-                            22/29  76%
+                            29/29  100%
 ```
 
 ### Phase 4 — SSR pages, not started
@@ -87,22 +94,22 @@ documents         ░░░░░░░   0/7          needs Multer wiring
 @hmcts-cft/express-govuk-starter        127 passed
 @hmcts-cft/express-session-postgres      23 passed
 @hmcts-cft/simple-router                 41 passed
-@hmcts/api                              175 passed
+@hmcts/api                              219 passed
 @hmcts/crons                             10 passed
-@hmcts/deed-poll                        475 passed
+@hmcts/deed-poll                        477 passed
 @hmcts/onboarding                        72 passed
 @hmcts/postgres                          11 passed
 @hmcts/web                               44 passed
 ─────────────────────────────────────────────────────
-total                                  1101 passed
+total                                  1147 passed
 ```
 
 ### Branch
 
 ```
 feat/deed-poll-migration
-22 commits ahead of master
-HEAD  7843eec  Add an at-a-glance dashboard to PROGRESS.md, with the numbers generated
+23 commits ahead of master
+HEAD  346e623  Port the document-types handlers and give the in-use refusal a 409
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -114,6 +121,7 @@ Branch, commit count and test counts live in the generated dashboard above rathe
 there is only one place for them to be wrong.
 
 ```
+346e623  Port the document-types handlers and give the in-use refusal a 409
 7843eec  Add an at-a-glance dashboard to PROGRESS.md, with the numbers generated
 83d54c4  404 a child list when its parent case does not exist
 2e41014  Scope the nested child writes to their parent case
@@ -162,7 +170,10 @@ any more — the decision is "yes, just not now".
 
 Decided and closed, recorded so they are not reopened:
 
-- **Phase 3 is sliced**, not one pass: `deed-polls` (done) → notes + witnesses (done) → documents.
+- **Phase 3 was sliced**, not one pass: `deed-polls` → notes + witnesses → `document-types` →
+  `documents`. All four done. The same slicing is worth applying to Phase 4's 12 page handlers.
+- **Upload limits**, agreed 2026-09-01: **10 MB** and an accepted-type list (PDF, JPEG, PNG, TIFF,
+  Word). The size is a guess pending real file sizes from the service team; see slice 4.
 - **Prisma query logging stays on** under `yarn dev`. See Loose ends 3 for where to turn it off if
   it proves noisy.
 
@@ -262,9 +273,9 @@ What changed in the move:
 
 ## Phase 3 — the JSON API (in progress)
 
-**Foundations are done** (`caf4e03`), **the `deed-polls` slice is done** (7 handlers) and **notes +
-witnesses are done** (10). 12 remain, all of them documents. See "Phase 3 foundations", "Phase 3
-slice 1" and "Phase 3 slice 2" below.
+**Phase 3 is complete — 29 of 29 handlers.** Foundations (`caf4e03`) plus four slices: `deed-polls`
+(7), notes + witnesses (10), `document-types` (5) and `documents` (7). See the slice sections below;
+three of them record a defect that only running the app revealed.
 
 Move the 29 JSON handlers from the prototype's controllers into `apps/api/src/routes/` as
 `simple-router` files. The domain functions they need all exist and are tested.
@@ -276,7 +287,7 @@ routes/deed-polls/[id].ts                         ✅ GET, PATCH, DELETE
 routes/deed-polls/[id]/validate.ts                ✅ POST
 routes/deed-polls/[id]/notes/{index,[noteId]}.ts       ✅ GET/POST, GET/PATCH/DELETE
 routes/deed-polls/[id]/witnesses/{index,[witnessId]}.ts ✅ GET/POST, GET/PATCH/DELETE
-routes/deed-polls/[id]/documents/{index,[documentId]}.ts
+routes/deed-polls/[id]/documents/{index,upload,[documentId]}.ts  ✅ all 7, incl. [documentId]/file
 routes/document-types/{index,[id]}.ts                   ✅ GET/POST, GET/PATCH/DELETE
 ```
 
@@ -291,24 +302,25 @@ Source controllers to port (then delete):
 | `notes/notes.controller.ts` | 5 | ✅ ported |
 | `witnesses/witnesses.controller.ts` | 5 | ✅ ported |
 | `documents/document-types.controller.ts` | 5 | ✅ ported |
-| `documents/documents.controller.ts` | 7 | ⬅ **all that remains** — needs the Multer wiring |
+| `documents/documents.controller.ts` | 7 | ✅ ported, incl. the Multer wiring |
 
 None of the ported controllers are deleted yet; `power_app_nest/` goes as a whole at the end of
 Phase 4.
 
 Specific work:
 
-1. ✅ **Error mapping.** Done — see below.
-2. ⬅ **Validation per route.** Replace the global `ValidationPipe` with `safeParse` against the Zod
+1. ✅ **Error mapping.** Done — see below. Extended in slice 3 with `ConflictError` → 409.
+2. ✅ **Validation per route.** Done across all four slices. Replace the global `ValidationPipe` with `safeParse` against the Zod
    schemas from `@hmcts/deed-poll`. `zodErrorToFieldErrors` and the 400 mapping are in place, so a
    handler can simply `throw parsed.error` on a failed `safeParse`. **Copy the four `deed-polls`
    route files for shape** — they are the worked example now, and they are a better guide than
    `routes/onboarding/`, which try/catches per handler and predates the error middleware.
 3. ✅ **`RolesGuard` → Express middleware.** Done — see below.
-4. ⬅ **Multer.** `uploadDocument` now takes a plain `UploadedFile` (`buffer`, `originalname`,
-   `mimetype`, `size`) rather than `Express.Multer.File`. The app maps its upload middleware onto it.
+4. ✅ **Multer.** Done in slice 4 — `apps/api/src/documents/upload.ts`. `uploadDocument` takes a plain
+   `UploadedFile` (`buffer`, `originalname`, `mimetype`, `size`) rather than `Express.Multer.File`,
+   and the middleware maps onto it, adding a 10 MB limit and a type list the prototype had neither of.
 
-Verification: `yarn test` must show at least 475 in `libs/deed-poll` and 175 in `apps/api` plus
+Verification: `yarn test` must show at least 477 in `libs/deed-poll` and 219 in `apps/api` plus
 whatever the new route tests add; `yarn lint` and `yarn build` clean; and exercise the handlers
 against a running app — see the recipe under "Exercising the API locally" below, which is worth
 following rather than improvising, because two of the four things in it cost time to work out.
@@ -557,6 +569,83 @@ Both directions are pinned by tests and were verified live, because a fix like t
 message, and a real case with no children still answers `[]` with 200. `documents` has no HTTP route
 yet, so it is covered by domain tests only until that slice lands.
 
+### Phase 3 slice 4: documents (done)
+
+Seven handlers across four files, plus `apps/api/src/documents/upload.ts`. `apps/api` 175 → 219
+tests, `libs/deed-poll` 475 → 477. **Phase 3 is complete: 29 of 29.**
+
+#### What Multer actually does here
+
+It is a body parser for **one** route. `app.ts` mounts `express.json()` and `express.urlencoded()`,
+and neither parses `multipart/form-data`, so without it `POST .../documents/upload` would see an
+empty `req.body` and no file. Multer puts the bytes on `req.file` and the accompanying text fields
+(`documentTypeId`, `name`, `direction`) on `req.body`. The other six handlers are ordinary JSON.
+
+- **Mounted per-route, as an array** — `export const POST = [uploadSingleFile(), handler]`, the shape
+  `requireRoles` established. A global multipart parser would inspect bodies it can never be given.
+- **Memory storage, not disk**, because `saveFile(buffer)` takes a `Buffer`. Disk storage would write
+  a temp file for us to read straight back and write again, and would strand it on a failure path.
+- **The `UploadedFile` mapping is the whole point.** `uploadDocument` takes a plain
+  `{ buffer, originalname, mimetype, size }`, deliberately not `Express.Multer.File`, so the domain
+  does not know Multer exists. Phase 2 built that seam; this slice is the four-field map onto it.
+
+#### Two limits the prototype did not have
+
+`FileInterceptor('file')` took no options: **any file, any size, buffered in memory**. Ported
+faithfully that is a memory-exhaustion hole in a service that currently has no authentication, so it
+was not ported.
+
+- **10 MB** (`MAX_BYTES`), agreed with Steve on 2026-09-01. There was no existing limit anywhere in
+  the repo or the prototype to inherit. **It is a defensible guess, not a researched number —
+  confirm against real file sizes with the service team.** It matters more than it looks: the file is
+  buffered in memory, so the worst case is 10 MB × concurrent uploads against the pod's limit.
+- **An accepted-type list** — PDF, JPEG, PNG, TIFF, Word. **This is hygiene, not security:** it reads
+  the `Content-Type` the client puts on the part, which a client can simply lie about. It stops
+  accidents and obvious executables. Real inspection and virus scanning belong with CDAM in Phase 10.
+
+Both refusals are translated at the source. Multer signals them with a `MulterError`, which is not a
+domain error and would have become a 500 — the third instance of that trap, so `mapMulterError`
+converts it to an `InvalidInputError` attributed to the `file` field.
+
+#### Download hardening
+
+`GET .../documents/:documentId/file` is the only route that does not answer JSON. Two changes over
+the prototype:
+
+- **The filename is sanitised, not just de-quoted.** `originalName` is whatever the uploading client
+  called the file, so it lands on a response header as attacker-controlled text. The prototype
+  stripped `"` and nothing else; a name containing `\r\n` would have produced an invalid header,
+  which Node rejects by throwing mid-response — a 500 on a working download. Only a conservative
+  character set survives, with a `document` fallback when nothing does. Pinned by a test that feeds
+  `evil".pdf\r\nX-Injected: yes` and asserts no such header appears.
+- **The stream's `error` event is forwarded to `next`.** Without it a mid-stream failure leaves the
+  request hanging until it times out. Once bytes are sent no status change is possible, so
+  `errorHandler` hands back to Express and the connection is destroyed — correct, because a truncated
+  download is visible to the client where a 200 with half a file is not.
+
+#### A third 500, exactly as predicted
+
+The handover said to assume one, and there was one. `removeDocument`'s comment claimed *"Best-effort
+blob cleanup"* while `await deleteFile(...)` propagated: the row was already deleted, so a failed
+`unlink` turned a **completed** delete into a 500. The caller retries, gets a 404, and has no way to
+tell the delete had in fact worked. Now genuinely best-effort — caught and logged with the document
+id and storage key so the orphan is findable. An orphaned blob is recoverable and cheap; a status
+code that contradicts what happened is neither.
+
+That is three defects of one shape across four slices — an expected, caller-caused condition
+reaching the error middleware as something it did not recognise. **All three were invisible to unit
+tests on both sides and were found only by running the app.** Keep the "exercise it live" step.
+
+#### Verified live, end to end
+
+A real 41-byte PDF uploaded through multipart, written to `DATA_DIR/documents/<uuid>`, and downloaded
+back **byte-identical** (sha256 match) with `Content-Type: application/pdf`,
+`Content-Disposition: attachment; filename="birth.pdf"` and `Cache-Control: no-store`. Then: an 11 MB
+file 400s naming the limit; an `.exe` 400s; no file at all 400s with the domain's own
+`Select a file to upload`; a malformed `documentTypeId` 400s and a valid-but-absent one 404s; the
+document's type could not be deleted while it referenced it (409, from slice 3); and deleting the
+document removed both the row and the blob from disk, after which the download 404s.
+
 ### Phase 3 slice 3: document-types (done)
 
 Five handlers in `apps/api/src/routes/document-types/`. `apps/api` 152 → 175 tests,
@@ -674,6 +763,22 @@ Small, real, and deliberately not done. None blocks Phase 3.
 
 7. ~~**A child list under a non-existent case answers `[]` with 200, not 404.**~~ **Fixed
    2026-09-01** — see "Child lists 404 for a missing parent" under Phase 3 slice 2.
+
+8. **Two Biome warnings in `apps/postgres/health-server.mjs`** —
+   `noUnusedFunctionParameters`, both auto-fixable. Pre-existing and unrelated to any migration
+   work, so not touched in a documents commit. `yarn lint` still exits 0 since they are warnings,
+   but `CLAUDE.md` says to fix all Biome warnings, so someone should.
+
+9. **The 10 MB upload limit is a guess.** `MAX_BYTES` in `apps/api/src/documents/upload.ts`. There
+   was no existing limit in the repo or the prototype to inherit, and it was chosen for scanned
+   certificates and multi-page PDFs. **Confirm against real file sizes with the service team**, and
+   remember the file is buffered in memory, so the ceiling is really 10 MB × concurrent uploads
+   against the pod's memory limit.
+
+10. **Upload type-checking is by declared MIME type only.** `ALLOWED_MIME_TYPES` reads the
+    `Content-Type` the client puts on the multipart part, which a client can lie about. It stops
+    accidents, not attacks, and there is no virus scanning. Real inspection arrives with CDAM in
+    Phase 10; until then uploads are local-development only anyway, since local disk cannot go to AKS.
 
 ## Branch state
 

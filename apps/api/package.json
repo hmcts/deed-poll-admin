@@ -23,12 +23,14 @@
     "config": "4.4.2",
     "cors": "2.8.6",
     "express": "5.2.1",
+    "multer": "2.3.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/compression": "1.8.1",
     "@types/config": "4.4.0",
     "@types/cors": "2.8.19",
-    "@types/express": "5.0.6"
+    "@types/express": "5.0.6",
+    "@types/multer": "2.2.0"
   }
 }
