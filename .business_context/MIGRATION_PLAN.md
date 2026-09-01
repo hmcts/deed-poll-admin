@@ -73,7 +73,8 @@ No CCD dependency. Deployable on its own.
 - **Phase 2 — domain logic → `libs/deed-poll/`.** ✅ Done. Includes the DTO→Zod conversion, which
   was originally Phase 3 but moved forward because Phase 2 could not compile without it.
 - **Phase 3 — JSON API → `apps/api/src/routes/`.** ⬅ **in progress.** Foundations (error mapping,
-  role middleware) done; the 29 handlers remain.
+  role middleware) done. Sliced by resource: `deed-polls` done (7 of 29 handlers, 2026-09-01), then
+  notes + witnesses, then documents last because they need the Multer wiring.
 - **Phase 4 — SSR pages → `apps/web/src/pages/`.**
 - **Phase 5 — authentication (IDAM/Entra).**
 - **Phase 6 — config, Helm, deployment.**
@@ -130,6 +131,7 @@ a single narrow seam (`saveFile` / `createFileReadStream` / `deleteFile`) plus a
 |---|---|
 | CCD decentralisation unproven for Node | Track B separable; Azure Blob off-ramp preserved |
 | Header auth is an admin bypass | Phase 5; hard gate before any non-local deploy. Narrowed 2026-08-23: the scheme is now opt-in by `NODE_ENV` and fails closed elsewhere, so an early deploy 403s rather than granting admin. **Unguarded routes are still open** — this is not authentication |
+| Every ported route is unguarded, including hard-delete | Faithful to the prototype, which guarded nothing. Privilege is enforced inside the domain (`isAdmin` gates `privacy`) rather than at the route. Whether `DELETE` should be admin-only, and whether deletion should be soft given `retainPermanently`, is an open business question — Loose ends 5 in `PROGRESS.md`. Settle before Phase 5 |
 | Two rule gaps in `CONFORMANCE_HARNESS_PLAN.md` (migrated-record relaxation unimplemented; Gazette-date gate only on the relinquishment branch) | Carry across as failing tests and fix — do not silently lose them |
 | Prototype has no Welsh, no a11y tests | Structure in Phase 4; axe in Phase 4 verification |
 | Local disk document storage | Cannot go to AKS — pods ephemeral, replicas share no volume. Phase 10 or the Blob off-ramp |

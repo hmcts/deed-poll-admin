@@ -1,22 +1,25 @@
 # Migration progress — handover
 
-Last updated: 2026-08-23. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
+Last updated: 2026-09-01. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
-**Next thing to pick up: Phase 3, the 29 route handlers.** The Phase 3 foundations they depend on are
-already in. Start at ["Phase 3 — the JSON API"](#phase-3--the-json-api-in-progress); read
-["Phase 3 foundations"](#phase-3-foundations-done-caf4e03) before writing a handler, because two
-decisions there change how a handler is written.
+**Next thing to pick up: Phase 3, the notes and witnesses handlers (10 of the 29).** The
+`deed-polls` slice — 7 handlers — is done; see
+["Phase 3 slice 1: deed-polls"](#phase-3-slice-1-deed-polls-done). Documents last, because they
+need the Multer wiring. Read ["Phase 3 foundations"](#phase-3-foundations-done-caf4e03) and the
+slice-1 section before writing a handler: between them they settle five things a handler must not
+decide for itself.
 
-**Four questions are open with Steve** — see "Questions waiting on Steve" below. Each has a stated
-default, so none of them blocks starting.
+**Two tasks are parked, not questions** — see "Parked tasks" below. Neither blocks Phase 3.
 
 ## State
 
-Branch `feat/deed-poll-migration`, 13 commits, pushed and tracking
-`origin/feat/deed-poll-migration`. 127 files, +10,648 lines against master. No PR, deliberately —
-see "Branch state". Working tree clean as of 2026-08-23.
+Branch `feat/deed-poll-migration`, 16 commits, pushed and tracking
+`origin/feat/deed-poll-migration`. No PR, deliberately — see "Branch state".
 
 ```
+(this session)  Port the deed-polls JSON handlers and fix the reference-number error class
+b1ef30c  Capture the four open questions as open questions
+8ec90f2  Refresh the handover for the next session
 31f290e  Make the header-auth bypass opt-in by environment rather than opt-out
 290e5cf  Record the Phase 3 foundations in the handover docs
 caf4e03  Add the Phase 3 foundations: error mapping and role middleware
@@ -33,32 +36,34 @@ b17fac5  Port the deed-poll case model into the shared Prisma schema
 ```
 
 `yarn lint`, `yarn build` and `yarn test` are all clean across the workspace (11 tasks). Current test
-counts, so a regression is obvious: `libs/deed-poll` **450**, `apps/api` **71**, `apps/postgres` 11
-skipped (no database in CI — `docker compose up -d` to run them).
+counts, so a regression is obvious: `libs/deed-poll` **452**, `apps/api` **110**, `apps/postgres` 11
+(they **pass** with `docker compose up -d`, and skip without it — CI has no database).
 
 **Before running anything, Yarn needs sideloading** — Corepack cannot reach `repo.yarnpkg.com` from
 the devcontainer. See the bullet under "Things a future session should not have to rediscover"; it
 cost a chunk of a session to rediscover once already.
 
-## Questions waiting on Steve
+## Parked tasks
 
-Raised at the end of the 2026-08-23 session and **not yet answered**. Each has a default so nothing
-is blocked; ask, but proceed on the default if there is no answer.
+Answered by Steve on 2026-09-01: do these later, but **do not lose them**. Neither is a question
+any more — the decision is "yes, just not now".
 
-1. **Confirm the CNP product code with Platform Operations.** Open item 1 in
+1. **Draft the CNP product-code question for Platform Operations.** Open item 1 in
    [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md) — the oldest open item and the one with external lead
-   time, so it wants starting well before Phase 6 rather than at it. Offered to draft the question for
-   Steve to send. *Default: raise it at the start of Phase 6 work, which is late but not fatal.*
-2. **Renovate PR #31 (`applicationinsights` 3.16.0)** would clear 11 of the remaining 18 alerts in one
-   go — the whole `protobufjs` cluster. It is open and unreviewed. *Default: check it merges cleanly
-   and say so, do not merge it unasked.*
-3. **How to slice Phase 3.** Recommendation was: `deed-polls` first (7 handlers, and it contains
-   `field-rules` and `validate`, the conditional-rule surface and the riskiest part), then
-   notes and witnesses, then documents last because they need the Multer wiring. The alternative is
-   one pass over all 29 for a single review. *Default: the sliced order above.*
-4. **Prisma query logging is now live under `yarn dev`** — see Loose ends 3. Believed an improvement,
-   since the line was dead before, but it is new noise Steve did not have yesterday.
-   *Default: leave it on.*
+   time, so it wants sending well before Phase 6 rather than at it. The re-scaffold assumed team
+   `deed-poll`, product `admin`; the old `Jenkinsfile_CNP` said `rpe` and was never updated, so
+   there is no reliable source. It drives the ACR namespace, `aadIdentityName`, key vault names and
+   `flexibleserver: deed-poll-preview`. **Deliverable: a drafted message for Steve to send**, not a
+   code change.
+2. **Check Renovate PR #31 (`applicationinsights` 3.16.0) merges cleanly and report.** It should
+   carry `protobufjs@8.0.1` and so clear 11 of the 20 remaining advisories in one go. **Do not merge
+   it unasked** — report only.
+
+Decided and closed, recorded so they are not reopened:
+
+- **Phase 3 is sliced**, not one pass: `deed-polls` (done) → notes + witnesses → documents last.
+- **Prisma query logging stays on** under `yarn dev`. See Loose ends 3 for where to turn it off if
+  it proves noisy.
 
 ## Done
 
@@ -156,17 +161,17 @@ What changed in the move:
 
 ## Phase 3 — the JSON API (in progress)
 
-**Foundations are done** (`caf4e03`); the 29 handlers themselves are not. See "Phase 3 foundations"
-below for what landed and the two decisions it embeds.
+**Foundations are done** (`caf4e03`) and **the `deed-polls` slice is done** — 7 of 29 handlers. 22
+remain. See "Phase 3 foundations" and "Phase 3 slice 1" below.
 
 Move the 29 JSON handlers from the prototype's controllers into `apps/api/src/routes/` as
 `simple-router` files. The domain functions they need all exist and are tested.
 
 ```
-routes/deed-polls/index.ts            GET list, POST create
-routes/deed-polls/field-rules.ts      GET
-routes/deed-polls/[id].ts             GET, PATCH, DELETE
-routes/deed-polls/[id]/validate.ts    POST
+routes/deed-polls/index.ts            ✅ GET list, POST create
+routes/deed-polls/field-rules.ts      ✅ GET
+routes/deed-polls/[id].ts             ✅ GET, PATCH, DELETE
+routes/deed-polls/[id]/validate.ts    ✅ POST
 routes/deed-polls/[deedPollId]/notes/{index,[noteId]}.ts
 routes/deed-polls/[deedPollId]/witnesses/{index,[witnessId]}.ts
 routes/deed-polls/[deedPollId]/documents/{index,[documentId]}.ts
@@ -175,33 +180,48 @@ routes/document-types/{index,[id]}.ts
 
 Source controllers to port (then delete):
 
-| Prototype file | Handlers |
-|---|---|
-| `deed-poll/deed-poll.controller.ts` | 7 |
-| `notes/notes.controller.ts` | 5 |
-| `witnesses/witnesses.controller.ts` | 5 |
-| `documents/documents.controller.ts` | 7 |
-| `documents/document-types.controller.ts` | 5 |
+| Prototype file | Handlers | |
+|---|---|---|
+| `deed-poll/deed-poll.controller.ts` | 7 | ✅ ported, not yet deleted — delete with `power_app_nest/` at the end of Phase 4 |
+| `notes/notes.controller.ts` | 5 | ⬅ next |
+| `witnesses/witnesses.controller.ts` | 5 | ⬅ next |
+| `documents/documents.controller.ts` | 7 | needs Multer |
+| `documents/document-types.controller.ts` | 5 | |
 
 Specific work:
 
 1. ✅ **Error mapping.** Done — see below.
 2. ⬅ **Validation per route.** Replace the global `ValidationPipe` with `safeParse` against the Zod
-   schemas from `@hmcts/deed-poll`. Follow `libs/onboarding/src/onboarding/validation.ts` and the
-   existing `apps/api/src/routes/onboarding/` handlers for shape. `zodErrorToFieldErrors` and the
-   400 mapping are in place, so a handler can simply `throw result.error` on a failed `safeParse`.
-   **This is per-handler work and is the bulk of what remains.**
+   schemas from `@hmcts/deed-poll`. `zodErrorToFieldErrors` and the 400 mapping are in place, so a
+   handler can simply `throw parsed.error` on a failed `safeParse`. **Copy the four `deed-polls`
+   route files for shape** — they are the worked example now, and they are a better guide than
+   `routes/onboarding/`, which try/catches per handler and predates the error middleware.
 3. ✅ **`RolesGuard` → Express middleware.** Done — see below.
 4. ⬅ **Multer.** `uploadDocument` now takes a plain `UploadedFile` (`buffer`, `originalname`,
    `mimetype`, `size`) rather than `Express.Multer.File`. The app maps its upload middleware onto it.
 
-Verification: `yarn test` must show at least 450 in `libs/deed-poll` and 67 in `apps/api` plus
+Verification: `yarn test` must show at least 452 in `libs/deed-poll` and 110 in `apps/api` plus
 whatever the new route tests add; `yarn lint` and `yarn build` clean; and exercise the handlers
-against a running app (`docker compose up -d && yarn dev`), including
-`GET /api/deed-polls/field-rules` and `POST /api/deed-polls/:id/validate`, which are the
-conditional-rule surface. **Send `x-user-roles: deedpoll-admin` when exercising guarded routes** —
-`yarn dev` sets `NODE_ENV=development`, so the header is honoured; under any other `NODE_ENV` it is
-ignored and guarded routes 403.
+against a running app — see the recipe under "Exercising the API locally" below, which is worth
+following rather than improvising, because two of the four things in it cost time to work out.
+
+### Exercising the API locally
+
+```
+docker compose up -d                                   # Postgres; also un-skips apps/postgres tests
+YARN_ENABLE_SCRIPTS=true <yarn> db:migrate             # sideloaded yarn — see the note above
+cd apps/api && NODE_ENV=development ../../node_modules/.bin/tsx src/server.ts
+```
+
+- **The paths have no `/api` prefix.** It is `GET /deed-polls`, not `GET /api/deed-polls` — see
+  slice 1 below for why. Earlier revisions of this file said `/api/...` throughout and were wrong.
+- **Startup takes ~20 seconds**, nearly all of it one Azure Key Vault DNS lookup timing out
+  (`getaddrinfo EAI_AGAIN deed-poll-aat.vault.azure.net`). Two `Warning:` lines about the vault and
+  `/mnt/secrets` are expected and harmless. Poll `/health` rather than guessing a sleep.
+- **Send `x-user-roles: deedpoll-admin`** to act as an admin. `NODE_ENV=development` is what makes
+  the header honoured at all; under any other value every caller has no roles.
+- Local writes consume reference-number serials permanently, so `KBDP2026-…` will not start at
+  00001 on a database that has been exercised. That is the counter working, not a bug.
 
 ### Phase 3 foundations (done, `caf4e03`)
 
@@ -256,6 +276,73 @@ The 6 tests dropped from `roles.guard.spec` are rewritten and accounted for. The
 unguarded route is simply one that does not mount the middleware, so only `requireRoles()` with no
 arguments remains testable.
 
+### Phase 3 slice 1: deed-polls (done)
+
+Seven handlers across four files, plus `apps/api/src/express-doubles.ts`. `apps/api` went 71 → 110
+tests; `libs/deed-poll` 450 → 452 (the reference-number fix below).
+
+Five decisions the remaining 22 handlers should follow rather than re-derive:
+
+- **The routes are `/deed-polls`, not `/api/deed-polls`.** Earlier revisions of this file said
+  `/api/...`; that was carried over from the prototype's `@Controller('api/deed-polls')` and is
+  wrong here. `apps/api/src/app.ts` mounts `createSimpleRouter({ path: .../routes })` with no
+  prefix, matching the template's own `/users` and `/onboarding`. The prototype needed the prefix
+  because one Nest app served both the API and the SSR pages; here `apps/api` and `apps/web` are
+  separate apps on separate ports, so prefixing every route with `/api` inside the app called `api`
+  says nothing. Verified against a running server: `/api/deed-polls` 404s, `/deed-polls` 200s.
+
+- **No role middleware, deliberately.** `RolesGuard` was registered globally in the prototype but
+  **no handler anywhere carried `@Roles(...)`** — checked across all five controllers — so every
+  ported route is open, exactly as it was. The real privilege check is `isAdmin` inside
+  `createDeedPoll`/`updateDeedPoll`, which decides whether a `privacy` value is honoured or silently
+  dropped. Do not add `requireRoles` to a ported route without deciding that as a policy change:
+  it would be new behaviour, not a port. **Whether `DELETE` should be admin-only is a real question
+  and the prototype does not answer it** — see Loose ends 5.
+
+- **`userFromRequest(req)` is the whole of the user plumbing.** It returns `{ roles, isAdmin, name }`.
+  `deed-polls` passes `{ isAdmin, userName: name }`; `notes` needs only `{ userName: name }`
+  (`notes.controller.ts:27,50`); `witnesses` and `documents` take no user context at all. There is
+  no wrapper helper and there should not be one — the shapes genuinely differ.
+
+- **Query parameters get validated too, not just bodies.** `field-rules.ts` parses `req.query`
+  against a small local `z.object`. The prototype's `@Query('type')` was *typed* `DeedPollType` but
+  never validated, so `?type=nonsense` — or a repeated `?type=a&type=b`, which Express parses as an
+  array — reached the rule matrix, fell through its `default:` branch, and answered **200 with the
+  rules for no type at all**. A wrong answer presented as a right one. It is a 400 now.
+
+- **Route-ordering and mounting are pinned by a wiring test**, `routes.wiring.test.ts`, which builds
+  a real `createSimpleRouter` over the real directory. `/deed-polls/field-rules` and
+  `/deed-polls/:id` both match `GET /deed-polls/field-rules`; it resolves correctly only because
+  `sortRoutes` orders by parameter count, which nothing in `field-rules.ts` can state. Every unit
+  test in the directory would still pass if that ordering changed while the live endpoint began
+  reading the string "field-rules" as a case id. **Add to that file rather than duplicating it** when
+  the notes/witnesses/documents routes land — they nest two parameters deep and are more exposed to
+  the same class of problem, not less.
+
+`express-doubles.ts` holds the shared `requestDouble`/`responseDouble`. It models `req.header(name)`
+as a function rather than a `headers` object, because `userFromRequest` reads headers that way and a
+naive double would let a test pass while the real thing found nothing. It is **excluded from the
+build in `apps/api/tsconfig.json`** — it imports `vitest`, so it must not reach `dist`.
+
+#### One defect found, in the domain rather than the routes
+
+`yearFromDateReceived` in `libs/deed-poll/src/deed-poll/reference-number.ts` threw a **bare `Error`**
+when `dateReceived` was absent. `errorHandler` cannot recognise a bare `Error`, so it fell through to
+the generic 500 — meaning `POST /deed-polls` with no Date Received, which is the single most obvious
+request anyone makes of this API, answered `{"error":"Internal server error"}`. Now an
+`InvalidInputError` carrying a `dateReceived` field error, so it is a 400 the Phase 4 forms can
+render against the right input. Pinned in both places: `reference-number.test.ts` for the type and
+the attribution, and `routes.wiring.test.ts` for the status a caller actually sees.
+
+This was invisible to unit tests on both sides — the domain tests asserted a bare untyped
+`toThrow()`, and the error-mapping tests only ever fed the handler errors it already knew. **Only
+running the thing found it**, which is the argument for keeping the "exercise against a running app"
+step in the verification list for each remaining slice.
+
+Its docstring also claimed the year fell "back to created-now", which the code has never done. The
+throw is right — inventing a year from the clock would put a case in the wrong year's permanent,
+external-facing serial sequence — so the comment was corrected to match the code, not the reverse.
+
 Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/web`, replacing
 `nunjucks.setup.ts` entirely with `configureGovuk` from `@hmcts-cft/express-govuk-starter`.
 `power_app_nest/` is deleted at the end of Phase 4, not before.
@@ -300,12 +387,31 @@ Small, real, and deliberately not done. None blocks Phase 3.
    try to commit ~498M of `node_modules` and 57 document blobs. Cherry-picking that one `.gitignore`
    line to master would close it.
 
+5. **Nothing restricts who can delete a case.** `DELETE /deed-polls/:id` hard-deletes the record and
+   its notes, witnesses and documents, and it is open — faithfully, because the prototype guarded
+   nothing. Raised as a question, not a fix: `requireRoles(DEEDPOLL_ADMIN)` on it would be one line
+   (`export const DELETE = [requireRoles(DEEDPOLL_ADMIN), handler]`), but whether a caseworker may
+   delete a case, and whether deletion should be a soft delete given `retainPermanently` exists in
+   the schema, is a business decision. Worth settling before Phase 5, since after Phase 5 the answer
+   becomes an IDAM role mapping rather than a code change.
+
+6. **A create can never succeed without `dateReceived`, but the schema calls it optional.**
+   `createDeedPollSchema` marks every field optional on the stated grounds that a case is logged
+   incrementally — yet `allocateForCreate` cannot derive a reference-number year without
+   `dateReceived`, so a create omitting it now fails with a 400 (see slice 1). That is honest, but
+   the constraint is discovered a transaction late rather than declared. Making `dateReceived`
+   required on `createDeedPollSchema` — and only there, leaving the update schema partial — would
+   surface it at parse time and make the API self-documenting. Not done unasked: it changes a schema
+   the conformance harness and the Phase 4 forms both read, so it wants a deliberate look rather than
+   being smuggled in with a route port.
+
 ## Branch state
 
 [`feat/deed-poll-migration`](https://github.com/hmcts/deed-poll-admin/tree/feat/deed-poll-migration)
-is published with upstream tracking configured; 127 files, +10,648 lines. The diff was scanned for
-secrets before publishing — no `.env`, keys or credential-shaped strings. The only hits were the
-template's `SESSION_SECRET` placeholder and Helm `secretRef` names, which are references, not values.
+is published with upstream tracking configured; 138 files, +12,060 lines against master as of
+2026-09-01. The diff was scanned for secrets before publishing — no `.env`, keys or credential-shaped
+strings. The only hits were the template's `SESSION_SECRET` placeholder and Helm `secretRef` names,
+which are references, not values.
 
 **No PR is open, deliberately.** This is work in progress through Phase 2 of 6, so a PR would sit
 open for weeks. Revisit once Track A is green.

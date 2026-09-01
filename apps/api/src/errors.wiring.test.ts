@@ -7,7 +7,7 @@
  * mapped status, and unit-testing `errorHandler` in isolation would not notice. Hence a real
  * request through a real router.
  */
-import { DEEDPOLL_ADMIN, ForbiddenError, InvalidInputError, NotFoundError } from "@hmcts/deed-poll";
+import { DEEDPOLL_ADMIN, InvalidInputError, NotFoundError } from "@hmcts/deed-poll";
 import express, { type Express, type Request, type Response } from "express";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

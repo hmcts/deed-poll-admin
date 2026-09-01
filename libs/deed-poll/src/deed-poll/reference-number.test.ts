@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { InvalidInputError } from "../errors.js";
 import { allocateForCreate, allocateSerial, compose, formatSerial, parse, prefixForType, reprefixForUpdate, yearFromDateReceived } from "./reference-number.js";
 
 describe("reference-number", () => {
@@ -66,6 +67,21 @@ describe("reference-number", () => {
       expect(() => yearFromDateReceived(null)).toThrow();
       expect(() => yearFromDateReceived(undefined)).toThrow();
       expect(() => yearFromDateReceived(new Date("nonsense"))).toThrow();
+    });
+
+    it("should throw InvalidInputError, so the route layer maps it to 400 rather than 500", () => {
+      // A bare Error here reaches apps/api's error middleware unrecognised and becomes a generic
+      // "Internal server error" — which is what POST /deed-polls with no Date Received returned.
+      expect(() => yearFromDateReceived(null)).toThrow(InvalidInputError);
+      expect(() => yearFromDateReceived(new Date("nonsense"))).toThrow(InvalidInputError);
+    });
+
+    it("should attribute the error to dateReceived, so a form can render it against that input", () => {
+      expect(() => yearFromDateReceived(null)).toThrow(
+        expect.objectContaining({
+          errors: [{ field: "dateReceived", message: "Enter the date the application was received" }]
+        })
+      );
     });
   });
 

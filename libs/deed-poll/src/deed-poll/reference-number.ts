@@ -1,4 +1,5 @@
 import { DeedPollType, type Prisma } from "@hmcts/postgres-prisma";
+import { InvalidInputError } from "../errors.js";
 
 /**
  * ReferenceNumberService — ports the `AddDeedPollReferenceNumber` Power Automate
@@ -62,15 +63,28 @@ export async function allocateSerial(tx: Prisma.TransactionClient, year: number)
   return counter.lastSerial;
 }
 
-/** Year to use for a new record: from Date Received, falling back to created-now. */
+/**
+ * Year to use for a new record, taken from Date Received.
+ *
+ * There is no fallback. The source read the year from `datereceived`, and inventing one from
+ * the clock would put a case in the wrong year's serial sequence — a reference number is
+ * external-facing and permanent, so a plausible-looking wrong one is worse than a refusal.
+ *
+ * `InvalidInputError` rather than a bare `Error`, because an absent Date Received is a caller
+ * omission and not a fault: it is the whole of what a create needs and does not have. Thrown as
+ * a bare Error it reached `apps/api`'s error middleware unrecognised and became a generic 500,
+ * so `POST /deed-polls` with no Date Received — the most obvious request anyone makes of this
+ * API — answered "Internal server error". Attributed to the field so the Phase 4 forms can
+ * render it against the Date Received input rather than as an unattributed banner.
+ */
 export function yearFromDateReceived(dateReceived: Date | null | undefined): number {
   const d = dateReceived ?? undefined;
   if (d instanceof Date && !Number.isNaN(d.getTime())) {
     return d.getUTCFullYear();
   }
-  // No Date Received yet — the source read year from datereceived; if absent we
-  // cannot derive it, so the caller must supply one. We surface this explicitly.
-  throw new Error("Cannot allocate a reference number without a Date Received to derive the year");
+  throw new InvalidInputError("Cannot allocate a reference number without a Date Received to derive the year", [
+    { field: "dateReceived", message: "Enter the date the application was received" }
+  ]);
 }
 
 /**
