@@ -17,7 +17,7 @@
     "enabled": false
   },
   "idam": {
-    "issuerUrl": "http://localhost:5062/o",
+    "issuerUrl": "http://localhost:5556/o",
     "clientId": "deed-poll-admin",
     "clientSecret": "",
     "redirectUri": "http://localhost:3000/oauth2/callback",

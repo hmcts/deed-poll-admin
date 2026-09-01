@@ -17,5 +17,31 @@ services:
       retries: 5
       start_period: 10s
 
+  # Local IDAM, for the OIDC login flow. `hmcts/rse-idam-simulator` — the HMCTS-standard local
+  # issuer — rather than anything written here: a stub written alongside the code it verifies can
+  # only ever confirm the author's assumptions, and one did exactly that (it put roles in the ID
+  # token, where CFT IDAM does not put them, and cheerfully passed).
+  #
+  # `rse-idam-simulator:local` must be built first, because the published
+  # `hmctsprod.azurecr.io/hmcts/rse/rse-idam-simulator:latest` image predates the commits that make an
+  # authorization-code flow possible: its `/o/token` requires a `username` (password grant only),
+  # `/o/authorize` is POST-only so a browser redirect 405s, and it does not echo `state`. Build with:
+  #
+  #   yarn idam:build            # clones if needed, builds the jar in a JDK 17 container, builds the image
+  #
+  # The port is mapped identically on both sides deliberately: the simulator's discovery document
+  # advertises its own internal port, so a remapped host port yields endpoint URLs that are not
+  # reachable from outside the container.
+  idam:
+    image: rse-idam-simulator:local
+    container_name: deed-poll-idam
+    ports:
+      - "5556:5556"
+    # No healthcheck, deliberately. The image's base is `java:25-distroless`, which has no shell and no
+    # wget or curl, so a `CMD-SHELL` probe fails with "/bin/sh: no such file" forever — and a check that
+    # can never pass is worse than none, because any future `depends_on: service_healthy` would hang on
+    # it rather than fail. Poll `http://localhost:5556/health` from the host instead; `yarn idam:users`
+    # does, and reports clearly if it is not up.
+
 volumes:
   postgres_data:

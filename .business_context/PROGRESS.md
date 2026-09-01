@@ -75,7 +75,7 @@ Three things gate a deploy, none of them code in this branch:
 
 | Gate | Why it blocks |
 |---|---|
-| Phase 5 auth | No authentication exists. Anyone who can reach the service can read any case and hard-delete it with its children |
+| Phase 5 auth | `apps/web` now requires an IDAM login, but there is no registered client to point it at, and `apps/api` still trusts an `x-user-roles` header — so anyone who can reach the API directly can read any case and hard-delete it with its children |
 | CNP product code | Unverified; drives the ACR namespace, key vaults and `deed-poll-preview` Postgres. External, longest lead time — hence Parked task 1 |
 | CI has no database | The `ccd` schema tests skip in CI. Honest, but not coverage |
 
@@ -122,8 +122,8 @@ total                                  1339 passed
 
 ```
 feat/deed-poll-migration
-34 commits ahead of master
-HEAD  bfd176a  Replace the header bypass with IDAM OIDC login in apps/web
+35 commits ahead of master
+HEAD  0f6b8bc  Read IDAM roles from /o/userinfo, not the ID token
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -882,7 +882,9 @@ comes from an IDAM OIDC session. What is missing is a real IDAM client, which is
 | `apps/web/src/auth/require-auth.ts` | global gate with a public allowlist |
 | `apps/web/src/auth/current-user.ts` | now reads the session; the header scheme is **gone from this app** |
 | `apps/web/src/pages/{login,logout}.ts`, `pages/oauth2/callback.ts` | the three flow endpoints |
-| `scripts/stub-idam.mjs` | a local compliant-enough issuer, so the flow can actually be run |
+| `docker-compose.yml` → `idam` | `hmcts/rse-idam-simulator`, the HMCTS-standard local issuer |
+| `scripts/build-idam-simulator.mjs` | builds that image; the published one is unusable, see below |
+| `scripts/seed-idam-users.mjs` | creates an admin and a role-less caseworker to sign in as |
 
 ### Decisions worth not relitigating
 
@@ -924,24 +926,39 @@ ID token's `sub`, so a userinfo response describing someone else is refused.
 thing to a specification available locally, and it also settled two other open questions: discovery
 does advertise `userinfo_endpoint` and `end_session_endpoint`.
 
-### Why the simulator is not used as the stub
+### Local IDAM is the real simulator, not something written here
 
-Its published `:latest` image cannot serve an authorization-code flow, checked by running it:
+There **was** a hand-written stub, `scripts/stub-idam.mjs`. It is deleted, and the reason is worth
+keeping: **a stub written alongside the code it verifies can only confirm its author's assumptions.**
+Mine put roles in the ID token because that is where the flow looked for them, and then passed. It
+would have gone on passing until the first real login failed. Making it faithful afterwards fixes that
+instance and not the class.
 
-| What | Behaviour in the image |
-|---|---|
-| `/o/token` | **requires `username`** — built for the password grant, so the code exchange 400s |
-| `/o/authorize` | `Allow: POST` only, so a browser redirect 405s |
-| redirect back | does **not** echo `state`, so PKCE/state validation cannot be exercised |
+`docker compose up -d` now starts the simulator alongside Postgres. Two commands first, once:
 
-Master fixes all three, so building from source (Java 21 and the Gradle wrapper are both available)
-would give a usable issuer. It was not worth it here: the contract question was answered by reading the
-source, and a browser-drivable stub is what the flow's tests need. **If you do want the real thing,
-build from source rather than pulling `:latest`** — and map the port identically (`-p 5556:5556`),
-because its discovery document advertises its own internal port.
+    yarn idam:build      # clone if needed, build the jar in a JDK 17 container, build the image
+    yarn idam:users      # create admin@example.com (deedpoll-admin) and caseworker@example.com (none)
 
-`scripts/stub-idam.mjs` now mirrors the simulator's split: thin ID token, roles and name from
-`/o/userinfo`.
+Then sign in at `/login` and append `&login_hint=admin@example.com` to the authorize URL, or pick the
+user on the simulator's own login page.
+
+**Do not pull the published image.** `hmctsprod.azurecr.io/hmcts/rse/rse-idam-simulator:latest`
+predates the commits that make an authorization-code flow possible — verified by running it:
+
+| What | Published `:latest` | Built from master |
+|---|---|---|
+| `/o/token` | requires `username` (password grant), so the exchange 400s | works |
+| `/o/authorize` | `Allow: POST` only, so a browser redirect 405s | GET works |
+| redirect back | does not echo `state` | echoes `state` and `iss` |
+
+Two traps in running it. Its Gradle toolchain **pins Java 17** while the devcontainer has 21, hence
+building the jar inside `gradle:8.14-jdk17` rather than installing another JDK or patching the clone.
+And the **port must be mapped identically** (`5556:5556`), because its discovery document advertises
+its own internal port — a remapped host port yields endpoint URLs that are unreachable from outside.
+
+There is deliberately **no compose healthcheck**: the image's base is `java:25-distroless`, which has
+no shell, so a `CMD-SHELL` probe fails with "/bin/sh: no such file" forever, and a check that can never
+pass would hang any future `depends_on: service_healthy`.
 
 ### Two defects found, both by running it
 
@@ -957,11 +974,18 @@ because its discovery document advertises its own internal port.
 
 ### What the stub cannot tell us
 
-Verified end to end against `scripts/stub-idam.mjs`: discovery, the redirect out with an S256
-challenge, the code exchange, a real signed ID token checked against a real JWKS, roles reaching the
-domain, logout, replay refusal, and forged-state refusal. Specifically checked that a caseworker's
-`privacy=Private` is silently dropped while an admin's is honoured, and that writes are attributed to
-the IDAM name.
+Verified end to end against the real simulator: discovery, the redirect out, the code exchange, a
+signed ID token checked against the issuer's JWKS, `state` echoed and checked, roles arriving via
+`/o/userinfo`, logout, replay refusal and forged-state refusal. Specifically that an admin's
+`privacy=Private` is honoured while a role-less caseworker's is **dropped and their other edits on the
+same tab still save**, and that writes carry the IDAM name.
+
+**One thing is NOT verified locally, and switching to the real simulator did not change it: PKCE.**
+`openid-client` sends a correct S256 challenge and verifier, but neither the deleted stub nor
+`rse-idam-simulator` has any `code_challenge` handling at all — checked in its source. So local runs
+prove the client's half and nothing else. Real IDAM is expected to enforce it, since the workspace
+standard mandates PKCE, but that is an expectation. An earlier version of this file claimed PKCE was
+verified end to end; it was not.
 
 **What only real IDAM will settle**, now that the simulator has answered the rest: whether the role
 string is really `deedpoll-admin`, and whether CFT IDAM's own `/o/userinfo` matches the simulator's

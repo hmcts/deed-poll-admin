@@ -34,7 +34,9 @@
     "db:generate": "yarn workspace @hmcts/postgres-prisma run generate",
     "db:studio": "yarn workspace @hmcts/postgres run studio",
     "db:drop": "yarn workspace @hmcts/postgres run migrate:reset",
-    "db:migrate:ccd": "yarn workspace @hmcts/postgres run migrate:ccd"
+    "db:migrate:ccd": "yarn workspace @hmcts/postgres run migrate:ccd",
+    "idam:build": "node scripts/build-idam-simulator.mjs",
+    "idam:users": "node scripts/seed-idam-users.mjs"
   },
   "keywords": [],
   "author": "HMCTS",
@@ -46,7 +48,6 @@
     "@types/supertest": "7.2.1",
     "@vitest/coverage-v8": "4.1.10",
     "@vitest/ui": "4.1.10",
-    "jose": "6.2.10",
     "supertest": "7.2.2",
     "tsx": "4.23.12",
     "turbo": "2.10.10",
