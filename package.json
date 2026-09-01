@@ -7,6 +7,8 @@
     "libs/*"
   ],
   "scripts": {
+    "progress": "node scripts/progress-dashboard.mjs",
+    "progress:write": "node scripts/progress-dashboard.mjs --write --tests",
     "test": "turbo test",
     "test:force": "turbo test --force",
     "test:coverage": "turbo test -- --coverage",
