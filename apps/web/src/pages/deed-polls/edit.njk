@@ -1,0 +1,143 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/input/macro.njk" import govukInput %}
+{% from "govuk/components/character-count/macro.njk" import govukCharacterCount %}
+{% from "govuk/components/select/macro.njk" import govukSelect %}
+{% from "govuk/components/date-input/macro.njk" import govukDateInput %}
+{% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{#
+  Error lookup. `errors` is a flat list of {field, message} from the handler; resolving it here
+  rather than decorating each field in the view model keeps the two error sources — date parts, and
+  the domain's cross-field rules — rendering identically. Nunjucks has no `break`, so `errorFor`
+  takes the LAST match rather than the first; a field with two messages is not a case this form
+  produces.
+#}
+{% macro errorFor(name) %}{% for e in (errors or []) %}{% if e.field == name %}{{ e.message }}{% endif %}{% endfor %}{% endmacro %}
+
+{% macro dateParts(field, errorText) %}
+  {#
+    day/month/year are pre-split in the view model. On a rejected save they are the SUBMITTED
+    strings, not the stored date, so the value the caseworker needs to correct is still in the boxes
+    next to the message.
+
+    All three boxes take the error class, not just the offending one: the message is about the date,
+    and GDS marks the whole group when it cannot say which part is wrong.
+  #}
+  {# Length, not truthiness — see the note in field() about empty SafeStrings. #}
+  {% set hasError = errorText | length > 0 %}
+  {% set errClass = " govuk-input--error" if hasError else "" %}
+  {{ govukDateInput({
+    id: field.name,
+    namePrefix: field.name,
+    fieldset: { legend: { text: field.label } },
+    errorMessage: { text: errorText } if hasError else undefined,
+    items: [
+      { name: "day",   classes: "govuk-input--width-2" + errClass, value: field.dateParts.day },
+      { name: "month", classes: "govuk-input--width-2" + errClass, value: field.dateParts.month },
+      { name: "year",  classes: "govuk-input--width-4" + errClass, value: field.dateParts.year }
+    ]
+  }) }}
+{% endmacro %}
+
+{% macro field(f, maxLength) %}
+  {% if f.rule.visible %}
+    {#
+      A macro call returns a SafeString, and an EMPTY SafeString is still truthy — so `{% if err %}`
+      marked every date field as errored and emitted a bare "Error:". Test the length instead, and
+      pass a plain string on so the date macro can do the same. Do not simplify this back to a
+      truthiness check.
+    #}
+    {% set errText = errorFor(f.name) | trim %}
+    {% set err = "" ~ errText if errText | length else "" %}
+    {% if f.kind == "date" %}
+      {{ dateParts(f, err) }}
+    {% elif f.kind == "textarea" %}
+      {{ govukCharacterCount({
+        id: f.name, name: f.name, maxlength: maxLength,
+        label: { text: f.label },
+        value: f.value,
+        errorMessage: { text: err } if err | length else undefined
+      }) }}
+    {% elif f.kind == "enum" %}
+      {{ govukSelect({
+        id: f.name, name: f.name,
+        label: { text: f.label },
+        disabled: f.locked,
+        items: [{ value: "", text: "" }].concat(f.options),
+        value: f.value,
+        errorMessage: { text: err } if err | length else undefined
+      }) }}
+    {% elif f.kind == "boolean" %}
+      {{ govukCheckboxes({
+        name: f.name,
+        items: [{ value: "true", text: f.label, checked: (f.value == true) }]
+      }) }}
+    {% elif f.kind == "multiselect" %}
+      {% set boxes = [] %}
+      {% for o in f.options %}
+        {% set boxes = (boxes.push({ value: o.value, text: o.text, checked: (o.value | int) in (f.value or []) }), boxes) %}
+      {% endfor %}
+      {{ govukCheckboxes({
+        name: f.name,
+        fieldset: { legend: { text: f.label } },
+        items: boxes
+      }) }}
+    {% elif f.kind == "number" %}
+      {{ govukInput({
+        id: f.name, name: f.name, classes: "govuk-input--width-5",
+        label: { text: f.label },
+        disabled: f.readOnly,
+        value: f.value,
+        errorMessage: { text: err } if err | length else undefined
+      }) }}
+    {% else %}
+      {{ govukInput({
+        id: f.name, name: f.name,
+        label: { text: f.label },
+        disabled: f.readOnly,
+        value: f.value,
+        errorMessage: { text: err } if err | length else undefined
+      }) }}
+    {% endif %}
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+    {#
+      Error summary above the h1, per GDS. `errorSummary` is built by the handler with an href per
+      field so each entry jumps to its input; the date-input macro gives the group the field's own
+      id, so `#signatureReceivedDate` lands correctly. An entry whose field is not on this tab has no
+      href — see buildErrorSummary.
+    #}
+    {% if errorSummary and errorSummary.length %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorSummary }) }}
+    {% endif %}
+
+    <span class="govuk-caption-l">{{ caption }}</span>
+    <h1 class="govuk-heading-xl">{{ titlePrefix }} — {{ tab.label }}</h1>
+
+    {% if tab.subgrid %}
+      <p class="govuk-body">
+        {{ subgridIntro }}
+        <a class="govuk-link" href="/deed-polls/{{ case.id }}#{{ tab.id }}">{{ subgridLinkPrefix }} {{ tab.label }}</a>.
+      </p>
+    {% else %}
+      <form method="post" action="/deed-polls/{{ case.id }}/edit/{{ tab.id }}" novalidate>
+        {% for section in sections %}
+          <h2 class="govuk-heading-m">{{ section.label }}</h2>
+          {% for f in section.fields %}
+            {{ field(f, noteMaxLength) }}
+          {% endfor %}
+        {% endfor %}
+
+        {{ govukButton({ text: save }) }}
+        <a class="govuk-link govuk-!-margin-left-3" href="/deed-polls/{{ case.id }}">{{ cancel }}</a>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-01. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
-**Phase 3 is complete. Phase 4 is in progress — 3 of its 12 SSR page handlers are done.**
+**Phase 3 is complete. Phase 4 is in progress — 5 of its 12 SSR page handlers are done.**
 
 See ["Phase 4 — SSR pages"](#phase-4--ssr-pages-in-progress) for what is done, what remains, and the
 template-name trap that cost time and would cost it again.
@@ -47,7 +47,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  1  schema → monorepo          ██████████████████████  done
  2  domain → libs/deed-poll    ██████████████████████  done
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
- 4  SSR pages → apps/web       ██████░░░░░░░░░░░░░░░░  3/12 handlers ◀── HERE
+ 4  SSR pages → apps/web       ██████████░░░░░░░░░░░░  5/12 handlers ◀── HERE
  5  authentication (IDAM)      ░░░░░░░░░░░░░░░░░░░░░░  hard gate before any deploy
  6  config, Helm, deployment   ░░░░░░░░░░░░░░░░░░░░░░  needs the CNP product code
 
@@ -705,10 +705,11 @@ Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/
 
 ## Phase 4 — SSR pages (in progress)
 
-**3 of 12 page handlers done**: the case list, the new-case form and the case detail page — plus a
+**5 of 12 page handlers done**: the case list, the new-case form, the case detail page and the edit
+tab (GET and POST) — plus a
 document download route the prototype did not have, and the pages' own domain-error mapping. Foundations are in
-`libs/deed-poll` (`date-parts`, `list-filters`, `list-view`, `edit-view`). Remaining: edit tabs (2), notes (4),
-document upload (2), and then deleting `power_app_nest/`.
+`libs/deed-poll` (`date-parts`, `list-filters`, `list-view`, `edit-view`). Remaining: notes (4), document upload (2),
+and then deleting `power_app_nest/`.
 
 **The templating swap the plan lists is already done.** `nunjucks.setup.ts` exists only in the
 prototype; `apps/web` has always used `configureGovuk`. That file goes when the prototype does. Its
@@ -733,6 +734,34 @@ basename, and following that literally is what produced the wrong page.
 
 **One trap while verifying:** `tsx src/server.ts` does not watch. An edit appears to have no effect
 and it is easy to conclude the fix did not work; restart between changes.
+
+### The edit form is strict on write and lenient on read, deliberately
+
+`tabFor` falls back to the first tab for an unrecognised id. That is right for a **GET** — the id
+comes from a URL that may be stale or bookmarked, and showing the Application tab is a harmless
+answer.
+
+**It would be destructive on a POST.** `buildUpdatePatch` writes every field it is given, blanking
+absent ones, because the Dynamics form persists the whole tab. The Application tab has **46 editable
+fields**. So a POST to `/edit/nonsense` with an empty body, falling back, would null all 46 from a
+body that never mentioned them. The prototype avoided this by accident: its `FORM_TABS.find` returned
+undefined, `fields` became `[]`, and the save was a silent no-op that still redirected as if it had
+worked.
+
+The POST handler therefore looks the tab up strictly and throws `NotFoundError` — a 404 rather than
+either a silent no-op or a fallback. Pinned by a test, and verified live: `POST /edit/nonsense`
+returns 404 and the Application fields are untouched afterwards.
+
+Subgrid tabs (notes, witnesses, documents) have **zero fields**, so a POST to one is a genuine no-op
+and needs no special case. The GET renders a "managed as a list" message instead of a form.
+
+### Do not simplify the edit template's error check to a truthiness test
+
+Carried over from the prototype, and worth repeating because it looks like noise: a Nunjucks macro
+call returns a SafeString, and **an empty SafeString is still truthy**. `{% if err %}` therefore
+marked every date field as errored and emitted a bare "Error:" above it. The template tests
+`errText | length` instead and passes a plain string on. Verified live: a clean load of the
+Application tab renders **zero** `govuk-error-message` elements.
 
 ### The pages needed their own domain-error mapping
 
