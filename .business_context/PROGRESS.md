@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-01. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
-**Phase 3 is complete. Phase 4 is in progress — 2 of its 12 SSR page handlers are done.**
+**Phase 3 is complete. Phase 4 is in progress — 3 of its 12 SSR page handlers are done.**
 
 See ["Phase 4 — SSR pages"](#phase-4--ssr-pages-in-progress) for what is done, what remains, and the
 template-name trap that cost time and would cost it again.
@@ -47,7 +47,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  1  schema → monorepo          ██████████████████████  done
  2  domain → libs/deed-poll    ██████████████████████  done
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
- 4  SSR pages → apps/web       ████░░░░░░░░░░░░░░░░░░  2/12 handlers ◀── HERE
+ 4  SSR pages → apps/web       ██████░░░░░░░░░░░░░░░░  3/12 handlers ◀── HERE
  5  authentication (IDAM)      ░░░░░░░░░░░░░░░░░░░░░░  hard gate before any deploy
  6  config, Helm, deployment   ░░░░░░░░░░░░░░░░░░░░░░  needs the CNP product code
 
@@ -705,9 +705,10 @@ Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/
 
 ## Phase 4 — SSR pages (in progress)
 
-**2 of 12 page handlers done**: the case list and the new-case form. Foundations are in
-`libs/deed-poll` (`date-parts`, `list-filters`, `list-view`, `edit-view`). Remaining: detail (1),
-edit tabs (2), notes (4), document upload (2), and then deleting `power_app_nest/`.
+**3 of 12 page handlers done**: the case list, the new-case form and the case detail page — plus a
+document download route the prototype did not have, and the pages' own domain-error mapping. Foundations are in
+`libs/deed-poll` (`date-parts`, `list-filters`, `list-view`, `edit-view`). Remaining: edit tabs (2), notes (4),
+document upload (2), and then deleting `power_app_nest/`.
 
 **The templating swap the plan lists is already done.** `nunjucks.setup.ts` exists only in the
 prototype; `apps/web` has always used `configureGovuk`. That file goes when the prototype does. Its
@@ -732,6 +733,47 @@ basename, and following that literally is what produced the wrong page.
 
 **One trap while verifying:** `tsx src/server.ts` does not watch. An edit appears to have no effect
 and it is easy to conclude the fix did not work; restart between changes.
+
+### The pages needed their own domain-error mapping
+
+**A missing case returned 500.** `apps/web` mounts the govuk starter's `errorHandler`, which logs
+and renders `errors/500` for anything at all — it has never heard of `NotFoundError`. So a caseworker
+following a stale link to a deleted case was told the server had broken.
+
+That is the **fourth** instance of the shape three Phase 3 defects had: an expected, caller-caused
+condition reaching an error handler that does not recognise it. It was invisible until the detail
+page existed, because no earlier page loaded anything that could be absent.
+
+`apps/web/src/errors.ts` now maps `NotFoundError` → 404 (the starter's own `errors/404` view, so a
+missing case and a mistyped URL look the same — both mean "there is nothing here") and
+`ForbiddenError` → 403. It is mounted **before** the starter's handler and delegates anything it does
+not recognise via `next(err)`, so a genuine fault still gets the starter's logging and 500 page.
+An `InvalidInputError` reaching it is passed on deliberately: a page that validates is expected to
+re-render its own form, so arriving here means a bug in that handler rather than a user error.
+
+### Document blobs live in a cwd-relative directory, so the two apps disagree
+
+`file-storage.ts` resolves `DATA_DIR ?? <cwd>/data`. Each app runs from its own workspace directory,
+so **`apps/api` writes to `apps/api/data` and `apps/web` reads from `apps/web/data`** — a document
+uploaded through the API is invisible to the web app, and the download link 404s. It took a while to
+diagnose because the 404 was *correct*: the file genuinely was not where the reader looked.
+
+Both `dev` scripts now set `DATA_DIR=../../data`, pointing at one directory at the repo root (already
+gitignored). Verified: with it shared, the download returns 200 with the right bytes, MIME type,
+sanitised filename and `no-store`; a document requested under the wrong case still 404s.
+
+This is the local face of the constraint the plan already records — local disk cannot go to AKS,
+because pods are ephemeral and replicas share no volume. In a deployed environment `DATA_DIR` would
+have to be a shared mount, which is exactly what Phase 10's move to CDAM removes the need for.
+
+### One more page than the prototype had
+
+The prototype's detail template linked documents to `/api/deed-polls/.../file`, which worked because
+one Nest app served both the API and the pages. They are now separate apps on separate ports, so
+`apps/web` has its own download route
+(`pages/deed-polls/[id]/documents/[documentId]/file.ts`) rather than a cross-origin link needing an
+API base URL in config. A near-duplicate of the API's, deliberately: both are thin, and the shared
+domain is what makes that cheap.
 
 ### Welsh
 

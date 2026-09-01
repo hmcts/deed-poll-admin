@@ -8,6 +8,7 @@ import { createSimpleRouter } from "@hmcts-cft/simple-router";
 import cookieParser from "cookie-parser";
 import type { Express } from "express";
 import express from "express";
+import { domainErrorHandler } from "./errors.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,6 +68,10 @@ export async function createApp(): Promise<Express> {
 
   app.use(await createSimpleRouter({ path: `${__dirname}/pages` }));
   app.use(notFoundHandler());
+  // Before the starter's handler, which renders a 500 for anything at all: a missing case is a 404,
+  // not a fault. Delegates everything it does not recognise, so real errors still get the starter's
+  // logging and 500 page. See ./errors.ts.
+  app.use(domainErrorHandler());
   app.use(errorHandler());
 
   return app;
