@@ -764,10 +764,26 @@ Small, real, and deliberately not done. None blocks Phase 3.
 7. ~~**A child list under a non-existent case answers `[]` with 200, not 404.**~~ **Fixed
    2026-09-01** — see "Child lists 404 for a missing parent" under Phase 3 slice 2.
 
-8. **Two Biome warnings in `apps/postgres/health-server.mjs`** —
-   `noUnusedFunctionParameters`, both auto-fixable. Pre-existing and unrelated to any migration
-   work, so not touched in a documents commit. `yarn lint` still exits 0 since they are warnings,
-   but `CLAUDE.md` says to fix all Biome warnings, so someone should.
+8. ~~**Two Biome warnings in `apps/postgres/health-server.mjs`**~~ **Fixed 2026-09-01.** The unused
+   parameter was `err`, in a handler that discarded it — so a proxy failure gave a 502 with nothing
+   on stdout. It is logged now, whole rather than as `err.message`, which is empty for the
+   ECONNREFUSED `AggregateError` this raises in practice. `req` is positional and became `_req`.
+   Note the file is **template-provided** (arrived in the re-scaffold `82e8b0d`, its only commit), so
+   a re-scaffold will reintroduce both warnings — see item 11.
+
+11. **Contribute the `health-server.mjs` fix upstream**, for the same reason as item 1: the file came
+    wholesale from `hmcts/expressjs-monorepo-template` and this repo will be re-scaffolded again, so
+    the local fix will either be dropped or land as a conflict. Small enough to carry either way, but
+    every service on the template has the same silent-failure handler. The template is not cloned in
+    this workspace, so the local copy could not be diffed against upstream to confirm it has not
+    already diverged.
+
+12. **`libs/onboarding` is the only workspace that does not run `biome check`.** Its lint script is
+    `biome lint src/`, where every other workspace runs `biome check .`. `biome lint` skips the
+    formatter and the `organizeImports` assist, so nine format/import issues in that package are
+    invisible to `yarn lint` — which is part of why `yarn lint` reads as clean. Not fixed here:
+    aligning the script forces reformatting eight template-provided files, which is churn that would
+    conflict on the next re-scaffold. Worth doing at the same time as item 11, upstream.
 
 9. **The 10 MB upload limit is a guess.** `MAX_BYTES` in `apps/api/src/documents/upload.ts`. There
    was no existing limit in the repo or the prototype to inherit, and it was chosen for scanned
