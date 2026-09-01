@@ -122,8 +122,8 @@ total                                  1391 passed
 
 ```
 feat/deed-poll-migration
-37 commits ahead of master
-HEAD  a0e1d0e  Correct the local-verification claim: no client_secret check either
+39 commits ahead of master
+HEAD  bb5d341  Make libs/onboarding lint like every other workspace
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -1194,12 +1194,12 @@ Small, real, and deliberately not done. None blocks Phase 3.
     this workspace, so the local copy could not be diffed against upstream to confirm it has not
     already diverged.
 
-12. **`libs/onboarding` is the only workspace that does not run `biome check`.** Its lint script is
-    `biome lint src/`, where every other workspace runs `biome check .`. `biome lint` skips the
-    formatter and the `organizeImports` assist, so nine format/import issues in that package are
-    invisible to `yarn lint` — which is part of why `yarn lint` reads as clean. Not fixed here:
-    aligning the script forces reformatting eight template-provided files, which is churn that would
-    conflict on the next re-scaffold. Worth doing at the same time as item 11, upstream.
+12. ~~**`libs/onboarding` is the only workspace that does not run `biome check`.**~~ **Done** in
+    `bb5d341`. The reason it stopped being deferrable: `biome lint src/` skips the `organizeImports`
+    assist, so nine files were warnings to the root `biome check .` and clean to `yarn lint` — and any
+    `biome check --write` at the root silently restaged them into whatever commit was open. They turned
+    up inside the API authentication commit that way and had to be split back out. The churn the
+    original note was avoiding is real but one-off; being restaged at random was not.
 
 9. **The 10 MB upload limit is a guess.** `MAX_BYTES` in `apps/api/src/documents/upload.ts`. There
    was no existing limit in the repo or the prototype to inherit, and it was chosen for scanned
