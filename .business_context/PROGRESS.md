@@ -113,17 +113,17 @@ documents         ███████   7/7    done  incl. multipart upload, d
 @hmcts/deed-poll                        583 passed
 @hmcts/onboarding                        72 passed
 @hmcts/postgres                          11 passed
-@hmcts/web                              146 passed
+@hmcts/web                              223 passed
 ─────────────────────────────────────────────────────
-total                                  1391 passed
+total                                  1468 passed
 ```
 
 ### Branch
 
 ```
 feat/deed-poll-migration
-39 commits ahead of master
-HEAD  bb5d341  Make libs/onboarding lint like every other workspace
+40 commits ahead of master
+HEAD  94b8c67  Mark loose end 12 done in the handover
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -1080,6 +1080,34 @@ repository means anyone can mint a cookie claiming `deedpoll-admin` and never to
 is nothing about running that would reveal it: everything works, users log in, and the sessions are
 forgeable.
 
+### How `apps/web`'s flow is tested
+
+**`openid-client` runs for real** in `auth/idam.test.ts`, against a discovery document served over HTTP
+by the test file itself. Only `authorizationCodeGrant` and `fetchUserInfo` are stubbed, because those
+two need a token endpoint that signs real tokens. So the authorization URL, the S256 challenge and the
+`state` are built by the library and asserted as the library built them — a test that mocked
+`openid-client` would only pin that the mock was called.
+
+The session double models `save`, `regenerate` and `destroy` rather than stubbing them to nothing,
+because the code depends on what they *do*: `regenerate` clears the session data, exactly as
+`express-session` does, so `signIn` writing the user before regenerating would lose it. A double whose
+`regenerate` did nothing would pass either way, which is the sort of test that costs more than it earns.
+
+**The tests were checked by breaking the code.** Four mutations, each caught:
+
+| Mutation | Caught by |
+|---|---|
+| drop `raw.startsWith("//")` from `safeReturnTo` | 2 tests — the protocol-relative open redirect |
+| write the session user before `regenerate` | 3 tests — session fixation |
+| read the id token after `signOut` | 1 test — logout would stop hinting which session to end |
+| `userFromClaims(claims)` instead of `(info)` | 2 tests — roles back from the thin ID token |
+
+That last one is the bug that shipped and was found by accident. It now fails a test.
+
+The one thing deliberately **not** asserted is that the *whole* flow works against a live issuer: that
+is what running it against the simulator is for, and an e2e test of it belongs with the Playwright work
+under Phase 4 outstanding.
+
 ### Still to do in Phase 5
 
 - **Send the registration request.** [`IDAM_REGISTRATION_REQUEST.md`](IDAM_REGISTRATION_REQUEST.md).
@@ -1087,10 +1115,9 @@ forgeable.
 - **Put the two secrets in the vault.** `apps/web/helm/values.yaml` now names `idam-client-secret` and
   `session-secret`, and the chart fails on a missing secret — which is the right way round for both. The
   client secret's value comes from IDAM; the session secret is ours, and just needs to be random.
-- **`apps/web`'s flow has no unit tests.** `login.ts`, `logout.ts`, `oauth2/callback.ts`, `auth/idam.ts`
-  and `auth/session.ts` are covered only by having been run by hand, plus `require-auth.test.ts` and the
-  new `session.test.ts`. `apps/api`'s equivalent is now tested properly, so this is the asymmetry to
-  close — and the file with the fewest tests is the one where a mistake is silent.
+- ~~**`apps/web`'s flow has no unit tests.**~~ **Done.** `apps/web` 144 → 223 tests, covering
+  `login.ts`, `logout.ts`, `oauth2/callback.ts`, `auth/idam.ts`, `auth/session.ts` and
+  `auth/current-user.ts`. See below for how, which matters more than the count.
 
 ## Phase 4 outstanding
 

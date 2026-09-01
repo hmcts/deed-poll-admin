@@ -26,18 +26,63 @@ export interface PageRequestOptions {
   admin?: boolean;
   /** Display name recorded in the audit columns. */
   name?: string;
+  /** An in-flight login, as `startFlow` leaves it. Only the three flow endpoints care. */
+  flow?: unknown;
+  /** The stored id token, which logout needs to end the IDAM session. */
+  idToken?: string;
+  originalUrl?: string;
 }
 
-export function pageRequest({ params, query, body, signedIn = true, admin = false, name }: PageRequestOptions = {}): Request {
+export function pageRequest({ params, query, body, signedIn = true, admin = false, name, flow, idToken, originalUrl }: PageRequestOptions = {}): RequestDouble {
   const user = signedIn ? currentUser(admin ? [DEEDPOLL_ADMIN] : [], name) : undefined;
 
-  return {
+  const req = {
     params: params ?? {},
     query: query ?? {},
     body,
-    session: { deedPoll: user ? { user } : {} }
-  } as unknown as Request;
+    originalUrl: originalUrl ?? "/",
+    session: sessionDouble({ ...(user ? { user } : {}), ...(flow ? { flow } : {}), ...(idToken ? { idToken } : {}) })
+  } as unknown as RequestDouble;
+
+  return req;
 }
+
+/**
+ * A session with the three callback-style methods `express-session` provides.
+ *
+ * Modelled rather than stubbed to `undefined` because the code under test depends on what they *do*,
+ * not just that they are called: `signIn` regenerates before writing the user, and a double whose
+ * `regenerate` did nothing would pass whether or not that ordering held. So `regenerate` clears the
+ * data, as the real one does, and writing the user first would lose it.
+ *
+ * Each takes an error-first callback, and each can be made to fail — the save/regenerate error paths
+ * are the ones that would otherwise sign someone in without persisting it.
+ */
+export function sessionDouble(deedPoll: Record<string, unknown> = {}): SessionDouble {
+  const session = {
+    deedPoll,
+    save: vi.fn((callback?: (error?: Error) => void) => callback?.()),
+    regenerate: vi.fn((callback?: (error?: Error) => void) => {
+      session.deedPoll = {};
+      callback?.();
+    }),
+    destroy: vi.fn((callback?: (error?: Error) => void) => {
+      session.deedPoll = {};
+      callback?.();
+    })
+  } as unknown as SessionDouble;
+
+  return session;
+}
+
+export type SessionDouble = Request["session"] & {
+  deedPoll: Record<string, unknown>;
+  save: ReturnType<typeof vi.fn>;
+  regenerate: ReturnType<typeof vi.fn>;
+  destroy: ReturnType<typeof vi.fn>;
+};
+
+export type RequestDouble = Request & { session: SessionDouble };
 
 export type ResponseDouble = Response & {
   render: ReturnType<typeof vi.fn>;
