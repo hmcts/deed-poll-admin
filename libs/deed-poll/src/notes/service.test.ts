@@ -1,7 +1,7 @@
 import { prisma as prismaClient } from "@hmcts/postgres-prisma";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NotFoundError } from "../errors.js";
-import { createNote, findNote, removeNote, updateNote } from "./service.js";
+import { createNote, findNote, findNotes, removeNote, updateNote } from "./service.js";
 
 // Partial mock: only the client is replaced. The Prisma enums (DocumentDirection,
 // DeedPollType, …) are real values the source modules import, so they must pass through.
@@ -88,6 +88,36 @@ describe("notes/service", () => {
     prisma.deedPoll.findUnique.mockResolvedValue(null);
     await expect(createNote("nope", { note: "x" })).rejects.toBeInstanceOf(NotFoundError);
     expect(prisma.deedPollNote.create).not.toHaveBeenCalled();
+  });
+
+  it("lists notes newest first for a case that exists", async () => {
+    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
+    prisma.deedPollNote.findMany.mockResolvedValue([{ id: "n1" }]);
+
+    await expect(findNotes("case1")).resolves.toEqual([{ id: "n1" }]);
+
+    expect(prisma.deedPollNote.findMany).toHaveBeenCalledWith({
+      where: { deedPollId: "case1" },
+      orderBy: { createdOn: "desc" }
+    });
+  });
+
+  it("404s listing notes for a case that does not exist, rather than answering an empty list", async () => {
+    // An empty list would say "this case has no notes", which is a different fact from "there is
+    // no such case" — and the wrong one for a mistyped id.
+    prisma.deedPoll.findUnique.mockResolvedValue(null);
+
+    await expect(findNotes("nope")).rejects.toBeInstanceOf(NotFoundError);
+
+    expect(prisma.deedPollNote.findMany).not.toHaveBeenCalled();
+  });
+
+  it("returns an empty list for a real case with no notes", async () => {
+    // The other half of the pair: the 404 above must not swallow the legitimately-empty case.
+    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
+    prisma.deedPollNote.findMany.mockResolvedValue([]);
+
+    await expect(findNotes("case1")).resolves.toEqual([]);
   });
 
   it("findOne 404s when the note belongs to another case", async () => {

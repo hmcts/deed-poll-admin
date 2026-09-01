@@ -15,11 +15,12 @@ has already been brought in line with the child-scoping rule in slice 2.
 
 ## State
 
-Branch `feat/deed-poll-migration`, 19 commits, pushed and tracking
+Branch `feat/deed-poll-migration`, 20 commits, pushed and tracking
 `origin/feat/deed-poll-migration`. No PR, deliberately — see "Branch state".
 
 ```
-(this session)  Scope the nested child writes to their parent case
+(this session)  404 a child list when its parent case does not exist
+2e41014  Scope the nested child writes to their parent case
 14d3936  Port the notes and witnesses JSON handlers
 1c23f72  Port the deed-polls JSON handlers and fix the reference-number error class
 b1ef30c  Capture the four open questions as open questions
@@ -40,7 +41,7 @@ b17fac5  Port the deed-poll case model into the shared Prisma schema
 ```
 
 `yarn lint`, `yarn build` and `yarn test` are all clean across the workspace (11 tasks). Current test
-counts, so a regression is obvious: `libs/deed-poll` **456**, `apps/api` **149**, `apps/postgres` 11
+counts, so a regression is obvious: `libs/deed-poll` **465**, `apps/api` **152**, `apps/postgres` 11
 (they **pass** with `docker compose up -d`, and skip without it — CI has no database).
 
 **Before running anything, Yarn needs sideloading** — Corepack cannot reach `repo.yarnpkg.com` from
@@ -211,7 +212,7 @@ Specific work:
 4. ⬅ **Multer.** `uploadDocument` now takes a plain `UploadedFile` (`buffer`, `originalname`,
    `mimetype`, `size`) rather than `Express.Multer.File`. The app maps its upload middleware onto it.
 
-Verification: `yarn test` must show at least 456 in `libs/deed-poll` and 149 in `apps/api` plus
+Verification: `yarn test` must show at least 465 in `libs/deed-poll` and 152 in `apps/api` plus
 whatever the new route tests add; `yarn lint` and `yarn build` clean; and exercise the handlers
 against a running app — see the recipe under "Exercising the API locally" below, which is worth
 following rather than improvising, because two of the four things in it cost time to work out.
@@ -435,13 +436,30 @@ mistake this is meant to catch.
 Domain tests went 452 → 456: the four that asserted `where: { id }` exactly now assert both ids, and
 `updateWitness`/`updateDocument` gained the scoped-write and wrong-parent cases they never had.
 
-One wart, faithful to the prototype and left alone: **a list under a non-existent case answers `[]`
-with 200, not 404.** `findNotes`/`findWitnesses` filter by `deedPollId` without checking the parent
-exists, exactly as the prototype's `findAll` did — only the create path calls `assertCaseExists`. So
-a typo'd case id in `GET /deed-polls/<typo>/notes` reads as "this case has no notes". Confirmed live.
-Fixing it means adding a parent check to both list functions, which is a domain change and an extra
-query per list; recorded here rather than done, because it is a real API wart but not a defect
-introduced by the port.
+#### Child lists 404 for a missing parent
+
+`findNotes`/`findWitnesses`/`findDocuments` filtered by `deedPollId` without checking the parent
+existed — exactly as the prototype's `findAll` did, since only the create paths called
+`assertCaseExists`. So `GET /deed-polls/<typo>/notes` answered `[]` with 200.
+
+That conflates two different facts: **"there is no such case"** and **"this case has no notes"**. Only
+one of them is true, the response is identical either way, and the caller has no way to tell them
+apart — so a mistyped case id reads as a case with no notes. A child collection has no meaning
+without its parent, so the parent's absence is the more important fact and the one to report.
+
+All three list functions now `await assertCaseExists(deedPollId)` first. That is the same check every
+create in the same files already made, so the fix is consistency rather than a new pattern — the cost
+is one indexed primary-key lookup per list.
+
+Considered and rejected: checking the parent *only when the list comes back empty*, which is free in
+the common case because the `onDelete: Cascade` FK means rows existing proves the parent exists. It
+is correct, but it makes three functions behave differently from the six creates beside them to save
+a sub-millisecond lookup on a page load. Not worth the inconsistency.
+
+Both directions are pinned by tests and were verified live, because a fix like this is one careless
+`if` away from 404ing every legitimately-empty list: a missing case 404s with the case id in the
+message, and a real case with no children still answers `[]` with 200. `documents` has no HTTP route
+yet, so it is covered by domain tests only until that slice lands.
 
 Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/web`, replacing
 `nunjucks.setup.ts` entirely with `configureGovuk` from `@hmcts-cft/express-govuk-starter`.
@@ -508,12 +526,8 @@ Small, real, and deliberately not done. None blocks Phase 3.
    the conformance harness and the Phase 4 forms both read, so it wants a deliberate look rather than
    being smuggled in with a route port.
 
-7. **A child list under a non-existent case answers `[]` with 200, not 404.** `findNotes` and
-   `findWitnesses` filter by `deedPollId` without checking the parent exists — only the create paths
-   call `assertCaseExists` — so a typo'd case id reads as "this case has no notes". Faithful to the
-   prototype and confirmed live; see "Phase 3 slice 2" for detail. The fix is a parent check in both
-   list functions, at the cost of a query per list. `documents` will have the same shape, so decide
-   it once for all three rather than three times.
+7. ~~**A child list under a non-existent case answers `[]` with 200, not 404.**~~ **Fixed
+   2026-09-01** — see "Child lists 404 for a missing parent" under Phase 3 slice 2.
 
 ## Branch state
 

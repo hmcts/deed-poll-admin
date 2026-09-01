@@ -21,7 +21,9 @@ export async function createWitness(deedPollId: string, dto: CreateWitnessInput)
   return prisma.deedPollWitness.create({ data: { ...dto, deedPollId } });
 }
 
-export function findWitnesses(deedPollId: string): Promise<DeedPollWitness[]> {
+/** Witnesses for a case. The parent is checked so a missing case 404s rather than answering `[]`. */
+export async function findWitnesses(deedPollId: string): Promise<DeedPollWitness[]> {
+  await assertCaseExists(deedPollId);
   return prisma.deedPollWitness.findMany({
     where: { deedPollId },
     orderBy: { createdOn: "asc" }

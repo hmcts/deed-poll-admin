@@ -1,7 +1,7 @@
 import { prisma as prismaClient } from "@hmcts/postgres-prisma";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NotFoundError } from "../errors.js";
-import { createWitness, findWitness, removeWitness, updateWitness } from "./service.js";
+import { createWitness, findWitness, findWitnesses, removeWitness, updateWitness } from "./service.js";
 
 // Partial mock: only the client is replaced. The Prisma enums (DocumentDirection,
 // DeedPollType, …) are real values the source modules import, so they must pass through.
@@ -48,6 +48,33 @@ describe("witnesses/service", () => {
     prisma.deedPoll.findUnique.mockResolvedValue(null);
     await expect(createWitness("nope", witness)).rejects.toBeInstanceOf(NotFoundError);
     expect(prisma.deedPollWitness.create).not.toHaveBeenCalled();
+  });
+
+  it("lists witnesses for a case that exists", async () => {
+    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
+    prisma.deedPollWitness.findMany.mockResolvedValue([{ id: "w1" }]);
+
+    await expect(findWitnesses("case1")).resolves.toEqual([{ id: "w1" }]);
+
+    expect(prisma.deedPollWitness.findMany).toHaveBeenCalledWith({
+      where: { deedPollId: "case1" },
+      orderBy: { createdOn: "asc" }
+    });
+  });
+
+  it("404s listing witnesses for a case that does not exist, rather than answering an empty list", async () => {
+    prisma.deedPoll.findUnique.mockResolvedValue(null);
+
+    await expect(findWitnesses("nope")).rejects.toBeInstanceOf(NotFoundError);
+
+    expect(prisma.deedPollWitness.findMany).not.toHaveBeenCalled();
+  });
+
+  it("returns an empty list for a real case with no witnesses", async () => {
+    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
+    prisma.deedPollWitness.findMany.mockResolvedValue([]);
+
+    await expect(findWitnesses("case1")).resolves.toEqual([]);
   });
 
   it("findOne 404s across parents", async () => {

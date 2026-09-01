@@ -40,7 +40,9 @@ export async function createDocument(deedPollId: string, dto: CreateDocumentInpu
   });
 }
 
-export function findDocuments(deedPollId: string): Promise<DeedPollSupportingDocument[]> {
+/** Documents for a case. The parent is checked so a missing case 404s rather than answering `[]`. */
+export async function findDocuments(deedPollId: string): Promise<DeedPollSupportingDocument[]> {
+  await assertCaseExists(deedPollId);
   return prisma.deedPollSupportingDocument.findMany({
     where: { deedPollId },
     orderBy: { createdOn: "asc" },

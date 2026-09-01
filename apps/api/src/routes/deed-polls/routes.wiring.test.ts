@@ -253,6 +253,29 @@ describe("nested notes and witnesses wired through simple-router", () => {
     expect(deleted.text).toBe("");
   });
 
+  it("should answer 404, not an empty list, when listing children of a case that does not exist", async () => {
+    // findNotes/findWitnesses/findDocuments used to filter by deedPollId without checking the
+    // parent, so a mistyped case id answered 200 with [] — indistinguishable from a real case that
+    // has no notes. They assert the parent now; this pins what the caller sees as a result.
+    const { findNotes } = await import("@hmcts/deed-poll");
+    vi.mocked(findNotes).mockRejectedValue(new NotFoundError("DeedPoll nope not found"));
+
+    const response = await request(await appWithDeedPollRoutes()).get("/deed-polls/nope/notes");
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: "DeedPoll nope not found" });
+  });
+
+  it("should still answer 200 with an empty list for a real case with no children", async () => {
+    const { findWitnesses } = await import("@hmcts/deed-poll");
+    vi.mocked(findWitnesses).mockResolvedValue([] as never);
+
+    const response = await request(await appWithDeedPollRoutes()).get("/deed-polls/case-1/witnesses");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([]);
+  });
+
   it("should answer 404 when a child belongs to a different case", async () => {
     const { findNote } = await import("@hmcts/deed-poll");
     vi.mocked(findNote).mockRejectedValue(new NotFoundError("Note note-9 not found"));

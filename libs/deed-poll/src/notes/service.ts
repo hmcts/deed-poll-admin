@@ -45,7 +45,18 @@ export async function createNote(deedPollId: string, dto: CreateNoteInput, autho
   });
 }
 
-export function findNotes(deedPollId: string): Promise<DeedPollNote[]> {
+/**
+ * Notes for a case, newest first.
+ *
+ * The parent is checked, so a missing case is a 404 rather than an empty list. Filtering by
+ * `deedPollId` alone — which is what this did, following the prototype — answers `[]` with 200
+ * for a case id that does not exist, and `[]` with 200 for a real case that has no notes. Those
+ * are different facts and only one of them is true, so a caller who mistypes a case id is told
+ * the case has no notes. `assertCaseExists` is the same check every create in this file already
+ * makes; doing it here too costs one indexed primary-key lookup.
+ */
+export async function findNotes(deedPollId: string): Promise<DeedPollNote[]> {
+  await assertCaseExists(deedPollId);
   return prisma.deedPollNote.findMany({
     where: { deedPollId },
     orderBy: { createdOn: "desc" }

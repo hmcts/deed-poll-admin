@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InvalidInputError, NotFoundError } from "../errors.js";
 import { createFileReadStream, deleteFile, saveFile } from "./file-storage.js";
 import type { UploadedFile } from "./service.js";
-import { createDocument, downloadDocument, findDocument, removeDocument, updateDocument, uploadDocument } from "./service.js";
+import { createDocument, downloadDocument, findDocument, findDocuments, removeDocument, updateDocument, uploadDocument } from "./service.js";
 
 // Partial mock: only the client is replaced. The Prisma enums (DocumentDirection,
 // DeedPollType, …) are real values the source modules import, so they must pass through.
@@ -69,6 +69,34 @@ describe("documents/service", () => {
     prisma.deedPoll.findUnique.mockResolvedValue(null);
     await expect(createDocument("nope", dto)).rejects.toBeInstanceOf(NotFoundError);
     expect(prisma.deedPollSupportingDocument.create).not.toHaveBeenCalled();
+  });
+
+  it("lists documents for a case that exists, with their type included", async () => {
+    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
+    prisma.deedPollSupportingDocument.findMany.mockResolvedValue([{ id: "d1" }]);
+
+    await expect(findDocuments("case1")).resolves.toEqual([{ id: "d1" }]);
+
+    expect(prisma.deedPollSupportingDocument.findMany).toHaveBeenCalledWith({
+      where: { deedPollId: "case1" },
+      orderBy: { createdOn: "asc" },
+      include: { documentType: true }
+    });
+  });
+
+  it("404s listing documents for a case that does not exist, rather than answering an empty list", async () => {
+    prisma.deedPoll.findUnique.mockResolvedValue(null);
+
+    await expect(findDocuments("nope")).rejects.toBeInstanceOf(NotFoundError);
+
+    expect(prisma.deedPollSupportingDocument.findMany).not.toHaveBeenCalled();
+  });
+
+  it("returns an empty list for a real case with no documents", async () => {
+    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
+    prisma.deedPollSupportingDocument.findMany.mockResolvedValue([]);
+
+    await expect(findDocuments("case1")).resolves.toEqual([]);
   });
 
   it("404s when the document type is missing", async () => {

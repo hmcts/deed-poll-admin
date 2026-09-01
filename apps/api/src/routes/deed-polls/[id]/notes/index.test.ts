@@ -1,4 +1,4 @@
-import { createNote, findNotes, SERVICE_ACCOUNT_NAME } from "@hmcts/deed-poll";
+import { createNote, findNotes, NotFoundError, SERVICE_ACCOUNT_NAME } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
 import { requestDouble, responseDouble } from "../../../../express-doubles.js";
@@ -25,6 +25,15 @@ describe("/deed-polls/:id/notes collection routes", () => {
 
       expect(findNotes).toHaveBeenCalledWith("case-1");
       expect(res.json).toHaveBeenCalledWith(notes);
+    });
+
+    it("should let a NotFoundError propagate, so a missing case 404s rather than answering an empty list", async () => {
+      vi.mocked(findNotes).mockRejectedValue(new NotFoundError("DeedPoll nope not found"));
+      const res = responseDouble();
+
+      await expect(GET(requestDouble({ params: { id: "nope" } }), res)).rejects.toThrow(NotFoundError);
+
+      expect(res.json).not.toHaveBeenCalled();
     });
   });
 
