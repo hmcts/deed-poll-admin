@@ -1,15 +1,15 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { Session } from "express-session";
-import {
-  processNameSubmission,
-  processDateOfBirthSubmission,
-  processAddressSubmission,
-  processRoleSubmission,
-  prepareSubmissionData,
-  submitOnboarding,
-  getSessionDataForPage
-} from "./service.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createOnboardingSubmission } from "./queries.js";
+import {
+  getSessionDataForPage,
+  prepareSubmissionData,
+  processAddressSubmission,
+  processDateOfBirthSubmission,
+  processNameSubmission,
+  processRoleSubmission,
+  submitOnboarding
+} from "./service.js";
 
 // Mock the queries module
 vi.mock("./queries.js", () => ({

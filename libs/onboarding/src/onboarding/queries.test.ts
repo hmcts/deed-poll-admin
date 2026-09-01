@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createOnboardingSubmission, getSubmissionById, getRecentSubmissions } from "./queries.js";
 import { prisma } from "@hmcts/postgres-prisma";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createOnboardingSubmission, getRecentSubmissions, getSubmissionById } from "./queries.js";
 
 vi.mock("@hmcts/postgres-prisma", () => ({
   prisma: {
