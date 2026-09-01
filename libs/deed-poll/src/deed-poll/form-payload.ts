@@ -1,3 +1,4 @@
+import { composeDateParts } from "./date-parts.js";
 import { EDITABLE_FIELDS, type FieldDef } from "./form-fields.js";
 
 /**
@@ -31,7 +32,7 @@ export function buildUpdatePatch(body: Record<string, unknown>, fields: FieldDef
 function readField(field: FieldDef, body: Record<string, unknown>): unknown {
   switch (field.kind) {
     case "date":
-      return composeDate(str(body[`${field.name}-day`]), str(body[`${field.name}-month`]), str(body[`${field.name}-year`]));
+      return composeDateParts(str(body[`${field.name}-day`]), str(body[`${field.name}-month`]), str(body[`${field.name}-year`]));
     case "boolean":
       // Unchecked checkboxes are absent from the body; a present truthy value wins.
       return body[field.name] === "true" || body[field.name] === "on";
@@ -64,11 +65,4 @@ function str(v: unknown): string {
 function toIntArray(v: unknown): number[] {
   const arr = Array.isArray(v) ? v : v == null ? [] : [v];
   return arr.map((x) => Number(String(x))).filter((n) => Number.isInteger(n));
-}
-
-/** GOV.UK date parts → ISO string, or null when incomplete/invalid. */
-function composeDate(day: string, month: string, year: string): string | null {
-  if (!day || !month || !year) return null;
-  const d = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
