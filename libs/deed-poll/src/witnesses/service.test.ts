@@ -1,7 +1,7 @@
 import { prisma as prismaClient } from "@hmcts/postgres-prisma";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NotFoundError } from "../errors.js";
-import { createWitness, findWitness, removeWitness } from "./service.js";
+import { createWitness, findWitness, removeWitness, updateWitness } from "./service.js";
 
 // Partial mock: only the client is replaced. The Prisma enums (DocumentDirection,
 // DeedPollType, …) are real values the source modules import, so they must pass through.
@@ -55,12 +55,28 @@ describe("witnesses/service", () => {
     await expect(findWitness("case1", "w1")).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  it("removes after an existence check", async () => {
+  it("removes after an existence check, scoped to the parent case", async () => {
     prisma.deedPollWitness.findFirst.mockResolvedValue({ id: "w1" });
     prisma.deedPollWitness.delete.mockResolvedValue({ id: "w1" });
     await removeWitness("case1", "w1");
     expect(prisma.deedPollWitness.delete).toHaveBeenCalledWith({
-      where: { id: "w1" }
+      where: { id: "w1", deedPollId: "case1" }
+    });
+  });
+
+  it("404s updating a witness that belongs to another case, before writing", async () => {
+    prisma.deedPollWitness.findFirst.mockResolvedValue(null);
+    await expect(updateWitness("case1", "w1", { declarant: true })).rejects.toBeInstanceOf(NotFoundError);
+    expect(prisma.deedPollWitness.update).not.toHaveBeenCalled();
+  });
+
+  it("scopes the update to the parent case, so the write does not rely on the guard above it", async () => {
+    prisma.deedPollWitness.findFirst.mockResolvedValue({ id: "w1" });
+    prisma.deedPollWitness.update.mockResolvedValue({ id: "w1" });
+    await updateWitness("case1", "w1", { declarant: true });
+    expect(prisma.deedPollWitness.update).toHaveBeenCalledWith({
+      where: { id: "w1", deedPollId: "case1" },
+      data: { declarant: true }
     });
   });
 });

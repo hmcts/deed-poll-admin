@@ -15,6 +15,16 @@ export interface NoteAuthor {
  * Nested CRUD for case notes. All operations are scoped to a parent DeedPoll so
  * a note can never be read or mutated outside its case. The parent's existence
  * is checked on create (FK would fail anyway, but a 404 is clearer than a 500).
+ *
+ * The scoping is applied twice on the write paths, deliberately. `findNote` runs first
+ * because it produces the `NotFoundError` the route layer maps to a clean 404, and the
+ * `update`/`delete` that follow *also* carry `deedPollId` in their own `where` — Prisma
+ * permits a non-unique filter alongside the unique `id`, so this costs nothing.
+ *
+ * Belt and braces on purpose: with only the guard, cross-case safety would be a
+ * convention — one line that a later `updateX` could omit, leaving an unscoped write
+ * that no existing test would catch. With it in the `where` too, an unscoped write is
+ * not expressible. See "Phase 3 slice 2" in `.business_context/PROGRESS.md`.
  */
 
 async function assertCaseExists(deedPollId: string): Promise<void> {
@@ -56,12 +66,12 @@ export async function updateNote(deedPollId: string, id: string, dto: UpdateNote
   // can only ever move `modifiedBy`, matching the case's updateNote() rule that no
   // update may rewrite who created a record.
   return prisma.deedPollNote.update({
-    where: { id },
+    where: { id, deedPollId },
     data: { ...dto, modifiedBy: author.userName ?? SERVICE_ACCOUNT_NAME }
   });
 }
 
 export async function removeNote(deedPollId: string, id: string): Promise<void> {
   await findNote(deedPollId, id);
-  await prisma.deedPollNote.delete({ where: { id } });
+  await prisma.deedPollNote.delete({ where: { id, deedPollId } });
 }

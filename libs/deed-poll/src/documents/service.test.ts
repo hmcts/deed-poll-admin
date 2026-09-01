@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InvalidInputError, NotFoundError } from "../errors.js";
 import { createFileReadStream, deleteFile, saveFile } from "./file-storage.js";
 import type { UploadedFile } from "./service.js";
-import { createDocument, downloadDocument, findDocument, removeDocument, uploadDocument } from "./service.js";
+import { createDocument, downloadDocument, findDocument, removeDocument, updateDocument, uploadDocument } from "./service.js";
 
 // Partial mock: only the client is replaced. The Prisma enums (DocumentDirection,
 // DeedPollType, …) are real values the source modules import, so they must pass through.
@@ -91,7 +91,7 @@ describe("documents/service", () => {
     prisma.deedPollSupportingDocument.delete.mockResolvedValue({ id: "d1" });
     await removeDocument("case1", "d1");
     expect(prisma.deedPollSupportingDocument.delete).toHaveBeenCalledWith({
-      where: { id: "d1" }
+      where: { id: "d1", deedPollId: "case1" }
     });
     expect(storage.delete).toHaveBeenCalledWith("k1");
   });
@@ -145,5 +145,21 @@ describe("documents/service", () => {
       storageKey: null
     });
     await expect(downloadDocument("case1", "d1")).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("404s updating a document that belongs to another case, before writing", async () => {
+    prisma.deedPollSupportingDocument.findFirst.mockResolvedValue(null);
+    await expect(updateDocument("case1", "d1", { name: "renamed" })).rejects.toBeInstanceOf(NotFoundError);
+    expect(prisma.deedPollSupportingDocument.update).not.toHaveBeenCalled();
+  });
+
+  it("scopes the update to the parent case, so the write does not rely on the guard above it", async () => {
+    prisma.deedPollSupportingDocument.findFirst.mockResolvedValue({ id: "d1" });
+    prisma.deedPollSupportingDocument.update.mockResolvedValue({ id: "d1" });
+    await updateDocument("case1", "d1", { name: "renamed" });
+    expect(prisma.deedPollSupportingDocument.update).toHaveBeenCalledWith({
+      where: { id: "d1", deedPollId: "case1" },
+      data: { name: "renamed" }
+    });
   });
 });

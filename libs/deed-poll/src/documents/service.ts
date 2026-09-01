@@ -9,6 +9,9 @@ import type { CreateDocumentInput, UpdateDocumentInput } from "./schemas.js";
  * The actual file blob is attached in Phase 10; here we manage the row and its
  * document-type reference. Both the parent case and the referenced type are
  * checked so a bad FK yields a 404 rather than a Prisma 500.
+ *
+ * The write paths carry `deedPollId` in their own `where` as well as behind the
+ * `findDocument` guard — see the notes service for why.
  */
 
 async function assertCaseExists(deedPollId: string): Promise<void> {
@@ -58,14 +61,14 @@ export async function updateDocument(deedPollId: string, id: string, dto: Update
   await findDocument(deedPollId, id);
   if (dto.documentTypeId) await assertType(dto.documentTypeId);
   return prisma.deedPollSupportingDocument.update({
-    where: { id },
+    where: { id, deedPollId },
     data: dto
   });
 }
 
 export async function removeDocument(deedPollId: string, id: string): Promise<void> {
   const doc = await findDocument(deedPollId, id);
-  await prisma.deedPollSupportingDocument.delete({ where: { id } });
+  await prisma.deedPollSupportingDocument.delete({ where: { id, deedPollId } });
   // Best-effort blob cleanup after the row is gone (delete is idempotent).
   await deleteFile(doc.storageKey);
 }

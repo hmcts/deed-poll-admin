@@ -66,8 +66,10 @@ describe("notes/service", () => {
 
     await updateNote("case1", "n1", { note: "amended" }, { userName: "Jordan Blake" });
 
+    // The where carries deedPollId as well as the unique id, so the write is scoped in its
+    // own right rather than relying on the findFirst guard above it having been written.
     expect(prisma.deedPollNote.update).toHaveBeenCalledWith({
-      where: { id: "n1" },
+      where: { id: "n1", deedPollId: "case1" },
       data: { note: "amended", modifiedBy: "Jordan Blake" }
     });
     const { data } = prisma.deedPollNote.update.mock.calls[0][0] as {
@@ -96,12 +98,12 @@ describe("notes/service", () => {
     });
   });
 
-  it("removes after an existence check", async () => {
+  it("removes after an existence check, scoped to the parent case", async () => {
     prisma.deedPollNote.findFirst.mockResolvedValue({ id: "n1" });
     prisma.deedPollNote.delete.mockResolvedValue({ id: "n1" });
     await removeNote("case1", "n1");
     expect(prisma.deedPollNote.delete).toHaveBeenCalledWith({
-      where: { id: "n1" }
+      where: { id: "n1", deedPollId: "case1" }
     });
   });
 });

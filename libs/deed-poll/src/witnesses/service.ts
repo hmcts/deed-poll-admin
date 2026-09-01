@@ -2,7 +2,11 @@ import { type DeedPollWitness, prisma } from "@hmcts/postgres-prisma";
 import { NotFoundError } from "../errors.js";
 import type { CreateWitnessInput, UpdateWitnessInput } from "./schemas.js";
 
-/** Nested CRUD for witnesses, scoped to a parent DeedPoll (see NotesService). */
+/**
+ * Nested CRUD for witnesses, scoped to a parent DeedPoll (see the notes service, which
+ * explains why the write paths carry `deedPollId` in their own `where` as well as behind
+ * the `findWitness` guard).
+ */
 
 async function assertCaseExists(deedPollId: string): Promise<void> {
   const exists = await prisma.deedPoll.findUnique({
@@ -34,10 +38,10 @@ export async function findWitness(deedPollId: string, id: string): Promise<DeedP
 
 export async function updateWitness(deedPollId: string, id: string, dto: UpdateWitnessInput): Promise<DeedPollWitness> {
   await findWitness(deedPollId, id);
-  return prisma.deedPollWitness.update({ where: { id }, data: dto });
+  return prisma.deedPollWitness.update({ where: { id, deedPollId }, data: dto });
 }
 
 export async function removeWitness(deedPollId: string, id: string): Promise<void> {
   await findWitness(deedPollId, id);
-  await prisma.deedPollWitness.delete({ where: { id } });
+  await prisma.deedPollWitness.delete({ where: { id, deedPollId } });
 }

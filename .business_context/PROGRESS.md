@@ -5,19 +5,22 @@ Last updated: 2026-09-01. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 **Next thing to pick up: Phase 3, the documents handlers (12 of the 29).** `deed-polls` (7) and
 notes + witnesses (10) are done — 17 of 29. Documents were left last because they are the only ones
 needing the Multer wiring, which is the remaining unsolved piece; `document-types` (5 of the 12) has
-no upload in it and can go first. Read ["Phase 3 foundations"](#phase-3-foundations-done-caf4e03)
-and ["Phase 3 slice 1"](#phase-3-slice-1-deed-polls-done) before writing a handler: between them
-they settle six things a handler must not decide for itself.
+no upload in it and can go first. Read ["Phase 3 foundations"](#phase-3-foundations-done-caf4e03),
+["Phase 3 slice 1"](#phase-3-slice-1-deed-polls-done) and
+["Phase 3 slice 2"](#phase-3-slice-2-notes-and-witnesses-done) before writing a handler — between
+them they settle every decision a handler should not be making for itself, and the documents service
+has already been brought in line with the child-scoping rule in slice 2.
 
 **Two tasks are parked, not questions** — see "Parked tasks" below. Neither blocks Phase 3.
 
 ## State
 
-Branch `feat/deed-poll-migration`, 18 commits, pushed and tracking
+Branch `feat/deed-poll-migration`, 19 commits, pushed and tracking
 `origin/feat/deed-poll-migration`. No PR, deliberately — see "Branch state".
 
 ```
-(this session)  Port the notes and witnesses JSON handlers
+(this session)  Scope the nested child writes to their parent case
+14d3936  Port the notes and witnesses JSON handlers
 1c23f72  Port the deed-polls JSON handlers and fix the reference-number error class
 b1ef30c  Capture the four open questions as open questions
 8ec90f2  Refresh the handover for the next session
@@ -37,7 +40,7 @@ b17fac5  Port the deed-poll case model into the shared Prisma schema
 ```
 
 `yarn lint`, `yarn build` and `yarn test` are all clean across the workspace (11 tasks). Current test
-counts, so a regression is obvious: `libs/deed-poll` **452**, `apps/api` **149**, `apps/postgres` 11
+counts, so a regression is obvious: `libs/deed-poll` **456**, `apps/api` **149**, `apps/postgres` 11
 (they **pass** with `docker compose up -d`, and skip without it — CI has no database).
 
 **Before running anything, Yarn needs sideloading** — Corepack cannot reach `repo.yarnpkg.com` from
@@ -208,7 +211,7 @@ Specific work:
 4. ⬅ **Multer.** `uploadDocument` now takes a plain `UploadedFile` (`buffer`, `originalname`,
    `mimetype`, `size`) rather than `Express.Multer.File`. The app maps its upload middleware onto it.
 
-Verification: `yarn test` must show at least 452 in `libs/deed-poll` and 149 in `apps/api` plus
+Verification: `yarn test` must show at least 456 in `libs/deed-poll` and 149 in `apps/api` plus
 whatever the new route tests add; `yarn lint` and `yarn build` clean; and exercise the handlers
 against a running app — see the recipe under "Exercising the API locally" below, which is worth
 following rather than improvising, because two of the four things in it cost time to work out.
@@ -370,7 +373,8 @@ parent-scoped and already threw `NotFoundError`, so the handlers are genuinely t
   a child id belonging to another case answers 404. Passing only the child id would compile and
   would quietly make every note in the database reachable through any case's URL. Verified against
   a running app on all three verbs: reading, patching and deleting a note through the wrong case's
-  URL all 404, and the note was still intact afterwards.
+  URL all 404, and the note was still intact afterwards. **The write paths are scoped twice** — see
+  below.
 
 - **Notes take `{ userName }` only; witnesses take no user context at all.** Notes have
   `createdBy`/`modifiedBy` columns to stamp; `DeedPollWitness` has neither, and `createWitness`
@@ -387,6 +391,49 @@ parent-scoped and already threw `NotFoundError`, so the handlers are genuinely t
   routes' trap is route *ordering*; the nested routes' trap is parameter *binding*, which the unit
   tests structurally cannot catch because the request double supplies whatever params the test names.
   A handler that read the parent's id for the child, or swapped the two, passes its own unit test.
+
+#### Child scoping: the write paths carry `deedPollId` too
+
+**There was never a traversal hole here** — reads have always filtered on `{ id, deedPollId }`, and
+the write paths have always run a scoped `findNote`/`findWitness`/`findDocument` guard first. Do not
+read the change below as a fix for a vulnerability; nothing was exploitable, and cross-case access
+was verified closed on all three verbs before it.
+
+What it changes is where the safety *lives*. The writes used to be:
+
+```ts
+await findNote(deedPollId, id);                     // scoped guard
+prisma.deedPollNote.update({ where: { id }, ... })  // write scoped by nothing
+```
+
+Correct, but by convention: one guard line, repeated in six places across three services. A seventh
+`updateX` that omitted it would be an unscoped write, and **no existing test would have failed** —
+which is the actual risk, since two more slices of nested handlers were about to be written against
+this pattern. The writes now carry the parent as well:
+
+```ts
+prisma.deedPollNote.update({ where: { id, deedPollId }, ... })
+```
+
+Prisma allows a non-unique filter alongside the unique `id` (`DeedPollNoteWhereUniqueInput` accepts
+`deedPollId`), so this costs nothing and does not change the return shape the way `updateMany` would.
+Applied to all three services — notes, witnesses **and documents**, so the documents slice inherits
+it rather than repeating the argument.
+
+**Verified that Prisma enforces the filter rather than ignoring it**, because if it ignored it the
+change would be theatre and the guard would still be the only defence. Driven directly against
+Postgres with no guard in front: `update` and `delete` with a mismatched `deedPollId` both fail
+`P2025` and the row is untouched. The happy path was re-checked too — that was the way this change
+could have broken everything, if Prisma had rejected the extended `where` at runtime.
+
+The guard stays, and is still what produces the clean 404: `P2025` is not a domain error, so
+`errorHandler` would map it to a generic 500. That is deliberate rather than a gap — the guard always
+runs first, so a `P2025` reaching the mapper means a missing guard or a genuine race, and a loud 500
+with a logged stack is the honest answer to a bug. Mapping `P2025` to 404 would hide exactly the
+mistake this is meant to catch.
+
+Domain tests went 452 → 456: the four that asserted `where: { id }` exactly now assert both ids, and
+`updateWitness`/`updateDocument` gained the scoped-write and wrong-parent cases they never had.
 
 One wart, faithful to the prototype and left alone: **a list under a non-existent case answers `[]`
 with 200, not 404.** `findNotes`/`findWitnesses` filter by `deedPollId` without checking the parent
