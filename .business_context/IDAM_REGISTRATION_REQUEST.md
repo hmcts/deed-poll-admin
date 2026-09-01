@@ -39,8 +39,9 @@ answers, the client secret and the role name, are the ones that block.
 >    - production: to follow
 >    *(The hostnames depend on the CNP product code, which is itself unconfirmed — see the note below.)*
 > 3. **Issuer URL per environment**, for discovery.
-> 4. **Scopes.** We currently request `openid profile roles`. Is `roles` the right scope to have the
->    user's roles appear in the ID token, and is there anything else we should ask for?
+> 4. **Scopes.** We currently request `openid profile roles` and read the user's roles and name from
+>    `/o/userinfo` after the code exchange, rather than from the ID token — matching what
+>    `rse-idam-simulator` returns. Is `roles` the right scope for that, and is anything else needed?
 > 5. **The role name for our privileged users.** The service has exactly one privileged role, ported
 >    from the Dynamics security role "Deed Poll Admin User". It gates one thing: whether a caseworker
 >    may set a case's privacy to Private. Everyone else has read/write on everything else. We have used
@@ -82,9 +83,10 @@ So the reply is a config change, not a build:
 - Config wired through `config/custom-environment-variables.json`, so all five values arrive as
   environment variables: `IDAM_ISSUER_URL`, `IDAM_CLIENT_ID`, `IDAM_CLIENT_SECRET`,
   `IDAM_REDIRECT_URI`, `IDAM_SCOPE`.
-- Verified end to end against `scripts/stub-idam.mjs`, a local compliant-enough issuer.
+- Verified end to end against `scripts/stub-idam.mjs`, whose contract is taken from
+  `hmcts/rse-idam-simulator` — including reading roles from `/o/userinfo` rather than the ID token.
 
-**What the stub cannot tell us**, and what only real IDAM will: whether the claim names match
-(`roles`, `name`, `given_name`, `family_name`, `sub`), whether the role strings match, and whether
-discovery advertises an `end_session_endpoint`. All three are handled defensively, but "handled
-defensively" means fails closed, not "works".
+**What the stub cannot tell us**, now that `rse-idam-simulator` has answered the rest: whether the role
+string is really `deedpoll-admin`, and whether CFT IDAM's `/o/userinfo` matches the simulator's
+`IdamUserInfo` shape. Both fail closed if wrong — a wrong role string reads as "nobody can edit
+privacy", not as an error, which is why question 5 matters most.

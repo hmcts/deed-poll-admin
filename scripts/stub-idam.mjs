@@ -12,11 +12,23 @@
  * should trust. This makes the whole path exercisable end to end: discovery, PKCE, the code exchange,
  * a real signed ID token verified against a real JWKS, roles, and logout.
  *
- * **What it is not.** It is not a mock of IDAM's behaviour, and it does not check a password. It is a
- * compliant-enough issuer: it publishes discovery, signs an RS256 ID token with a key it serves at
- * `jwks_uri`, and honours `code_challenge`/`state`. So `openid-client` does the same real work against
- * it that it will against IDAM — the part that stays unverified is only whether CFT IDAM's own claim
- * names and role strings match what `userFromClaims` reduces. See the handover.
+ * **Its contract is taken from `hmcts/rse-idam-simulator`**, the HMCTS-standard local IDAM, read at
+ * `libs/rse-idam-simulator` in the cft-workspace. In particular: the **ID token is thin** — its
+ * `JwTokenGeneratorService` emits `sub`, `aud`, `scope`, `realm`, `auth_level` and similar, and **no
+ * roles** — while `/o/userinfo` returns `IdamUserInfo`, which is what carries `roles`, `name`,
+ * `given_name` and `family_name`. This stub matches that split, because getting it wrong is exactly the
+ * bug it was hiding: the flow originally read roles from the ID token and would have found none against
+ * real IDAM.
+ *
+ * **Why not just run the simulator?** Its published `:latest` image cannot serve an authorization-code
+ * flow: `/o/token` requires a `username` parameter (it is built for the password grant), `/o/authorize`
+ * allows POST only so a browser redirect 405s, and it does not echo `state`. Master fixes all three,
+ * so building from source would work — but the contract question this stub needed answering was
+ * answered by reading that source, and a stub that drives a real browser flow is what the tests want.
+ *
+ * **What it is not.** Not a mock of IDAM's behaviour, and it checks no password. It is a
+ * compliant-enough issuer: discovery, an RS256 ID token signed with a key it serves at `jwks_uri`,
+ * userinfo, and `code_challenge`/`state` honoured.
  *
  * Never mounted by the apps and never reachable from one: it is a dev script, run deliberately.
  *
@@ -44,6 +56,9 @@ const jwk = { ...(await exportJWK(publicKey)), kid: KEY_ID, alg: "RS256", use: "
 /** Authorization codes issued but not yet redeemed, so a code cannot be spent twice. */
 const codes = new Map();
 
+/** Access tokens handed out, so `/o/userinfo` can answer for the right subject. */
+const accessTokens = new Map();
+
 const routes = {
   "/o/.well-known/openid-configuration": () =>
     json({
@@ -51,6 +66,7 @@ const routes = {
       authorization_endpoint: `${ISSUER}/authorize`,
       token_endpoint: `${ISSUER}/token`,
       jwks_uri: `${ISSUER}/jwks`,
+      userinfo_endpoint: `${ISSUER}/userinfo`,
       end_session_endpoint: `${ISSUER}/endSession`,
       response_types_supported: ["code"],
       subject_types_supported: ["public"],
@@ -92,6 +108,7 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
   if (url.pathname === "/o/token") return respond(res, await token(req));
+  if (url.pathname === "/o/userinfo") return respond(res, userinfo(req));
 
   const route = routes[url.pathname];
   if (!route) return respond(res, { status: 404, body: `no stub route for ${url.pathname}` });
@@ -112,7 +129,8 @@ async function token(req) {
   }
   codes.delete(code);
 
-  const idToken = await new SignJWT({ name: NAME, roles: ROLES, sub: SUBJECT })
+  // Thin, matching the simulator: no roles, no name. Those come from /o/userinfo.
+  const idToken = await new SignJWT({ scope: ["openid", "profile", "roles"], realm: "/hmcts", auth_level: 0 })
     .setProtectedHeader({ alg: "RS256", kid: KEY_ID })
     .setIssuer(ISSUER)
     .setAudience(body.get("client_id") ?? "deed-poll-admin")
@@ -121,7 +139,33 @@ async function token(req) {
     .setExpirationTime("10m")
     .sign(privateKey);
 
-  return json({ access_token: "stub-access-token", id_token: idToken, token_type: "Bearer", expires_in: 600 });
+  const accessToken = `stub-access-${Math.abs(hash(`${code}:${SUBJECT}`))}`;
+  accessTokens.set(accessToken, SUBJECT);
+
+  return json({ access_token: accessToken, id_token: idToken, token_type: "Bearer", expires_in: 600 });
+}
+
+/**
+ * The user, shaped as the simulator's `IdamUserInfo`: `uid`, `email`, `sub`, `name`, `given_name`,
+ * `family_name`, `roles`. This is where roles live — see the note at the top of this file.
+ */
+function userinfo(req) {
+  const bearer = (req.headers.authorization ?? "").replace(/^Bearer /, "");
+  const subject = accessTokens.get(bearer);
+
+  // 401 rather than a body for an unknown token, so a flow that skips the exchange fails visibly.
+  if (!subject) return json({ error: "invalid_token" }, 401);
+
+  const [given, ...rest] = NAME.split(" ");
+  return json({
+    uid: subject,
+    email: `${subject}@example.com`,
+    sub: subject,
+    name: NAME,
+    given_name: given,
+    family_name: rest.join(" "),
+    roles: ROLES
+  });
 }
 
 function json(payload, status = 200) {

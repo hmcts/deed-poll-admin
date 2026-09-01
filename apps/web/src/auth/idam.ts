@@ -103,11 +103,23 @@ export async function beginLogin(config: IdamConfig, returnTo: string): Promise<
 }
 
 /**
- * Complete the flow: exchange the code for tokens and reduce the ID token's claims to a user.
+ * Complete the flow: exchange the code for tokens, then read the user from the **userinfo** endpoint.
  *
  * The `state` check is `openid-client`'s, given the value from the session — so a callback carrying a
  * code obtained in someone else's browser is refused rather than logged in. Without it the callback
  * is an open redirect into an authenticated session.
+ *
+ * **Roles and name come from userinfo, not from the ID token.** This originally read them from the ID
+ * token's claims, which was wrong: CFT IDAM's ID token is thin. Checked against
+ * `hmcts/rse-idam-simulator`, the HMCTS-standard local IDAM — its `JwTokenGeneratorService` puts only
+ * `sub`, `aud`, `scope`, `realm`, `auth_level` and similar into the token, while `IdamUserInfo` (the
+ * `/o/userinfo` response) is what carries `roles`, `name`, `given_name` and `family_name`. Reading the
+ * token would have yielded no roles at all against real IDAM — and because unknown roles are dropped
+ * rather than rejected, the symptom would have been "nobody can edit privacy" rather than an error.
+ *
+ * The ID token is still validated by `authorizationCodeGrant` — signature, issuer, audience, expiry —
+ * and its `sub` is what `fetchUserInfo` checks the userinfo response against, so a userinfo response
+ * describing a different subject is refused.
  */
 export async function completeLogin(config: IdamConfig, flow: AuthFlowState, currentUrl: URL) {
   const configuration = await idamConfiguration(config);
@@ -118,13 +130,15 @@ export async function completeLogin(config: IdamConfig, flow: AuthFlowState, cur
   });
 
   const claims = tokens.claims();
-  if (!claims) {
+  if (!claims?.sub) {
     // A token response with no verifiable ID token is not an identity, and treating it as one would
     // log someone in as nobody.
-    throw new Error("IDAM returned no ID token claims");
+    throw new Error("IDAM returned no ID token subject");
   }
 
-  return { user: userFromClaims(claims as IdamClaims), idToken: tokens.id_token };
+  const info = await client.fetchUserInfo(configuration, tokens.access_token, claims.sub);
+
+  return { user: userFromClaims(info as IdamClaims), idToken: tokens.id_token };
 }
 
 /**

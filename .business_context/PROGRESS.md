@@ -122,8 +122,8 @@ total                                  1339 passed
 
 ```
 feat/deed-poll-migration
-33 commits ahead of master
-HEAD  24d2d45  Close off Phase 4, keeping power_app_nest by decision
+34 commits ahead of master
+HEAD  bfd176a  Replace the header bypass with IDAM OIDC login in apps/web
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -905,6 +905,44 @@ comes from an IDAM OIDC session. What is missing is a real IDAM client, which is
   would put strings this service has no rules for into the object its authorization decisions are made
   from.
 
+### Roles come from /o/userinfo, not the ID token
+
+**This was wrong first time, and the cft-workspace had the answer.** The flow originally read `roles`,
+`name` and the rest from the ID token's claims. CFT IDAM's ID token is thin, so against real IDAM that
+would have yielded **no roles at all** — and because unrecognised roles are dropped rather than
+rejected, the symptom would have been "nobody can edit privacy", not an error.
+
+Found by reading `hmcts/rse-idam-simulator`, the HMCTS-standard local IDAM, which the workspace
+manifest lists at `libs/rse-idam-simulator`. Its `JwTokenGeneratorService` puts only `sub`, `aud`,
+`scope`, `realm`, `auth_level` and similar in the token; `IdamUserInfo` — the `/o/userinfo` response —
+is what carries `uid`, `email`, `sub`, `name`, `given_name`, `family_name` and `roles: List<String>`.
+Those field names match `userFromClaims` exactly, so only the **source** was wrong. `completeLogin` now
+calls `fetchUserInfo` after the exchange, and `openid-client` checks the response's subject against the
+ID token's `sub`, so a userinfo response describing someone else is refused.
+
+**Check the simulator's source before assuming anything else about IDAM's contract.** It is the closest
+thing to a specification available locally, and it also settled two other open questions: discovery
+does advertise `userinfo_endpoint` and `end_session_endpoint`.
+
+### Why the simulator is not used as the stub
+
+Its published `:latest` image cannot serve an authorization-code flow, checked by running it:
+
+| What | Behaviour in the image |
+|---|---|
+| `/o/token` | **requires `username`** — built for the password grant, so the code exchange 400s |
+| `/o/authorize` | `Allow: POST` only, so a browser redirect 405s |
+| redirect back | does **not** echo `state`, so PKCE/state validation cannot be exercised |
+
+Master fixes all three, so building from source (Java 21 and the Gradle wrapper are both available)
+would give a usable issuer. It was not worth it here: the contract question was answered by reading the
+source, and a browser-drivable stub is what the flow's tests need. **If you do want the real thing,
+build from source rather than pulling `:latest`** — and map the port identically (`-p 5556:5556`),
+because its discovery document advertises its own internal port.
+
+`scripts/stub-idam.mjs` now mirrors the simulator's split: thin ID token, roles and name from
+`/o/userinfo`.
+
 ### Two defects found, both by running it
 
 1. **The new-case page hardcoded `{ isAdmin: false, userName: undefined }`.** Introduced in Phase 4
@@ -925,11 +963,10 @@ domain, logout, replay refusal, and forged-state refusal. Specifically checked t
 `privacy=Private` is silently dropped while an admin's is honoured, and that writes are attributed to
 the IDAM name.
 
-**What only real IDAM will settle:** whether the claim names match (`roles`, `name`, `given_name`,
-`family_name`, `sub`), whether the role string is really `deedpoll-admin`, and whether discovery
-advertises an `end_session_endpoint`. All three are handled defensively — which means they **fail
-closed**, not that they work. A wrong role string shows up as "nobody can edit privacy", not as an
-error.
+**What only real IDAM will settle**, now that the simulator has answered the rest: whether the role
+string is really `deedpoll-admin`, and whether CFT IDAM's own `/o/userinfo` matches the simulator's
+`IdamUserInfo` shape. Both are handled defensively, which means they **fail closed** — a wrong role
+string shows up as "nobody can edit privacy", not as an error.
 
 ### Still to do in Phase 5
 
