@@ -13,8 +13,10 @@ Phase 4's 12 page handlers are all ported and exercised against a running app. *
 Phase 4 are deliberately outstanding rather than done** — neither blocks Phase 5, and both are
 recorded below rather than lost:
 
-1. **The Phase 4 verification pass** the plan asks for: axe accessibility checks, an e2e journey in
-   `e2e-tests/`, and Welsh content. See ["Phase 4 outstanding"](#phase-4-outstanding).
+1. **The Phase 4 verification pass** the plan asks for. **The e2e journeys and the accessibility
+   checks are now done** (2026-09-02) — see ["Phase 4 verification"](#phase-4-verification-done). What
+   remains of it is **Welsh content only**: every page carries `cy` with matching keys, and a test now
+   pins that the keys resolve, but the values are still English.
 2. **`power_app_nest/` is deliberately NOT deleted.** Steve's call on 2026-09-01: it is gitignored,
    costs nothing but disk, and — as the rescue commit `47a9ad2` establishes — it has never been
    committed, so deleting it is unrecoverable rather than a revert away. Keeping it as a reference is
@@ -58,7 +60,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  1  schema → monorepo          ██████████████████████  done
  2  domain → libs/deed-poll    ██████████████████████  done
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
- 4  SSR pages → apps/web       ████████████████████░░  12/12 ported, unverified
+ 4  SSR pages → apps/web       █████████████████████░  12/12 ported, e2e + axe green; Welsh untranslated
  5  authentication (IDAM)      ███████████████████░░░  ◀── HERE. both apps done; needs a real client
  6  config, Helm, deployment   ██████████████░░░░░░░░  code done; needs shared infra + a namespace
 
@@ -100,6 +102,7 @@ documents         ███████   7/7    done  incl. multipart upload, d
 ### Phase 4 — SSR pages
 
 - **13 page handlers** ported in `apps/web/src/pages/deed-polls/`, against **12** in the prototype's `deed-poll-pages.controller.ts` and **9** Nunjucks templates.
+- **22 end-to-end tests** written in `e2e-tests/tests/`, **2** of them deed-poll journeys. Accessibility and validation are checked inside the journeys, so they add no test count of their own.
 
 ### Tests
 
@@ -122,8 +125,8 @@ total                                  1505 passed
 
 ```
 feat/deed-poll-migration
-43 commits ahead of master
-HEAD  bda9c28  Settle the product code, and map what is actually left to deploy
+45 commits ahead of master
+HEAD  3513638  Made note on progress.md so I know where to pick up from in the next session.
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -729,8 +732,9 @@ Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/
 **All 12 page handlers ported**: the case list, the new-case form, the case detail page, the edit tab
 (GET and POST), the four note handlers and the two upload handlers — plus a
 document download route the prototype did not have, and the pages' own domain-error mapping. Foundations are in
-`libs/deed-poll` (`date-parts`, `list-filters`, `list-view`, `edit-view`). Remaining: delete `power_app_nest/`, then the
-Phase 4 verification the plan asks for — axe accessibility checks and the Welsh/e2e pass.
+`libs/deed-poll` (`date-parts`, `list-filters`, `list-view`, `edit-view`). The verification pass is done
+— see ["Phase 4 verification"](#phase-4-verification-done-2026-09-02). Remaining: Welsh translation, and
+deleting `power_app_nest/` if that decision is ever revisited.
 
 **The templating swap the plan lists is already done.** `nunjucks.setup.ts` exists only in the
 prototype; `apps/web` has always used `configureGovuk`. That file goes when the prototype does. Its
@@ -1103,9 +1107,11 @@ because the code depends on what they *do*: `regenerate` clears the session data
 
 That last one is the bug that shipped and was found by accident. It now fails a test.
 
-The one thing deliberately **not** asserted is that the *whole* flow works against a live issuer: that
-is what running it against the simulator is for, and an e2e test of it belongs with the Playwright work
-under Phase 4 outstanding.
+The one thing deliberately **not** asserted here is that the *whole* flow works against a live issuer.
+**That is asserted now, in a browser:** `e2e-tests/tests/auth.setup.ts` drives `/login` → the
+simulator's form → the callback → the exchange before every authenticated journey, so a break in the
+flow fails every authenticated test rather than none. See ["Phase 4
+verification"](#phase-4-verification-done-2026-09-02).
 
 ### Phase 6 — config, Helm, deployment (code done)
 
@@ -1291,29 +1297,125 @@ it. Do it as its own change, against a real environment.
   `login.ts`, `logout.ts`, `oauth2/callback.ts`, `auth/idam.ts`, `auth/session.ts` and
   `auth/current-user.ts`. See below for how, which matters more than the count.
 
-## Phase 4 outstanding
+## Phase 4 verification (done 2026-09-02)
 
-Two things the plan lists under Phase 4 that are **not done**. Recorded here so they are tracked work
-rather than a silent gap; neither blocks Phase 5.
+**The two journeys and the accessibility pass are done, and the whole suite is green — in parallel, and
+against the built assets rather than Vite's dev middleware, which is the mode `webServer` actually
+uses.** Counts are in the generated dashboard above, not here. Welsh content is the only part of the
+plan's Phase 4 verification line still outstanding — see below.
 
-1. **The verification pass.** The plan's Phase 4 line asks for accessibility and Welsh work, and the
-   repo's own `.claude/rules/testing.md` asks for a Playwright happy-path journey per new page. None of
-   it exists yet:
-   - **axe/accessibility**: `e2e-tests/` has the axe-core+Playwright setup, but no deed-poll page is
-     covered. Every page was built from GOV.UK components with the Design System's own markup, and the
-     detail page's only bespoke CSS is scoped label widths — so the expectation is that it largely
-     passes. That is an expectation, not a measurement.
-   - **e2e journeys**: nothing in `e2e-tests/tests/` touches `/deed-polls`. The journeys worth pinning
-     are create → detail → edit a tab → save, and add a note → amend → delete.
-   - **Welsh content**: every page carries `en` and `cy` with matching keys, but `cy` holds English.
-     See the Welsh note under Phase 4. Translating is a content change, not a page rewrite — that was
-     the point of building the shape.
+| File | What |
+|---|---|
+| `e2e-tests/tests/deed-polls.spec.ts` | the two journeys, with axe and validation checked inline |
+| `e2e-tests/tests/idam-session.ts` | `signInAsAdmin`, the storage-state path, the deployed-stack guard |
+| `e2e-tests/tests/auth.setup.ts` | Playwright `setup` project: signs in once, saves the session |
+| `e2e-tests/playwright.config.ts` | the `setup` project and chromium's dependency on it |
+| `e2e-tests/tests/onboarding-happy-path.spec.ts` | signs in; it had been broken since Phase 5 (below) |
+| `apps/web/package.json` | `dev:nowatch` now sets `NODE_ENV`; it could not boot (below) |
+| `.gitignore` | `.auth/` — the saved session is a live cookie, so a credential |
 
+**Two tests, not twelve.** `.claude/rules/e2e-testing.md` is explicit that accessibility, validation
+and Welsh belong *inside* a journey rather than in tests of their own, so they are. The journeys are
+the two the plan named:
+
+1. **create → detail → edit a tab → save.** Includes the empty-Date-Received refusal (the request that
+   was a 500 until slice 1), and the signature-date pair rule, asserted as a re-render that keeps the
+   submitted value rather than a redirect that discards it.
+2. **add a note → amend → delete.** Includes the empty-note and over-2000-character refusals, and that
+   the over-length one comes back **with the text still in the textarea** — the specific behaviour
+   Phase 4 changed from the prototype's `?error=` redirect, and the one a regression would silently
+   undo.
+
+Two assertions are worth keeping for what they prove rather than what they check:
+
+- **`Created By` is "An Admin", the IDAM name.** The new-case page hardcoded `userName: undefined`
+  until Phase 5, and nothing but a real login could have caught it. Now a test would.
+- **The state after saving both signature dates is Awaiting *Enrolment*, not Awaiting Signature.** The
+  cascade tests received before requested — the source workflow's ordering, preserved deliberately —
+  so this pins the precedence where a caseworker would actually see it. It also proves the save reached
+  the database, since state is derived and never supplied.
+
+### Accessibility: clean, with no exclusions
+
+Every deed-poll page passes `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa` at six points across five
+pages, including both error states. **`homepage.spec.ts` and the onboarding spec both exclude
+`.govuk-footer__link` and `.language` as known template issues; the deed-poll spec excludes nothing,
+and was checked with the exclusions removed rather than assumed.** Both selectors are in the shared
+layout these pages also render, so carrying the exclusions over would have suppressed findings that do
+not exist and hidden any that appeared later. Do not add one back without evidence.
+
+That converts the expectation recorded here previously — "built from GOV.UK components, so it should
+largely pass" — into a measurement.
+
+### Three defects, all found by running the suite rather than by writing it
+
+**The pattern from Phase 3 held: none of the three was visible to unit tests, and the first two meant
+the e2e suite could not run at all.** It never had, because CI only runs it post-deploy and nothing has
+deployed.
+
+1. **`apps/web`'s `dev:nowatch` could not boot** — and it is the exact command Playwright's `webServer`
+   runs. It sets `VITE_MIDDLEWARE=false` but not `NODE_ENV`, which `dev` beside it does. With
+   `NODE_ENV` unset, `plainHttpPermitted()` is false and `assertSessionSecret` refuses to start on the
+   placeholder secret, exactly as designed. So Phase 5's startup guards were correct and the script was
+   the thing that was wrong. Every spec would have failed on a `webServer` timeout, which reads as a
+   Playwright problem rather than a missing environment variable. Fixed by matching `dev`:
+   `NODE_ENV=development DATA_DIR=../../data`.
+
+2. **The four onboarding tests were redirecting to `/login`.** `requireAuth` is global and
+   `/onboarding` is not on the public allowlist, so Phase 5 broke template tests that nobody ran.
+   **Fixed by signing in, not by opening the paths up:** an internal caseworker service sitting behind
+   login is the intended behaviour, and onboarding is not special. Adding it to `PUBLIC_PATHS` would
+   have made the test pass by weakening the thing it should be protected by.
+
+3. **One `storageState` file means one server-side session, shared by every test that restores it.**
+   The onboarding form keeps its answers *in* the session, so under `fullyParallel` the four tests
+   overwrote each other and the summary page showed whichever name landed last. Serial passed, parallel
+   failed — the worst shape of flake, because the fix that hides it (`--workers=1`) also hides the next
+   one. So the onboarding spec calls `signInAsAdmin` per test for a session of its own, while the
+   deed-poll journeys share the saved state, which is safe because they only *read* the signed-in user.
+   **Any future journey that writes to the session must sign in for itself**; the rule is recorded in
+   `idam-session.ts` beside the constant.
+
+### The session is obtained from the real IDAM, not fabricated
+
+`auth.setup.ts` drives the whole authorization-code flow against `hmcts/rse-idam-simulator` — `/login`,
+the simulator's own form, the callback, the exchange — and saves the resulting session. **Nothing mints
+a cookie or short-circuits the gate.** A test-only bypass would be the very thing Phase 5 deleted from
+the application, and it would let the login flow break with the suite still green, which is precisely
+what the deleted hand-written stub did.
+
+Two consequences worth knowing:
+
+- **`yarn idam:build` and `yarn idam:users` are prerequisites for the suite**, not just for manual
+  poking. Both are one-off. Without the accounts the simulator answers 401.
+- **The simulator's login form has a `<label>` with no `for`**, so the setup uses `#username` /
+  `#password` rather than `getByLabel`. Its markup is not ours to fix, and there is nothing for a
+  role- or label-based locator to bind to. Do not "correct" it.
+
+### The journeys skip against a deployed environment, deliberately
+
+`job.e2e-test.yml` runs the suite against a **deployed** URL, not a local stack — so in CI the issuer is
+real CFT IDAM, where **there is no registered client and no test account yet**. The auth-dependent tests therefore skip when `EXPRESSJS_MONOREPO_TEMPLATE_WEB_URL` or `TEST_URL` is set,
+with a reason naming the registration request. Verified: 7 skipped, 16 passed, and no ENOENT on the
+missing storage state, which is the failure mode a naive guard would have produced.
+
+**This is the one place the IDAM registration now blocks a test rather than only a deploy.** When the
+client and a test account exist, the guard becomes "use these credentials in a deployed environment"
+rather than "skip".
+
+### Still outstanding under Phase 4
+
+1. **Welsh content.** Every page carries `en` and `cy` with matching keys and `cy` holds English, by the
+   migration plan's decision. The journeys now load a page under `?lng=cy` and assert its heading and a
+   link still render, which catches a **missing** `cy` key — that renders blank rather than erroring —
+   but there is nothing Welsh to assert until there is a translation. Still a content change rather
+   than a page rewrite, which was the point of building the shape.
 2. **`power_app_nest/` is not deleted**, by decision. See the note at the top of this file.
 
-The pages *are* exercised: every one was driven against a running app with a real database, and the
-findings are recorded per slice. What is missing is automated regression cover for the browser
-journeys, not evidence that they work.
+Not done and not proposed: the upload journey. It writes a blob to `DATA_DIR`, which cannot work in a
+deployed environment at all (local disk cannot go to AKS), so an e2e test of it would pin behaviour that
+Phase 10's move to CDAM removes. The upload paths are covered by unit tests and were verified live end
+to end — see Phase 3 slice 4.
 
 ## Loose ends
 
@@ -1406,6 +1508,16 @@ Small, real, and deliberately not done. None blocks Phase 3.
    remember the file is buffered in memory, so the ceiling is really 10 MB × concurrent uploads
    against the pod's memory limit.
 
+13. **`e2e-tests` is not covered by `yarn lint`, and 6 of its files fail `biome check`.** Exactly the
+    shape of item 12: the workspace has no `lint` script, so `turbo lint`'s 11 tasks skip it entirely,
+    while a root `biome check .` reports 9 errors — all pre-existing template formatting (single quotes,
+    where the repo is configured for double). **Which means a root `biome check --write` will silently
+    restage them into whatever commit is open**, which is the specific accident item 12 was closed to
+    stop. The three files added by the Phase 4 verification are written to conform and lint clean; the
+    template's were left alone deliberately, so the formatting churn does not land inside a change about
+    tests. Fixing it is: add `"lint": "biome check ."` to `e2e-tests/package.json` and format the five
+    template files, as its own commit.
+
 10. **Upload type-checking is by declared MIME type only.** `ALLOWED_MIME_TYPES` reads the
     `Content-Type` the client puts on the multipart part, which a client can lie about. It stops
     accidents, not attacks, and there is no virus scanning. Real inspection arrives with CDAM in
@@ -1475,16 +1587,39 @@ vulnerabilities at all — `@types/config` is a stub package that `config` super
 dependency from `apps/api` to clear it), and `tsconfck` is merely flagged unmaintained.
 
 
-## To pick up tomorrow
+## Next session
 
-I cloned it (and cnp-githubactions-library) into platops/, which turns yesterday's inference into a finding — and the answer isn't the one you were hoping for. 
+*(This section replaces one titled "To pick up tomorrow" that had become a report of work already
+done — every finding in it is in the Phase 6 sections above, which is where it belongs. If this one
+starts describing the past too, delete it rather than leaving it to be read as a to-do.)*
 
-The HMCTS Way doesn't describe our pipeline. cnp-githubactions-library and expressjs-monorepo appear nowhere in its source/ tree. Five pages mention GitHub Actions at all, and only one concerns deployment. It documents the Jenkins route in full — cnp-jenkins-config, charts to hmcts-charts, Flux reconciling a HelmRelease, ${SERVICE_FQDN} in values.aat.template.yaml. I also checked the workspace port is complete rather than stale-by-omission: 10 upstream new-component pages, 10 ported.
+**Nothing left on Track A is code.** Phases 0–6 are closed in code, and Phase 4's verification pass
+now has automated cover: the e2e suite is green in parallel against built assets, with axe clean and
+no exclusions.
 
-The good news is that this matters less than it sounds. The pipeline is already built and the library is HMCTS's own and actively maintained — so what's missing is credentials and platform prerequisites, not workflow code. What the docs do give definitively is everything I used yesterday: naming rules, the key vault limit, which repos own what, and the federated-credentials process.
+In dependency order, longest lead time first:
 
-Every secret the workflows need is now listed in PROGRESS.md, with what uses it and how to get it. The important one is self-service: AZURE_CLIENT_ID / AZURE_TENANT_ID come from a PR to azure-github-federation-config adding subjects (repo:hmcts/deed-poll-admin:ref:refs/heads/master, …:pull_request) plus roles and scopes — on merge, terraform creates the app registration, service principal, federated credentials and role assignments. Cap of 20 credentials per registration, one per subject.
+1. **Send the IDAM registration request.** `IDAM_REGISTRATION_REQUEST.md`, drafted and unsent.
+   Questions 1 (client id and secret) and 5 (the real role string) are the blockers. It now also gates
+   a test rather than only a deploy — the auth-dependent e2e tests skip against a deployed
+   environment because there is no client or test account to sign in with.
+2. **Get `deed-poll-shared-infrastructure` created.** `infrastructure/` has `data` blocks referencing
+   the resource group and key vault it would build, so the terraform plan fails before anything
+   deploys. Nothing else in Phase 6 can be tested without it.
+3. **Two one-line questions for Platform Operations**, both answerable by anyone who has done this:
+   is GitHub Actions a supported deployment route for a CFT service, and which repo declares the
+   `deed-poll` namespace. `cnp-flux-config` is still not cloned, so the second is narrowed rather than
+   answered — worth asking rather than guessing.
+4. **Put `idam-client-secret` and `session-secret` in the vault.** The chart fails on a missing
+   secret, deliberately.
 
-One finding worth acting on. The library ships helm-deploy-openid and terraform-deploy-openid — drop-in equivalents needing no stored credentials. This repo uses the non-OIDC variants for both, which is why AZURE_CREDENTIALS_CFT_AAT and AZURE_CREDENTIALS_CFT_PREVIEW exist as service-principal JSON — covering the two most privileged operations here, terraform apply and helm upgrade into AKS. The HMCTS Way explicitly calls federated credentials "a more secure approach than storing service principal secrets", and this repo already uses OIDC for the ACR steps, so it's inconsistent as well as weaker. I haven't switched it: it can't be tested without Azure access, and a broken deploy pipeline is worse than a working one with two secrets in it. Worth doing as its own change against a real environment.
+Unblocked and still code, in rough order of value:
 
-Two things I'd still put to Platform Ops, both one-line answers for anyone who's done it: is GHA a supported route for a CFT service, and which repo declares the deed-poll namespace — cnp-flux-config isn't cloned, so that one is narrowed but still unconfirmed rather than guessed.
+- **Welsh translation.** The only part of Phase 4's verification line still open. A content change:
+  the `cy` keys all exist and a test now pins that they resolve.
+- **Loose end 13**, the `e2e-tests` lint gap — small, and it stops a root `biome check --write`
+  restaging template files into an unrelated commit.
+- **Parked task 2**: check Renovate PR #31 merges cleanly and report. **Do not merge it unasked.**
+- **Loose end 5** is the one business question worth settling before the IDAM reply arrives: whether a
+  caseworker may delete a case, and whether deletion should be soft. After Phase 5 lands for real the
+  answer becomes an IDAM role mapping rather than a code change.

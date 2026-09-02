@@ -26,6 +26,8 @@ coverage/
 .nyc_output/
 lcov.info
 .playwright-mcp/
+# Playwright's saved sign-in state. A live session cookie, so a credential — never committable.
+.auth/
 
 # Turborepo
 .turbo/

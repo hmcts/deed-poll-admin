@@ -55,6 +55,14 @@ const PHASE_3_RESOURCES = [
 const METHOD_EXPORT = /^export const (GET|POST|PUT|PATCH|DELETE)\b/gm;
 const NEST_ROUTE_DECORATOR = /@(Get|Post|Put|Patch|Delete)\(/g;
 
+/**
+ * A Playwright test declaration. Deliberately not `test.` anything — `test.describe`, `test.skip`,
+ * `test.use` and `test.beforeEach` are all configuration rather than tests, and counting them would
+ * inflate the figure. `auth.setup.ts` renames the import to `setup`, so it is excluded by matching
+ * `*.spec.ts` only, which is also right: signing in is arrangement, not a journey.
+ */
+const PLAYWRIGHT_TEST = /^\s*test\(/gm;
+
 function main() {
   const write = process.argv.includes("--write");
 
@@ -159,7 +167,28 @@ function collectPhase4() {
   return {
     scope: countNestHandlers("deed-poll/deed-poll-pages.controller.ts"),
     templates: countTemplates(join(ROOT, "power_app_nest/src/views")),
-    ported: countPageHandlers(join(ROOT, "apps/web/src/pages/deed-polls"))
+    ported: countPageHandlers(join(ROOT, "apps/web/src/pages/deed-polls")),
+    e2e: countPlaywrightTests()
+  };
+}
+
+/**
+ * End-to-end tests, counted from source rather than by running Playwright.
+ *
+ * Counted statically on purpose: a run needs Postgres, the IDAM simulator and both apps up, and a
+ * dashboard refresh must not depend on that. So this reports how many journeys are *written*, which is
+ * the number that answers "is Phase 4 covered", while whether they pass is what `yarn test:e2e` is for.
+ */
+function countPlaywrightTests() {
+  const dir = join(ROOT, "e2e-tests/tests");
+  if (!existsSync(dir)) return null;
+
+  const specs = readdirSync(dir).filter((name) => name.endsWith(".spec.ts"));
+  const count = (name) => (readFileSync(join(dir, name), "utf8").match(PLAYWRIGHT_TEST) ?? []).length;
+
+  return {
+    total: specs.reduce((sum, name) => sum + count(name), 0),
+    deedPolls: specs.includes("deed-polls.spec.ts") ? count("deed-polls.spec.ts") : 0
   };
 }
 
@@ -318,14 +347,23 @@ function renderDashboard({ phase3, phase4, tests, git }) {
  */
 function renderPhase4(phase4) {
   const ported = `**${phase4.ported} page handlers** ported in \`apps/web/src/pages/deed-polls/\``;
+  const lines = [];
 
   if (phase4.scope === null) {
-    return [`- ${ported}. \`power_app_nest/\` is gone, so the original scope can no longer be counted from source.`];
+    lines.push(`- ${ported}. \`power_app_nest/\` is gone, so the original scope can no longer be counted from source.`);
+  } else {
+    // Ported legitimately exceeds scope by the download route the split apps need — see collectPhase4.
+    const against = `against **${phase4.scope}** in the prototype's \`deed-poll-pages.controller.ts\` and **${phase4.templates}** Nunjucks templates`;
+    lines.push(`- ${ported}, ${against}.`);
   }
 
-  // Ported legitimately exceeds scope by the download route the split apps need — see collectPhase4.
-  const against = `against **${phase4.scope}** in the prototype's \`deed-poll-pages.controller.ts\` and **${phase4.templates}** Nunjucks templates`;
-  return [`- ${ported}, ${against}.`];
+  if (phase4.e2e) {
+    lines.push(
+      `- **${phase4.e2e.total} end-to-end tests** written in \`e2e-tests/tests/\`, **${phase4.e2e.deedPolls}** of them deed-poll journeys. Accessibility and validation are checked inside the journeys, so they add no test count of their own.`
+    );
+  }
+
+  return lines;
 }
 
 function renderResource(resource) {

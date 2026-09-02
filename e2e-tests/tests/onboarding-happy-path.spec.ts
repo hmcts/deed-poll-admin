@@ -1,5 +1,22 @@
 import { test, expect } from '@playwright/test';
 import { AxeBuilder } from '@axe-core/playwright';
+import { DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsAdmin } from './idam-session.js';
+
+// Phase 5 mounted `requireAuth` globally in apps/web, and `/onboarding` is not on its public
+// allowlist — so every goto in this file was redirecting to `/login`. Signing in is the fix rather
+// than opening the paths up: an internal caseworker service behind login is the intended behaviour,
+// and onboarding is not special. Nothing else in the file changed.
+test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
+
+// Signs in per test rather than reusing the `setup` project's saved state, which is what
+// deed-polls.spec.ts does. **This form keeps its answers in the session**, and every context restored
+// from one storageState file carries the same `connect.sid` — so under `fullyParallel` the four tests
+// below were writing over each other's answers, and the summary page showed whichever name landed
+// last. Logging in gives each test a session of its own. Only needed by a journey that WRITES to the
+// session; a journey that merely reads the signed-in user can share.
+test.beforeEach(async ({ page }) => {
+  await signInAsAdmin(page);
+});
 
 test.describe('Onboarding Form - Happy Path Journey', () => {
   test('should complete the full onboarding journey successfully', async ({ page }) => {
