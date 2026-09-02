@@ -1473,3 +1473,18 @@ bumped. **11 of them are a single `protobufjs@8.0.1`**, pinned exactly by the Op
 `applicationinsights`; Renovate PR #31 (`applicationinsights` 3.16.0) should carry it. Two are not
 vulnerabilities at all — `@types/config` is a stub package that `config` supersedes (delete the
 dependency from `apps/api` to clear it), and `tsconfck` is merely flagged unmaintained.
+
+
+## To pick up tomorrow
+
+I cloned it (and cnp-githubactions-library) into platops/, which turns yesterday's inference into a finding — and the answer isn't the one you were hoping for. 
+
+The HMCTS Way doesn't describe our pipeline. cnp-githubactions-library and expressjs-monorepo appear nowhere in its source/ tree. Five pages mention GitHub Actions at all, and only one concerns deployment. It documents the Jenkins route in full — cnp-jenkins-config, charts to hmcts-charts, Flux reconciling a HelmRelease, ${SERVICE_FQDN} in values.aat.template.yaml. I also checked the workspace port is complete rather than stale-by-omission: 10 upstream new-component pages, 10 ported.
+
+The good news is that this matters less than it sounds. The pipeline is already built and the library is HMCTS's own and actively maintained — so what's missing is credentials and platform prerequisites, not workflow code. What the docs do give definitively is everything I used yesterday: naming rules, the key vault limit, which repos own what, and the federated-credentials process.
+
+Every secret the workflows need is now listed in PROGRESS.md, with what uses it and how to get it. The important one is self-service: AZURE_CLIENT_ID / AZURE_TENANT_ID come from a PR to azure-github-federation-config adding subjects (repo:hmcts/deed-poll-admin:ref:refs/heads/master, …:pull_request) plus roles and scopes — on merge, terraform creates the app registration, service principal, federated credentials and role assignments. Cap of 20 credentials per registration, one per subject.
+
+One finding worth acting on. The library ships helm-deploy-openid and terraform-deploy-openid — drop-in equivalents needing no stored credentials. This repo uses the non-OIDC variants for both, which is why AZURE_CREDENTIALS_CFT_AAT and AZURE_CREDENTIALS_CFT_PREVIEW exist as service-principal JSON — covering the two most privileged operations here, terraform apply and helm upgrade into AKS. The HMCTS Way explicitly calls federated credentials "a more secure approach than storing service principal secrets", and this repo already uses OIDC for the ACR steps, so it's inconsistent as well as weaker. I haven't switched it: it can't be tested without Azure access, and a broken deploy pipeline is worse than a working one with two secrets in it. Worth doing as its own change against a real environment.
+
+Two things I'd still put to Platform Ops, both one-line answers for anyone who's done it: is GHA a supported route for a CFT service, and which repo declares the deed-poll namespace — cnp-flux-config isn't cloned, so that one is narrowed but still unconfirmed rather than guessed.
