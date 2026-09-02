@@ -10,8 +10,8 @@
  * than fabricated.
  */
 import { AxeBuilder } from "@axe-core/playwright";
-import { expect, type Locator, type Page, test } from "@playwright/test";
-import { ADMIN_STORAGE_STATE, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK } from "./idam-session.js";
+import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
+import { ADMIN_STORAGE_STATE, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsAdmin } from "./idam-session.js";
 
 /** The reference number's year comes from Date Received, so a fixed date keeps the shape assertable. */
 const DATE_RECEIVED = { day: "10", month: "3", year: "2026" };
@@ -21,7 +21,7 @@ const CASE_URL = /\/deed-polls\/[0-9a-f-]{36}$/;
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
 test.use({ storageState: ADMIN_STORAGE_STATE });
 
-test("caseworker creates a case and edits one of its tabs", async ({ page }) => {
+test("caseworker creates a case and edits one of its tabs", async ({ page, browser }) => {
   await page.goto("/deed-polls");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Deed poll cases");
   await expectNoAccessibilityViolations(page);
@@ -55,14 +55,8 @@ test("caseworker creates a case and edits one of its tabs", async ({ page }) => 
   await expect(caseHeader(page)).toContainText("An Admin");
   await expectNoAccessibilityViolations(page);
 
-  // The Welsh shape, not Welsh content: every page carries `en` and `cy` with matching keys, but `cy`
-  // deliberately holds English until there is a translation to put in it. What this catches is a
-  // missing `cy` key, which renders as blank rather than as an error.
-  await page.goto(`${caseUrl}?lng=cy`);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^\s*KBDP2026-\d{5}\s*$/);
-  await expect(page.getByRole("link", { name: "Back to cases" })).toBeVisible();
+  await expectWelshKeysResolve(browser, caseUrl);
 
-  await page.goto(caseUrl);
   await page.getByRole("tab", { name: "Signature" }).click();
   // "Change" plus the card's title as visually hidden text, so the link is meaningful out of context.
   await page.getByRole("link", { name: "Change Signature" }).click();
@@ -167,6 +161,36 @@ async function fillNewCaseForm(page: Page, name: { forename: string; surname: st
   await page.getByLabel("New forename").fill(name.forename);
   await page.getByLabel("New surname").fill(name.surname);
   await fillDate(page.getByRole("group", { name: "Date received" }), DATE_RECEIVED);
+}
+
+/**
+ * The Welsh *shape*, not Welsh content: every page carries `en` and `cy` with matching keys, but `cy`
+ * deliberately holds English until there is a translation to put in it. What this catches is a missing
+ * `cy` key, which renders blank rather than erroring.
+ *
+ * **In a context and session of its own, which is the whole point of the function.** `localeMiddleware`
+ * persists the chosen language to `req.session.locale`, so requesting `?lng=cy` is a *write* to the
+ * session — and the session behind `ADMIN_STORAGE_STATE` is shared with every other test that restores
+ * it. Done on the shared session, this line switched the onboarding spec into Welsh mid-run, and its
+ * English locators stopped matching. The symptom was a 30-second timeout waiting for a button whose
+ * name had changed, in a different file, which reads as anything but a language leak.
+ *
+ * So: any authenticated check that writes to the session needs its own session, exactly as
+ * `idam-session.ts` says. One extra login is cheaper than an interference bug.
+ */
+async function expectWelshKeysResolve(browser: Browser, caseUrl: string): Promise<void> {
+  const context = await browser.newContext();
+
+  try {
+    const page = await context.newPage();
+    await signInAsAdmin(page);
+    await page.goto(`${caseUrl}?lng=cy`);
+
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^\s*KBDP2026-\d{5}\s*$/);
+    await expect(page.getByRole("link", { name: "Back to cases" })).toBeVisible();
+  } finally {
+    await context.close();
+  }
 }
 
 function signatureRequested(page: Page): Locator {

@@ -102,7 +102,7 @@ documents         ███████   7/7    done  incl. multipart upload, d
 ### Phase 4 — SSR pages
 
 - **13 page handlers** ported in `apps/web/src/pages/deed-polls/`, against **12** in the prototype's `deed-poll-pages.controller.ts` and **9** Nunjucks templates.
-- **22 end-to-end tests** written in `e2e-tests/tests/`, **2** of them deed-poll journeys. Accessibility and validation are checked inside the journeys, so they add no test count of their own.
+- **20 end-to-end tests** written in `e2e-tests/tests/`, **2** of them deed-poll journeys. Accessibility and validation are checked inside the journeys, so they add no test count of their own.
 
 ### Tests
 
@@ -125,8 +125,8 @@ total                                  1505 passed
 
 ```
 feat/deed-poll-migration
-45 commits ahead of master
-HEAD  3513638  Made note on progress.md so I know where to pick up from in the next session.
+46 commits ahead of master
+HEAD  c0a9d4a  Cover the deed-poll pages with e2e journeys, and fix what stopped them running
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -741,17 +741,79 @@ prototype; `apps/web` has always used `configureGovuk`. That file goes when the 
 two custom Nunjucks filters (`govdate`, `label`) are *not* reproduced — formatting moved into the
 view model instead (`list-view.ts`), which needs no bespoke Nunjucks environment and is testable.
 
+### The service root is the case list
+
+Steve's call, 2026-09-02: `/` was still the template's marketing home page — a panel titled "HMCTS
+Express Monorepo Template" describing `hmcts/expressjs-monorepo-template` rather than this service.
+Deleted, and `/` now redirects to `/deed-polls`.
+
+**A redirect, not the list rendered at `/`.** `/deed-polls` stays the collection's canonical URL
+because everything nested hangs off it, and the list's own filter links are absolute
+(`/deed-polls?filter=…`) — so serving the list at `/` would render a page whose every link navigates
+away from itself, and would give one collection two URLs.
+
+**`/` stays on `requireAuth`'s public allowlist**, which looks wrong and is not. It only redirects, so
+allowing it makes an anonymous visitor's `returnTo` the list rather than the root; off the allowlist
+they would sign in, return to `/`, and be redirected a second time. The refusing is done by the
+redirect *target*, which is guarded. Verified: `/` → 302 `/deed-polls` → 302
+`/login?returnTo=%2Fdeed-polls` → 302 IDAM.
+
+`/` needed a handler rather than just deleting the page: it is what anyone hitting the bare hostname or
+a bookmarked root gets, and the onboarding confirmation page's return button points at it.
+
+**It is not reached from the GOV.UK header, though — checked in the rendered HTML rather than inferred
+from the template.** `site-header.njk` passes `govukHeader({ serviceName, serviceUrl: "/" })`, which
+reads as though the header links to the root. It does not: **govuk-frontend 6 removed both options from
+`govukHeader`** in favour of `govukServiceNavigation`, so the installed 6.2.0 template contains neither
+name and silently ignores both. The only anchor in the rendered header is the GOV.UK crown, pointing at
+`//gov.uk`. That surfaced a separate defect — see loose end 15 — which is worth reading before touching
+either file.
+
+Consequences worth knowing:
+
+- **Three template e2e specs depended on that page.** `homepage.spec.ts` tested only its content, so it
+  is deleted. `welsh-language.spec.ts` and `cookie-management.spec.ts` both navigated to `/` — which is
+  now behind login, so the cookie banner would never be reached — and are retargeted at
+  `/accessibility-statement`. That page is the right substitute for a specific reason: it is **public**,
+  so the language toggle works before sign-in, and **genuinely translated**, which no deed-poll page is.
+  Asserting Welsh on a deed-poll page would assert English.
+- **`libs/onboarding` is now unreachable by navigation.** That home page held the only link to
+  `/onboarding/start`. It is template demo content, still routed and still tested, but nothing in the
+  service links to it — which strengthens the case for deleting it whenever the prototype goes.
+- **One flake surfaced and is fixed.** `signInAsAdmin` now runs five times per suite (the setup, plus
+  once per onboarding test), and under that load the cross-origin OIDC round trip exceeds Playwright's
+  default 5s `expect` timeout — the callback had not finished exchanging. It now waits 30s explicitly.
+  The failure read as a broken login rather than a slow one, which is the sort of flake that wastes a
+  morning in CI. Three consecutive full runs green after the fix.
+- **A second flake surfaced from the same root cause, and exposed a session-isolation bug in the deed-poll
+  journey.** The Welsh-shape check (`?lng=cy`) writes to `req.session.locale`, and the journey was doing
+  that on the shared session every test restored. So whichever test ran after the deed-poll journey saw
+  its pages render in Welsh, and its English locators stopped matching — 30-second timeout, waiting for a
+  button whose name had changed, in a different file. The Welsh check now signs in to its own throwaway
+  context instead, which is the whole point of `expectWelshKeysResolve`: any check that writes to the
+  session needs its own session. That brought the concurrent logins high enough to exhaust the shared pg
+  pool (10 connections, no timeout) and hang the callback — see loose end 16. The final mitigation:
+  `onboarding-happy-path.spec.ts` runs sequential-within-file rather than parallel, so the four tests
+  share one session in series and the suite stays under the pool threshold. Slower (42s vs 24s), but five
+  consecutive runs stable.
+
 ### Template names are global, and a collision fails silently
 
 **`res.render("index")` from `pages/deed-polls/index.ts` rendered the template's own home page**,
 with a 200 and no error. `collectViewPaths` in the govuk starter adds *every* page directory to the
-Nunjucks search path as a flat list, parent first — so `pages/index.njk` always shadows
+Nunjucks search path as a flat list, parent first — so `pages/index.njk` shadowed
 `pages/deed-polls/index.njk`. The page's own directory gives it no precedence.
 
 **Always render with a directory-qualified name: `res.render("deed-polls/index")`.** That resolves
 unambiguously against the `pages/` entry. Every existing template in `apps/web` happens to have a
 globally unique basename, so nothing had hit this before; the remaining pages include `detail`,
 `edit` and `upload`, which are exactly the names most likely to collide with something later.
+
+**`pages/index.njk` is now deleted** (see "The service root is the case list"), so this particular
+collision can no longer happen — **but the rule is unchanged and is not about that file.** The
+mechanism is the flat search path, which is still flat: any two templates sharing a basename collide,
+parent-most wins, and the loser fails silently with a 200. Do not read the deletion as making
+qualified names optional.
 
 This deviates from `.claude/rules/frontend.md`, which says the template name must match the file
 name. It still does — the qualified name *is* the path — but the rule as written implies the bare
@@ -1508,6 +1570,53 @@ Small, real, and deliberately not done. None blocks Phase 3.
    remember the file is buffered in memory, so the ceiling is really 10 MB × concurrent uploads
    against the pod's memory limit.
 
+16. **The shared `pg.Pool` has no size limit and will stall when exhausted** (found 2026-09-02). The pool
+    backing Prisma and the session store is created in `libs/postgres-prisma` with **no `max`**, so
+    `node-postgres` defaults to 10. OIDC login is several round trips on that pool — token exchange,
+    userinfo, session writes — and under load (7 Playwright workers × concurrent logins) the pool drains
+    and `pool.connect()` queues forever with no timeout. The symptom was a 30-second test hang on
+    `/oauth2/callback`, which read as a broken login rather than pool exhaustion. Playwright's default
+    test timeout rescued it, but in production a `/oauth2/callback` that never responds would wedge the
+    session and leave the user hung. **Not fixed here** — it is a real defect but its scope is wider than
+    e2e tests (every route handler reaching Prisma or the session store is affected), and any interim fix
+    risks diverging from what the template should eventually ship. The right action is upstreaming a
+    sensible pool config to `hmcts/expressjs-monorepo-template` — checked size, connection timeout, idle
+    timeout — for the same reason as items 1, 11 and 15. The e2e suite mitigates by keeping logins to a
+    minimum: the setup project signs in once, most tests share that session, and the one journey that
+    needed its own session (the Welsh check, because `localeMiddleware` writes `req.session.locale`) now
+    creates a throwaway context rather than signing in per test. That keeps the concurrent logins under
+    the threshold that stalls the pool — a workaround, not a fix. Future: make `max` and
+    `connectionTimeoutMillis` explicit in `libs/postgres-prisma/src/index.ts` when upstreaming the change.
+
+15. **Every page is titled "Express Monorepo Template", and the header names no service at all.** Found
+    while checking what actually pointed at `/` (2026-09-02). Two separate faults that look like one:
+
+    - **`apps/web/src/locales/en.ts` sets `serviceName: "Express Monorepo Template"`** — a re-scaffold
+      leftover. It still reaches `page-title.njk` (`{{ title }} - {{ serviceName }} - {{ govUk }}`), so
+      **every page in the service is titled `<page> - Express Monorepo Template - GOV.UK`**, verified in
+      the rendered HTML. User-visible, in the browser tab and in every bookmark. A one-value fix, but
+      **the value is a content decision** — what this is called to the people using it, plus the Welsh —
+      so it wants asking rather than defaulting to the repo name.
+    - **`govukHeader` ignores `serviceName` and `serviceUrl` in govuk-frontend 6.** The starter's
+      `site-header.njk` passes both; the installed 6.2.0 header template mentions neither, because v6
+      moved them to `govukServiceNavigation`. So no service-name link renders, and the header is bare but
+      for the crown. Fixing it means switching the starter to `govukServiceNavigation` — and
+      `libs/express-govuk-starter` is **template-provided**, so this wants upstreaming for the same
+      reason as items 1 and 11 rather than patching locally, and it affects every service on the
+      template. Note axe cannot catch either fault: a title of "Express Monorepo Template - GOV.UK" is
+      present and non-empty, which is all `document-title` checks.
+
+14. **The case list has no pagination.** Steve's, 2026-09-02, for the backlog. `findDeedPolls` selects
+    every case matching the filter and `index.njk` renders all of them into one `govukTable` — fine at
+    the ~40 rows a dev database holds, and not fine at the volume a live deed-poll caseload reaches.
+    Note the shape of the work is more than a `LIMIT`: the filter tabs would need to carry the page
+    through, the count is needed for the pager, and **there is no sort control**, so "page 2" is only
+    meaningful once the order is explicit — `findDeedPolls`'s current order is whatever it is rather
+    than something the page states. `.claude/rules/backend.md`'s own performance note asks for
+    pagination on list endpoints, so `GET /deed-polls` in `apps/api` wants the same treatment and the
+    two should agree on the parameter names. Worth doing together, and worth asking the service team
+    what a caseworker actually sorts and filters by before designing it.
+
 13. **`e2e-tests` is not covered by `yarn lint`, and 6 of its files fail `biome check`.** Exactly the
     shape of item 12: the workspace has no `lint` script, so `turbo lint`'s 11 tasks skip it entirely,
     while a root `biome check .` reports 9 errors — all pre-existing template formatting (single quotes,
@@ -1617,6 +1726,9 @@ Unblocked and still code, in rough order of value:
 
 - **Welsh translation.** The only part of Phase 4's verification line still open. A content change:
   the `cy` keys all exist and a test now pins that they resolve.
+- **Loose end 14, pagination on the case list** — the largest of the unblocked items, and the one that
+  needs a conversation with the service team first, because sorting and the filter interaction are part
+  of it rather than a `LIMIT`.
 - **Loose end 13**, the `e2e-tests` lint gap — small, and it stops a root `biome check --write`
   restaging template files into an unrelated commit.
 - **Parked task 2**: check Renovate PR #31 merges cleanly and report. **Do not merge it unasked.**

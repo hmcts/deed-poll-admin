@@ -34,10 +34,14 @@ const PASSWORD = "Pa55word11";
  * **The file holds a live session cookie, so it is a credential** — `.auth/` is gitignored.
  *
  * **One cookie means one server-side session, shared by every test that restores this state.** That is
- * safe for a journey that only reads the signed-in user, which is all the deed-poll pages do. A
- * journey that stores anything in the session must call `signInAsAdmin` itself instead, or under
- * `fullyParallel` it will overwrite a concurrent test's data — see the note in
- * `onboarding-happy-path.spec.ts`, where exactly that happened.
+ * safe for a journey that only reads the signed-in user, which is all the deed-poll pages do. A journey
+ * that stores anything in the session must not run in parallel with another that does, or it will
+ * overwrite the other's data — see `onboarding-happy-path.spec.ts`, where exactly that happened, and
+ * which is sequential within its own file for that reason.
+ *
+ * **Prefer that to signing in per test.** It was tried, and five concurrent logins were enough to
+ * exhaust the shared pg pool and hang the OIDC callback for 30 seconds — see loose end 16 in
+ * PROGRESS.md. Each login is several database round trips on a pool that Prisma is also using.
  */
 export const ADMIN_STORAGE_STATE = path.join(path.dirname(fileURLToPath(import.meta.url)), "../.auth/admin.json");
 
@@ -77,5 +81,9 @@ export async function signInAsAdmin(page: Page): Promise<void> {
 
   // Landing here means the code exchange, the ID-token signature check against the simulator's JWKS,
   // the `state` check and the `/o/userinfo` call all succeeded. A failure renders 403 instead.
-  await expect(page).toHaveURL("/deed-polls");
+  //
+  // A longer timeout than the 5s default, deliberately. This is a cross-origin round trip — callback,
+  // token exchange, JWKS fetch, userinfo — against a JVM that several workers hit at once, and it does
+  // exceed 5s under load. The flake it caused looked like a broken login rather than a slow one.
+  await expect(page).toHaveURL("/deed-polls", { timeout: 30_000 });
 }

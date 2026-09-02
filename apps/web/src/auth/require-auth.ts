@@ -19,8 +19,11 @@ import { sessionUser } from "./session.js";
  *
  * `/login` and `/oauth2/callback` are the flow itself, so requiring auth for them would be a loop.
  * `/health` is probed by Kubernetes, which has no session. The footer pages are statutory content
- * (accessibility statement, privacy policy, cookies) that must be readable before login, and `/` is
- * the landing page carrying the link to sign in.
+ * (accessibility statement, privacy policy, cookies) that must be readable before login.
+ *
+ * `/` is here even though the case list behind it is **not** public: it only redirects to
+ * `/deed-polls`, so allowing it makes an anonymous visitor's `returnTo` the list rather than the
+ * redirect, saving a hop after sign-in. Nothing is disclosed — the redirect target does the refusing.
  *
  * Asset paths are matched by prefix because Vite serves them under `/@vite`, `/@fs` and `/src` in
  * development and the built bundles live under `/assets`.
