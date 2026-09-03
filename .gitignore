@@ -56,8 +56,8 @@ values.preview.yaml
 libs/postgres-prisma/generated/
 
 # NestJS prototype, staged here while its code is migrated into apps/ and libs/.
-# Ignored so its node_modules, dist, .env and data/documents blobs cannot be
-# committed by accident. Remove this entry once the migration is complete and
+# Ignored so its node_modules (~500M), dist, .env and data/documents blobs cannot
+# be committed by accident. Remove this entry once the migration is complete and
 # the directory is deleted.
 power_app_nest/
 
