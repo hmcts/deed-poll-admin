@@ -15,16 +15,18 @@
  *   yarn idam:users
  */
 
+// The privileged role is imported rather than restated, because a copy of the string here had already
+// drifted once: the rename to `caseworker-deedpoll-admin` updated `roles.ts` and left this script
+// granting the old `deedpoll-admin`. That fails closed, so the symptom was not an error but an admin
+// who resolved to no roles — every e2e admin journey would have signed in unprivileged. Requires
+// `libs/deed-poll` to have been built; a missing build fails loudly here rather than silently.
+// The name real CFT IDAM uses is still unconfirmed — see `.business_context/IDAM_REGISTRATION_REQUEST.md`.
+import { DEEDPOLL_ADMIN } from "@hmcts/deed-poll";
+
 const BASE = process.env.IDAM_SIMULATOR_URL ?? "http://localhost:5556";
 
-/**
- * The role string is a placeholder. Real CFT IDAM's name for this role is an open question in
- * `.business_context/IDAM_REGISTRATION_REQUEST.md`, and it has to match `DEEDPOLL_ADMIN` in
- * `libs/deed-poll/src/auth/roles.ts` or the user resolves to no roles — which fails closed, so the
- * symptom is "cannot edit privacy" rather than an error.
- */
 const USERS = [
-  { email: "admin@example.com", forename: "An", surname: "Admin", roles: [{ code: "deedpoll-admin" }] },
+  { email: "admin@example.com", forename: "An", surname: "Admin", roles: [{ code: DEEDPOLL_ADMIN }] },
   { email: "caseworker@example.com", forename: "A", surname: "Caseworker", roles: [] }
 ];
 

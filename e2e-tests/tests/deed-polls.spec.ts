@@ -177,9 +177,18 @@ async function fillNewCaseForm(page: Page, name: { forename: string; surname: st
  *
  * So: any authenticated check that writes to the session needs its own session, exactly as
  * `idam-session.ts` says. One extra login is cheaper than an interference bug.
+ *
+ * **`storageState: undefined` is load-bearing, and its absence made all of the above untrue.**
+ * `browser.newContext()` inherits this file's `test.use({ storageState })` — verified by inspecting a
+ * context created without it, which arrives holding four cookies (`connect.sid`, `locale`,
+ * `Idam.Session`, `idam_ui_locales`). So the "own session" was the shared one: this check was writing
+ * `locale` to the very session it was written to stop writing to, and `signInAsAdmin` then hung
+ * forever because `/login` redirects an already-authenticated browser to `/deed-polls`, so the
+ * simulator's `#username` never renders. The symptom was a bare test timeout with no failed
+ * assertion, which reads as a slow app rather than a context that was never anonymous.
  */
 async function expectWelshKeysResolve(browser: Browser, caseUrl: string): Promise<void> {
-  const context = await browser.newContext();
+  const context = await browser.newContext({ storageState: undefined });
 
   try {
     const page = await context.newPage();
