@@ -1540,7 +1540,12 @@ Every secret the workflows reference, and what each is for:
 | `AZURE_CREDENTIALS_CFT_PREVIEW` | `terraform-deploy` (`job.terraform.yml:95`) and preview `helm-deploy` (`job.helm-deploy.yml:103`) | Service-principal JSON — see the note on OIDC below |
 | `AZURE_CREDENTIALS_CFT_AAT` | AAT `helm-deploy` (`:118`) and `job.helm-cleanup.yml:27` | as above |
 | `SONAR_TOKEN` | `job.test.yml:73` | SonarCloud project setup |
-| `DATABASE_URL` | `job.lint.yml:46` | Only needed if lint runs Prisma against a database; likely removable, see Loose ends |
+| `DATABASE_URL` | `job.lint.yml:46` | **Not removable as guessed** — the lint job runs `prisma validate`, which resolves `DATABASE_URL` from Prisma config and fails without it. Confirmed against PR #47's CI; see ["PR #47 and what CI actually says"](#pr-47-and-what-ci-actually-says-2026-09-03) |
+
+**None of these secrets exists.** `gh api repos/hmcts/deed-poll-admin/actions/secrets` returns
+`total_count: 0`, verified 2026-09-03 — so every check that authenticates to Azure or Sonar fails, and
+has been failing on master too. A repository setting is also missing: **GitHub Code Security must be
+enabled** for the `osv-scan` job to run at all.
 
 The federated-credentials route is **self-service and documented**:
 [`docs/how-to/federated-credentials.md`](../../docs/how-to/federated-credentials.md). Add an entry to
@@ -1884,6 +1889,54 @@ which are references, not values.
 
 **No PR is open, deliberately.** This is work in progress through Phase 2 of 6, so a PR would sit
 open for weeks. Revisit once Track A is green.
+
+## PR #47 and what CI actually says (2026-09-03)
+
+**[PR #47](https://github.com/hmcts/deed-poll-admin/pull/47) is open for `feat/deed-poll-migration`** —
+284 files, +24,922/−768. GitHub reports `mergeable=MERGEABLE` with `mergeStateStatus=UNSTABLE`: it
+conflicts with nothing, and its checks fail.
+
+**This is the first time CI has ever run against this branch**, and the result is the most useful thing
+learned all day: **not one failure is in the branch's code.** `Build / Test / Test Changed Packages`
+**passes**. Every failure is a repository-level prerequisite that has never been set up.
+
+| Check | Why it fails | Already tracked as |
+|---|---|---|
+| `Build / Lint / Lint Changed Packages` | runs `yarn workspace @hmcts/postgres-prisma exec prisma validate`, which needs `DATABASE_URL`; the env is empty → `PrismaConfigEnvError` | the `DATABASE_URL` row in the credentials table, guessed there as "likely removable" — it is not removable while lint runs `prisma validate` |
+| `Build & Publish` × 4 (api, web, crons, postgres) | `azure/login`: *"Not all values are present. Ensure 'client-id' and 'tenant-id' are supplied"* | `AZURE_CLIENT_ID` / `AZURE_TENANT_ID`, Phase 6 item 3 (federated credentials) |
+| `Infrastructure / Terraform / Terraform Plan` | the same `azure/login` failure | ditto |
+| `Security Scan / osv-scan` | *"Code Security must be enabled for this repository to use code scanning"* | **new — was not recorded anywhere.** A repository setting, not a credential |
+| `SonarCloud Code Analysis` | no `SONAR_TOKEN` | the `SONAR_TOKEN` row |
+
+**One root cause under most of it: the repository has no secrets at all.**
+`gh api repos/hmcts/deed-poll-admin/actions/secrets` returns `total_count: 0`. So `AZURE_CLIENT_ID`,
+`AZURE_TENANT_ID`, `AZURE_CREDENTIALS_CFT_AAT`, `AZURE_CREDENTIALS_CFT_PREVIEW`, `SONAR_TOKEN` and
+`DATABASE_URL` are all absent. Nothing that authenticates to Azure or Sonar can pass until that is
+fixed, and the federated-credentials route is self-service — see
+[`docs/how-to/federated-credentials.md`](../../docs/how-to/federated-credentials.md).
+
+**Corrects a prediction made earlier in this session.** It was expected that `terraform plan` would fail
+on `main.tf:15` / `keyvault.tf:4`, the `data` blocks reading a resource group and key vault that do not
+exist. **It fails earlier than that, at Azure login**, so the missing shared infrastructure has not yet
+been reached and remains unverified rather than confirmed. Terraform also logged *"No product name
+provided and could not extract from Chart.yaml"*, which may be a second, separate configuration problem
+and has not been investigated.
+
+**`Deploy`, `Smoke Test` and `E2E` all report `skipping`** — the build failure gates them. So merging
+would not currently produce a failed AAT deploy; it would stop before that. Good, but it also means the
+deploy path stays untested.
+
+**Master's pipeline has been failing all day, not just on this PR.** `Main` is `failure` on the merges of
+#41, #43 and #44. These gaps are chronic — the pipeline has never been green, because the prerequisites
+have never existed — so a red PR #47 is not evidence of anything wrong with the branch.
+
+### So is it ready to merge?
+
+The code is. Nothing in `feat/deed-poll-migration` is what makes CI red, and locally
+`install --immutable`, `lint`, `build`, `test` (1542) and `test:e2e` (21) all pass. But **CI cannot go
+green until platform onboarding happens**, which is Phase 6's external work — so "merge when CI is
+green" and "merge when the gates clear" are the same statement. The recorded decision to wait therefore
+still holds, and #47 is best treated as a review vehicle rather than something to merge now.
 
 ## Branch inventory
 
