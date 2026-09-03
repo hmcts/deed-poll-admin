@@ -285,8 +285,8 @@ total                                  1531 passed  11 skipped
 
 ```
 feat/deed-poll-migration
-50 commits ahead of master
-HEAD  38190c3  Commit the submitted IDAM registration files as a record
+52 commits ahead of master
+HEAD  1f53989  Correct the comment explaining the removed-fields test helper
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -340,9 +340,11 @@ any more — the decision is "yes, just not now". Task 1 is now closed; task 2 s
    the repo name settles it — product `deed-poll`, component `admin`, exactly what the re-scaffold
    assumed. The old `Jenkinsfile_CNP`'s `rpe` was a template leftover and can be ignored. See
    "The product code is settled" under Phase 6 for the two things that did fall out of it.
-2. **Check Renovate PR #31 (`applicationinsights` 3.16.0) merges cleanly and report.** It should
-   carry `protobufjs@8.0.1` and so clear 11 of the 20 remaining advisories in one go. **Do not merge
-   it unasked** — report only.
+2. ~~**Check Renovate PR #31 (`applicationinsights` 3.16.0) merges cleanly and report.**~~
+   **Checked 2026-09-03 — it merges cleanly and clears 12 advisories. Still not merged**, as instructed.
+   See ["Renovate PR #31"](#renovate-pr-31-checked-not-merged) below for the measurements. The
+   prediction recorded here was right about the mechanism being `protobufjs` and slightly understated
+   the effect.
 
 Decided and closed, recorded so they are not reopened:
 
@@ -1820,6 +1822,69 @@ which are references, not values.
 **No PR is open, deliberately.** This is work in progress through Phase 2 of 6, so a PR would sit
 open for weeks. Revisit once Track A is green.
 
+## Renovate PR #31 (checked, not merged)
+
+**Checked 2026-09-03. It merges cleanly and clears 12 of the advisories. Not merged** — parked task 2
+said report only, and it still stands as a decision for Steve.
+
+**Mergeability is not in question at all: it is a fast-forward.** PR #31 is
+`renovate/applicationinsights-3.x` at `c292fbc`, whose parent **is** current master `8bf8563`, so master
+has not moved since the PR was cut and there is nothing to merge. Confirmed two ways —
+`git merge-base --is-ancestor` says master is an ancestor of the PR head, and `git merge-tree` produces
+a clean result tree with no conflicts. Both were run without touching any working tree, in throwaway
+worktrees since removed.
+
+It changes two files: `libs/cloud-native-platform/package.json` (`applicationinsights` 3.15.0 → 3.16.0)
+and `yarn.lock`. Not lockfile-only, but a manifest bump is what a version update is.
+
+**Measured, by running `yarn npm audit --all --recursive` against both trees** rather than reasoning
+from the lockfile:
+
+| | master `8bf8563` | PR #31 `c292fbc` |
+|---|---|---|
+| total | **28** (12 high, 16 moderate) | **16** (6 high, 10 moderate) |
+| `protobufjs` | 11 | **0** |
+| `@opentelemetry/propagator-jaeger` | 1 | **0** |
+| `fast-uri` | 4 | 4 |
+| `@hono/node-server`, `mysql2`, `qs` | 2 each | 2 each |
+| `@opentelemetry/core`, `@types/config`, `deepmerge-ts`, `tsconfck`, `uuid`, `valibot` | 1 each | 1 each |
+
+**The mechanism is not the one predicted, and is better.** The note here expected the bump to "carry
+`protobufjs@8.0.1`" to a patched version. What actually happens is that `@opentelemetry/otlp-transformer`
+goes 0.217.0 → 0.220.0 and **no longer depends on `protobufjs` 8.x at all**, so the exactly-pinned
+`protobufjs@npm:8.0.1` entry disappears from the lockfile rather than being upgraded. That is why 12 clear
+rather than 11 — `@opentelemetry/propagator-jaeger` goes with it. `@grpc/grpc-js` and
+`@grpc/proto-loader` are unchanged, so they were never the problem.
+
+### Three different advisory counts, and why none of them is drift
+
+An earlier note in this session said Dependabot had "drifted to 22, up from the 20 recorded in
+PROGRESS.md". **That comparison was wrong** — it put two different tools' numbers side by side as though
+one had moved:
+
+- **20** was `yarn npm audit` on 2026-08-23, recorded below.
+- **28** is `yarn npm audit` today, on a **byte-identical lockfile** — master's `yarn.lock` last changed
+  in `b4e77d4` on 2026-08-23 and has not been touched since. So nothing regressed and no dependency
+  changed: **8 new advisories were published against packages that were already there.** That is the
+  only thing that can have happened, and it is worth knowing as the background rate.
+- **22** is GitHub Dependabot's own count, from the push warning. It groups and scopes differently from
+  `yarn npm audit --all --recursive`, which counts every advisory against every package across all
+  workspaces including dev dependencies. The two are not required to agree and comparing them tells you
+  nothing.
+
+**Compare like with like, and prefer `yarn npm audit` locally**, because it is the one that can be run
+against an arbitrary tree — which is what made the before/after table above possible.
+
+**`power_app_nest/` is not the source of any of this, verified again 2026-09-03.** It is untracked, **no
+commit on any branch has ever touched the path**, and it is gitignored on this branch — so Dependabot
+cannot see its `package-lock.json`, and master carries exactly one lockfile (root `yarn.lock`). This is
+the third time that question has come up; the reasoning is below under "Dependency alerts on master" and
+has not changed.
+
+**Loose end 4 is still live and was re-confirmed while checking:** `power_app_nest/` is ignored only on
+this branch. `git show origin/master:.gitignore` has no entry for it, so on master a stray `git add -A`
+would still try to commit ~498M of `node_modules` and 57 document blobs.
+
 ## Dependency alerts on master
 
 **Resolved 2026-08-23** — [PR #36](https://github.com/hmcts/deed-poll-admin/pull/36) is merged
@@ -1871,3 +1936,8 @@ bumped. **11 of them are a single `protobufjs@8.0.1`**, pinned exactly by the Op
 `applicationinsights`; Renovate PR #31 (`applicationinsights` 3.16.0) should carry it. Two are not
 vulnerabilities at all — `@types/config` is a stub package that `config` supersedes (delete the
 dependency from `apps/api` to clear it), and `tsconfck` is merely flagged unmaintained.
+
+**The figure 20 is as of 2026-08-23 and is now 28 on the same unchanged lockfile** — see
+["Renovate PR #31"](#renovate-pr-31-checked-not-merged) above, which measures both and explains why that
+is new advisories rather than any change here. The `protobufjs` reasoning held up; PR #31 clears 12 rather
+than 11, and by removing the dependency instead of upgrading it.
