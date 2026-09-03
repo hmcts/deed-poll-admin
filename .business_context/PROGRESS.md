@@ -1,13 +1,126 @@
 # Migration progress — handover
 
-Last updated: 2026-09-01. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
+Last updated: 2026-09-02. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
 **Phases 0–4 are done as far as code goes, and Phase 5's login flow is built and working.**
 
-**Next thing to pick up: send the IDAM registration request** —
-[`IDAM_REGISTRATION_REQUEST.md`](IDAM_REGISTRATION_REQUEST.md) is drafted and waiting. It is the only
-thing standing between a login that works against a local stub and one that works against real IDAM,
-and it has external lead time, so it wants sending before any further code.
+## Session handover (2026-09-03)
+
+**The IDAM registration PR is raised.** Steve submitted it to `hmcts/idam-access-config` outside this
+container on 2026-09-03, from the 6 files staged at `/tmp/deed-poll-idam-pr/` (base +
+aat/demo/ithc/perftest overrides + roles.yaml). **Nothing further is needed from us on the request
+itself** — the next move is IDAM's, and it is a wait rather than a task.
+
+**What is still gated behind it**, unchanged: the client id and secret, so nothing can log in to a
+deployed instance; the `idam-client-secret` vault entry; the two open questions in
+[`IDAM_REGISTRATION_REQUEST.md`](IDAM_REGISTRATION_REQUEST.md) (PKCE and client-secret enforcement,
+and the preview wildcard); and the e2e journeys, which skip against a deployed environment for exactly
+this reason. **Two things only real IDAM can settle** and both fail closed, so watch for them rather
+than expecting an error: whether the role string really is `caseworker-deedpoll-admin`, and whether
+CFT IDAM's `/o/userinfo` matches the simulator's `IdamUserInfo` shape. A wrong role string shows up as
+"nobody can edit privacy".
+
+### The previous session's work did not build, and it hid a real defect
+
+`be3dbba` committed the 2026-09-02 evening work — refresh tokens, client credentials, test users, the
+role rename — after fixing **six TypeScript errors that meant `yarn build` had never passed on it**.
+That handover claimed "all 250 tests passing", which was true and not sufficient: `vitest` transpiles
+per file without type-checking, so `yarn test` cannot see an error `yarn build` fails on. **Run all
+three — `lint`, `build`, `test` — before writing a handover that says a slice is done.**
+
+One of the six was a genuine runtime bug rather than a type annotation:
+
+- **`tokens.expires_at` does not exist on an OAuth token response.** The field is `expires_in`
+  (seconds from now). `TokenEndpointResponse` carries an index signature
+  (`[parameter: string]: JsonValue | undefined`), so reading a misspelt or invented field type-checks
+  as `JsonValue` and is **`undefined` at runtime** — which is why the tests passed. Every session
+  therefore took the one-hour fallback whatever IDAM actually said. **If IDAM's real access-token
+  lifetime is shorter than an hour, `refreshMiddleware` never fires before expiry and the user gets a
+  401 mid-session**; longer, and it refreshes needlessly. Now `expiresAtFrom()` in
+  `apps/web/src/auth/idam.ts`, shared by `completeLogin`, `refreshTokens` and
+  `getClientCredentialsToken`, reading `openid-client`'s `expiresIn()` helper. The one-hour fallback
+  survives only for the case OIDC permits — an issuer that omits `expires_in` — and both branches are
+  pinned.
+- **`clientCredentialsGrant(configuration, scope)` passed the scope where the parameter set goes.**
+  The second argument is `URLSearchParams | Record<string, string>`, so a bare string sent **no scope
+  at all** and the token came back with the client's default rather than the least-privilege
+  `profile roles` asked for. Now `{ scope }`.
+- **`let tokens: client.TokenEndpointResponse` in `refreshTokens` stripped the helpers half of the
+  type**, so `claims()` was not callable. The grant returns
+  `TokenEndpointResponse & TokenEndpointResponseHelpers`; the annotation now says so.
+
+**The test doubles were built to match the fiction**, which is why nothing caught it: `tokensWith` in
+`idam.test.ts` and the mock in `client-credentials.test.ts` both returned `expires_at`, cast through
+`as never` / `as TokenEndpointResponse`. Both now model `expires_in` **and** the `expiresIn()` helper,
+because that pair is what the library returns. Same lesson as the deleted hand-written IDAM stub: a
+double that supplies only what the code reaches for can only confirm its author's assumptions. Also
+note `client-credentials.test.ts` had mocked `./idam.js` wholesale, which would have stubbed out the
+new shared `expiresAtFrom` — it now spreads `importOriginal()` and stubs only `idamConfiguration`.
+
+**One trap while fixing the tests, worth not repeating:** a default parameter swallows an explicit
+`undefined`, so `tokensWith(claims, undefined)` silently tested the default and the
+"issuer omitted `expires_in`" case asserted nothing. `expiresIn` is a required parameter now.
+
+**Left as it is, and worth a decision rather than a silent fix:** `refreshTokens` throws when the
+refresh response carries no ID token subject. IDAM is not obliged to return a new `id_token` on a
+refresh, and if CFT IDAM does not, **every refresh will throw and `refreshMiddleware` will swallow it
+as a transient error** (it logs and calls `next()`), so sessions will expire as though refresh were
+never implemented rather than failing visibly. Fixing it means either falling back to the session's
+existing user or re-reading userinfo with the new access token — a behaviour call that wants real IDAM
+to answer first.
+
+**What the 2026-09-02 session completed:**
+
+- **Refresh token support** (`apps/web/src/auth/refresh-middleware.ts`): Automatically refreshes access
+  tokens 5 minutes before expiry. If refresh fails (revoked/expired), forces re-login. Gives IDAM
+  centralized control over access revocation.
+- **Client credentials grant** (`apps/web/src/auth/client-credentials.ts`): Service-to-service
+  authentication for calling IDAM APIs where no user is involved.
+- **Test user creation** (`apps/web/src/auth/test-users.ts`): Programmatic test user creation via
+  `idam-testing-support-api`. Users auto-cleanup after 3 hours in AAT. Uses client_credentials grant.
+- **Role name updated**: Changed from placeholder `deedpoll-admin` to
+  `caseworker-deedpoll-admin` following HMCTS conventions (products with hyphens remove hyphen in role
+  names: `deed-poll` → `caseworker-deedpoll-admin`). Updated in `libs/deed-poll/src/auth/roles.ts` and
+  tests. All 110 deed-polls route tests passing.
+- **SSO providers**: Added `sso_providers: [moj]` to IDAM config for HMCTS caseworker SSO.
+- **Post-logout redirect URIs**: Added `oidc:` section with `post_logout_redirect_uris` — directs users
+  back to service root after logout completes at IDAM.
+- **All open questions answered** by examining `hmcts/idam-access-config` and `hmcts/rse-idam-simulator`:
+  - Role naming confirmed: `caseworker-deedpoll-admin` matches pattern
+  - `tokenName` claim confirmed present on IDAM tokens (access_token vs id_token distinction works)
+  - `post_logout_redirect_uris` should be registered (optional but recommended)
+  - Preview environment URIs: AAT auto-adds `https://allow-pr-redirects` wildcard for PR-specific hostnames
+
+**IDAM configuration summary:**
+- Grant types: `authorization_code`, `refresh_token`
+- Scopes: `openid`, `profile`, `roles`, `offline_access`
+- Frontend: `HMCTS_ACCESS` (professional-facing)
+- SSO: MOJ provider for caseworker authentication
+- MFA: false (relies on account-level MFA)
+- Role: `caseworker-deedpoll-admin` (managed by `ccd-admin`)
+- Environments: base (production TBD) + aat/demo/ithc/perftest overrides (localhost + staging URLs)
+
+**Code changes:**
+- `apps/web/src/auth/session.ts`: Extended session interface to store tokens (idToken, refreshToken,
+  accessToken, tokenExpiresAt)
+- `apps/web/src/auth/idam.ts`: Changed completeLogin to return LoginResult with tokens object
+- `apps/web/src/auth/refresh-middleware.ts`: NEW - automatic token refresh 5 min before expiry
+- `apps/web/src/auth/client-credentials.ts`: NEW - client_credentials grant
+- `apps/web/src/auth/test-users.ts`: NEW - test user creation API wrapper
+- `apps/web/config/default.json`: Added `offline_access` to scope
+- `apps/web/helm/values.yaml`: Updated issuer URL from `idam-web-public` to `hmcts-access`, added
+  `offline_access` to scope
+- `libs/deed-poll/src/auth/roles.ts`: Updated role constant to `caseworker-deedpoll-admin`
+- `.business_context/IDAM_REGISTRATION_REQUEST.md`: Complete registration config + research findings
+- `.business_context/PROGRESS.md`: Updated with test user creation note (2026-09-02)
+- Tests: 14 new tests (client-credentials.test.ts, test-users.test.ts), updated route tests to use
+  constant. Test counts are in the generated dashboard below rather than here — the figure this line
+  used to carry was `apps/web`'s alone and read as the workspace total.
+
+**Next thing to pick up: wait for the IDAM registration PR to be merged and deployed.** Once the client
+is registered and the secrets are in the vault, Phase 5 authentication will be complete and deployable.
+The only code remaining is Phase 6 (config, Helm, deployment), which depends on shared infrastructure
+existing.
 
 Phase 4's 12 page handlers are all ported and exercised against a running app. **Two pieces of
 Phase 4 are deliberately outstanding rather than done** — neither blocks Phase 5, and both are
@@ -61,7 +174,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  2  domain → libs/deed-poll    ██████████████████████  done
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
  4  SSR pages → apps/web       █████████████████████░  12/12 ported, e2e + axe green; Welsh untranslated
- 5  authentication (IDAM)      ███████████████████░░░  ◀── HERE. both apps done; needs a real client
+ 5  authentication (IDAM)      ████████████████████░░  ◀── HERE. code done; PR raised, awaiting IDAM
  6  config, Helm, deployment   ██████████████░░░░░░░░  code done; needs shared infra + a namespace
 
 TRACK B — CCD adoption (separable; start only once Track A is green)
@@ -77,7 +190,7 @@ Three things gate a deploy, none of them code in this branch:
 
 | Gate | Why it blocks |
 |---|---|
-| Phase 5 auth | Both apps authenticate now, but there is no registered IDAM client to point them at, and neither `idam-client-secret` nor `session-secret` exists in the vault — so nobody can log in to a deployed instance, and `assertIdamSettings` refuses to start without them |
+| Phase 5 auth | **Registration PR raised 2026-09-03; waiting on IDAM.** Both apps authenticate, but until the client is registered there is nothing to point them at, and neither `idam-client-secret` nor `session-secret` exists in the vault — so nobody can log in to a deployed instance, and `assertIdamSettings` refuses to start without them. No longer a task, just a wait |
 | Shared infrastructure | `deed-poll-shared-infrastructure` does not exist, and `infrastructure/` **references** the resource group and key vault it would create — so the terraform plan fails before anything deploys. Longest lead time of anything left |
 | CI has no database | The `ccd` schema tests skip in CI. Honest, but not coverage |
 
@@ -115,18 +228,20 @@ documents         ███████   7/7    done  incl. multipart upload, d
 @hmcts/crons                             10 passed
 @hmcts/deed-poll                        590 passed
 @hmcts/onboarding                        72 passed
-@hmcts/postgres                          11 passed
-@hmcts/web                              236 passed
+@hmcts/postgres                           0 passed  11 skipped
+@hmcts/web                              253 passed
 ─────────────────────────────────────────────────────
-total                                  1505 passed
+total                                  1511 passed  11 skipped
 ```
+
+- Skips are `apps/postgres`' `ccd` tests: they need `docker compose up -d`, and CI has no database.
 
 ### Branch
 
 ```
 feat/deed-poll-migration
-46 commits ahead of master
-HEAD  c0a9d4a  Cover the deed-poll pages with e2e journeys, and fix what stopped them running
+47 commits ahead of master
+HEAD  cceae2c  Redirect / to /deed-polls and fix two e2e test flakes
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -968,6 +1083,15 @@ which is an external request with lead time.
 | `libs/deed-poll/src/auth/plain-http.ts` | the one cleartext-issuer decision both apps make |
 | `apps/{api,web}/helm/values.yaml` | IDAM env vars, and the two secrets that must exist before a deploy |
 | ~~`libs/deed-poll/src/auth/header-user.ts`~~ | **deleted.** The `x-user-roles` bypass no longer exists anywhere |
+| `apps/web/src/auth/client-credentials.ts` | `client_credentials` grant for service-to-service authentication (2026-09-02) |
+| `apps/web/src/auth/test-users.ts` | programmatic test user creation via `idam-testing-support-api` (2026-09-02) |
+| `apps/web/src/auth/refresh-middleware.ts` | automatic token refresh 5 minutes before expiry (2026-09-02) |
+
+**Test user creation is ready to use after IDAM registration** (2026-09-02). The `createTestUser()`,
+`getTestUser()`, and `deleteTestUser()` functions are implemented and tested. They authenticate using
+`client_credentials` grant and call `idam-testing-support-api` to create users with password already set,
+bypassing the normal email activation flow. Users auto-cleanup after 3 hours in AAT. Requires our client
+ID and secret from IDAM registration, and the real role name (not the `deedpoll-admin` placeholder).
 
 ### Decisions worth not relitigating
 
@@ -1350,8 +1474,10 @@ it. Do it as its own change, against a real environment.
 
 ### Still to do in Phase 5
 
-- **Send the registration request.** [`IDAM_REGISTRATION_REQUEST.md`](IDAM_REGISTRATION_REQUEST.md).
-  Nothing else here can move until it is answered.
+- ~~**Send the registration request.**~~ **Done 2026-09-03** — PR raised to `hmcts/idam-access-config`
+  from the files staged at `/tmp/deed-poll-idam-pr/`. Config recorded in
+  [`IDAM_REGISTRATION_REQUEST.md`](IDAM_REGISTRATION_REQUEST.md). Nothing else here can move until it
+  is merged and deployed, but that is now IDAM's move rather than ours.
 - **Put the two secrets in the vault.** `apps/web/helm/values.yaml` now names `idam-client-secret` and
   `session-secret`, and the chart fails on a missing secret — which is the right way round for both. The
   client secret's value comes from IDAM; the session secret is ours, and just needs to be random.
@@ -1694,44 +1820,3 @@ bumped. **11 of them are a single `protobufjs@8.0.1`**, pinned exactly by the Op
 `applicationinsights`; Renovate PR #31 (`applicationinsights` 3.16.0) should carry it. Two are not
 vulnerabilities at all — `@types/config` is a stub package that `config` supersedes (delete the
 dependency from `apps/api` to clear it), and `tsconfck` is merely flagged unmaintained.
-
-
-## Next session
-
-*(This section replaces one titled "To pick up tomorrow" that had become a report of work already
-done — every finding in it is in the Phase 6 sections above, which is where it belongs. If this one
-starts describing the past too, delete it rather than leaving it to be read as a to-do.)*
-
-**Nothing left on Track A is code.** Phases 0–6 are closed in code, and Phase 4's verification pass
-now has automated cover: the e2e suite is green in parallel against built assets, with axe clean and
-no exclusions.
-
-In dependency order, longest lead time first:
-
-1. **Send the IDAM registration request.** `IDAM_REGISTRATION_REQUEST.md`, drafted and unsent.
-   Questions 1 (client id and secret) and 5 (the real role string) are the blockers. It now also gates
-   a test rather than only a deploy — the auth-dependent e2e tests skip against a deployed
-   environment because there is no client or test account to sign in with.
-2. **Get `deed-poll-shared-infrastructure` created.** `infrastructure/` has `data` blocks referencing
-   the resource group and key vault it would build, so the terraform plan fails before anything
-   deploys. Nothing else in Phase 6 can be tested without it.
-3. **Two one-line questions for Platform Operations**, both answerable by anyone who has done this:
-   is GitHub Actions a supported deployment route for a CFT service, and which repo declares the
-   `deed-poll` namespace. `cnp-flux-config` is still not cloned, so the second is narrowed rather than
-   answered — worth asking rather than guessing.
-4. **Put `idam-client-secret` and `session-secret` in the vault.** The chart fails on a missing
-   secret, deliberately.
-
-Unblocked and still code, in rough order of value:
-
-- **Welsh translation.** The only part of Phase 4's verification line still open. A content change:
-  the `cy` keys all exist and a test now pins that they resolve.
-- **Loose end 14, pagination on the case list** — the largest of the unblocked items, and the one that
-  needs a conversation with the service team first, because sorting and the filter interaction are part
-  of it rather than a `LIMIT`.
-- **Loose end 13**, the `e2e-tests` lint gap — small, and it stops a root `biome check --write`
-  restaging template files into an unrelated commit.
-- **Parked task 2**: check Renovate PR #31 merges cleanly and report. **Do not merge it unasked.**
-- **Loose end 5** is the one business question worth settling before the IDAM reply arrives: whether a
-  caseworker may delete a case, and whether deletion should be soft. After Phase 5 lands for real the
-  answer becomes an IDAM role mapping rather than a code change.
