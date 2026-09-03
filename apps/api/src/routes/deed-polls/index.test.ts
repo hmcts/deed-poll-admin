@@ -1,4 +1,4 @@
-import { createDeedPoll, findDeedPolls, SERVICE_ACCOUNT_NAME } from "@hmcts/deed-poll";
+import { createDeedPoll, DEEDPOLL_ADMIN, findDeedPolls, SERVICE_ACCOUNT_NAME } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
 import { requestDouble, responseDouble } from "../../express-doubles.js";
@@ -54,7 +54,7 @@ describe("/deed-polls collection routes", () => {
     it("should pass isAdmin true when the caller holds the admin role, since it drives the privacy default", async () => {
       vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
 
-      await POST(requestDouble({ body: {}, roles: "deedpoll-admin", userName: "A Caseworker" }), responseDouble());
+      await POST(requestDouble({ body: {}, roles: DEEDPOLL_ADMIN, userName: "A Caseworker" }), responseDouble());
 
       expect(createDeedPoll).toHaveBeenCalledWith({}, { isAdmin: true, userName: "A Caseworker" });
     });

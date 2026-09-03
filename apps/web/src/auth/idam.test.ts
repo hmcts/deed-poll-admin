@@ -176,12 +176,24 @@ describe("completeLogin", () => {
   const flow = { codeVerifier: "a-verifier", state: "a-state", returnTo: "/deed-polls" };
   const currentUrl = new URL("http://localhost:3000/oauth2/callback?code=abc&state=a-state");
 
-  function tokensWith(claims: Record<string, unknown> | undefined) {
-    return { access_token: "an-access-token", id_token: "an-id-token", claims: () => claims } as never;
+  // `expires_in` and the `expiresIn()` helper over it are both modelled, because that pair is what the
+  // library actually returns and an earlier double that omitted them let the code read a non-existent
+  // `expires_at` and still pass. A double that supplies only what the code happens to reach for can
+  // only confirm its author's assumptions — see the deleted hand-written IDAM stub.
+  // `expiresIn` is deliberately required rather than defaulted: a default swallows an explicit
+  // `undefined`, so the "issuer omitted expires_in" case would silently test the default instead.
+  function tokensWith(claims: Record<string, unknown> | undefined, expiresIn: number | undefined) {
+    return {
+      access_token: "an-access-token",
+      id_token: "an-id-token",
+      expires_in: expiresIn,
+      claims: () => claims,
+      expiresIn: () => expiresIn
+    } as never;
   }
 
   beforeEach(() => {
-    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com" }));
+    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com" }, 900));
     vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: "admin@example.com", name: "An Admin", roles: [DEEDPOLL_ADMIN] } as never);
   });
 
@@ -190,7 +202,7 @@ describe("completeLogin", () => {
     // roles in it at all — so reading claims would have yielded no roles against real IDAM. And because
     // unknown roles are dropped rather than rejected, the symptom would have been "nobody can edit
     // privacy" rather than an error.
-    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com", roles: [DEEDPOLL_ADMIN] }));
+    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com", roles: [DEEDPOLL_ADMIN] }, 900));
     vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: "admin@example.com", name: "An Admin", roles: [] } as never);
 
     const { user } = await completeLogin(config, flow, currentUrl);
@@ -222,13 +234,40 @@ describe("completeLogin", () => {
     expect(client.fetchUserInfo).toHaveBeenCalledWith(expect.anything(), "an-access-token", "admin@example.com");
   });
 
-  it("returns the id token so logout can end the IDAM session too", async () => {
-    expect((await completeLogin(config, flow, currentUrl)).idToken).toBe("an-id-token");
+  it("returns the tokens including id token so logout can end the IDAM session too", async () => {
+    const result = await completeLogin(config, flow, currentUrl);
+    expect(result.tokens.idToken).toBe("an-id-token");
+    expect(result.tokens.accessToken).toBeDefined();
+    expect(result.tokens.expiresAt).toBeGreaterThan(0);
+  });
+
+  it("takes the expiry from the issuer's expires_in, not a fixed hour", async () => {
+    // The expiry drives the refresh window, so inventing it means refreshing at the wrong time. Reading
+    // a non-existent `expires_at` gave every session an hour whatever IDAM said — and if IDAM's real
+    // lifetime is shorter than that, the refresh never fires and the user gets a 401 mid-session.
+    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com" }, 900));
+
+    const before = Math.floor(Date.now() / 1000);
+    const { tokens } = await completeLogin(config, flow, currentUrl);
+
+    expect(tokens.expiresAt).toBeGreaterThanOrEqual(before + 900);
+    expect(tokens.expiresAt).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 900);
+  });
+
+  it("falls back to an hour only when the issuer omits expires_in", async () => {
+    // `expires_in` is optional in OIDC, so the fallback is a real case rather than dead code — but it
+    // must be the exception, which is what the test above pins.
+    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com" }, undefined));
+
+    const before = Math.floor(Date.now() / 1000);
+    const { tokens } = await completeLogin(config, flow, currentUrl);
+
+    expect(tokens.expiresAt).toBeGreaterThanOrEqual(before + 3600);
   });
 
   it("refuses a token response with no verifiable ID token subject", async () => {
     // Treating it as an identity would sign someone in as nobody.
-    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith(undefined));
+    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith(undefined, 900));
 
     await expect(completeLogin(config, flow, currentUrl)).rejects.toThrow(/no ID token subject/);
     expect(client.fetchUserInfo).not.toHaveBeenCalled();

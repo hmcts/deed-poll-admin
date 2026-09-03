@@ -19,6 +19,12 @@ interface DeedPollSession {
   flow?: AuthFlowState;
   /** Kept so logout can end the IDAM session as well as this one. */
   idToken?: string;
+  /** Refresh token from IDAM, used to extend the session without re-authentication. */
+  refreshToken?: string;
+  /** Access token from IDAM, currently unused but kept for future API calls. */
+  accessToken?: string;
+  /** Unix timestamp (seconds) when the access token expires. */
+  tokenExpiresAt?: number;
 }
 
 type SessionWithDeedPoll = Request["session"] & { deedPoll?: DeedPollSession };
@@ -77,6 +83,13 @@ export function takeFlow(req: Request): AuthFlowState | undefined {
   return flow;
 }
 
+export interface TokenSet {
+  idToken?: string;
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt: number;
+}
+
 /**
  * Record a successful login.
  *
@@ -84,13 +97,16 @@ export function takeFlow(req: Request): AuthFlowState | undefined {
  * plants a known session cookie, the victim logs in, and the attacker's cookie is now authenticated.
  * Regenerating means the id the victim ends up with was never known to anyone else.
  */
-export function signIn(req: Request, user: CurrentUser, idToken: string | undefined): Promise<void> {
+export function signIn(req: Request, user: CurrentUser, tokens: TokenSet): Promise<void> {
   return new Promise((resolve, reject) => {
     req.session.regenerate((error) => {
       if (error) return reject(error);
       const session = namespace(req);
       session.user = user;
-      session.idToken = idToken;
+      session.idToken = tokens.idToken;
+      session.accessToken = tokens.accessToken;
+      session.refreshToken = tokens.refreshToken;
+      session.tokenExpiresAt = tokens.expiresAt;
       req.session.save((saveError) => (saveError ? reject(saveError) : resolve()));
     });
   });
@@ -99,6 +115,33 @@ export function signIn(req: Request, user: CurrentUser, idToken: string | undefi
 /** The id token, for ending the IDAM session at logout. */
 export function sessionIdToken(req: Request): string | undefined {
   return namespace(req).idToken;
+}
+
+/** The refresh token, for extending the session without re-authentication. */
+export function sessionRefreshToken(req: Request): string | undefined {
+  return namespace(req).refreshToken;
+}
+
+/** Unix timestamp (seconds) when the current access token expires, or undefined if not logged in. */
+export function sessionTokenExpiry(req: Request): number | undefined {
+  return namespace(req).tokenExpiresAt;
+}
+
+/**
+ * Update stored tokens after a successful refresh.
+ *
+ * Does NOT regenerate the session — the user was already authenticated, this just extends it.
+ */
+export function updateTokens(req: Request, tokens: TokenSet): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const session = namespace(req);
+    session.accessToken = tokens.accessToken;
+    session.refreshToken = tokens.refreshToken;
+    session.tokenExpiresAt = tokens.expiresAt;
+    // ID token may or may not be refreshed depending on IDAM's response
+    if (tokens.idToken) session.idToken = tokens.idToken;
+    req.session.save((error) => (error ? reject(error) : resolve()));
+  });
 }
 
 /** Destroy the whole session, not just the namespace — logout should leave nothing behind. */

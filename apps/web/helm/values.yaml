@@ -6,9 +6,9 @@ nodejs:
   image: 'hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:latest'
   environment:
     POSTGRES_DATABASE: deed-poll-admin
-    IDAM_ISSUER_URL: https://idam-web-public.{{ .Values.global.environment }}.platform.hmcts.net/o
+    IDAM_ISSUER_URL: https://hmcts-access.{{ .Values.global.environment }}.platform.hmcts.net
     IDAM_CLIENT_ID: deed-poll-admin
-    IDAM_SCOPE: openid profile roles
+    IDAM_SCOPE: openid profile roles offline_access
     # IDAM_REDIRECT_URI is deliberately NOT set here. It has to equal this app's ingressHost plus
     # /oauth2/callback, and `ingressHost` above is overridden per environment by
     # helm/deed-poll-admin/values.template.yaml — so a value written here would be quietly wrong

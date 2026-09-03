@@ -21,6 +21,6 @@
     "clientId": "deed-poll-admin",
     "clientSecret": "",
     "redirectUri": "http://localhost:3000/oauth2/callback",
-    "scope": "openid profile roles"
+    "scope": "openid profile roles offline_access"
   }
 }

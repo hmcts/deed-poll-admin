@@ -3,11 +3,11 @@ import type { IdamConfig } from "./idam.js";
 import { assertIdamSettings } from "./settings.js";
 
 const DEPLOYED: IdamConfig = {
-  issuerUrl: "https://idam-web-public.aat.platform.hmcts.net/o",
+  issuerUrl: "https://hmcts-access.aat.platform.hmcts.net",
   clientId: "deed-poll-admin",
   clientSecret: "a-secret-from-the-key-vault",
   redirectUri: "https://deed-poll-deed-poll-admin-staging-web.aat.platform.hmcts.net/oauth2/callback",
-  scope: "openid profile roles"
+  scope: "openid profile roles offline_access"
 };
 
 /** What `config/default.json` supplies, and therefore what a deployment that sets nothing inherits. */

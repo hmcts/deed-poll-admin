@@ -1,4 +1,4 @@
-import { findDeedPoll, NotFoundError, removeDeedPoll, SERVICE_ACCOUNT_NAME, updateDeedPoll } from "@hmcts/deed-poll";
+import { DEEDPOLL_ADMIN, findDeedPoll, NotFoundError, removeDeedPoll, SERVICE_ACCOUNT_NAME, updateDeedPoll } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
 import { requestDouble, responseDouble } from "../../express-doubles.js";
@@ -53,7 +53,7 @@ describe("/deed-polls/:id routes", () => {
     it("should pass isAdmin true for an admin caller, since privacy is admin-only on an existing record", async () => {
       vi.mocked(updateDeedPoll).mockResolvedValue({ id: "case-1" } as never);
 
-      await PATCH(requestDouble({ params: { id: "case-1" }, body: { privacy: "Private" }, roles: "deedpoll-admin" }), responseDouble());
+      await PATCH(requestDouble({ params: { id: "case-1" }, body: { privacy: "Private" }, roles: DEEDPOLL_ADMIN }), responseDouble());
 
       expect(updateDeedPoll).toHaveBeenCalledWith("case-1", { privacy: "Private" }, { isAdmin: true, userName: SERVICE_ACCOUNT_NAME });
     });

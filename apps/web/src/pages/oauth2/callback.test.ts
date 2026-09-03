@@ -19,7 +19,15 @@ function callback(options: Parameters<typeof pageRequest>[0] = {}) {
 describe("the IDAM callback", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(completeLogin).mockResolvedValue({ user: currentUser([DEEDPOLL_ADMIN], "An Admin"), idToken: "an-id-token" });
+    vi.mocked(completeLogin).mockResolvedValue({
+      user: currentUser([DEEDPOLL_ADMIN], "An Admin"),
+      tokens: {
+        idToken: "an-id-token",
+        accessToken: "an-access-token",
+        refreshToken: "a-refresh-token",
+        expiresAt: Math.floor(Date.now() / 1000) + 3600
+      }
+    });
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 

@@ -9,6 +9,7 @@ import { createSimpleRouter } from "@hmcts-cft/simple-router";
 import cookieParser from "cookie-parser";
 import type { Express } from "express";
 import express from "express";
+import { refreshMiddleware } from "./auth/refresh-middleware.js";
 import { requireAuth } from "./auth/require-auth.js";
 import { assertSessionSecret } from "./auth/session.js";
 import { assertIdamSettings, idamSettings } from "./auth/settings.js";
@@ -80,6 +81,10 @@ export async function createApp(): Promise<Express> {
   // Before the router, so a page is authenticated unless it is on the allowlist rather than because
   // someone remembered to guard it. See ./auth/require-auth.ts for why the polarity is that way.
   app.use(requireAuth());
+
+  // After requireAuth, so it only fires for authenticated users. Refreshes tokens before they expire,
+  // keeping sessions alive without forcing re-authentication. See ./auth/refresh-middleware.ts.
+  app.use(refreshMiddleware);
 
   app.use(await createSimpleRouter({ path: `${__dirname}/pages` }));
   app.use(notFoundHandler());
