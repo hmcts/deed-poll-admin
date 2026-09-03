@@ -3,20 +3,46 @@ name: OSV Scanner Job
 on:
   workflow_call:
 
+# Deliberately no `security-events: write`, and no SARIF upload.
+#
+# This job previously called `osv-scanner-reusable.yml`, which uploads its results to the security tab.
+# That needs Code Security, which is **disabled on this repository and cannot be enabled** — the API
+# refuses with *"An enterprise policy prevented modifying Code Security enablement"*, even for a repo
+# admin. So the job failed on every run with *"Code Security must be enabled for this repository to use
+# code scanning"*, and had never passed.
+#
+# **Every comparable HMCTS service repo is public** — expressjs-monorepo-template, cath-service,
+# pcs-api, rpx-xui-webapp — and public repos get code scanning free, which is why they need no licence.
+# So the real fix is this repository's `internal` visibility rather than a workflow change, and that is
+# a decision with a prerequisite: the whole history wants a secret scan first, not just the current
+# diff. See .business_context/PROGRESS.md.
+#
+# Until then this scans without uploading. **The security value is unchanged** —
+# `--fail-on-severity=HIGH` still fails the build on a high-severity advisory, which is what gates a
+# merge. What is lost is the security tab's alert list, dismissal workflow and history, and that tab is
+# currently unusable anyway. Dependabot security updates are enabled on this repository and report
+# overlapping findings for a yarn.lock project.
+#
+# **Revert to `osv-scanner-reusable.yml` once the repository is public or Code Security is licensed** —
+# it is the better integration, and this is a workaround for an entitlement, not a preference.
 permissions:
-  # Required to upload SARIF file to CodeQL
-  actions: read
-  # Required to upload SARIF file to security tab
-  security-events: write
-  # Only need to read contents
   contents: read
 
 jobs:
   scan:
     name: Dependency Scan
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.5.1
-    with:
-      scan-args: |-
-        --config=.github/osv-scanner.toml
-        --fail-on-severity=HIGH
-        ./
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Google's note on this action: "not intended to be used directly ... the scanner action
+      # behavior might change in a minor patch update". Hence the exact version pin rather than a
+      # floating major — an unattended change here would either miss advisories or fail the build for a
+      # reason unrelated to this repository.
+      - name: Scan dependencies
+        uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
+        with:
+          scan-args: |-
+            --config=.github/osv-scanner.toml
+            --fail-on-severity=HIGH
+            ./

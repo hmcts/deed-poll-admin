@@ -1964,6 +1964,63 @@ green until platform onboarding happens**, which is Phase 6's external work — 
 green" and "merge when the gates clear" are the same statement. The recorded decision to wait therefore
 still holds, and #47 is best treated as a review vehicle rather than something to merge now.
 
+## Repository visibility, and the history secret scan (2026-09-03)
+
+**`deed-poll-admin` is `internal`. Every comparable HMCTS service repo is `public`** — checked:
+`expressjs-monorepo-template`, `cath-service`, `pcs-api`, `rpx-xui-webapp`. That asymmetry is the root
+cause of the `osv-scan` failure rather than a missing setting, and it may simply be a default nobody
+revisited.
+
+**Code Security cannot be enabled on this repository.** It is `disabled`, and the API refuses to change
+it even for a repo admin:
+
+```
+422 An enterprise policy prevented modifying Code Security enablement.
+    Contact your enterprise owner for details.
+```
+
+Public repos get code scanning free, which is why the peer repos need no licence and show no such
+setting. So the options are: make the repository public, request enterprise enablement (a paid seat that
+no peer service needed), or stop uploading SARIF. The third was taken as an interim — see
+`.github/workflows/job.osv-scanner.yml`, which explains itself and says to revert once the entitlement
+exists. **`--fail-on-severity=HIGH` still gates merges**, so the scan's value is intact; what is lost is
+the security-tab alert list, which was unusable anyway.
+
+### The history was scanned before recommending anything about visibility
+
+Going public exposes history, not just current code — and an inherited branch was named
+`fix/remove_localhost_private_key_from_vcs`, which was reason enough to look properly. Earlier secret
+checks in this file covered only the **branch diff**; this covered every blob.
+
+**Scope:** 5,803 objects — everything reachable from all refs, plus all 47 deleted orphan branches from
+[`DELETED_BRANCHES.md`](DELETED_BRANCHES.md). Those matter because **their objects are still on GitHub**:
+`git fetch origin <sha>` for a deleted branch's commit still succeeds, so a visibility change exposes
+them by SHA even though no ref points at them. 4,549 blobs were content-scanned for private-key blocks,
+AWS access key ids, Azure `AccountKey=`, GitHub tokens, Slack tokens and JWTs.
+
+**Result — two hits, and the important one is not in current history:**
+
+| Finding | Where | Assessment |
+|---|---|---|
+| A real 1,679-byte **`BEGIN RSA PRIVATE KEY`** at `src/main/resources/localhost-ssl/localhost.key` | **15 of the 47 deleted orphan branches.** *Not* reachable from `master` or `feat/deed-poll-migration` | The key the deleted branch was named after. The `src/main/resources` path is a Java layout, so it predates the expressjs template entirely — inherited ancestry, never this service's. A localhost dev TLS key, so low value to an attacker, but it is a real private key and would become publicly retrievable |
+| `-----BEGIN RSA PRIVATE KEY-----` in `.yarn/unplugged/…/node-gyp/test/fixtures/certs.js` | Deleted orphan branches only | **Not a secret.** node-gyp's own published test fixture, shipped in the public npm package. Also not in current history |
+
+**No AWS keys, no Azure account keys, no GitHub or Slack tokens, no JWTs anywhere.**
+
+**So: current history is clean.** The blocker on going public is not this service's code — it is the
+inherited orphan objects. Two ways to clear it, both needing someone with more than repo admin:
+
+1. **Ask GitHub Support to garbage-collect unreachable objects** on the repository, which is the
+   documented route after removing secrets from history. The refs are already deleted, so nothing else is
+   needed first.
+2. **Decide the localhost key does not matter** — a self-signed key for `localhost` grants an attacker
+   nothing on any HMCTS system. Defensible, and probably true, but it should be an explicit decision
+   recorded here rather than an omission, because "there is a private key in the public history" is a
+   sentence that will be asked about later.
+
+Either way, **do not treat the earlier "diff was scanned for secrets" note as covering this.** It did
+not; this section does.
+
 ## Branch inventory
 
 Taken 2026-09-03. **48 remote branches besides `master`; 6 relate to this codebase and 42 do not.**
