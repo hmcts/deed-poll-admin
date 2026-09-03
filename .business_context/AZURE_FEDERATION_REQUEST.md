@@ -1,85 +1,77 @@
-# Azure federated credentials — PR to azure-github-federation-config
+# Azure federated credentials — PR raised
 
-Drafted 2026-09-03. Self-service, per
-[`docs/how-to/federated-credentials.md`](../../docs/how-to/federated-credentials.md) in the workspace:
-add an entry to `app-registrations.yaml` in
-[`hmcts/azure-github-federation-config`](https://github.com/hmcts/azure-github-federation-config) and
-raise a PR. The terraform pipeline there creates the app registration, service principal, federated
-credentials and role assignments on merge.
+**[PR #99 on `hmcts/azure-github-federation-config`](https://github.com/hmcts/azure-github-federation-config/pull/99), raised 2026-09-03.** Awaiting their review; their
+terraform pipeline creates the app registration, service principal, federated credentials and role
+assignments on merge.
 
-**Why this is the highest-value thing outstanding.** The repository has **no Actions secrets at all**
-(`gh api repos/hmcts/deed-poll-admin/actions/secrets` → `total_count: 0`), and five of the six failing
-checks on [PR #47](https://github.com/hmcts/deed-poll-admin/pull/47) fail at `azure/login` with
-*"Not all values are present. Ensure 'client-id' and 'tenant-id' are supplied"*. This request produces
-those two values.
+**Why this was the highest-value item.** The repository has **no Actions secrets at all**
+(`gh api repos/hmcts/deed-poll-admin/actions/secrets` → `total_count: 0`), and four of the six failing
+checks on [PR #47](https://github.com/hmcts/deed-poll-admin/pull/47) fail at `azure/login` with *"Not
+all values are present. Ensure 'client-id' and 'tenant-id' are supplied"*. This produces those two
+values.
 
-**Raised by Steve, not from the devcontainer** — pushing to `hmcts` needs SAML SSO authorisation that is
-not available here, the same constraint as the IDAM registration.
+## What was submitted
 
----
-
-## The entry to add
-
-Two values in `scopes` are marked `TBD`. They are subscription **IDs**, and only the subscription
-**names** appear in this repo — `stage.infrastructure.yml:27-28`. Look them up with
-`az account show --subscription "DCD-CNP-DEV" --query id -o tsv`, or ask Platform Operations. **Do not
-guess them**; a wrong scope creates a role assignment somewhere unintended.
+A new **`DTS Shared GitHub Actions ACR Publisher 2`** entry:
 
 ```yaml
-- name: Deed Poll Admin GitHub Actions
+- name: DTS Shared GitHub Actions ACR Publisher 2
   subjects:
-    # workflow.main.yml — on: push: branches: [master]
     - 'repo:hmcts/deed-poll-admin:ref:refs/heads/master'
-    # workflow.preview.yml — on: pull_request, branches: [master]
     - 'repo:hmcts/deed-poll-admin:pull_request'
   permissions:
-    # Pushing images and Helm charts to hmctsprod.azurecr.io. Both ACR logins in the workflows pass
-    # `allow-no-subscriptions: true`, so this needs no subscription-scoped role — only AcrPush on the
-    # registry itself.
-    - role_definition_name: AcrPush
+    - role_definition_name: 'AcrPush'
       scopes:
-        - TBD-hmctsprod-acr-resource-id
-    # Terraform in infrastructure/ — subscription DCD-CNP-DEV per stage.infrastructure.yml:27.
-    - role_definition_name: Contributor
+        - /subscriptions/8999dec3-0104-4a27-94ee-6588559729d1/resourceGroups/rpe-acr-prod-rg # DCD-CNP-Prod
+        - /subscriptions/bf308a5c-0624-4334-8ff8-8dca9fd43783/resourceGroups/cnp-acr-rg # DCD-CFT-Sandbox
+    - role_definition_name: 'AcrPull'
       scopes:
-        - /subscriptions/TBD-DCD-CNP-DEV-subscription-id
+        - /subscriptions/8999dec3-0104-4a27-94ee-6588559729d1/resourceGroups/rpe-acr-prod-rg # DCD-CNP-Prod
+        - /subscriptions/bf308a5c-0624-4334-8ff8-8dca9fd43783/resourceGroups/cnp-acr-rg # DCD-CFT-Sandbox
 ```
 
-Only **2 subjects**, so the 20-federated-credential cap is not close.
+**Nothing here was guessed.** The scopes are copied from `DTS Shared GitHub Actions ACR Publisher 1`,
+which is the entry holding `expressjs-monorepo-template` and `cath-service` — and the template uses
+`REGISTRY_NAME: hmctsprod` with the same `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` secrets, verified by
+reading its `job.build-and-publish-images.yml`. The two subjects come from this repo's real triggers:
+`workflow.main.yml` on `push` to `master`, `workflow.preview.yml` on `pull_request`.
 
-## What each workflow needs, and which check it fixes
+**A new entry rather than adding to Publisher 1**, because Publisher 1 already carries **exactly 20
+subjects** — the hard cap of 20 federated credentials per app registration. The `Publisher 1` →
+`Publisher 2` naming follows what `DTS Platform Operations` and `DTS Developers` already do, but the PR
+says plainly that the grouping may be theirs to decide.
 
-| Workflow / job | Needs | Failing check on #47 |
-|---|---|---|
-| `job.build-and-publish-images.yml:141-143` | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` → ACR push to `hmctsprod` | `Build & Publish` × 4 (api, web, crons, postgres) |
-| `job.helm-publish.yml:32-39` | same, then `az acr login` | (not reached — gated behind the image builds) |
-| `job.terraform.yml` | `azure/login` on the way to `terraform-deploy` | `Infrastructure / Terraform / Terraform Plan` |
-| `job.helm-deploy.yml:86-90` | same for ACR, then AKS | (not reached) |
+## Two corrections to the first draft of this request
 
-## Two things this request does **not** fix
+Both came from reading the actual `app-registrations.yaml` instead of the how-to's examples.
 
-1. **`AZURE_CREDENTIALS_CFT_AAT` and `AZURE_CREDENTIALS_CFT_PREVIEW` are a different mechanism.** They
-   are service-principal JSON blobs passed to the library's `terraform-deploy` and `helm-deploy`
-   (`job.terraform.yml:95`, `job.helm-deploy.yml:103,118`), and federated credentials do not produce
-   them. **`cnp-githubactions-library` ships `terraform-deploy-openid` and `helm-deploy-openid`**, which
-   authenticate by OIDC and need no stored credentials — switching to those would remove both secrets
-   and cover the most privileged operations here, `terraform apply` and `helm upgrade` into AKS. Worth
-   doing as its own change against a real environment rather than folded into this one; see the note
-   under Phase 6 in [`PROGRESS.md`](PROGRESS.md).
+1. **The draft asked for `Contributor` on `DCD-CNP-DEV` for terraform. That was wrong and was
+   removed.** `job.terraform.yml` passes `AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS_CFT_PREVIEW }}`
+   — a service-principal JSON secret — to the library's `terraform-deploy`. Terraform's authentication
+   does not come from federated credentials at all, so requesting a subscription-scoped `Contributor`
+   role would have been both unnecessary and an over-grant on a shared repository. No existing ACR
+   Publisher entry grants anything subscription-scoped.
+2. **The draft left the scopes as `TBD`**, on the grounds that only subscription *names* appear in this
+   repo. They did not need looking up: the real config states them, with the subscription names as
+   trailing comments.
 
-2. **`terraform plan` will still fail after this, for a different reason.** `infrastructure/main.tf:15`
-   and `keyvault.tf:4` are `data` blocks reading resource group and key vault `deed-poll-{env}`, and
-   **`deed-poll-shared-infrastructure` does not exist yet**. Until today that was a prediction; the plan
-   has never got past `azure/login` to prove it, so expect this to surface once credentials work rather
-   than treating it as a regression.
+## What this does and does not fix
 
-## Still separately needed
+**Fixes on merge:** `Build & Publish` × 4 (api, web, crons, postgres), and `helm-publish` behind them.
 
-- **`SONAR_TOKEN`** — a SonarCloud project for `hmcts.deed-poll-admin` plus its token, for the
-  `SonarCloud Code Analysis` check.
-- **GitHub Code Security enabled on the repository** — a repository setting, not a credential. Without
-  it `Security Scan / osv-scan` fails with *"Code Security must be enabled for this repository to use
-  code scanning"*.
-- **`DATABASE_URL` is no longer needed.** The lint job's `prisma validate` failure was an empty-string
-  default, fixed in [#48](https://github.com/hmcts/deed-poll-admin/pull/48) — so do not add that secret
-  to make lint pass.
+**Does not fix:**
+
+| Still failing | Needs |
+|---|---|
+| `Infrastructure / Terraform / Terraform Plan` | `AZURE_CREDENTIALS_CFT_PREVIEW` / `_AAT` — service-principal JSON, a different mechanism. **And it will then fail again** on `main.tf:15` / `keyvault.tf:4`, which read a resource group and key vault that do not exist until `deed-poll-shared-infrastructure` does |
+| `SonarCloud Code Analysis` | a SonarCloud project for `hmcts.deed-poll-admin` plus `SONAR_TOKEN` |
+| `Security Scan / osv-scan` | **GitHub Code Security enabled on the repository** — a setting, not a credential |
+
+**`DATABASE_URL` is not needed.** The lint failure it looked like it would fix was an empty-string
+default, fixed in [#48](https://github.com/hmcts/deed-poll-admin/pull/48). Do not add that secret.
+
+**Worth doing separately:** `cnp-githubactions-library` ships `terraform-deploy-openid` and
+`helm-deploy-openid`, which authenticate by OIDC and need no stored credentials. Switching to them would
+remove `AZURE_CREDENTIALS_CFT_AAT` and `_PREVIEW` entirely — and those two cover the most privileged
+operations here, `terraform apply` and `helm upgrade` into AKS. It cannot be tested without Azure
+access, so it wants its own change against a real environment.
