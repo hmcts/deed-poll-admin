@@ -46,9 +46,17 @@ interface SessionState {
 /**
  * A signed-in session inside the refresh window, with named fields **removed** rather than overridden.
  *
- * Absence is the interesting input here — three of the branches under test are "this field is missing" —
- * and a default parameter cannot express it: `{ subject: undefined }` triggers the default and silently
- * tests the opposite case. So the shape is built whole and the test names what to drop.
+ * Absence is the interesting input here: three of the branches under test are "this field is missing".
+ * Naming the fields to drop says that directly, and produces a session object where the key genuinely
+ * is not there, which is what a real one looks like.
+ *
+ * **The `overrides` route cannot express absence, and the reason is worth knowing** because the first
+ * version of this helper got it wrong. Object spread does honour an explicit `undefined` — it sets the
+ * key to `undefined` rather than keeping the default — but a **destructuring default does not**:
+ * `function f({ subject = SUBJECT })` called with `{ subject: undefined }` yields `SUBJECT`. This helper
+ * originally destructured with per-field defaults, so `request({ subject: undefined })` silently tested
+ * a session that *had* a subject, and the sign-out branch it was meant to cover was never reached. The
+ * same trap cost a test in `idam.test.ts`, where `expiresIn` is now a required parameter for it.
  */
 function request(without: (keyof SessionState)[] = [], overrides: SessionState = {}): RequestDouble {
   const deedPoll: SessionState = {
