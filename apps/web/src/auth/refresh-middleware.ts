@@ -12,7 +12,7 @@
  */
 import type { NextFunction, Request, Response } from "express";
 import { refreshTokens } from "./idam.js";
-import { sessionRefreshToken, sessionTokenExpiry, sessionUser, signOut, updateTokens } from "./session.js";
+import { sessionRefreshToken, sessionSubject, sessionTokenExpiry, sessionUser, signOut, updateTokens } from "./session.js";
 import { idamSettings } from "./settings.js";
 
 const REFRESH_WINDOW_SECONDS = 5 * 60; // Refresh 5 minutes before expiry
@@ -40,28 +40,45 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
     return next();
   }
 
+  // A signed-in session with no recorded subject cannot have its refresh checked against anything, so
+  // it is ended rather than refreshed. This is only reachable for a session established before the
+  // subject was stored, which makes signing out the cheap and self-limiting answer — and the polarity
+  // matches the rest of this app's auth decisions: what cannot be verified is refused.
+  const subject = sessionSubject(req);
+  if (!subject) {
+    console.warn("Session has no recorded IDAM subject, so its refresh cannot be verified — signing out");
+    await signOut(req);
+    return res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
+  }
+
   // Token is close to expiry or already expired — attempt refresh.
   const settings = idamSettings();
   let refreshed: Awaited<ReturnType<typeof refreshTokens>>;
 
   try {
-    refreshed = await refreshTokens(settings, refreshToken);
+    refreshed = await refreshTokens(settings, refreshToken, subject);
   } catch (error) {
     // Network error, IDAM down, or unexpected response. Log it but don't force logout — the token
     // might still be valid, and a transient error shouldn't boot everyone. The next request will
     // try again if we're still in the refresh window.
+    //
+    // **A permanently broken refresh lands here and is indistinguishable from a blip**, which is how
+    // the missing-`id_token` defect stayed hidden: every refresh threw, this logged, and the session
+    // expired as though refresh were never implemented. If sessions are expiring on schedule in a
+    // deployed environment, read this log line before assuming the window is wrong.
     console.error("Token refresh failed with error:", error);
     return next();
   }
 
-  // Refresh token was revoked, expired, or IDAM refused it — force re-authentication.
+  // Revoked, expired, refused — or a response describing a different subject. All mean this session is
+  // over rather than retryable.
   if (!refreshed) {
-    console.log("Token refresh returned invalid_grant — signing out");
+    console.log("Token refresh was refused — signing out");
     await signOut(req);
     return res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
   }
 
   // Refresh succeeded — update session with new tokens and continue.
-  await updateTokens(req, refreshed.tokens);
+  await updateTokens(req, refreshed);
   next();
 }

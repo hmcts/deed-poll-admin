@@ -105,14 +105,24 @@ export async function beginLogin(config: IdamConfig, returnTo: string): Promise<
   return { authorizationUrl: authorizationUrl.href, flow: { codeVerifier, state, returnTo } };
 }
 
+export interface IdamTokens {
+  idToken?: string;
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt: number;
+}
+
 export interface LoginResult {
   user: ReturnType<typeof userFromClaims>;
-  tokens: {
-    idToken?: string;
-    accessToken: string;
-    refreshToken?: string;
-    expiresAt: number;
-  };
+  /**
+   * The subject IDAM authenticated, from the ID token.
+   *
+   * Stored in the session so a later refresh can check the identity has not changed under it — see
+   * `refreshTokens`. Not part of `CurrentUser`, which is deliberately only what authorization
+   * decisions are made from.
+   */
+  subject: string;
+  tokens: IdamTokens;
 }
 
 /**
@@ -157,6 +167,7 @@ export async function completeLogin(config: IdamConfig, flow: AuthFlowState, cur
 
   return {
     user: userFromClaims(info as IdamClaims),
+    subject: claims.sub,
     tokens: {
       idToken: tokens.id_token,
       accessToken: tokens.access_token,
@@ -181,17 +192,38 @@ export function callbackUrl(config: IdamConfig, req: Request): URL {
 }
 
 /**
- * Use a refresh token to obtain new access and ID tokens without re-authentication.
+ * Exchange a refresh token for a fresh access token, without re-authenticating the user.
  *
- * Returns undefined if the refresh fails (token revoked, expired, or IDAM refuses it), in which case
- * the caller should sign the user out and force re-authentication. Throws on network errors or
- * unexpected responses that might be transient.
+ * Returns `undefined` when the refresh must not be honoured — the token was revoked or expired, or the
+ * response describes a different subject. Both mean the same thing to the caller: sign out and make the
+ * user log in again. Throws only on faults that might be transient (network, IDAM down), so the caller
+ * can distinguish "this session is over" from "try again".
  *
- * **IDAM may return a new refresh token** in the response — if it does, the caller must use that for
- * future refreshes and discard the old one (refresh token rotation). If no new refresh token is
- * returned, keep using the original.
+ * **Returns tokens only, and does not read `/o/userinfo`.** It used to build a `CurrentUser` from
+ * userinfo, and the only caller discarded it — a wasted round trip per refresh. Re-reading roles here
+ * would be a real feature (it would make a withdrawn role take effect mid-session, which is what
+ * `apps/api` achieves by reading userinfo per request) but it is a deliberate behaviour change rather
+ * than part of a refresh, so it is not smuggled in here.
+ *
+ * **An absent `id_token` is not an error.** OpenID Connect Core §12.2 states the refresh response is a
+ * normal token response *"except that it might not contain an `id_token`"*, and its own example omits
+ * one. `openid-client` agrees — it resolves with `claims()` returning `undefined` rather than throwing.
+ * This function previously threw on a missing subject, which meant that against any compliant issuer
+ * that omits the ID token, **every refresh failed and `refreshMiddleware` swallowed it as transient**,
+ * so sessions expired exactly as though refresh had never been built. Nothing would have reported it.
+ *
+ * **What is checked instead is that the subject has not changed.** §12.2 requires that an ID token
+ * returned here carry the same `sub` as the one issued at authentication, and **`openid-client` does
+ * not enforce it** — its required-claims list is presence-only and it holds no expected subject for a
+ * token response. So the comparison is made here, against the subject recorded in the session at login.
+ * Skipping it would let a refresh silently swap the identity behind a live session. The check is only
+ * possible when an ID token arrives; when none does there is nothing to compare, which is the case the
+ * spec permits.
+ *
+ * **IDAM may rotate the refresh token.** When the response carries a new one it replaces the old, which
+ * is now spent; when it does not, the original stays valid and is carried forward.
  */
-export async function refreshTokens(config: IdamConfig, refreshToken: string): Promise<LoginResult | undefined> {
+export async function refreshTokens(config: IdamConfig, refreshToken: string, expectedSubject: string): Promise<IdamTokens | undefined> {
   const configuration = await idamConfiguration(config);
 
   // The helpers half of the type matters: `claims()` and `expiresIn()` live there, and annotating this
@@ -210,22 +242,18 @@ export async function refreshTokens(config: IdamConfig, refreshToken: string): P
     throw error;
   }
 
-  const claims = tokens.claims();
-  if (!claims?.sub) {
-    throw new Error("IDAM refresh response contained no ID token subject");
+  const subject = tokens.claims()?.sub;
+  if (subject !== undefined && subject !== expectedSubject) {
+    // Refusing rather than throwing: this is not a fault to retry, it is a session to end.
+    console.error("IDAM refresh returned a different subject than the session was established with");
+    return undefined;
   }
 
-  const info = await client.fetchUserInfo(configuration, tokens.access_token, claims.sub);
-
   return {
-    user: userFromClaims(info as IdamClaims),
-    tokens: {
-      idToken: tokens.id_token,
-      accessToken: tokens.access_token,
-      // If IDAM rotated the refresh token, use the new one; otherwise keep the old one
-      refreshToken: tokens.refresh_token ?? refreshToken,
-      expiresAt: expiresAtFrom(tokens)
-    }
+    idToken: tokens.id_token,
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token ?? refreshToken,
+    expiresAt: expiresAtFrom(tokens)
   };
 }
 

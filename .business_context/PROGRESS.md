@@ -65,13 +65,54 @@ new shared `expiresAtFrom` — it now spreads `importOriginal()` and stubs only 
 `undefined`, so `tokensWith(claims, undefined)` silently tested the default and the
 "issuer omitted `expires_in`" case asserted nothing. `expiresIn` is a required parameter now.
 
-**Left as it is, and worth a decision rather than a silent fix:** `refreshTokens` throws when the
-refresh response carries no ID token subject. IDAM is not obliged to return a new `id_token` on a
-refresh, and if CFT IDAM does not, **every refresh will throw and `refreshMiddleware` will swallow it
-as a transient error** (it logs and calls `next()`), so sessions will expire as though refresh were
-never implemented rather than failing visibly. Fixing it means either falling back to the session's
-existing user or re-reading userinfo with the new access token — a behaviour call that wants real IDAM
-to answer first.
+### The refresh path required an optional ID token, and had no tests
+
+**Fixed 2026-09-03, Steve's call.** `refreshTokens` threw when the refresh response carried no ID token
+subject. **OpenID Connect Core §12.2 states the refresh response is a normal token response "except
+that it might not contain an `id_token`"** — its own example omits one, and `openid-client` agrees:
+`refreshTokenGrant` resolves with `claims()` returning `undefined` rather than throwing
+(`oauth4webapi` guards the whole ID-token block on `json.id_token !== undefined`). So against any
+compliant issuer that omits it, **every refresh threw, `refreshMiddleware` logged the throw as
+transient and called `next()`, and sessions expired exactly as though refresh had never been built.**
+Nothing failed and nothing was reported.
+
+**This is already happening locally.** `rse-idam-simulator` does not implement the refresh grant at all
+— `IdamSimulatorController.java:260` dispatches only `authorization_code` and everything else falls
+through to a 400, which `oauth4webapi` turns into a `ResponseBodyError` with `error: "Bad Request"`.
+That is not `invalid_grant`, so it is rethrown and swallowed. **Refresh cannot be exercised end to end
+against our own local stack**, which is why the fix is verified by unit tests and mutation rather than
+by running it.
+
+Three things changed:
+
+- **An absent ID token is no longer an error.** The subject check that replaced it is conditional on one
+  arriving.
+- **`refreshTokens` no longer reads `/o/userinfo`, and returns `IdamTokens` rather than a
+  `LoginResult`.** It used to build a `CurrentUser` that `refreshMiddleware` discarded — a wasted round
+  trip on every refresh, guarded by a throw protecting a value nobody read. **Re-reading roles on
+  refresh was considered and deliberately not done**: it would make a withdrawn role take effect
+  mid-session, which is a real behaviour change (and what `apps/api` achieves by reading userinfo per
+  request), not part of a refresh. `apps/web` roles therefore remain fixed for the life of a session.
+- **The subject is now checked, which it never was.** §12.2 requires an ID token returned on refresh to
+  carry the same `sub` as the one issued at authentication, and **`openid-client` does not enforce it** —
+  its required-claims list is presence-only and it holds no expected subject for a token response. The
+  old `fetchUserInfo(…, claims.sub)` call *looked* like it checked, but it was self-referential: it
+  validated userinfo against the new ID token's own subject rather than against whoever logged in. So a
+  refresh could have swapped the identity behind a live session. `signIn` now records `subject` and
+  `refreshTokens` takes it as an argument; a mismatch returns `undefined`, which signs the user out. A
+  session with no recorded subject is signed out rather than refreshed unchecked — same fail-closed
+  polarity as everything else here.
+
+**Both files had zero tests before this** — the only two things in `apps/web/src/auth/` without any, and
+the reason all of the above shipped. `refresh-middleware.test.ts` is new (10 tests) and
+`idam.test.ts` gained a `refreshTokens` block (9). **Checked by mutation, not by passing:** reinstating
+the throw fails 5 tests including the regression test for it, disabling the subject check fails 1, and
+disabling the no-subject sign-out fails 1.
+
+The middleware's catch-all is unchanged and still treats an unrecognised failure as transient, which is
+right — IDAM being unreachable is not a reason to sign everyone out — but it is also **how this defect
+hid**, so the comment there now says as much: if sessions are expiring on schedule in a deployed
+environment, read that log line before assuming the refresh window is wrong.
 
 **What the 2026-09-02 session completed:**
 
@@ -233,9 +274,9 @@ documents         ███████   7/7    done  incl. multipart upload, d
 @hmcts/deed-poll                        590 passed
 @hmcts/onboarding                        72 passed
 @hmcts/postgres                           0 passed  11 skipped
-@hmcts/web                              253 passed
+@hmcts/web                              273 passed
 ─────────────────────────────────────────────────────
-total                                  1511 passed  11 skipped
+total                                  1531 passed  11 skipped
 ```
 
 - Skips are `apps/postgres`' `ccd` tests: they need `docker compose up -d`, and CI has no database.
@@ -244,8 +285,8 @@ total                                  1511 passed  11 skipped
 
 ```
 feat/deed-poll-migration
-47 commits ahead of master
-HEAD  cceae2c  Redirect / to /deed-polls and fix two e2e test flakes
+50 commits ahead of master
+HEAD  38190c3  Commit the submitted IDAM registration files as a record
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -1089,13 +1130,19 @@ which is an external request with lead time.
 | ~~`libs/deed-poll/src/auth/header-user.ts`~~ | **deleted.** The `x-user-roles` bypass no longer exists anywhere |
 | `apps/web/src/auth/client-credentials.ts` | `client_credentials` grant for service-to-service authentication (2026-09-02) |
 | `apps/web/src/auth/test-users.ts` | programmatic test user creation via `idam-testing-support-api` (2026-09-02) |
-| `apps/web/src/auth/refresh-middleware.ts` | automatic token refresh 5 minutes before expiry (2026-09-02) |
+| `apps/web/src/auth/refresh-middleware.ts` | automatic token refresh 5 minutes before expiry; refuses a refresh it cannot verify (2026-09-03) |
 
 **Test user creation is ready to use after IDAM registration** (2026-09-02). The `createTestUser()`,
 `getTestUser()`, and `deleteTestUser()` functions are implemented and tested. They authenticate using
 `client_credentials` grant and call `idam-testing-support-api` to create users with password already set,
 bypassing the normal email activation flow. Users auto-cleanup after 3 hours in AAT. Requires our client
-ID and secret from IDAM registration, and the real role name (not the `deedpoll-admin` placeholder).
+ID and secret from IDAM registration, and the real role name (`caseworker-deedpoll-admin`, still
+unconfirmed against real IDAM).
+
+**Refresh cannot be exercised end to end anywhere yet.** `rse-idam-simulator` has no refresh grant, and
+real IDAM has no registered client — so `refreshTokens` and `refreshMiddleware` are covered by unit
+tests and mutation only. See "The refresh path required an optional ID token" in the session handover
+above; it is the one part of Phase 5 whose behaviour has never been observed against a live issuer.
 
 ### Decisions worth not relitigating
 

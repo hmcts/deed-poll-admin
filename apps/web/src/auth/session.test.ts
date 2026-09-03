@@ -61,6 +61,7 @@ describe("startFlow and takeFlow", () => {
 
 describe("signIn", () => {
   const user = currentUser([DEEDPOLL_ADMIN], "A Caseworker");
+  const SUBJECT = "caseworker@example.com";
   const tokens = {
     idToken: "an-id-token",
     accessToken: "an-access-token",
@@ -71,7 +72,7 @@ describe("signIn", () => {
   it("records the user and the tokens", async () => {
     const req = request();
 
-    await signIn(req, user, tokens);
+    await signIn(req, user, SUBJECT, tokens);
 
     expect(sessionUser(req)).toMatchObject({ isAdmin: true, name: "A Caseworker" });
     expect(sessionIdToken(req)).toBe("an-id-token");
@@ -83,7 +84,7 @@ describe("signIn", () => {
     // user first would lose it — which is what makes this assertion mean anything.
     const req = request();
 
-    await signIn(req, user, tokens);
+    await signIn(req, user, SUBJECT, tokens);
 
     expect(req.session.regenerate).toHaveBeenCalled();
     expect(sessionUser(req)).toBeDefined();
@@ -92,7 +93,7 @@ describe("signIn", () => {
   it("saves before resolving, so the callback's redirect cannot outrun the store", async () => {
     const req = request();
 
-    await signIn(req, user, tokens);
+    await signIn(req, user, SUBJECT, tokens);
 
     expect(req.session.save).toHaveBeenCalled();
   });
@@ -101,7 +102,7 @@ describe("signIn", () => {
     const req = request();
     req.session.regenerate.mockImplementation((callback: (error?: Error) => void) => callback(new Error("store down")));
 
-    await expect(signIn(req, user, tokens)).rejects.toThrow("store down");
+    await expect(signIn(req, user, SUBJECT, tokens)).rejects.toThrow("store down");
   });
 
   it("rejects rather than reporting a login when the save fails", async () => {
@@ -110,13 +111,13 @@ describe("signIn", () => {
     const req = request();
     req.session.save.mockImplementation((callback: (error?: Error) => void) => callback(new Error("store down")));
 
-    await expect(signIn(req, user, tokens)).rejects.toThrow("store down");
+    await expect(signIn(req, user, SUBJECT, tokens)).rejects.toThrow("store down");
   });
 
   it("accepts an absent id token, since logout works without one", async () => {
     const req = request();
 
-    await signIn(req, user, { ...tokens, idToken: undefined });
+    await signIn(req, user, SUBJECT, { ...tokens, idToken: undefined });
 
     expect(sessionUser(req)).toBeDefined();
     expect(sessionIdToken(req)).toBeUndefined();

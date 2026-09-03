@@ -11,12 +11,20 @@
  */
 import { type CurrentUser, plainHttpPermitted } from "@hmcts/deed-poll";
 import type { Request } from "express";
-import type { AuthFlowState } from "./idam.js";
+import type { AuthFlowState, IdamTokens } from "./idam.js";
 
 interface DeedPollSession {
   user?: CurrentUser;
   /** Present only between the redirect out to IDAM and the callback back. */
   flow?: AuthFlowState;
+  /**
+   * The IDAM subject this session was established for.
+   *
+   * Kept separate from `user` because it is not something authorization is decided on — it is the
+   * identity a later refresh is checked against, so the token IDAM hands back cannot quietly describe
+   * somebody else. See `refreshTokens`.
+   */
+  subject?: string;
   /** Kept so logout can end the IDAM session as well as this one. */
   idToken?: string;
   /** Refresh token from IDAM, used to extend the session without re-authentication. */
@@ -83,13 +91,6 @@ export function takeFlow(req: Request): AuthFlowState | undefined {
   return flow;
 }
 
-export interface TokenSet {
-  idToken?: string;
-  accessToken: string;
-  refreshToken?: string;
-  expiresAt: number;
-}
-
 /**
  * Record a successful login.
  *
@@ -97,12 +98,13 @@ export interface TokenSet {
  * plants a known session cookie, the victim logs in, and the attacker's cookie is now authenticated.
  * Regenerating means the id the victim ends up with was never known to anyone else.
  */
-export function signIn(req: Request, user: CurrentUser, tokens: TokenSet): Promise<void> {
+export function signIn(req: Request, user: CurrentUser, subject: string, tokens: IdamTokens): Promise<void> {
   return new Promise((resolve, reject) => {
     req.session.regenerate((error) => {
       if (error) return reject(error);
       const session = namespace(req);
       session.user = user;
+      session.subject = subject;
       session.idToken = tokens.idToken;
       session.accessToken = tokens.accessToken;
       session.refreshToken = tokens.refreshToken;
@@ -127,18 +129,28 @@ export function sessionTokenExpiry(req: Request): number | undefined {
   return namespace(req).tokenExpiresAt;
 }
 
+/** The IDAM subject this session was established for, which a refresh is checked against. */
+export function sessionSubject(req: Request): string | undefined {
+  return namespace(req).subject;
+}
+
 /**
  * Update stored tokens after a successful refresh.
  *
  * Does NOT regenerate the session — the user was already authenticated, this just extends it.
  */
-export function updateTokens(req: Request, tokens: TokenSet): Promise<void> {
+export function updateTokens(req: Request, tokens: IdamTokens): Promise<void> {
   return new Promise((resolve, reject) => {
     const session = namespace(req);
     session.accessToken = tokens.accessToken;
     session.refreshToken = tokens.refreshToken;
     session.tokenExpiresAt = tokens.expiresAt;
-    // ID token may or may not be refreshed depending on IDAM's response
+    // `subject` is deliberately not touched: it records who this session was established for, and a
+    // refresh that describes someone else is refused by `refreshTokens` rather than adopted here.
+    //
+    // The id token is optional in a refresh response (OIDC Core §12.2), so the old one is kept when
+    // none arrives — it is only needed as the `id_token_hint` at logout, where a stale one still names
+    // the right session.
     if (tokens.idToken) session.idToken = tokens.idToken;
     req.session.save((error) => (error ? reject(error) : resolve()));
   });

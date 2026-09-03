@@ -43,7 +43,7 @@ export const GET = async (req: Request, res: Response) => {
     return res.status(403).render("errors/403");
   }
 
-  await signIn(req, signedIn.user, signedIn.tokens);
+  await signIn(req, signedIn.user, signedIn.subject, signedIn.tokens);
 
   res.redirect(flow.returnTo);
 };
