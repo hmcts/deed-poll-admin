@@ -3,46 +3,41 @@ name: OSV Scanner Job
 on:
   workflow_call:
 
-# Deliberately no `security-events: write`, and no SARIF upload.
-#
-# This job previously called `osv-scanner-reusable.yml`, which uploads its results to the security tab.
-# That needs Code Security, which is **disabled on this repository and cannot be enabled** — the API
-# refuses with *"An enterprise policy prevented modifying Code Security enablement"*, even for a repo
-# admin. So the job failed on every run with *"Code Security must be enabled for this repository to use
-# code scanning"*, and had never passed.
-#
-# **Every comparable HMCTS service repo is public** — expressjs-monorepo-template, cath-service,
-# pcs-api, rpx-xui-webapp — and public repos get code scanning free, which is why they need no licence.
-# So the real fix is this repository's `internal` visibility rather than a workflow change, and that is
-# a decision with a prerequisite: the whole history wants a secret scan first, not just the current
-# diff. See .business_context/PROGRESS.md.
-#
-# Until then this scans without uploading. **The security value is unchanged** —
-# `--fail-on-severity=HIGH` still fails the build on a high-severity advisory, which is what gates a
-# merge. What is lost is the security tab's alert list, dismissal workflow and history, and that tab is
-# currently unusable anyway. Dependabot security updates are enabled on this repository and report
-# overlapping findings for a yarn.lock project.
-#
-# **Revert to `osv-scanner-reusable.yml` once the repository is public or Code Security is licensed** —
-# it is the better integration, and this is a workaround for an entitlement, not a preference.
+# `security-events: write` is gone with the SARIF upload. The reusable workflow declares its own job
+# permissions regardless, so this block only covers what the caller needs.
 permissions:
   contents: read
 
 jobs:
   scan:
     name: Dependency Scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      # Google's note on this action: "not intended to be used directly ... the scanner action
-      # behavior might change in a minor patch update". Hence the exact version pin rather than a
-      # floating major — an unattended change here would either miss advisories or fail the build for a
-      # reason unrelated to this repository.
-      - name: Scan dependencies
-        uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
-        with:
-          scan-args: |-
-            --config=.github/osv-scanner.toml
-            --fail-on-severity=HIGH
-            ./
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.5.1
+    with:
+      # **Do not upload SARIF.** It requires Code Security, which is `disabled` on this repository and
+      # **cannot be enabled** — the API refuses even for a repo admin with *"An enterprise policy
+      # prevented modifying Code Security enablement"*. So every run failed with *"Code Security must be
+      # enabled for this repository to use code scanning"*, and the job had never passed.
+      #
+      # Every comparable HMCTS service repo is public (expressjs-monorepo-template, cath-service,
+      # pcs-api, rpx-xui-webapp) and public repos get code scanning free, so the real fix is this
+      # repository's `internal` visibility rather than this workflow. That decision has a prerequisite —
+      # the whole history wants a secret scan first — which is done and recorded in
+      # .business_context/PROGRESS.md.
+      #
+      # **Set this back to the default once the repository is public or Code Security is licensed.** The
+      # security tab is the better integration; this is a workaround for an entitlement.
+      upload-sarif: false
+      # `--fail-on-severity=HIGH` used to be here and **is not a real flag** — it comes from the
+      # template, which has the same bug. Nothing in the chain accepts it: the scanner CLI has no
+      # severity option at all, and the reporter step gates on `--fail-on-vuln`, which the
+      # `fail-on-vuln` input above controls. Passing it made the scanner exit with
+      # `Incorrect Usage: flag provided but not defined: -fail-on-severity`, which the reusable
+      # workflow's `continue-on-error` then hid. Worth reporting upstream to
+      # hmcts/expressjs-monorepo-template.
+      #
+      # `-r` matches the reusable workflow's own default and is what the removed line was standing in
+      # for. There is no way to gate on severity here: it fails on any vulnerability or none.
+      scan-args: |-
+        --config=.github/osv-scanner.toml
+        -r
+        ./
