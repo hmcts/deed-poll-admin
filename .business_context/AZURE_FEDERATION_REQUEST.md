@@ -4,8 +4,10 @@
 terraform pipeline creates the app registration, service principal, federated credentials and role
 assignments on merge.
 
-**Why this was the highest-value item.** The repository has **no Actions secrets at all**
-(`gh api repos/hmcts/deed-poll-admin/actions/secrets` → `total_count: 0`), and four of the six failing
+**Why this was the highest-value item.** The repository has **no repository-level Actions secrets**
+(`total_count: 0`) and **no Azure ones at organisation level either** — the 28 org secrets available to it
+include `SONAR_TOKEN` and `REGISTRY_*`, but nothing matching `AZURE_CLIENT_ID` or `AZURE_TENANT_ID`. So
+four of the six failing
 checks on [PR #47](https://github.com/hmcts/deed-poll-admin/pull/47) fail at `azure/login` with *"Not
 all values are present. Ensure 'client-id' and 'tenant-id' are supplied"*. This produces those two
 values.
@@ -64,8 +66,8 @@ Both came from reading the actual `app-registrations.yaml` instead of the how-to
 | Still failing | Needs |
 |---|---|
 | `Infrastructure / Terraform / Terraform Plan` | `AZURE_CREDENTIALS_CFT_PREVIEW` / `_AAT` — service-principal JSON, a different mechanism. **And it will then fail again** on `main.tf:15` / `keyvault.tf:4`, which read a resource group and key vault that do not exist until `deed-poll-shared-infrastructure` does |
-| `SonarCloud Code Analysis` | a SonarCloud project for `hmcts.deed-poll-admin` plus `SONAR_TOKEN` |
-| `Security Scan / osv-scan` | **GitHub Code Security enabled on the repository** — a setting, not a credential |
+| `SonarCloud Code Analysis` | **nothing — this was wrong.** `SONAR_TOKEN` is an organisation secret and the project exists. It was the quality gate failing; fixed separately |
+| `Security Scan / osv-scan` | **nothing — fixed.** It uploaded SARIF, which needs Code Security; that is now off (`upload-sarif: false`) and the advisories it then reported are fixed or justified. Passing |
 
 **`DATABASE_URL` is not needed.** The lint failure it looked like it would fix was an empty-string
 default, fixed in [#48](https://github.com/hmcts/deed-poll-admin/pull/48). Do not add that secret.
