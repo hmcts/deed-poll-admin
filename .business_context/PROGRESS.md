@@ -1,8 +1,48 @@
 # Migration progress — handover
 
-Last updated: 2026-09-02. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
+Last updated: 2026-09-03. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
 **Phases 0–4 are done as far as code goes, and Phase 5's login flow is built and working.**
+
+## Pick up here (end of 2026-09-03 session)
+
+**Everything is committed, pushed and green. The branch is level with master for the first time in
+weeks.** `lint`, `build`, `test` (1531) and **`test:e2e` (21)** all pass, and so does
+`yarn install --immutable`, which is the check that catches a lockfile disagreeing with its manifests.
+
+**One task is outstanding and it needs you, not me:** `gh`'s token is invalid
+(`gh auth status` → "The token in default is invalid"), so I could not read PR or CI state anywhere in
+this session. Run `gh auth login -h github.com`, and then the parked job is to audit the **42 remote
+branches that share no history with master** before deleting any — deleting a branch closes any open PR
+on it, which is the one thing I could not check. See ["Branch inventory"](#branch-inventory) below;
+the short version is that 42 of 46 branches are inherited template cruft that cannot be merged at all.
+
+**Local environment left running:** `docker compose` (Postgres + `rse-idam-simulator`) is up, and a
+`tsx src/server.ts` for `apps/web` may still be running on port 3000 from the e2e diagnosis — kill it
+before starting another. Yarn still needs sideloading; a shim that makes nested `yarn` calls work
+(Playwright's `webServer` runs `yarn dev:nowatch`) is at `/tmp/yarnshim/yarn`, and **without something
+like it `test:e2e` cannot start at all** — corepack tries to reach `repo.yarnpkg.com` and the webServer
+dies. Recreate it with `printf '#!/bin/sh\nexec node /tmp/yarn417/bin/yarn.js "$@"\n'`.
+
+### What happened today, in order
+
+1. **The IDAM registration PR was raised** by Steve, and the six submitted YAML files are now committed
+   at [`idam-pr/`](idam-pr/) rather than living only in `/tmp`.
+2. **Master was merged in** (`5c3f0d0`), 42 commits. Three conflicts, all dependency metadata; no source
+   file conflicted across the branch's 51 commits.
+3. **Master turned out to be broken twice and was fixed** — PRs #42 and #44, both merged. See
+   ["Master's CI was red"](#masters-ci-was-red-twice-in-one-day) below, because the *reason* it was not
+   noticed is the interesting part.
+4. **Loose end 4 is closed** (PR #43) — see below.
+5. **The e2e suite was 20/1 and is now 21/0** (`fc6e40c`). Both causes were in the tests, and the
+   handover's own predicted cause was wrong; the write-up is in that commit and in loose end 16.
+
+### The next real piece of work
+
+Unchanged: **wait for IDAM**. Nothing in Phase 5 can be verified against real IDAM until the
+registration is merged and deployed, and Phase 6 needs `deed-poll-shared-infrastructure` to exist. The
+only code items left are the Welsh translation (content, not structure) and whatever the two remaining
+loose ends below are worth to you.
 
 ## Session handover (2026-09-03)
 
@@ -273,20 +313,18 @@ documents         ███████   7/7    done  incl. multipart upload, d
 @hmcts/crons                             10 passed
 @hmcts/deed-poll                        590 passed
 @hmcts/onboarding                        72 passed
-@hmcts/postgres                           0 passed  11 skipped
+@hmcts/postgres                          11 passed
 @hmcts/web                              273 passed
 ─────────────────────────────────────────────────────
-total                                  1531 passed  11 skipped
+total                                  1542 passed
 ```
-
-- Skips are `apps/postgres`' `ccd` tests: they need `docker compose up -d`, and CI has no database.
 
 ### Branch
 
 ```
 feat/deed-poll-migration
-52 commits ahead of master
-HEAD  1f53989  Correct the comment explaining the removed-fields test helper
+53 commits ahead of master
+HEAD  fc6e40c  Fix the two things that stopped the e2e suite passing after the merge
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -1693,10 +1731,22 @@ Small, real, and deliberately not done. None blocks Phase 3.
    place to look, and `CLAUDE.md`'s `DEBUG=prisma:query` suggestion is now redundant rather than
    necessary.
 
-4. **`power_app_nest/` is untracked but *not* ignored on master.** The Phase 0 `.gitignore` entry
-   exists only on this branch. Harmless while working here, but on master a stray `git add -A` would
-   try to commit ~498M of `node_modules` and 57 document blobs. Cherry-picking that one `.gitignore`
-   line to master would close it.
+4. ~~**`power_app_nest/` is untracked but *not* ignored on master.**~~ **Closed 2026-09-03**, by
+   [PR #43](https://github.com/hmcts/deed-poll-admin/pull/43). It turned out to be **five** paths rather
+   than one, and three were live rather than theoretical — `git status` on master listed
+   `power_app_nest/`, `data/` and `e2e-tests/.auth/` as untracked, so `git add -A` would have staged
+   ~500M of `node_modules`, real case-document blobs, **and a live session cookie**. `.env` (the
+   template covered only `.env.local` and `.env.*.local`) and `.DS_Store` went too.
+
+   Verified rather than assumed: no tracked file becomes ignored
+   (`git ls-files | git check-ignore --stdin` is empty), nothing tracked has a `data/` component, and
+   `.env.example` / `.env.sample` are still not ignored by the bare `.env` entry. The proof it worked is
+   that `git status` on master is now clean where it previously listed three paths.
+
+   The comments on master were written to be true *of master* rather than copied from here — this
+   branch's text names `file-storage.ts`, `DATA_DIR` and the Phase 4 form, none of which exist there.
+   Merging master produced the expected `.gitignore` conflict and this branch's fuller text was kept,
+   since it is the accurate one in the merged tree.
 
 5. **Nothing restricts who can delete a case, and the delete cascades.** `DELETE /deed-polls/:id` is
    open — faithfully, because the prototype guarded nothing. **The cascade is confirmed, not assumed:**
@@ -1749,7 +1799,18 @@ Small, real, and deliberately not done. None blocks Phase 3.
    remember the file is buffered in memory, so the ceiling is really 10 MB × concurrent uploads
    against the pod's memory limit.
 
-16. **The shared `pg.Pool` has no size limit and will stall when exhausted** (found 2026-09-02). The pool
+16. **The shared `pg.Pool` has no size limit and will stall when exhausted** (found 2026-09-02).
+
+    **Read this first if a test hangs: on 2026-09-03 this was blamed for an e2e hang and was measured
+    innocent.** The symptom matched the description below exactly — a deterministic hang inside a
+    function performing a second concurrent login — so the pool was the obvious suspect. Polling
+    `pg_stat_activity` while the test hung showed connections peaking at **3** against the default max
+    of 10. The real cause was `browser.newContext()` inheriting the file's `storageState`, so the
+    "anonymous" context was already signed in and waited forever for a login form that never rendered
+    (`fc6e40c`). The pool defect below is still real and still unfixed; it was simply not this. **A
+    plausible recorded cause is not evidence — measure before acting on it.**
+
+    The pool
     backing Prisma and the session store is created in `libs/postgres-prisma` with **no `max`**, so
     `node-postgres` defaults to 10. OIDC login is several round trips on that pool — token exchange,
     userinfo, session writes — and under load (7 Playwright workers × concurrent logins) the pool drains
@@ -1821,6 +1882,60 @@ which are references, not values.
 
 **No PR is open, deliberately.** This is work in progress through Phase 2 of 6, so a PR would sit
 open for weeks. Revisit once Track A is green.
+
+## Branch inventory
+
+Taken 2026-09-03. **46 remote branches; only 4 relate to this codebase.**
+
+**42 have no common ancestor with master at all** — `git merge-base` returns nothing, so git would
+refuse to merge them without `--allow-unrelated-histories` and doing so would splice in a foreign tree.
+They are branches inherited with the repo from the template it was copied from: `timja-patch-1/2`,
+`adusumillipraveen-patch-1`, `switch-away-from-csurf-to-tiny-csrf`, `task/jenkins-config`,
+`update-cnp`, `update-routeing`, `tooling-refresh`, five `snyk-upgrade-*`, eight `dependabot/*` and
+eleven `renovate/*`. **None is deed-poll work and there is no merge order for them.** Deleting them is
+pure hygiene, but it closes any open PR on them, which needs `gh` to check first.
+
+The four that are real:
+
+| Branch | State | Disposition |
+|---|---|---|
+| `feat/deed-poll-migration` | level with master, all checks green | the work; still no PR by choice |
+| `renovate/tsx-4.x` | merged as #41 | **merged broken** — see below |
+| `fix/lockfile-lodash-4.18.1` | 1 ahead, predates the rescaffold | moot: syncs `lodash 4.18.1` into a lockfile with no lodash, and touches `.pnp.cjs` / `.yarn/install-state.gz`, which this setup does not use. Delete |
+| `chore/rescaffold-monorepo-template` | already an ancestor of master | delete |
+
+## Master's CI was red twice in one day
+
+Both faults came from the Renovate batch merged on 2026-09-03, and **neither was visible to
+`yarn test`** — which is the point worth carrying forward. `vitest` transpiles without typechecking, so
+the suite cannot see a type error, and it never reaches an install failure at all.
+
+| | Cause | Symptom | Fixed by |
+|---|---|---|---|
+| 1 | **#27** bumped `@biomejs/biome` to 2.5.12 in `package.json` but not `yarn.lock` (still 2.5.8) | `yarn install --immutable` fails in 0.1s | **#42**, reverting to 2.5.8 |
+| 2 | **#35** bumped `pg` 8.21.0 → 8.23.0 and `@types/pg` 8.20.0 → 8.23.1 while `@prisma/adapter-pg` stayed 7.8.0 | `yarn build` fails, TS2345 at `libs/postgres-prisma/src/index.ts:24` | **#42**, reverting both |
+| 3 | **#41** bumped `tsx` to 4.23.13 in `package.json` but not `yarn.lock` | `yarn install --immutable` fails again | **#44**, adding the lockfile entry |
+
+**The biome one could not simply be relockfiled.** 2.5.12 was published seven hours earlier and Yarn 4's
+`npmMinimalAgeGate` defaults to 1440 minutes, so resolution is refused — `YN0016: all versions
+satisfying "2.5.12" are quarantined`. That is a supply-chain cooldown working as designed, not a
+registry problem. Reverting was the immediate unblock; Renovate can raise it again past the gate.
+
+**#3 was fixed forward rather than reverted**, because `tsx 4.23.13` was days old and therefore
+resolvable — the gate did not explain that one, so Renovate's lockfile step is failing for its own
+reason.
+
+Two things follow, and the second matters more than any individual fix:
+
+- **The `pg` root cause is unresolved and was misdiagnosed first.** It looked like duplicate
+  `@types/pg` (the lockfile carried 8.15.5, 8.15.6, 8.20.0 and 8.23.1, and adapter-pg asks for
+  `^8.16.0`). `yarn dedupe @types/pg` unified `*`, `^8.16.0` and `8.23.1` onto one 8.23.1 and **the
+  build still failed**, so it is a real constraint. A `pg` bump needs `@prisma/adapter-pg` bumped with
+  it and the pair tested together.
+- **#27 broke install and merged before #31–#40, so CI could not have verified any of them.** Every PR
+  after it would have failed at the install step. #35's build break landing is a direct consequence.
+  **Two Renovate PRs in a row shipped a manifest change with no lockfile entry** — worth fixing the
+  Renovate configuration rather than repairing instances by hand.
 
 ## Renovate PR #31 (checked, not merged)
 
