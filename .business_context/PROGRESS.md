@@ -6,6 +6,11 @@ Last updated: 2026-09-03. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
 ## Pick up here (end of 2026-09-03 session)
 
+**Read [`WAYS_OF_WORKING.md`](WAYS_OF_WORKING.md) first — it is 59 lines and there are two decisions in
+it.** A retrospective on the 2026-09-03 session: a start-of-session checklist, the one rule that would
+have prevented most of that session's errors, and two open questions — PR #47's size, and pruning this
+file, which is now long enough to be at risk of not being read at all.
+
 **Everything is committed, pushed and green, and the branch is level with master.** `lint`, `build`,
 `test` and `test:e2e` (21) all pass, and so does `yarn install --immutable`, which is the check that
 catches a lockfile disagreeing with its manifests. Counts are in the generated dashboard below.
@@ -2289,3 +2294,4 @@ dependency from `apps/api` to clear it), and `tsconfck` is merely flagged unmain
 ["Renovate PR #31"](#renovate-pr-31-checked-not-merged) above, which measures both and explains why that
 is new advisories rather than any change here. The `protobufjs` reasoning held up; PR #31 clears 12 rather
 than 11, and by removing the dependency instead of upgrading it.
+
