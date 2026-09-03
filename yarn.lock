@@ -803,10 +803,8 @@ __metadata:
     "@azure/keyvault-secrets": "npm:^4.7.0"
     "@types/express": "npm:5.0.6"
     "@types/js-yaml": "npm:^4.0.9"
-    "@types/supertest": "npm:7.2.1"
     applicationinsights: "npm:3.16.0"
     js-yaml: "npm:^4.1.0"
-    supertest: "npm:7.2.2"
   peerDependencies:
     config: ^3.3.12 || ^4.0.0
     express: ^5.1.0
@@ -861,20 +859,16 @@ __metadata:
   dependencies:
     "@hmcts-cft/cloud-native-platform": "workspace:*"
     "@hmcts-cft/simple-router": "workspace:*"
-    "@hmcts/deed-poll": "workspace:*"
     "@hmcts/onboarding": "workspace:*"
     "@hmcts/postgres-prisma": "workspace:*"
     "@types/compression": "npm:1.8.1"
     "@types/config": "npm:4.4.0"
     "@types/cors": "npm:2.8.19"
     "@types/express": "npm:5.0.6"
-    "@types/multer": "npm:2.2.0"
     compression: "npm:1.8.1"
     config: "npm:4.4.2"
     cors: "npm:2.8.6"
     express: "npm:5.2.1"
-    jose: "npm:6.2.10"
-    multer: "npm:2.3.0"
     zod: "npm:4.4.3"
   languageName: unknown
   linkType: soft
@@ -894,17 +888,6 @@ __metadata:
     "@hmcts/postgres-prisma": "workspace:*"
     "@types/config": "npm:4.4.0"
     config: "npm:4.4.2"
-  languageName: unknown
-  linkType: soft
-
-"@hmcts/deed-poll@workspace:*, @hmcts/deed-poll@workspace:libs/deed-poll":
-  version: 0.0.0-use.local
-  resolution: "@hmcts/deed-poll@workspace:libs/deed-poll"
-  dependencies:
-    "@hmcts/postgres-prisma": "workspace:*"
-    typescript: "npm:6.0.3"
-    vitest: "npm:*"
-    zod: "npm:4.4.3"
   languageName: unknown
   linkType: soft
 
@@ -939,12 +922,8 @@ __metadata:
     "@hmcts/postgres-prisma": "workspace:*"
     "@prisma/client": "npm:7.10.0"
     "@types/node": "npm:*"
-    "@types/pg": "npm:8.20.0"
     http-proxy: "npm:1.18.1"
-    pg: "npm:8.21.0"
     prisma: "npm:7.10.0"
-    tsx: "npm:*"
-    vitest: "npm:*"
   languageName: unknown
   linkType: soft
 
@@ -957,7 +936,6 @@ __metadata:
     "@hmcts-cft/express-session-postgres": "workspace:*"
     "@hmcts-cft/simple-router": "workspace:*"
     "@hmcts/cookie-manager": "npm:1.1.0"
-    "@hmcts/deed-poll": "workspace:*"
     "@hmcts/onboarding": "workspace:*"
     "@hmcts/postgres-prisma": "workspace:*"
     "@types/config": "npm:4.4.0"
@@ -974,7 +952,6 @@ __metadata:
     govuk-frontend: "npm:6.5.0"
     helmet: "npm:8.3.0"
     nunjucks: "npm:3.2.4"
-    openid-client: "npm:6.8.7"
     sass: "npm:1.103.1"
     vite: "npm:8.0.16"
     vite-plugin-static-copy: "npm:4.1.1"
@@ -2904,15 +2881,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/multer@npm:2.2.0":
-  version: 2.2.0
-  resolution: "@types/multer@npm:2.2.0"
-  dependencies:
-    "@types/express": "npm:*"
-  checksum: 10c0/72472c2da0a9afe86e2d64cfec53f4564727affcb691f78fcbdef495978857903f03326e4ecf58f6d1c3c4c89bb39e5d94fb97d4722a1f448f777c4fa690754b
-  languageName: node
-  linkType: hard
-
 "@types/mysql@npm:2.15.27":
   version: 2.15.27
   resolution: "@types/mysql@npm:2.15.27"
@@ -3442,13 +3410,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"append-field@npm:^1.0.0":
-  version: 1.0.0
-  resolution: "append-field@npm:1.0.0"
-  checksum: 10c0/1b5abcc227e5179936a9e4f7e2af4769fa1f00eda85bbaed907f7964b0fd1f7d61f0f332b35337f391389ff13dd5310c2546ba670f8e5a743b23ec85185c73ef
-  languageName: node
-  linkType: hard
-
 "applicationinsights@npm:3.16.0":
   version: 3.16.0
   resolution: "applicationinsights@npm:3.16.0"
@@ -3588,28 +3549,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"buffer-from@npm:^1.0.0":
-  version: 1.1.2
-  resolution: "buffer-from@npm:1.1.2"
-  checksum: 10c0/124fff9d66d691a86d3b062eff4663fe437a9d9ee4b47b1b9e97f5a5d14f6d5399345db80f796827be7c95e70a8e765dd404b7c3ff3b3324f98e9b0c8826cc34
-  languageName: node
-  linkType: hard
-
 "bundle-name@npm:^4.1.0":
   version: 4.1.0
   resolution: "bundle-name@npm:4.1.0"
   dependencies:
     run-applescript: "npm:^7.0.0"
   checksum: 10c0/8e575981e79c2bcf14d8b1c027a3775c095d362d1382312f444a7c861b0e21513c0bd8db5bd2b16e50ba0709fa622d4eab6b53192d222120305e68359daece29
-  languageName: node
-  linkType: hard
-
-"busboy@npm:^1.6.0":
-  version: 1.6.0
-  resolution: "busboy@npm:1.6.0"
-  dependencies:
-    streamsearch: "npm:^1.1.0"
-  checksum: 10c0/fa7e836a2b82699b6e074393428b91ae579d4f9e21f5ac468e1b459a244341d722d2d22d10920cdd849743dbece6dca11d72de939fb75a7448825cf2babfba1f
   languageName: node
   linkType: hard
 
@@ -3819,18 +3764,6 @@ __metadata:
     safe-buffer: "npm:5.2.1"
     vary: "npm:~1.1.2"
   checksum: 10c0/85114b0b91c16594dc8c671cd9b05ef5e465066a60e5a4ed8b4551661303559a896ed17bb72c4234c04064e078f6ca86a34b8690349499a43f6fc4b844475da4
-  languageName: node
-  linkType: hard
-
-"concat-stream@npm:^2.0.0":
-  version: 2.0.0
-  resolution: "concat-stream@npm:2.0.0"
-  dependencies:
-    buffer-from: "npm:^1.0.0"
-    inherits: "npm:^2.0.3"
-    readable-stream: "npm:^3.0.2"
-    typedarray: "npm:^0.0.6"
-  checksum: 10c0/29565dd9198fe1d8cf57f6cc71527dbc6ad67e12e4ac9401feb389c53042b2dceedf47034cbe702dfc4fd8df3ae7e6bfeeebe732cc4fa2674e484c13f04c219a
   languageName: node
   linkType: hard
 
@@ -5322,13 +5255,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"jose@npm:6.2.10, jose@npm:^6.2.8":
-  version: 6.2.10
-  resolution: "jose@npm:6.2.10"
-  checksum: 10c0/799fd8d3d92fe748ebe1f57dbd3dfd917d2e61d9fb39912c72cc674ae61d69414b7cc0ce773df8a0160e849926fc31853aec9caab88c481563d5a8ab6558e107
-  languageName: node
-  linkType: hard
-
 "js-tokens@npm:^10.0.0":
   version: 10.0.0
   resolution: "js-tokens@npm:10.0.0"
@@ -5802,13 +5728,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"media-typer@npm:0.3.0":
-  version: 0.3.0
-  resolution: "media-typer@npm:0.3.0"
-  checksum: 10c0/d160f31246907e79fed398470285f21bafb45a62869dc469b1c8877f3f064f5eabc4bcc122f9479b8b605bc5c76187d7871cf84c4ee3ecd3e487da1993279928
-  languageName: node
-  linkType: hard
-
 "media-typer@npm:^1.1.0":
   version: 1.1.0
   resolution: "media-typer@npm:1.1.0"
@@ -5854,7 +5773,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mime-types@npm:^2.1.35, mime-types@npm:~2.1.24":
+"mime-types@npm:^2.1.35":
   version: 2.1.35
   resolution: "mime-types@npm:2.1.35"
   dependencies:
@@ -6010,18 +5929,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"multer@npm:2.3.0":
-  version: 2.3.0
-  resolution: "multer@npm:2.3.0"
-  dependencies:
-    append-field: "npm:^1.0.0"
-    busboy: "npm:^1.6.0"
-    concat-stream: "npm:^2.0.0"
-    type-is: "npm:^1.6.18"
-  checksum: 10c0/e78fe6b1fe2132cdd33eeec4146643b906046edc1bbbcc90a43ea3d3aed6a7271272897a6d2e40e711e595a156d99b6761848a76fecca6ae3b9a7ee4892ee30c
-  languageName: node
-  linkType: hard
-
 "mysql2@npm:3.15.3":
   version: 3.15.3
   resolution: "mysql2@npm:3.15.3"
@@ -6136,13 +6043,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"oauth4webapi@npm:^3.8.7":
-  version: 3.8.7
-  resolution: "oauth4webapi@npm:3.8.7"
-  checksum: 10c0/7e581e24572a12c3b2abd4889d8f5271a7de0166a0971b8398468abe3baf9134012d312775f05b1a64b38b4413563bfb203801ba00909f831557823875b0699e
-  languageName: node
-  linkType: hard
-
 "object-assign@npm:^4":
   version: 4.1.1
   resolution: "object-assign@npm:4.1.1"
@@ -6205,16 +6105,6 @@ __metadata:
     is-inside-container: "npm:^1.0.0"
     wsl-utils: "npm:^0.1.0"
   checksum: 10c0/5a36d0c1fd2f74ce553beb427ca8b8494b623fc22c6132d0c1688f246a375e24584ea0b44c67133d9ab774fa69be8e12fbe1ff12504b1142bd960fb09671948f
-  languageName: node
-  linkType: hard
-
-"openid-client@npm:6.8.7":
-  version: 6.8.7
-  resolution: "openid-client@npm:6.8.7"
-  dependencies:
-    jose: "npm:^6.2.8"
-    oauth4webapi: "npm:^3.8.7"
-  checksum: 10c0/309a7924e034193d36634b7e2cfbb003c5018bfb800d9c1d6c5d3cb986682e9aef594038eb7a87153d36a96d1a9dba921491cb9145930116340a7af7e73928ee
   languageName: node
   linkType: hard
 
@@ -6624,7 +6514,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"readable-stream@npm:^3.0.2, readable-stream@npm:^3.6.2":
+"readable-stream@npm:^3.6.2":
   version: 3.6.2
   resolution: "readable-stream@npm:3.6.2"
   dependencies:
@@ -7182,13 +7072,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"streamsearch@npm:^1.1.0":
-  version: 1.1.0
-  resolution: "streamsearch@npm:1.1.0"
-  checksum: 10c0/fbd9aecc2621364384d157f7e59426f4bfd385e8b424b5aaa79c83a6f5a1c8fd2e4e3289e95de1eb3511cb96bb333d6281a9919fafce760e4edb35b2cd2facab
-  languageName: node
-  linkType: hard
-
 "string-width@npm:^4.1.0, string-width@npm:^4.2.0, string-width@npm:^4.2.3":
   version: 4.2.3
   resolution: "string-width@npm:4.2.3"
@@ -7377,7 +7260,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tsx@npm:*, tsx@npm:4.23.13":
+"tsx@npm:4.23.13":
   version: 4.23.13
   resolution: "tsx@npm:4.23.13"
   dependencies:
@@ -7421,16 +7304,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"type-is@npm:^1.6.18":
-  version: 1.6.18
-  resolution: "type-is@npm:1.6.18"
-  dependencies:
-    media-typer: "npm:0.3.0"
-    mime-types: "npm:~2.1.24"
-  checksum: 10c0/a23daeb538591b7efbd61ecf06b6feb2501b683ffdc9a19c74ef5baba362b4347e42f1b4ed81f5882a8c96a3bfff7f93ce3ffaf0cbbc879b532b04c97a55db9d
-  languageName: node
-  linkType: hard
-
 "type-is@npm:^2.0.1":
   version: 2.0.1
   resolution: "type-is@npm:2.0.1"
@@ -7450,13 +7323,6 @@ __metadata:
     media-typer: "npm:^1.1.0"
     mime-types: "npm:^3.0.0"
   checksum: 10c0/a6018f8f509de48f2c7429305e3a920e73b374fa93127dd0877ae1c2df65a5d33907caac8afb0c37a9b9fc7c49f29e3f55d668963dc845d966930b667c07f50e
-  languageName: node
-  linkType: hard
-
-"typedarray@npm:^0.0.6":
-  version: 0.0.6
-  resolution: "typedarray@npm:0.0.6"
-  checksum: 10c0/6005cb31df50eef8b1f3c780eb71a17925f3038a100d82f9406ac2ad1de5eb59f8e6decbdc145b3a1f8e5836e17b0c0002fb698b9fe2516b8f9f9ff602d36412
   languageName: node
   linkType: hard
 
@@ -7695,7 +7561,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"vitest@npm:*, vitest@npm:4.1.11":
+"vitest@npm:4.1.11":
   version: 4.1.11
   resolution: "vitest@npm:4.1.11"
   dependencies:
