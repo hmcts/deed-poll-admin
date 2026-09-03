@@ -71,6 +71,22 @@ export function responseDouble(): ResponseDouble {
   } as unknown as ResponseDouble;
 }
 
+/**
+ * The handler at the end of a route export, whether or not middleware is mounted in front of it.
+ *
+ * A guarded route exports an array — `[requireRoles(DEEDPOLL_ADMIN), handler]` — which is what
+ * `simple-router`'s `normalizeHandlers` expects, and which means the export is no longer callable. This
+ * lets a unit test reach the handler without the route having to export it separately, which
+ * `CLAUDE.md` forbids ("do not expose internal functions in order to test them").
+ *
+ * **It deliberately skips the guard, so a unit test using it proves nothing about authorisation.** That
+ * belongs in the wiring tests, which mount the real router and assert the status an unprivileged caller
+ * actually receives — see the `DELETE` blocks in `routes.wiring.test.ts`.
+ */
+export function routeHandler(route: RequestHandler | RequestHandler[]): RequestHandler {
+  return Array.isArray(route) ? route[route.length - 1] : route;
+}
+
 interface RequestOptions {
   body?: unknown;
   params?: Record<string, string>;

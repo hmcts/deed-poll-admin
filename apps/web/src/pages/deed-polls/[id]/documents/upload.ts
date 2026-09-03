@@ -16,7 +16,16 @@
  * Document types come from the reference table, so an empty table shows a message rather than an
  * unusable form with no options.
  */
-import { findDeedPoll, findDocumentTypes, InvalidInputError, NotFoundError, uploadDocument, uploadFormSchema, zodErrorToFieldErrors } from "@hmcts/deed-poll";
+import {
+  findDeedPoll,
+  findDocumentTypes,
+  InvalidInputError,
+  MAX_UPLOAD_BYTES,
+  NotFoundError,
+  uploadDocument,
+  uploadFormSchema,
+  zodErrorToFieldErrors
+} from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { uploadRejection, uploadSingleFile } from "../../../../documents/upload.js";
 
@@ -24,7 +33,10 @@ const en = {
   title: "Upload a document",
   heading: "Upload a document",
   fileLabel: "Choose a file",
-  fileHint: "PDF, JPG, PNG, TIFF or Word, up to 10MB.",
+  // Derived from the policy rather than restated, because a hint that disagrees with the limit is worse
+  // than no hint: it told the caseworker 10MB while the limit was raised to 25MB, so the number they
+  // were shown and the number enforced would have drifted apart the moment either changed.
+  fileHint: `PDF, JPG, PNG, TIFF or Word, up to ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))}MB.`,
   typeLabel: "Document type",
   typeEmpty: "Choose a type",
   nameLabel: "Name (optional)",

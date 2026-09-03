@@ -1,6 +1,10 @@
 export const content = {
-  welcome: "Welcome to the Express Monorepo Service",
-  serviceName: "Express Monorepo Template",
+  welcome: "Welcome to Deed poll admin",
+  // Reaches `page-title.njk` as `{{ title }} - {{ serviceName }} - {{ govUk }}`, so this is in the
+  // browser tab and every bookmark on every page. It was still the re-scaffold's
+  // "Express Monorepo Template" until Steve settled the name on 2026-09-03; `deed-poll-admin` matches
+  // the repo, the product code, the vault names and the image path, so the service reads as one thing.
+  serviceName: "Deed poll admin",
   phase: "beta",
   govUk: "GOV.UK",
   back: "Back",

@@ -2,8 +2,12 @@
 type Translations = typeof import("./en.js").content;
 
 export const content: Translations = {
-  welcome: "Croeso i Wasanaeth Monorepo Express",
-  serviceName: "Gwasanaeth Monorepo Express",
+  welcome: "Croeso i Gweinyddu gweithred newid enw",
+  // NOT professionally translated — see the Welsh note in .business_context/PROGRESS.md. This is a
+  // placeholder pending the translation being commissioned, and a service name is exactly the kind of
+  // string a translator should settle rather than a developer. It is at least Welsh rather than English,
+  // which the rest of this service's `cy` values are not.
+  serviceName: "Gweinyddu gweithred newid enw",
   phase: "beta",
   govUk: "GOV.UK",
   back: "Yn ôl",

@@ -1,7 +1,7 @@
 import { DEEDPOLL_ADMIN, findDeedPoll, NotFoundError, removeDeedPoll, SERVICE_ACCOUNT_NAME, updateDeedPoll } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
-import { requestDouble, responseDouble } from "../../express-doubles.js";
+import { requestDouble, responseDouble, routeHandler } from "../../express-doubles.js";
 import { DELETE, GET, PATCH } from "./[id].js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -86,7 +86,7 @@ describe("/deed-polls/:id routes", () => {
       vi.mocked(removeDeedPoll).mockResolvedValue(undefined);
       const res = responseDouble();
 
-      await DELETE(requestDouble({ params: { id: "case-1" } }), res);
+      await routeHandler(DELETE)(requestDouble({ params: { id: "case-1" } }), res);
 
       expect(removeDeedPoll).toHaveBeenCalledWith("case-1");
       expect(res.status).toHaveBeenCalledWith(204);
@@ -98,7 +98,7 @@ describe("/deed-polls/:id routes", () => {
       vi.mocked(removeDeedPoll).mockRejectedValue(new NotFoundError("DeedPoll missing not found"));
       const res = responseDouble();
 
-      await expect(DELETE(requestDouble({ params: { id: "missing" } }), res)).rejects.toThrow(NotFoundError);
+      await expect(routeHandler(DELETE)(requestDouble({ params: { id: "missing" } }), res)).rejects.toThrow(NotFoundError);
 
       expect(res.status).not.toHaveBeenCalled();
     });

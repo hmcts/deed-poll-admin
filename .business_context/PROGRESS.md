@@ -311,22 +311,22 @@ documents         ███████   7/7    done  incl. multipart upload, d
 @hmcts-cft/express-govuk-starter        127 passed
 @hmcts-cft/express-session-postgres      23 passed
 @hmcts-cft/simple-router                 41 passed
-@hmcts/api                              255 passed
+@hmcts/api                              261 passed
 @hmcts/crons                             10 passed
 @hmcts/deed-poll                        590 passed
 @hmcts/onboarding                        72 passed
 @hmcts/postgres                          11 passed
 @hmcts/web                              273 passed
 ─────────────────────────────────────────────────────
-total                                  1542 passed
+total                                  1548 passed
 ```
 
 ### Branch
 
 ```
 feat/deed-poll-migration
-53 commits ahead of master
-HEAD  fc6e40c  Fix the two things that stopped the e2e suite passing after the merge
+58 commits ahead of master
+HEAD  0c24318  Merge branch 'master' into feat/deed-poll-migration
 ```
 
 <!-- END GENERATED DASHBOARD -->

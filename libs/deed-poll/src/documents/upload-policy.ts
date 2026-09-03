@@ -16,14 +16,23 @@ import { InvalidInputError } from "../errors.js";
 export const UPLOAD_FILE_FIELD = "file";
 
 /**
- * 10 MB. Chosen on 2026-09-01 for scanned certificates and multi-page PDFs, which is what these
- * documents are; there was no existing limit in the repo or the prototype to inherit.
+ * 25 MB. Raised from 10 MB on Steve's call, 2026-09-03.
  *
- * **A defensible guess, not a researched number — confirm against real file sizes with the service
- * team.** It matters more than it looks: the file is buffered in memory, so the ceiling is really
- * this figure multiplied by concurrent uploads, against the pod's memory limit.
+ * These are scanned certificates and multi-page deeds, and a colour scan of a multi-page document at
+ * 300dpi runs well past 10 MB — so the original figure was likely to reject legitimate documents, which
+ * a caseworker experiences as the service being broken rather than as a limit.
+ *
+ * **Still not a researched number; confirm against real file sizes with the service team.** The message
+ * shown to the user is derived from this constant, so correcting it here corrects everything.
+ *
+ * **Why 25 and not 50.** The file is buffered in memory, so the real ceiling is this figure multiplied
+ * by concurrent uploads, against the pod's memory limit — and **the charts set no memory limits at
+ * all**, so that ceiling is whatever the `nodejs` subchart defaults to and is not visible from this
+ * repository. 25 MB roughly doubles the headroom for genuine documents while keeping the worst case
+ * moderate. **Going higher wants explicit `resources.limits.memory` in the charts first**, and ideally
+ * streaming to storage rather than buffering — which is what CDAM brings in Phase 10.
  */
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 /**
  * PDF, the common scan formats, and Word for documents produced by the court.

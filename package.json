@@ -36,7 +36,9 @@
     "db:drop": "yarn workspace @hmcts/postgres run migrate:reset",
     "db:migrate:ccd": "yarn workspace @hmcts/postgres run migrate:ccd",
     "idam:build": "node scripts/build-idam-simulator.mjs",
-    "idam:users": "node scripts/seed-idam-users.mjs"
+    "idam:users": "node scripts/seed-idam-users.mjs",
+    "welsh:extract": "node scripts/extract-welsh-strings.mjs",
+    "welsh:check": "node scripts/extract-welsh-strings.mjs --check"
   },
   "keywords": [],
   "author": "HMCTS",

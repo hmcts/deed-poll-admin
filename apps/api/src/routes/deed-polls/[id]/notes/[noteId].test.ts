@@ -1,7 +1,7 @@
 import { findNote, NotFoundError, removeNote, SERVICE_ACCOUNT_NAME, updateNote } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
-import { requestDouble, responseDouble } from "../../../../express-doubles.js";
+import { requestDouble, responseDouble, routeHandler } from "../../../../express-doubles.js";
 import { DELETE, GET, PATCH } from "./[noteId].js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -85,7 +85,7 @@ describe("/deed-polls/:id/notes/:noteId routes", () => {
       vi.mocked(removeNote).mockResolvedValue(undefined);
       const res = responseDouble();
 
-      await DELETE(requestDouble({ params }), res);
+      await routeHandler(DELETE)(requestDouble({ params }), res);
 
       expect(removeNote).toHaveBeenCalledWith("case-1", "note-1");
       expect(res.status).toHaveBeenCalledWith(204);
@@ -97,7 +97,7 @@ describe("/deed-polls/:id/notes/:noteId routes", () => {
       vi.mocked(removeNote).mockRejectedValue(new NotFoundError("Note note-1 not found"));
       const res = responseDouble();
 
-      await expect(DELETE(requestDouble({ params }), res)).rejects.toThrow(NotFoundError);
+      await expect(routeHandler(DELETE)(requestDouble({ params }), res)).rejects.toThrow(NotFoundError);
 
       expect(res.status).not.toHaveBeenCalled();
     });

@@ -165,13 +165,13 @@ describe("document upload page", () => {
     // message on the starter's development error page, which read as a status bug rather than a
     // routing one.
     const res = response();
-    res.locals = { uploadRejection: new InvalidInputError("Too big", [{ field: "file", message: "The file must be smaller than 10MB" }]) };
+    res.locals = { uploadRejection: new InvalidInputError("Too big", [{ field: "file", message: "The file must be smaller than 25MB" }]) };
 
     await handler(request({ documentTypeId: TYPE_ID }), res);
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.render.mock.calls[0][1].errorField).toBe("file");
-    expect(res.render.mock.calls[0][1].errorMessage).toBe("The file must be smaller than 10MB");
+    expect(res.render.mock.calls[0][1].errorMessage).toBe("The file must be smaller than 25MB");
     expect(uploadDocument).not.toHaveBeenCalled();
   });
 

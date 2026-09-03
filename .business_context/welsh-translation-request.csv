@@ -1,0 +1,101 @@
+file,key,english,current_welsh,needs_translation
+apps/web/src/locales,back,"Back","Yn ôl",already translated
+apps/web/src/locales,common.callChargesLink,"https://www.gov.uk/call-charges","https://www.gov.uk/call-charges",YES
+apps/web/src/locales,common.email,"Email","E-bost",already translated
+apps/web/src/locales,common.findOutAboutCallCharges,"Find out about call charges","Darganfyddwch am gostau galwadau",already translated
+apps/web/src/locales,common.post,"Post","Post",YES
+apps/web/src/locales,common.telephone,"Telephone","Ffôn",already translated
+apps/web/src/locales,common.warning,"Warning","Rhybudd",already translated
+apps/web/src/locales,feedback.ariaLabel,"Give feedback about this page","Rhoi adborth am y dudalen hon",already translated
+apps/web/src/locales,feedback.link,"/feedback?page=","/feedback?page=",YES
+apps/web/src/locales,feedback.part1,"This is a new service – ","Mae hwn yn wasanaeth newydd – ",already translated
+apps/web/src/locales,feedback.part2,"give feedback","rhowch adborth",already translated
+apps/web/src/locales,feedback.part3," to help us improve it."," i'n helpu i'w wella.",already translated
+apps/web/src/locales,footer.accessibility,"Accessibility statement","Datganiad hygyrchedd",already translated
+apps/web/src/locales,footer.contactUs,"Contact us","Cysylltu â ni",already translated
+apps/web/src/locales,footer.cookies,"Cookies","Cwcis",already translated
+apps/web/src/locales,footer.privacyPolicy,"Privacy policy","Polisi preifatrwydd",already translated
+apps/web/src/locales,footer.termsAndConditions,"Terms and conditions","Telerau ac amodau",already translated
+apps/web/src/locales,govUk,"GOV.UK","GOV.UK",YES
+apps/web/src/locales,language.ariaLabel,"Change language to Welsh","Newid iaith i Saesneg",already translated
+apps/web/src/locales,language.current,"English","Cymraeg",already translated
+apps/web/src/locales,language.switch,"Cymraeg","English",already translated
+apps/web/src/locales,navigation.about,"About","Amdanom",already translated
+apps/web/src/locales,navigation.contact,"Contact us","Cysylltu â ni",already translated
+apps/web/src/locales,navigation.home,"Home","Hafan",already translated
+apps/web/src/locales,phase,"beta","beta",YES
+apps/web/src/locales,serviceConfig.contactEmail,"enquiries@hmcts.gsi.gov.uk","enquiries@hmcts.gsi.gov.uk",YES
+apps/web/src/locales,serviceConfig.contactFormUrl,"https://contact-us.form.service.justice.gov.uk/","https://contact-us.form.service.justice.gov.uk/",YES
+apps/web/src/locales,serviceConfig.contactPhone,"0300 303 0642","0300 303 0642",YES
+apps/web/src/locales,serviceConfig.dataRetentionPeriod,"90 days","90 diwrnod",already translated
+apps/web/src/locales,serviceConfig.openingHours,"Monday to Friday, 10am to 6pm","Dydd Llun i ddydd Gwener, 10am i 6pm",already translated
+apps/web/src/locales,serviceConfig.temporaryDataPeriod,"1 month","1 mis",already translated
+apps/web/src/locales,serviceName,"Deed poll admin","Gweinyddu gweithred newid enw",already translated
+apps/web/src/locales,welcome,"Welcome to Deed poll admin","Croeso i Gweinyddu gweithred newid enw",already translated
+apps/web/src/pages/deed-polls/[id].ts,addNote,"Add a note","Add a note",YES
+apps/web/src/pages/deed-polls/[id].ts,amendNoteHint,"amend this note","amend this note",YES
+apps/web/src/pages/deed-polls/[id].ts,backToCases,"Back to cases","Back to cases",YES
+apps/web/src/pages/deed-polls/[id].ts,bannerTitle,"Important","Important",YES
+apps/web/src/pages/deed-polls/[id].ts,changeLink,"Change","Change",YES
+apps/web/src/pages/deed-polls/[id].ts,declarantTag,"Declarant","Declarant",YES
+apps/web/src/pages/deed-polls/[id].ts,noneRecorded,"None recorded.","None recorded.",YES
+apps/web/src/pages/deed-polls/[id].ts,notEdited,"Not edited","Not edited",YES
+apps/web/src/pages/deed-polls/[id].ts,privateTag,"Private","Private",YES
+apps/web/src/pages/deed-polls/[id].ts,title,"Case","Case",YES
+apps/web/src/pages/deed-polls/[id].ts,unknownType,"Unknown","Unknown",YES
+apps/web/src/pages/deed-polls/[id].ts,uploadDocument,"Upload a document","Upload a document",YES
+apps/web/src/pages/deed-polls/[id].ts,witnessAddress,"Address","Address",YES
+apps/web/src/pages/deed-polls/[id].ts,witnessOccupation,"Occupation","Occupation",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,cancel,"Cancel","Cancel",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,directionHint,"Incoming for documents received from the applicant, outgoing for documents we send.","Incoming for documents received from the applicant, outgoing for documents we send.",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,directionLabel,"Direction","Direction",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,errorSummaryTitle,"There is a problem","There is a problem",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,fileHint,"`PDF, JPG, PNG, TIFF or Word, up to ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))}MB.`","`PDF, JPG, PNG, TIFF or Word, up to ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))}MB.`",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,fileLabel,"Choose a file","Choose a file",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,heading,"Upload a document","Upload a document",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,nameHint,"Leave blank to use the file's own name.","Leave blank to use the file's own name.",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,nameLabel,"Name (optional)","Name (optional)",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,noTypes,"No document types have been set up, so a document cannot be filed yet.","No document types have been set up, so a document cannot be filed yet.",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,submit,"Upload","Upload",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,title,"Upload a document","Upload a document",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,typeEmpty,"Choose a type","Choose a type",YES
+apps/web/src/pages/deed-polls/[id]/documents/upload.ts,typeLabel,"Document type","Document type",YES
+apps/web/src/pages/deed-polls/[id]/edit/[tab].ts,cancel,"Cancel","Cancel",YES
+apps/web/src/pages/deed-polls/[id]/edit/[tab].ts,errorSummaryTitle,"There is a problem","There is a problem",YES
+apps/web/src/pages/deed-polls/[id]/edit/[tab].ts,save,"Save","Save",YES
+apps/web/src/pages/deed-polls/[id]/edit/[tab].ts,subgridIntro,"This section is managed as a list.","This section is managed as a list.",YES
+apps/web/src/pages/deed-polls/[id]/edit/[tab].ts,subgridLinkPrefix,"View","View",YES
+apps/web/src/pages/deed-polls/[id]/edit/[tab].ts,titlePrefix,"Edit","Edit",YES
+apps/web/src/pages/deed-polls/[id]/notes/[noteId]/edit.ts,cancel,"Cancel","Cancel",YES
+apps/web/src/pages/deed-polls/[id]/notes/[noteId]/edit.ts,createdLabel,"Created","Created",YES
+apps/web/src/pages/deed-polls/[id]/notes/[noteId]/edit.ts,delete,"Delete note","Delete note",YES
+apps/web/src/pages/deed-polls/[id]/notes/[noteId]/edit.ts,errorSummaryTitle,"There is a problem","There is a problem",YES
+apps/web/src/pages/deed-polls/[id]/notes/[noteId]/edit.ts,modifiedLabel,"Modified","Modified",YES
+apps/web/src/pages/deed-polls/[id]/notes/[noteId]/edit.ts,notEdited,"Not edited","Not edited",YES
+apps/web/src/pages/deed-polls/[id]/notes/[noteId]/edit.ts,noteHint,"What you record here is visible to anyone working on this case.","What you record here is visible to anyone working on this case.",YES
+apps/web/src/pages/deed-polls/[id]/notes/[noteId]/edit.ts,noteLabel,"Note","Note",YES
+apps/web/src/pages/deed-polls/[id]/notes/[noteId]/edit.ts,save,"Save note","Save note",YES
+apps/web/src/pages/deed-polls/[id]/notes/[noteId]/edit.ts,titlePrefix,"Amend note","Amend note",YES
+apps/web/src/pages/deed-polls/[id]/notes/new.ts,cancel,"Cancel","Cancel",YES
+apps/web/src/pages/deed-polls/[id]/notes/new.ts,errorSummaryTitle,"There is a problem","There is a problem",YES
+apps/web/src/pages/deed-polls/[id]/notes/new.ts,heading,"Add a note","Add a note",YES
+apps/web/src/pages/deed-polls/[id]/notes/new.ts,noteHint,"What you record here is visible to anyone working on this case.","What you record here is visible to anyone working on this case.",YES
+apps/web/src/pages/deed-polls/[id]/notes/new.ts,noteLabel,"Note","Note",YES
+apps/web/src/pages/deed-polls/[id]/notes/new.ts,submit,"Add note","Add note",YES
+apps/web/src/pages/deed-polls/[id]/notes/new.ts,title,"Add a note","Add a note",YES
+apps/web/src/pages/deed-polls/index.ts,empty,"No cases match this filter.","No cases match this filter.",YES
+apps/web/src/pages/deed-polls/index.ts,filterLabel,"Filter by status","Filter by status",YES
+apps/web/src/pages/deed-polls/index.ts,heading,"Deed poll cases","Deed poll cases",YES
+apps/web/src/pages/deed-polls/index.ts,newCase,"New case","New case",YES
+apps/web/src/pages/deed-polls/index.ts,privateTag,"Private","Private",YES
+apps/web/src/pages/deed-polls/index.ts,title,"Deed poll cases","Deed poll cases",YES
+apps/web/src/pages/deed-polls/new.ts,dateReceivedHint,"For example, 27 3 2026","For example, 27 3 2026",YES
+apps/web/src/pages/deed-polls/new.ts,dateReceivedLabel,"Date received","Date received",YES
+apps/web/src/pages/deed-polls/new.ts,errorSummaryTitle,"There is a problem","There is a problem",YES
+apps/web/src/pages/deed-polls/new.ts,forenameLabel,"New forename","New forename",YES
+apps/web/src/pages/deed-polls/new.ts,heading,"New deed poll case","New deed poll case",YES
+apps/web/src/pages/deed-polls/new.ts,submit,"Create case","Create case",YES
+apps/web/src/pages/deed-polls/new.ts,surnameLabel,"New surname","New surname",YES
+apps/web/src/pages/deed-polls/new.ts,title,"New deed poll case","New deed poll case",YES
+apps/web/src/pages/deed-polls/new.ts,typeEmpty,"Choose a type","Choose a type",YES
+apps/web/src/pages/deed-polls/new.ts,typeLabel,"Application type","Application type",YES

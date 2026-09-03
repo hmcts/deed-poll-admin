@@ -3,14 +3,16 @@
  * exercise Multer: its limits and filter are enforced inside its own stream handling, so calling
  * the middleware with a request double proves nothing.
  */
-import { InvalidInputError } from "@hmcts/deed-poll";
+import { InvalidInputError, MAX_UPLOAD_BYTES } from "@hmcts/deed-poll";
 import express, { type Express } from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { errorHandler } from "../errors.js";
 import { uploadSingleFile } from "./upload.js";
 
-const MB = 1024 * 1024;
+// Sizes are derived from the policy rather than restated: this file already had to be edited when the
+// limit moved from 10MB to 25MB, and a test that hardcodes the threshold it is checking stops testing
+// the threshold the moment the two disagree.
 
 function appWithUpload(): Express {
   const app = express();
@@ -58,24 +60,24 @@ describe("uploadSingleFile", () => {
     expect(response.body.received).toBeNull();
   });
 
-  it("should reject a file over 10MB as a 400, not a 500", async () => {
+  it("should reject a file over 25MB as a 400, not a 500", async () => {
     // Multer signals this with a MulterError, which is not a domain error — unwrapped it would
     // reach the error middleware unrecognised and tell the caller the server had broken.
     const response = await request(appWithUpload())
       .post("/upload")
-      .attach("file", Buffer.alloc(10 * MB + 1), { filename: "big.pdf", contentType: "application/pdf" });
+      .attach("file", Buffer.alloc(MAX_UPLOAD_BYTES + 1), { filename: "big.pdf", contentType: "application/pdf" });
 
     expect(response.status).toBe(400);
-    expect(response.body.errors).toEqual([{ field: "file", message: "The file must be smaller than 10MB" }]);
+    expect(response.body.errors).toEqual([{ field: "file", message: "The file must be smaller than 25MB" }]);
   });
 
   it("should accept a file just under the limit, so the boundary is not off by a megabyte", async () => {
     const response = await request(appWithUpload())
       .post("/upload")
-      .attach("file", Buffer.alloc(10 * MB - 1), { filename: "big.pdf", contentType: "application/pdf" });
+      .attach("file", Buffer.alloc(MAX_UPLOAD_BYTES - 1), { filename: "big.pdf", contentType: "application/pdf" });
 
     expect(response.status).toBe(200);
-    expect(response.body.received.size).toBe(10 * MB - 1);
+    expect(response.body.received.size).toBe(MAX_UPLOAD_BYTES - 1);
   });
 
   it("should reject a file type not on the list, attributed to the file input", async () => {
@@ -131,7 +133,7 @@ describe("uploadSingleFile", () => {
 
     await request(app)
       .post("/upload")
-      .attach("file", Buffer.alloc(10 * MB + 1), { filename: "big.pdf", contentType: "application/pdf" });
+      .attach("file", Buffer.alloc(MAX_UPLOAD_BYTES + 1), { filename: "big.pdf", contentType: "application/pdf" });
 
     expect(captured).toBeInstanceOf(InvalidInputError);
   });

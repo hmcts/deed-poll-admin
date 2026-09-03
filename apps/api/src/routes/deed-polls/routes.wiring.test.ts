@@ -315,3 +315,60 @@ describe("nested notes and witnesses wired through simple-router", () => {
     expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called the applicant" }, { userName: "A Caseworker" });
   });
 });
+
+/**
+ * The three deletes are admin-only, and this is the only place that proves it.
+ *
+ * They export an array — `[requireRoles(DEEDPOLL_ADMIN), handler]` — so a unit test can only reach the
+ * handler, past the guard. Whether the guard is mounted at all, and whether `errorHandler` turns its
+ * `ForbiddenError` into a 403 rather than a 500, are properties of the assembled router.
+ *
+ * **Both directions are asserted for each route.** A check that only ever refuses would pass if it
+ * refused everyone, and the refusal has to leave the record intact — a 403 that still deleted the row
+ * would be the worst possible outcome, so each case also asserts the domain function was never called.
+ */
+describe("deleting is restricted to the admin role", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NODE_ENV = "test";
+  });
+
+  async function appAs(roles: string | undefined): Promise<Express> {
+    const app = express();
+    app.use(express.json());
+    app.use(attachUserDouble(roles, "A Caseworker"));
+    app.use(await createSimpleRouter({ path: routesDir, prefix: "/deed-polls" }));
+    app.use(errorHandler());
+    return app;
+  }
+
+  const deletes = [
+    { what: "a case", path: "/deed-polls/case-1", fn: "removeDeedPoll" },
+    { what: "a note", path: "/deed-polls/case-1/notes/note-1", fn: "removeNote" },
+    { what: "a witness", path: "/deed-polls/case-1/witnesses/witness-1", fn: "removeWitness" }
+  ] as const;
+
+  for (const { what, path, fn } of deletes) {
+    it(`should refuse to delete ${what} for a caseworker without the admin role, and not delete it`, async () => {
+      const domain = await import("@hmcts/deed-poll");
+      const remove = vi.mocked(domain[fn]);
+      remove.mockResolvedValue(undefined as never);
+
+      const response = await request(await appAs(undefined)).delete(path);
+
+      expect(response.status).toBe(403);
+      expect(remove).not.toHaveBeenCalled();
+    });
+
+    it(`should allow an admin to delete ${what}`, async () => {
+      const domain = await import("@hmcts/deed-poll");
+      const remove = vi.mocked(domain[fn]);
+      remove.mockResolvedValue(undefined as never);
+
+      const response = await request(await appAs(DEEDPOLL_ADMIN)).delete(path);
+
+      expect(response.status).toBe(204);
+      expect(remove).toHaveBeenCalled();
+    });
+  }
+});

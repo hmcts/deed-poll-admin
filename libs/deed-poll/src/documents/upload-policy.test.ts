@@ -10,8 +10,8 @@ import {
 } from "./upload-policy.js";
 
 describe("documents/upload-policy", () => {
-  it("sets the limit at 10MB", () => {
-    expect(MAX_UPLOAD_BYTES).toBe(10 * 1024 * 1024);
+  it("sets the limit at 25MB", () => {
+    expect(MAX_UPLOAD_BYTES).toBe(25 * 1024 * 1024);
   });
 
   it("accepts PDF, the common scan formats and Word", () => {
@@ -48,7 +48,7 @@ describe("documents/upload-policy", () => {
     it("states the limit in megabytes for an over-size file", () => {
       const rejection = uploadLimitRejection("LIMIT_FILE_SIZE");
 
-      expect(rejection.message).toBe("The file must be smaller than 10MB");
+      expect(rejection.message).toBe("The file must be smaller than 25MB");
       expect(rejection.errors[0].field).toBe(UPLOAD_FILE_FIELD);
     });
 

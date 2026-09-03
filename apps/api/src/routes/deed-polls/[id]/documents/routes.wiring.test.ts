@@ -115,7 +115,7 @@ describe("documents routes wired through simple-router", () => {
       const response = await request(await appWithDocumentRoutes())
         .post("/deed-polls/case-1/documents/upload")
         .field("documentTypeId", TYPE_ID)
-        .attach("file", Buffer.alloc(10 * 1024 * 1024 + 1), { filename: "big.pdf", contentType: "application/pdf" });
+        .attach("file", Buffer.alloc(25 * 1024 * 1024 + 1), { filename: "big.pdf", contentType: "application/pdf" });
 
       expect(response.status).toBe(400);
       expect(uploadDocument).not.toHaveBeenCalled();
