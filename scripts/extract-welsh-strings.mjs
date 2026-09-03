@@ -19,13 +19,32 @@
  * rather than buried in a glob.
  */
 
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(ROOT, ".business_context", "welsh-translation-request.csv");
+
+/**
+ * Machine-drafted Welsh, keyed by the English string so repeats stay consistent.
+ *
+ * **Unreviewed, and must not be copied into `cy.ts` as-is.** It exists so a reviewer edits a draft
+ * rather than translating cold. Every row carries a confidence and a note; the `LOW` ones are where a
+ * literal reading is actively wrong — the legal term for "deed poll", and "Direction", which collides
+ * with "Address" in Welsh.
+ */
+const DRAFTS = path.join(ROOT, ".business_context", "welsh-draft.csv");
+
+/**
+ * Values that are not prose: URLs, an email, a phone number, and brand tokens.
+ *
+ * Reported separately rather than dropped, because two of them **do** need attention — GOV.UK publishes
+ * a Welsh call-charges page, and a contact form may have a Welsh route — but neither is a translation
+ * job. Sending them in the prose list invites either a literal translation of a URL or a silent skip.
+ */
+const NOT_PROSE = /^(https?:\/\/|\/|mailto:)|^[\w.-]+@[\w.-]+$|^[\d\s+()]{7,}$|^(GOV\.UK|beta)$/;
 
 const INCLUDE = [path.join(ROOT, "apps/web/src/pages/deed-polls"), path.join(ROOT, "apps/web/src/locales")];
 
@@ -53,24 +72,88 @@ for (const [group, { en, cy, cyMirrorsEn }] of groups) {
 rows.sort((a, b) => a.file.localeCompare(b.file) || a.key.localeCompare(b.key));
 
 const untranslated = rows.filter((r) => r.cy !== undefined && r.cy === r.en);
+const prose = untranslated.filter((r) => !NOT_PROSE.test(r.en));
+const nonProse = untranslated.filter((r) => NOT_PROSE.test(r.en));
+const drafts = readDrafts();
 
 if (checkOnly) {
-  console.log(`${rows.length} strings, ${untranslated.length} still identical in cy`);
+  console.log(`${rows.length} strings, ${untranslated.length} still identical in cy (${prose.length} prose, ${nonProse.length} not prose)`);
   if (untranslated.length > 0) process.exitCode = 1;
 } else {
   const csv = [
-    "file,key,english,current_welsh,needs_translation",
-    ...rows.map((r) =>
-      [r.file, r.key, csvCell(r.en), csvCell(r.cy ?? ""), r.cy === undefined ? "no cy key" : r.cy === r.en ? "YES" : "already translated"].join(",")
-    )
+    "file,key,english,current_welsh,status,welsh_draft,draft_confidence,reviewer_note",
+    ...rows.map((r) => {
+      const draft = drafts.get(r.en);
+      return [
+        r.file,
+        r.key,
+        csvCell(r.en),
+        csvCell(r.cy ?? ""),
+        status(r),
+        csvCell(draft?.welsh ?? ""),
+        draft?.confidence ?? "",
+        csvCell(draft?.note ?? "")
+      ].join(",");
+    })
   ].join("\n");
   writeFileSync(OUT, `${csv}\n`);
+
+  const drafted = prose.filter((r) => drafts.has(r.en)).length;
+  const lowConfidence = new Set(prose.filter((r) => drafts.get(r.en)?.confidence === "LOW").map((r) => r.en));
+
   console.log(`Wrote ${rows.length} strings to ${path.relative(ROOT, OUT)}`);
-  console.log(`  ${untranslated.length} still need translating`);
+  console.log(`  ${prose.length} prose strings need translating, ${drafted} of them carry an unreviewed draft`);
+  console.log(`  ${nonProse.length} non-prose values reported separately (URLs, email, phone, brand)`);
+  if (prose.length > drafted) {
+    console.log(`\n  ${prose.length - drafted} prose string(s) have no draft — added since the draft file was written:`);
+    for (const r of prose.filter((x) => !drafts.has(x.en))) console.log(`     ${r.file} → ${r.key}: ${r.en}`);
+  }
+  if (lowConfidence.size > 0) {
+    console.log(`\n  ${lowConfidence.size} draft(s) marked LOW confidence — review these first:`);
+    for (const en of lowConfidence) console.log(`     "${en}"`);
+  }
   if (needsHuman.length > 0) {
     console.log(`\n${needsHuman.length} interpolated string(s) a translator must be briefed on, not just given:`);
     for (const n of needsHuman) console.log(`  ${n}`);
   }
+}
+
+function status(row) {
+  if (row.cy === undefined) return "no cy key";
+  if (row.cy !== row.en) return "already translated";
+  return NOT_PROSE.test(row.en) ? "not prose" : "YES";
+}
+
+/** The draft CSV is data, so a translator can replace it wholesale without touching this script. */
+function readDrafts() {
+  const out = new Map();
+  if (!existsSync(DRAFTS)) return out;
+  const [, ...lines] = readFileSync(DRAFTS, "utf8").trim().split("\n");
+  for (const line of lines) {
+    const [english, welsh, confidence, note] = parseCsvRow(line);
+    if (english) out.set(english, { welsh, confidence, note });
+  }
+  return out;
+}
+
+function parseCsvRow(line) {
+  const cells = [];
+  let current = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (quoted && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else quoted = !quoted;
+    } else if (char === "," && !quoted) {
+      cells.push(current);
+      current = "";
+    } else current += char;
+  }
+  cells.push(current);
+  return cells;
 }
 
 function collect(file) {

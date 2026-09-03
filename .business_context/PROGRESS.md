@@ -1145,6 +1145,32 @@ workspace catalogue at `templates/tech-spec-references/welsh-translations.json` 
 court-listing terminology and covers none of this vocabulary, so there was nothing to draw on.
 Translating later is a content change rather than a page rewrite, which is the point of the shape.
 
+**Translation is being commissioned — Steve's call, 2026-09-03.** `yarn welsh:extract` writes
+[`welsh-translation-request.csv`](welsh-translation-request.csv), which is the artefact to send:
+100 strings, **68 prose strings needing translation**, plus 7 non-prose values (URLs, an email, a phone
+number, `GOV.UK`, `beta`) reported separately so nobody translates a URL or silently skips the two that
+do need a Welsh equivalent. `yarn welsh:check` exits non-zero while any `cy` value is still identical to
+its `en`, so it can gate a release later.
+
+**Every prose string carries a machine draft, and none of it may be pasted into `cy.ts`.**
+[`welsh-draft.csv`](welsh-draft.csv) holds them with a confidence and a reviewer note each; the
+extractor joins it in. The point is that a reviewer edits a draft rather than translating cold, which is
+cheaper — **not** that the drafts are usable. Three reasons they are not:
+
+1. **Mutation errors are subtle and confidently made.** The first Welsh line written into this repo read
+   `"Croeso i Gweinyddu…"`; `i` triggers soft mutation, so it should be `"Croeso i Weinyddu…"` — the same
+   rule as `Cymru` → `i Gymru`. Corrected, and left as the worked example of why review is not optional.
+2. **Legal terminology needs an authority, not recall.** `gweithred newid enw` for "deed poll" is a
+   descriptive rendering and is unverified against TermCymru or the HMCTS Welsh Language Unit. It appears
+   in the list page's heading and title, so it is the most visible string in the service. Check it first.
+3. **Sign-off.** HMCTS Welsh for a live service normally goes through the Welsh Language Unit or an
+   approved supplier, so a draft is an input to that process rather than a substitute for it.
+
+**Five drafts are marked `LOW` and want reading before the rest:** `Declarant` and the two `deed poll`
+phrases (legal terms), `Choose a type` (a mutation I could not settle), and **`Direction` — which
+collides with `Address`**, since `Cyfeiriad` is the natural Welsh for both and the upload form shows both
+fields. That one needs rephrasing rather than translating.
+
 ## Phase 5 — authentication (in progress)
 
 **Both apps now authenticate, and the header bypass is deleted from the codebase.** `apps/web` takes a

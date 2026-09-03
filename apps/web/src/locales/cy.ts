@@ -2,11 +2,15 @@
 type Translations = typeof import("./en.js").content;
 
 export const content: Translations = {
-  welcome: "Croeso i Gweinyddu gweithred newid enw",
-  // NOT professionally translated — see the Welsh note in .business_context/PROGRESS.md. This is a
-  // placeholder pending the translation being commissioned, and a service name is exactly the kind of
-  // string a translator should settle rather than a developer. It is at least Welsh rather than English,
-  // which the rest of this service's `cy` values are not.
+  // `i` triggers soft mutation, so `Gweinyddu` loses its G — the same rule as `Cymru` → `i Gymru`. The
+  // first version of this line read "i Gweinyddu" and was wrong, which is the concrete argument for not
+  // shipping machine-drafted Welsh unreviewed: mutation errors are subtle, confident and easy to miss.
+  welcome: "Croeso i Weinyddu gweithred newid enw",
+  // NOT professionally translated — see the Welsh note in .business_context/PROGRESS.md. A placeholder
+  // pending the commissioned translation, and a service name is exactly the kind of string a translator
+  // should settle rather than a developer: `gweithred newid enw` is a descriptive rendering of "deed
+  // poll" and is **not** verified against the official HMCTS term. It is at least Welsh rather than
+  // English, which the rest of this service's `cy` values are not.
   serviceName: "Gweinyddu gweithred newid enw",
   phase: "beta",
   govUk: "GOV.UK",
