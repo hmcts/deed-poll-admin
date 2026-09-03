@@ -13,9 +13,11 @@ weeks.** `lint`, `build`, `test` (1531) and **`test:e2e` (21)** all pass, and so
 **One task is outstanding and it needs you, not me:** `gh`'s token is invalid
 (`gh auth status` → "The token in default is invalid"), so I could not read PR or CI state anywhere in
 this session. Run `gh auth login -h github.com`, and then the parked job is to audit the **42 remote
-branches that share no history with master** before deleting any — deleting a branch closes any open PR
-on it, which is the one thing I could not check. See ["Branch inventory"](#branch-inventory) below;
-the short version is that 42 of 46 branches are inherited template cruft that cannot be merged at all.
+branches that share no history with master** before deleting any — deleting a branch closes any open PR,
+and because the tree those branches target no longer exists, **the PR body may be the only surviving
+record of what each was for**; their commit messages are all just `Initialize <branch-name>`. See
+["Branch inventory"](#branch-inventory), which lists all 48 branches and splits the 42 into 24 bot-named
+and 18 human-named.
 
 **Local environment left running:** `docker compose` (Postgres + `rse-idam-simulator`) is up, and a
 `tsx src/server.ts` for `apps/web` may still be running on port 3000 from the e2e diagnosis — kill it
@@ -1885,24 +1887,78 @@ open for weeks. Revisit once Track A is green.
 
 ## Branch inventory
 
-Taken 2026-09-03. **46 remote branches; only 4 relate to this codebase.**
+Taken 2026-09-03. **48 remote branches besides `master`; 6 relate to this codebase and 42 do not.**
 
-**42 have no common ancestor with master at all** — `git merge-base` returns nothing, so git would
-refuse to merge them without `--allow-unrelated-histories` and doing so would splice in a foreign tree.
-They are branches inherited with the repo from the template it was copied from: `timja-patch-1/2`,
-`adusumillipraveen-patch-1`, `switch-away-from-csurf-to-tiny-csrf`, `task/jenkins-config`,
-`update-cnp`, `update-routeing`, `tooling-refresh`, five `snyk-upgrade-*`, eight `dependabot/*` and
-eleven `renovate/*`. **None is deed-poll work and there is no merge order for them.** Deleting them is
-pure hygiene, but it closes any open PR on them, which needs `gh` to check first.
+Regenerate rather than trusting these numbers — they moved twice during the session as branches were
+created and merged:
 
-The four that are real:
+```sh
+git fetch --prune origin
+for b in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin \
+             | sed 's|^origin/||' | grep -vE '^(HEAD|master|origin)$'); do
+  git merge-base --is-ancestor "origin/${b}" origin/master 2>/dev/null && { echo "MERGED     $b"; continue; }
+  mb=$(git merge-base "origin/${b}" origin/master 2>/dev/null)
+  git rev-parse --verify -q "$mb" >/dev/null 2>&1 && echo "shares     $b" || echo "UNRELATED  $b"
+done
+```
+
+### The 6 that relate to this codebase
 
 | Branch | State | Disposition |
 |---|---|---|
-| `feat/deed-poll-migration` | level with master, all checks green | the work; still no PR by choice |
-| `renovate/tsx-4.x` | merged as #41 | **merged broken** — see below |
-| `fix/lockfile-lodash-4.18.1` | 1 ahead, predates the rescaffold | moot: syncs `lodash 4.18.1` into a lockfile with no lodash, and touches `.pnp.cjs` / `.yarn/install-state.gz`, which this setup does not use. Delete |
-| `chore/rescaffold-monorepo-template` | already an ancestor of master | delete |
+| `feat/deed-poll-migration` | 53 ahead, level with master, all five checks green | **the work.** Keep; still no PR by choice |
+| `fix/lockfile-lodash-4.18.1` | shares history, 1 ahead, pre-rescaffold | delete — syncs `lodash 4.18.1` into a lockfile with no lodash, and touches `.pnp.cjs` / `.yarn/install-state.gz`, which this setup does not use |
+| `chore/gitignore-safety-entries` | merged (#43) | delete |
+| `fix/biome-manifest-lockfile-mismatch` | merged (#42) | delete |
+| `fix/tsx-lockfile-sync` | merged (#44) | delete |
+| `chore/rescaffold-monorepo-template` | merged (#23) | delete |
+
+`renovate/tsx-4.x` was in this table as "merged broken"; it is merged (#41) and its branch is gone. The
+lockfile it left behind is fixed by #44 — see ["Master's CI was red"](#masters-ci-was-red-twice-in-one-day).
+
+### The 42 with no shared history, and what they actually are
+
+**Corrects an earlier version of this section**, which said they were "branches inherited with the repo
+from the template it was copied from". The *names* come from the old template, but the mechanism is
+different and matters:
+
+- **Each is a single orphan root commit** — no parent, message `Initialize <branch-name>`, all authored
+  2026-08-20. So all 42 were produced by one bulk operation rather than carried over as real history.
+  That is why `git merge-base` finds nothing: each is its own root.
+- **Each holds a full tree snapshot** of the pre-rescaffold codebase — 2381 files on `timja-patch-1`,
+  1331 on `update-axios`, 283 on `renovate/express-4.x`, 73 on a `snyk-upgrade-*` — including
+  `.eslintrc.js`, `.eslintignore` and `.github/workflows/checks.yml`.
+- **Those files are absent from master.** `82e8b0d` replaced the tree wholesale on 2026-08-21 and the
+  repo moved from ESLint to Biome. So whatever each branch changed, it changed files that no longer
+  exist, and there is no common base to diff against to recover the intent.
+
+**Bot-named, 24** — disposable, since the bot re-raises anything still relevant:
+`renovate/{babel-monorepo, chai-5.x-lockfile, codeceptjs-3.x-lockfile, cookie-parser-1.x,
+eslint-config-prettier-8.x, express-4.x, major-eslint-monorepo, node-22.x-lockfile,
+postcss-8.x-lockfile, require-directory-2.x}`, `renovate-label`,
+`dependabot/npm_and_yarn/{azure/msal-node-2.9.2, braces-3.0.3, follow-redirects-1.15.6,
+grpc/grpc-js-1.10.9, micromatch-4.0.8, phin-3.7.1, terser-5.15.0, webpack-5.94.0}`, and five
+hash-suffixed `snyk-upgrade-*`.
+
+**Human-named, 18:** `addsetup`, `adusumillipraveen-patch-1`, `fix-empty-preview-env`,
+`fix-graceful-shutdown`, `fix/remove_localhost_private_key_from_vcs`, `follow-redirects`,
+`info-provider-1.2.0`, `library-patch-fix-branch`, `switch-away-from-csurf-to-tiny-csrf`,
+`task/jenkins-config`, `timja-patch-1`, `timja-patch-2`, `tooling-refresh`, `update-axios`,
+`update-cnp`, `update-routeing`, `update-routeing-exports`, `webpackhash`.
+
+**Check the PRs before deleting any of them.** Deleting a branch closes its PR, and since the tree each
+targets is gone, **a PR body may be the only surviving statement of what the branch was for** — the
+commit message is just `Initialize <name>`. That needs `gh`, whose token was invalid throughout this
+session.
+
+Two worth a look regardless of the rest:
+
+- **`fix/remove_localhost_private_key_from_vcs`** — the name implies a private key was committed to the
+  template at some point. Worth confirming it never reached *this* repo's history before the branch
+  naming it disappears. Not checked.
+- **`task/jenkins-config`** — relevant to ["The HMCTS Way documents the Jenkins pipeline
+  only"](#the-hmcts-way-documents-the-jenkins-pipeline-only--confirmed-not-inferred), since this repo
+  deploys via GitHub Actions instead.
 
 ## Master's CI was red twice in one day
 
