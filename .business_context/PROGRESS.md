@@ -12,13 +12,17 @@ aat/demo/ithc/perftest overrides + roles.yaml). **Nothing further is needed from
 itself** — the next move is IDAM's, and it is a wait rather than a task.
 
 **What is still gated behind it**, unchanged: the client id and secret, so nothing can log in to a
-deployed instance; the `idam-client-secret` vault entry; the two open questions in
-[`IDAM_REGISTRATION_REQUEST.md`](IDAM_REGISTRATION_REQUEST.md) (PKCE and client-secret enforcement,
-and the preview wildcard); and the e2e journeys, which skip against a deployed environment for exactly
-this reason. **Two things only real IDAM can settle** and both fail closed, so watch for them rather
-than expecting an error: whether the role string really is `caseworker-deedpoll-admin`, and whether
-CFT IDAM's `/o/userinfo` matches the simulator's `IdamUserInfo` shape. A wrong role string shows up as
-"nobody can edit privacy".
+deployed instance; the `idam-client-secret` vault entry; and the e2e journeys, which skip against a
+deployed environment for exactly this reason.
+
+**Nothing was left as an open question** — [`IDAM_REGISTRATION_REQUEST.md`](IDAM_REGISTRATION_REQUEST.md)
+records all of them as answered from `hmcts/idam-access-config` and `hmcts/rse-idam-simulator` — but
+**three things are unverified rather than settled, and every one of them fails quietly**: the role
+string `caseworker-deedpoll-admin`, the shape of CFT IDAM's `/o/userinfo`, and whether the issuer
+enforces PKCE and the client secret (the simulator checks neither, so local runs prove only this
+client's half). Watch for these rather than expecting an error — a wrong role string shows up as
+"nobody can edit privacy". Production redirect URIs are also deliberately empty in the submitted
+config and must be added before a production deploy.
 
 ### The previous session's work did not build, and it hid a real defect
 

@@ -1,0 +1,11 @@
+services:
+  deed-poll-admin:
+    client_id: deed-poll-admin
+    oauth2:
+      redirect_uris:
+        - http://localhost:3000/oauth2/callback
+        - https://deed-poll-deed-poll-admin-staging-web.perftest.platform.hmcts.net/oauth2/callback
+    oidc:
+      post_logout_redirect_uris:
+        - http://localhost:3000/
+        - https://deed-poll-deed-poll-admin-staging-web.perftest.platform.hmcts.net/

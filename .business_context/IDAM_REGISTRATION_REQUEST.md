@@ -4,14 +4,28 @@ Updated 2026-09-03. Registration is via PR to `hmcts/idam-access-config`, not an
 configuration below follows the standard OIDC pattern from the CFT IDAM developer guide.
 
 **The PR is raised — 2026-09-03**, by Steve, outside the devcontainer (pushing to `hmcts` needs SAML SSO
-authorization that is not available here). It carries the 6 files described under "Folder structure for
-the PR" below: `base/services.yaml`, `base/roles.yaml`, and the aat/demo/ithc/perftest overrides.
+authorization that is not available here). **The six files it carries are committed verbatim at
+[`idam-pr/`](idam-pr/)** — `base/services.yaml`, `base/roles.yaml` and the aat/demo/ithc/perftest
+overrides — so the request itself is a record rather than prose describing one. That directory is the
+artefact; this document is the reasoning behind each value. Where the two disagree, the YAML is what was
+submitted.
 
 **This document is now the record of what was asked for, not a task.** Keep it as the reference to check
-IDAM's answers against — in particular the two open questions below, and the two things only real IDAM
-can settle (whether the role string really is `caseworker-deedpoll-admin`, and whether CFT IDAM's
-`/o/userinfo` matches the simulator's `IdamUserInfo` shape). Both fail closed, so a wrong answer shows up
-as "nobody can edit privacy" rather than as an error.
+what IDAM actually provisions against what was requested. Nothing here is an open question — see that
+section below — but three things are unverified rather than settled, and all three fail quietly:
+
+1. **The role string.** `caseworker-deedpoll-admin` follows the convention but has never been seen on a
+   real IDAM token. Wrong, and it reads as "nobody can edit privacy" rather than as an error.
+2. **CFT IDAM's `/o/userinfo` shape**, which is assumed to match the simulator's `IdamUserInfo`.
+3. **PKCE and client-secret enforcement.** `rse-idam-simulator` checks neither — it has no
+   `code_challenge` handling, and `getOpenIdToken` takes `client_secret` and never reads it — so local
+   runs prove this client's half and nothing about the issuer's. Real IDAM is expected to enforce both,
+   which is an expectation to confirm by observation, not a question that was asked.
+
+**Production redirect URIs are deliberately empty** in `idam-pr/apps/deed-poll/base/services.yaml` and
+must be added before any production deployment. Nothing enforces that — IDAM refuses an unregistered
+`redirect_uri`, and the refusal lands on IDAM's own page after a successful login, where no request
+reaches our logs.
 
 **Nothing in Phase 5 can be verified against real IDAM until this is merged and deployed.** The flow
 itself is built and works — see "What is already done" below — so this is a configuration handshake, not
@@ -139,47 +153,12 @@ IDAM's end-session page.
 
 ## Folder structure for the PR
 
-Following `hmcts/idam-access-config` repo conventions, create:
-
-```
-apps/
-  deed-poll/
-    base/
-      services.yaml      # Configuration above (with prod redirect URIs)
-      roles.yaml         # Role definition below
-    aat/
-      services.yaml      # AAT overrides: localhost + staging redirect URIs
-```
-
-**`apps/deed-poll/base/services.yaml`**: The configuration above, with production redirect URIs added
-when known.
-
-**`apps/deed-poll/base/roles.yaml`**:
-```yaml
-roles:
-  caseworker-deedpoll-admin:
-    name: caseworker-deedpoll-admin
-    description: Deed poll admin caseworkers who can set case privacy to Private
-    managed_by:
-      - ccd-admin
-```
-
-**`apps/deed-poll/aat/services.yaml`**: Override redirect URIs for AAT to include localhost:
-```yaml
-services:
-  deed-poll-admin:
-    client_id: deed-poll-admin
-    oauth2:
-      redirect_uris:
-        - http://localhost:3000/oauth2/callback
-        - https://deed-poll-deed-poll-admin-staging-web.aat.platform.hmcts.net/oauth2/callback
-    oidc:
-      post_logout_redirect_uris:
-        - http://localhost:3000/
-        - https://deed-poll-deed-poll-admin-staging-web.aat.platform.hmcts.net/
-```
-
-## Notes for raising the PR
+**See [`idam-pr/`](idam-pr/), which holds the submitted files themselves.** The prose that used to be
+here has been removed rather than kept alongside them: it listed only `base/` and `aat/` where the PR
+carries four environment overrides, so it had already drifted from what was sent, and two copies of the
+same YAML can only ever disagree. [`idam-pr/README.md`](idam-pr/README.md) explains the three things
+about the contents that are not self-evident — the deliberately empty production URIs, the doubled
+hostname segment, and why `demo`/`ithc`/`perftest` are there at all.
 
 ## What is already implemented
 
