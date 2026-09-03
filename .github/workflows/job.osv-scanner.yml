@@ -3,9 +3,16 @@ name: OSV Scanner Job
 on:
   workflow_call:
 
-# `security-events: write` is gone with the SARIF upload. The reusable workflow declares its own job
-# permissions regardless, so this block only covers what the caller needs.
+# **Left as-is even though nothing is uploaded any more, and it has to be.** A nested reusable workflow
+# cannot request more than its caller grants, and Google's `osv-scan` job declares
+# `security-events: write` unconditionally — regardless of `upload-sarif`. Narrowing this block to
+# `contents: read` made the whole Preview run fail with `startup_failure` before a single step ran.
+# These are a ceiling, not a grant of anything that gets used.
 permissions:
+  # Required by the nested reusable workflow's job declaration, not by anything here.
+  actions: read
+  security-events: write
+  # Only need to read contents
   contents: read
 
 jobs:
