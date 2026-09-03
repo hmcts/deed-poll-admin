@@ -12,6 +12,7 @@ database/build
 npm-debug.log*
 
 # Environment variables
+.env
 .env.*.local
 .env.local
 
@@ -25,12 +26,17 @@ coverage/
 .nyc_output/
 lcov.info
 .playwright-mcp/
+# Playwright's saved sign-in state. A live session cookie, so a credential — never committable.
+.auth/
 
 # Turborepo
 .turbo/
 
 # Yarn
 .yarn/
+
+# macOS
+.DS_Store
 
 # intellij
 .idea/
@@ -48,3 +54,13 @@ values.preview.yaml
 
 # Prisma generated client
 libs/postgres-prisma/generated/
+
+# NestJS prototype, kept out of the tree while its code is migrated into apps/ and libs/. Ignored so
+# its node_modules (~500M), dist, .env and document blobs cannot be committed by accident. Remove this
+# entry once the directory is deleted.
+power_app_nest/
+
+# Uploaded document blobs. Real case documents, so they must never be committable. A glob rather than a
+# single path because the directory is created relative to the working directory of whichever app
+# writes it. No tracked path has a data/ component, so this excludes nothing legitimate.
+data/
