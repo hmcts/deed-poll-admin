@@ -6,45 +6,75 @@ Last updated: 2026-09-03. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
 ## Pick up here (end of 2026-09-03 session)
 
-**Everything is committed, pushed and green. The branch is level with master for the first time in
-weeks.** `lint`, `build`, `test` (1531) and **`test:e2e` (21)** all pass, and so does
-`yarn install --immutable`, which is the check that catches a lockfile disagreeing with its manifests.
+**Everything is committed, pushed and green, and the branch is level with master.** `lint`, `build`,
+`test` and `test:e2e` (21) all pass, and so does `yarn install --immutable`, which is the check that
+catches a lockfile disagreeing with its manifests. Counts are in the generated dashboard below.
 
-**One task is outstanding and it needs you, not me:** `gh`'s token is invalid
-(`gh auth status` → "The token in default is invalid"), so I could not read PR or CI state anywhere in
-this session. Run `gh auth login -h github.com`, and then the parked job is to audit the **42 remote
-branches that share no history with master** before deleting any — deleting a branch closes any open PR,
-and because the tree those branches target no longer exists, **the PR body may be the only surviving
-record of what each was for**; their commit messages are all just `Initialize <branch-name>`. See
-["Branch inventory"](#branch-inventory), which lists all 48 branches and splits the 42 into 24 bot-named
-and 18 human-named.
+**CI works now, for the first time.** Master's pipeline had never been green and neither had this
+branch's, because no PR existed. Both are green on lint, test, `osv-scan` and SonarCloud. What remains
+red is only the Azure credentials — see the table below.
 
-**Local environment left running:** `docker compose` (Postgres + `rse-idam-simulator`) is up, and a
-`tsx src/server.ts` for `apps/web` may still be running on port 3000 from the e2e diagnosis — kill it
-before starting another. Yarn still needs sideloading; a shim that makes nested `yarn` calls work
-(Playwright's `webServer` runs `yarn dev:nowatch`) is at `/tmp/yarnshim/yarn`, and **without something
-like it `test:e2e` cannot start at all** — corepack tries to reach `repo.yarnpkg.com` and the webServer
-dies. Recreate it with `printf '#!/bin/sh\nexec node /tmp/yarn417/bin/yarn.js "$@"\n'`.
+### Tomorrow, in order
 
-### What happened today, in order
+1. **Chase [`azure-github-federation-config#99`](https://github.com/hmcts/azure-github-federation-config/pull/99).**
+   Open, mergeable, its Azure DevOps `TerraformPlanApply` precheck passes, `REVIEW_REQUIRED`. It is the
+   only thing standing between master and a fully green pipeline — it clears all four `Build & Publish`
+   jobs. **Four other Renovate PRs are sitting unreviewed in that repo**, so the queue may be slow.
+2. **Ask which repo declares the `deed-poll` Kubernetes namespace.** The one outstanding Phase 6 item
+   that is a *question* rather than a piece of work, and a one-line answer for anyone who has done it.
+   `cnp-flux-config` is still not cloned here, which is why it is unconfirmed.
+3. **Start `deed-poll-shared-infrastructure`.** Longest lead time of anything left, and nothing else in
+   Phase 6 can be tested without it. Confirmed absent — the repo 404s.
+4. **Close [#52](https://github.com/hmcts/deed-poll-admin/pull/52)** (`prisma` → 7.10.0), superseded by
+   #58 which made the same bump. #53 and #54 need a rebase onto the new `yarn.lock`; Renovate does that
+   itself. **#55 and #56 are safe.** None of the five had the manifest-without-lockfile defect.
+5. **Send [`welsh-translation-request.csv`](welsh-translation-request.csv) for review** — 68 prose
+   strings, each with an unreviewed machine draft and a confidence. Read the five marked `LOW` first.
 
-1. **The IDAM registration PR was raised** by Steve, and the six submitted YAML files are now committed
-   at [`idam-pr/`](idam-pr/) rather than living only in `/tmp`.
-2. **Master was merged in** (`5c3f0d0`), 42 commits. Three conflicts, all dependency metadata; no source
-   file conflicted across the branch's 51 commits.
-3. **Master turned out to be broken twice and was fixed** — PRs #42 and #44, both merged. See
-   ["Master's CI was red"](#masters-ci-was-red-twice-in-one-day) below, because the *reason* it was not
-   noticed is the interesting part.
-4. **Loose end 4 is closed** (PR #43) — see below.
-5. **The e2e suite was 20/1 and is now 21/0** (`fc6e40c`). Both causes were in the tests, and the
-   handover's own predicted cause was wrong; the write-up is in that commit and in loose end 16.
+### What is actually left in Phase 6
 
-### The next real piece of work
+Nothing in it is code, and nothing in it is mine to do.
 
-Unchanged: **wait for IDAM**. Nothing in Phase 5 can be verified against real IDAM until the
-registration is merged and deployed, and Phase 6 needs `deed-poll-shared-infrastructure` to exist. The
-only code items left are the Welsh translation (content, not structure) and whatever the two remaining
-loose ends below are worth to you.
+| Item | State |
+|---|---|
+| `deed-poll-shared-infrastructure` repo | **Absent, confirmed.** `main.tf:16` / `keyvault.tf:5` read resource group and key vault `deed-poll-{env}` as `data`, so `terraform plan` fails before anything deploys. Must also create the `deed-poll` workload identity with vault access |
+| `deed-poll` Kubernetes namespace | Platform-level; which repo declares it is still unconfirmed |
+| Federated credentials **and** ACR push rights | **In flight — PR #99.** One app registration covers both |
+| `idam-client-secret`, `session-secret` in the vault | Blocked on the vault existing. The client secret comes from IDAM; the session secret is just randomness |
+| `AZURE_CREDENTIALS_CFT_AAT` / `_PREVIEW` | **Not covered by #99** — service-principal JSON for `terraform-deploy` and `helm-deploy`. The library's `-openid` variants would remove the need entirely; worth its own change |
+| Path to live | Production only, and much may not apply — internal caseworker service on `platform.hmcts.net`, not public |
+
+**Phase 5 is unchanged: wait for IDAM.** The registration PR is raised and nothing here can be verified
+against real IDAM until it is merged and deployed.
+
+### What happened on 2026-09-03
+
+A long session. In order:
+
+1. **The IDAM registration PR was raised**, and the six submitted files are committed at
+   [`idam-pr/`](idam-pr/) rather than living only in `/tmp`.
+2. **The refresh path was fixed** — it required an `id_token` that OIDC Core §12.2 makes optional, so
+   every refresh threw and the middleware swallowed it. Both files had no tests at all.
+3. **Master was broken three times and repaired three times** — PRs #42, #44 and #58. See
+   ["Master's CI was red"](#masters-ci-was-red-twice-in-one-day).
+4. **Loose end 4 closed** (#43), and 47 dead branches deleted with their SHAs recorded in
+   [`DELETED_BRANCHES.md`](DELETED_BRANCHES.md) first.
+5. **The e2e suite went 20/1 → 21/0**, and the recorded cause (loose end 16, the pg pool) was measured
+   innocent — see the correction there.
+6. **Four service decisions settled** in code: the service name, admin-only deletes, a 25 MB upload
+   limit, and the Welsh translation commissioned.
+7. **`osv-scan` and SonarCloud both made to pass**, which took three attempts at the workflow and
+   exposed an invalid flag inherited from the template.
+
+### Environment notes for tomorrow
+
+- **`docker compose` is up** (Postgres + `rse-idam-simulator`) and the `ccd` schema tests were last run
+  against it. Nothing is left running on port 3000.
+- **`test:e2e` cannot start without a yarn shim on `PATH`** — Playwright's `webServer` runs
+  `yarn dev:nowatch`, which resolves to corepack and dies. Recreate with
+  `printf '#!/bin/sh\nexec node /tmp/yarn417/bin/yarn.js "$@"\n' > /tmp/yarnshim/yarn`.
+- **Check `organization-secrets` as well as `secrets`** before concluding a secret is missing. 28 org
+  secrets are available to this repo; `SONAR_TOKEN` is one, which is why a whole diagnosis was wrong once.
 
 ## Session handover (2026-09-03)
 
@@ -260,9 +290,9 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  1  schema → monorepo          ██████████████████████  done
  2  domain → libs/deed-poll    ██████████████████████  done
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
- 4  SSR pages → apps/web       █████████████████████░  12/12 ported, e2e + axe green; Welsh untranslated
+ 4  SSR pages → apps/web       █████████████████████░  12/12 ported, e2e + axe green; Welsh out for review
  5  authentication (IDAM)      ████████████████████░░  ◀── HERE. code done; PR raised, awaiting IDAM
- 6  config, Helm, deployment   ██████████████░░░░░░░░  code done; needs shared infra + a namespace
+ 6  config, Helm, deployment   ███████████████░░░░░░░  code done + CI green; needs shared infra, namespace, creds
 
 TRACK B — CCD adoption (separable; start only once Track A is green)
 ════════════════════════════════════════════════════════════════════════════
@@ -278,8 +308,14 @@ Three things gate a deploy, none of them code in this branch:
 | Gate | Why it blocks |
 |---|---|
 | Phase 5 auth | **Registration PR raised 2026-09-03; waiting on IDAM.** Both apps authenticate, but until the client is registered there is nothing to point them at, and neither `idam-client-secret` nor `session-secret` exists in the vault — so nobody can log in to a deployed instance, and `assertIdamSettings` refuses to start without them. No longer a task, just a wait |
-| Shared infrastructure | `deed-poll-shared-infrastructure` does not exist, and `infrastructure/` **references** the resource group and key vault it would create — so the terraform plan fails before anything deploys. Longest lead time of anything left |
+| Shared infrastructure | `deed-poll-shared-infrastructure` does not exist — **verified 2026-09-03, the repo 404s** — and `infrastructure/` **references** the resource group and key vault it would create, so the terraform plan fails before anything deploys. Longest lead time of anything left |
+| Azure credentials | No `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` at repository *or* organisation level, so all four `Build & Publish` jobs fail at `azure/login`. **[PR #99](https://github.com/hmcts/azure-github-federation-config/pull/99) is open and would clear them.** `AZURE_CREDENTIALS_CFT_AAT` / `_PREVIEW` are a separate mechanism it does not cover |
 | CI has no database | The `ccd` schema tests skip in CI. Honest, but not coverage |
+
+**No longer a gate:** CI itself. Lint, test, `osv-scan` and SonarCloud all pass on master and on this
+branch as of 2026-09-03, having never passed before. See ["Master's CI was
+red"](#masters-ci-was-red-twice-in-one-day) and ["Repository visibility, and the history secret
+scan"](#repository-visibility-and-the-history-secret-scan-2026-09-03).
 
 <!-- BEGIN GENERATED DASHBOARD -->
 
@@ -325,8 +361,8 @@ total                                  1548 passed
 
 ```
 feat/deed-poll-migration
-58 commits ahead of master
-HEAD  0c24318  Merge branch 'master' into feat/deed-poll-migration
+68 commits ahead of master
+HEAD  f5f4862  Merge master to pick up the CI repair and the Node bump
 ```
 
 <!-- END GENERATED DASHBOARD -->
