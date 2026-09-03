@@ -8,8 +8,12 @@ if (process.env.POSTGRES_HOST && process.env.POSTGRES_USER && process.env.POSTGR
   process.env.DATABASE_URL = `postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DATABASE}?sslmode=require`;
 }
 
-// Default to local PostgreSQL if DATABASE_URL is not set
-process.env.DATABASE_URL ??= "postgresql://hmcts@localhost:5432/postgres";
+// Default to local PostgreSQL when DATABASE_URL is absent. Empty counts as absent — the same reason
+// `prisma.config.ts` does not use `??=`: a Helm `env:` value or a GitHub Actions secret that does not
+// exist arrives as the empty string, which `??=` preserves. Here that would build a pool against `""`
+// and fail at connect time rather than falling back, so the failure would be a connection error naming
+// no host rather than anything pointing at the missing configuration.
+if (!process.env.DATABASE_URL) process.env.DATABASE_URL = "postgresql://hmcts@localhost:5432/postgres";
 
 // Create connection pool
 const pool = new pg.Pool({
