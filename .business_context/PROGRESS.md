@@ -1576,16 +1576,28 @@ Small, real, and deliberately not done. None blocks Phase 3.
    Merging master produced the expected `.gitignore` conflict and this branch's fuller text was kept,
    since it is the accurate one in the merged tree.
 
-5. **Nothing restricts who can delete a case, and the delete cascades.** `DELETE /deed-polls/:id` is
-   open — faithfully, because the prototype guarded nothing. **The cascade is confirmed, not assumed:**
-   deleting a case with a note left zero rows in `deedpoll_notes`, checked directly against Postgres.
-   So one unauthenticated request destroys a case and all its children. Raised as a question, not a
-   fix: `requireRoles(DEEDPOLL_ADMIN)` would be one line
-   (`export const DELETE = [requireRoles(DEEDPOLL_ADMIN), handler]`), but whether a caseworker may
-   delete a case, and whether deletion should be soft given `retainPermanently` exists in the schema,
-   is a business decision. Worth settling before Phase 5, since after Phase 5 the answer becomes an
-   IDAM role mapping rather than a code change. The same question applies to the nested
-   `DELETE .../notes/:noteId` and `.../witnesses/:witnessId`.
+5. ~~**Nothing restricts who can delete a case, and the delete cascades.**~~ **Answered 2026-09-04, and
+   the exposure is closed by a different route than the one this note proposed.**
+
+   **The decision** (Steve's): removing a case is a lifecycle question, not a REST verb. A caseworker
+   **withdraws or closes** a case — a CCD event and a state transition, audited in `ccd.case_event`,
+   removing nothing. **Hard delete becomes admin-only and narrow**, for data-protection erasure requests
+   where removal is a legal obligation. Routine disposal is CCD's job via its authoritative
+   `resolvedTTL`, and `retainPermanently` is the flag that opts a case out — which is what it was always
+   for. Specified in [`CDAM_INTEGRATION_PLAN.md`](CDAM_INTEGRATION_PLAN.md) as **new scope, not a port**:
+   an event, a UI control and a guarded admin route.
+
+   **The exposure is gone meanwhile**, without the one-line guard this note suggested: `api.enabled` is
+   now `false` in both Helm value templates, so `apps/api` is not deployed at all. It had no consumer —
+   `apps/web` imports `libs/deed-poll` in-process — and it is slated for replacement. Nothing was ever
+   exposed in practice either, since `Deploy to AAT` has never run.
+
+   Kept for two things worth not relosing. **The cascade is confirmed, not assumed:** deleting a case
+   with a note left zero rows in `deedpoll_notes`, checked directly against Postgres — so the admin
+   hard-delete path must treat that as deliberate and test it. And the note's own framing was wrong in
+   one respect: it described the route as reachable by "one unauthenticated request", which stopped
+   being true once Phase 5 mounted `authenticate()` globally in `apps/api`. It was unguarded, not
+   unauthenticated.
 
 6. **A create can never succeed without `dateReceived`, but the schema calls it optional.**
    `createDeedPollSchema` marks every field optional on the stated grounds that a case is logged

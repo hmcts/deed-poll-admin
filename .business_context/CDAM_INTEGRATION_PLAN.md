@@ -98,15 +98,34 @@ What `apps/web`'s 8 data-access files actually need:
 
 **Eleven operations, against 29 handlers in `apps/api`.** What has no consumer at all:
 
-- **Every delete.** `apps/web` performs no deletes of any kind — not cases, notes, witnesses,
-  documents or document types. This includes the unguarded cascading case delete recorded as loose
-  end 5, which is worth deciding about on its own merits rather than carrying forward by inertia.
+- **Every delete `apps/api` exposes.** `apps/web` performs no deletes of any kind — not cases, notes,
+  witnesses, documents or document types. **None of them is ported.** The unguarded cascading case
+  delete recorded as loose end 5 is retired rather than carried forward, and is replaced by the two
+  operations below.
 - **Witness writes.** Witnesses are *read* — they arrive nested inside `findDeedPoll` and
   `detail.njk` renders them — but nothing creates, updates or deletes one.
 - **Document-type writes**, the `validate` endpoint, and document list/metadata.
 - `onboarding/*` and `users*`, which are expressjs-monorepo-template leftovers.
 
 Build the eleven. Add the rest when something asks for it.
+
+### Two operations that are new, not ported
+
+Steve's decision on 2026-09-04, settling loose end 5. Removing a case is not a REST verb here; it is a
+lifecycle question, and CCD already has a model for it — `resolvedTTL` is authoritative for retention,
+and the retain-and-dispose cron removes local data only once CCD has disposed of the pointer.
+
+| Operation | Shape | Notes |
+|---|---|---|
+| **Withdraw / close a case** | a `decentralisedEvent` | The caseworker-facing action, and what "delete" means in practice: a case entered in error. A state transition, audited in `ccd.case_event`, removing nothing. **This is new UI too** — `apps/web` has no delete or withdraw control today, so it is a page and a control as well as an event |
+| **Hard delete a case** | admin-only, guarded as `[requireRoles(DEEDPOLL_ADMIN), handler]` is today | Narrow, for data-protection erasure requests where removal is a legal obligation. Not a caseworker action. The cascade must be deliberate and tested: deleting a case with a note left zero rows in `deedpoll_notes`, checked directly against Postgres |
+
+Routine disposal stays CCD's job, and `retainPermanently` is the flag that opts a case out of it —
+which is what it was always for.
+
+**This is net new scope rather than a port**, adding an event, a UI control and a guarded admin route to
+Stage 3. Worth specifying now rather than retrofitting: adding an event later means republishing the
+case-type definition through `dcd_ccd`.
 
 ---
 
