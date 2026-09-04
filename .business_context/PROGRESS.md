@@ -361,7 +361,8 @@ handler or a form — between them they settle every decision that is already ma
 defects of the same shape that only running the app revealed.
 
 **Local disk storage cannot go to AKS** — pods are ephemeral and replicas share no volume. Uploads
-work locally and are a development story until Phase 10 (CDAM) or the Azure Blob off-ramp.
+work locally and are a development story until CDAM or the Azure Blob off-ramp — see
+[`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md), which supersedes Phase 10 of the migration plan.
 `.gitignore` now covers `data/` so uploaded blobs are never committable.
 
 **One task is parked, not a question** — see "Parked tasks" below (task 1 is closed).
@@ -385,7 +386,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  0  hygiene & blocked inputs   ██████████████████████  done
  1  schema → monorepo          ██████████████████████  done
  2  domain → libs/deed-poll    ██████████████████████  done
- 3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
+ 3  JSON API → apps/api        ██████████████████████  done — 29 handlers; transitional, see CDAM plan
  4  SSR pages → apps/web       █████████████████████░  12/12 ported, e2e + axe green; Welsh out for review
  5  authentication (IDAM)      ████████████████████░░  ◀── HERE. code done; PR raised, awaiting IDAM
  6  config, Helm, deployment   ██████████████████░░░░  infra + CI done; needs namespace and 4 Azure secrets
@@ -395,7 +396,7 @@ TRACK B — CCD adoption (separable; start only once Track A is green)
  7  spike /ccd-persistence     ░░░░░░░░░░░░░░░░░░░░░░  ccd schema already vendored
  8  case type definition       ░░░░░░░░░░░░░░░░░░░░░░  hand-authored JSON, SDK is Java
  9  persistence endpoints      ░░░░░░░░░░░░░░░░░░░░░░  + retain-and-dispose reaper
-10  CDAM documents             ░░░░░░░░░░░░░░░░░░░░░░  depends on Phase 5
+10  CDAM documents             ░░░░░░░░░░░░░░░░░░░░░░  planned: DEED_POLL_API_PLAN.md (Spring Boot)
 11  platform onboarding        ░░░░░░░░░░░░░░░░░░░░░░  all external, long lead times
 ```
 
@@ -629,7 +630,12 @@ What changed in the move:
 - **The `ccd` schema tests skip when no database is reachable** — CI has no Postgres. Run
   `docker compose up -d` locally to exercise them.
 
-## Phase 3 — the JSON API (done)
+## Phase 3 — the JSON API (done, and transitional)
+
+**`apps/api` is slated for replacement** by a Spring Boot `deed-poll-api` — see
+[`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md). Nothing consumes `apps/api` today, so its
+surface is being rebuilt as the 11 operations `apps/web` actually needs rather than ported. The detail
+below stays accurate and is still the reference for anything touching these handlers meanwhile.
 
 **Phase 3 is complete — 29 of 29 handlers.** Foundations (`caf4e03`) plus four slices: `deed-polls`
 (7), notes + witnesses (10), `document-types` (5) and `documents` (7). See the slice sections below;
@@ -1570,16 +1576,28 @@ Small, real, and deliberately not done. None blocks Phase 3.
    Merging master produced the expected `.gitignore` conflict and this branch's fuller text was kept,
    since it is the accurate one in the merged tree.
 
-5. **Nothing restricts who can delete a case, and the delete cascades.** `DELETE /deed-polls/:id` is
-   open — faithfully, because the prototype guarded nothing. **The cascade is confirmed, not assumed:**
-   deleting a case with a note left zero rows in `deedpoll_notes`, checked directly against Postgres.
-   So one unauthenticated request destroys a case and all its children. Raised as a question, not a
-   fix: `requireRoles(DEEDPOLL_ADMIN)` would be one line
-   (`export const DELETE = [requireRoles(DEEDPOLL_ADMIN), handler]`), but whether a caseworker may
-   delete a case, and whether deletion should be soft given `retainPermanently` exists in the schema,
-   is a business decision. Worth settling before Phase 5, since after Phase 5 the answer becomes an
-   IDAM role mapping rather than a code change. The same question applies to the nested
-   `DELETE .../notes/:noteId` and `.../witnesses/:witnessId`.
+5. ~~**Nothing restricts who can delete a case, and the delete cascades.**~~ **Answered 2026-09-04, and
+   the exposure is closed by a different route than the one this note proposed.**
+
+   **The decision** (Steve's): removing a case is a lifecycle question, not a REST verb. A caseworker
+   **withdraws or closes** a case — a CCD event and a state transition, audited in `ccd.case_event`,
+   removing nothing. **Hard delete becomes admin-only and narrow**, for data-protection erasure requests
+   where removal is a legal obligation. Routine disposal is CCD's job via its authoritative
+   `resolvedTTL`, and `retainPermanently` is the flag that opts a case out — which is what it was always
+   for. Specified in [`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md) as **new scope, not a port**:
+   an event, a UI control and a guarded admin route.
+
+   **The exposure is gone meanwhile**, without the one-line guard this note suggested: `api.enabled` is
+   now `false` in both Helm value templates, so `apps/api` is not deployed at all. It had no consumer —
+   `apps/web` imports `libs/deed-poll` in-process — and it is slated for replacement. Nothing was ever
+   exposed in practice either, since `Deploy to AAT` has never run.
+
+   Kept for two things worth not relosing. **The cascade is confirmed, not assumed:** deleting a case
+   with a note left zero rows in `deedpoll_notes`, checked directly against Postgres — so the admin
+   hard-delete path must treat that as deliberate and test it. And the note's own framing was wrong in
+   one respect: it described the route as reachable by "one unauthenticated request", which stopped
+   being true once Phase 5 mounted `authenticate()` globally in `apps/api`. It was unguarded, not
+   unauthenticated.
 
 6. **A create can never succeed without `dateReceived`, but the schema calls it optional.**
    `createDeedPollSchema` marks every field optional on the stated grounds that a case is logged

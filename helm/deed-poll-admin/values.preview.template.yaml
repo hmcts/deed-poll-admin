@@ -9,8 +9,11 @@ postgres:
   enabled: true
 web:
   enabled: true
+# Off for the same reasons as in values.template.yaml — no consumer, and slated for replacement. Kept in
+# step with AAT deliberately: a preview environment that deploys a component AAT does not is a preview of
+# something else.
 api:
-  enabled: true
+  enabled: false
 crons:
   enabled: true
 

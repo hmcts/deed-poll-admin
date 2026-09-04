@@ -8,8 +8,16 @@ postgres:
   enabled: true
 web:
   enabled: true
+# `api` is off deliberately. Nothing consumes it: apps/web imports `libs/deed-poll` in-process and makes
+# no HTTP calls, and the e2e suite drives a browser against apps/web only. It is also slated for
+# replacement by a Spring Boot `deed-poll-api` in its own repo — see
+# `.business_context/DEED_POLL_API_PLAN.md` — so deploying it would expose an ingress host, and an
+# authenticated but unguarded DELETE that cascades (loose end 5 in PROGRESS.md), for no consumer.
+#
+# Turn it back on by setting this to true; nothing else has to change. Worth doing if something ever
+# needs the JSON API before `deed-poll-api` exists, but guard the delete routes first.
 api:
-  enabled: true
+  enabled: false
 crons:
   enabled: true
 
