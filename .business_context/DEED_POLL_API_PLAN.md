@@ -13,9 +13,10 @@ UI and moves from in-process domain calls to HTTP. Reasoning and the rejected al
 [Why this shape](#why-this-shape).
 
 **2. `deed-poll-api` serves two frontends, not one.** The existing caseworker admin app *and* a
-citizen-facing app that does not exist yet. **This is the most consequential thing in this plan** — it
-is why access control gets a section of its own, and it retires the `deed_poll_public_web` "out of
-scope" decision.
+citizen-facing app that does not exist yet. This retires the `deed_poll_public_web` "out of scope"
+decision, and it is why the API has two endpoint namespaces rather than one. Read it together with
+decision 5, which constrains what the citizen side actually needs in release 1 — the two decisions
+together are the difference between a fortnight of access-control design and none.
 
 **3. Three repos, all Java/Terraform ones on Jenkins.**
 
@@ -51,6 +52,15 @@ has its own credentials path, so they do not join the `azure-github-federation-c
 has sat untouched since 2026-09-03. `deed-poll-admin` stays on GitHub Actions and its four missing Azure
 secrets remain its own problem.
 
+**5. Release 1 of the citizen journey is an anonymous form that takes a payment.** Steve, 2026-09-04. It
+duplicates an existing MoJ form: the applicant completes the fields, pays, and gets a success message.
+**No account, no login, no portal, no progress tracking** — those come later.
+
+This is the single most simplifying fact in the plan and it is easy to lose, so it is stated here
+rather than buried: **release 1 needs no citizen IDAM client, no citizen login, and no case-level
+access control for citizens.** A citizen never returns to read anything. See [Release 1 is anonymous,
+and that changes the design](#release-1-is-anonymous-and-that-changes-the-design).
+
 ---
 
 ## The shape, before and after
@@ -77,37 +87,41 @@ Today. Note `apps/api` has an ingress and **no consumer**, and both apps import 
 
 Target:
 
+Target, as release 1 actually is — note the citizen side has **no login**:
+
 ```
-   caseworker (internal)                        citizen (public internet)
-   platform.hmcts.net                           www.gov.uk journey
+   caseworker (internal)                    applicant (public internet)
+   platform.hmcts.net                       anonymous, no account
           │                                              │
+          │ IDAM login (HMCTS_ACCESS)                     │ no login
           ▼                                              ▼
  ╔═ deed-poll-admin ═══════════╗            ╔═ citizen frontend ══════════╗
  ║  apps/web                   ║            ║  not yet specified          ║
- ║  Nunjucks, Welsh, viewer    ║            ║  own IDAM client            ║
- ║  IDAM client: HMCTS_ACCESS  ║            ║  citizen frontend           ║
+ ║  Nunjucks, Welsh, viewer    ║            ║  form + pay + success page  ║
  ╚══════════════┬══════════════╝            ╚══════════════┬══════════════╝
                 │                                          │
-                │   HTTPS, forwarding the user's IDAM token │
+       user IDAM token + S2S                          S2S only
+                │                                          │
                 └────────────────────┬─────────────────────┘
                                      ▼
  ╔═ deed-poll-api ═══════════════════════════════════════════════════════╗
- ║  /caseworker/**   ─┐                                                  ║
- ║  /citizen/**      ─┴─► domain logic, separate DTOs per audience        ║
- ║  CaseView          decentralised events          CDAM client          ║
+ ║  /caseworker/**  ─┐                                                   ║
+ ║  /citizen/**     ─┴─► domain logic, separate DTOs per audience         ║
+ ║  CaseView         decentralised events        CDAM client             ║
+ ║  holds a SYSTEM-USER IDAM token: acts for the anonymous applicant     ║
  ║  NOT internet-facing — reachable only from the two frontends          ║
- ╚══┬═══════════════════┬══════════════════┬════════════════════════════╝
-    │                   │                  │
-    │        S2S + user │        S2S + user│
-    │             token │             token│
-    │                   ▼                  ▼
-    │        ccd-data-store-api          CDAM ──────► dm-store
-    │                   │                              (binaries live here)
-    │                   │ /ccd-persistence/*
-    │                   └──────► back into deed-poll-api
-    │                                              ▲
-    │                     AM / Role Assignment ────┘ case-level access
-    ▼
+ ╚══┬═════════════┬═════════════┬══════════════════════╦═════════════════╝
+    │             │             │                      ║
+    │  S2S + user │  S2S + user │           S2S + user ║ (system user)
+    │       token │       token │                token ║
+    │             ▼             ▼                      ▼
+    │   ccd-data-store-api    CDAM ──► dm-store    ccpay-payment-app
+    │             │            (binaries)           │  ("Fees and Pay")
+    │             │ /ccd-persistence/*              ├──► GOV.UK Pay
+    │             └──► back into deed-poll-api      └──► Fees Register
+    │                                                     │
+    │   payment status ◄── Azure Service Bus ◄─────────────┘
+    ▼      (ccpay-service-callback-topic)
  PostgreSQL  (one server, one database)
    ├─ public schema   domain tables   ← owned by deed-poll-api (Flyway)
    ├─ ccd schema      case_data, case_event,
@@ -116,10 +130,13 @@ Target:
    └─ session table                   ← owned by apps/web (pg.Pool)
 ```
 
+**The later portal release adds** a citizen IDAM client, citizen login, and case-level access through
+AM / Role Assignment so an applicant can return and see their own case. None of that is release 1.
+
 **One API for both audiences is the right call, and it is what the estate does** — `pcs-api` and
-`nfdiv-case-api` each serve a citizen frontend and a caseworker surface. What makes it safe is *not*
-that the API is one service; it is that access control is declared in the CCD configuration rather than
-hand-written per endpoint. That is the next section, and it is the part to get right.
+`nfdiv-case-api` each serve a citizen frontend and a caseworker surface. What makes it safe once
+citizens *can* log in is that access control is declared in the CCD configuration rather than written per
+endpoint; for release 1, what makes it safe is that citizens are never authenticated and can only write.
 
 A write leaves and comes back, which is the counterintuitive part:
 
@@ -133,11 +150,57 @@ A write leaves and comes back, which is the counterintuitive part:
   5  our submit handler runs: domain write + CDAM attach, one transaction
 ```
 
-## Access control with two audiences
+## Release 1 is anonymous, and that changes the design
 
-This is the highest-risk part of serving both apps from one backend: a filtering mistake leaks another
-person's name-change case. Get the model right and most of the risk is designed out rather than
-tested for.
+An earlier draft of this plan designed an elaborate citizen access-control model — IDAM citizen client,
+RAS case roles, `[CREATOR]`, per-audience read authorisation. **That is the portal release, not release
+1.** Recorded as a correction rather than quietly deleted, because the elaborate version is what someone
+will otherwise reinvent.
+
+For release 1 the citizen is never authenticated, so there is nothing to authorise:
+
+| Concern | Release 1 | The later portal |
+|---|---|---|
+| Citizen IDAM client | **not needed** | needed, separate from `HMCTS_ACCESS` |
+| Citizen login / session | **none** | OIDC, as `apps/web` already does |
+| Citizen case-level access (RAS, `[CREATOR]`) | **not needed** — nobody comes back | the mechanism the whole portal rests on |
+| `/citizen/**` read endpoints | **none** — there is nothing to read | the bulk of the portal |
+| `/citizen/**` write endpoints | **one**: submit an application | plus amend, withdraw, respond |
+
+### What replaces citizen authentication
+
+The citizen frontend has no user token to forward, because there is no user. Two things fill the gap,
+and both are established patterns rather than inventions:
+
+- **The citizen frontend authenticates as a service.** Its calls to `deed-poll-api` carry S2S only. So
+  the citizen frontend **does** need its own S2S identity — which answers what was open question 9. Do
+  not instead let `deed-poll-api` accept unauthenticated calls on `/citizen/**` and rely on network
+  topology.
+- **A system user creates the case.** CCD events need a user, and payments need an IDAM user JWT, so
+  `deed-poll-api` obtains a system-user token. PCS does exactly this: `SYSTEM_USER("pcs-system-update",
+  CRU, IDAM)` in its `UserRole` enum, `CcdRoleConfig("pcs-system-update", "PUBLIC")` in its CCD setup,
+  and an `IdamTokenProvider` bean qualified `systemUpdateUserTokenProvider`. We need the equivalent
+  IDAM account and CCD role — call it `deed-poll-system-update`.
+
+**The honest consequence: an unauthenticated public endpoint creates cases and initiates payments.**
+That wants rate limiting and a deliberate look at abuse before go-live. The fee is a partial gate — an
+abandoned journey costs the abuser nothing but produces no completed application — but it does not stop
+someone filling the database with unpaid drafts. Not solved here; flagged as
+[open question 11](#open-questions-the-citizen-app-raises).
+
+### Documents, which work out neatly
+
+Worth noting because it looks like a problem and is not. **CDAM upload is S2S-only**, so a citizen
+uploading evidence works with a service identity and no user token. **CDAM download requires a user
+JWT**, so a citizen could never re-download their own document — which is exactly consistent with
+having no portal. Caseworkers download with their own tokens. Nothing needs designing around.
+
+---
+
+## Access control, for when the portal arrives
+
+Not release 1 work. Kept because the model is the reason one API for both audiences is safe, and
+because getting it wrong later leaks another person's name-change case.
 
 ### Roles are declared, not coded
 
@@ -439,6 +502,70 @@ the file-size question that is already outstanding.
 
 ---
 
+## Payment: Fees and Pay, and where GOV.UK Pay sits
+
+Steve asked where GOV.UK Pay fits. **We never call it.** The layering, from
+`apps/payment/CLAUDE.md`:
+
+```
+  deed-poll-api
+       │  IDAM user JWT (system user) + S2S      ← both required on every call
+       ▼
+  ccpay-payment-app         "Fees and Pay" — the hub, port 8080
+       │  modules: payment-api, gov-pay-client, payment-reference-data, …
+       ├──────► GOV.UK Pay public API        card processing
+       ├──────► the Fees Register            fee codes and amounts
+       ├──────► Liberata                     PBA account validation (not us)
+       └──────► PCI-PAL Antenna / Kerv       telephony payments (not us)
+
+  payment status comes back via Azure Service Bus
+  (ASB_CONNECTION_STRING / ccpay-service-callback-topic)
+```
+
+So "Fee and Pay" is `apps/payment` — the workspace labels it *Fees & Pay* — and **GOV.UK Pay is an
+implementation detail behind `ccpay-payment-app`'s `gov-pay-client` module.** We integrate with
+`ccpay-payment-app` and nothing else.
+
+Four things that follow, each of which shapes the journey:
+
+1. **Every payment-app call needs an IDAM user JWT *and* an S2S JWT.** An anonymous citizen supplies
+   neither, so both come from `deed-poll-api`: the system-user token and our own S2S identity. This is
+   the main reason the system user is not optional.
+2. **`deed_poll_api` must be added to `ccpay-payment-app`'s trusted service list.** It currently covers
+   about twenty CFT services — `cmc`, `ccd_gw`, `xui_webapp`, `pcs_api`, `civil_service`,
+   `nfdiv_case_api` and so on. That is an onboarding request to the payments team, and it is a *separate*
+   list from CDAM's `CASE_DOCUMENT_S2S_AUTHORISED_SERVICES`.
+3. **Payment status arrives asynchronously, over Azure Service Bus.** Do not treat the browser's return
+   from GOV.UK Pay as proof of payment — it tells you the user came back, not that the money moved. The
+   `ccpay-service-callback-topic` subscription is the authoritative signal, which means the citizen
+   journey needs a state that means "submitted, payment not yet confirmed".
+4. **There is already a citizen-facing payment outcome page in the estate** —
+   `ccpay-paymentoutcome-web`, an Express/TypeScript app on port 3100. Worth looking at before building
+   our own success page; it may be reusable or at least a pattern to copy.
+
+### The ordering question, which needs deciding before the citizen surface is designed
+
+"Payment before the success message" leaves one genuine choice: is the case created before or after the
+payment succeeds?
+
+| | Before payment | After payment |
+|---|---|---|
+| Abandoned journeys | leave unpaid cases in the data | leave nothing |
+| Where form data lives during payment | the case | a session or draft store |
+| Payment reference attaches to | an existing case — simple | something that does not exist yet |
+
+**Recommendation: create the case first, in a state that means "awaiting payment", and move it on when
+the Service Bus callback confirms.** It matches the asynchronous reality of point 3, it means the payment
+reference always has a case to attach to, and CCD's authoritative `resolvedTTL` plus the
+retain-and-dispose cron already give a mechanism for reaping abandoned drafts — a mechanism this plan
+needs anyway. The cost is unpaid cases being visible to caseworkers, so the case list wants a filter that
+excludes them by default.
+
+`feeReference`, `refundAmount`, `dateOfRefund` and `refundReference` already exist in the schema, so the
+refund path is anticipated by the domain model even though release 1 may not exercise it.
+
+---
+
 ## Moving the shared infrastructure
 
 [PR #64](https://github.com/hmcts/deed-poll-admin/pull/64) put the product resource group and Key Vault
@@ -495,8 +622,13 @@ cut a release. Raise it all at once, first.**
 | 9 | Onboard `deed-poll-api` to Jenkins: a job entry in `cnp-jenkins-config`, and the repo created with `Jenkinsfile_CNP` | `cnp-jenkins-config` | **`@hmcts/platform-operations`** | Settled 2026-09-04: the Java service is its own repo on Jenkins, so this replaces the earlier question about whether GitHub Actions is acceptable for Java. **No federated-credential PR is needed for it** |
 | 10 | ACR path and Helm chart for `deed-poll-api` | ours | — | A new image under `hmctsprod.azurecr.io/deed-poll/`. Jenkins CNP handles ACR push conventionally, so this is chart work rather than a credentials request |
 | 11 | Onboard `deed-poll-shared-infrastructure` to Jenkins | `cnp-jenkins-config` | **`@hmcts/platform-operations`** | Same conversation as row 9 |
-| 12 | **A second IDAM client for the citizen app** | `hmcts/idam-access-config` | IDAM | Separate registration from the caseworker one: a citizen frontend rather than `HMCTS_ACCESS`, its own redirect URIs, its own client secret in the vault. **Do not extend the existing client** — the two have different audiences, roles and security postures. The caseworker registration PR is still awaiting IDAM, so raise this once that one lands and its shape is confirmed |
-| 13 | **Citizens need case-level access via AM / Role Assignment** | `am-role-assignment-service` | **`dcd_ccd`** / AM | A citizen sees their own case through a RAS case role — `[CREATOR]` or a party role — not through the `citizen` IDAM role. Ask what a service like ours is expected to do here; it is the mechanism the whole citizen journey rests on |
+| 12 | **An IDAM system user, `deed-poll-system-update`**, plus the matching CCD role | `hmcts/idam-access-config` + our `CCDConfig` | IDAM | **Release 1 depends on this.** It is what creates a case and calls payments on behalf of an anonymous applicant. PCS's equivalent is `pcs-system-update`, registered as `CcdRoleConfig("pcs-system-update", "PUBLIC")`. Not the same thing as the caseworker client already awaiting IDAM |
+| 13 | **An S2S identity for the citizen frontend** | service-auth-provider | IDAM / S2S | Its calls to `deed-poll-api` carry S2S only, because there is no user token in release 1. Same request route as row 1 |
+| 14 | **Add `deed_poll_api` to `ccpay-payment-app`'s trusted service list** | `hmcts/ccpay-payment-app` | payments team | A **separate** list from CDAM's. Currently covers ~20 CFT services (`pcs_api`, `nfdiv_case_api`, `civil_service`, …). Needed before any payment call works |
+| 15 | Fee code and amount for a deed poll application, from the Fees Register | the Fees Register | payments / service team | `ccpay-payment-app` calls the register; we need the fee code the journey should quote. The register's repo is not in this workspace and I could not confirm its name, so ask rather than guess |
+| 16 | Azure Service Bus subscription to `ccpay-service-callback-topic` | `cnp-flux-config` / payments | **`@hmcts/platform-operations`** + payments | The authoritative payment-status signal. Not the browser redirect |
+| — | ~~A citizen IDAM client~~ | | | **Deferred to the portal release.** Release 1 has no citizen login, so there is nothing to register yet |
+| — | ~~Citizen case access via AM / Role Assignment~~ | | | **Deferred to the portal release.** Nobody returns to read a case in release 1 |
 
 **`#ccd-questions-answers` on Slack is the front door** for every `dcd_ccd` row — it is the support
 channel named in both CDAM's and the data-store's Backstage `catalog-info.yaml` (`owner: dcd_ccd`).
@@ -529,7 +661,7 @@ for a `deed-poll-shared-infrastructure` repo now applies where it did not before
 
 | Stage | Work | Gated on |
 |---|---|---|
-| **0** | Raise all thirteen onboarding rows. Ask the open questions below. Create both new repos from the templates above and add them to `workspace.yaml` | nothing — do it now |
+| **0** | Raise all sixteen onboarding rows. Ask the open questions below. Create both new repos from the templates above and add them to `workspace.yaml` | nothing — do it now |
 | **1** | **Move the shared infrastructure out** into its own repo, before any apply has happened — see [Moving the shared infrastructure](#moving-the-shared-infrastructure). Then get AAT green: the four Azure secrets, the namespace, first successful `Terraform Apply` and deploy | the move: nothing. The rest: the credentials |
 | **2** | Scaffold `deed-poll-api`: Spring Boot 3, `ccd { decentralised = true }`, `CCDConfig`, `CaseView`, JPA entities and Flyway for the `public` tables. Pact tests modelled on `pcs-api:src/contractTest/java/`. Local verification via `cftlib` | **not** Stage 1 — can run in parallel |
 | **3a** | **Prove decentralisation end to end, thin.** A case pointer, a deliberately minimal `CaseView`, one trivial `decentralisedEvent`, and one document through CDAM — deployed to AAT. No domain logic | Stage 2 + onboarding rows 1–6, 9 |
@@ -630,21 +762,25 @@ The first two should be asked before Stage 2, because they can invalidate work:
 New with the two-frontend decision. None blocks Stage 2, but 7 and 8 shape what gets built and are
 worth asking early.
 
-7. **Does the citizen journey take a payment?** `feeReference`, `refundAmount`, `dateOfRefund` and
-   `refundReference` are already in the schema, which strongly suggests yes. If so it is a **new
-   integration that appears nowhere in this plan** — HMCTS Payments and GOV.UK Pay, with its own S2S
-   onboarding, its own callbacks and a refund path. Ask before designing the citizen surface, because
-   payment usually shapes the journey rather than being bolted onto it.
-8. **What is the citizen's relationship to the case, in AM terms?** A citizen sees their own case
-   through a RAS case role, and something has to grant it at the point the case is created. Is that
-   `[CREATOR]`, a party role, or an access-code link as PCS uses for defendants? This is the mechanism
-   the entire citizen journey rests on, so it is worth a specific answer from `dcd_ccd` rather than an
-   assumption.
-9. **Do the two frontends each need their own S2S identity?** PCS registers both `pcs_frontend` and
-   `pcs_api` in `CASE_DOCUMENT_S2S_AUTHORISED_SERVICES`, so their frontend talks to CDAM directly. If
-   `deed-poll-api` does all CDAM work, the frontends need none — which is one fewer secret each and the
-   shape this plan assumes. Confirm rather than inherit.
-10. **Is the same case type right for both audiences?** One case type with role-scoped events is the
-    normal answer and what this plan assumes. Worth confirming with `dcd_ccd` that nothing about a
-    citizen-initiated application argues for a separate one, because splitting later is expensive —
-    it means a second `service_config.json` entry and another CDAM release.
+7. ~~**Does the citizen journey take a payment?**~~ **Answered 2026-09-04 — yes, before the success
+   message.** Via Fees and Pay, which is `ccpay-payment-app`; GOV.UK Pay sits behind it and we never call
+   it directly. See [Payment](#payment-fees-and-pay-and-where-govuk-pay-sits). Four onboarding rows and
+   one design decision came out of it.
+8. ~~**What is the citizen's relationship to the case, in AM terms?**~~ **Not a release 1 question.**
+   Release 1 has no citizen account, so nobody returns to read a case. Deferred with the portal.
+9. ~~**Do the two frontends each need their own S2S identity?**~~ **Answered: the citizen frontend does.**
+   It has no user token to forward in release 1, so its calls to `deed-poll-api` carry S2S only.
+   `apps/web` still forwards a real caseworker token and needs none unless it ever talks to CDAM directly.
+10. **Is the same case type right for both audiences?** Still open. One case type with role-scoped events
+    is the normal answer and what this plan assumes. Worth confirming with `dcd_ccd` that nothing about an
+    anonymous citizen-initiated application argues for a separate one, because splitting later is
+    expensive — a second `service_config.json` entry and another CDAM release.
+11. **What stops abuse of an unauthenticated public submission endpoint?** Release 1 exposes one, and it
+    creates cases and initiates payments. The fee is a partial gate — an abandoned journey produces no
+    completed application — but nothing stops someone filling the database with unpaid drafts. Needs a
+    deliberate answer before go-live: rate limiting at the ingress, and a view on whether drafts should
+    be reaped faster than the retention period.
+12. **Create the case before or after payment?** Recommended in the payment section — before, in an
+    "awaiting payment" state, moved on by the Service Bus callback. Recorded as a question because it
+    is a service decision with a visible consequence: unpaid cases appear in the caseworker list unless
+    filtered out by default.
