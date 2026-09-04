@@ -85,8 +85,6 @@ Today. Note `apps/api` has an ingress and **no consumer**, and both apps import 
    documents → local disk (DATA_DIR) — cannot go to AKS
 ```
 
-Target:
-
 Target, as release 1 actually is — note the citizen side has **no login**:
 
 ```
@@ -554,15 +552,129 @@ payment succeeds?
 | Where form data lives during payment | the case | a session or draft store |
 | Payment reference attaches to | an existing case — simple | something that does not exist yet |
 
-**Recommendation: create the case first, in a state that means "awaiting payment", and move it on when
-the Service Bus callback confirms.** It matches the asynchronous reality of point 3, it means the payment
-reference always has a case to attach to, and CCD's authoritative `resolvedTTL` plus the
-retain-and-dispose cron already give a mechanism for reaping abandoned drafts — a mechanism this plan
-needs anyway. The cost is unpaid cases being visible to caseworkers, so the case list wants a filter that
-excludes them by default.
+**Settled 2026-09-04 — create the case first.** Not a preference: **payment reconciliation needs a case
+reference before a payment can be processed**, so the case has to exist. Steve's decision, and the
+sequence is:
+
+```
+  1  create the case                 state: awaiting payment
+  2  create the payment against it   case reference is the link
+  3  Service Bus callback confirms   state: submitted
+  4  only now does it appear in the caseworker list
+```
+
+Step 4 is the important one for the admin app: **the caseworker case list must exclude
+awaiting-payment cases by default**, or every abandoned journey becomes work for staff. That is a
+change to `findDeedPolls`' default filter, not just a UI tab.
+
+The cost this accepts is that unpaid cases accumulate. CCD's `resolvedTTL` and the retain-and-dispose
+cron are the wrong tool — they work in years. Unpaid drafts want their own reaper on a much shorter
+clock; see [Protecting the public submission endpoint](#protecting-the-public-submission-endpoint).
 
 `feeReference`, `refundAmount`, `dateOfRefund` and `refundReference` already exist in the schema, so the
 refund path is anticipated by the domain model even though release 1 may not exercise it.
+
+---
+
+## Protecting the public submission endpoint
+
+Release 1 exposes a public, unauthenticated journey that creates a case and initiates a payment. Layers
+below, most valuable first. **The first two are architectural and nearly free; the reflex answer — add a
+CAPTCHA — is the one to avoid.**
+
+### 0. Frame it correctly: the public surface is the frontend, not the API
+
+`deed-poll-api` must have **no public ingress**. It is reachable only from the two frontends, inside the
+cluster, and it accepts S2S from known services only. So this is not "harden a public API" — it is
+"harden a public GOV.UK form journey", which is a far better-understood problem. Getting this wrong, by
+giving the API its own public hostname the way `apps/api` has one today, undoes every layer below it.
+
+### 1. Make submission require a walked, server-side session journey
+
+**The single most effective control, and it costs nothing because it is how GOV.UK forms work anyway.**
+A multi-page journey accumulates answers in the existing Postgres session store. Submission then requires
+a valid session cookie, session state proving the journey was actually walked in order, and a CSRF token.
+A bot must hold cookies and traverse every page to submit once.
+
+**Do not build a single stateless `POST` that accepts a complete application.** That is the shape that is
+hard to protect, and it is the shape an API-first instinct produces.
+
+### 2. CSRF, which does not currently exist
+
+**No CSRF middleware is installed** — not in `apps/web`, not in `libs/express-govuk-starter`. The only
+CSRF in the codebase is the OIDC `state` check in `auth/idam.ts`, which protects the login callback and
+nothing else. Note `apps/web/src/assets/js/index.ts` already lists `_csrf` among essential cookies, so
+this was expected and never wired.
+
+For a public form that creates a case and takes a payment this is not optional. `csrf-csrf`
+(double-submit) suits a session-backed Express app. **This is a template-level gap** — the same argument
+as loose ends 1, 11 and 15 in `PROGRESS.md`: fix it in `hmcts/expressjs-monorepo-template` so every
+service on it benefits, rather than only here.
+
+### 3. Rate limiting, with the two things that make it actually work
+
+Nothing is installed today. Two details matter more than the library choice:
+
+- **Key on session first, IP second.** Per-IP alone is weak in both directions: CGNAT and mobile networks
+  share addresses, so one limit can throttle a whole library or office, while a botnet walks past it.
+- **It must be shared across replicas.** In-memory `express-rate-limit` across N pods grants N times the
+  intended allowance — a limit that silently does not hold. Either **Redis** (the conventional answer;
+  `pt-shared-infrastructure` and `pcs-shared-infrastructure` both ship a `redis.tf`, so the new
+  infrastructure repo can too) or the **existing Postgres session store**, which adds no infrastructure
+  but costs a write per request. Redis is the right tool; Postgres is the cheaper start.
+
+Rate-limit **payment creation more tightly than form submission** — see layer 5.
+
+### 4. WAF at the edge, which is where volume abuse should die
+
+App-level limits protect the database; they do not protect the ingress. Public HMCTS services sit behind
+**Azure Front Door with WAF**, which gives rate-limiting rules and bot management before traffic reaches
+the cluster — and it is already a path-to-live item in `MIGRATION_PLAN.md` alongside the shutter and
+public DNS. Treat it as the primary volume control, not an afterthought.
+
+`nginx.ingress.kubernetes.io/limit-rps` and `limit-connections` annotations are a cheap in-cluster
+backstop for the days before Front Door exists.
+
+### 5. Card testing, which is the abuse people forget
+
+A public payment page is a target for testing stolen cards. Card details never touch us — GOV.UK Pay
+hosts them — so the exposure is reputational and reconciliation noise rather than PCI scope. Mitigations:
+a tighter limit on payment creation than on form submission, an alert on a high failed-payment ratio, and
+**a conversation with the payments team, who will have seen this before.** `ccpay-payment-app` also has a
+`feature.duplicate.payment.check` LaunchDarkly flag, which is worth understanding rather than
+rediscovering.
+
+### 6. Reap unpaid drafts on a short clock
+
+This is the direct answer to "someone fills the database with unpaid drafts", and it is needed by design
+now that the case is created before payment. A scheduled job in `deed-poll-api` deleting
+awaiting-payment cases after **hours or days, not years** — explicitly *not* CCD's retain-and-dispose,
+which is a retention mechanism operating on a completely different timescale. Pick the window with the
+service team: long enough that a genuine applicant who steps away can come back, short enough that abuse
+does not accumulate.
+
+### 7. Idempotency on submit
+
+A double-clicked submit must not produce two cases and two payments. Key it on something session-derived
+so a retry is recognised. The SDK gives `ccd.case_event.idempotency_key`; the discipline is ours.
+
+### 8. Do not let the sequential case reference become a credential
+
+`KBDP2026-00001` is **sequential** — `ReferenceCounter` holds `year` and `lastSerial`. Release 1 has no
+citizen read endpoint so nothing is exposed, but when the portal arrives, "knows the reference" must
+never mean "may see the case". Stating it now because it is free now and a redesign later.
+
+### 9. Decide whether citizens upload documents in release 1 at all
+
+If the MoJ form being replaced takes no attachments, do not build citizen upload. Every upload is storage
+to pay for and a malware vector, and the type check is declared-MIME-only and always will be until real
+inspection arrives. A scope question rather than a security control, but the cheapest possible mitigation
+is not having the feature.
+
+### Monitoring
+
+App Insights is already wired via `libs/cloud-native-platform`. Alert on submission rate and on
+awaiting-payment case growth — the second is the leading indicator that any of the above has failed.
 
 ---
 
@@ -775,12 +887,12 @@ worth asking early.
     is the normal answer and what this plan assumes. Worth confirming with `dcd_ccd` that nothing about an
     anonymous citizen-initiated application argues for a separate one, because splitting later is
     expensive — a second `service_config.json` entry and another CDAM release.
-11. **What stops abuse of an unauthenticated public submission endpoint?** Release 1 exposes one, and it
-    creates cases and initiates payments. The fee is a partial gate — an abandoned journey produces no
-    completed application — but nothing stops someone filling the database with unpaid drafts. Needs a
-    deliberate answer before go-live: rate limiting at the ingress, and a view on whether drafts should
-    be reaped faster than the retention period.
-12. **Create the case before or after payment?** Recommended in the payment section — before, in an
-    "awaiting payment" state, moved on by the Service Bus callback. Recorded as a question because it
-    is a service decision with a visible consequence: unpaid cases appear in the caseworker list unless
-    filtered out by default.
+11. ~~**What stops abuse of an unauthenticated public submission endpoint?**~~ **Designed 2026-09-04** —
+    see [Protecting the public submission endpoint](#protecting-the-public-submission-endpoint). Two
+    decisions inside it still need an owner: whether the rate-limit store is Redis or the existing
+    Postgres session store, and the reaping window for unpaid drafts.
+12. ~~**Create the case before or after payment?**~~ **Settled 2026-09-04 — before.** Payment
+    reconciliation needs a case reference, so the case must exist first. The consequence to build for is
+    that the caseworker list must exclude awaiting-payment cases by default.
+13. **Does the MoJ form being replaced accept attachments?** If not, do not build citizen document
+    upload in release 1 — see layer 9 of the protection design.
