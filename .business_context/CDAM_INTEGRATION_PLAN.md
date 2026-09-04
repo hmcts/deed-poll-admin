@@ -251,12 +251,24 @@ for a `deed-poll-shared-infrastructure` repo now applies where it did not before
 | **0** | Raise all ten onboarding rows. Ask the open questions below. Create the repo and add it to `workspace.yaml` | nothing — do it now |
 | **1** | Get AAT green: the four Azure secrets, the namespace, first successful `Terraform Apply` and deploy | the credentials, not us |
 | **2** | Scaffold `deed-poll-api`: Spring Boot 3, `ccd { decentralised = true }`, `CCDConfig`, `CaseView`, JPA entities and Flyway for the `public` tables. Pact tests modelled on `pcs-api:src/contractTest/java/`. Local verification via `cftlib` | **not** Stage 1 — can run in parallel |
-| **3** | Port the domain, using the 386 TS test blocks as the specification. Re-point the 32 conformance tests at the Java schema | Stage 2 |
-| **4** | CDAM: the four flows, plus the decentralised events that attach and remove documents | Stage 3 + onboarding rows 1–5 |
-| **5** | Cut `apps/web` over to HTTP — 8 files, 11 operations. Delete `apps/api`. **Two ordered PRs across two repos**, since `deed-poll-api` must be deployed and serving before `apps/web` stops calling the domain in-process | Stage 4 |
+| **3a** | **Prove decentralisation end to end, thin.** A case pointer, a deliberately minimal `CaseView`, one trivial `decentralisedEvent`, and one document through CDAM — deployed to AAT. No domain logic | Stage 2 + onboarding rows 1–6, 9 |
+| **3b** | Port the domain against the proven skeleton, using the 386 TS test blocks as the specification. Re-point the 32 conformance tests at the Java schema | Stage 3a |
+| **4** | The rest of CDAM and the events that use it, including withdraw/close and the admin hard delete | Stage 3b |
+| **5** | Cut `apps/web` over to HTTP — 8 files, 11 operations, plus the new withdraw control. Delete `apps/api`. **Two ordered PRs across two repos**, since `deed-poll-api` must be deployed and serving before `apps/web` stops calling the domain in-process | Stage 4 |
 | **6** | The operational tail: retain-and-dispose cron honouring CCD's authoritative `resolvedTTL`; Logstash pipeline; delete `apps/postgres/ccd-runtime/` | Stage 5 |
 
-Stage 3 is the long pole in *our* work; row 3 is the long pole overall.
+Stage 3b is the long pole in *our* work; onboarding row 3 is the long pole overall.
+
+**Why 3a exists** (Steve's call, 2026-09-04): nobody here has done any of the CCD-facing work before —
+the `/ccd-persistence/*` contract, S2S, the CDAM attach cycle, a Jenkins pipeline, a definition publish.
+Doing those first, while the codebase is small enough to change cheaply, means the unknowns fail early
+rather than on top of a large body of new Java. It also exercises the whole external onboarding chain
+before the expensive work depends on it.
+
+Accept two costs and do not let them drift into arguments for skipping 3a: **the minimal `CaseView` will
+be rewritten** once real fields exist, and **the first event is mostly scaffolding**. Both are cheap
+precisely because 3a is small. If 3a turns out to be hard, that is the finding — and much better learned
+there than at Stage 4.
 
 ---
 
@@ -266,6 +278,7 @@ Stage 3 is the long pole in *our* work; row 3 is the long pole overall.
 |---|---|
 | **Moves to Java** | `libs/deed-poll` domain services, Zod schemas → Bean Validation or equivalent, the conformance harness, `file-storage.ts` → CDAM |
 | **Stays TypeScript** | All of `apps/web`: pages, Nunjucks, Welsh, IDAM login (Phase 5), session handling. Plus the parts of `libs/deed-poll` `apps/web` genuinely needs — `auth/roles`, `currentUser`, `upload-policy` constants, error types for HTTP mapping (15 auth + 16 root test blocks) |
+| **Keeps a database connection** | `apps/web`, even after the cutover. `@hmcts-cft/express-session-postgres` holds sessions in Postgres over a `pg.Pool`, so `apps/web` still needs database credentials and still owns the session table. **"`apps/web` becomes a pure UI" is therefore not quite true** — it stops owning case data, not all persistence. Its readiness check (`deedPollDatabaseChecks`) will need re-pointing at what it actually depends on rather than at the case tables |
 | **Deleted** | `apps/api` and its 261 route tests. `apps/postgres/ccd-runtime/` — 25 vendored SQL files the SDK's own Flyway replaces. The template's `onboarding/*` and `users*` routes |
 | **Decided separately** | Whether the deletes, witness writes, document-type writes and `validate` are ever rebuilt. Default: no, until something asks |
 
