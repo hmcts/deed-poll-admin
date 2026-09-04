@@ -39,13 +39,38 @@ Do not re-derive decisions from it; this plan is the executable form.
 
 ---
 
-## Task 1 — Scaffold and rename
+## Task 0 — Populate the empty repo from the template
 
-- [ ] Create the service from `hmcts/spring-boot-template` (Steve does the repo creation; this task
-      assumes an unmodified template checkout).
+`hmcts/deed-poll-api` exists but is **empty** — created 2026-09-04, zero bytes, no commits. It was not
+created *from* `hmcts/spring-boot-template`, and GitHub cannot apply a template to a repo that already
+exists, so the contents have to be copied in by hand.
+
+- [ ] **Stop if this has already run.** If `build.gradle` exists at the repo root, task 0 is done; report
+      and move on rather than copying over it.
+- [ ] Shallow-clone the template somewhere outside this repo:
+      `git clone --depth 1 https://github.com/hmcts/spring-boot-template /tmp/sbt`
+- [ ] Copy its contents in, excluding its git history:
+      `rsync -a --exclude '.git' /tmp/sbt/ .`
+      The template has no `docs/` directory, so this plan is not at risk — but verify it survived before
+      committing.
+- [ ] `chmod +x gradlew`, then delete `/tmp/sbt`.
+- [ ] Commit as the repo's initial commit, message: `Scaffold from hmcts/spring-boot-template`.
+
+**Validate:** `test -f build.gradle && test -f docs/plans/deed-poll-api-01-foundation.md && ./gradlew build`
+— the unmodified template ships a working application and passing tests, so a red build here means the
+copy went wrong, not that the template is broken.
+
+> **One thing for Steve, not for the agent.** `deed-poll-api`'s default branch is **`main`**, while both
+> `spring-boot-template` and `deed-poll-admin` use **`master`**. HMCTS Jenkins conventions assume `master`
+> in places — `pcs-api`'s Jenkinsfile has a `syncBranchesWithMaster` step, for instance. Worth confirming
+> which `cnp-jenkins-config` expects while doing the Jenkins onboarding, because renaming the default
+> branch is much cheaper now than after the pipeline exists. **Do not let the agent decide this.**
+
+## Task 1 — Rename off the template
+
 - [ ] Set `group = 'uk.gov.hmcts.reform'`, base package `uk.gov.hmcts.reform.deedpoll`, artifact and
-      application name `deed-poll-api`. Rename the template's package directories to match — do not leave
-      a `uk.gov.hmcts.reform.demo` behind.
+      application name `deed-poll-api`. The template ships `uk.gov.hmcts.reform.demo` — rename the package
+      directories to match and leave nothing behind.
 - [ ] Update `catalog-info.yaml`: `name: deed-poll-api`, `owner: dcd_deed-poll`, `lifecycle: experimental`.
 - [ ] Keep the template's `Jenkinsfile_template` and rename to `Jenkinsfile_CNP`. Leave its contents alone.
 - [ ] Add the plugin versions this service will need, pinned exactly as `pcs-api` pins them, but **do not
