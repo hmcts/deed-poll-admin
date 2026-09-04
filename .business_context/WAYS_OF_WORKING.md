@@ -62,19 +62,43 @@ key ignores `working-directory`, so two Terraform roots in one repo destroy each
 - **Split work for review as you go.** Pulling the CI repair out into #48 and #58 worked well: small,
   single-purpose, merged same day. The migration itself did not get that treatment — see below.
 
+## Merging, and clearing things down
+
+Added 2026-09-04 at Steve's request, after a day where the work was good and the *flow* of it was not.
+Every rule here was earned by something that happened that day.
+
+- **Merge each decision before starting the next.** #67 stayed open for a whole session and accumulated
+  **17 commits** covering four unrelated decisions — the Spring Boot rewrite, the repo layout, the
+  citizen scoping and the Ralphex plan. It should have been four PRs, each merged as it was settled. The
+  agreement above already said this; it was not followed because appending to an open PR is always the
+  path of least resistance in the moment.
+- **Never stack a branch on an unmerged PR.** #66 was stacked under #67. Squash-merging #66 gave master
+  the same content under a new SHA, so #67 immediately went `CONFLICTING` and needed a rebase that then
+  got stuck. **If stacking is unavoidable, merge the parent with a merge commit rather than a squash.**
+- **A squash-merged branch never looks merged to git.** `git branch -d` refuses and
+  `git rev-list --count master..branch` says 1, and neither means unmerged work. The test is
+  `git diff --quiet <branch> <squash-commit>`. Run it before reaching for `-D`; see
+  `DELETED_BRANCHES.md`.
+- **Merge before handing something to someone else to use.** Steve twice opened a file that only existed
+  on an unmerged branch, and copied the Ralphex plan into the new repo two commits before it was
+  finished. If a document is about to be acted on, it belongs on `master` first.
+- **Ask where an answer belongs before writing it down.** `DEED_POLL_API_PLAN.md` reached 900 lines by
+  accretion — each question answered by appending, until it covered payment reconciliation, WAF policy
+  and CAPTCHA accessibility, and had to be split into two documents. One question, one home.
+- **`git pull --ff-only origin master` fails in this clone** with *"Cannot fast-forward to multiple
+  branches"*, despite entirely ordinary config. Cause unknown after checking remotes, refspec and
+  `branch.master.merge`. Use `git fetch origin && git merge --ff-only origin/master`, which always works.
+  Recorded because it cost time twice in one day.
+
 ## The two decisions, both settled 2026-09-04
 
-**1. PR #47 was merged as-is** — 292 files, unsliced. Steve's call: the divergence was costing more than
-the review would have bought. The lesson from the CI split still stands for the *next* large piece of
-work, though: #48, #58, #63 and #64 were each small, single-purpose and merged the same day, and #64 in
-particular carried an architectural decision worth someone's attention that would have been invisible
-inside a 292-file diff.
+Compressed once settled, because this file's own argument applies to it too.
 
-**2. `PROGRESS.md` was pruned**, 2,297 → ~1,800 lines. The Phase 3 slice detail, the superseded
-2026-09-03 CI sections and the dependency-alert history are in [`archive/`](archive/). **Nothing was
-deleted** — every range was moved verbatim and the links pointing into it were repointed. Keep it this
-way: when a section stops being briefing and becomes history, move it out rather than letting it
-accumulate. That is the whole argument of this file applied to its neighbour.
+1. **PR #47 was merged as-is**, 292 files unsliced — the divergence cost more than the review would have
+   bought. The slicing lesson still stands for the *next* large piece of work.
+2. **`PROGRESS.md` was pruned** 2,297 → ~1,800 lines, with history moved verbatim to
+   [`archive/`](archive/) rather than deleted. **When a section stops being briefing and becomes history,
+   move it out.**
 
 ## One thing still open
 

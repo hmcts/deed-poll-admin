@@ -66,3 +66,40 @@ Verified before deleting: none of these had an open or closed PR (checked with `
 | `214574625114409df8c2a8e14d5fcdc401eb0b2e` | `update-routeing` |
 | `4bfc2d2a860e88b8dd0f4fa83be368cbed6b41f6` | `update-routeing-exports` |
 | `1dfe5200b2c4fba06c9e433a105f1a7632c1ee4a` | `webpackhash` |
+
+---
+
+## Local branches deleted 2026-09-04
+
+Five stale local branches, all of whose work is on `master`. **These were local-only deletions — the
+remote refs were left in place**, so recovery needs nothing more than `git fetch`. Recorded anyway,
+because the file's whole point is that a SHA costs a line and an unrecoverable commit costs a day.
+
+| Commit | Branch | Why it was safe |
+|---|---|---|
+| `c478fa2` | `feat/deed-poll-migration` | PR #47, merged. 0 commits not reachable from `master` |
+| `054eeb2` | `fix/ci-green-on-master` | merged. 0 commits not reachable from `master` |
+| `5878890` | `fix/prisma-empty-database-url` | merged. 0 commits not reachable from `master` |
+| `17ff299` | `docs/prune-progress-and-settle-ways-of-working` | PR #66, **squash**-merged as `6193c69`. 1 commit ahead, verified content-identical with `git diff --quiet 17ff299 6193c69` |
+| `ee1290c` | `feat/create-shared-rg-and-key-vault` | PR #64, **squash**-merged as `1d752fd`. 1 commit ahead, verified content-identical with `git diff --quiet ee1290c 1d752fd` |
+
+**The squash-merge check is the one that matters.** A squash-merged branch is never "merged" in git's
+view — its commit has a different SHA from the squash, so `git branch -d` refuses and `git rev-list
+--count master..branch` reports 1. Neither means unmerged work. The test is whether the *content* is
+identical to the squash commit, and `git diff --quiet <branch> <squash>` answers it. Do not reach for
+`-D` without running it.
+
+## Kept deliberately: `pre-rescaffold-backup`
+
+`6b3f8f3`, "Sync yarn.lock with lodash 4.18.1 to unbreak master", 2026-08-21 — the day of the
+re-scaffold.
+
+**Not deleted, and it is the one branch here that genuinely could not be recovered.** It exists on no
+remote — `git ls-remote --heads origin pre-rescaffold-backup` finds nothing — so it lives on exactly one
+machine, and a local delete would be permanent. Its single commit is not reachable from `master`.
+
+The commit itself is probably worthless: a lockfile sync from immediately before `82e8b0d` replaced the
+lockfile wholesale. But somebody named a branch `backup` on purpose, and the cost of keeping it is zero.
+
+**Worth doing:** `git push origin pre-rescaffold-backup`. Insurance that exists on one laptop is not
+insurance.
