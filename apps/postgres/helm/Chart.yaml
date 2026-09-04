@@ -8,5 +8,5 @@ home: https://github.com/hmcts/deed-poll-admin
 version: 0.0.1
 dependencies:
   - name: nodejs
-    version: 3.2.1
+    version: 3.3.1
     repository: 'oci://hmctsprod.azurecr.io/helm'
