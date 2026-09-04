@@ -3,7 +3,7 @@
 Written 2026-09-03 after a 63-commit session, to be read at the start of the next one. **Deliberately
 short** — it argues that documents get ignored past a certain length, so it had better not be long.
 
-Two things to decide together are at the bottom.
+Updated 2026-09-04: the two open decisions at the bottom are now settled.
 
 ---
 
@@ -30,11 +30,27 @@ Four separate errors, one cause. Each was a single tool call away from being avo
 | "The repository has no Actions secrets at all" — written into two committed documents, and a whole SonarCloud diagnosis built on it | `actions/organization-secrets`, which lists 28 including `SONAR_TOKEN` |
 | Predicted `terraform plan` would fail on the missing resource group | The job log — it failed earlier, at `azure/login` |
 
+**It paid on 2026-09-04.** Three traps caught by reading the thing first, each of which would otherwise
+have shipped: `"node": { "enabled": true }` in `renovate.json` is the **Travis** manager, not Node
+version management; migrating `regexManagers` renames the manager `regex` → `custom.regex`, so a
+`matchManagers` rule silently stops matching; and `cnp-module-key-vault`'s `team-access.tf` creates its
+access policy *unconditionally*, so an empty `product_group_name` fails the apply rather than being
+skipped. The `terraform-deploy` action source also killed a plan that looked obviously right — its state
+key ignores `working-directory`, so two Terraform roots in one repo destroy each other.
+
 ## Working agreements
 
 - **`cd` explicitly in every shell command.** Working directory resets between tool calls. A
   `git add -A` ran in `cft-workspace` instead of `deed-poll-admin` and swept up uncommitted work that
-  was not mine to commit. Nothing published, but it should not have been possible.
+  was not mine to commit. Nothing published, but it should not have been possible. **Still biting** — two
+  commands on 2026-09-04 ran in the wrong directory and failed confusingly, one of them looking for a
+  `renovate.json` that exists in *both* repos. Write `cd <absolute path> && …` every time rather than
+  relying on the previous call.
+- **If a validator exists, run it rather than eyeballing the config.**
+  `renovate-config-validator --strict` and `terraform validate` each caught things careful reading had
+  already missed, and each was one command. Neither had ever been run in this repo. The corollary:
+  fetching the real binary is usually worth it — `terraform` was a 32M download and it turned an
+  unverifiable PR into a checked one.
 - **One "make it green" pass, not several.** Master was repaired three times in a day, each fix
   revealing the next breakage. `install --immutable` → `lint` → `build` → `test`, *then read every red
   check*, finds all of them at once.
@@ -46,14 +62,24 @@ Four separate errors, one cause. Each was a single tool call away from being avo
 - **Split work for review as you go.** Pulling the CI repair out into #48 and #58 worked well: small,
   single-purpose, merged same day. The migration itself did not get that treatment — see below.
 
-## Two things to decide together
+## The two decisions, both settled 2026-09-04
 
-**1. PR #47 is 292 files and +25,768 lines. That is not reviewable.** It will be rubber-stamped or
-ignored, and neither is review. The CI split proved the pattern works. Decide whether real review on the
-migration matters, because at this size it will not happen — and if it does matter, the branch needs
-slicing before anyone is asked to look.
+**1. PR #47 was merged as-is** — 292 files, unsliced. Steve's call: the divergence was costing more than
+the review would have bought. The lesson from the CI split still stands for the *next* large piece of
+work, though: #48, #58, #63 and #64 were each small, single-purpose and merged the same day, and #64 in
+particular carried an architectural decision worth someone's attention that would have been invisible
+inside a 292-file diff.
 
-**2. `PROGRESS.md` is 2,291 lines**, which is past the length where a handover gets read — the exact
-failure it exists to prevent. Proposal: archive the Phase 3 slice-by-slice detail, which has done its
-job, and keep decisions, traps, current state and the loose ends. Roughly halves it without losing
-anything load-bearing.
+**2. `PROGRESS.md` was pruned**, 2,297 → ~1,800 lines. The Phase 3 slice detail, the superseded
+2026-09-03 CI sections and the dependency-alert history are in [`archive/`](archive/). **Nothing was
+deleted** — every range was moved verbatim and the links pointing into it were repointed. Keep it this
+way: when a section stops being briefing and becomes history, move it out rather than letting it
+accumulate. That is the whole argument of this file applied to its neighbour.
+
+## One thing still open
+
+**Master is unprotected**, deliberately, for speed while the migration finishes — Steve's call on
+2026-09-04, with protections to follow. The reason that is a trade rather than a hazard is #63: majors no
+longer automerge, so the exposure is patch and minor bumps only. **Revisit when Track A goes green**, and
+note the two facts that made it risky in the first place, in case they recur: `automerge: true` had no
+update-type bound, and nothing required a check to pass.
