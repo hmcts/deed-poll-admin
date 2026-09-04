@@ -30,29 +30,42 @@ module "postgresql" {
 resource "azurerm_key_vault_secret" "postgres_host" {
   name         = "postgres-host"
   value        = module.postgresql.fqdn
-  key_vault_id = data.azurerm_key_vault.key_vault.id
+  key_vault_id = module.key_vault.key_vault_id
+
+  # key_vault_id alone depends only on the vault, not on the access policy that lets the CI principal
+  # write to it, so without this the first apply can race and fail with 403. See keyvault.tf. The same
+  # applies to each secret below.
+  depends_on = [module.key_vault]
 }
 
 resource "azurerm_key_vault_secret" "postgres_user" {
   name         = "postgres-user"
   value        = module.postgresql.username
-  key_vault_id = data.azurerm_key_vault.key_vault.id
+  key_vault_id = module.key_vault.key_vault_id
+
+  depends_on = [module.key_vault]
 }
 
 resource "azurerm_key_vault_secret" "postgres_password" {
   name         = "postgres-password"
   value        = module.postgresql.password
-  key_vault_id = data.azurerm_key_vault.key_vault.id
+  key_vault_id = module.key_vault.key_vault_id
+
+  depends_on = [module.key_vault]
 }
 
 resource "azurerm_key_vault_secret" "postgres_port" {
   name         = "postgres-port"
   value        = "5432"
-  key_vault_id = data.azurerm_key_vault.key_vault.id
+  key_vault_id = module.key_vault.key_vault_id
+
+  depends_on = [module.key_vault]
 }
 
 resource "azurerm_key_vault_secret" "postgres_url" {
   name         = "postgres-url"
   value        = "postgresql://${module.postgresql.username}:${module.postgresql.password}@${module.postgresql.fqdn}:5432/deed-poll-admin?sslmode=require"
-  key_vault_id = data.azurerm_key_vault.key_vault.id
+  key_vault_id = module.key_vault.key_vault_id
+
+  depends_on = [module.key_vault]
 }

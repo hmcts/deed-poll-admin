@@ -66,3 +66,20 @@ power_app_nest/
 # once the Phase 4 form does. Hence a glob rather than one path. These are real case documents, so
 # they must never be committable; no tracked path has a data/ component, so this catches nothing else.
 data/
+
+# Terraform. Nothing here was ignored before, and a local `terraform init` leaves 316M of downloaded
+# providers in infrastructure/.terraform — the same accident power_app_nest/ is guarded against above.
+# State never lives on disk: the backend is azurerm, configured by -backend-config in CI.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# The provider lock file is deliberately not committed, because there has never been one and CI does a
+# fresh `terraform init` on every run. Worth revisiting: without it, `~> 4.57` resolves to whatever
+# azurerm 4.x is newest at plan time, so a provider release can change a deploy with no change from us.
+# Committing one means generating it for every platform CI and developers use
+# (`terraform providers lock -platform=linux_amd64 -platform=linux_arm64 -platform=darwin_arm64`),
+# otherwise init fails on a missing checksum for the platform it is running on.
+**/.terraform.lock.hcl

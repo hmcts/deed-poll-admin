@@ -18,5 +18,9 @@ module "application_insights" {
 resource "azurerm_key_vault_secret" "app_insights_connection_string" {
   name         = "ExpressJsAppInsightsConnectionString"
   value        = module.application_insights.connection_string
-  key_vault_id = data.azurerm_key_vault.key_vault.id
+  key_vault_id = module.key_vault.key_vault_id
+
+  # key_vault_id alone depends only on the vault, not on the access policy that lets the CI principal
+  # write to it, so without this the first apply can race and fail with 403. See keyvault.tf.
+  depends_on = [module.key_vault]
 }
