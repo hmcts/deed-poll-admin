@@ -361,7 +361,8 @@ handler or a form — between them they settle every decision that is already ma
 defects of the same shape that only running the app revealed.
 
 **Local disk storage cannot go to AKS** — pods are ephemeral and replicas share no volume. Uploads
-work locally and are a development story until Phase 10 (CDAM) or the Azure Blob off-ramp.
+work locally and are a development story until CDAM or the Azure Blob off-ramp — see
+[`CDAM_INTEGRATION_PLAN.md`](CDAM_INTEGRATION_PLAN.md), which supersedes Phase 10 of the migration plan.
 `.gitignore` now covers `data/` so uploaded blobs are never committable.
 
 **One task is parked, not a question** — see "Parked tasks" below (task 1 is closed).
@@ -395,7 +396,7 @@ TRACK B — CCD adoption (separable; start only once Track A is green)
  7  spike /ccd-persistence     ░░░░░░░░░░░░░░░░░░░░░░  ccd schema already vendored
  8  case type definition       ░░░░░░░░░░░░░░░░░░░░░░  hand-authored JSON, SDK is Java
  9  persistence endpoints      ░░░░░░░░░░░░░░░░░░░░░░  + retain-and-dispose reaper
-10  CDAM documents             ░░░░░░░░░░░░░░░░░░░░░░  depends on Phase 5
+10  CDAM documents             ░░░░░░░░░░░░░░░░░░░░░░  planned: CDAM_INTEGRATION_PLAN.md (Spring Boot)
 11  platform onboarding        ░░░░░░░░░░░░░░░░░░░░░░  all external, long lead times
 ```
 

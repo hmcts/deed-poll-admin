@@ -102,9 +102,16 @@ Separable. Start only once Track A is green.
   `apps/ccd/docs/tutorials/first-case-type-json.md`. Map the Dynamics-derived enums to CCD fixed
   lists, preserving the integer values the schema comments record.
 - **Phase 9 — persistence endpoints** in `apps/api`, plus the retain-and-dispose reaper.
-- **Phase 10 — CDAM documents.** Reimplement `file-storage.ts` against `POST /cases/documents` and
+- **Phase 10 — CDAM documents.** **Superseded 2026-09-04 by
+  [`CDAM_INTEGRATION_PLAN.md`](CDAM_INTEGRATION_PLAN.md)** — read that instead. This bullet assumed a
+  TypeScript reimplementation of `file-storage.ts`; the decision taken is to follow the PCS shape and
+  put the CCD contract and document handling in a new Spring Boot service, because the
+  `ccd-config-generator` SDK is a hard prerequisite for decentralisation and both live adopters are
+  Java. The original text: reimplement `file-storage.ts` against `POST /cases/documents` and
   `GET /cases/documents/{id}/binary`, threading `caseTypeId` and `jurisdictionId`. Downloads need
-  both S2S and a user JWT, so this depends on Phase 5.
+  both S2S and a user JWT, so this depends on Phase 5. **What that missed:** the three-function seam
+  cannot express CDAM at all, and `attachToCase` is restricted to `ccd_data`, so documents TTL out
+  within a day unless a CCD event attaches them.
 - **Phase 11 — platform onboarding.** All external, all with lead time, so start early: S2S
   whitelist in `CASE_DOCUMENT_S2S_AUTHORISED_SERVICES` (cnp-flux-config); CDAM
   `service_config.json`; `ccd.decentralised.case-type-service-urls[DEED_POLL]` against
@@ -142,4 +149,4 @@ a single narrow seam (`saveFile` / `createFileReadStream` / `deleteFile`) plus a
 | Every ported route is unguarded, including hard-delete | Faithful to the prototype, which guarded nothing. Privilege is enforced inside the domain (`isAdmin` gates `privacy`) rather than at the route. Whether `DELETE` should be admin-only, and whether deletion should be soft given `retainPermanently`, is an open business question — Loose ends 5 in `PROGRESS.md`. Settle before Phase 5 |
 | ~~Two rule gaps in `CONFORMANCE_HARNESS_PLAN.md`~~ | **Closed, verified 2026-09-01.** `getFieldRules` with `migrated: true` relaxes all 8 type-required fields to 0, and the Gazette gate hides the notice date for `Adult` as well as `DeedOfRelinquishment`. The plan itself is preserved at [`CONFORMANCE_HARNESS_PLAN.md`](CONFORMANCE_HARNESS_PLAN.md) — it lived only inside `power_app_nest/`, which was never committed, so deleting that directory would have destroyed it |
 | Prototype has no Welsh, no a11y tests | Structure in Phase 4; axe in Phase 4 verification |
-| Local disk document storage | Cannot go to AKS — pods ephemeral, replicas share no volume. Phase 10 or the Blob off-ramp |
+| Local disk document storage | Cannot go to AKS — pods ephemeral, replicas share no volume. [`CDAM_INTEGRATION_PLAN.md`](CDAM_INTEGRATION_PLAN.md) or the Blob off-ramp. Note the CDAM route now has a long external critical path (a CDAM code change and release among it), so if a deployed environment needs working uploads sooner, Blob is the answer for the interim |
