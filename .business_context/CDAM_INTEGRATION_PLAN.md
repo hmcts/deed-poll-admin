@@ -22,6 +22,88 @@ via `scripts/add-repo`, not by hand.
 
 ---
 
+## The shape, before and after
+
+Today. Note `apps/api` has an ingress and **no consumer**, and both apps import the domain in-process:
+
+```
+                          browser
+                             │
+              ┌──────────────┴──────────────┐
+              ▼                             ▼
+        apps/web :3000               apps/api :3001
+        Express + Nunjucks           Express, JSON
+              │                             │
+              │  import (in-process)        │  import (in-process)
+              └──────────────┬──────────────┘
+                             ▼
+                      libs/deed-poll  (domain + Prisma)
+                             ▼
+                        PostgreSQL, public schema
+
+   documents → local disk (DATA_DIR) — cannot go to AKS
+```
+
+Target:
+
+```
+                          browser
+                             │  HTTPS
+                             ▼
+ ╔═ hmcts/deed-poll-admin ═══════════════════════════╗   TypeScript
+ ║  apps/web    pages, Nunjucks, Welsh, IDAM login,  ║   GitHub Actions
+ ║              session cookie, document viewer      ║
+ ╚═══════════════════════┬═══════════════════════════╝
+                         │  HTTPS, forwarding the user's IDAM token
+                         ▼
+ ╔═ hmcts/deed-poll-api ═════════════════════════════╗   Java / Spring Boot 3
+ ║  domain logic          CaseView                   ║   ccd-config-generator
+ ║  decentralised events  CDAM client                ║   Jenkins
+ ╚══┬═══════════════════┬══════════════════┬═════════╝
+    │                   │                  │
+    │        S2S + user │        S2S + user│
+    │             token │             token│
+    │                   ▼                  ▼
+    │        ccd-data-store-api          CDAM ──────► dm-store
+    │                   │                              (binaries live here)
+    │                   │ /ccd-persistence/*
+    │                   └──────► back into deed-poll-api
+    ▼
+ PostgreSQL  (one server, one database)
+   ├─ public schema   domain tables   ← owned by deed-poll-api (Flyway)
+   ├─ ccd schema      case_data, case_event,
+   │                  message_queue_candidates, es_queue
+   │                                  ← owned by the SDK (Flyway)
+   └─ session table                   ← owned by apps/web (pg.Pool)
+```
+
+A write leaves and comes back, which is the counterintuitive part:
+
+```
+  apps/web ──1──► deed-poll-api ──2──► ccd-data-store-api
+                       ▲                      │
+                       │                      │ 3  routes on ccd.decentralised
+                       └──────4───────────────┘    .case-type-service-urls
+                    /ccd-persistence/cases
+
+  5  our submit handler runs: domain write + CDAM attach, one transaction
+```
+
+### The two auth relationships, which are easy to conflate
+
+| Hop | Credential | Notes |
+|---|---|---|
+| `apps/web` → `deed-poll-api` | ours to choose; simplest is forwarding the user's IDAM token | `apps/api` already does exactly this — it mounts `authenticate()` globally and reads bearer tokens |
+| `deed-poll-api` → CCD and CDAM | **S2S is mandatory** — a `microservicekey-*` secret — plus an IDAM user or system token | This is what onboarding row 1 requests. **Nothing about the web↔api handshake produces it** |
+
+PCS puts **both** `pcs_frontend` and `pcs_api` in `CASE_DOCUMENT_S2S_AUTHORISED_SERVICES`, so their
+frontend holds its own S2S identity and reaches CDAM directly. That is a legitimate alternative for
+downloads — it avoids streaming binaries through Java twice — at the cost of two services knowing about
+CDAM and two S2S secrets. The diagram above shows the simpler shape; decide it deliberately rather than
+by accident.
+
+---
+
 ## The thing to understand first
 
 **CDAM stores nothing.** It is an access-control gate in front of `document-management-store-app`
@@ -196,6 +278,58 @@ constraint rather than a detail:
 
 `DeedPollSupportingDocument` keeps its metadata row; `storageKey` becomes the CDAM document id, with
 `url` and `binaryUrl` alongside it, as PCS's `DocumentEntity` does.
+
+---
+
+## Viewing a document rather than downloading it
+
+Steve's call, 2026-09-04. **This is the one part of this plan that is not gated on anything** — it needs
+no CDAM, no CCD and no Java. It can ship against local disk now and carries over to CDAM unchanged,
+because we proxy the bytes and therefore set our own response headers. That stops being true only if the
+browser is ever redirected straight at CDAM.
+
+`apps/web/src/pages/deed-polls/[id]/documents/[documentId]/file.ts` currently hardcodes
+`Content-Disposition: attachment`, so everything downloads.
+
+**Render PDFs with `pdfjs-dist` — Mozilla's pdf.js — in a Nunjucks page.** That is the same renderer
+`@hmcts/media-viewer` uses internally, so it is the standard engine without the standard wrapper. JPEG
+and PNG need nothing but an `<img>`.
+
+| Type | Treatment |
+|---|---|
+| `application/pdf` | pdf.js viewer, our own `en`/`cy` labels |
+| `image/jpeg`, `image/png` | inline `<img>` |
+| `image/tiff`, `application/msword`, `.docx` | download only |
+
+**Always offer download alongside view**, never view alone — GOV.UK guidance is unenthusiastic about
+PDFs and a viewer must not trap the user.
+
+**Why not `@hmcts/media-viewer` itself**, recorded so it is not revisited on "use the standard component"
+grounds: it is Angular-only. Its README says *"This is an angular library"* and its integration section
+is titled *"Integrating into your own Angular application"*; it publishes only an Angular FESM2022 build,
+with no web component or UMD entry point, and requires `angular.json` asset configuration. Its peers are
+Angular 20, NgRx 20, `ngx-datatable`, `ngx-chips`, `socket.io-client` and — the decisive one for a
+bilingual GOV.UK service — **`rpx-xui-translation`**, which would mean a second i18n system alongside the
+existing `en`/`cy` locales. The npm repository field points at `hmcts/rpx-xui-media-viewer`; the
+`rpx-xui-` prefix is the giveaway that its home is XUI. It also would not have solved TIFF or Word.
+
+Security, briefly, because serving user-uploaded bytes inline is normally an XSS vector:
+
+- It is defensible here **because the upload allowlist excludes the dangerous types** — no SVG, no HTML
+  — and we set `Content-Type` from our own stored value rather than echoing the file's.
+- Add **`X-Content-Type-Options: nosniff`**, or a browser may sniff past the declared type.
+- Keep `Cache-Control: no-store`, which is already set and correct for case data.
+- The stronger pattern is serving documents from a **separate sandbox origin**. Named rather than
+  recommended: it means another ingress host and CSP work for a residual risk that is a malicious PDF,
+  whose scripting browser viewers sandbox away from our origin.
+
+Two things to note rather than solve here. The browser's own PDF chrome follows the **browser's**
+language, not the service's, so a Welsh user of a native viewer sees English controls — which is an
+argument for pdf.js, where we own the labels. And **whether TIFF and Word are needed at all is
+unconfirmed**: `upload-policy.ts` describes the list as "the common scan formats, and Word for documents
+produced by the court" and flags it as unresearched. If the service team says scans arrive as PDF in
+practice, the download-only row disappears and every document becomes viewable. Worth asking alongside
+the file-size question that is already outstanding.
 
 ---
 
