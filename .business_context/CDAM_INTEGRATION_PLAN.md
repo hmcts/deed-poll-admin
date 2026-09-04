@@ -304,11 +304,15 @@ The first two should be asked before Stage 2, because they can invalidate work:
    allowed by microservice ID rather than restricted to `ccd_data`. It would not fix download
    authorisation, so it does not rescue a CCD-free design — but it is worth knowing whether a document
    can be kept alive between upload and event commit.
-6. **Does the shared infrastructure now move to a `deed-poll-shared-infrastructure` repo?**
-   [PR #64](https://github.com/hmcts/deed-poll-admin/pull/64) put the resource group and Key Vault in
-   this repo's `infrastructure/`, and the argument for doing so was explicitly that *"deed-poll-admin is
-   the only component, so there is no second repo for the vault to be shared with"*. **Choosing a second
-   component repo makes that premise false.** The options are to leave it here and have `deed-poll-api`
-   read the vault as a `data` source — workable, and common enough in the estate — or to split it out as
-   convention suggests, which is a third repo and another Jenkins onboarding. Not urgent: nothing breaks
-   either way until Stage 4. Worth settling before anyone writes Terraform in the new repo.
+6. ~~**Does the shared infrastructure move to a `deed-poll-shared-infrastructure` repo?**~~ **Closed
+   2026-09-04 — it stays here.** `deed-poll-api` reads the Key Vault as a `data` source.
+   [PR #64](https://github.com/hmcts/deed-poll-admin/pull/64) had argued for keeping it here on the
+   grounds that *"deed-poll-admin is the only component, so there is no second repo for the vault to be
+   shared with"* — a second component repo makes that premise false, so the decision now rests on cost
+   rather than on that argument, and the comment in `infrastructure/main.tf` has been corrected to say
+   so. Steve's call: no third repo and no third Jenkins onboarding.
+
+   **The coupling this accepts, stated so it is not a surprise:** `deed-poll-api` cannot deploy until
+   `deed-poll-admin`'s Terraform has applied at least once, and a TypeScript repo owns the Java
+   service's vault. It is one-directional and common enough in the estate, but it means the two repos
+   have an ordering relationship that nothing enforces mechanically.
