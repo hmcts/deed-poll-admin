@@ -2,23 +2,22 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "automerge": true,
-  "node": {
-    "enabled": true
-  },
-  "regexManagers": [
+  "customManagers": [
     {
+      "customType": "regex",
       "description": "Update Node.js version in .nvmrc",
-      "fileMatch": ["^\\.nvmrc$"],
+      "managerFilePatterns": ["/^\\.nvmrc$/"],
       "matchStrings": ["(?<currentValue>.*?)\\n"],
       "depNameTemplate": "node",
       "datasourceTemplate": "node-version",
       "versioningTemplate": "node"
     },
     {
-      "description": "Update Node.js version in Dockerfiles",
-      "fileMatch": ["(^|/)Dockerfile[^/]*$"],
+      "customType": "regex",
+      "description": "Update Node.js version in Dockerfiles. The optional prefix matches registry-qualified base images such as hmctsprod.azurecr.io/base/node",
+      "managerFilePatterns": ["/(^|/)Dockerfile[^/]*$/"],
       "matchStrings": [
-        "FROM node:(?<currentValue>[0-9]+(?:\\.[0-9]+)?(?:\\.[0-9]+)?)-(?<currentVariant>alpine|slim|bullseye|bookworm)(?:\\s|$)"
+        "FROM\\s+(?:[^\\s/]+(?:/[^\\s/]+)*/)?node:(?<currentValue>[0-9]+(?:\\.[0-9]+)?(?:\\.[0-9]+)?)-(?:alpine|slim|bullseye|bookworm)(?:\\s|$)"
       ],
       "depNameTemplate": "node",
       "datasourceTemplate": "docker",
@@ -26,11 +25,10 @@
       "versioningTemplate": "node"
     },
     {
+      "customType": "regex",
       "description": "Update Node.js version in GitHub Actions",
-      "fileMatch": ["^\\.github/workflows/.*\\.ya?ml$"],
-      "matchStrings": [
-        "node-version:\\s*['\"]?(?<currentValue>[0-9]+(?:\\.[0-9]+)?(?:\\.[0-9]+)?)['\"]?"
-      ],
+      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      "matchStrings": ["node-version:\\s*['\"]?(?<currentValue>[0-9]+(?:\\.[0-9]+)?(?:\\.[0-9]+)?)['\"]?"],
       "depNameTemplate": "node",
       "datasourceTemplate": "node-version",
       "versioningTemplate": "node"
@@ -38,10 +36,20 @@
   ],
   "packageRules": [
     {
+      "description": "Never automerge a major. Breaking changes need a human to read the changelog",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "Keep @types/node on the runtime major in .nvmrc. Types ahead of the runtime describe APIs that are not there. Raise this bound when Node's major changes",
+      "matchPackageNames": ["@types/node"],
+      "allowedVersions": "<25"
+    },
+    {
       "description": "Group all Node.js version updates",
       "groupName": "Node.js version",
       "matchPackageNames": ["node"],
-      "matchManagers": ["regex", "nvm"],
+      "matchManagers": ["custom.regex", "nvm"],
       "matchDatasources": ["node-version", "docker"],
       "enabled": true
     },
@@ -52,7 +60,7 @@
       "automerge": true
     },
     {
-      "description": "Require approval for Node.js major updates",
+      "description": "Require approval for Node.js major updates. Redundant with the global major rule, but stated last so it also governs a grouped branch that mixes update types",
       "matchPackageNames": ["node"],
       "matchUpdateTypes": ["major"],
       "automerge": false
