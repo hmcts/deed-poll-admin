@@ -12,7 +12,7 @@ but not designed here.
 
 > **This document is the *why*. The executable form is
 > [`docs/plans/deed-poll-api-01-foundation.md`](../docs/plans/deed-poll-api-01-foundation.md)** — a
-> Ralphex plan: 16 sequential tasks, each with a validation command, written to be run by an autonomous
+> Ralphex plan: 17 sequential tasks (0–16), each with a validation command, written to be run by an autonomous
 > agent inside `hmcts/deed-poll-api`. Plan 01 is schema, domain and the caseworker API. **Plans 02 (CCD
 > decentralisation) and 03 (CDAM) are not written yet**, deliberately — both depend on external
 > onboarding that has not happened, and writing them now would bake in assumptions about a case type ID
