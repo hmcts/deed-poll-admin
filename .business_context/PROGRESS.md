@@ -362,7 +362,7 @@ defects of the same shape that only running the app revealed.
 
 **Local disk storage cannot go to AKS** — pods are ephemeral and replicas share no volume. Uploads
 work locally and are a development story until CDAM or the Azure Blob off-ramp — see
-[`CDAM_INTEGRATION_PLAN.md`](CDAM_INTEGRATION_PLAN.md), which supersedes Phase 10 of the migration plan.
+[`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md), which supersedes Phase 10 of the migration plan.
 `.gitignore` now covers `data/` so uploaded blobs are never committable.
 
 **One task is parked, not a question** — see "Parked tasks" below (task 1 is closed).
@@ -396,7 +396,7 @@ TRACK B — CCD adoption (separable; start only once Track A is green)
  7  spike /ccd-persistence     ░░░░░░░░░░░░░░░░░░░░░░  ccd schema already vendored
  8  case type definition       ░░░░░░░░░░░░░░░░░░░░░░  hand-authored JSON, SDK is Java
  9  persistence endpoints      ░░░░░░░░░░░░░░░░░░░░░░  + retain-and-dispose reaper
-10  CDAM documents             ░░░░░░░░░░░░░░░░░░░░░░  planned: CDAM_INTEGRATION_PLAN.md (Spring Boot)
+10  CDAM documents             ░░░░░░░░░░░░░░░░░░░░░░  planned: DEED_POLL_API_PLAN.md (Spring Boot)
 11  platform onboarding        ░░░░░░░░░░░░░░░░░░░░░░  all external, long lead times
 ```
 
@@ -633,7 +633,7 @@ What changed in the move:
 ## Phase 3 — the JSON API (done, and transitional)
 
 **`apps/api` is slated for replacement** by a Spring Boot `deed-poll-api` — see
-[`CDAM_INTEGRATION_PLAN.md`](CDAM_INTEGRATION_PLAN.md). Nothing consumes `apps/api` today, so its
+[`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md). Nothing consumes `apps/api` today, so its
 surface is being rebuilt as the 11 operations `apps/web` actually needs rather than ported. The detail
 below stays accurate and is still the reference for anything touching these handlers meanwhile.
 
@@ -1584,7 +1584,7 @@ Small, real, and deliberately not done. None blocks Phase 3.
    removing nothing. **Hard delete becomes admin-only and narrow**, for data-protection erasure requests
    where removal is a legal obligation. Routine disposal is CCD's job via its authoritative
    `resolvedTTL`, and `retainPermanently` is the flag that opts a case out — which is what it was always
-   for. Specified in [`CDAM_INTEGRATION_PLAN.md`](CDAM_INTEGRATION_PLAN.md) as **new scope, not a port**:
+   for. Specified in [`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md) as **new scope, not a port**:
    an event, a UI control and a guarded admin route.
 
    **The exposure is gone meanwhile**, without the one-line guard this note suggested: `api.enabled` is

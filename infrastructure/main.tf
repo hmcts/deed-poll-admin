@@ -21,7 +21,7 @@ provider "azurerm" {
 #
 # A second reason given when this was written — that deed-poll-admin is the only component, so there is
 # no second repo for the vault to be shared with — **no longer holds.** A Spring Boot `deed-poll-api`
-# in its own repo is planned (`.business_context/CDAM_INTEGRATION_PLAN.md`), which is exactly the second
+# in its own repo is planned (`.business_context/DEED_POLL_API_PLAN.md`), which is exactly the second
 # component the usual split exists for. Reviewed on 2026-09-04 and kept here anyway, deliberately: the
 # alternative is a third repo and a third Jenkins onboarding, and `deed-poll-api` can read this vault as
 # a `data` source. The coupling that buys is that `deed-poll-api` cannot deploy until this root has

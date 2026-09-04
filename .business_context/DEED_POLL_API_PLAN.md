@@ -1,24 +1,55 @@
-# Documents via CDAM, and replacing `apps/api` with Spring Boot
+# `deed-poll-api` — re-platforming the backend onto Spring Boot
 
-Written 2026-09-04. Supersedes Phase 10 of [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
+Written 2026-09-04. Supersedes Phase 10 of [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md), and the
+`deed_poll_public_web` row of its decisions table, which recorded a citizen-facing app as out of scope.
 
-**Decision: `apps/api` is replaced by a Spring Boot service, `deed-poll-api`.** It owns persistence,
-the CCD contract and document handling. `apps/web` stays as the TypeScript UI and moves from in-process
-domain calls to HTTP. Steve's call on 2026-09-04, for the long-term benefit; the reasoning and the
-alternative that was rejected are recorded under [Why this shape](#why-this-shape).
+## The decisions this plan rests on
 
-**Decision: `deed-poll-api` is its own repo, `hmcts/deed-poll-api`, built by Jenkins.** Steve's call,
-2026-09-04. This is the PCS split exactly — `pcs-api` and `pcs-frontend` are separate repos — and it
-gives the Java service the conventional HMCTS shape: Gradle, `Jenkinsfile_CNP`, `cnp-jenkins-config`.
+All Steve's, taken 2026-09-04.
 
-The consequence worth knowing up front: **the Java service needs no federated-credential PR.** Jenkins
-has its own credentials path, so it does not join the `azure-github-federation-config` queue where #99
-has sat untouched since 2026-09-03. `deed-poll-admin` stays on GitHub Actions and its four missing
-Azure secrets remain its own problem, unchanged by this.
+**1. The backend is re-platformed onto Spring Boot.** `apps/api` is replaced by `deed-poll-api`, which
+owns persistence, the CCD contract and document handling. `apps/web` stays as the TypeScript caseworker
+UI and moves from in-process domain calls to HTTP. Reasoning and the rejected alternative are under
+[Why this shape](#why-this-shape).
 
-The costs, accepted: two pipelines and two sets of CI conventions in play, and the Stage 5 cutover
-becomes two ordered PRs rather than one. Also add the new repo to `cft-workspace`'s `workspace.yaml`
-via `scripts/add-repo`, not by hand.
+**2. `deed-poll-api` serves two frontends, not one.** The existing caseworker admin app *and* a
+citizen-facing app that does not exist yet. **This is the most consequential thing in this plan** — it
+is why access control gets a section of its own, and it retires the `deed_poll_public_web` "out of
+scope" decision.
+
+**3. Three repos, all Java/Terraform ones on Jenkins.**
+
+| Repo | Contains | Template | Build |
+|---|---|---|---|
+| `hmcts/deed-poll-admin` | `apps/web` (caseworker UI), `libs/` | `expressjs-monorepo-template` (already) | GitHub Actions |
+| `hmcts/deed-poll-api` | Spring Boot backend, CCD config, CDAM | **`hmcts/spring-boot-template`** | Jenkins |
+| `hmcts/deed-poll-shared-infrastructure` | product resource group, Key Vault, workload identity | **none — see below** | Jenkins |
+| a citizen frontend, later | not yet specified | — | — |
+
+**On templates.** `hmcts/spring-boot-template` is a real, current GitHub template — pushed 2026-09-02 —
+and ships `build.gradle`, `Jenkinsfile_template`, `Jenkinsfile_nightly`, `Dockerfile`, `charts/`,
+`config/`, `infrastructure/` and `catalog-info.yaml`. Use it for `deed-poll-api`.
+
+**There is no template for a shared-infrastructure repo.** `hmcts/terraform-module-template` is *not*
+it — its `inputs-required.tf` / `inputs-optional.tf` / `outputs.tf` / `example/` shape shows it is for
+authoring reusable `cnp-module-*` modules. What the estate actually does is copy an existing repo, and
+`pt-shared-infrastructure` is the newest and cleanest: `main.tf`, `key-vault.tf`, `app-insights.tf`,
+`variables.tf`, `provider.tf`, `Jenkinsfile_CNP`, `.terraform-version`, `.pre-commit-config.yaml`,
+`renovate.json`, `.editorconfig`, `.github/`. It is cloned locally at
+`../../apps/pt/pt-shared-infrastructure` in this workspace.
+
+**4. The shared infrastructure moves out of `deed-poll-admin`.** This reverses the decision taken
+earlier the same day, and the reversal is right: that decision rested on there being no second component
+repo, and there are now two. See [Moving the shared
+infrastructure](#moving-the-shared-infrastructure) — **there is no Terraform state to migrate**, which
+makes this far cheaper than it would normally be.
+
+Add both new repos to `cft-workspace`'s `workspace.yaml` via `scripts/add-repo`, not by hand.
+
+**Consequence worth knowing:** the Java and Terraform repos need **no federated-credential PR**. Jenkins
+has its own credentials path, so they do not join the `azure-github-federation-config` queue where #99
+has sat untouched since 2026-09-03. `deed-poll-admin` stays on GitHub Actions and its four missing Azure
+secrets remain its own problem.
 
 ---
 
@@ -47,19 +78,25 @@ Today. Note `apps/api` has an ingress and **no consumer**, and both apps import 
 Target:
 
 ```
-                          browser
-                             │  HTTPS
-                             ▼
- ╔═ hmcts/deed-poll-admin ═══════════════════════════╗   TypeScript
- ║  apps/web    pages, Nunjucks, Welsh, IDAM login,  ║   GitHub Actions
- ║              session cookie, document viewer      ║
- ╚═══════════════════════┬═══════════════════════════╝
-                         │  HTTPS, forwarding the user's IDAM token
-                         ▼
- ╔═ hmcts/deed-poll-api ═════════════════════════════╗   Java / Spring Boot 3
- ║  domain logic          CaseView                   ║   ccd-config-generator
- ║  decentralised events  CDAM client                ║   Jenkins
- ╚══┬═══════════════════┬══════════════════┬═════════╝
+   caseworker (internal)                        citizen (public internet)
+   platform.hmcts.net                           www.gov.uk journey
+          │                                              │
+          ▼                                              ▼
+ ╔═ deed-poll-admin ═══════════╗            ╔═ citizen frontend ══════════╗
+ ║  apps/web                   ║            ║  not yet specified          ║
+ ║  Nunjucks, Welsh, viewer    ║            ║  own IDAM client            ║
+ ║  IDAM client: HMCTS_ACCESS  ║            ║  citizen frontend           ║
+ ╚══════════════┬══════════════╝            ╚══════════════┬══════════════╝
+                │                                          │
+                │   HTTPS, forwarding the user's IDAM token │
+                └────────────────────┬─────────────────────┘
+                                     ▼
+ ╔═ deed-poll-api ═══════════════════════════════════════════════════════╗
+ ║  /caseworker/**   ─┐                                                  ║
+ ║  /citizen/**      ─┴─► domain logic, separate DTOs per audience        ║
+ ║  CaseView          decentralised events          CDAM client          ║
+ ║  NOT internet-facing — reachable only from the two frontends          ║
+ ╚══┬═══════════════════┬══════════════════┬════════════════════════════╝
     │                   │                  │
     │        S2S + user │        S2S + user│
     │             token │             token│
@@ -68,6 +105,8 @@ Target:
     │                   │                              (binaries live here)
     │                   │ /ccd-persistence/*
     │                   └──────► back into deed-poll-api
+    │                                              ▲
+    │                     AM / Role Assignment ────┘ case-level access
     ▼
  PostgreSQL  (one server, one database)
    ├─ public schema   domain tables   ← owned by deed-poll-api (Flyway)
@@ -76,6 +115,11 @@ Target:
    │                                  ← owned by the SDK (Flyway)
    └─ session table                   ← owned by apps/web (pg.Pool)
 ```
+
+**One API for both audiences is the right call, and it is what the estate does** — `pcs-api` and
+`nfdiv-case-api` each serve a citizen frontend and a caseworker surface. What makes it safe is *not*
+that the API is one service; it is that access control is declared in the CCD configuration rather than
+hand-written per endpoint. That is the next section, and it is the part to get right.
 
 A write leaves and comes back, which is the counterintuitive part:
 
@@ -88,6 +132,59 @@ A write leaves and comes back, which is the counterintuitive part:
 
   5  our submit handler runs: domain write + CDAM attach, one transaction
 ```
+
+## Access control with two audiences
+
+This is the highest-risk part of serving both apps from one backend: a filtering mistake leaks another
+person's name-change case. Get the model right and most of the risk is designed out rather than
+tested for.
+
+### Roles are declared, not coded
+
+The SDK's `HasRole` model is the mechanism, and `pcs-api`'s `UserRole` enum is the worked example. Each
+role carries a name, a permission set, and — crucially — **where the role comes from**:
+
+```java
+public enum UserRole implements HasRole {
+    CITIZEN("citizen", CRU, IDAM),            // an IDAM role: "any citizen"
+    CREATOR("[CREATOR]", CRU, RAS),           // a CCD case role: "this case, this person"
+    PCS_CASE_WORKER("caseworker-pcs", Set.of(R), IDAM),
+    ...
+}
+```
+
+Two things to take from that:
+
+- **`RoleType.IDAM` versus `RoleType.RAS`.** IDAM roles say what kind of user someone is. RAS roles —
+  the ones in `[SQUARE_BRACKETS]` — come from AM / Role Assignment Service and say *which cases* this
+  particular user may touch. **A citizen's access to their own case is a RAS case role, not an IDAM
+  role.** `CITIZEN` alone must never be enough to read a case.
+- **Permissions are per role**: `CRU` for a party who may edit, `Set.of(R)` for a caseworker who may
+  only read. Event-level grants (`.grant(Set.of(CREATE, READ, UPDATE), UserRole.CASEWORKER)`) and
+  field-level access profiles then express, declaratively, that a caseworker note is invisible to a
+  citizen.
+
+So the citizen/caseworker split belongs in `deed-poll-api`'s CCD configuration. Do not write it as `if`
+statements in controllers.
+
+### The gap this does not close, and it is a real one
+
+**CCD's access control governs the CCD path only** — events submitted through data-store, and the
+`CaseView` projection CCD asks for. It does **not** police bespoke REST endpoints we write on the same
+service. Every one of the direct `frontend → deed-poll-api` reads is ours to authorise, and CCD is not
+in that path at all.
+
+Three disciplines, and the plan recommends all three rather than picking one:
+
+1. **Separate endpoint namespaces — `/caseworker/**` and `/citizen/**`** — with separate controllers.
+   Never one endpoint that behaves differently by role.
+2. **Never share a response DTO between audiences.** A caseworker DTO that gains a field is then
+   incapable of leaking it to a citizen, because the citizen DTO is a different class. This is the single
+   cheapest guardrail available and it survives people who have not read this document.
+3. **Authorise citizen reads against case access explicitly.** A citizen may see a case because they are
+   a party to it — so check that, in our own data, on every citizen read. Do not infer it from the fact
+   that a valid citizen token arrived. CDAM already works this way: it asks data-store whether the user
+   may read the field holding the document rather than trusting the caller.
 
 ### The two auth relationships, which are easy to conflate
 
@@ -161,6 +258,15 @@ its own ingress host, image and Helm subchart, and no client.
 
 So its surface is a **free choice, not a contract**. It was built to mirror the prototype's
 controllers. Do not port it.
+
+**This section derives the `/caseworker/**` surface only.** The `/citizen/**` surface cannot be derived
+the same way, because the citizen app does not exist yet — there is nothing to read the requirements
+off. Deliberately not guessed at here: a speculative citizen API would be the same mistake `apps/api`
+already made, which is building a surface from an imagined consumer rather than a real one. Design it
+when the citizen journey is specified, and note that it is very likely to need things the caseworker
+surface does not — at minimum an application-submission journey and, given `feeReference`,
+`refundAmount`, `dateOfRefund` and `refundReference` are already in the schema, **a payment
+integration** (see [open question 7](#open-questions)).
 
 What `apps/web`'s 8 data-access files actually need:
 
@@ -333,6 +439,44 @@ the file-size question that is already outstanding.
 
 ---
 
+## Moving the shared infrastructure
+
+[PR #64](https://github.com/hmcts/deed-poll-admin/pull/64) put the product resource group and Key Vault
+in `deed-poll-admin/infrastructure/`, changing two `data` blocks into resources. Its argument was
+partly that there was no second component repo to share them with. **There are now two**, so they move
+to `hmcts/deed-poll-shared-infrastructure` and both components read them.
+
+**There is no Terraform state to migrate.** `Terraform Apply` has never once succeeded — it fails at
+`azure/login` for want of `AZURE_CREDENTIALS_CFT_PREVIEW` — so nothing PR #64 declared has ever been
+created. That makes this a pure code move: no `terraform state mv`, no `terraform import`, no risk of
+orphaning a live vault. **This window closes the moment the credentials land**, so do the move before
+the first successful apply, not after.
+
+What moves and what stays:
+
+| Resource | From | To |
+|---|---|---|
+| `azurerm_resource_group.shared` — `deed-poll-{env}` | `deed-poll-admin/infrastructure/main.tf` | shared-infrastructure |
+| `module.key_vault` + the `deed-poll-{env}-mi` workload identity | `deed-poll-admin/infrastructure/keyvault.tf` | shared-infrastructure |
+| `random_password.session_secret` and its vault secret | same | shared-infrastructure — it is a product secret, not a component one |
+| `azurerm_resource_group.rg` — `deed-poll-{env}-admin` | stays | — |
+| App Insights, Postgres flexible server, their vault secrets | stay | — |
+
+Both component repos then read the vault as a `data` source — which is what `deed-poll-admin` did
+before PR #64, so that code is recoverable from its diff rather than needing to be rewritten.
+
+Two things to get right in the new repo, both learned the hard way in #64:
+
+- **Use `git::https://` for module sources, not `git@github.com:`.** Jenkins agents do have SSH keys, so
+  the SSH form would work there — but keeping both repos on HTTPS means a module source can be copied
+  between them without a silent failure.
+- **`product_group_name` must name an AAD group that exists.** `cnp-module-key-vault`'s
+  `team-access.tf` creates its access policy unconditionally, so an empty or wrong value fails the apply
+  on an invalid `object_id`. `"DTS CFT Developers"` is the known-good placeholder; narrow it to a
+  "DTS Deed Poll" group once one exists.
+
+---
+
 ## Onboarding: the external critical path
 
 **None of this depends on our code, all of it has lead time, and the longest item needs another team to
@@ -350,6 +494,9 @@ cut a release. Raise it all at once, first.**
 | 8 | The `deed-poll` Kubernetes namespace | `cnp-flux-config`, most likely | **`@hmcts/platform-operations`** | Already outstanding from Phase 6 — fold it in |
 | 9 | Onboard `deed-poll-api` to Jenkins: a job entry in `cnp-jenkins-config`, and the repo created with `Jenkinsfile_CNP` | `cnp-jenkins-config` | **`@hmcts/platform-operations`** | Settled 2026-09-04: the Java service is its own repo on Jenkins, so this replaces the earlier question about whether GitHub Actions is acceptable for Java. **No federated-credential PR is needed for it** |
 | 10 | ACR path and Helm chart for `deed-poll-api` | ours | — | A new image under `hmctsprod.azurecr.io/deed-poll/`. Jenkins CNP handles ACR push conventionally, so this is chart work rather than a credentials request |
+| 11 | Onboard `deed-poll-shared-infrastructure` to Jenkins | `cnp-jenkins-config` | **`@hmcts/platform-operations`** | Same conversation as row 9 |
+| 12 | **A second IDAM client for the citizen app** | `hmcts/idam-access-config` | IDAM | Separate registration from the caseworker one: a citizen frontend rather than `HMCTS_ACCESS`, its own redirect URIs, its own client secret in the vault. **Do not extend the existing client** — the two have different audiences, roles and security postures. The caseworker registration PR is still awaiting IDAM, so raise this once that one lands and its shape is confirmed |
+| 13 | **Citizens need case-level access via AM / Role Assignment** | `am-role-assignment-service` | **`dcd_ccd`** / AM | A citizen sees their own case through a RAS case role — `[CREATOR]` or a party role — not through the `citizen` IDAM role. Ask what a service like ours is expected to do here; it is the mechanism the whole citizen journey rests on |
 
 **`#ccd-questions-answers` on Slack is the front door** for every `dcd_ccd` row — it is the support
 channel named in both CDAM's and the data-store's Backstage `catalog-info.yaml` (`owner: dcd_ccd`).
@@ -382,8 +529,8 @@ for a `deed-poll-shared-infrastructure` repo now applies where it did not before
 
 | Stage | Work | Gated on |
 |---|---|---|
-| **0** | Raise all ten onboarding rows. Ask the open questions below. Create the repo and add it to `workspace.yaml` | nothing — do it now |
-| **1** | Get AAT green: the four Azure secrets, the namespace, first successful `Terraform Apply` and deploy | the credentials, not us |
+| **0** | Raise all thirteen onboarding rows. Ask the open questions below. Create both new repos from the templates above and add them to `workspace.yaml` | nothing — do it now |
+| **1** | **Move the shared infrastructure out** into its own repo, before any apply has happened — see [Moving the shared infrastructure](#moving-the-shared-infrastructure). Then get AAT green: the four Azure secrets, the namespace, first successful `Terraform Apply` and deploy | the move: nothing. The rest: the credentials |
 | **2** | Scaffold `deed-poll-api`: Spring Boot 3, `ccd { decentralised = true }`, `CCDConfig`, `CaseView`, JPA entities and Flyway for the `public` tables. Pact tests modelled on `pcs-api:src/contractTest/java/`. Local verification via `cftlib` | **not** Stage 1 — can run in parallel |
 | **3a** | **Prove decentralisation end to end, thin.** A case pointer, a deliberately minimal `CaseView`, one trivial `decentralisedEvent`, and one document through CDAM — deployed to AAT. No domain logic | Stage 2 + onboarding rows 1–6, 9 |
 | **3b** | Port the domain against the proven skeleton, using the 386 TS test blocks as the specification. Re-point the 32 conformance tests at the Java schema | Stage 3a |
@@ -471,14 +618,33 @@ The first two should be asked before Stage 2, because they can invalidate work:
    authorisation, so it does not rescue a CCD-free design — but it is worth knowing whether a document
    can be kept alive between upload and event commit.
 6. ~~**Does the shared infrastructure move to a `deed-poll-shared-infrastructure` repo?**~~ **Closed
-   2026-09-04 — it stays here.** `deed-poll-api` reads the Key Vault as a `data` source.
-   [PR #64](https://github.com/hmcts/deed-poll-admin/pull/64) had argued for keeping it here on the
-   grounds that *"deed-poll-admin is the only component, so there is no second repo for the vault to be
-   shared with"* — a second component repo makes that premise false, so the decision now rests on cost
-   rather than on that argument, and the comment in `infrastructure/main.tf` has been corrected to say
-   so. Steve's call: no third repo and no third Jenkins onboarding.
+   2026-09-04 — yes, it moves.** This answer changed twice in a day, which is worth recording rather
+   than tidying away: it was first left in `deed-poll-admin` on the grounds that no second component
+   repo existed, then moved once the decision to serve two frontends made a third repo the convention
+   anyway. The reasoning is at [Moving the shared
+   infrastructure](#moving-the-shared-infrastructure), and the coupling the earlier answer accepted —
+   a TypeScript repo owning the Java service's vault — is what the move removes.
 
-   **The coupling this accepts, stated so it is not a surprise:** `deed-poll-api` cannot deploy until
-   `deed-poll-admin`'s Terraform has applied at least once, and a TypeScript repo owns the Java
-   service's vault. It is one-directional and common enough in the estate, but it means the two repos
-   have an ordering relationship that nothing enforces mechanically.
+## Open questions the citizen app raises
+
+New with the two-frontend decision. None blocks Stage 2, but 7 and 8 shape what gets built and are
+worth asking early.
+
+7. **Does the citizen journey take a payment?** `feeReference`, `refundAmount`, `dateOfRefund` and
+   `refundReference` are already in the schema, which strongly suggests yes. If so it is a **new
+   integration that appears nowhere in this plan** — HMCTS Payments and GOV.UK Pay, with its own S2S
+   onboarding, its own callbacks and a refund path. Ask before designing the citizen surface, because
+   payment usually shapes the journey rather than being bolted onto it.
+8. **What is the citizen's relationship to the case, in AM terms?** A citizen sees their own case
+   through a RAS case role, and something has to grant it at the point the case is created. Is that
+   `[CREATOR]`, a party role, or an access-code link as PCS uses for defendants? This is the mechanism
+   the entire citizen journey rests on, so it is worth a specific answer from `dcd_ccd` rather than an
+   assumption.
+9. **Do the two frontends each need their own S2S identity?** PCS registers both `pcs_frontend` and
+   `pcs_api` in `CASE_DOCUMENT_S2S_AUTHORISED_SERVICES`, so their frontend talks to CDAM directly. If
+   `deed-poll-api` does all CDAM work, the frontends need none — which is one fewer secret each and the
+   shape this plan assumes. Confirm rather than inherit.
+10. **Is the same case type right for both audiences?** One case type with role-scoped events is the
+    normal answer and what this plan assumes. Worth confirming with `dcd_ccd` that nothing about a
+    citizen-initiated application argues for a separate one, because splitting later is expensive —
+    it means a second `service_config.json` entry and another CDAM release.
