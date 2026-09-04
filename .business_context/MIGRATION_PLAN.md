@@ -104,10 +104,12 @@ Separable. Start only once Track A is green.
 - **Phase 9 — persistence endpoints** in `apps/api`, plus the retain-and-dispose reaper.
 - **Phase 10 — CDAM documents.** **Superseded 2026-09-04 by
   [`CDAM_INTEGRATION_PLAN.md`](CDAM_INTEGRATION_PLAN.md)** — read that instead. This bullet assumed a
-  TypeScript reimplementation of `file-storage.ts`; the decision taken is to follow the PCS shape and
-  put the CCD contract and document handling in a new Spring Boot service, because the
-  `ccd-config-generator` SDK is a hard prerequisite for decentralisation and both live adopters are
-  Java. The original text: reimplement `file-storage.ts` against `POST /cases/documents` and
+  TypeScript reimplementation of `file-storage.ts`. **The decision taken is that `apps/api` is
+  replaced by a Spring Boot service, `deed-poll-api`**, owning persistence, the CCD contract and
+  document handling, with `apps/web` moving to HTTP. `ccd-config-generator` is a hard prerequisite for
+  decentralisation and both live adopters are Java. Note this makes **Phase 3's 29 handlers
+  transitional** — nothing consumes `apps/api`, so its surface is rebuilt as the 11 operations
+  `apps/web` actually needs rather than ported. The original text: reimplement `file-storage.ts` against `POST /cases/documents` and
   `GET /cases/documents/{id}/binary`, threading `caseTypeId` and `jurisdictionId`. Downloads need
   both S2S and a user JWT, so this depends on Phase 5. **What that missed:** the three-function seam
   cannot express CDAM at all, and `attachToCase` is restricted to `ccd_data`, so documents TTL out

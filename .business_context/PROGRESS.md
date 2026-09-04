@@ -386,7 +386,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  0  hygiene & blocked inputs   ██████████████████████  done
  1  schema → monorepo          ██████████████████████  done
  2  domain → libs/deed-poll    ██████████████████████  done
- 3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
+ 3  JSON API → apps/api        ██████████████████████  done — 29 handlers; transitional, see CDAM plan
  4  SSR pages → apps/web       █████████████████████░  12/12 ported, e2e + axe green; Welsh out for review
  5  authentication (IDAM)      ████████████████████░░  ◀── HERE. code done; PR raised, awaiting IDAM
  6  config, Helm, deployment   ██████████████████░░░░  infra + CI done; needs namespace and 4 Azure secrets
@@ -630,7 +630,12 @@ What changed in the move:
 - **The `ccd` schema tests skip when no database is reachable** — CI has no Postgres. Run
   `docker compose up -d` locally to exercise them.
 
-## Phase 3 — the JSON API (done)
+## Phase 3 — the JSON API (done, and transitional)
+
+**`apps/api` is slated for replacement** by a Spring Boot `deed-poll-api` — see
+[`CDAM_INTEGRATION_PLAN.md`](CDAM_INTEGRATION_PLAN.md). Nothing consumes `apps/api` today, so its
+surface is being rebuilt as the 11 operations `apps/web` actually needs rather than ported. The detail
+below stays accurate and is still the reference for anything touching these handlers meanwhile.
 
 **Phase 3 is complete — 29 of 29 handlers.** Foundations (`caf4e03`) plus four slices: `deed-polls`
 (7), notes + witnesses (10), `document-types` (5) and `documents` (7). See the slice sections below;
