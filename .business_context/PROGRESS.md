@@ -1,56 +1,145 @@
 # Migration progress — handover
 
-Last updated: 2026-09-03. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
+Last updated: 2026-09-04. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
-**Phases 0–4 are done as far as code goes, and Phase 5's login flow is built and working.**
+**Track A is code-complete.** Phases 0–4 are done, Phase 5's login flow is built and working, and
+**Phase 6 no longer has anything in it that is code.** Everything that remains is a credential, a
+platform question, or IDAM.
 
-## Pick up here (end of 2026-09-03 session)
+## Pick up here (end of 2026-09-04 session)
 
-**Read [`WAYS_OF_WORKING.md`](WAYS_OF_WORKING.md) first — it is 59 lines and there are two decisions in
-it.** A retrospective on the 2026-09-03 session: a start-of-session checklist, the one rule that would
-have prevented most of that session's errors, and two open questions — PR #47's size, and pruning this
-file, which is now long enough to be at risk of not being read at all.
+**Read [`WAYS_OF_WORKING.md`](WAYS_OF_WORKING.md) first.** It is the shortest useful thing in this
+directory, and both of the decisions it carried are now settled — see them for what was decided and
+why, because one of them explains why this file is shorter than it was.
 
-**Everything is committed, pushed and green, and the branch is level with master.** `lint`, `build`,
-`test` and `test:e2e` (21) all pass, and so does `yarn install --immutable`, which is the check that
-catches a lockfile disagreeing with its manifests. Counts are in the generated dashboard below.
+**There is no migration branch any more.** `feat/deed-poll-migration` was merged as
+[PR #47](https://github.com/hmcts/deed-poll-admin/pull/47) on 2026-09-04 at 06:14 (`953e1ac`), so
+everything below describes master. `lint`, `build`, `test`, `test:e2e` (21) and
+`yarn install --immutable` all pass — the last being the check that catches a lockfile disagreeing with
+its manifests. Counts are in the generated dashboard below.
 
-**CI works now, for the first time.** Master's pipeline had never been green and neither had this
-branch's, because no PR existed. Both are green on lint, test, `osv-scan` and SonarCloud. What remains
-red is only the Azure credentials — see the table below.
+**CI is green on everything that does not touch Azure**: lint, test, `osv-scan`, SonarCloud and
+`Terraform Format`. What remains red is only the Azure credentials, and the table below is more precise
+about those than any earlier version of it — **four secrets are needed, not one, and none exists.**
 
 ### Tomorrow, in order
 
-1. **Chase [`azure-github-federation-config#99`](https://github.com/hmcts/azure-github-federation-config/pull/99).**
-   Open, mergeable, its Azure DevOps `TerraformPlanApply` precheck passes, `REVIEW_REQUIRED`. It is the
-   only thing standing between master and a fully green pipeline — it clears all four `Build & Publish`
-   jobs. **Four other Renovate PRs are sitting unreviewed in that repo**, so the queue may be slow.
+1. **Raise one consolidated credentials request, rather than chasing #99 alone.**
+   [`azure-github-federation-config#99`](https://github.com/hmcts/azure-github-federation-config/pull/99)
+   has not moved since 2026-09-03 18:27 — still `OPEN`, `MERGEABLE`, `REVIEW_REQUIRED`, with four other
+   Renovate PRs unreviewed ahead of it. **It also covers only about a quarter of what is needed**: it
+   creates the app registration, but the resulting client and tenant IDs still have to be set as
+   repository secrets afterwards, and it does not touch either `AZURE_CREDENTIALS_CFT_*` secret. The
+   table below is the full list to ask for in one go.
 2. **Ask which repo declares the `deed-poll` Kubernetes namespace.** The one outstanding Phase 6 item
    that is a *question* rather than a piece of work, and a one-line answer for anyone who has done it.
    `cnp-flux-config` is still not cloned here, which is why it is unconfirmed.
-3. **Start `deed-poll-shared-infrastructure`.** Longest lead time of anything left, and nothing else in
-   Phase 6 can be tested without it. Confirmed absent — the repo 404s.
-4. **Close [#52](https://github.com/hmcts/deed-poll-admin/pull/52)** (`prisma` → 7.10.0), superseded by
-   #58 which made the same bump. #53 and #54 need a rebase onto the new `yarn.lock`; Renovate does that
-   itself. **#55 and #56 are safe.** None of the five had the manifest-without-lockfile defect.
-5. **Send [`welsh-translation-request.csv`](welsh-translation-request.csv) for review** — 68 prose
-   strings, each with an unreviewed machine draft and a confidence. Read the five marked `LOW` first.
+3. **Decide whether `job.terraform.yml:95` hardcoding `AZURE_CREDENTIALS_CFT_PREVIEW` is a bug.** It
+   passes the *preview* credential regardless of environment, while `stage.infrastructure.yml` only ever
+   targets `environment: aat`. `job.helm-deploy.yml` switches `_PREVIEW`/`_AAT` by environment; Terraform
+   does not. **The practical consequence is a trap: provisioning only `_AAT` leaves Terraform Apply
+   still failing.**
+4. **Send [`welsh-draft.csv`](welsh-draft.csv) and
+   [`welsh-translation-request.csv`](welsh-translation-request.csv) for review** — 50 UI strings and 68
+   prose strings, each with an unreviewed machine draft and a confidence. Read the ones marked `LOW`
+   first; two of those are legal terms and one is a word collision, not a translation nicety.
 
 ### What is actually left in Phase 6
 
-Nothing in it is code, and nothing in it is mine to do.
+Nothing in it is code any more, and nothing in it is mine to do.
 
 | Item | State |
 |---|---|
-| `deed-poll-shared-infrastructure` repo | **Absent, confirmed.** `main.tf:16` / `keyvault.tf:5` read resource group and key vault `deed-poll-{env}` as `data`, so `terraform plan` fails before anything deploys. Must also create the `deed-poll` workload identity with vault access |
-| `deed-poll` Kubernetes namespace | Platform-level; which repo declares it is still unconfirmed |
-| Federated credentials **and** ACR push rights | **In flight — PR #99.** One app registration covers both |
-| `idam-client-secret`, `session-secret` in the vault | Blocked on the vault existing. The client secret comes from IDAM; the session secret is just randomness |
-| `AZURE_CREDENTIALS_CFT_AAT` / `_PREVIEW` | **Not covered by #99** — service-principal JSON for `terraform-deploy` and `helm-deploy`. The library's `-openid` variants would remove the need entirely; worth its own change |
+| Shared resource group, Key Vault, workload identity | ✅ **Done 2026-09-04** by [PR #64](https://github.com/hmcts/deed-poll-admin/pull/64), in this repo's own `infrastructure/` rather than a separate repo. See ["Why the shared infrastructure is not a separate repo"](#why-the-shared-infrastructure-is-not-a-separate-repo) |
+| `session-secret` in the vault | ✅ **No longer manual** — generated by `random_password` in `keyvault.tf`, created on the first successful apply |
+| `deed-poll` Kubernetes namespace | Platform-level; which repo declares it is **still unconfirmed**. `cnp-flux-config` is not cloned here |
+| `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` | Absent at repository *and* organisation level. **PR #99 creates the app registration but does not set these** — someone has to add them as secrets once it merges |
+| `AZURE_CREDENTIALS_CFT_PREVIEW` | Absent. Needed by **Terraform** (`job.terraform.yml:95`) and preview `helm-deploy`. Note the trap in item 3 above: Terraform uses this one even for AAT |
+| `AZURE_CREDENTIALS_CFT_AAT` | Absent. Needed by AAT `helm-deploy` and `job.helm-cleanup.yml` |
+| `idam-client-secret` in the vault | Blocked on IDAM. Must be added by hand — the value comes from IDAM's reply, so there is nothing to generate |
 | Path to live | Production only, and much may not apply — internal caseworker service on `platform.hmcts.net`, not public |
 
 **Phase 5 is unchanged: wait for IDAM.** The registration PR is raised and nothing here can be verified
 against real IDAM until it is merged and deployed.
+
+Verified 2026-09-04 against the live repository, not inferred: `actions/secrets` and `actions/variables`
+are both empty, `actions/organization-secrets` lists 28 and **none of them is an Azure credential**, and
+`actions/organization-variables` lists one (`APIHUB_ORGANISATION`).
+
+### What happened on 2026-09-04
+
+A short session, three merges, and one architectural decision that is worth not relitigating.
+
+1. **PR #47 was merged as-is** — 292 files, Steve's call, on the grounds that keeping the branch
+   diverged was costing more than the review it would have bought. That settles the first of
+   `WAYS_OF_WORKING.md`'s two open questions; the reasoning is recorded there.
+2. **Renovate was stopped from automerging majors** ([PR #63](https://github.com/hmcts/deed-poll-admin/pull/63)).
+   `automerge: true` sat at the top level with no update-type bound, and master is unprotected, so the
+   moment the ACR jobs went green **ten PRs including two unreviewed majors would have merged
+   themselves.** The same change fixed a Dockerfile regex that had never matched anything — see
+   ["Renovate's config was wrong in three ways"](#renovates-config-was-wrong-in-three-ways).
+3. **The shared resource group and Key Vault were created** ([PR #64](https://github.com/hmcts/deed-poll-admin/pull/64)),
+   closing the item that had the longest lead time of anything left. Not as a separate repo — see below.
+4. **This file was pruned** from 2,297 lines, and the Phase 3 slice detail and the superseded 2026-09-03
+   CI sections moved to [`archive/`](archive/). That closes the second of the two open questions.
+
+### Why the shared infrastructure is not a separate repo
+
+The other **85** HMCTS `*-shared-infrastructure` repos all exist, and all of them are Jenkins — checked
+by cloning `pt-shared-infrastructure` and `pcs-shared-infrastructure`, both of which carry
+`Jenkinsfile_CNP` and wire their vault to `var.jenkins_AAD_objectId`. This service is GitHub Actions.
+Combined with deed-poll-admin being the **only** component — so there is no second repo for a vault to
+be shared *with*, which is the reason the split exists — the separate repo would have bought convention
+at the price of a second federated-credential PR into the queue already blocking everything.
+
+**A second Terraform root inside this repo was the obvious middle ground and does not work.**
+`terraform-deploy` takes a `working-directory` input, but `terraform-deploy/action.yaml:159` derives the
+backend state key as `{repository name}/{environment}/terraform.tfstate` and ignores it. Two roots here
+would share one state file and each apply would destroy the other's resources. **Do not try this again
+without overriding `state-store-container-name` per root.**
+
+Three traps in the template's commented-out example, which #64 replaced — recorded because each would
+have failed at a different stage:
+
+- **Its source was `git@github.com:`.** Actions runners have no deploy key for hmcts repos, so it cannot
+  clone. The other two modules in that root already used `git::https://`.
+- **It passed `tenant_id`**, which `cnp-module-key-vault` documents as `(deprecated) does nothing`.
+- **`product_group_name = "dcd_${var.product}"` names a group that does not exist**, and
+  `team-access.tf` looks the group up by display name and creates its access policy *unconditionally* —
+  so a wrong or empty value fails the apply on an invalid `object_id` rather than being skipped. It is
+  `"DTS CFT Developers"` for now, the CFT-wide group the module already reads elsewhere and so is known
+  to exist. **Narrow it to a "DTS Deed Poll" group once one exists.**
+
+**The vault is `deed-poll-{env}`, not `{product}-{component}-{env}`.** An earlier version of this file
+said the latter and worried about the 24-character Azure limit; that was wrong. `cnp-module-key-vault`
+defaults the name to `{product}-{env}`, and `keyVaults: deed-poll:` in all four `values.yaml` files is
+what has to resolve, so `name` is deliberately left unset. `product` itself comes from
+`annotations.team` in `helm/deed-poll-admin/Chart.yaml` — confirmed by running the action's own
+extraction over the real file — so it is `deed-poll` and not the repo name.
+
+### Renovate's config was wrong in three ways
+
+All three found by running `renovate-config-validator --strict`, which is worth doing before editing
+`.github/renovate.json` by hand:
+
+- **`"node": { "enabled": true }` is the Travis manager.** The validator migrates it to `"travis"`. It
+  has nothing to do with managing Node versions and there is no `.travis.yml`. Removed.
+- **The Dockerfile manager had never matched a line.** It anchored on `FROM node:`, but every Dockerfile
+  reads `FROM hmctsprod.azurecr.io/base/node:22-alpine`. Measured: 0 matches in all four files before,
+  1 each after. **This is why `.nvmrc` says 24.20.0 while every image still runs Node 22.**
+- **Migrating `regexManagers` → `customManagers` renames the manager `regex` → `custom.regex`**, so the
+  `matchManagers` in the Node grouping rule had to move with it or that rule would have silently stopped
+  matching — the same failure mode as the dead Dockerfile regex.
+
+One consequence to expect: a grouped `Node.js version` PR for 22 → 24 on the images. It will not
+automerge. **Whoever reviews it must confirm `hmctsprod.azurecr.io/base/node:24-alpine` exists**, because
+`packageNameTemplate: "node"` resolves versions from Docker Hub but writes them to an ACR-qualified
+reference. Anonymous pull on that registry is 401, so it could not be checked here.
+
+Also worth knowing, and not ours to fix: **`cnp-githubactions-library` passes `terraform_version_file` to
+`hashicorp/setup-terraform`, which has no such input.** It is silently ignored and `terraform_version:
+latest` wins, so `infrastructure/.terraform-version` is decorative and CI runs whatever Terraform is
+newest. Affects every HMCTS repo using that action.
 
 ### What happened on 2026-09-03
 
@@ -61,7 +150,7 @@ A long session. In order:
 2. **The refresh path was fixed** — it required an `id_token` that OIDC Core §12.2 makes optional, so
    every refresh threw and the middleware swallowed it. Both files had no tests at all.
 3. **Master was broken three times and repaired three times** — PRs #42, #44 and #58. See
-   ["Master's CI was red"](#masters-ci-was-red-twice-in-one-day).
+   ["Master's CI was red"](archive/SESSION_HISTORY_2026-09-03.md#masters-ci-was-red-twice-in-one-day).
 4. **Loose end 4 closed** (#43), and 47 dead branches deleted with their SHAs recorded in
    [`DELETED_BRANCHES.md`](DELETED_BRANCHES.md) first.
 5. **The e2e suite went 20/1 → 21/0**, and the recorded cause (loose end 16, the pg pool) was measured
@@ -73,8 +162,10 @@ A long session. In order:
 
 ### Environment notes for tomorrow
 
-- **`docker compose` is up** (Postgres + `rse-idam-simulator`) and the `ccd` schema tests were last run
-  against it. Nothing is left running on port 3000.
+- **`docker compose` is NOT up.** The previous version of this note said it was, and on 2026-09-04 it
+  was not — only the devcontainer was running. Run `docker compose up -d` (Postgres +
+  `rse-idam-simulator`) before the `ccd` schema tests or e2e, and **check rather than trusting this
+  line**, which is exactly the kind of claim that goes stale between sessions.
 - **`test:e2e` cannot start without a yarn shim on `PATH`** — Playwright's `webServer` runs
   `yarn dev:nowatch`, which resolves to corepack and dies. Recreate with
   `printf '#!/bin/sh\nexec node /tmp/yarn417/bin/yarn.js "$@"\n' > /tmp/yarnshim/yarn`.
@@ -249,7 +340,7 @@ Phase 4 are deliberately outstanding rather than done** — neither blocks Phase
 recorded below rather than lost:
 
 1. **The Phase 4 verification pass** the plan asks for. **The e2e journeys and the accessibility
-   checks are now done** (2026-09-02) — see ["Phase 4 verification"](#phase-4-verification-done). What
+   checks are now done** (2026-09-02) — see ["Phase 4 verification"](#phase-4-verification-done-2026-09-02). What
    remains of it is **Welsh content only**: every page carries `cy` with matching keys, and a test now
    pins that the keys resolve, but the values are still English.
 2. **`power_app_nest/` is deliberately NOT deleted.** Steve's call on 2026-09-01: it is gitignored,
@@ -263,9 +354,9 @@ Phase 5 replaces `userFromHeaders` in `libs/deed-poll/src/auth/header-user.ts` a
 app adapters that call it. That is the whole seam, and knowing why it is shaped that way saves
 rediscovering it.
 
-Read ["Phase 3 foundations"](#phase-3-foundations-done-caf4e03) and slices
-[1](#phase-3-slice-1-deed-polls-done), [2](#phase-3-slice-2-notes-and-witnesses-done),
-[3](#phase-3-slice-3-document-types-done) and [4](#phase-3-slice-4-documents-done) before touching a
+Read ["Phase 3 foundations"](archive/PHASE_3_SLICES.md#phase-3-foundations-done-caf4e03) and slices
+[1](archive/PHASE_3_SLICES.md#phase-3-slice-1-deed-polls-done), [2](archive/PHASE_3_SLICES.md#phase-3-slice-2-notes-and-witnesses-done),
+[3](archive/PHASE_3_SLICES.md#phase-3-slice-3-document-types-done) and [4](archive/PHASE_3_SLICES.md#phase-3-slice-4-documents-done) before touching a
 handler or a form — between them they settle every decision that is already made, including three
 defects of the same shape that only running the app revealed.
 
@@ -297,7 +388,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
  4  SSR pages → apps/web       █████████████████████░  12/12 ported, e2e + axe green; Welsh out for review
  5  authentication (IDAM)      ████████████████████░░  ◀── HERE. code done; PR raised, awaiting IDAM
- 6  config, Helm, deployment   ███████████████░░░░░░░  code done + CI green; needs shared infra, namespace, creds
+ 6  config, Helm, deployment   ██████████████████░░░░  infra + CI done; needs namespace and 4 Azure secrets
 
 TRACK B — CCD adoption (separable; start only once Track A is green)
 ════════════════════════════════════════════════════════════════════════════
@@ -308,18 +399,23 @@ TRACK B — CCD adoption (separable; start only once Track A is green)
 11  platform onboarding        ░░░░░░░░░░░░░░░░░░░░░░  all external, long lead times
 ```
 
-Three things gate a deploy, none of them code in this branch:
+Three things gate a deploy, none of them code:
 
 | Gate | Why it blocks |
 |---|---|
-| Phase 5 auth | **Registration PR raised 2026-09-03; waiting on IDAM.** Both apps authenticate, but until the client is registered there is nothing to point them at, and neither `idam-client-secret` nor `session-secret` exists in the vault — so nobody can log in to a deployed instance, and `assertIdamSettings` refuses to start without them. No longer a task, just a wait |
-| Shared infrastructure | `deed-poll-shared-infrastructure` does not exist — **verified 2026-09-03, the repo 404s** — and `infrastructure/` **references** the resource group and key vault it would create, so the terraform plan fails before anything deploys. Longest lead time of anything left |
-| Azure credentials | No `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` at repository *or* organisation level, so all four `Build & Publish` jobs fail at `azure/login`. **[PR #99](https://github.com/hmcts/azure-github-federation-config/pull/99) is open and would clear them.** `AZURE_CREDENTIALS_CFT_AAT` / `_PREVIEW` are a separate mechanism it does not cover |
+| Phase 5 auth | **Registration PR raised 2026-09-03; waiting on IDAM.** Both apps authenticate, but until the client is registered there is nothing to point them at, and `idam-client-secret` cannot exist in the vault until IDAM supplies its value — so nobody can log in to a deployed instance, and `assertIdamSettings` refuses to start without it. No longer a task, just a wait |
+| Azure credentials | **Four secrets, none of which exists** at repository or organisation level, so every job authenticating to Azure fails. [PR #99](https://github.com/hmcts/azure-github-federation-config/pull/99) covers roughly a quarter of it. See the Phase 6 table above for the full list and the `_PREVIEW`/`_AAT` trap |
 | CI has no database | The `ccd` schema tests skip in CI. Honest, but not coverage |
 
-**No longer a gate:** CI itself. Lint, test, `osv-scan` and SonarCloud all pass on master and on this
-branch as of 2026-09-03, having never passed before. See ["Master's CI was
-red"](#masters-ci-was-red-twice-in-one-day) and ["Repository visibility, and the history secret
+**No longer a gate:** the shared infrastructure. `infrastructure/` used to read the resource group and
+Key Vault as `data` with nothing creating them, so the plan failed before reaching a resource; both are
+created now. See ["Why the shared infrastructure is not a separate
+repo"](#why-the-shared-infrastructure-is-not-a-separate-repo).
+
+**Also no longer a gate:** CI itself. Lint, test, `osv-scan`, SonarCloud and `Terraform Format` all pass
+on master, having never passed before 2026-09-03. See ["Master's CI was
+red"](archive/SESSION_HISTORY_2026-09-03.md#masters-ci-was-red-twice-in-one-day) and ["Repository
+visibility, and the history secret
 scan"](#repository-visibility-and-the-history-secret-scan-2026-09-03).
 
 <!-- BEGIN GENERATED DASHBOARD -->
@@ -365,18 +461,21 @@ total                                  1548 passed
 ### Branch
 
 ```
-feat/deed-poll-migration
-68 commits ahead of master
-HEAD  f5f4862  Merge master to pick up the CI repair and the Node bump
+master
+0 commits ahead of master
+HEAD  1d752fd  Create the shared resource group and Key Vault this root has always assumed (#64)
 ```
 
 <!-- END GENERATED DASHBOARD -->
 
 ## State
 
-Pushed and tracking `origin/feat/deed-poll-migration`. No PR, deliberately — see "Branch state".
-Branch, commit count and test counts live in the generated dashboard above rather than here, so
-there is only one place for them to be wrong.
+On master, everything merged and pushed — see ["Branch state"](#branch-state). Branch, commit count and
+test counts live in the generated dashboard above rather than here, so there is only one place for them to
+be wrong.
+
+The commit list below is the Phase 1–3 history, kept for orientation. It stops well short of `master`'s
+current tip and is not maintained — use `git log` for anything current.
 
 ```
 346e623  Port the document-types handlers and give the in-use refusal a 409
@@ -423,7 +522,7 @@ any more — the decision is "yes, just not now". Task 1 is now closed; task 2 s
    "The product code is settled" under Phase 6 for the two things that did fall out of it.
 2. ~~**Check Renovate PR #31 (`applicationinsights` 3.16.0) merges cleanly and report.**~~
    **Checked 2026-09-03 — it merges cleanly and clears 12 advisories. Still not merged**, as instructed.
-   See ["Renovate PR #31"](#renovate-pr-31-checked-not-merged) below for the measurements. The
+   See ["Renovate PR #31"](archive/SESSION_HISTORY_2026-09-03.md#renovate-pr-31-checked-not-merged) below for the measurements. The
    prediction recorded here was right about the mechanism being `protobufjs` and slightly understated
    the effect.
 
@@ -503,7 +602,7 @@ What changed in the move:
 - CommonJS → ESM (`.js` specifiers), Jest → Vitest, `@prisma/client` → `@hmcts/postgres-prisma`.
 - HTTP concerns out of the domain: `NotFoundException` / `BadRequestException` → `NotFoundError` /
   `InvalidInputError` in `libs/deed-poll/src/errors.ts`. The route layer maps them to status codes —
-  **that mapping is Phase 3 work and does not exist yet.**
+  that mapping was Phase 3 work and **now exists**, in `apps/api/src/errors.ts`.
 - 10 class-validator DTOs → 4 Zod schema modules with `.partial()` counterparts.
 
 ## Things a future session should not have to rediscover
@@ -530,7 +629,7 @@ What changed in the move:
 - **The `ccd` schema tests skip when no database is reachable** — CI has no Postgres. Run
   `docker compose up -d` locally to exercise them.
 
-## Phase 3 — the JSON API (in progress)
+## Phase 3 — the JSON API (done)
 
 **Phase 3 is complete — 29 of 29 handlers.** Foundations (`caf4e03`) plus four slices: `deed-polls`
 (7), notes + witnesses (10), `document-types` (5) and `documents` (7). See the slice sections below;
@@ -610,365 +709,6 @@ cd apps/api && NODE_ENV=development ../../node_modules/.bin/tsx src/server.ts
   both sides. `yarn idam:users` creates both.
 - Local writes consume reference-number serials permanently, so `KBDP2026-…` will not start at
   00001 on a database that has been exercised. That is the counter working, not a bug.
-
-### Phase 3 foundations (done, `caf4e03`)
-
-| File | What |
-|---|---|
-| `libs/deed-poll/src/errors.ts` | adds `ForbiddenError` and `zodErrorToFieldErrors`; `ConflictError` followed in slice 3 |
-| `apps/api/src/errors.ts` | `errorHandler()`, mounted last in `app.ts` |
-| `apps/api/src/auth/current-user.ts` | `userFromRequest` — header extraction then; **the headers are gone, see Phase 5** |
-| `apps/api/src/auth/require-roles.ts` | `requireRoles(...)`, replacing `RolesGuard` |
-
-Two decisions worth not relitigating:
-
-- **Error mapping is app-level middleware, not try/catch per route**, which is what
-  `.claude/rules/backend.md` illustrates. `app.ts` already had a catch-all error handler, so this
-  extends it rather than adding a pattern. It means the 29 handlers cannot disagree about what a
-  missing case returns, and a handler that forgets to catch cannot leak a stack trace as a 500.
-  Handlers may still catch locally for bespoke cases. **A guarded route restricts itself by exporting
-  an array** — `export const DELETE = [requireRoles(DEEDPOLL_ADMIN), handler]` — which is how
-  `simple-router`'s `normalizeHandlers` expects a multi-handler route.
-
-  This depends on Express 5 forwarding a rejected handler promise to error middleware, which Express
-  4 did not. `apps/api/src/errors.wiring.test.ts` drives that through a real router with `supertest`
-  so a regression cannot hide behind unit tests that call `errorHandler` directly. **Do not delete
-  that file** on the grounds that it duplicates `errors.test.ts` — it is testing the framework
-  contract, not the mapper.
-
-- **Header auth is opt-in by environment and fails closed.** *(History — Phase 5 deleted the header
-  scheme outright. The polarity argument below outlived it and now lives in `plain-http.ts`.)* It is
-  honoured only when `NODE_ENV` is
-  `development` or `test` (`HEADER_AUTH_ENVIRONMENTS` in `current-user.ts`). Anywhere else the
-  `x-user-roles` and `x-user-name` headers are ignored, every caller resolves to no roles, and
-  guarded routes return 403 — with one log line naming the `NODE_ENV` actually seen, since an
-  unexpected or absent value is the likeliest cause.
-
-  **The allowlist polarity is deliberate and should not be "corrected" to match the codebase.**
-  Everything else here asks `NODE_ENV === "production"` and treats all other values as development.
-  That default-open reading is right for a log level and wrong for an authorisation bypass: it would
-  leave the bypass live for anything that merely is not the literal string `production` — an unset
-  variable, a Helm `env:` override, `node dist/server.js` run outside the image, or a deployed
-  environment named `aat`. Tests pin all four cases.
-
-  `apps/api` and `apps/web` now set `NODE_ENV=development` in their `dev` scripts, mirroring the
-  root's `start:api` / `start:web` which already state `production`. Previously dev relied on the
-  variable being unset, which an allowlist cannot read as consent. Side benefit: it revives
-  `libs/postgres-prisma/src/index.ts:34`, whose `=== "development"` query logging never fired.
-
-  None of this makes the service deployable — Phase 5 still gates that, and **unguarded routes remain
-  open regardless**, since the check only runs where `requireRoles` is mounted. It removes the worst
-  failure mode: deployed early, appears to work, anyone is an admin. Phase 5 replaces
-  `current-user.ts` wholesale.
-
-The 6 tests dropped from `roles.guard.spec` are rewritten and accounted for. The guard's two
-"open route" cases (no `@Roles` metadata, empty roles array) collapse into one: in Express an
-unguarded route is simply one that does not mount the middleware, so only `requireRoles()` with no
-arguments remains testable.
-
-### Phase 3 slice 1: deed-polls (done)
-
-Seven handlers across four files, plus `apps/api/src/express-doubles.ts`. `apps/api` went 71 → 110
-tests; `libs/deed-poll` 450 → 452 (the reference-number fix below).
-
-Five decisions the remaining 22 handlers should follow rather than re-derive:
-
-- **The routes are `/deed-polls`, not `/api/deed-polls`.** Earlier revisions of this file said
-  `/api/...`; that was carried over from the prototype's `@Controller('api/deed-polls')` and is
-  wrong here. `apps/api/src/app.ts` mounts `createSimpleRouter({ path: .../routes })` with no
-  prefix, matching the template's own `/users` and `/onboarding`. The prototype needed the prefix
-  because one Nest app served both the API and the SSR pages; here `apps/api` and `apps/web` are
-  separate apps on separate ports, so prefixing every route with `/api` inside the app called `api`
-  says nothing. Verified against a running server: `/api/deed-polls` 404s, `/deed-polls` 200s.
-
-- **No role middleware, deliberately.** `RolesGuard` was registered globally in the prototype but
-  **no handler anywhere carried `@Roles(...)`** — checked across all five controllers — so every
-  ported route is open, exactly as it was. The real privilege check is `isAdmin` inside
-  `createDeedPoll`/`updateDeedPoll`, which decides whether a `privacy` value is honoured or silently
-  dropped. Do not add `requireRoles` to a ported route without deciding that as a policy change:
-  it would be new behaviour, not a port. **Whether `DELETE` should be admin-only is a real question
-  and the prototype does not answer it** — see Loose ends 5.
-
-- **`userFromRequest(req)` is the whole of the user plumbing.** It returns `{ roles, isAdmin, name }`.
-  `deed-polls` passes `{ isAdmin, userName: name }`; `notes` needs only `{ userName: name }`
-  (`notes.controller.ts:27,50`); `witnesses` and `documents` take no user context at all. There is
-  no wrapper helper and there should not be one — the shapes genuinely differ.
-
-- **Query parameters get validated too, not just bodies.** `field-rules.ts` parses `req.query`
-  against a small local `z.object`. The prototype's `@Query('type')` was *typed* `DeedPollType` but
-  never validated, so `?type=nonsense` — or a repeated `?type=a&type=b`, which Express parses as an
-  array — reached the rule matrix, fell through its `default:` branch, and answered **200 with the
-  rules for no type at all**. A wrong answer presented as a right one. It is a 400 now.
-
-- **Route-ordering and mounting are pinned by a wiring test**, `routes.wiring.test.ts`, which builds
-  a real `createSimpleRouter` over the real directory. `/deed-polls/field-rules` and
-  `/deed-polls/:id` both match `GET /deed-polls/field-rules`; it resolves correctly only because
-  `sortRoutes` orders by parameter count, which nothing in `field-rules.ts` can state. Every unit
-  test in the directory would still pass if that ordering changed while the live endpoint began
-  reading the string "field-rules" as a case id. **Add to that file rather than duplicating it** when
-  the notes/witnesses/documents routes land — they nest two parameters deep and are more exposed to
-  the same class of problem, not less.
-
-`express-doubles.ts` holds the shared `requestDouble`/`responseDouble`. It models `req.header(name)`
-as a function rather than a `headers` object, because `userFromRequest` reads headers that way and a
-naive double would let a test pass while the real thing found nothing. It is **excluded from the
-build in `apps/api/tsconfig.json`** — it imports `vitest`, so it must not reach `dist`.
-
-#### One defect found, in the domain rather than the routes
-
-`yearFromDateReceived` in `libs/deed-poll/src/deed-poll/reference-number.ts` threw a **bare `Error`**
-when `dateReceived` was absent. `errorHandler` cannot recognise a bare `Error`, so it fell through to
-the generic 500 — meaning `POST /deed-polls` with no Date Received, which is the single most obvious
-request anyone makes of this API, answered `{"error":"Internal server error"}`. Now an
-`InvalidInputError` carrying a `dateReceived` field error, so it is a 400 the Phase 4 forms can
-render against the right input. Pinned in both places: `reference-number.test.ts` for the type and
-the attribution, and `routes.wiring.test.ts` for the status a caller actually sees.
-
-This was invisible to unit tests on both sides — the domain tests asserted a bare untyped
-`toThrow()`, and the error-mapping tests only ever fed the handler errors it already knew. **Only
-running the thing found it**, which is the argument for keeping the "exercise against a running app"
-step in the verification list for each remaining slice.
-
-Its docstring also claimed the year fell "back to created-now", which the code has never done. The
-throw is right — inventing a year from the clock would put a case in the wrong year's permanent,
-external-facing serial sequence — so the comment was corrected to match the code, not the reverse.
-
-### Phase 3 slice 2: notes and witnesses (done)
-
-Ten handlers across four files, under `apps/api/src/routes/deed-polls/[id]/{notes,witnesses}/`.
-`apps/api` 110 → 149 tests. No domain change was needed — both services were already
-parent-scoped and already threw `NotFoundError`, so the handlers are genuinely thin.
-
-- **Nested under `[id]/`, not `[deedPollId]/`.** Earlier revisions of the route table above said
-  `[deedPollId]`, copied from the prototype's `@Controller('api/deed-polls/:deedPollId/notes')`. Nest
-  needed a distinct name because the parent segment is part of the controller's own path string;
-  here the parent segment *is* the directory, and `[id]/` already existed for `validate.ts`. Two
-  sibling parameter directories naming the same URL position would both work — `discoverRoutes` keys
-  on the URL path, so there is no conflict raised — but it would read as an accident by whoever
-  arrives next. So it is `req.params.id` for the case and `req.params.noteId` /
-  `req.params.witnessId` for the child, everywhere.
-
-- **Both ids go into every child call.** `findNote`/`findWitness` match on `{ id, deedPollId }`, so
-  a child id belonging to another case answers 404. Passing only the child id would compile and
-  would quietly make every note in the database reachable through any case's URL. Verified against
-  a running app on all three verbs: reading, patching and deleting a note through the wrong case's
-  URL all 404, and the note was still intact afterwards. **The write paths are scoped twice** — see
-  below.
-
-- **Notes take `{ userName }` only; witnesses take no user context at all.** Notes have
-  `createdBy`/`modifiedBy` columns to stamp; `DeedPollWitness` has neither, and `createWitness`
-  accordingly has no author parameter. Neither takes `isAdmin` — there is no privileged field on
-  either, so passing it would imply a rule that does not exist. Pinned by tests in both directions,
-  because "we forgot to pass the user" and "there is deliberately no user here" look identical in a
-  diff.
-
-- **Witnesses reject an empty body where cases accept one.** `createWitnessSchema` requires all four
-  fields; `createDeedPollSchema` requires none. Not an inconsistency — a case is logged
-  incrementally through its lifecycle, a witness is entered once from a form that has all of it.
-
-- **`routes.wiring.test.ts` gained a second `describe` block** rather than a second file. The case
-  routes' trap is route *ordering*; the nested routes' trap is parameter *binding*, which the unit
-  tests structurally cannot catch because the request double supplies whatever params the test names.
-  A handler that read the parent's id for the child, or swapped the two, passes its own unit test.
-
-#### Child scoping: the write paths carry `deedPollId` too
-
-**There was never a traversal hole here** — reads have always filtered on `{ id, deedPollId }`, and
-the write paths have always run a scoped `findNote`/`findWitness`/`findDocument` guard first. Do not
-read the change below as a fix for a vulnerability; nothing was exploitable, and cross-case access
-was verified closed on all three verbs before it.
-
-What it changes is where the safety *lives*. The writes used to be:
-
-```ts
-await findNote(deedPollId, id);                     // scoped guard
-prisma.deedPollNote.update({ where: { id }, ... })  // write scoped by nothing
-```
-
-Correct, but by convention: one guard line, repeated in six places across three services. A seventh
-`updateX` that omitted it would be an unscoped write, and **no existing test would have failed** —
-which is the actual risk, since two more slices of nested handlers were about to be written against
-this pattern. The writes now carry the parent as well:
-
-```ts
-prisma.deedPollNote.update({ where: { id, deedPollId }, ... })
-```
-
-Prisma allows a non-unique filter alongside the unique `id` (`DeedPollNoteWhereUniqueInput` accepts
-`deedPollId`), so this costs nothing and does not change the return shape the way `updateMany` would.
-Applied to all three services — notes, witnesses **and documents**, so the documents slice inherits
-it rather than repeating the argument.
-
-**Verified that Prisma enforces the filter rather than ignoring it**, because if it ignored it the
-change would be theatre and the guard would still be the only defence. Driven directly against
-Postgres with no guard in front: `update` and `delete` with a mismatched `deedPollId` both fail
-`P2025` and the row is untouched. The happy path was re-checked too — that was the way this change
-could have broken everything, if Prisma had rejected the extended `where` at runtime.
-
-The guard stays, and is still what produces the clean 404: `P2025` is not a domain error, so
-`errorHandler` would map it to a generic 500. That is deliberate rather than a gap — the guard always
-runs first, so a `P2025` reaching the mapper means a missing guard or a genuine race, and a loud 500
-with a logged stack is the honest answer to a bug. Mapping `P2025` to 404 would hide exactly the
-mistake this is meant to catch.
-
-Domain tests went 452 → 456: the four that asserted `where: { id }` exactly now assert both ids, and
-`updateWitness`/`updateDocument` gained the scoped-write and wrong-parent cases they never had.
-
-#### Child lists 404 for a missing parent
-
-`findNotes`/`findWitnesses`/`findDocuments` filtered by `deedPollId` without checking the parent
-existed — exactly as the prototype's `findAll` did, since only the create paths called
-`assertCaseExists`. So `GET /deed-polls/<typo>/notes` answered `[]` with 200.
-
-That conflates two different facts: **"there is no such case"** and **"this case has no notes"**. Only
-one of them is true, the response is identical either way, and the caller has no way to tell them
-apart — so a mistyped case id reads as a case with no notes. A child collection has no meaning
-without its parent, so the parent's absence is the more important fact and the one to report.
-
-All three list functions now `await assertCaseExists(deedPollId)` first. That is the same check every
-create in the same files already made, so the fix is consistency rather than a new pattern — the cost
-is one indexed primary-key lookup per list.
-
-Considered and rejected: checking the parent *only when the list comes back empty*, which is free in
-the common case because the `onDelete: Cascade` FK means rows existing proves the parent exists. It
-is correct, but it makes three functions behave differently from the six creates beside them to save
-a sub-millisecond lookup on a page load. Not worth the inconsistency.
-
-Both directions are pinned by tests and were verified live, because a fix like this is one careless
-`if` away from 404ing every legitimately-empty list: a missing case 404s with the case id in the
-message, and a real case with no children still answers `[]` with 200. `documents` has no HTTP route
-yet, so it is covered by domain tests only until that slice lands.
-
-### Phase 3 slice 4: documents (done)
-
-Seven handlers across four files, plus `apps/api/src/documents/upload.ts`. `apps/api` 175 → 219
-tests, `libs/deed-poll` 475 → 477. **Phase 3 is complete: 29 of 29.**
-
-#### What Multer actually does here
-
-It is a body parser for **one** route. `app.ts` mounts `express.json()` and `express.urlencoded()`,
-and neither parses `multipart/form-data`, so without it `POST .../documents/upload` would see an
-empty `req.body` and no file. Multer puts the bytes on `req.file` and the accompanying text fields
-(`documentTypeId`, `name`, `direction`) on `req.body`. The other six handlers are ordinary JSON.
-
-- **Mounted per-route, as an array** — `export const POST = [uploadSingleFile(), handler]`, the shape
-  `requireRoles` established. A global multipart parser would inspect bodies it can never be given.
-- **Memory storage, not disk**, because `saveFile(buffer)` takes a `Buffer`. Disk storage would write
-  a temp file for us to read straight back and write again, and would strand it on a failure path.
-- **The `UploadedFile` mapping is the whole point.** `uploadDocument` takes a plain
-  `{ buffer, originalname, mimetype, size }`, deliberately not `Express.Multer.File`, so the domain
-  does not know Multer exists. Phase 2 built that seam; this slice is the four-field map onto it.
-
-#### Two limits the prototype did not have
-
-`FileInterceptor('file')` took no options: **any file, any size, buffered in memory**. Ported
-faithfully that is a memory-exhaustion hole in a service that currently has no authentication, so it
-was not ported.
-
-- **10 MB** (`MAX_BYTES`), agreed with Steve on 2026-09-01. There was no existing limit anywhere in
-  the repo or the prototype to inherit. **It is a defensible guess, not a researched number —
-  confirm against real file sizes with the service team.** It matters more than it looks: the file is
-  buffered in memory, so the worst case is 10 MB × concurrent uploads against the pod's limit.
-- **An accepted-type list** — PDF, JPEG, PNG, TIFF, Word. **This is hygiene, not security:** it reads
-  the `Content-Type` the client puts on the part, which a client can simply lie about. It stops
-  accidents and obvious executables. Real inspection and virus scanning belong with CDAM in Phase 10.
-
-Both refusals are translated at the source. Multer signals them with a `MulterError`, which is not a
-domain error and would have become a 500 — the third instance of that trap, so `mapMulterError`
-converts it to an `InvalidInputError` attributed to the `file` field.
-
-#### Download hardening
-
-`GET .../documents/:documentId/file` is the only route that does not answer JSON. Two changes over
-the prototype:
-
-- **The filename is sanitised, not just de-quoted.** `originalName` is whatever the uploading client
-  called the file, so it lands on a response header as attacker-controlled text. The prototype
-  stripped `"` and nothing else; a name containing `\r\n` would have produced an invalid header,
-  which Node rejects by throwing mid-response — a 500 on a working download. Only a conservative
-  character set survives, with a `document` fallback when nothing does. Pinned by a test that feeds
-  `evil".pdf\r\nX-Injected: yes` and asserts no such header appears.
-- **The stream's `error` event is forwarded to `next`.** Without it a mid-stream failure leaves the
-  request hanging until it times out. Once bytes are sent no status change is possible, so
-  `errorHandler` hands back to Express and the connection is destroyed — correct, because a truncated
-  download is visible to the client where a 200 with half a file is not.
-
-#### A third 500, exactly as predicted
-
-The handover said to assume one, and there was one. `removeDocument`'s comment claimed *"Best-effort
-blob cleanup"* while `await deleteFile(...)` propagated: the row was already deleted, so a failed
-`unlink` turned a **completed** delete into a 500. The caller retries, gets a 404, and has no way to
-tell the delete had in fact worked. Now genuinely best-effort — caught and logged with the document
-id and storage key so the orphan is findable. An orphaned blob is recoverable and cheap; a status
-code that contradicts what happened is neither.
-
-That is three defects of one shape across four slices — an expected, caller-caused condition
-reaching the error middleware as something it did not recognise. **All three were invisible to unit
-tests on both sides and were found only by running the app.** Keep the "exercise it live" step.
-
-#### Verified live, end to end
-
-A real 41-byte PDF uploaded through multipart, written to `DATA_DIR/documents/<uuid>`, and downloaded
-back **byte-identical** (sha256 match) with `Content-Type: application/pdf`,
-`Content-Disposition: attachment; filename="birth.pdf"` and `Cache-Control: no-store`. Then: an 11 MB
-file 400s naming the limit; an `.exe` 400s; no file at all 400s with the domain's own
-`Select a file to upload`; a malformed `documentTypeId` 400s and a valid-but-absent one 404s; the
-document's type could not be deleted while it referenced it (409, from slice 3); and deleting the
-document removed both the row and the blob from disk, after which the download 404s.
-
-### Phase 3 slice 3: document-types (done)
-
-Five handlers in `apps/api/src/routes/document-types/`. `apps/api` 152 → 175 tests,
-`libs/deed-poll` 465 → 475.
-
-- **The only Phase 3 resource outside `routes/deed-polls/`.** Document types are global reference
-  data — the list of things a supporting document can *be*, plus the marital statuses and case types
-  each applies to — so they mount at the top level, while the documents referencing them will live
-  under `/deed-polls/:id/documents`. There is no parent to scope against; the type's own id
-  identifies it.
-
-- **`DELETE` can answer 409, the only one in the phase.** Everything else in Phase 3 answers 200,
-  201, 204, 400, 403 or 404.
-
-- **`document-types.ts` had no unit tests before this**, only its Zod schemas. A Phase 2 gap rather
-  than anything introduced here — the five domain functions were never covered. Now they are.
-
-#### A second 500 for an ordinary action, same shape as slice 1's
-
-`removeDocumentType` deleted straight through to Prisma. The `documentType` relation is required and
-declares no `onDelete`, so Postgres refuses to orphan documents — but that refusal arrives through
-the `PrismaPg` adapter as a **`DriverAdapterError`** carrying SQLSTATE **23001** on `err.cause.code`,
-which is not a domain error, so `errorHandler` fell through to a generic 500. A caseworker deleting a
-type that happened to be in use was told the server had broken.
-
-The module's own docstring claimed this "surfaces as a 409-style failure". Nothing implemented that.
-It does now:
-
-- **`ConflictError`** added to `libs/deed-poll/src/errors.ts`, mapped to **409** in `apps/api`.
-  Deliberately not `InvalidInputError`/400 — nothing about the input is wrong, and the same request
-  succeeds unchanged once the references are gone. There is no field to blame, so no `errors` array.
-- **`removeDocumentType` counts referencing documents itself** rather than catching the driver error.
-  A count gives a message naming the number, which is actionable, and it does not depend on the
-  driver's internal error shape — that would be fragile across a Prisma upgrade and would fail by
-  silently reverting to 500.
-- **Known, accepted gap:** a document created between the count and the delete still hits the FK and
-  yields that 500. The window is tiny, the database refuses either way so integrity holds, and
-  closing it would mean parsing the driver internals the check exists to avoid.
-
-Verified live, both directions: deleting an in-use type answers
-`409 {"error":"Cannot delete this document type: 1 document(s) still reference it"}` and the type
-survives; once the referencing document is gone the same request answers 204; and a second delete
-answers 404 rather than 409, so "already gone" and "still in use" stay distinct.
-
-**This is the second defect of exactly this shape** — after slice 1's bare `Error` from
-`yearFromDateReceived`. Both were expected, caller-caused conditions that reached the error
-middleware as something it did not recognise, and both were invisible to unit tests on either side.
-**When porting the `documents` handlers, assume there is a third**: check what every domain function
-on that path throws, and confirm each one maps to a status a caller should see.
-
-Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/web`, replacing
-`nunjucks.setup.ts` entirely with `configureGovuk` from `@hmcts-cft/express-govuk-starter`.
-`power_app_nest/` is deleted at the end of Phase 4, not before.
 
 ## Phase 4 — SSR pages (in progress)
 
@@ -1532,9 +1272,11 @@ The hostnames in the IDAM request are final. Parked task 1 is closed.
 
 Two things fall out of it:
 
-- **Key vaults are `{product}-{component}-{env}` with a hard 24-character Azure limit**, so
-  `{product}-{component}` must be ≤ 15. `deed-poll-admin` is **exactly 15** and
-  `deed-poll-admin-perftest` is exactly 24. It fits with no headroom — nothing can be appended.
+- ~~**Key vaults are `{product}-{component}-{env}`**~~ — **wrong, corrected 2026-09-04.** The vault is
+  `{product}-{env}`, so `deed-poll-aat`, and the 24-character worry this bullet used to record does not
+  arise. `cnp-module-key-vault` defaults the name to `{product}-{env}` and `keyVaults: deed-poll:` in all
+  four `values.yaml` files is what has to resolve it, so `keyvault.tf` deliberately does not pass `name`.
+  The component appears in the *resource group* (`deed-poll-{env}-admin`), not the vault.
 - **`var.component` was still the template's `expressjs`.** Not a harmless default:
   `cnp-githubactions-library/terraform-deploy` passes `env`, `product`, `subscription`,
   `aks_subscription_id`, `tenant_id`, `builtFrom` and `ci_service_principal_object_id` — and **not
@@ -1544,15 +1286,17 @@ Two things fall out of it:
 
 ### Still to do in Phase 6 — all external, and none of it is code
 
-Read from `infrastructure/` and the workspace's ported CNP docs, in rough dependency order. The first
-item has the longest lead time and nothing else can be tested without it.
+Read from `infrastructure/` and the workspace's ported CNP docs, in rough dependency order. **The
+summary in ["What is actually left in Phase 6"](#what-is-actually-left-in-phase-6) at the top of this
+file is the current one** — this section is the detail behind it.
 
-1. **A `deed-poll-shared-infrastructure` repo.** `main.tf:16` and `keyvault.tf:5` are `data` blocks —
-   they **reference** resource group `deed-poll-{env}` and key vault `deed-poll-{env}` and fail the plan
-   if either is absent. The docs require product-level infrastructure to live in
-   `{product}-shared-infrastructure`, built with the common pipeline. It does not exist yet. It also
-   needs to create the `deed-poll` workload identity (`aadIdentityName` in both charts) with access to
-   that vault, via `cnp-module-key-vault`.
+1. ~~**A `deed-poll-shared-infrastructure` repo.**~~ **Closed 2026-09-04** by
+   [PR #64](https://github.com/hmcts/deed-poll-admin/pull/64), which creates the resource group, the Key
+   Vault and the `deed-poll-{env}-mi` workload identity (`aadIdentityName` in both charts) from this
+   repo's own `infrastructure/` root, via `cnp-module-key-vault`. Deliberately not a separate repo — see
+   ["Why the shared infrastructure is not a separate
+   repo"](#why-the-shared-infrastructure-is-not-a-separate-repo) for the reasoning and the three traps in
+   the template's example.
 2. **The `deed-poll` Kubernetes namespace**, which `job.helm-deploy.yml:138` deploys into and
    `helm-deploy` takes as an input. Platform-level. `platops/hmcts.github.io` and
    `platops/cnp-githubactions-library` are now cloned, but `cnp-flux-config` is not — so **which repo
@@ -1560,16 +1304,19 @@ item has the longest lead time and nothing else can be tested without it.
    for anyone who has done it before.
 3. **Federated credentials for GitHub Actions OIDC** — the deploy uses `azure/login@v3` with
    `id-token: write`. See [`docs/how-to/federated-credentials.md`](../../docs/how-to/federated-credentials.md).
+   **PR #99 is the registration; the resulting `AZURE_CLIENT_ID` and `AZURE_TENANT_ID` still have to be
+   set as repository secrets afterwards.** Merging #99 alone will not turn the build jobs green.
 4. **ACR push rights to `hmctsprod`** for `job.helm-publish.yml:38`. See
-   [`docs/how-to/publishing-acr-images.md`](../../docs/how-to/publishing-acr-images.md).
-5. **The two key vault secrets**, `idam-client-secret` and `session-secret`. The chart fails on a missing
-   secret, deliberately.
+   [`docs/how-to/publishing-acr-images.md`](../../docs/how-to/publishing-acr-images.md). Same app
+   registration as item 3.
+5. **`idam-client-secret` in the key vault.** The chart fails on a missing secret, deliberately.
+   `session-secret` is no longer on this list — `keyvault.tf` generates it with `random_password`.
 6. **Path to live**, for production only: Front Door, load balancer, TLS, shutter, public DNS, OAT. See
    [`docs/how-to/path-to-live/`](../../docs/how-to/path-to-live/). Much of it may not apply — this is an
    internal caseworker service on `platform.hmcts.net`, not a public one.
 
-Our own terraform then creates resource group `deed-poll-{env}-admin` and a Postgres flexible server
-`deed-poll-{env}` holding a `deed-poll-admin` database.
+The same terraform root also creates resource group `deed-poll-{env}-admin` and a Postgres flexible
+server `deed-poll-{env}` holding a `deed-poll-admin` database.
 
 ### The HMCTS Way documents the Jenkins pipeline only — confirmed, not inferred
 
@@ -1607,7 +1354,7 @@ Every secret the workflows reference, and what each is for:
 | `AZURE_CREDENTIALS_CFT_PREVIEW` | `terraform-deploy` (`job.terraform.yml:95`) and preview `helm-deploy` (`job.helm-deploy.yml:103`) | Service-principal JSON — see the note on OIDC below |
 | `AZURE_CREDENTIALS_CFT_AAT` | AAT `helm-deploy` (`:118`) and `job.helm-cleanup.yml:27` | as above |
 | `SONAR_TOKEN` | `job.test.yml:73` | **Already exists as an organisation secret**, and the `hmcts.deed-poll-admin` SonarCloud project already exists too. Nothing to do |
-| `DATABASE_URL` | `job.lint.yml:46` | **Not removable as guessed** — the lint job runs `prisma validate`, which resolves `DATABASE_URL` from Prisma config and fails without it. Confirmed against PR #47's CI; see ["PR #47 and what CI actually says"](#pr-47-and-what-ci-actually-says-2026-09-03) |
+| `DATABASE_URL` | `job.lint.yml:46` | **Not removable as guessed** — the lint job runs `prisma validate`, which resolves `DATABASE_URL` from Prisma config and fails without it. Confirmed against PR #47's CI; see ["PR #47 and what CI actually says"](archive/SESSION_HISTORY_2026-09-03.md#pr-47-and-what-ci-actually-says-2026-09-03) |
 
 **The Azure ones do not exist; `SONAR_TOKEN` does.** `actions/secrets` returns `total_count: 0`, but that
 is repository secrets only — `actions/organization-secrets` lists 28 available to this repo, including
@@ -1949,66 +1696,23 @@ Small, real, and deliberately not done. None blocks Phase 3.
 
 ## Branch state
 
-[`feat/deed-poll-migration`](https://github.com/hmcts/deed-poll-admin/tree/feat/deed-poll-migration)
-is published with upstream tracking configured; 138 files, +12,060 lines against master as of
-2026-09-01. The diff was scanned for secrets before publishing — no `.env`, keys or credential-shaped
+**Merged. There is no migration branch.** `feat/deed-poll-migration` landed on master as
+[PR #47](https://github.com/hmcts/deed-poll-admin/pull/47) on 2026-09-04 at 06:14 (`953e1ac`) — 292
+files, +25,768 lines. Master is the working line; work from it directly.
+
+The earlier decision recorded here was to keep the branch open rather than raise a PR, on the grounds
+that a PR would sit open for weeks. That held until the branch was code-complete, at which point the
+divergence cost more than the review it was buying — which is Steve's stated reason for merging it as
+one PR rather than slicing it. See `WAYS_OF_WORKING.md`.
+
+The diff was scanned for secrets before it was ever published — no `.env`, keys or credential-shaped
 strings. The only hits were the template's `SESSION_SECRET` placeholder and Helm `secretRef` names,
 which are references, not values.
 
-**No PR is open, deliberately.** This is work in progress through Phase 2 of 6, so a PR would sit
-open for weeks. Revisit once Track A is green.
-
-## PR #47 and what CI actually says (2026-09-03)
-
-**[PR #47](https://github.com/hmcts/deed-poll-admin/pull/47) is open for `feat/deed-poll-migration`** —
-284 files, +24,922/−768. GitHub reports `mergeable=MERGEABLE` with `mergeStateStatus=UNSTABLE`: it
-conflicts with nothing, and its checks fail.
-
-**This is the first time CI has ever run against this branch**, and the result is the most useful thing
-learned all day: **not one failure is in the branch's code.** `Build / Test / Test Changed Packages`
-**passes**. Every failure is a repository-level prerequisite that has never been set up.
-
-| Check | Why it fails | Already tracked as |
-|---|---|---|
-| `Build / Lint / Lint Changed Packages` | runs `yarn workspace @hmcts/postgres-prisma exec prisma validate`, which needs `DATABASE_URL`; the env is empty → `PrismaConfigEnvError` | the `DATABASE_URL` row in the credentials table, guessed there as "likely removable" — it is not removable while lint runs `prisma validate` |
-| `Build & Publish` × 4 (api, web, crons, postgres) | `azure/login`: *"Not all values are present. Ensure 'client-id' and 'tenant-id' are supplied"* | `AZURE_CLIENT_ID` / `AZURE_TENANT_ID`, Phase 6 item 3 (federated credentials) |
-| `Infrastructure / Terraform / Terraform Plan` | the same `azure/login` failure | ditto |
-| `Security Scan / osv-scan` | *"Code Security must be enabled for this repository to use code scanning"* | **new — was not recorded anywhere.** A repository setting, not a credential. **Fixed** — see the visibility section |
-| `SonarCloud Code Analysis` | ~~no `SONAR_TOKEN`~~ — **that was wrong**, see below | **Fixed** — it was the quality gate |
-
-**A correction, because the first version of this section overstated it.** It said "the repository has no
-secrets at all", from `gh api repos/hmcts/deed-poll-admin/actions/secrets` returning `total_count: 0`.
-That call returns **repository** secrets only. There are **28 organisation secrets available to this
-repo**, listed by `gh api repos/hmcts/deed-poll-admin/actions/organization-secrets` — and they include
-`SONAR_TOKEN`, `REGISTRY_USERNAME`/`_PASSWORD`/`_LOGIN_SERVER`, `NPM_API_TOKEN` and `GITLEAKS_LICENSE`.
-
-What is still true, and is what the Azure work rests on: **there is no `AZURE_CLIENT_ID` or
-`AZURE_TENANT_ID` at either level**, nor `AZURE_CREDENTIALS_CFT_*`, nor `DATABASE_URL`. So the
-federated-credentials request stands unchanged; only the Sonar diagnosis was wrong. Check
-`organization-secrets` as well as `secrets` before concluding a secret is missing.
-
-**Corrects a prediction made earlier in this session.** It was expected that `terraform plan` would fail
-on `main.tf:15` / `keyvault.tf:4`, the `data` blocks reading a resource group and key vault that do not
-exist. **It fails earlier than that, at Azure login**, so the missing shared infrastructure has not yet
-been reached and remains unverified rather than confirmed. Terraform also logged *"No product name
-provided and could not extract from Chart.yaml"*, which may be a second, separate configuration problem
-and has not been investigated.
-
-**`Deploy`, `Smoke Test` and `E2E` all report `skipping`** — the build failure gates them. So merging
-would not currently produce a failed AAT deploy; it would stop before that. Good, but it also means the
-deploy path stays untested.
-
-**Master's pipeline has been failing all day, not just on this PR.** `Main` is `failure` on the merges of
-#41, #43 and #44. These gaps are chronic — the pipeline has never been green, because the prerequisites
-have never existed — so a red PR #47 is not evidence of anything wrong with the branch.
-
-### So is it ready to merge?
-
-The code is. Nothing in `feat/deed-poll-migration` is what makes CI red, and locally
-`install --immutable`, `lint`, `build`, `test` (1542) and `test:e2e` (21) all pass. But **CI cannot go
-green until platform onboarding happens**, which is Phase 6's external work — so "merge when CI is
-green" and "merge when the gates clear" are the same statement. The recorded decision to wait therefore
-still holds, and #47 is best treated as a review vehicle rather than something to merge now.
+**Master is unprotected, deliberately** — Steve's call on 2026-09-04, for speed during development, with
+protections to be added once the migration is finished. The reason that is now a defensible trade rather
+than a risk is [PR #63](https://github.com/hmcts/deed-poll-admin/pull/63): with majors excluded from
+automerge, the blast radius of no required checks is patch and minor bumps only.
 
 ## Repository visibility, and the history secret scan (2026-09-03)
 
@@ -2067,231 +1771,28 @@ inherited orphan objects. Two ways to clear it, both needing someone with more t
 Either way, **do not treat the earlier "diff was scanned for secrets" note as covering this.** It did
 not; this section does.
 
-## Branch inventory
-
-Taken 2026-09-03. **48 remote branches besides `master`; 6 relate to this codebase and 42 do not.**
-
-Regenerate rather than trusting these numbers — they moved twice during the session as branches were
-created and merged:
-
-```sh
-git fetch --prune origin
-for b in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin \
-             | sed 's|^origin/||' | grep -vE '^(HEAD|master|origin)$'); do
-  git merge-base --is-ancestor "origin/${b}" origin/master 2>/dev/null && { echo "MERGED     $b"; continue; }
-  mb=$(git merge-base "origin/${b}" origin/master 2>/dev/null)
-  git rev-parse --verify -q "$mb" >/dev/null 2>&1 && echo "shares     $b" || echo "UNRELATED  $b"
-done
-```
-
-### The 6 that relate to this codebase
-
-| Branch | State | Disposition |
-|---|---|---|
-| `feat/deed-poll-migration` | 53 ahead, level with master, all five checks green | **the work.** Keep; still no PR by choice |
-| `fix/lockfile-lodash-4.18.1` | shares history, 1 ahead, pre-rescaffold | delete — syncs `lodash 4.18.1` into a lockfile with no lodash, and touches `.pnp.cjs` / `.yarn/install-state.gz`, which this setup does not use |
-| `chore/gitignore-safety-entries` | merged (#43) | delete |
-| `fix/biome-manifest-lockfile-mismatch` | merged (#42) | delete |
-| `fix/tsx-lockfile-sync` | merged (#44) | delete |
-| `chore/rescaffold-monorepo-template` | merged (#23) | delete |
-
-`renovate/tsx-4.x` was in this table as "merged broken"; it is merged (#41) and its branch is gone. The
-lockfile it left behind is fixed by #44 — see ["Master's CI was red"](#masters-ci-was-red-twice-in-one-day).
-
-### The 42 with no shared history, and what they actually are
-
-**Corrects an earlier version of this section**, which said they were "branches inherited with the repo
-from the template it was copied from". The *names* come from the old template, but the mechanism is
-different and matters:
-
-- **Each is a single orphan root commit** — no parent, message `Initialize <branch-name>`, all authored
-  2026-08-20. So all 42 were produced by one bulk operation rather than carried over as real history.
-  That is why `git merge-base` finds nothing: each is its own root.
-- **Each holds a full tree snapshot** of the pre-rescaffold codebase — 2381 files on `timja-patch-1`,
-  1331 on `update-axios`, 283 on `renovate/express-4.x`, 73 on a `snyk-upgrade-*` — including
-  `.eslintrc.js`, `.eslintignore` and `.github/workflows/checks.yml`.
-- **Those files are absent from master.** `82e8b0d` replaced the tree wholesale on 2026-08-21 and the
-  repo moved from ESLint to Biome. So whatever each branch changed, it changed files that no longer
-  exist, and there is no common base to diff against to recover the intent.
-
-**Bot-named, 24** — disposable, since the bot re-raises anything still relevant:
-`renovate/{babel-monorepo, chai-5.x-lockfile, codeceptjs-3.x-lockfile, cookie-parser-1.x,
-eslint-config-prettier-8.x, express-4.x, major-eslint-monorepo, node-22.x-lockfile,
-postcss-8.x-lockfile, require-directory-2.x}`, `renovate-label`,
-`dependabot/npm_and_yarn/{azure/msal-node-2.9.2, braces-3.0.3, follow-redirects-1.15.6,
-grpc/grpc-js-1.10.9, micromatch-4.0.8, phin-3.7.1, terser-5.15.0, webpack-5.94.0}`, and five
-hash-suffixed `snyk-upgrade-*`.
-
-**Human-named, 18:** `addsetup`, `adusumillipraveen-patch-1`, `fix-empty-preview-env`,
-`fix-graceful-shutdown`, `fix/remove_localhost_private_key_from_vcs`, `follow-redirects`,
-`info-provider-1.2.0`, `library-patch-fix-branch`, `switch-away-from-csurf-to-tiny-csrf`,
-`task/jenkins-config`, `timja-patch-1`, `timja-patch-2`, `tooling-refresh`, `update-axios`,
-`update-cnp`, `update-routeing`, `update-routeing-exports`, `webpackhash`.
-
-**Check the PRs before deleting any of them.** Deleting a branch closes its PR, and since the tree each
-targets is gone, **a PR body may be the only surviving statement of what the branch was for** — the
-commit message is just `Initialize <name>`. That needs `gh`, whose token was invalid throughout this
-session.
-
-Two worth a look regardless of the rest:
-
-- **`fix/remove_localhost_private_key_from_vcs`** — the name implies a private key was committed to the
-  template at some point. Worth confirming it never reached *this* repo's history before the branch
-  naming it disappears. Not checked.
-- **`task/jenkins-config`** — relevant to ["The HMCTS Way documents the Jenkins pipeline
-  only"](#the-hmcts-way-documents-the-jenkins-pipeline-only--confirmed-not-inferred), since this repo
-  deploys via GitHub Actions instead.
-
-## Master's CI was red twice in one day
-
-Both faults came from the Renovate batch merged on 2026-09-03, and **neither was visible to
-`yarn test`** — which is the point worth carrying forward. `vitest` transpiles without typechecking, so
-the suite cannot see a type error, and it never reaches an install failure at all.
-
-| | Cause | Symptom | Fixed by |
-|---|---|---|---|
-| 1 | **#27** bumped `@biomejs/biome` to 2.5.12 in `package.json` but not `yarn.lock` (still 2.5.8) | `yarn install --immutable` fails in 0.1s | **#42**, reverting to 2.5.8 |
-| 2 | **#35** bumped `pg` 8.21.0 → 8.23.0 and `@types/pg` 8.20.0 → 8.23.1 while `@prisma/adapter-pg` stayed 7.8.0 | `yarn build` fails, TS2345 at `libs/postgres-prisma/src/index.ts:24` | **#42**, reverting both |
-| 3 | **#41** bumped `tsx` to 4.23.13 in `package.json` but not `yarn.lock` | `yarn install --immutable` fails again | **#44**, adding the lockfile entry |
-
-**The biome one could not simply be relockfiled.** 2.5.12 was published seven hours earlier and Yarn 4's
-`npmMinimalAgeGate` defaults to 1440 minutes, so resolution is refused — `YN0016: all versions
-satisfying "2.5.12" are quarantined`. That is a supply-chain cooldown working as designed, not a
-registry problem. Reverting was the immediate unblock; Renovate can raise it again past the gate.
-
-**#3 was fixed forward rather than reverted**, because `tsx 4.23.13` was days old and therefore
-resolvable — the gate did not explain that one, so Renovate's lockfile step is failing for its own
-reason.
-
-Two things follow, and the second matters more than any individual fix:
-
-- **The `pg` root cause is unresolved and was misdiagnosed first.** It looked like duplicate
-  `@types/pg` (the lockfile carried 8.15.5, 8.15.6, 8.20.0 and 8.23.1, and adapter-pg asks for
-  `^8.16.0`). `yarn dedupe @types/pg` unified `*`, `^8.16.0` and `8.23.1` onto one 8.23.1 and **the
-  build still failed**, so it is a real constraint. A `pg` bump needs `@prisma/adapter-pg` bumped with
-  it and the pair tested together.
-- **#27 broke install and merged before #31–#40, so CI could not have verified any of them.** Every PR
-  after it would have failed at the install step. #35's build break landing is a direct consequence.
-  **Two Renovate PRs in a row shipped a manifest change with no lockfile entry** — worth fixing the
-  Renovate configuration rather than repairing instances by hand.
-
-## Renovate PR #31 (checked, not merged)
-
-**Checked 2026-09-03. It merges cleanly and clears 12 of the advisories. Not merged** — parked task 2
-said report only, and it still stands as a decision for Steve.
-
-**Mergeability is not in question at all: it is a fast-forward.** PR #31 is
-`renovate/applicationinsights-3.x` at `c292fbc`, whose parent **is** current master `8bf8563`, so master
-has not moved since the PR was cut and there is nothing to merge. Confirmed two ways —
-`git merge-base --is-ancestor` says master is an ancestor of the PR head, and `git merge-tree` produces
-a clean result tree with no conflicts. Both were run without touching any working tree, in throwaway
-worktrees since removed.
-
-It changes two files: `libs/cloud-native-platform/package.json` (`applicationinsights` 3.15.0 → 3.16.0)
-and `yarn.lock`. Not lockfile-only, but a manifest bump is what a version update is.
-
-**Measured, by running `yarn npm audit --all --recursive` against both trees** rather than reasoning
-from the lockfile:
-
-| | master `8bf8563` | PR #31 `c292fbc` |
-|---|---|---|
-| total | **28** (12 high, 16 moderate) | **16** (6 high, 10 moderate) |
-| `protobufjs` | 11 | **0** |
-| `@opentelemetry/propagator-jaeger` | 1 | **0** |
-| `fast-uri` | 4 | 4 |
-| `@hono/node-server`, `mysql2`, `qs` | 2 each | 2 each |
-| `@opentelemetry/core`, `@types/config`, `deepmerge-ts`, `tsconfck`, `uuid`, `valibot` | 1 each | 1 each |
-
-**The mechanism is not the one predicted, and is better.** The note here expected the bump to "carry
-`protobufjs@8.0.1`" to a patched version. What actually happens is that `@opentelemetry/otlp-transformer`
-goes 0.217.0 → 0.220.0 and **no longer depends on `protobufjs` 8.x at all**, so the exactly-pinned
-`protobufjs@npm:8.0.1` entry disappears from the lockfile rather than being upgraded. That is why 12 clear
-rather than 11 — `@opentelemetry/propagator-jaeger` goes with it. `@grpc/grpc-js` and
-`@grpc/proto-loader` are unchanged, so they were never the problem.
-
-### Three different advisory counts, and why none of them is drift
-
-An earlier note in this session said Dependabot had "drifted to 22, up from the 20 recorded in
-PROGRESS.md". **That comparison was wrong** — it put two different tools' numbers side by side as though
-one had moved:
-
-- **20** was `yarn npm audit` on 2026-08-23, recorded below.
-- **28** is `yarn npm audit` today, on a **byte-identical lockfile** — master's `yarn.lock` last changed
-  in `b4e77d4` on 2026-08-23 and has not been touched since. So nothing regressed and no dependency
-  changed: **8 new advisories were published against packages that were already there.** That is the
-  only thing that can have happened, and it is worth knowing as the background rate.
-- **22** is GitHub Dependabot's own count, from the push warning. It groups and scopes differently from
-  `yarn npm audit --all --recursive`, which counts every advisory against every package across all
-  workspaces including dev dependencies. The two are not required to agree and comparing them tells you
-  nothing.
-
-**Compare like with like, and prefer `yarn npm audit` locally**, because it is the one that can be run
-against an arbitrary tree — which is what made the before/after table above possible.
-
-**`power_app_nest/` is not the source of any of this, verified again 2026-09-03.** It is untracked, **no
-commit on any branch has ever touched the path**, and it is gitignored on this branch — so Dependabot
-cannot see its `package-lock.json`, and master carries exactly one lockfile (root `yarn.lock`). This is
-the third time that question has come up; the reasoning is below under "Dependency alerts on master" and
-has not changed.
-
-**Loose end 4 is still live and was re-confirmed while checking:** `power_app_nest/` is ignored only on
-this branch. `git show origin/master:.gitignore` has no entry for it, so on master a stray `git add -A`
-would still try to commit ~498M of `node_modules` and 57 document blobs.
-
 ## Dependency alerts on master
 
-**Resolved 2026-08-23** — [PR #36](https://github.com/hmcts/deed-poll-admin/pull/36) is merged
-(`8bf8563`) and this branch has merged master to pick it up (`ce73cc5`). Kept for the reasoning, and
-because the residue below is still live. History, in case the numbers are ever questioned again:
+**3 open, verified 2026-09-04** — down from 28, because merging PR #47 replaced master's lockfile with
+the migration branch's. Composition: 2 high, 1 medium.
 
-**Do not repeat the mistake this section replaces.** An earlier note in this file claimed the 97
-Dependabot alerts were an artefact of the migration branch adding dependencies "to a tree that still
-contains the old lockfile entries on master", and would "drop sharply once `power_app_nest/` is
-deleted at the end of Phase 4". That is wrong in three ways, checked on 2026-08-23:
+**All three trace to one root, and none is fixable today:**
 
-- **`power_app_nest/` has never been tracked.** Zero files on `origin/master`, and no commit on any
-  branch has ever touched the path. Its dependencies were never in the tracked lockfile, so deleting
-  the directory at the end of Phase 4 cannot change the alert count.
-- **There is one tracked lockfile**, root `yarn.lock`, on both master and this branch.
-- **Alerts are computed against the default branch.** This branch's lockfile change is not on
-  master, so the count is master's and is unaffected by the migration either way.
+```
+prisma@7.10.0 → mysql2@3.15.3            (pinned exact)   2 alerts
+             → @prisma/config@7.10.0 → deepmerge-ts@7.1.5 (pinned exact)   1 alert
+```
 
-The real cause of the 82 → 97 jump is the re-scaffold itself. `82e8b0d` (PR #23) replaced master's
-`yarn.lock` wholesale with the template's, and it is the only change to that file on master since the
-2026-08-20 Renovate bumps. The template pulls in `applicationinsights` (`libs/cloud-native-platform`),
-and with it `@opentelemetry/otlp-transformer` → `@grpc/proto-loader` → `protobufjs`, plus
-`@grpc/grpc-js`. That cluster alone accounts for 11 of the 41 high alerts and one of the two criticals.
+`prisma@7.10.0` is the newest stable release; everything above it is the `8.0.0-rc` line. Prisma 8 does
+drop both packages from its dependency tree, so the alerts die when it ships — **but do not put a release
+candidate on master to clear three alerts.** Worth noting `mysql2` is dead weight regardless: it is the
+Prisma CLI's bundled MySQL driver and this service is Postgres.
 
-Composition: 2 critical, 41 high, 49 medium, 5 low. Concentrated in a handful of transitive roots —
-`protobufjs` 11, `tar` 5, `fast-uri` 5, `brace-expansion` 3.
+**Do not raise a Renovate PR for these.** `prisma` is pinned exactly at `7.10.0` in
+`libs/postgres-prisma` and `apps/postgres`, and [#52](https://github.com/hmcts/deed-poll-admin/pull/52)
+was autoclosed when #58 made the same bump. There is nothing to bump to.
 
-Most of it is a stale-lockfile artefact rather than a dependency the workspace actually pins, because
-the declared ranges already admit the patched versions:
-
-| Package | Locked | First patched | Range in lockfile |
-|---|---|---|---|
-| `protobufjs` | 7.5.4 | 7.5.5 | `^7.5.3` — a refresh resolves it |
-| `tar` | 7.5.9 | 7.5.21 | `^7.4.3` — a refresh resolves it |
-| `@grpc/grpc-js` | 1.14.3 | 1.14.4 | `^1.14.3` — a refresh resolves it |
-| `protobufjs` | 8.0.1 | 8.6.6 | pinned exact; needs its dependent bumped |
-
-So this was fixable with a targeted `yarn up -R` and no manifest changes — it was **not** work to
-defer to Phase 4.
-
-**Remediated in [PR #36](https://github.com/hmcts/deed-poll-admin/pull/36)**, merged to master on
-2026-08-23 from `chore/refresh-lockfile-security` — deliberately kept out of the re-platforming diff.
-`yarn npm audit --all --recursive` went from 99 advisories (2 critical, 41 high, 51 moderate, 5 low) to
-20 (0 critical, 7 high, 13 moderate), lockfile-only, with lint, build and test clean. This branch
-merged master at `ce73cc5` and audits at the same 20; `libs/deed-poll` is unchanged at 441 tests.
-
-The 20 that remain are pinned by their dependents rather than by us, so each needs the dependent
-bumped. **11 of them are a single `protobufjs@8.0.1`**, pinned exactly by the OpenTelemetry stack under
-`applicationinsights`; Renovate PR #31 (`applicationinsights` 3.16.0) should carry it. Two are not
-vulnerabilities at all — `@types/config` is a stub package that `config` supersedes (delete the
-dependency from `apps/api` to clear it), and `tsconfck` is merely flagged unmaintained.
-
-**The figure 20 is as of 2026-08-23 and is now 28 on the same unchanged lockfile** — see
-["Renovate PR #31"](#renovate-pr-31-checked-not-merged) above, which measures both and explains why that
-is new advisories rather than any change here. The `protobufjs` reasoning held up; PR #31 clears 12 rather
-than 11, and by removing the dependency instead of upgrading it.
-
+The history — how the count went 82 → 97 → 20 → 28 → 3, and a confident wrong explanation that had to be
+retracted — is in [`archive/DEPENDENCY_ALERTS_HISTORY.md`](archive/DEPENDENCY_ALERTS_HISTORY.md). Read it
+before writing any explanation of an alert count in this repo: the lesson is that a plausible mechanism
+is not evidence, and the numbers are one `gh api` call away from being checked.
