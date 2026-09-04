@@ -1,13 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  getPreviousPage,
-  getNextPage,
-  getChangePageRoute,
-  hasBackLink,
-  formatDateForDisplay,
   formatAddressForDisplay,
+  formatDateForDisplay,
   formatRoleForDisplay,
-  getMonthName
+  getChangePageRoute,
+  getMonthName,
+  getNextPage,
+  getPreviousPage,
+  hasBackLink
 } from "./navigation.js";
 
 describe("navigation helpers", () => {

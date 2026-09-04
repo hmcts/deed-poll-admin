@@ -1,0 +1,48 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/character-count/macro.njk" import govukCharacterCount %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{#
+  Add-a-note form.
+
+  One control. The source form shows three, two of them read-only: Deed Poll (locked, the case
+  reference) and NoteID (locked, blank until saved). Neither is an input here — the case is in the URL
+  and appears as the caption above the heading, and the code is derived from the row's own id, so
+  there is nothing to show before the row exists. That leaves one mandatory field, so the source's
+  "Fields marked * are mandatory" legend is dropped too: with a single required control there is
+  nothing to disambiguate, and GDS marks optional fields rather than required ones.
+
+  A character count rather than a plain textarea because the limit is enforced on submit; a caseworker
+  pasting a long chronology should see the limit approaching rather than lose the text to an error.
+  `maxLength` comes from MAX_NOTE_LENGTH, the same constant the validator rejects on.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if error %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [{ text: error, href: "#note" }] }) }}
+    {% endif %}
+
+    <span class="govuk-caption-l">{{ case.displayReference }}</span>
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+    <form method="post" action="/deed-polls/{{ case.id }}/notes/new" novalidate>
+      {{ govukCharacterCount({
+        id: "note",
+        name: "note",
+        maxlength: maxLength,
+        rows: 8,
+        value: value,
+        label: { text: noteLabel, classes: "govuk-label--m" },
+        hint: { text: noteHint },
+        errorMessage: { text: error } if error
+      }) }}
+
+      {{ govukButton({ text: submit }) }}
+      <a class="govuk-link govuk-!-margin-left-3" href="/deed-polls/{{ case.id }}#notes">{{ cancel }}</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

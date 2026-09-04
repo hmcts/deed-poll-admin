@@ -1,0 +1,97 @@
+import { createDeedPoll, DEEDPOLL_ADMIN, findDeedPolls, SERVICE_ACCOUNT_NAME } from "@hmcts/deed-poll";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ZodError } from "zod";
+import { requestDouble, responseDouble } from "../../express-doubles.js";
+import { GET, POST } from "./index.js";
+
+// The schema is under test alongside the handler, so only the persistence-backed service
+// functions are replaced. createDeedPollSchema, the error classes and currentUser are all the
+// real implementations.
+vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  findDeedPolls: vi.fn(),
+  createDeedPoll: vi.fn()
+}));
+
+describe("/deed-polls collection routes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe("GET /deed-polls", () => {
+    it("should return the cases the domain returns", async () => {
+      const cases = [{ id: "case-1" }, { id: "case-2" }];
+      vi.mocked(findDeedPolls).mockResolvedValue(cases as never);
+      const res = responseDouble();
+
+      await GET(requestDouble(), res);
+
+      expect(res.json).toHaveBeenCalledWith(cases);
+    });
+
+    it("should not pass a filter, so the domain's ordering is what the caller sees", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue([] as never);
+
+      await GET(requestDouble(), responseDouble());
+
+      expect(findDeedPolls).toHaveBeenCalledWith();
+    });
+  });
+
+  describe("POST /deed-polls", () => {
+    it("should create the case and respond 201 with it", async () => {
+      const created = { id: "case-1", displayReference: "DP/2026/0001" };
+      vi.mocked(createDeedPoll).mockResolvedValue(created as never);
+      const res = responseDouble();
+
+      await POST(requestDouble({ body: { newForename: "Ada" } }), res);
+
+      expect(createDeedPoll).toHaveBeenCalledWith({ newForename: "Ada" }, { isAdmin: false, userName: SERVICE_ACCOUNT_NAME });
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(res.json).toHaveBeenCalledWith(created);
+    });
+
+    it("should pass isAdmin true when the caller holds the admin role, since it drives the privacy default", async () => {
+      vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
+
+      await POST(requestDouble({ body: {}, roles: DEEDPOLL_ADMIN, userName: "A Caseworker" }), responseDouble());
+
+      expect(createDeedPoll).toHaveBeenCalledWith({}, { isAdmin: true, userName: "A Caseworker" });
+    });
+
+    it("should throw a ZodError for an invalid enum value rather than reaching the domain", async () => {
+      await expect(POST(requestDouble({ body: { type: "NotAType" } }), responseDouble())).rejects.toThrow(ZodError);
+
+      expect(createDeedPoll).not.toHaveBeenCalled();
+    });
+
+    it("should reject a US-style date, which the source forms never submit", async () => {
+      await expect(POST(requestDouble({ body: { dateReceived: "01/03/2026" } }), responseDouble())).rejects.toThrow(ZodError);
+
+      expect(createDeedPoll).not.toHaveBeenCalled();
+    });
+
+    it("should reject null for a field with a Prisma default, so it cannot clear one on create", async () => {
+      await expect(POST(requestDouble({ body: { privacy: null } }), responseDouble())).rejects.toThrow(ZodError);
+
+      expect(createDeedPoll).not.toHaveBeenCalled();
+    });
+
+    it("should strip unknown keys, as the global ValidationPipe's whitelist option did", async () => {
+      vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
+
+      await POST(requestDouble({ body: { newForename: "Ada", notAField: "dropped" } }), responseDouble());
+
+      expect(createDeedPoll).toHaveBeenCalledWith({ newForename: "Ada" }, expect.anything());
+    });
+
+    it("should accept an empty body, because a case is logged incrementally", async () => {
+      vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
+      const res = responseDouble();
+
+      await POST(requestDouble({ body: {} }), res);
+
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+  });
+});

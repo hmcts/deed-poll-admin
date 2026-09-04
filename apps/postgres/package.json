@@ -5,23 +5,29 @@
   "type": "module",
   "scripts": {
     "build": "yarn workspace @hmcts/postgres-prisma run generate",
-    "start": "npx prisma migrate deploy && npx prisma studio --hostname 0.0.0.0 --browser none",
-    "migrate": "yarn build && npx prisma migrate deploy",
-    "migrate:dev": "yarn build && npx prisma migrate dev",
-    "migrate:reset": "yarn build && npx prisma migrate reset",
+    "start": "npx prisma migrate deploy && yarn migrate:ccd && npx prisma studio --hostname 0.0.0.0 --browser none",
+    "migrate": "yarn build && npx prisma migrate deploy && yarn migrate:ccd",
+    "migrate:dev": "yarn build && npx prisma migrate dev && yarn migrate:ccd",
+    "migrate:reset": "yarn build && npx prisma migrate reset && tsx ccd-runtime/cli.ts --reset",
     "studio": "yarn build && npx prisma studio",
-    "test": "echo 'No tests for migration runner'",
+    "test": "vitest run",
     "format": "biome format --write .",
     "lint": "biome check .",
-    "lint:fix": "biome check --write ."
+    "lint:fix": "biome check --write .",
+    "migrate:ccd": "yarn build && tsx ccd-runtime/cli.ts",
+    "test:watch": "vitest watch"
   },
   "dependencies": {
     "@hmcts/postgres-prisma": "workspace:*",
-    "http-proxy": "1.18.1"
+    "http-proxy": "1.18.1",
+    "pg": "8.21.0"
   },
   "devDependencies": {
     "@prisma/client": "7.10.0",
     "@types/node": "*",
-    "prisma": "7.10.0"
+    "@types/pg": "8.20.0",
+    "prisma": "7.10.0",
+    "tsx": "*",
+    "vitest": "*"
   }
 }

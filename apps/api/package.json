@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx src/server.ts",
+    "dev": "NODE_ENV=development DATA_DIR=../../data tsx src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "vitest run",
@@ -16,18 +16,22 @@
   "dependencies": {
     "@hmcts-cft/cloud-native-platform": "workspace:*",
     "@hmcts-cft/simple-router": "workspace:*",
+    "@hmcts/deed-poll": "workspace:*",
     "@hmcts/onboarding": "workspace:*",
     "@hmcts/postgres-prisma": "workspace:*",
     "compression": "1.8.1",
     "config": "4.4.2",
     "cors": "2.8.6",
     "express": "5.2.1",
+    "jose": "6.2.10",
+    "multer": "2.3.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/compression": "1.8.1",
     "@types/config": "4.4.0",
     "@types/cors": "2.8.19",
-    "@types/express": "5.0.6"
+    "@types/express": "5.0.6",
+    "@types/multer": "2.2.0"
   }
 }

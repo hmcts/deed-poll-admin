@@ -1,0 +1,55 @@
+{% extends "layouts/full-width.njk" %}
+{% from "govuk/components/table/macro.njk" import govukTable %}
+{% from "govuk/components/tag/macro.njk" import govukTag %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+
+{% block content %}
+  <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+  <nav class="govuk-!-margin-bottom-6" aria-label="{{ filterLabel }}">
+    {% for f in filters %}
+      {% if f.key == activeFilter %}
+        <strong class="govuk-!-margin-right-3" aria-current="true">{{ f.label }}</strong>
+      {% else %}
+        <a class="govuk-link govuk-!-margin-right-3" href="/deed-polls?filter={{ f.key }}">{{ f.label }}</a>
+      {% endif %}
+    {% endfor %}
+  </nav>
+
+  {% if cases.length == 0 %}
+    <p class="govuk-body">{{ empty }}</p>
+  {% else %}
+    {% set rows = [] %}
+    {% for c in cases %}
+      {% set referenceCell %}<a class="govuk-link" href="/deed-polls/{{ c.id }}">{{ c.reference }}</a>{% endset %}
+      {# The tag is a visual reinforcement of the text, never the only carrier of it. #}
+      {% set privacyCell %}
+        {% if c.isPrivate %}{{ govukTag({ text: c.privacy, classes: "govuk-tag--red" }) }}{% else %}{{ c.privacy }}{% endif %}
+      {% endset %}
+      {% set rows = (rows.push([
+        { html: referenceCell },
+        { html: privacyCell },
+        { text: c.dateReceived },
+        { text: c.type },
+        { text: c.state },
+        { text: c.newForename }
+      ]), rows) %}
+    {% endfor %}
+
+    {{ govukTable({
+      head: [
+        { text: columns[0] },
+        { text: columns[1] },
+        { text: columns[2] },
+        { text: columns[3] },
+        { text: columns[4] },
+        { text: columns[5] }
+      ],
+      rows: rows,
+      caption: heading,
+      captionClasses: "govuk-visually-hidden"
+    }) }}
+  {% endif %}
+
+  {{ govukButton({ text: newCase, href: "/deed-polls/new" }) }}
+{% endblock %}

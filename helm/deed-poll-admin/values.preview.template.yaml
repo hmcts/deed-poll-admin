@@ -21,6 +21,12 @@ deed-poll-admin-web:
     ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-web.preview.platform.hmcts.net"
     environment:
       POSTGRES_DATABASE: "{{ .Release.Name }}"
+      # Must match the ingressHost above and be registered with IDAM. `.Release.Name` here is
+      # `deed-poll-admin-pr-<n>`, so **every PR has a different hostname** — which is why the
+      # registration request asks IDAM for a wildcard covering
+      # `deed-poll-deed-poll-admin-pr-*-web.preview.platform.hmcts.net`. Without one, preview
+      # environments cannot log in at all and each PR would need its own registration.
+      IDAM_REDIRECT_URI: "https://${TEAM_NAME}-{{ .Release.Name }}-web.preview.platform.hmcts.net/oauth2/callback"
     secrets:
       POSTGRES_HOST:
         secretRef: postgres

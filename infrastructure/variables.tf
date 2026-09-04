@@ -9,9 +9,18 @@ variable "product" {
 }
 
 variable "component" {
-  description = "Component name for resource group naming"
+  # This repo is `deed-poll-admin`, and HMCTS repos are named `{product}-{component}` — so the product
+  # is `deed-poll` and the component is `admin`.
+  #
+  # The default is load-bearing, not a fallback: `cnp-githubactions-library/terraform-deploy` passes
+  # `env`, `product`, `subscription`, `aks_subscription_id`, `tenant_id`, `builtFrom` and
+  # `ci_service_principal_object_id`, and **does not pass `component` at all** — it derives `product`
+  # from `annotations.team` in the chart and leaves this one alone. It was still the template's
+  # `expressjs`, which would have named the resource group `deed-poll-aat-expressjs` and tagged the
+  # Postgres server the same way.
+  description = "Component name, used for resource group naming and passed to the Postgres module"
   type        = string
-  default     = "expressjs"
+  default     = "admin"
 }
 
 variable "subscription" {

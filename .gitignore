@@ -55,12 +55,14 @@ values.preview.yaml
 # Prisma generated client
 libs/postgres-prisma/generated/
 
-# NestJS prototype, kept out of the tree while its code is migrated into apps/ and libs/. Ignored so
-# its node_modules (~500M), dist, .env and document blobs cannot be committed by accident. Remove this
-# entry once the directory is deleted.
+# NestJS prototype, staged here while its code is migrated into apps/ and libs/.
+# Ignored so its node_modules (~500M), dist, .env and data/documents blobs cannot
+# be committed by accident. Remove this entry once the migration is complete and
+# the directory is deleted.
 power_app_nest/
 
-# Uploaded document blobs. Real case documents, so they must never be committable. A glob rather than a
-# single path because the directory is created relative to the working directory of whichever app
-# writes it. No tracked path has a data/ component, so this excludes nothing legitimate.
+# Uploaded document blobs. file-storage.ts writes to DATA_DIR, defaulting to <cwd>/data, and the
+# running app decides the cwd — apps/api/data when the API serves the upload route, apps/web/data
+# once the Phase 4 form does. Hence a glob rather than one path. These are real case documents, so
+# they must never be committable; no tracked path has a data/ component, so this catches nothing else.
 data/

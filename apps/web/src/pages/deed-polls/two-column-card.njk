@@ -1,0 +1,37 @@
+{#
+  Two-column card, used by the read-only detail page. (The edit form renders a single stacked column
+  in `govuk-grid-column-two-thirds` and does not call this.)
+
+  Replicates the Dynamics form's bordered, two-column field groups so staff keep their muscle
+  memory. The caller supplies the bands inside the grid row — see detail.njk.
+
+  The card chrome uses the Design System's own `govuk-summary-card` classes, written out by hand
+  rather than called through `govukSummaryList({ card: ... })` because that macro's card wrapper is a
+  PRIVATE macro inside its template: the only way to reach it is to pass `rows`, and our card body is
+  two summary lists in a grid, not a row list. Passing the grid as a fake row's `key.html` would
+  render a `<dt>` containing a `<dl>` — invalid markup and a lie to screen readers. So: official
+  classes, official structure, composed here.
+
+  A partial rather than a page: it has no `.ts` beside it, so `simple-router` ignores it, while
+  `configureGovuk` still puts this directory on the Nunjucks search path. Import it
+  directory-qualified — bare basenames are global and silently shadow each other.
+#}
+{% macro twoColumnCard(cardTitle, cardAction) %}
+  <div class="govuk-summary-card">
+    <div class="govuk-summary-card__title-wrapper">
+      <h3 class="govuk-summary-card__title">{{ cardTitle }}</h3>
+      {% if cardAction %}
+        <div class="govuk-summary-card__actions">
+          <a class="govuk-link" href="{{ cardAction.href }}">
+            {{ cardAction.text }}<span class="govuk-visually-hidden"> {{ cardTitle }}</span>
+          </a>
+        </div>
+      {% endif %}
+    </div>
+    <div class="govuk-summary-card__content">
+      <div class="govuk-grid-row">
+        {{ caller() }}
+      </div>
+    </div>
+  </div>
+{% endmacro %}

@@ -1,5 +1,5 @@
 import type { Session } from "express-session";
-import type { NameData, DobData, AddressData, RoleData } from "./validation.js";
+import type { AddressData, DobData, NameData, RoleData } from "./validation.js";
 
 // Session interface for onboarding form data
 export interface OnboardingSession extends Session {

@@ -6,16 +6,19 @@
     "composite": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "src/assets/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "src/assets/**/*", "src/express-doubles.ts"],
   "references": [
+    {
+      "path": "../../libs/cloud-native-platform"
+    },
+    {
+      "path": "../../libs/deed-poll"
+    },
     {
       "path": "../../libs/express-govuk-starter"
     },
     {
       "path": "../../libs/express-session-postgres"
-    },
-    {
-      "path": "../../libs/cloud-native-platform"
     },
     {
       "path": "../../libs/postgres-prisma"

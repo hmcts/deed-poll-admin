@@ -1,0 +1,222 @@
+{% extends "layouts/full-width.njk" %}
+{% from "govuk/components/tag/macro.njk" import govukTag %}
+{% from "govuk/components/tabs/macro.njk" import govukTabs %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
+{% from "govuk/components/table/macro.njk" import govukTable %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "deed-polls/two-column-card.njk" import twoColumnCard %}
+
+{#
+  One column of a two-column card: the section's rows as a borderless summary list. Borderless
+  because the card already supplies the enclosing border, and a row rule running only half the
+  card's width reads as a broken table.
+#}
+{% macro columnList(rows) %}
+  {% if rows.length %}
+    {% set items = [] %}
+    {% for r in rows %}
+      {% set items = (items.push({ key: { text: r.key }, value: { text: r.value } }), items) %}
+    {% endfor %}
+    {{ govukSummaryList({ rows: items, classes: "govuk-summary-list--no-border govuk-!-margin-bottom-0" }) }}
+  {% endif %}
+{% endmacro %}
+
+{#
+  Tabs, sections and rows all come from the `tabs` view model, derived from the same FORM_TABS
+  metadata as the edit forms (see detail-view.ts). Do not hand-list fields here: that is exactly how
+  this page fell six tabs behind the form in the prototype. A new field belongs in form-fields.ts and
+  then appears on both pages.
+#}
+{% block content %}
+
+  {% if presentation.privacy.showBanner %}
+    {{ govukNotificationBanner({ titleText: bannerTitle, text: presentation.privacy.bannerText, type: "important" }) }}
+  {% endif %}
+
+  {#
+    Case header, porting the Dynamics form header above the tabs. Rows come from the `header` view
+    model (case-header.ts) — do not hand-list them. State renders as a tag so status stays
+    scannable; every other row is plain text.
+  #}
+  <span class="govuk-caption-l">{{ header.entityLabel }}</span>
+  <h1 class="govuk-heading-xl govuk-!-margin-bottom-2">
+    {{ pageHeading }}
+    {% if case.privacy == "Private" %}{{ govukTag({ text: privateTag, classes: "govuk-tag--red" }) }}{% endif %}
+  </h1>
+
+  {% set headerRows = [] %}
+  {% for row in header.rows %}
+    {% if row.tag %}
+      {% set valueCell = { html: govukTag({ text: row.value }) } %}
+    {% else %}
+      {% set valueCell = { text: row.value } %}
+    {% endif %}
+    {% set headerRows = (headerRows.push({ key: { text: row.key }, value: valueCell }), headerRows) %}
+  {% endfor %}
+  {{ govukSummaryList({ rows: headerRows }) }}
+
+  {% set tabItems = [] %}
+  {% for tab in tabs %}
+
+    {% set panelHtml %}
+      {#
+        Notes grid. Rows come from the `notes` view model (notes-view.ts), already sorted and
+        formatted. The code shown is derived from the note's id, not the source's autonumber, which
+        is not ported.
+
+        Created and Modified are two columns rather than one "Added by" cell, each leading with its
+        timestamp and carrying the person beneath as hint text: the dates are what a caseworker scans
+        a note history for, so they get the column position, while the author answers a follow-up
+        question. A note never edited says "Not edited" rather than repeating the creation pair — the
+        distinction only means something once the two differ, and a dash would not say whether the
+        data is missing or the event never happened.
+      #}
+      {% if tab.subgrid == "notes" %}
+        {% if notes.count %}
+          <p class="govuk-caption-m">{{ notes.count }} note{{ "" if notes.count == 1 else "s" }}</p>
+          {% set noteRows = [] %}
+          {% for n in notes.rows %}
+            {% set createdCell %}
+              {{ n.createdOn }}<br>
+              <span class="govuk-hint govuk-!-font-size-16 govuk-!-margin-bottom-0">{{ n.createdBy }}</span>
+            {% endset %}
+            {% set modifiedCell %}
+              {% if n.unmodified %}
+                <span class="govuk-hint govuk-!-font-size-16 govuk-!-margin-bottom-0">{{ notEdited }}</span>
+              {% else %}
+                {{ n.modifiedOn }}<br>
+                <span class="govuk-hint govuk-!-font-size-16 govuk-!-margin-bottom-0">{{ n.modifiedBy }}</span>
+              {% endif %}
+            {% endset %}
+            {#
+              The code is the link into the amend page, as it is the row's handle. The href carries
+              the full uuid, never the code: the code is display only and not unique enough to
+              resolve a note. The hidden suffix keeps the link text meaningful out of context.
+            #}
+            {% set codeCell %}
+              <a class="govuk-link app-nowrap" href="/deed-polls/{{ case.id }}/notes/{{ n.id }}/edit">{{ n.code }}<span class="govuk-visually-hidden"> — {{ amendNoteHint }}</span></a>
+            {% endset %}
+            {% set noteRows = (noteRows.push([
+              { html: codeCell },
+              { text: n.note },
+              { html: createdCell },
+              { html: modifiedCell }
+            ]), noteRows) %}
+          {% endfor %}
+          {{ govukTable({
+            head: [
+              { text: noteColumns[0] },
+              { text: noteColumns[1] },
+              { text: noteColumns[2] },
+              { text: noteColumns[3] }
+            ],
+            rows: noteRows
+          }) }}
+        {% else %}
+          <p class="govuk-body">{{ noneRecorded }}</p>
+        {% endif %}
+        {# Outside the count check: a case with no notes is exactly when you need this. #}
+        {{ govukButton({ text: addNote, href: "/deed-polls/" + case.id + "/notes/new", classes: "govuk-button--secondary" }) }}
+
+      {% elif tab.subgrid == "witnesses" %}
+        {% if case.witnesses.length %}
+          {% for w in case.witnesses %}
+            <h3 class="govuk-heading-s">
+              {{ w.witnessName }}
+              {% if w.declarant %}{{ govukTag({ text: declarantTag, classes: "govuk-tag--blue" }) }}{% endif %}
+            </h3>
+            {{ govukSummaryList({ rows: [
+              { key: { text: witnessAddress }, value: { text: w.witnessAddress } },
+              { key: { text: witnessOccupation }, value: { text: w.witnessOccupation } }
+            ] }) }}
+          {% endfor %}
+        {% else %}
+          <p class="govuk-body">{{ noneRecorded }}</p>
+        {% endif %}
+
+      {% elif tab.subgrid == "documents" %}
+        {% if documents.length %}
+          {% set docRows = [] %}
+          {% for d in documents %}
+            {#
+              Links to this app's own download route, not the API's. The prototype could use
+              /api/... because one Nest app served both; apps/api and apps/web are now separate
+              origins, so a cross-app link would need an API base URL in config and would leave the
+              browser's session behind. Both apps share the domain, so serving the stream here is
+              simpler and same-origin. A document with no file attached is not linked.
+            #}
+            {% set nameCell %}
+              {% if d.downloadable %}
+                <a class="govuk-link" href="/deed-polls/{{ case.id }}/documents/{{ d.id }}/file">{{ d.name }}</a>
+              {% else %}
+                {{ d.name }}
+              {% endif %}
+            {% endset %}
+            {% set docRows = (docRows.push([
+              { html: nameCell },
+              { text: d.type },
+              { text: d.direction },
+              { text: d.added }
+            ]), docRows) %}
+          {% endfor %}
+          {{ govukTable({
+            head: [
+              { text: documentColumns[0] },
+              { text: documentColumns[1] },
+              { text: documentColumns[2] },
+              { text: documentColumns[3] }
+            ],
+            rows: docRows
+          }) }}
+        {% else %}
+          <p class="govuk-body">{{ noneRecorded }}</p>
+        {% endif %}
+        {{ govukButton({ text: uploadDocument, href: "/deed-polls/" + case.id + "/documents/upload", classes: "govuk-button--secondary" }) }}
+
+      {% else %}
+        {% if tab.empty %}
+          <p class="govuk-body">{{ noneRecorded }}</p>
+        {% else %}
+          {#
+            Each section is a govuk-summary-card whose body holds a sequence of bands, replicating
+            the Dynamics form's cards. A `columns` band is two half-width summary lists; a `full`
+            band is one across the whole card, porting the source's colspan="2" cells (Return Reason,
+            Referral Notes, Master Directions). Positions come from the view model's `blocks` — see
+            card-layout.ts. Rows align within a column, not across the two, so a long wrapped value
+            cannot drag its neighbour out of line.
+
+            Do not flatten this back to a fixed left/right pair: full-width fields are interleaved
+            with two-column ones, so a card is a sequence of bands, not one split. The empty half of
+            a one-sided band is deliberate — the source leaves that cell empty and the blank keeps
+            every other field where staff expect it.
+          #}
+          {% for section in tab.sections %}
+            {% call twoColumnCard(section.label, { href: "/deed-polls/" + case.id + "/edit/" + tab.id, text: changeLink }) %}
+              {% for block in section.blocks %}
+                {% if block.kind == "full" %}
+                  <div class="govuk-grid-column-full app-card-column app-card-column--full">
+                    {{ columnList(block.rows) }}
+                  </div>
+                {% else %}
+                  <div class="govuk-grid-column-one-half app-card-column">
+                    {{ columnList(block.left) }}
+                  </div>
+                  <div class="govuk-grid-column-one-half app-card-column">
+                    {{ columnList(block.right) }}
+                  </div>
+                {% endif %}
+              {% endfor %}
+            {% endcall %}
+          {% endfor %}
+        {% endif %}
+      {% endif %}
+    {% endset %}
+
+    {% set tabItems = (tabItems.push({ label: tab.label, id: tab.id, panel: { html: panelHtml } }), tabItems) %}
+  {% endfor %}
+
+  {{ govukTabs({ items: tabItems }) }}
+
+  <p class="govuk-body"><a class="govuk-link" href="/deed-polls">{{ backToCases }}</a></p>
+{% endblock %}

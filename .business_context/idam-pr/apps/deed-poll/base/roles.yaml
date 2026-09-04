@@ -1,0 +1,6 @@
+roles:
+  caseworker-deedpoll-admin:
+    name: caseworker-deedpoll-admin
+    description: Deed poll admin caseworkers who can set case privacy to Private
+    managed_by:
+      - ccd-admin

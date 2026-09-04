@@ -1,0 +1,28 @@
+{
+  "name": "@hmcts/deed-poll",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write ."
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vitest": "*"
+  },
+  "dependencies": {
+    "@hmcts/postgres-prisma": "workspace:*",
+    "zod": "4.4.3"
+  }
+}

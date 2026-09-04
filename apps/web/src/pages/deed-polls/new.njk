@@ -1,0 +1,59 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/input/macro.njk" import govukInput %}
+{% from "govuk/components/select/macro.njk" import govukSelect %}
+{% from "govuk/components/date-input/macro.njk" import govukDateInput %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if errorSummary and errorSummary.length %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorSummary }) }}
+    {% endif %}
+
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+    <form method="post" action="/deed-polls/new" novalidate>
+      {{ govukSelect({
+        id: "type",
+        name: "type",
+        label: { text: typeLabel },
+        items: typeOptions,
+        value: values.type
+      }) }}
+
+      {{ govukInput({
+        id: "newForename",
+        name: "newForename",
+        label: { text: forenameLabel },
+        value: values.newForename
+      }) }}
+
+      {{ govukInput({
+        id: "newSurname",
+        name: "newSurname",
+        label: { text: surnameLabel },
+        value: values.newSurname
+      }) }}
+
+      {# Parts are read back from the body so a rejected date stays on screen next to its error. #}
+      {{ govukDateInput({
+        id: "dateReceived",
+        namePrefix: "dateReceived",
+        fieldset: { legend: { text: dateReceivedLabel } },
+        hint: { text: dateReceivedHint },
+        items: [
+          { name: "day", classes: "govuk-input--width-2", value: values["dateReceived-day"] },
+          { name: "month", classes: "govuk-input--width-2", value: values["dateReceived-month"] },
+          { name: "year", classes: "govuk-input--width-4", value: values["dateReceived-year"] }
+        ]
+      }) }}
+
+      {{ govukButton({ text: submit }) }}
+    </form>
+
+  </div>
+</div>
+{% endblock %}

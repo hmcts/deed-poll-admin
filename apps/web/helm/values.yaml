@@ -6,6 +6,15 @@ nodejs:
   image: 'hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:latest'
   environment:
     POSTGRES_DATABASE: deed-poll-admin
+    IDAM_ISSUER_URL: https://hmcts-access.{{ .Values.global.environment }}.platform.hmcts.net
+    IDAM_CLIENT_ID: deed-poll-admin
+    IDAM_SCOPE: openid profile roles offline_access
+    # IDAM_REDIRECT_URI is deliberately NOT set here. It has to equal this app's ingressHost plus
+    # /oauth2/callback, and `ingressHost` above is overridden per environment by
+    # helm/deed-poll-admin/values.template.yaml — so a value written here would be quietly wrong
+    # everywhere it is actually deployed, which is what it was. It is set alongside the ingressHost in
+    # those root templates instead, and `assertIdamSettings` refuses to start if it is missing or
+    # still points at localhost.
   keyVaults:
     deed-poll:
       secrets:
@@ -13,3 +22,20 @@ nodejs:
           alias: APPLICATION_INSIGHTS_CONNECTION_STRING
         - name: postgres-url
           alias: DATABASE_URL
+        # Both must exist in the vault before this deploys — the chart fails on a missing secret, which
+        # is the right way round for these two.
+        #
+        # `idam-client-secret` is the confidential client's secret, and comes from IDAM's reply to
+        # `.business_context/IDAM_REGISTRATION_REQUEST.md`. Until that arrives there is no value to put
+        # in the vault, so this cannot deploy yet — deliberately, since the alternative is a client that
+        # silently cannot complete a code exchange.
+        - name: idam-client-secret
+          alias: IDAM_CLIENT_SECRET
+        # `session-secret` signs the session cookie, and after Phase 5 the session is what asserts a
+        # user is signed in and which roles they hold. `config/default.json` carries a placeholder for
+        # local use, and `assertSessionSecret` refuses to start on it outside development and test — a
+        # known signing key means anyone can mint a cookie claiming `deedpoll-admin` and never touch
+        # IDAM at all, which would make the whole login flow decoration. Generate a random value; it is
+        # ours, not IDAM's.
+        - name: session-secret
+          alias: SESSION_SECRET

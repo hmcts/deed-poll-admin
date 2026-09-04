@@ -1,0 +1,2297 @@
+# Migration progress — handover
+
+Last updated: 2026-09-03. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
+
+**Phases 0–4 are done as far as code goes, and Phase 5's login flow is built and working.**
+
+## Pick up here (end of 2026-09-03 session)
+
+**Read [`WAYS_OF_WORKING.md`](WAYS_OF_WORKING.md) first — it is 59 lines and there are two decisions in
+it.** A retrospective on the 2026-09-03 session: a start-of-session checklist, the one rule that would
+have prevented most of that session's errors, and two open questions — PR #47's size, and pruning this
+file, which is now long enough to be at risk of not being read at all.
+
+**Everything is committed, pushed and green, and the branch is level with master.** `lint`, `build`,
+`test` and `test:e2e` (21) all pass, and so does `yarn install --immutable`, which is the check that
+catches a lockfile disagreeing with its manifests. Counts are in the generated dashboard below.
+
+**CI works now, for the first time.** Master's pipeline had never been green and neither had this
+branch's, because no PR existed. Both are green on lint, test, `osv-scan` and SonarCloud. What remains
+red is only the Azure credentials — see the table below.
+
+### Tomorrow, in order
+
+1. **Chase [`azure-github-federation-config#99`](https://github.com/hmcts/azure-github-federation-config/pull/99).**
+   Open, mergeable, its Azure DevOps `TerraformPlanApply` precheck passes, `REVIEW_REQUIRED`. It is the
+   only thing standing between master and a fully green pipeline — it clears all four `Build & Publish`
+   jobs. **Four other Renovate PRs are sitting unreviewed in that repo**, so the queue may be slow.
+2. **Ask which repo declares the `deed-poll` Kubernetes namespace.** The one outstanding Phase 6 item
+   that is a *question* rather than a piece of work, and a one-line answer for anyone who has done it.
+   `cnp-flux-config` is still not cloned here, which is why it is unconfirmed.
+3. **Start `deed-poll-shared-infrastructure`.** Longest lead time of anything left, and nothing else in
+   Phase 6 can be tested without it. Confirmed absent — the repo 404s.
+4. **Close [#52](https://github.com/hmcts/deed-poll-admin/pull/52)** (`prisma` → 7.10.0), superseded by
+   #58 which made the same bump. #53 and #54 need a rebase onto the new `yarn.lock`; Renovate does that
+   itself. **#55 and #56 are safe.** None of the five had the manifest-without-lockfile defect.
+5. **Send [`welsh-translation-request.csv`](welsh-translation-request.csv) for review** — 68 prose
+   strings, each with an unreviewed machine draft and a confidence. Read the five marked `LOW` first.
+
+### What is actually left in Phase 6
+
+Nothing in it is code, and nothing in it is mine to do.
+
+| Item | State |
+|---|---|
+| `deed-poll-shared-infrastructure` repo | **Absent, confirmed.** `main.tf:16` / `keyvault.tf:5` read resource group and key vault `deed-poll-{env}` as `data`, so `terraform plan` fails before anything deploys. Must also create the `deed-poll` workload identity with vault access |
+| `deed-poll` Kubernetes namespace | Platform-level; which repo declares it is still unconfirmed |
+| Federated credentials **and** ACR push rights | **In flight — PR #99.** One app registration covers both |
+| `idam-client-secret`, `session-secret` in the vault | Blocked on the vault existing. The client secret comes from IDAM; the session secret is just randomness |
+| `AZURE_CREDENTIALS_CFT_AAT` / `_PREVIEW` | **Not covered by #99** — service-principal JSON for `terraform-deploy` and `helm-deploy`. The library's `-openid` variants would remove the need entirely; worth its own change |
+| Path to live | Production only, and much may not apply — internal caseworker service on `platform.hmcts.net`, not public |
+
+**Phase 5 is unchanged: wait for IDAM.** The registration PR is raised and nothing here can be verified
+against real IDAM until it is merged and deployed.
+
+### What happened on 2026-09-03
+
+A long session. In order:
+
+1. **The IDAM registration PR was raised**, and the six submitted files are committed at
+   [`idam-pr/`](idam-pr/) rather than living only in `/tmp`.
+2. **The refresh path was fixed** — it required an `id_token` that OIDC Core §12.2 makes optional, so
+   every refresh threw and the middleware swallowed it. Both files had no tests at all.
+3. **Master was broken three times and repaired three times** — PRs #42, #44 and #58. See
+   ["Master's CI was red"](#masters-ci-was-red-twice-in-one-day).
+4. **Loose end 4 closed** (#43), and 47 dead branches deleted with their SHAs recorded in
+   [`DELETED_BRANCHES.md`](DELETED_BRANCHES.md) first.
+5. **The e2e suite went 20/1 → 21/0**, and the recorded cause (loose end 16, the pg pool) was measured
+   innocent — see the correction there.
+6. **Four service decisions settled** in code: the service name, admin-only deletes, a 25 MB upload
+   limit, and the Welsh translation commissioned.
+7. **`osv-scan` and SonarCloud both made to pass**, which took three attempts at the workflow and
+   exposed an invalid flag inherited from the template.
+
+### Environment notes for tomorrow
+
+- **`docker compose` is up** (Postgres + `rse-idam-simulator`) and the `ccd` schema tests were last run
+  against it. Nothing is left running on port 3000.
+- **`test:e2e` cannot start without a yarn shim on `PATH`** — Playwright's `webServer` runs
+  `yarn dev:nowatch`, which resolves to corepack and dies. Recreate with
+  `printf '#!/bin/sh\nexec node /tmp/yarn417/bin/yarn.js "$@"\n' > /tmp/yarnshim/yarn`.
+- **Check `organization-secrets` as well as `secrets`** before concluding a secret is missing. 28 org
+  secrets are available to this repo; `SONAR_TOKEN` is one, which is why a whole diagnosis was wrong once.
+
+## Session handover (2026-09-03)
+
+**The IDAM registration PR is raised.** Steve submitted it to `hmcts/idam-access-config` outside this
+container on 2026-09-03, from the 6 files staged at `/tmp/deed-poll-idam-pr/` (base +
+aat/demo/ithc/perftest overrides + roles.yaml). **Nothing further is needed from us on the request
+itself** — the next move is IDAM's, and it is a wait rather than a task.
+
+**What is still gated behind it**, unchanged: the client id and secret, so nothing can log in to a
+deployed instance; the `idam-client-secret` vault entry; and the e2e journeys, which skip against a
+deployed environment for exactly this reason.
+
+**Nothing was left as an open question** — [`IDAM_REGISTRATION_REQUEST.md`](IDAM_REGISTRATION_REQUEST.md)
+records all of them as answered from `hmcts/idam-access-config` and `hmcts/rse-idam-simulator` — but
+**three things are unverified rather than settled, and every one of them fails quietly**: the role
+string `caseworker-deedpoll-admin`, the shape of CFT IDAM's `/o/userinfo`, and whether the issuer
+enforces PKCE and the client secret (the simulator checks neither, so local runs prove only this
+client's half). Watch for these rather than expecting an error — a wrong role string shows up as
+"nobody can edit privacy". Production redirect URIs are also deliberately empty in the submitted
+config and must be added before a production deploy.
+
+### The previous session's work did not build, and it hid a real defect
+
+`be3dbba` committed the 2026-09-02 evening work — refresh tokens, client credentials, test users, the
+role rename — after fixing **six TypeScript errors that meant `yarn build` had never passed on it**.
+That handover claimed "all 250 tests passing", which was true and not sufficient: `vitest` transpiles
+per file without type-checking, so `yarn test` cannot see an error `yarn build` fails on. **Run all
+three — `lint`, `build`, `test` — before writing a handover that says a slice is done.**
+
+One of the six was a genuine runtime bug rather than a type annotation:
+
+- **`tokens.expires_at` does not exist on an OAuth token response.** The field is `expires_in`
+  (seconds from now). `TokenEndpointResponse` carries an index signature
+  (`[parameter: string]: JsonValue | undefined`), so reading a misspelt or invented field type-checks
+  as `JsonValue` and is **`undefined` at runtime** — which is why the tests passed. Every session
+  therefore took the one-hour fallback whatever IDAM actually said. **If IDAM's real access-token
+  lifetime is shorter than an hour, `refreshMiddleware` never fires before expiry and the user gets a
+  401 mid-session**; longer, and it refreshes needlessly. Now `expiresAtFrom()` in
+  `apps/web/src/auth/idam.ts`, shared by `completeLogin`, `refreshTokens` and
+  `getClientCredentialsToken`, reading `openid-client`'s `expiresIn()` helper. The one-hour fallback
+  survives only for the case OIDC permits — an issuer that omits `expires_in` — and both branches are
+  pinned.
+- **`clientCredentialsGrant(configuration, scope)` passed the scope where the parameter set goes.**
+  The second argument is `URLSearchParams | Record<string, string>`, so a bare string sent **no scope
+  at all** and the token came back with the client's default rather than the least-privilege
+  `profile roles` asked for. Now `{ scope }`.
+- **`let tokens: client.TokenEndpointResponse` in `refreshTokens` stripped the helpers half of the
+  type**, so `claims()` was not callable. The grant returns
+  `TokenEndpointResponse & TokenEndpointResponseHelpers`; the annotation now says so.
+
+**The test doubles were built to match the fiction**, which is why nothing caught it: `tokensWith` in
+`idam.test.ts` and the mock in `client-credentials.test.ts` both returned `expires_at`, cast through
+`as never` / `as TokenEndpointResponse`. Both now model `expires_in` **and** the `expiresIn()` helper,
+because that pair is what the library returns. Same lesson as the deleted hand-written IDAM stub: a
+double that supplies only what the code reaches for can only confirm its author's assumptions. Also
+note `client-credentials.test.ts` had mocked `./idam.js` wholesale, which would have stubbed out the
+new shared `expiresAtFrom` — it now spreads `importOriginal()` and stubs only `idamConfiguration`.
+
+**One trap while fixing the tests, worth not repeating:** a default parameter swallows an explicit
+`undefined`, so `tokensWith(claims, undefined)` silently tested the default and the
+"issuer omitted `expires_in`" case asserted nothing. `expiresIn` is a required parameter now.
+
+### The refresh path required an optional ID token, and had no tests
+
+**Fixed 2026-09-03, Steve's call.** `refreshTokens` threw when the refresh response carried no ID token
+subject. **OpenID Connect Core §12.2 states the refresh response is a normal token response "except
+that it might not contain an `id_token`"** — its own example omits one, and `openid-client` agrees:
+`refreshTokenGrant` resolves with `claims()` returning `undefined` rather than throwing
+(`oauth4webapi` guards the whole ID-token block on `json.id_token !== undefined`). So against any
+compliant issuer that omits it, **every refresh threw, `refreshMiddleware` logged the throw as
+transient and called `next()`, and sessions expired exactly as though refresh had never been built.**
+Nothing failed and nothing was reported.
+
+**This is already happening locally.** `rse-idam-simulator` does not implement the refresh grant at all
+— `IdamSimulatorController.java:260` dispatches only `authorization_code` and everything else falls
+through to a 400, which `oauth4webapi` turns into a `ResponseBodyError` with `error: "Bad Request"`.
+That is not `invalid_grant`, so it is rethrown and swallowed. **Refresh cannot be exercised end to end
+against our own local stack**, which is why the fix is verified by unit tests and mutation rather than
+by running it.
+
+Three things changed:
+
+- **An absent ID token is no longer an error.** The subject check that replaced it is conditional on one
+  arriving.
+- **`refreshTokens` no longer reads `/o/userinfo`, and returns `IdamTokens` rather than a
+  `LoginResult`.** It used to build a `CurrentUser` that `refreshMiddleware` discarded — a wasted round
+  trip on every refresh, guarded by a throw protecting a value nobody read. **Re-reading roles on
+  refresh was considered and deliberately not done**: it would make a withdrawn role take effect
+  mid-session, which is a real behaviour change (and what `apps/api` achieves by reading userinfo per
+  request), not part of a refresh. `apps/web` roles therefore remain fixed for the life of a session.
+- **The subject is now checked, which it never was.** §12.2 requires an ID token returned on refresh to
+  carry the same `sub` as the one issued at authentication, and **`openid-client` does not enforce it** —
+  its required-claims list is presence-only and it holds no expected subject for a token response. The
+  old `fetchUserInfo(…, claims.sub)` call *looked* like it checked, but it was self-referential: it
+  validated userinfo against the new ID token's own subject rather than against whoever logged in. So a
+  refresh could have swapped the identity behind a live session. `signIn` now records `subject` and
+  `refreshTokens` takes it as an argument; a mismatch returns `undefined`, which signs the user out. A
+  session with no recorded subject is signed out rather than refreshed unchecked — same fail-closed
+  polarity as everything else here.
+
+**Both files had zero tests before this** — the only two things in `apps/web/src/auth/` without any, and
+the reason all of the above shipped. `refresh-middleware.test.ts` is new (10 tests) and
+`idam.test.ts` gained a `refreshTokens` block (9). **Checked by mutation, not by passing:** reinstating
+the throw fails 5 tests including the regression test for it, disabling the subject check fails 1, and
+disabling the no-subject sign-out fails 1.
+
+The middleware's catch-all is unchanged and still treats an unrecognised failure as transient, which is
+right — IDAM being unreachable is not a reason to sign everyone out — but it is also **how this defect
+hid**, so the comment there now says as much: if sessions are expiring on schedule in a deployed
+environment, read that log line before assuming the refresh window is wrong.
+
+**What the 2026-09-02 session completed:**
+
+- **Refresh token support** (`apps/web/src/auth/refresh-middleware.ts`): Automatically refreshes access
+  tokens 5 minutes before expiry. If refresh fails (revoked/expired), forces re-login. Gives IDAM
+  centralized control over access revocation.
+- **Client credentials grant** (`apps/web/src/auth/client-credentials.ts`): Service-to-service
+  authentication for calling IDAM APIs where no user is involved.
+- **Test user creation** (`apps/web/src/auth/test-users.ts`): Programmatic test user creation via
+  `idam-testing-support-api`. Users auto-cleanup after 3 hours in AAT. Uses client_credentials grant.
+- **Role name updated**: Changed from placeholder `deedpoll-admin` to
+  `caseworker-deedpoll-admin` following HMCTS conventions (products with hyphens remove hyphen in role
+  names: `deed-poll` → `caseworker-deedpoll-admin`). Updated in `libs/deed-poll/src/auth/roles.ts` and
+  tests. All 110 deed-polls route tests passing.
+- **SSO providers**: Added `sso_providers: [moj]` to IDAM config for HMCTS caseworker SSO.
+- **Post-logout redirect URIs**: Added `oidc:` section with `post_logout_redirect_uris` — directs users
+  back to service root after logout completes at IDAM.
+- **All open questions answered** by examining `hmcts/idam-access-config` and `hmcts/rse-idam-simulator`:
+  - Role naming confirmed: `caseworker-deedpoll-admin` matches pattern
+  - `tokenName` claim confirmed present on IDAM tokens (access_token vs id_token distinction works)
+  - `post_logout_redirect_uris` should be registered (optional but recommended)
+  - Preview environment URIs: AAT auto-adds `https://allow-pr-redirects` wildcard for PR-specific hostnames
+
+**IDAM configuration summary:**
+- Grant types: `authorization_code`, `refresh_token`
+- Scopes: `openid`, `profile`, `roles`, `offline_access`
+- Frontend: `HMCTS_ACCESS` (professional-facing)
+- SSO: MOJ provider for caseworker authentication
+- MFA: false (relies on account-level MFA)
+- Role: `caseworker-deedpoll-admin` (managed by `ccd-admin`)
+- Environments: base (production TBD) + aat/demo/ithc/perftest overrides (localhost + staging URLs)
+
+**Code changes:**
+- `apps/web/src/auth/session.ts`: Extended session interface to store tokens (idToken, refreshToken,
+  accessToken, tokenExpiresAt)
+- `apps/web/src/auth/idam.ts`: Changed completeLogin to return LoginResult with tokens object
+- `apps/web/src/auth/refresh-middleware.ts`: NEW - automatic token refresh 5 min before expiry
+- `apps/web/src/auth/client-credentials.ts`: NEW - client_credentials grant
+- `apps/web/src/auth/test-users.ts`: NEW - test user creation API wrapper
+- `apps/web/config/default.json`: Added `offline_access` to scope
+- `apps/web/helm/values.yaml`: Updated issuer URL from `idam-web-public` to `hmcts-access`, added
+  `offline_access` to scope
+- `libs/deed-poll/src/auth/roles.ts`: Updated role constant to `caseworker-deedpoll-admin`
+- `.business_context/IDAM_REGISTRATION_REQUEST.md`: Complete registration config + research findings
+- `.business_context/PROGRESS.md`: Updated with test user creation note (2026-09-02)
+- Tests: 14 new tests (client-credentials.test.ts, test-users.test.ts), updated route tests to use
+  constant. Test counts are in the generated dashboard below rather than here — the figure this line
+  used to carry was `apps/web`'s alone and read as the workspace total.
+
+**Next thing to pick up: wait for the IDAM registration PR to be merged and deployed.** Once the client
+is registered and the secrets are in the vault, Phase 5 authentication will be complete and deployable.
+The only code remaining is Phase 6 (config, Helm, deployment), which depends on shared infrastructure
+existing.
+
+Phase 4's 12 page handlers are all ported and exercised against a running app. **Two pieces of
+Phase 4 are deliberately outstanding rather than done** — neither blocks Phase 5, and both are
+recorded below rather than lost:
+
+1. **The Phase 4 verification pass** the plan asks for. **The e2e journeys and the accessibility
+   checks are now done** (2026-09-02) — see ["Phase 4 verification"](#phase-4-verification-done). What
+   remains of it is **Welsh content only**: every page carries `cy` with matching keys, and a test now
+   pins that the keys resolve, but the values are still English.
+2. **`power_app_nest/` is deliberately NOT deleted.** Steve's call on 2026-09-01: it is gitignored,
+   costs nothing but disk, and — as the rescue commit `47a9ad2` establishes — it has never been
+   committed, so deleting it is unrecoverable rather than a revert away. Keeping it as a reference is
+   cheap insurance. The one thing in it that mattered, `CONFORMANCE_HARNESS_PLAN.md`, is preserved in
+   `.business_context/` regardless, so the directory going later loses nothing.
+
+**Before writing any Phase 5 code, read ["Phase 4 — SSR pages"](#phase-4--ssr-pages-in-progress).**
+Phase 5 replaces `userFromHeaders` in `libs/deed-poll/src/auth/header-user.ts` and the two one-line
+app adapters that call it. That is the whole seam, and knowing why it is shaped that way saves
+rediscovering it.
+
+Read ["Phase 3 foundations"](#phase-3-foundations-done-caf4e03) and slices
+[1](#phase-3-slice-1-deed-polls-done), [2](#phase-3-slice-2-notes-and-witnesses-done),
+[3](#phase-3-slice-3-document-types-done) and [4](#phase-3-slice-4-documents-done) before touching a
+handler or a form — between them they settle every decision that is already made, including three
+defects of the same shape that only running the app revealed.
+
+**Local disk storage cannot go to AKS** — pods are ephemeral and replicas share no volume. Uploads
+work locally and are a development story until Phase 10 (CDAM) or the Azure Blob off-ramp.
+`.gitignore` now covers `data/` so uploaded blobs are never committable.
+
+**One task is parked, not a question** — see "Parked tasks" below (task 1 is closed).
+
+## At a glance
+
+**Refresh at the end of every slice: `yarn progress:write`** (or
+`node scripts/progress-dashboard.mjs --write --tests`, which is what it wraps and what works when
+Yarn is not usable here). `yarn progress` prints without touching the file, and is instant because it
+skips the suite.
+
+**The roadmap and the gates below are hand-written** — no script can know why a phase is blocked —
+but everything between the generated markers is counted from source and cannot drift. That split is
+the point: this file's numbers *have* drifted before, and every instance was a number a command could
+have answered. Stale test counts, a stale commit list, and `/api/deed-polls` paths that were never
+right. Anything countable now gets counted.
+
+```
+TRACK A — productionise in the monorepo (deployable on its own, no CCD)
+════════════════════════════════════════════════════════════════════════════
+ 0  hygiene & blocked inputs   ██████████████████████  done
+ 1  schema → monorepo          ██████████████████████  done
+ 2  domain → libs/deed-poll    ██████████████████████  done
+ 3  JSON API → apps/api        ██████████████████████  done — all 29 handlers
+ 4  SSR pages → apps/web       █████████████████████░  12/12 ported, e2e + axe green; Welsh out for review
+ 5  authentication (IDAM)      ████████████████████░░  ◀── HERE. code done; PR raised, awaiting IDAM
+ 6  config, Helm, deployment   ███████████████░░░░░░░  code done + CI green; needs shared infra, namespace, creds
+
+TRACK B — CCD adoption (separable; start only once Track A is green)
+════════════════════════════════════════════════════════════════════════════
+ 7  spike /ccd-persistence     ░░░░░░░░░░░░░░░░░░░░░░  ccd schema already vendored
+ 8  case type definition       ░░░░░░░░░░░░░░░░░░░░░░  hand-authored JSON, SDK is Java
+ 9  persistence endpoints      ░░░░░░░░░░░░░░░░░░░░░░  + retain-and-dispose reaper
+10  CDAM documents             ░░░░░░░░░░░░░░░░░░░░░░  depends on Phase 5
+11  platform onboarding        ░░░░░░░░░░░░░░░░░░░░░░  all external, long lead times
+```
+
+Three things gate a deploy, none of them code in this branch:
+
+| Gate | Why it blocks |
+|---|---|
+| Phase 5 auth | **Registration PR raised 2026-09-03; waiting on IDAM.** Both apps authenticate, but until the client is registered there is nothing to point them at, and neither `idam-client-secret` nor `session-secret` exists in the vault — so nobody can log in to a deployed instance, and `assertIdamSettings` refuses to start without them. No longer a task, just a wait |
+| Shared infrastructure | `deed-poll-shared-infrastructure` does not exist — **verified 2026-09-03, the repo 404s** — and `infrastructure/` **references** the resource group and key vault it would create, so the terraform plan fails before anything deploys. Longest lead time of anything left |
+| Azure credentials | No `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` at repository *or* organisation level, so all four `Build & Publish` jobs fail at `azure/login`. **[PR #99](https://github.com/hmcts/azure-github-federation-config/pull/99) is open and would clear them.** `AZURE_CREDENTIALS_CFT_AAT` / `_PREVIEW` are a separate mechanism it does not cover |
+| CI has no database | The `ccd` schema tests skip in CI. Honest, but not coverage |
+
+**No longer a gate:** CI itself. Lint, test, `osv-scan` and SonarCloud all pass on master and on this
+branch as of 2026-09-03, having never passed before. See ["Master's CI was
+red"](#masters-ci-was-red-twice-in-one-day) and ["Repository visibility, and the history secret
+scan"](#repository-visibility-and-the-history-secret-scan-2026-09-03).
+
+<!-- BEGIN GENERATED DASHBOARD -->
+
+_Generated by `yarn progress:write`. Do not hand-edit inside the markers — the next run overwrites it._
+
+### Phase 3 — JSON API handlers
+
+```
+resource          progress  ported       notes
+────────────────────────────────────────────────────────────────────────
+deed-polls        ███████   7/7    done  incl. field-rules, validate
+notes             █████     5/5    done
+witnesses         █████     5/5    done
+document-types    █████     5/5    done  global reference data
+documents         ███████   7/7    done  incl. multipart upload, download
+                            ──────────────
+                            29/29  100%
+```
+
+### Phase 4 — SSR pages
+
+- **13 page handlers** ported in `apps/web/src/pages/deed-polls/`, against **12** in the prototype's `deed-poll-pages.controller.ts` and **9** Nunjucks templates.
+- **20 end-to-end tests** written in `e2e-tests/tests/`, **2** of them deed-poll journeys. Accessibility and validation are checked inside the journeys, so they add no test count of their own.
+
+### Tests
+
+```
+@hmcts-cft/cloud-native-platform        140 passed
+@hmcts-cft/express-govuk-starter        127 passed
+@hmcts-cft/express-session-postgres      23 passed
+@hmcts-cft/simple-router                 41 passed
+@hmcts/api                              261 passed
+@hmcts/crons                             10 passed
+@hmcts/deed-poll                        590 passed
+@hmcts/onboarding                        72 passed
+@hmcts/postgres                          11 passed
+@hmcts/web                              273 passed
+─────────────────────────────────────────────────────
+total                                  1548 passed
+```
+
+### Branch
+
+```
+feat/deed-poll-migration
+68 commits ahead of master
+HEAD  f5f4862  Merge master to pick up the CI repair and the Node bump
+```
+
+<!-- END GENERATED DASHBOARD -->
+
+## State
+
+Pushed and tracking `origin/feat/deed-poll-migration`. No PR, deliberately — see "Branch state".
+Branch, commit count and test counts live in the generated dashboard above rather than here, so
+there is only one place for them to be wrong.
+
+```
+346e623  Port the document-types handlers and give the in-use refusal a 409
+7843eec  Add an at-a-glance dashboard to PROGRESS.md, with the numbers generated
+83d54c4  404 a child list when its parent case does not exist
+2e41014  Scope the nested child writes to their parent case
+14d3936  Port the notes and witnesses JSON handlers
+1c23f72  Port the deed-polls JSON handlers and fix the reference-number error class
+b1ef30c  Capture the four open questions as open questions
+8ec90f2  Refresh the handover for the next session
+31f290e  Make the header-auth bypass opt-in by environment rather than opt-out
+290e5cf  Record the Phase 3 foundations in the handover docs
+caf4e03  Add the Phase 3 foundations: error mapping and role middleware
+0132bd4  Record PR #36 as merged and narrow the open item to the residue
+ce73cc5  Merge master to pick up the refreshed lockfile
+2b42a14  Point the dependency-alert note at the remediation PR
+ae51462  Correct the dependency-alert note in the handover docs
+9754a8d  Record the migration plan and progress in .business_context
+94e1715  Complete Phase 2: move the Prisma-backed services and conformance harness
+4c81c16  Convert the class-validator DTOs to Zod schemas
+c58e161  Move deed-poll domain logic into libs/deed-poll (part 1: pure modules)
+a5e0d6e  Add the CCD decentralised-persistence ccd schema, vendored from the SDK
+b17fac5  Port the deed-poll case model into the shared Prisma schema
+```
+
+`yarn lint`, `yarn build` and `yarn test` are all clean across the workspace (11 tasks). Per-package
+test counts are in the dashboard above — run the generator with `--tests` to refresh them, and treat
+a drop as a regression.
+
+**Before running anything, Yarn needs sideloading** — Corepack cannot reach `repo.yarnpkg.com` from
+the devcontainer. See the bullet under "Things a future session should not have to rediscover"; it
+cost a chunk of a session to rediscover once already.
+
+## Parked tasks
+
+Answered by Steve on 2026-09-01: do these later, but **do not lose them**. Neither is a question
+any more — the decision is "yes, just not now". Task 1 is now closed; task 2 still stands.
+
+1. ~~**Draft the CNP product-code question for Platform Operations.**~~ **Closed 2026-09-01 — it is
+   `deed-poll-admin`.** No message was needed in the end: HMCTS repos are named `{product}-{component}`
+   ([`docs/how-to/new-component/github-repo.md`](../../docs/how-to/new-component/github-repo.md)), so
+   the repo name settles it — product `deed-poll`, component `admin`, exactly what the re-scaffold
+   assumed. The old `Jenkinsfile_CNP`'s `rpe` was a template leftover and can be ignored. See
+   "The product code is settled" under Phase 6 for the two things that did fall out of it.
+2. ~~**Check Renovate PR #31 (`applicationinsights` 3.16.0) merges cleanly and report.**~~
+   **Checked 2026-09-03 — it merges cleanly and clears 12 advisories. Still not merged**, as instructed.
+   See ["Renovate PR #31"](#renovate-pr-31-checked-not-merged) below for the measurements. The
+   prediction recorded here was right about the mechanism being `protobufjs` and slightly understated
+   the effect.
+
+Decided and closed, recorded so they are not reopened:
+
+- **Phase 3 was sliced**, not one pass: `deed-polls` → notes + witnesses → `document-types` →
+  `documents`. All four done. The same slicing is worth applying to Phase 4's 12 page handlers.
+- **Upload limits**, agreed 2026-09-01: **10 MB** and an accepted-type list (PDF, JPEG, PNG, TIFF,
+  Word). The size is a guess pending real file sizes from the service team; see slice 4.
+- **Prisma query logging stays on** under `yarn dev`. See Loose ends 3 for where to turn it off if
+  it proves noisy.
+
+## Done
+
+### Phase 0 — hygiene
+
+- `power_app_nest/` gitignored while it is staged in-tree. Its `node_modules` (498M), `dist`, `.env`
+  and 57 document blobs were all committable before this.
+- Bare `.env` and `.DS_Store` added to `.gitignore` — the template covered only `.env.local` and
+  `.env.*.local`.
+- `.business_context/dataverse_tables/` committed. These are the source-of-truth Dataverse exports;
+  without them the schema-conformance suite cannot run. **Note they are alphabetically truncated**
+  (A–R only, ending at "Refund Reference") despite declaring "Total columns: 70", so the harness
+  asserts forward coverage only — every column present must map to a Prisma field — and must never
+  be treated as a complete column set.
+
+### Phase 1 — schema
+
+`libs/postgres-prisma/prisma/schema/deed-poll.prisma`. Migrations re-baselined into one
+(`apps/postgres/prisma/migrations/20260821194029_add_deed_poll_case_model`) rather than porting the
+prototype's six, which were authored against Prisma 6 standalone.
+
+Verified against local Postgres — 5 tables, 11 enums, 7 indexes — including the three things most
+likely to have broken silently:
+
+- `signaturerecieveddate`: the source column's misspelling is deliberate and is still mapped from the
+  corrected TS name `signatureReceivedDate`.
+- `Int[]` (`iShall`, `iHaveSubscribed`, `andAlsoMyOld`) round-trips through the `PrismaPg` adapter.
+- `refundAmount` is `numeric(12,2)` and returns a `Decimal`.
+
+### `ccd` schema (Track B groundwork)
+
+`apps/postgres/ccd-runtime/` — the CCD decentralised-persistence runtime, **vendored verbatim** from
+`ccd-config-generator` (upstream `b6bdfcde`, 2026-08-17). 25 SQL files, not the 4 the docs describe.
+Read that directory's README before touching it. Two traps documented there and pinned by tests:
+
+1. **`search_path` must include `ccd`.** The audit trigger inserts into `case_event_audit`
+   *unqualified*, and plpgsql resolves that at execution time. A normal connection fails with
+   `relation "case_event_audit" does not exist`. It only bites on `data` UPDATEs to `case_event`,
+   never inserts — so it passes casual testing.
+2. **`ccd.user_idam_id` must be set** in the transaction, or the trigger cannot attribute the row.
+
+`migrate:reset` also drops the `ccd` schema now; Prisma only resets schemas in its own datasource, so
+a reset previously left `ccd` populated with its history intact while `public` was empty.
+
+### Phase 2 — domain layer
+
+`libs/deed-poll/` — **25 suites, 441 tests**. The count reconciles exactly:
+
+| | |
+|---|---|
+| Prototype | 17 suites / 269 tests |
+| Not migrated: `auth/roles.guard.spec` | 6 tests — a Nest guard being replaced by Express middleware, rewritten in Phase 3 |
+| Domain tests migrated | **263** |
+| New Zod schema tests | 37 |
+| Conformance | 141 |
+| **Total** | **441** |
+
+No domain test was dropped and **the assertions are unchanged** — the mocked Prisma client is aliased
+back to `prisma` so every spec body still verifies what it did under Nest DI. In the deed-poll service
+only the database is mocked; the four helper modules are the real implementations, as they were when
+registered as DI providers.
+
+What changed in the move:
+
+- Nest removed. Stateless `@Injectable()` classes became modules of exported functions.
+- CommonJS → ESM (`.js` specifiers), Jest → Vitest, `@prisma/client` → `@hmcts/postgres-prisma`.
+- HTTP concerns out of the domain: `NotFoundException` / `BadRequestException` → `NotFoundError` /
+  `InvalidInputError` in `libs/deed-poll/src/errors.ts`. The route layer maps them to status codes —
+  **that mapping is Phase 3 work and does not exist yet.**
+- 10 class-validator DTOs → 4 Zod schema modules with `.partial()` counterparts.
+
+## Things a future session should not have to rediscover
+
+- **`libs/deed-poll` exports entity-specific names**, not `create`/`findAll`/`findOne`. Those
+  collided across five modules once barrel-exported. It is `createWitness`, `findNotes`,
+  `updateDeedPoll`, `getCaseFieldRules`, and so on.
+- **`InvalidInputError` carries `FieldError[]`**, not just a message. The prototype threw
+  `BadRequestException({ message, errors })` and the SSR forms render those errors against individual
+  inputs. Phase 3/4 must surface them, or field-level validation silently becomes unattributed.
+- **Zod nullability is deliberate.** Nullable columns use `.nullish()` so a PATCH can clear a value;
+  the eight with Prisma defaults (`privacy`, `urgency`, the three `int[]` multiselects, the three
+  booleans) use `.optional()`, so `null` fails validation instead of reaching Prisma. Tests assert
+  both directions.
+- **Dates stay ISO strings through validation.** The domain coerces them to `Date` immediately before
+  Prisma, and the SSR forms submit `YYYY-MM-DD`. The schema accepts bare dates, UTC, offset and
+  local-without-zone; it rejects `01/03/2026`.
+- **`createNoteSchema` trims and delegates to `validateNoteText`.** Both are load-bearing: without
+  the trim, `"   "` is accepted as a note and whitespace is stored.
+- **Corepack cannot reach `repo.yarnpkg.com` from the devcontainer.** Yarn 4.17.0 has to be
+  sideloaded: `npm pack @yarnpkg/cli-dist@4.17.0`, extract, then run
+  `node <extracted>/bin/yarn.js`. Also `enableScripts` defaults to false here, so `YARN_ENABLE_SCRIPTS=true`
+  is needed for Prisma's postinstall.
+- **The `ccd` schema tests skip when no database is reachable** — CI has no Postgres. Run
+  `docker compose up -d` locally to exercise them.
+
+## Phase 3 — the JSON API (in progress)
+
+**Phase 3 is complete — 29 of 29 handlers.** Foundations (`caf4e03`) plus four slices: `deed-polls`
+(7), notes + witnesses (10), `document-types` (5) and `documents` (7). See the slice sections below;
+three of them record a defect that only running the app revealed.
+
+Move the 29 JSON handlers from the prototype's controllers into `apps/api/src/routes/` as
+`simple-router` files. The domain functions they need all exist and are tested.
+
+```
+routes/deed-polls/index.ts                        ✅ GET list, POST create
+routes/deed-polls/field-rules.ts                  ✅ GET
+routes/deed-polls/[id].ts                         ✅ GET, PATCH, DELETE
+routes/deed-polls/[id]/validate.ts                ✅ POST
+routes/deed-polls/[id]/notes/{index,[noteId]}.ts       ✅ GET/POST, GET/PATCH/DELETE
+routes/deed-polls/[id]/witnesses/{index,[witnessId]}.ts ✅ GET/POST, GET/PATCH/DELETE
+routes/deed-polls/[id]/documents/{index,upload,[documentId]}.ts  ✅ all 7, incl. [documentId]/file
+routes/document-types/{index,[id]}.ts                   ✅ GET/POST, GET/PATCH/DELETE
+```
+
+**Note the nested paths use `[id]`, not the `[deedPollId]` earlier revisions of this table showed.**
+See slice 2 below for why.
+
+Source controllers to port (then delete):
+
+| Prototype file | Handlers | |
+|---|---|---|
+| `deed-poll/deed-poll.controller.ts` | 7 | ✅ ported |
+| `notes/notes.controller.ts` | 5 | ✅ ported |
+| `witnesses/witnesses.controller.ts` | 5 | ✅ ported |
+| `documents/document-types.controller.ts` | 5 | ✅ ported |
+| `documents/documents.controller.ts` | 7 | ✅ ported, incl. the Multer wiring |
+
+None of the ported controllers are deleted yet; `power_app_nest/` goes as a whole at the end of
+Phase 4.
+
+Specific work:
+
+1. ✅ **Error mapping.** Done — see below. Extended in slice 3 with `ConflictError` → 409.
+2. ✅ **Validation per route.** Done across all four slices. Replace the global `ValidationPipe` with `safeParse` against the Zod
+   schemas from `@hmcts/deed-poll`. `zodErrorToFieldErrors` and the 400 mapping are in place, so a
+   handler can simply `throw parsed.error` on a failed `safeParse`. **Copy the four `deed-polls`
+   route files for shape** — they are the worked example now, and they are a better guide than
+   `routes/onboarding/`, which try/catches per handler and predates the error middleware.
+3. ✅ **`RolesGuard` → Express middleware.** Done — see below.
+4. ✅ **Multer.** Done in slice 4 — `apps/api/src/documents/upload.ts`. `uploadDocument` takes a plain
+   `UploadedFile` (`buffer`, `originalname`, `mimetype`, `size`) rather than `Express.Multer.File`,
+   and the middleware maps onto it, adding a 10 MB limit and a type list the prototype had neither of.
+
+Verification: `yarn test` must show at least 477 in `libs/deed-poll` and 219 in `apps/api` plus
+whatever the new route tests add; `yarn lint` and `yarn build` clean; and exercise the handlers
+against a running app — see the recipe under "Exercising the API locally" below, which is worth
+following rather than improvising, because two of the four things in it cost time to work out.
+
+### Exercising the API locally
+
+```
+docker compose up -d                                   # Postgres; also un-skips apps/postgres tests
+YARN_ENABLE_SCRIPTS=true <yarn> db:migrate             # sideloaded yarn — see the note above
+cd apps/api && NODE_ENV=development ../../node_modules/.bin/tsx src/server.ts
+```
+
+- **The paths have no `/api` prefix.** It is `GET /deed-polls`, not `GET /api/deed-polls` — see
+  slice 1 below for why. Earlier revisions of this file said `/api/...` throughout and were wrong.
+- **Startup takes ~20 seconds**, nearly all of it one Azure Key Vault DNS lookup timing out
+  (`getaddrinfo EAI_AGAIN deed-poll-aat.vault.azure.net`). Two `Warning:` lines about the vault and
+  `/mnt/secrets` are expected and harmless. Poll `/health` rather than guessing a sleep.
+- **The API needs a bearer token.** `x-user-roles` does nothing now — it is deleted, not disabled. Get
+  a token from the local simulator and use it:
+
+      ADMIN=$(curl -s -X POST http://localhost:5556/o/token -d grant_type=password \
+        -d username=admin@example.com -d password=x -d client_id=deed-poll-admin \
+        | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).access_token))')
+      curl -s http://localhost:3001/deed-polls -H "authorization: Bearer $ADMIN"
+
+  The password grant is used only because it needs no browser; the code flow is what `apps/web` uses.
+  `caseworker@example.com` is the same but role-less, which is how the privacy gate gets tested from
+  both sides. `yarn idam:users` creates both.
+- Local writes consume reference-number serials permanently, so `KBDP2026-…` will not start at
+  00001 on a database that has been exercised. That is the counter working, not a bug.
+
+### Phase 3 foundations (done, `caf4e03`)
+
+| File | What |
+|---|---|
+| `libs/deed-poll/src/errors.ts` | adds `ForbiddenError` and `zodErrorToFieldErrors`; `ConflictError` followed in slice 3 |
+| `apps/api/src/errors.ts` | `errorHandler()`, mounted last in `app.ts` |
+| `apps/api/src/auth/current-user.ts` | `userFromRequest` — header extraction then; **the headers are gone, see Phase 5** |
+| `apps/api/src/auth/require-roles.ts` | `requireRoles(...)`, replacing `RolesGuard` |
+
+Two decisions worth not relitigating:
+
+- **Error mapping is app-level middleware, not try/catch per route**, which is what
+  `.claude/rules/backend.md` illustrates. `app.ts` already had a catch-all error handler, so this
+  extends it rather than adding a pattern. It means the 29 handlers cannot disagree about what a
+  missing case returns, and a handler that forgets to catch cannot leak a stack trace as a 500.
+  Handlers may still catch locally for bespoke cases. **A guarded route restricts itself by exporting
+  an array** — `export const DELETE = [requireRoles(DEEDPOLL_ADMIN), handler]` — which is how
+  `simple-router`'s `normalizeHandlers` expects a multi-handler route.
+
+  This depends on Express 5 forwarding a rejected handler promise to error middleware, which Express
+  4 did not. `apps/api/src/errors.wiring.test.ts` drives that through a real router with `supertest`
+  so a regression cannot hide behind unit tests that call `errorHandler` directly. **Do not delete
+  that file** on the grounds that it duplicates `errors.test.ts` — it is testing the framework
+  contract, not the mapper.
+
+- **Header auth is opt-in by environment and fails closed.** *(History — Phase 5 deleted the header
+  scheme outright. The polarity argument below outlived it and now lives in `plain-http.ts`.)* It is
+  honoured only when `NODE_ENV` is
+  `development` or `test` (`HEADER_AUTH_ENVIRONMENTS` in `current-user.ts`). Anywhere else the
+  `x-user-roles` and `x-user-name` headers are ignored, every caller resolves to no roles, and
+  guarded routes return 403 — with one log line naming the `NODE_ENV` actually seen, since an
+  unexpected or absent value is the likeliest cause.
+
+  **The allowlist polarity is deliberate and should not be "corrected" to match the codebase.**
+  Everything else here asks `NODE_ENV === "production"` and treats all other values as development.
+  That default-open reading is right for a log level and wrong for an authorisation bypass: it would
+  leave the bypass live for anything that merely is not the literal string `production` — an unset
+  variable, a Helm `env:` override, `node dist/server.js` run outside the image, or a deployed
+  environment named `aat`. Tests pin all four cases.
+
+  `apps/api` and `apps/web` now set `NODE_ENV=development` in their `dev` scripts, mirroring the
+  root's `start:api` / `start:web` which already state `production`. Previously dev relied on the
+  variable being unset, which an allowlist cannot read as consent. Side benefit: it revives
+  `libs/postgres-prisma/src/index.ts:34`, whose `=== "development"` query logging never fired.
+
+  None of this makes the service deployable — Phase 5 still gates that, and **unguarded routes remain
+  open regardless**, since the check only runs where `requireRoles` is mounted. It removes the worst
+  failure mode: deployed early, appears to work, anyone is an admin. Phase 5 replaces
+  `current-user.ts` wholesale.
+
+The 6 tests dropped from `roles.guard.spec` are rewritten and accounted for. The guard's two
+"open route" cases (no `@Roles` metadata, empty roles array) collapse into one: in Express an
+unguarded route is simply one that does not mount the middleware, so only `requireRoles()` with no
+arguments remains testable.
+
+### Phase 3 slice 1: deed-polls (done)
+
+Seven handlers across four files, plus `apps/api/src/express-doubles.ts`. `apps/api` went 71 → 110
+tests; `libs/deed-poll` 450 → 452 (the reference-number fix below).
+
+Five decisions the remaining 22 handlers should follow rather than re-derive:
+
+- **The routes are `/deed-polls`, not `/api/deed-polls`.** Earlier revisions of this file said
+  `/api/...`; that was carried over from the prototype's `@Controller('api/deed-polls')` and is
+  wrong here. `apps/api/src/app.ts` mounts `createSimpleRouter({ path: .../routes })` with no
+  prefix, matching the template's own `/users` and `/onboarding`. The prototype needed the prefix
+  because one Nest app served both the API and the SSR pages; here `apps/api` and `apps/web` are
+  separate apps on separate ports, so prefixing every route with `/api` inside the app called `api`
+  says nothing. Verified against a running server: `/api/deed-polls` 404s, `/deed-polls` 200s.
+
+- **No role middleware, deliberately.** `RolesGuard` was registered globally in the prototype but
+  **no handler anywhere carried `@Roles(...)`** — checked across all five controllers — so every
+  ported route is open, exactly as it was. The real privilege check is `isAdmin` inside
+  `createDeedPoll`/`updateDeedPoll`, which decides whether a `privacy` value is honoured or silently
+  dropped. Do not add `requireRoles` to a ported route without deciding that as a policy change:
+  it would be new behaviour, not a port. **Whether `DELETE` should be admin-only is a real question
+  and the prototype does not answer it** — see Loose ends 5.
+
+- **`userFromRequest(req)` is the whole of the user plumbing.** It returns `{ roles, isAdmin, name }`.
+  `deed-polls` passes `{ isAdmin, userName: name }`; `notes` needs only `{ userName: name }`
+  (`notes.controller.ts:27,50`); `witnesses` and `documents` take no user context at all. There is
+  no wrapper helper and there should not be one — the shapes genuinely differ.
+
+- **Query parameters get validated too, not just bodies.** `field-rules.ts` parses `req.query`
+  against a small local `z.object`. The prototype's `@Query('type')` was *typed* `DeedPollType` but
+  never validated, so `?type=nonsense` — or a repeated `?type=a&type=b`, which Express parses as an
+  array — reached the rule matrix, fell through its `default:` branch, and answered **200 with the
+  rules for no type at all**. A wrong answer presented as a right one. It is a 400 now.
+
+- **Route-ordering and mounting are pinned by a wiring test**, `routes.wiring.test.ts`, which builds
+  a real `createSimpleRouter` over the real directory. `/deed-polls/field-rules` and
+  `/deed-polls/:id` both match `GET /deed-polls/field-rules`; it resolves correctly only because
+  `sortRoutes` orders by parameter count, which nothing in `field-rules.ts` can state. Every unit
+  test in the directory would still pass if that ordering changed while the live endpoint began
+  reading the string "field-rules" as a case id. **Add to that file rather than duplicating it** when
+  the notes/witnesses/documents routes land — they nest two parameters deep and are more exposed to
+  the same class of problem, not less.
+
+`express-doubles.ts` holds the shared `requestDouble`/`responseDouble`. It models `req.header(name)`
+as a function rather than a `headers` object, because `userFromRequest` reads headers that way and a
+naive double would let a test pass while the real thing found nothing. It is **excluded from the
+build in `apps/api/tsconfig.json`** — it imports `vitest`, so it must not reach `dist`.
+
+#### One defect found, in the domain rather than the routes
+
+`yearFromDateReceived` in `libs/deed-poll/src/deed-poll/reference-number.ts` threw a **bare `Error`**
+when `dateReceived` was absent. `errorHandler` cannot recognise a bare `Error`, so it fell through to
+the generic 500 — meaning `POST /deed-polls` with no Date Received, which is the single most obvious
+request anyone makes of this API, answered `{"error":"Internal server error"}`. Now an
+`InvalidInputError` carrying a `dateReceived` field error, so it is a 400 the Phase 4 forms can
+render against the right input. Pinned in both places: `reference-number.test.ts` for the type and
+the attribution, and `routes.wiring.test.ts` for the status a caller actually sees.
+
+This was invisible to unit tests on both sides — the domain tests asserted a bare untyped
+`toThrow()`, and the error-mapping tests only ever fed the handler errors it already knew. **Only
+running the thing found it**, which is the argument for keeping the "exercise against a running app"
+step in the verification list for each remaining slice.
+
+Its docstring also claimed the year fell "back to created-now", which the code has never done. The
+throw is right — inventing a year from the clock would put a case in the wrong year's permanent,
+external-facing serial sequence — so the comment was corrected to match the code, not the reverse.
+
+### Phase 3 slice 2: notes and witnesses (done)
+
+Ten handlers across four files, under `apps/api/src/routes/deed-polls/[id]/{notes,witnesses}/`.
+`apps/api` 110 → 149 tests. No domain change was needed — both services were already
+parent-scoped and already threw `NotFoundError`, so the handlers are genuinely thin.
+
+- **Nested under `[id]/`, not `[deedPollId]/`.** Earlier revisions of the route table above said
+  `[deedPollId]`, copied from the prototype's `@Controller('api/deed-polls/:deedPollId/notes')`. Nest
+  needed a distinct name because the parent segment is part of the controller's own path string;
+  here the parent segment *is* the directory, and `[id]/` already existed for `validate.ts`. Two
+  sibling parameter directories naming the same URL position would both work — `discoverRoutes` keys
+  on the URL path, so there is no conflict raised — but it would read as an accident by whoever
+  arrives next. So it is `req.params.id` for the case and `req.params.noteId` /
+  `req.params.witnessId` for the child, everywhere.
+
+- **Both ids go into every child call.** `findNote`/`findWitness` match on `{ id, deedPollId }`, so
+  a child id belonging to another case answers 404. Passing only the child id would compile and
+  would quietly make every note in the database reachable through any case's URL. Verified against
+  a running app on all three verbs: reading, patching and deleting a note through the wrong case's
+  URL all 404, and the note was still intact afterwards. **The write paths are scoped twice** — see
+  below.
+
+- **Notes take `{ userName }` only; witnesses take no user context at all.** Notes have
+  `createdBy`/`modifiedBy` columns to stamp; `DeedPollWitness` has neither, and `createWitness`
+  accordingly has no author parameter. Neither takes `isAdmin` — there is no privileged field on
+  either, so passing it would imply a rule that does not exist. Pinned by tests in both directions,
+  because "we forgot to pass the user" and "there is deliberately no user here" look identical in a
+  diff.
+
+- **Witnesses reject an empty body where cases accept one.** `createWitnessSchema` requires all four
+  fields; `createDeedPollSchema` requires none. Not an inconsistency — a case is logged
+  incrementally through its lifecycle, a witness is entered once from a form that has all of it.
+
+- **`routes.wiring.test.ts` gained a second `describe` block** rather than a second file. The case
+  routes' trap is route *ordering*; the nested routes' trap is parameter *binding*, which the unit
+  tests structurally cannot catch because the request double supplies whatever params the test names.
+  A handler that read the parent's id for the child, or swapped the two, passes its own unit test.
+
+#### Child scoping: the write paths carry `deedPollId` too
+
+**There was never a traversal hole here** — reads have always filtered on `{ id, deedPollId }`, and
+the write paths have always run a scoped `findNote`/`findWitness`/`findDocument` guard first. Do not
+read the change below as a fix for a vulnerability; nothing was exploitable, and cross-case access
+was verified closed on all three verbs before it.
+
+What it changes is where the safety *lives*. The writes used to be:
+
+```ts
+await findNote(deedPollId, id);                     // scoped guard
+prisma.deedPollNote.update({ where: { id }, ... })  // write scoped by nothing
+```
+
+Correct, but by convention: one guard line, repeated in six places across three services. A seventh
+`updateX` that omitted it would be an unscoped write, and **no existing test would have failed** —
+which is the actual risk, since two more slices of nested handlers were about to be written against
+this pattern. The writes now carry the parent as well:
+
+```ts
+prisma.deedPollNote.update({ where: { id, deedPollId }, ... })
+```
+
+Prisma allows a non-unique filter alongside the unique `id` (`DeedPollNoteWhereUniqueInput` accepts
+`deedPollId`), so this costs nothing and does not change the return shape the way `updateMany` would.
+Applied to all three services — notes, witnesses **and documents**, so the documents slice inherits
+it rather than repeating the argument.
+
+**Verified that Prisma enforces the filter rather than ignoring it**, because if it ignored it the
+change would be theatre and the guard would still be the only defence. Driven directly against
+Postgres with no guard in front: `update` and `delete` with a mismatched `deedPollId` both fail
+`P2025` and the row is untouched. The happy path was re-checked too — that was the way this change
+could have broken everything, if Prisma had rejected the extended `where` at runtime.
+
+The guard stays, and is still what produces the clean 404: `P2025` is not a domain error, so
+`errorHandler` would map it to a generic 500. That is deliberate rather than a gap — the guard always
+runs first, so a `P2025` reaching the mapper means a missing guard or a genuine race, and a loud 500
+with a logged stack is the honest answer to a bug. Mapping `P2025` to 404 would hide exactly the
+mistake this is meant to catch.
+
+Domain tests went 452 → 456: the four that asserted `where: { id }` exactly now assert both ids, and
+`updateWitness`/`updateDocument` gained the scoped-write and wrong-parent cases they never had.
+
+#### Child lists 404 for a missing parent
+
+`findNotes`/`findWitnesses`/`findDocuments` filtered by `deedPollId` without checking the parent
+existed — exactly as the prototype's `findAll` did, since only the create paths called
+`assertCaseExists`. So `GET /deed-polls/<typo>/notes` answered `[]` with 200.
+
+That conflates two different facts: **"there is no such case"** and **"this case has no notes"**. Only
+one of them is true, the response is identical either way, and the caller has no way to tell them
+apart — so a mistyped case id reads as a case with no notes. A child collection has no meaning
+without its parent, so the parent's absence is the more important fact and the one to report.
+
+All three list functions now `await assertCaseExists(deedPollId)` first. That is the same check every
+create in the same files already made, so the fix is consistency rather than a new pattern — the cost
+is one indexed primary-key lookup per list.
+
+Considered and rejected: checking the parent *only when the list comes back empty*, which is free in
+the common case because the `onDelete: Cascade` FK means rows existing proves the parent exists. It
+is correct, but it makes three functions behave differently from the six creates beside them to save
+a sub-millisecond lookup on a page load. Not worth the inconsistency.
+
+Both directions are pinned by tests and were verified live, because a fix like this is one careless
+`if` away from 404ing every legitimately-empty list: a missing case 404s with the case id in the
+message, and a real case with no children still answers `[]` with 200. `documents` has no HTTP route
+yet, so it is covered by domain tests only until that slice lands.
+
+### Phase 3 slice 4: documents (done)
+
+Seven handlers across four files, plus `apps/api/src/documents/upload.ts`. `apps/api` 175 → 219
+tests, `libs/deed-poll` 475 → 477. **Phase 3 is complete: 29 of 29.**
+
+#### What Multer actually does here
+
+It is a body parser for **one** route. `app.ts` mounts `express.json()` and `express.urlencoded()`,
+and neither parses `multipart/form-data`, so without it `POST .../documents/upload` would see an
+empty `req.body` and no file. Multer puts the bytes on `req.file` and the accompanying text fields
+(`documentTypeId`, `name`, `direction`) on `req.body`. The other six handlers are ordinary JSON.
+
+- **Mounted per-route, as an array** — `export const POST = [uploadSingleFile(), handler]`, the shape
+  `requireRoles` established. A global multipart parser would inspect bodies it can never be given.
+- **Memory storage, not disk**, because `saveFile(buffer)` takes a `Buffer`. Disk storage would write
+  a temp file for us to read straight back and write again, and would strand it on a failure path.
+- **The `UploadedFile` mapping is the whole point.** `uploadDocument` takes a plain
+  `{ buffer, originalname, mimetype, size }`, deliberately not `Express.Multer.File`, so the domain
+  does not know Multer exists. Phase 2 built that seam; this slice is the four-field map onto it.
+
+#### Two limits the prototype did not have
+
+`FileInterceptor('file')` took no options: **any file, any size, buffered in memory**. Ported
+faithfully that is a memory-exhaustion hole in a service that currently has no authentication, so it
+was not ported.
+
+- **10 MB** (`MAX_BYTES`), agreed with Steve on 2026-09-01. There was no existing limit anywhere in
+  the repo or the prototype to inherit. **It is a defensible guess, not a researched number —
+  confirm against real file sizes with the service team.** It matters more than it looks: the file is
+  buffered in memory, so the worst case is 10 MB × concurrent uploads against the pod's limit.
+- **An accepted-type list** — PDF, JPEG, PNG, TIFF, Word. **This is hygiene, not security:** it reads
+  the `Content-Type` the client puts on the part, which a client can simply lie about. It stops
+  accidents and obvious executables. Real inspection and virus scanning belong with CDAM in Phase 10.
+
+Both refusals are translated at the source. Multer signals them with a `MulterError`, which is not a
+domain error and would have become a 500 — the third instance of that trap, so `mapMulterError`
+converts it to an `InvalidInputError` attributed to the `file` field.
+
+#### Download hardening
+
+`GET .../documents/:documentId/file` is the only route that does not answer JSON. Two changes over
+the prototype:
+
+- **The filename is sanitised, not just de-quoted.** `originalName` is whatever the uploading client
+  called the file, so it lands on a response header as attacker-controlled text. The prototype
+  stripped `"` and nothing else; a name containing `\r\n` would have produced an invalid header,
+  which Node rejects by throwing mid-response — a 500 on a working download. Only a conservative
+  character set survives, with a `document` fallback when nothing does. Pinned by a test that feeds
+  `evil".pdf\r\nX-Injected: yes` and asserts no such header appears.
+- **The stream's `error` event is forwarded to `next`.** Without it a mid-stream failure leaves the
+  request hanging until it times out. Once bytes are sent no status change is possible, so
+  `errorHandler` hands back to Express and the connection is destroyed — correct, because a truncated
+  download is visible to the client where a 200 with half a file is not.
+
+#### A third 500, exactly as predicted
+
+The handover said to assume one, and there was one. `removeDocument`'s comment claimed *"Best-effort
+blob cleanup"* while `await deleteFile(...)` propagated: the row was already deleted, so a failed
+`unlink` turned a **completed** delete into a 500. The caller retries, gets a 404, and has no way to
+tell the delete had in fact worked. Now genuinely best-effort — caught and logged with the document
+id and storage key so the orphan is findable. An orphaned blob is recoverable and cheap; a status
+code that contradicts what happened is neither.
+
+That is three defects of one shape across four slices — an expected, caller-caused condition
+reaching the error middleware as something it did not recognise. **All three were invisible to unit
+tests on both sides and were found only by running the app.** Keep the "exercise it live" step.
+
+#### Verified live, end to end
+
+A real 41-byte PDF uploaded through multipart, written to `DATA_DIR/documents/<uuid>`, and downloaded
+back **byte-identical** (sha256 match) with `Content-Type: application/pdf`,
+`Content-Disposition: attachment; filename="birth.pdf"` and `Cache-Control: no-store`. Then: an 11 MB
+file 400s naming the limit; an `.exe` 400s; no file at all 400s with the domain's own
+`Select a file to upload`; a malformed `documentTypeId` 400s and a valid-but-absent one 404s; the
+document's type could not be deleted while it referenced it (409, from slice 3); and deleting the
+document removed both the row and the blob from disk, after which the download 404s.
+
+### Phase 3 slice 3: document-types (done)
+
+Five handlers in `apps/api/src/routes/document-types/`. `apps/api` 152 → 175 tests,
+`libs/deed-poll` 465 → 475.
+
+- **The only Phase 3 resource outside `routes/deed-polls/`.** Document types are global reference
+  data — the list of things a supporting document can *be*, plus the marital statuses and case types
+  each applies to — so they mount at the top level, while the documents referencing them will live
+  under `/deed-polls/:id/documents`. There is no parent to scope against; the type's own id
+  identifies it.
+
+- **`DELETE` can answer 409, the only one in the phase.** Everything else in Phase 3 answers 200,
+  201, 204, 400, 403 or 404.
+
+- **`document-types.ts` had no unit tests before this**, only its Zod schemas. A Phase 2 gap rather
+  than anything introduced here — the five domain functions were never covered. Now they are.
+
+#### A second 500 for an ordinary action, same shape as slice 1's
+
+`removeDocumentType` deleted straight through to Prisma. The `documentType` relation is required and
+declares no `onDelete`, so Postgres refuses to orphan documents — but that refusal arrives through
+the `PrismaPg` adapter as a **`DriverAdapterError`** carrying SQLSTATE **23001** on `err.cause.code`,
+which is not a domain error, so `errorHandler` fell through to a generic 500. A caseworker deleting a
+type that happened to be in use was told the server had broken.
+
+The module's own docstring claimed this "surfaces as a 409-style failure". Nothing implemented that.
+It does now:
+
+- **`ConflictError`** added to `libs/deed-poll/src/errors.ts`, mapped to **409** in `apps/api`.
+  Deliberately not `InvalidInputError`/400 — nothing about the input is wrong, and the same request
+  succeeds unchanged once the references are gone. There is no field to blame, so no `errors` array.
+- **`removeDocumentType` counts referencing documents itself** rather than catching the driver error.
+  A count gives a message naming the number, which is actionable, and it does not depend on the
+  driver's internal error shape — that would be fragile across a Prisma upgrade and would fail by
+  silently reverting to 500.
+- **Known, accepted gap:** a document created between the count and the delete still hits the FK and
+  yields that 500. The window is tiny, the database refuses either way so integrity holds, and
+  closing it would mean parsing the driver internals the check exists to avoid.
+
+Verified live, both directions: deleting an in-use type answers
+`409 {"error":"Cannot delete this document type: 1 document(s) still reference it"}` and the type
+survives; once the referencing document is gone the same request answers 204; and a second delete
+answers 404 rather than 409, so "already gone" and "still in use" stay distinct.
+
+**This is the second defect of exactly this shape** — after slice 1's bare `Error` from
+`yearFromDateReceived`. Both were expected, caller-caused conditions that reached the error
+middleware as something it did not recognise, and both were invisible to unit tests on either side.
+**When porting the `documents` handlers, assume there is a third**: check what every domain function
+on that path throws, and confirm each one maps to a status a caller should see.
+
+Phase 4 then moves the 12 SSR page handlers and 9 Nunjucks templates into `apps/web`, replacing
+`nunjucks.setup.ts` entirely with `configureGovuk` from `@hmcts-cft/express-govuk-starter`.
+`power_app_nest/` is deleted at the end of Phase 4, not before.
+
+## Phase 4 — SSR pages (in progress)
+
+**All 12 page handlers ported**: the case list, the new-case form, the case detail page, the edit tab
+(GET and POST), the four note handlers and the two upload handlers — plus a
+document download route the prototype did not have, and the pages' own domain-error mapping. Foundations are in
+`libs/deed-poll` (`date-parts`, `list-filters`, `list-view`, `edit-view`). The verification pass is done
+— see ["Phase 4 verification"](#phase-4-verification-done-2026-09-02). Remaining: Welsh translation, and
+deleting `power_app_nest/` if that decision is ever revisited.
+
+**The templating swap the plan lists is already done.** `nunjucks.setup.ts` exists only in the
+prototype; `apps/web` has always used `configureGovuk`. That file goes when the prototype does. Its
+two custom Nunjucks filters (`govdate`, `label`) are *not* reproduced — formatting moved into the
+view model instead (`list-view.ts`), which needs no bespoke Nunjucks environment and is testable.
+
+### The service root is the case list
+
+Steve's call, 2026-09-02: `/` was still the template's marketing home page — a panel titled "HMCTS
+Express Monorepo Template" describing `hmcts/expressjs-monorepo-template` rather than this service.
+Deleted, and `/` now redirects to `/deed-polls`.
+
+**A redirect, not the list rendered at `/`.** `/deed-polls` stays the collection's canonical URL
+because everything nested hangs off it, and the list's own filter links are absolute
+(`/deed-polls?filter=…`) — so serving the list at `/` would render a page whose every link navigates
+away from itself, and would give one collection two URLs.
+
+**`/` stays on `requireAuth`'s public allowlist**, which looks wrong and is not. It only redirects, so
+allowing it makes an anonymous visitor's `returnTo` the list rather than the root; off the allowlist
+they would sign in, return to `/`, and be redirected a second time. The refusing is done by the
+redirect *target*, which is guarded. Verified: `/` → 302 `/deed-polls` → 302
+`/login?returnTo=%2Fdeed-polls` → 302 IDAM.
+
+`/` needed a handler rather than just deleting the page: it is what anyone hitting the bare hostname or
+a bookmarked root gets, and the onboarding confirmation page's return button points at it.
+
+**It is not reached from the GOV.UK header, though — checked in the rendered HTML rather than inferred
+from the template.** `site-header.njk` passes `govukHeader({ serviceName, serviceUrl: "/" })`, which
+reads as though the header links to the root. It does not: **govuk-frontend 6 removed both options from
+`govukHeader`** in favour of `govukServiceNavigation`, so the installed 6.2.0 template contains neither
+name and silently ignores both. The only anchor in the rendered header is the GOV.UK crown, pointing at
+`//gov.uk`. That surfaced a separate defect — see loose end 15 — which is worth reading before touching
+either file.
+
+Consequences worth knowing:
+
+- **Three template e2e specs depended on that page.** `homepage.spec.ts` tested only its content, so it
+  is deleted. `welsh-language.spec.ts` and `cookie-management.spec.ts` both navigated to `/` — which is
+  now behind login, so the cookie banner would never be reached — and are retargeted at
+  `/accessibility-statement`. That page is the right substitute for a specific reason: it is **public**,
+  so the language toggle works before sign-in, and **genuinely translated**, which no deed-poll page is.
+  Asserting Welsh on a deed-poll page would assert English.
+- **`libs/onboarding` is now unreachable by navigation.** That home page held the only link to
+  `/onboarding/start`. It is template demo content, still routed and still tested, but nothing in the
+  service links to it — which strengthens the case for deleting it whenever the prototype goes.
+- **One flake surfaced and is fixed.** `signInAsAdmin` now runs five times per suite (the setup, plus
+  once per onboarding test), and under that load the cross-origin OIDC round trip exceeds Playwright's
+  default 5s `expect` timeout — the callback had not finished exchanging. It now waits 30s explicitly.
+  The failure read as a broken login rather than a slow one, which is the sort of flake that wastes a
+  morning in CI. Three consecutive full runs green after the fix.
+- **A second flake surfaced from the same root cause, and exposed a session-isolation bug in the deed-poll
+  journey.** The Welsh-shape check (`?lng=cy`) writes to `req.session.locale`, and the journey was doing
+  that on the shared session every test restored. So whichever test ran after the deed-poll journey saw
+  its pages render in Welsh, and its English locators stopped matching — 30-second timeout, waiting for a
+  button whose name had changed, in a different file. The Welsh check now signs in to its own throwaway
+  context instead, which is the whole point of `expectWelshKeysResolve`: any check that writes to the
+  session needs its own session. That brought the concurrent logins high enough to exhaust the shared pg
+  pool (10 connections, no timeout) and hang the callback — see loose end 16. The final mitigation:
+  `onboarding-happy-path.spec.ts` runs sequential-within-file rather than parallel, so the four tests
+  share one session in series and the suite stays under the pool threshold. Slower (42s vs 24s), but five
+  consecutive runs stable.
+
+### Template names are global, and a collision fails silently
+
+**`res.render("index")` from `pages/deed-polls/index.ts` rendered the template's own home page**,
+with a 200 and no error. `collectViewPaths` in the govuk starter adds *every* page directory to the
+Nunjucks search path as a flat list, parent first — so `pages/index.njk` shadowed
+`pages/deed-polls/index.njk`. The page's own directory gives it no precedence.
+
+**Always render with a directory-qualified name: `res.render("deed-polls/index")`.** That resolves
+unambiguously against the `pages/` entry. Every existing template in `apps/web` happens to have a
+globally unique basename, so nothing had hit this before; the remaining pages include `detail`,
+`edit` and `upload`, which are exactly the names most likely to collide with something later.
+
+**`pages/index.njk` is now deleted** (see "The service root is the case list"), so this particular
+collision can no longer happen — **but the rule is unchanged and is not about that file.** The
+mechanism is the flat search path, which is still flat: any two templates sharing a basename collide,
+parent-most wins, and the loser fails silently with a 200. Do not read the deletion as making
+qualified names optional.
+
+This deviates from `.claude/rules/frontend.md`, which says the template name must match the file
+name. It still does — the qualified name *is* the path — but the rule as written implies the bare
+basename, and following that literally is what produced the wrong page.
+
+**One trap while verifying:** `tsx src/server.ts` does not watch. An edit appears to have no effect
+and it is easy to conclude the fix did not work; restart between changes.
+
+### Middleware validation errors needed a different route out
+
+Propagating the upload parser's rejection produced a **500**, not a 400. `domainErrorHandler`
+deliberately passes `InvalidInputError` on, on the grounds that a page which validates is expected to
+have caught it and re-rendered its own form. That is true of a **handler** and false of **middleware
+running before one**: the multipart parser rejects an over-size or wrong-type file before the handler
+exists to catch anything.
+
+Diagnosing it was slower than it should have been because the starter's development 500 page prints
+`err.message`, so the response contained the *correct* message — "The file must be smaller than 10MB" —
+on the wrong status. It read as a status bug rather than a routing one.
+
+So `apps/web`'s parser **records** its rejection on `res.locals` and calls `next()` normally, leaving
+the handler to re-render. That is the one real difference from `apps/api`'s copy, where propagating is
+right because its error middleware turns the rejection into a JSON 400 and there is no form to
+re-render. Pinned by a test.
+
+The upload **policy** — the 10 MB limit, the accepted-type list, the messages — moved into
+`libs/deed-poll/src/documents/upload-policy.ts` so both apps enforce one set. The limit is the figure
+the handover flags as needing confirmation with the service team; in two places, someone confirms it and
+changes one. Only the Multer wiring is duplicated, because Multer is Express middleware.
+
+### The note forms re-render instead of redirecting with `?error=`
+
+The prototype's note and upload handlers redirected to `?error=<message>` on a validation failure, and
+its own comment justified that on the grounds that these forms "carry one field". That is true, and it
+is an argument about **how much** there is to lose rather than about whether losing it is acceptable.
+
+`validateNoteText` rejects a note over 2000 characters, so the failure most likely to be hit is
+precisely the one where the caseworker has typed the most — and a redirect discards the whole thing.
+Both note forms therefore re-render with the submitted text and a 400, like the edit form and the
+new-case form. Verified live: a 2001-character amendment comes back 400 with the text still in the
+textarea and the stored note unchanged.
+
+They validate through `createNoteSchema` rather than calling `validateNoteText` directly, because the
+schema trims first and the trimmed value is what gets stored — so the page and the API accept exactly
+the same input.
+
+**Delete is checked before validation, deliberately.** It is a second submit button on the same form,
+branching on `action`, so a note whose text would fail validation can still be deleted — the text is
+irrelevant to a row about to disappear. Only the literal `"delete"` deletes; a missing `action` falls
+through to save, so an absent value is never destructive. All three are pinned by tests and were
+checked live, including that a delete routed through the wrong case 404s and leaves the note intact.
+
+### The edit form is strict on write and lenient on read, deliberately
+
+`tabFor` falls back to the first tab for an unrecognised id. That is right for a **GET** — the id
+comes from a URL that may be stale or bookmarked, and showing the Application tab is a harmless
+answer.
+
+**It would be destructive on a POST.** `buildUpdatePatch` writes every field it is given, blanking
+absent ones, because the Dynamics form persists the whole tab. The Application tab has **46 editable
+fields**. So a POST to `/edit/nonsense` with an empty body, falling back, would null all 46 from a
+body that never mentioned them. The prototype avoided this by accident: its `FORM_TABS.find` returned
+undefined, `fields` became `[]`, and the save was a silent no-op that still redirected as if it had
+worked.
+
+The POST handler therefore looks the tab up strictly and throws `NotFoundError` — a 404 rather than
+either a silent no-op or a fallback. Pinned by a test, and verified live: `POST /edit/nonsense`
+returns 404 and the Application fields are untouched afterwards.
+
+Subgrid tabs (notes, witnesses, documents) have **zero fields**, so a POST to one is a genuine no-op
+and needs no special case. The GET renders a "managed as a list" message instead of a form.
+
+### Do not simplify the edit template's error check to a truthiness test
+
+Carried over from the prototype, and worth repeating because it looks like noise: a Nunjucks macro
+call returns a SafeString, and **an empty SafeString is still truthy**. `{% if err %}` therefore
+marked every date field as errored and emitted a bare "Error:" above it. The template tests
+`errText | length` instead and passes a plain string on. Verified live: a clean load of the
+Application tab renders **zero** `govuk-error-message` elements.
+
+### The pages needed their own domain-error mapping
+
+**A missing case returned 500.** `apps/web` mounts the govuk starter's `errorHandler`, which logs
+and renders `errors/500` for anything at all — it has never heard of `NotFoundError`. So a caseworker
+following a stale link to a deleted case was told the server had broken.
+
+That is the **fourth** instance of the shape three Phase 3 defects had: an expected, caller-caused
+condition reaching an error handler that does not recognise it. It was invisible until the detail
+page existed, because no earlier page loaded anything that could be absent.
+
+`apps/web/src/errors.ts` now maps `NotFoundError` → 404 (the starter's own `errors/404` view, so a
+missing case and a mistyped URL look the same — both mean "there is nothing here") and
+`ForbiddenError` → 403. It is mounted **before** the starter's handler and delegates anything it does
+not recognise via `next(err)`, so a genuine fault still gets the starter's logging and 500 page.
+An `InvalidInputError` reaching it is passed on deliberately: a page that validates is expected to
+re-render its own form, so arriving here means a bug in that handler rather than a user error.
+
+### Document blobs live in a cwd-relative directory, so the two apps disagree
+
+`file-storage.ts` resolves `DATA_DIR ?? <cwd>/data`. Each app runs from its own workspace directory,
+so **`apps/api` writes to `apps/api/data` and `apps/web` reads from `apps/web/data`** — a document
+uploaded through the API is invisible to the web app, and the download link 404s. It took a while to
+diagnose because the 404 was *correct*: the file genuinely was not where the reader looked.
+
+Both `dev` scripts now set `DATA_DIR=../../data`, pointing at one directory at the repo root (already
+gitignored). Verified: with it shared, the download returns 200 with the right bytes, MIME type,
+sanitised filename and `no-store`; a document requested under the wrong case still 404s.
+
+This is the local face of the constraint the plan already records — local disk cannot go to AKS,
+because pods are ephemeral and replicas share no volume. In a deployed environment `DATA_DIR` would
+have to be a shared mount, which is exactly what Phase 10's move to CDAM removes the need for.
+
+### One more page than the prototype had
+
+The prototype's detail template linked documents to `/api/deed-polls/.../file`, which worked because
+one Nest app served both the API and the pages. They are now separate apps on separate ports, so
+`apps/web` has its own download route
+(`pages/deed-polls/[id]/documents/[documentId]/file.ts`) rather than a cross-origin link needing an
+API base URL in config. A near-duplicate of the API's, deliberately: both are thin, and the shared
+domain is what makes that cheap.
+
+### Welsh
+
+Every page carries `en` and `cy` with matching keys, per `.claude/rules/frontend.md`, but **`cy`
+holds English text** — the migration plan's decision is to build the shape and translate later. The
+workspace catalogue at `templates/tech-spec-references/welsh-translations.json` is 1,148 entries of
+court-listing terminology and covers none of this vocabulary, so there was nothing to draw on.
+Translating later is a content change rather than a page rewrite, which is the point of the shape.
+
+**Translation is being commissioned — Steve's call, 2026-09-03.** `yarn welsh:extract` writes
+[`welsh-translation-request.csv`](welsh-translation-request.csv), which is the artefact to send:
+100 strings, **68 prose strings needing translation**, plus 7 non-prose values (URLs, an email, a phone
+number, `GOV.UK`, `beta`) reported separately so nobody translates a URL or silently skips the two that
+do need a Welsh equivalent. `yarn welsh:check` exits non-zero while any `cy` value is still identical to
+its `en`, so it can gate a release later.
+
+**Every prose string carries a machine draft, and none of it may be pasted into `cy.ts`.**
+[`welsh-draft.csv`](welsh-draft.csv) holds them with a confidence and a reviewer note each; the
+extractor joins it in. The point is that a reviewer edits a draft rather than translating cold, which is
+cheaper — **not** that the drafts are usable. Three reasons they are not:
+
+1. **Mutation errors are subtle and confidently made.** The first Welsh line written into this repo read
+   `"Croeso i Gweinyddu…"`; `i` triggers soft mutation, so it should be `"Croeso i Weinyddu…"` — the same
+   rule as `Cymru` → `i Gymru`. Corrected, and left as the worked example of why review is not optional.
+2. **Legal terminology needs an authority, not recall.** `gweithred newid enw` for "deed poll" is a
+   descriptive rendering and is unverified against TermCymru or the HMCTS Welsh Language Unit. It appears
+   in the list page's heading and title, so it is the most visible string in the service. Check it first.
+3. **Sign-off.** HMCTS Welsh for a live service normally goes through the Welsh Language Unit or an
+   approved supplier, so a draft is an input to that process rather than a substitute for it.
+
+**Five drafts are marked `LOW` and want reading before the rest:** `Declarant` and the two `deed poll`
+phrases (legal terms), `Choose a type` (a mutation I could not settle), and **`Direction` — which
+collides with `Address`**, since `Cyfeiriad` is the natural Welsh for both and the upload form shows both
+fields. That one needs rephrasing rather than translating.
+
+## Phase 5 — authentication (in progress)
+
+**Both apps now authenticate, and the header bypass is deleted from the codebase.** `apps/web` takes a
+browser OIDC session; `apps/api` takes an IDAM bearer token. What is missing is a real IDAM client,
+which is an external request with lead time.
+
+### What is done
+
+| Where | What |
+|---|---|
+| `libs/deed-poll/src/auth/idam-claims.ts` | `userFromClaims` — reduces an ID token's claims to the domain's `CurrentUser` |
+| `apps/web/src/auth/idam.ts` | the OIDC client: discovery, PKCE, code exchange, end-session |
+| `apps/web/src/auth/session.ts` | sign-in/out, single-use flow state, session-id regeneration |
+| `apps/web/src/auth/require-auth.ts` | global gate with a public allowlist |
+| `apps/web/src/auth/current-user.ts` | now reads the session; the header scheme is **gone from this app** |
+| `apps/web/src/pages/{login,logout}.ts`, `pages/oauth2/callback.ts` | the three flow endpoints |
+| `docker-compose.yml` → `idam` | `hmcts/rse-idam-simulator`, the HMCTS-standard local issuer |
+| `scripts/build-idam-simulator.mjs` | builds that image; the published one is unusable, see below |
+| `scripts/seed-idam-users.mjs` | creates an admin and a role-less caseworker to sign in as |
+| `apps/api/src/auth/idam.ts` | the resource-server half: JWKS signature check, `iss`/`aud`/`exp`, roles from userinfo |
+| `apps/api/src/auth/authenticate.ts` | global bearer gate; 401 with `WWW-Authenticate` |
+| `apps/api/src/auth/current-user.ts` | now reads the caller `authenticate()` resolved, not headers |
+| `libs/deed-poll/src/auth/plain-http.ts` | the one cleartext-issuer decision both apps make |
+| `apps/{api,web}/helm/values.yaml` | IDAM env vars, and the two secrets that must exist before a deploy |
+| ~~`libs/deed-poll/src/auth/header-user.ts`~~ | **deleted.** The `x-user-roles` bypass no longer exists anywhere |
+| `apps/web/src/auth/client-credentials.ts` | `client_credentials` grant for service-to-service authentication (2026-09-02) |
+| `apps/web/src/auth/test-users.ts` | programmatic test user creation via `idam-testing-support-api` (2026-09-02) |
+| `apps/web/src/auth/refresh-middleware.ts` | automatic token refresh 5 minutes before expiry; refuses a refresh it cannot verify (2026-09-03) |
+
+**Test user creation is ready to use after IDAM registration** (2026-09-02). The `createTestUser()`,
+`getTestUser()`, and `deleteTestUser()` functions are implemented and tested. They authenticate using
+`client_credentials` grant and call `idam-testing-support-api` to create users with password already set,
+bypassing the normal email activation flow. Users auto-cleanup after 3 hours in AAT. Requires our client
+ID and secret from IDAM registration, and the real role name (`caseworker-deedpoll-admin`, still
+unconfirmed against real IDAM).
+
+**Refresh cannot be exercised end to end anywhere yet.** `rse-idam-simulator` has no refresh grant, and
+real IDAM has no registered client — so `refreshTokens` and `refreshMiddleware` are covered by unit
+tests and mutation only. See "The refresh path required an optional ID token" in the session handover
+above; it is the one part of Phase 5 whose behaviour has never been observed against a live issuer.
+
+### Decisions worth not relitigating
+
+- **Endpoints are discovered, not configured.** This was written without access to a real IDAM, so any
+  hardcoded path would have been a guess. `openid-client`'s `discovery()` reads
+  `/.well-known/openid-configuration`, so the paths come from whoever operates the issuer.
+- **`openid-client`, not a hand-rolled flow.** PKCE, `state`, the code exchange and ID-token validation
+  against a rotating JWKS are all easy to implement almost-correctly, and an almost-correct one accepts
+  tokens it should not.
+- **`requireAuth` is global with an allowlist, not per-page.** A page added tomorrow is protected by
+  default rather than protected when someone remembers, and the failure mode of the alternative is
+  silent. Same polarity argument as the `NODE_ENV` allowlist. **Do not invert it to a denylist.**
+- **An unauthenticated POST gets 403, not a redirect.** Replaying a POST after login would resubmit a
+  form the user has not seen since — for the edit tab, 46 fields they may not have intended.
+- **Plain-HTTP issuers are permitted only under `NODE_ENV` development or test.** `openid-client`
+  refuses cleartext by default and is right to: the code exchange carries the client secret. The
+  allowlist is the same shape and for the same reason as `header-user.ts`'s. **Do not relax it to a
+  negation.**
+- **Unrecognised IDAM roles are dropped.** IDAM issues roles across the whole CFT estate; keeping them
+  would put strings this service has no rules for into the object its authorization decisions are made
+  from.
+
+### Roles come from /o/userinfo, not the ID token
+
+**This was wrong first time, and the cft-workspace had the answer.** The flow originally read `roles`,
+`name` and the rest from the ID token's claims. CFT IDAM's ID token is thin, so against real IDAM that
+would have yielded **no roles at all** — and because unrecognised roles are dropped rather than
+rejected, the symptom would have been "nobody can edit privacy", not an error.
+
+Found by reading `hmcts/rse-idam-simulator`, the HMCTS-standard local IDAM, which the workspace
+manifest lists at `libs/rse-idam-simulator`. Its `JwTokenGeneratorService` puts only `sub`, `aud`,
+`scope`, `realm`, `auth_level` and similar in the token; `IdamUserInfo` — the `/o/userinfo` response —
+is what carries `uid`, `email`, `sub`, `name`, `given_name`, `family_name` and `roles: List<String>`.
+Those field names match `userFromClaims` exactly, so only the **source** was wrong. `completeLogin` now
+calls `fetchUserInfo` after the exchange, and `openid-client` checks the response's subject against the
+ID token's `sub`, so a userinfo response describing someone else is refused.
+
+**Check the simulator's source before assuming anything else about IDAM's contract.** It is the closest
+thing to a specification available locally, and it also settled two other open questions: discovery
+does advertise `userinfo_endpoint` and `end_session_endpoint`.
+
+### Local IDAM is the real simulator, not something written here
+
+There **was** a hand-written stub, `scripts/stub-idam.mjs`. It is deleted, and the reason is worth
+keeping: **a stub written alongside the code it verifies can only confirm its author's assumptions.**
+Mine put roles in the ID token because that is where the flow looked for them, and then passed. It
+would have gone on passing until the first real login failed. Making it faithful afterwards fixes that
+instance and not the class.
+
+`docker compose up -d` now starts the simulator alongside Postgres. Two commands first, once:
+
+    yarn idam:build      # clone if needed, build the jar in a JDK 17 container, build the image
+    yarn idam:users      # create admin@example.com (deedpoll-admin) and caseworker@example.com (none)
+
+Then sign in at `/login` and append `&login_hint=admin@example.com` to the authorize URL, or pick the
+user on the simulator's own login page.
+
+**Do not pull the published image.** `hmctsprod.azurecr.io/hmcts/rse/rse-idam-simulator:latest`
+predates the commits that make an authorization-code flow possible — verified by running it:
+
+| What | Published `:latest` | Built from master |
+|---|---|---|
+| `/o/token` | requires `username` (password grant), so the exchange 400s | works |
+| `/o/authorize` | `Allow: POST` only, so a browser redirect 405s | GET works |
+| redirect back | does not echo `state` | echoes `state` and `iss` |
+
+Two traps in running it. Its Gradle toolchain **pins Java 17** while the devcontainer has 21, hence
+building the jar inside `gradle:8.14-jdk17` rather than installing another JDK or patching the clone.
+And the **port must be mapped identically** (`5556:5556`), because its discovery document advertises
+its own internal port — a remapped host port yields endpoint URLs that are unreachable from outside.
+
+There is deliberately **no compose healthcheck**: the image's base is `java:25-distroless`, which has
+no shell, so a `CMD-SHELL` probe fails with "/bin/sh: no such file" forever, and a check that can never
+pass would hang any future `depends_on: service_healthy`.
+
+### Two defects found, both by running it
+
+1. **The new-case page hardcoded `{ isAdmin: false, userName: undefined }`.** Introduced in Phase 4
+   slice 2 and invisible until identity became real. It meant every case created through the form was
+   attributed to the service account **and** that an admin creating a Private case silently got Normal,
+   because `defaultPrivacy` was told nobody was an admin. Every other page read the user correctly;
+   this was the only one.
+2. **A forged `state` produced a 500.** The security check was working — `openid-client` rejected it —
+   but the rejection propagated to the starter's error handler. Now a 403, with the real error logged,
+   because the operator's reading of "nobody can log in" differs entirely from the user's. Same shape
+   as the upload-parser defect, and the fourth instance overall.
+
+### What the stub cannot tell us
+
+Verified end to end against the real simulator: discovery, the redirect out, the code exchange, a
+signed ID token checked against the issuer's JWKS, `state` echoed and checked, roles arriving via
+`/o/userinfo`, logout, replay refusal and forged-state refusal. Specifically that an admin's
+`privacy=Private` is honoured while a role-less caseworker's is **dropped and their other edits on the
+same tab still save**, and that writes carry the IDAM name.
+
+**Two things are NOT verified locally, and switching to the real simulator changed neither:
+PKCE and the client secret.** `openid-client` sends a correct S256 challenge and a `client_secret`,
+and `rse-idam-simulator` checks neither — it has no `code_challenge` handling at all, and
+`getOpenIdToken` takes `client_secret` as a parameter and never reads it
+(`IdamSimulatorController.java:237`). Both were true of the deleted stub too. So local runs prove the
+client's half of each and nothing more. Real IDAM is expected to enforce both, since the workspace
+standard mandates PKCE and the client is confidential — but that is an expectation, and the
+registration request now asks them to confirm it. An earlier version of this file claimed PKCE was
+verified end to end; it was not.
+
+What the simulator *does* enforce, so these were verified rather than assumed: `state` is echoed and
+checked, the authorization code is invalidated on exchange (`invalidateAuthCode`), so replay is
+refused by the issuer and not merely by this app, and `/o/userinfo` requires a bearer token it
+actually issued.
+
+**What only real IDAM will settle**, now that the simulator has answered the rest: whether the role
+string is really `deedpoll-admin`, and whether CFT IDAM's own `/o/userinfo` matches the simulator's
+`IdamUserInfo` shape. Both are handled defensively, which means they **fail closed** — a wrong role
+string shows up as "nobody can edit privacy", not as an error.
+
+### How `apps/api` authenticates
+
+A bearer token, validated with `jose` — not `openid-client`, which models a *client* and wants a
+secret and redirects. `createRemoteJWKSet` is the part worth not hand-rolling: it caches keys,
+refetches on an unknown `kid`, and rate-limits that refetch so a stream of bogus `kid`s cannot be
+turned into a denial of service against IDAM.
+
+`jwtVerify` checks signature, `iss`, `aud`, `exp` and `nbf` in one call, deliberately — doing them
+separately is how one gets forgotten. Then two checks it does not cover:
+
+- **`tokenName` must not say `id_token`.** An ID token carries the same `aud` and the same signature
+  as an access token, so nothing above separates them, and it is not a credential for calling an API.
+  Checked only when present, since nothing in OIDC requires the claim.
+- **`aud` must be one of `IDAM_API_AUDIENCES`.** IDAM signs for the whole CFT estate, so a valid
+  signature alone only proves "some IDAM token". Empty config refuses every request rather than
+  accepting any.
+
+**Roles come from `/o/userinfo`, per request.** Not cached, deliberately: it is authorisation data, and
+the operation the admin role gates is the one worth withdrawing it for. Discovery *is* cached, because
+that is metadata and caching it keeps IDAM's availability out of the path of every call.
+
+**A caller's fault is a 401; ours is a 500.** IDAM unreachable, discovery failing, or no configured
+audience are all our problems, and answering 401 would tell every caller their credentials are wrong
+while hiding an outage behind a status that reads as client error. `UnauthorizedError` is new in the
+domain for the 401 half.
+
+An unknown path answers 401 rather than 404, because the gate runs before routing. That is the right way
+round: which paths exist is not something an unauthenticated caller needs to learn.
+
+### Verified against the real simulator, not only in tests
+
+```
+no token                    401 + WWW-Authenticate: Bearer
+garbage token               401
+x-user-roles: deedpoll-admin  401   <- the old bypass, now inert
+real admin token            200, privacy=Private honoured,   createdBy "An Admin"
+real caseworker token       200, privacy silently -> Normal, createdBy "A Caseworker"
+unknown path, no token      401
+unknown path, with token    404
+```
+
+The token came from the simulator's password grant, whose claims match what the code expects exactly:
+`iss: http://localhost:5556/o`, `aud: deed-poll-admin`, `tokenName: access_token`, `sub` the email,
+**and no roles** — which is why they are read from userinfo.
+
+`idam.test.ts` signs its own tokens with a generated key pair and serves a real JWKS over HTTP, so the
+refusals are exercised rather than asserted: wrong key, expired, wrong audience, wrong issuer, an ID
+token, an HS256 token, no subject, a revoked token, and a userinfo response for a different subject.
+That test double decides **only the cryptography**, never the contract — the contract comes from the
+simulator's source. That distinction is the whole lesson of the stub that was deleted.
+
+### The session secret was a hole big enough to make all of this decoration
+
+`config/default.json` ships `session.secret: "session-secret"`, and nothing overrode it. The session is
+what asserts a user is signed in and which roles they hold, so a signing key checked into a public
+repository means anyone can mint a cookie claiming `deedpoll-admin` and never touch IDAM at all.
+
+`assertSessionSecret` now refuses to start on the placeholder outside development and test, and
+`SESSION_SECRET` is wired from the key vault. **Failing at startup rather than warning**, because there
+is nothing about running that would reveal it: everything works, users log in, and the sessions are
+forgeable.
+
+### How `apps/web`'s flow is tested
+
+**`openid-client` runs for real** in `auth/idam.test.ts`, against a discovery document served over HTTP
+by the test file itself. Only `authorizationCodeGrant` and `fetchUserInfo` are stubbed, because those
+two need a token endpoint that signs real tokens. So the authorization URL, the S256 challenge and the
+`state` are built by the library and asserted as the library built them — a test that mocked
+`openid-client` would only pin that the mock was called.
+
+The session double models `save`, `regenerate` and `destroy` rather than stubbing them to nothing,
+because the code depends on what they *do*: `regenerate` clears the session data, exactly as
+`express-session` does, so `signIn` writing the user before regenerating would lose it. A double whose
+`regenerate` did nothing would pass either way, which is the sort of test that costs more than it earns.
+
+**The tests were checked by breaking the code.** Four mutations, each caught:
+
+| Mutation | Caught by |
+|---|---|
+| drop `raw.startsWith("//")` from `safeReturnTo` | 2 tests — the protocol-relative open redirect |
+| write the session user before `regenerate` | 3 tests — session fixation |
+| read the id token after `signOut` | 1 test — logout would stop hinting which session to end |
+| `userFromClaims(claims)` instead of `(info)` | 2 tests — roles back from the thin ID token |
+
+That last one is the bug that shipped and was found by accident. It now fails a test.
+
+The one thing deliberately **not** asserted here is that the *whole* flow works against a live issuer.
+**That is asserted now, in a browser:** `e2e-tests/tests/auth.setup.ts` drives `/login` → the
+simulator's form → the callback → the exchange before every authenticated journey, so a break in the
+flow fails every authenticated test rather than none. See ["Phase 4
+verification"](#phase-4-verification-done-2026-09-02).
+
+### Phase 6 — config, Helm, deployment (code done)
+
+The plan's three bullets ([`ORIGINAL_PLAN_2026-08-21.md:191`](ORIGINAL_PLAN_2026-08-21.md)) are all
+closed in code. What remains is external.
+
+**Readiness now covers the tables, not just the connection.** `missingDeedPollTables()` and
+`deedPollDatabaseChecks()` are in `libs/deed-poll/src/health.ts` — shared, because both apps ask the
+same question of the same schema. One `information_schema` query, and it names the missing tables,
+because a health check reduces to UP/DOWN and being paged for "readiness DOWN" with no further detail
+wastes most of the diagnosis. `DEED_POLL_TABLES` cannot be derived (Prisma has no runtime
+introspection), so `health.test.ts` checks the list against `deed-poll.prisma` itself — **a model added
+without updating that list would otherwise leave readiness passing on a database lacking its table.**
+
+Three defects found doing it, each worse than the gap the plan named:
+
+1. **`apps/api` had no checks at all.** `healthcheck()` bare means `checks = {}` and
+   `readinessChecks = checks`, so readiness passed unconditionally: AKS would route traffic to a pod
+   that could not reach Postgres.
+2. **`apps/web` had its database check on liveness.** `readinessChecks` defaults to `checks`, so
+   passing them as `checks` puts them on **both** — and a Postgres blip would fail liveness and have
+   Kubernetes restart every web pod. Restarting cannot fix someone else's database; it turns a
+   recoverable dependency outage into a rolling one. Liveness is now empty on purpose: the process
+   answering at all is the signal.
+3. **Every probe returned HTTP 200, DOWN or not.** `libs/cloud-native-platform` did
+   `res.json(result).status(...)` — Express has already flushed by then, so the status was ignored.
+   Kubernetes reads the status code and not the body, so **no probe could ever have acted on a
+   failure.** Its unit tests could not see it: `status` and `json` are both `mockReturnThis()`, so the
+   two calls pass in either order. Fixed, with `healthcheck-middleware.wiring.test.ts` driving a real
+   request — 11 of its assertions fail if the order is put back. **This is template-library code and
+   wants upstreaming with loose end 11.**
+
+Verified by stopping Postgres against a running `apps/api`: readiness 200 → **503** → 200 on recovery,
+liveness 200 throughout.
+
+### The deployed redirect URI was wrong, and the way it was wrong is worth knowing
+
+`apps/web/helm/values.yaml` sets `ingressHost: deed-poll-admin-web.<env>...`, which reads as
+authoritative. `helm/deed-poll-admin/values.template.yaml` **overrides** it with
+`${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}...` — and `TEAM_NAME` comes from
+`annotations.team` in `Chart.yaml`, while `RELEASE_NAME` is `<chart>-staging` on main and
+`<chart>-pr-<n>` for a PR. So the real hostnames are:
+
+```
+AAT      deed-poll-deed-poll-admin-staging-web.aat.platform.hmcts.net
+preview  deed-poll-deed-poll-admin-pr-<n>-web.preview.platform.hmcts.net
+```
+
+The subchart value is the one you read first and the one that never applies. An `IDAM_REDIRECT_URI`
+written there — which is what the last commit did — is silently wrong in every deployed environment, and
+**IDAM refuses a `redirect_uri` that does not match a registered one**, so the failure lands on IDAM's
+own page after a successful login, where no request reaches our logs.
+
+It is now set beside the `ingressHost` it has to match, in both root templates, and `assertIdamSettings`
+refuses to start on a localhost or cleartext redirect URI, or an empty client secret, outside
+development and test. Confirmed by rendering: `IDAM_REDIRECT_URI == https://<ingressHost>/oauth2/callback`
+for both environments. The parent-overrides-subchart semantics this relies on were checked against a
+throwaway local chart — the real ones cannot be rendered here, since `nodejs` and `postgresql` come from
+ACR and need auth.
+
+**Preview needs a wildcard registration** (`deed-poll-deed-poll-admin-pr-*-web.preview…`) because every
+PR gets its own hostname. Without one, preview environments cannot log in at all. That is now question 2
+of the registration request.
+
+### The product code is settled, and it changed almost nothing
+
+`deed-poll-admin`. Per [`docs/how-to/new-component/github-repo.md`](../../docs/how-to/new-component/github-repo.md)
+in the workspace, an HMCTS repo is named `{product}-{component}` — so the product is `deed-poll` and this
+component is `admin`, which is what every file already assumed: `annotations.team: deed-poll`, the
+`hmctsprod.azurecr.io/deed-poll/…` image path, the `deed-poll-{env}` shared vault, `aadIdentityName`.
+The hostnames in the IDAM request are final. Parked task 1 is closed.
+
+Two things fall out of it:
+
+- **Key vaults are `{product}-{component}-{env}` with a hard 24-character Azure limit**, so
+  `{product}-{component}` must be ≤ 15. `deed-poll-admin` is **exactly 15** and
+  `deed-poll-admin-perftest` is exactly 24. It fits with no headroom — nothing can be appended.
+- **`var.component` was still the template's `expressjs`.** Not a harmless default:
+  `cnp-githubactions-library/terraform-deploy` passes `env`, `product`, `subscription`,
+  `aks_subscription_id`, `tenant_id`, `builtFrom` and `ci_service_principal_object_id` — and **not
+  `component`**. It derives `product` from `annotations.team` in the chart and leaves `component` to its
+  default, so the resource group would have been `deed-poll-aat-expressjs` and the Postgres server tagged
+  the same. Now `admin`.
+
+### Still to do in Phase 6 — all external, and none of it is code
+
+Read from `infrastructure/` and the workspace's ported CNP docs, in rough dependency order. The first
+item has the longest lead time and nothing else can be tested without it.
+
+1. **A `deed-poll-shared-infrastructure` repo.** `main.tf:16` and `keyvault.tf:5` are `data` blocks —
+   they **reference** resource group `deed-poll-{env}` and key vault `deed-poll-{env}` and fail the plan
+   if either is absent. The docs require product-level infrastructure to live in
+   `{product}-shared-infrastructure`, built with the common pipeline. It does not exist yet. It also
+   needs to create the `deed-poll` workload identity (`aadIdentityName` in both charts) with access to
+   that vault, via `cnp-module-key-vault`.
+2. **The `deed-poll` Kubernetes namespace**, which `job.helm-deploy.yml:138` deploys into and
+   `helm-deploy` takes as an input. Platform-level. `platops/hmcts.github.io` and
+   `platops/cnp-githubactions-library` are now cloned, but `cnp-flux-config` is not — so **which repo
+   declares namespaces is still unconfirmed.** Worth asking rather than assuming; it is a one-line answer
+   for anyone who has done it before.
+3. **Federated credentials for GitHub Actions OIDC** — the deploy uses `azure/login@v3` with
+   `id-token: write`. See [`docs/how-to/federated-credentials.md`](../../docs/how-to/federated-credentials.md).
+4. **ACR push rights to `hmctsprod`** for `job.helm-publish.yml:38`. See
+   [`docs/how-to/publishing-acr-images.md`](../../docs/how-to/publishing-acr-images.md).
+5. **The two key vault secrets**, `idam-client-secret` and `session-secret`. The chart fails on a missing
+   secret, deliberately.
+6. **Path to live**, for production only: Front Door, load balancer, TLS, shutter, public DNS, OAT. See
+   [`docs/how-to/path-to-live/`](../../docs/how-to/path-to-live/). Much of it may not apply — this is an
+   internal caseworker service on `platform.hmcts.net`, not a public one.
+
+Our own terraform then creates resource group `deed-poll-{env}-admin` and a Postgres flexible server
+`deed-poll-{env}` holding a `deed-poll-admin` database.
+
+### The HMCTS Way documents the Jenkins pipeline only — confirmed, not inferred
+
+Checked directly against the source repo (`hmcts/hmcts.github.io`, cloned to
+`platops/hmcts.github.io`; the workspace `docs/` are a port of it). **`cnp-githubactions-library` and
+`expressjs-monorepo` appear nowhere in its `source/` tree.** Only five pages mention GitHub Actions at
+all, and just one is about deployment — the federated-credentials guide below. The port is complete, so
+nothing is missing locally: 10 upstream `new-component` pages, 10 ported.
+
+So the answer to "does the HMCTS Way tell us how to build our pipeline" is **no, not this pipeline.** It
+describes the Jenkins route in full — `cnp-jenkins-config`, charts published to `hmcts-charts`, Flux
+reconciling a `HelmRelease`, `values.aat.template.yaml` templated with `${SERVICE_FQDN}` — and this repo
+does none of that:
+
+| Docs assume | This repo does |
+|---|---|
+| Jenkins job via `cnp-jenkins-config` | GitHub Actions (`.github/workflows/workflow.main.yml`) |
+| charts published to `hmcts-charts` git repo | `helm push` to `oci://hmctsprod.azurecr.io/helm` (`job.helm-publish.yml:70`) |
+| Flux reconciles `HelmRelease` onto the cluster | `hmcts/cnp-githubactions-library/helm-deploy@main` runs `helm upgrade` directly (`job.helm-deploy.yml:98`) |
+| `values.aat.template.yaml`, `${SERVICE_FQDN}` | `values.template.yaml`, `${TEAM_NAME}` / `${ENVIRONMENT}` |
+
+`cnp-githubactions-library` is HMCTS's own and actively maintained, so the route is real — it is just
+undocumented in the HMCTS Way. **The practical consequence is that the pipeline is already built**: what
+is missing is credentials and platform prerequisites, not workflow code. Worth one confirmation from
+Platform Operations that GHA is a supported route for a CFT service rather than a template experiment,
+because if Flux turns out to be required for production, a `cnp-flux-config` PR joins the list above.
+
+#### The credentials the pipeline needs
+
+Every secret the workflows reference, and what each is for:
+
+| Secret | Used by | How to get it |
+|---|---|---|
+| `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` | `azure/login` for ACR in `job.helm-publish.yml:34`, `job.promote-images.yml:68`, `job.helm-deploy.yml:88` | Self-service: a PR to [`azure-github-federation-config`](https://github.com/hmcts/azure-github-federation-config), per the guide below |
+| `AZURE_CREDENTIALS_CFT_PREVIEW` | `terraform-deploy` (`job.terraform.yml:95`) and preview `helm-deploy` (`job.helm-deploy.yml:103`) | Service-principal JSON — see the note on OIDC below |
+| `AZURE_CREDENTIALS_CFT_AAT` | AAT `helm-deploy` (`:118`) and `job.helm-cleanup.yml:27` | as above |
+| `SONAR_TOKEN` | `job.test.yml:73` | **Already exists as an organisation secret**, and the `hmcts.deed-poll-admin` SonarCloud project already exists too. Nothing to do |
+| `DATABASE_URL` | `job.lint.yml:46` | **Not removable as guessed** — the lint job runs `prisma validate`, which resolves `DATABASE_URL` from Prisma config and fails without it. Confirmed against PR #47's CI; see ["PR #47 and what CI actually says"](#pr-47-and-what-ci-actually-says-2026-09-03) |
+
+**The Azure ones do not exist; `SONAR_TOKEN` does.** `actions/secrets` returns `total_count: 0`, but that
+is repository secrets only — `actions/organization-secrets` lists 28 available to this repo, including
+`SONAR_TOKEN`. Verified 2026-09-03. Neither `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+`AZURE_CREDENTIALS_CFT_*` nor `DATABASE_URL` exists at either level, so every check authenticating to
+Azure fails and has been failing on master too.
+
+The federated-credentials route is **self-service and documented**:
+[`docs/how-to/federated-credentials.md`](../../docs/how-to/federated-credentials.md). Add an entry to
+`app-registrations.yaml` naming the subjects (`repo:hmcts/deed-poll-admin:ref:refs/heads/master`,
+`repo:hmcts/deed-poll-admin:pull_request`) and the roles/scopes, then raise a PR; the terraform pipeline
+creates the app registration, service principal, federated credentials and role assignments on merge.
+**Cap: 20 federated credentials per app registration**, one per subject line.
+
+#### Two long-lived credentials that do not need to exist
+
+`cnp-githubactions-library` ships `helm-deploy-openid` and `terraform-deploy-openid` — drop-in
+equivalents that authenticate by OIDC and need **no stored credentials**. This repo uses the non-OIDC
+variants for both, which is why `AZURE_CREDENTIALS_CFT_AAT` and `AZURE_CREDENTIALS_CFT_PREVIEW` exist as
+service-principal JSON blobs — and those two cover the most privileged operations there are here:
+`terraform apply` and `helm upgrade` into AKS.
+
+The HMCTS Way is explicit that federated credentials are "a more secure approach than storing service
+principal secrets", and the repo already uses OIDC for the ACR steps, so this is inconsistent as well as
+weaker. **Switching to the `-openid` actions would remove both secrets.** Not done here: it cannot be
+tested without Azure access, and a broken deploy pipeline is worse than a working one with two secrets in
+it. Do it as its own change, against a real environment.
+
+- **CI has no database**, so the `ccd` schema tests skip. Unchanged by this work.
+
+### Still to do in Phase 5
+
+- ~~**Send the registration request.**~~ **Done 2026-09-03** — PR raised to `hmcts/idam-access-config`
+  from the files staged at `/tmp/deed-poll-idam-pr/`. Config recorded in
+  [`IDAM_REGISTRATION_REQUEST.md`](IDAM_REGISTRATION_REQUEST.md). Nothing else here can move until it
+  is merged and deployed, but that is now IDAM's move rather than ours.
+- **Put the two secrets in the vault.** `apps/web/helm/values.yaml` now names `idam-client-secret` and
+  `session-secret`, and the chart fails on a missing secret — which is the right way round for both. The
+  client secret's value comes from IDAM; the session secret is ours, and just needs to be random.
+- ~~**`apps/web`'s flow has no unit tests.**~~ **Done.** `apps/web` 144 → 223 tests, covering
+  `login.ts`, `logout.ts`, `oauth2/callback.ts`, `auth/idam.ts`, `auth/session.ts` and
+  `auth/current-user.ts`. See below for how, which matters more than the count.
+
+## Phase 4 verification (done 2026-09-02)
+
+**The two journeys and the accessibility pass are done, and the whole suite is green — in parallel, and
+against the built assets rather than Vite's dev middleware, which is the mode `webServer` actually
+uses.** Counts are in the generated dashboard above, not here. Welsh content is the only part of the
+plan's Phase 4 verification line still outstanding — see below.
+
+| File | What |
+|---|---|
+| `e2e-tests/tests/deed-polls.spec.ts` | the two journeys, with axe and validation checked inline |
+| `e2e-tests/tests/idam-session.ts` | `signInAsAdmin`, the storage-state path, the deployed-stack guard |
+| `e2e-tests/tests/auth.setup.ts` | Playwright `setup` project: signs in once, saves the session |
+| `e2e-tests/playwright.config.ts` | the `setup` project and chromium's dependency on it |
+| `e2e-tests/tests/onboarding-happy-path.spec.ts` | signs in; it had been broken since Phase 5 (below) |
+| `apps/web/package.json` | `dev:nowatch` now sets `NODE_ENV`; it could not boot (below) |
+| `.gitignore` | `.auth/` — the saved session is a live cookie, so a credential |
+
+**Two tests, not twelve.** `.claude/rules/e2e-testing.md` is explicit that accessibility, validation
+and Welsh belong *inside* a journey rather than in tests of their own, so they are. The journeys are
+the two the plan named:
+
+1. **create → detail → edit a tab → save.** Includes the empty-Date-Received refusal (the request that
+   was a 500 until slice 1), and the signature-date pair rule, asserted as a re-render that keeps the
+   submitted value rather than a redirect that discards it.
+2. **add a note → amend → delete.** Includes the empty-note and over-2000-character refusals, and that
+   the over-length one comes back **with the text still in the textarea** — the specific behaviour
+   Phase 4 changed from the prototype's `?error=` redirect, and the one a regression would silently
+   undo.
+
+Two assertions are worth keeping for what they prove rather than what they check:
+
+- **`Created By` is "An Admin", the IDAM name.** The new-case page hardcoded `userName: undefined`
+  until Phase 5, and nothing but a real login could have caught it. Now a test would.
+- **The state after saving both signature dates is Awaiting *Enrolment*, not Awaiting Signature.** The
+  cascade tests received before requested — the source workflow's ordering, preserved deliberately —
+  so this pins the precedence where a caseworker would actually see it. It also proves the save reached
+  the database, since state is derived and never supplied.
+
+### Accessibility: clean, with no exclusions
+
+Every deed-poll page passes `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa` at six points across five
+pages, including both error states. **`homepage.spec.ts` and the onboarding spec both exclude
+`.govuk-footer__link` and `.language` as known template issues; the deed-poll spec excludes nothing,
+and was checked with the exclusions removed rather than assumed.** Both selectors are in the shared
+layout these pages also render, so carrying the exclusions over would have suppressed findings that do
+not exist and hidden any that appeared later. Do not add one back without evidence.
+
+That converts the expectation recorded here previously — "built from GOV.UK components, so it should
+largely pass" — into a measurement.
+
+### Three defects, all found by running the suite rather than by writing it
+
+**The pattern from Phase 3 held: none of the three was visible to unit tests, and the first two meant
+the e2e suite could not run at all.** It never had, because CI only runs it post-deploy and nothing has
+deployed.
+
+1. **`apps/web`'s `dev:nowatch` could not boot** — and it is the exact command Playwright's `webServer`
+   runs. It sets `VITE_MIDDLEWARE=false` but not `NODE_ENV`, which `dev` beside it does. With
+   `NODE_ENV` unset, `plainHttpPermitted()` is false and `assertSessionSecret` refuses to start on the
+   placeholder secret, exactly as designed. So Phase 5's startup guards were correct and the script was
+   the thing that was wrong. Every spec would have failed on a `webServer` timeout, which reads as a
+   Playwright problem rather than a missing environment variable. Fixed by matching `dev`:
+   `NODE_ENV=development DATA_DIR=../../data`.
+
+2. **The four onboarding tests were redirecting to `/login`.** `requireAuth` is global and
+   `/onboarding` is not on the public allowlist, so Phase 5 broke template tests that nobody ran.
+   **Fixed by signing in, not by opening the paths up:** an internal caseworker service sitting behind
+   login is the intended behaviour, and onboarding is not special. Adding it to `PUBLIC_PATHS` would
+   have made the test pass by weakening the thing it should be protected by.
+
+3. **One `storageState` file means one server-side session, shared by every test that restores it.**
+   The onboarding form keeps its answers *in* the session, so under `fullyParallel` the four tests
+   overwrote each other and the summary page showed whichever name landed last. Serial passed, parallel
+   failed — the worst shape of flake, because the fix that hides it (`--workers=1`) also hides the next
+   one. So the onboarding spec calls `signInAsAdmin` per test for a session of its own, while the
+   deed-poll journeys share the saved state, which is safe because they only *read* the signed-in user.
+   **Any future journey that writes to the session must sign in for itself**; the rule is recorded in
+   `idam-session.ts` beside the constant.
+
+### The session is obtained from the real IDAM, not fabricated
+
+`auth.setup.ts` drives the whole authorization-code flow against `hmcts/rse-idam-simulator` — `/login`,
+the simulator's own form, the callback, the exchange — and saves the resulting session. **Nothing mints
+a cookie or short-circuits the gate.** A test-only bypass would be the very thing Phase 5 deleted from
+the application, and it would let the login flow break with the suite still green, which is precisely
+what the deleted hand-written stub did.
+
+Two consequences worth knowing:
+
+- **`yarn idam:build` and `yarn idam:users` are prerequisites for the suite**, not just for manual
+  poking. Both are one-off. Without the accounts the simulator answers 401.
+- **The simulator's login form has a `<label>` with no `for`**, so the setup uses `#username` /
+  `#password` rather than `getByLabel`. Its markup is not ours to fix, and there is nothing for a
+  role- or label-based locator to bind to. Do not "correct" it.
+
+### The journeys skip against a deployed environment, deliberately
+
+`job.e2e-test.yml` runs the suite against a **deployed** URL, not a local stack — so in CI the issuer is
+real CFT IDAM, where **there is no registered client and no test account yet**. The auth-dependent tests therefore skip when `EXPRESSJS_MONOREPO_TEMPLATE_WEB_URL` or `TEST_URL` is set,
+with a reason naming the registration request. Verified: 7 skipped, 16 passed, and no ENOENT on the
+missing storage state, which is the failure mode a naive guard would have produced.
+
+**This is the one place the IDAM registration now blocks a test rather than only a deploy.** When the
+client and a test account exist, the guard becomes "use these credentials in a deployed environment"
+rather than "skip".
+
+### Still outstanding under Phase 4
+
+1. **Welsh content.** Every page carries `en` and `cy` with matching keys and `cy` holds English, by the
+   migration plan's decision. The journeys now load a page under `?lng=cy` and assert its heading and a
+   link still render, which catches a **missing** `cy` key — that renders blank rather than erroring —
+   but there is nothing Welsh to assert until there is a translation. Still a content change rather
+   than a page rewrite, which was the point of building the shape.
+2. **`power_app_nest/` is not deleted**, by decision. See the note at the top of this file.
+
+Not done and not proposed: the upload journey. It writes a blob to `DATA_DIR`, which cannot work in a
+deployed environment at all (local disk cannot go to AKS), so an e2e test of it would pin behaviour that
+Phase 10's move to CDAM removes. The upload paths are covered by unit tests and were verified live end
+to end — see Phase 3 slice 4.
+
+## Loose ends
+
+Small, real, and deliberately not done. None blocks Phase 3.
+
+1. **Upstream the async-handler wrap into the template, once Phase 3's handlers exist.** The error
+   mapping depends on Express 5 forwarding a rejected handler promise to error middleware.
+   `normalizeHandlers` in `@hmcts-cft/simple-router` is the natural chokepoint to guarantee it
+   instead of relying on framework behaviour — it is currently just
+   `Array.isArray(x) ? x : [x]`, and upstream's copy at `hmcts/expressjs-monorepo-template` is
+   byte-identical, so a patch applies cleanly.
+
+   **Do not patch it locally.** `libs/simple-router` is template-provided (`@hmcts-cft/` scope,
+   arrived wholesale in the re-scaffold `82e8b0d`). This repo was re-scaffolded on 2026-08-21 and
+   will be again; a local patch would either be silently dropped or land as a conflict. Contribute it
+   upstream so every service on the template benefits. Deferred until the 29 handlers are written,
+   because they are the argument for the change.
+
+   One trap for whoever writes it: **Express distinguishes error middleware by `fn.length`**, so a
+   naive variadic wrapper (arity 0) would silently reclassify every 4-arg error handler as a normal
+   one. `simple-router` already arity-checks (`>= 2 && <= 4`) for this reason. The wrapper must
+   declare parameters explicitly and branch on the original's arity.
+
+   The risk this mitigates is currently low: `apps/api` and `apps/web` pin `express` **exactly** at
+   `5.2.1`, so the behaviour cannot drift away via semver or a lockfile refresh — it needs a
+   deliberate major bump, which `errors.wiring.test.ts` would fail on. That is the intended signal.
+
+2. **`libs/deed-poll/package.json` declares `"tsx": "*"` and `"vitest": "*"`.** Wildcards, which
+   `CLAUDE.md` forbids ("Pinned dependencies: specific versions only"). Pre-existing on this branch,
+   unrelated to any of the above. Root pins `vitest` at `4.1.10`; match it.
+
+3. **Prisma query logging is now live under `yarn dev`.** Setting `NODE_ENV=development` revived
+   `libs/postgres-prisma/src/index.ts:34`, which had never fired. If it proves noisy that line is the
+   place to look, and `CLAUDE.md`'s `DEBUG=prisma:query` suggestion is now redundant rather than
+   necessary.
+
+4. ~~**`power_app_nest/` is untracked but *not* ignored on master.**~~ **Closed 2026-09-03**, by
+   [PR #43](https://github.com/hmcts/deed-poll-admin/pull/43). It turned out to be **five** paths rather
+   than one, and three were live rather than theoretical — `git status` on master listed
+   `power_app_nest/`, `data/` and `e2e-tests/.auth/` as untracked, so `git add -A` would have staged
+   ~500M of `node_modules`, real case-document blobs, **and a live session cookie**. `.env` (the
+   template covered only `.env.local` and `.env.*.local`) and `.DS_Store` went too.
+
+   Verified rather than assumed: no tracked file becomes ignored
+   (`git ls-files | git check-ignore --stdin` is empty), nothing tracked has a `data/` component, and
+   `.env.example` / `.env.sample` are still not ignored by the bare `.env` entry. The proof it worked is
+   that `git status` on master is now clean where it previously listed three paths.
+
+   The comments on master were written to be true *of master* rather than copied from here — this
+   branch's text names `file-storage.ts`, `DATA_DIR` and the Phase 4 form, none of which exist there.
+   Merging master produced the expected `.gitignore` conflict and this branch's fuller text was kept,
+   since it is the accurate one in the merged tree.
+
+5. **Nothing restricts who can delete a case, and the delete cascades.** `DELETE /deed-polls/:id` is
+   open — faithfully, because the prototype guarded nothing. **The cascade is confirmed, not assumed:**
+   deleting a case with a note left zero rows in `deedpoll_notes`, checked directly against Postgres.
+   So one unauthenticated request destroys a case and all its children. Raised as a question, not a
+   fix: `requireRoles(DEEDPOLL_ADMIN)` would be one line
+   (`export const DELETE = [requireRoles(DEEDPOLL_ADMIN), handler]`), but whether a caseworker may
+   delete a case, and whether deletion should be soft given `retainPermanently` exists in the schema,
+   is a business decision. Worth settling before Phase 5, since after Phase 5 the answer becomes an
+   IDAM role mapping rather than a code change. The same question applies to the nested
+   `DELETE .../notes/:noteId` and `.../witnesses/:witnessId`.
+
+6. **A create can never succeed without `dateReceived`, but the schema calls it optional.**
+   `createDeedPollSchema` marks every field optional on the stated grounds that a case is logged
+   incrementally — yet `allocateForCreate` cannot derive a reference-number year without
+   `dateReceived`, so a create omitting it now fails with a 400 (see slice 1). That is honest, but
+   the constraint is discovered a transaction late rather than declared. Making `dateReceived`
+   required on `createDeedPollSchema` — and only there, leaving the update schema partial — would
+   surface it at parse time and make the API self-documenting. Not done unasked: it changes a schema
+   the conformance harness and the Phase 4 forms both read, so it wants a deliberate look rather than
+   being smuggled in with a route port.
+
+7. ~~**A child list under a non-existent case answers `[]` with 200, not 404.**~~ **Fixed
+   2026-09-01** — see "Child lists 404 for a missing parent" under Phase 3 slice 2.
+
+8. ~~**Two Biome warnings in `apps/postgres/health-server.mjs`**~~ **Fixed 2026-09-01.** The unused
+   parameter was `err`, in a handler that discarded it — so a proxy failure gave a 502 with nothing
+   on stdout. It is logged now, whole rather than as `err.message`, which is empty for the
+   ECONNREFUSED `AggregateError` this raises in practice. `req` is positional and became `_req`.
+   Note the file is **template-provided** (arrived in the re-scaffold `82e8b0d`, its only commit), so
+   a re-scaffold will reintroduce both warnings — see item 11.
+
+11. **Contribute the `health-server.mjs` fix upstream**, for the same reason as item 1: the file came
+    wholesale from `hmcts/expressjs-monorepo-template` and this repo will be re-scaffolded again, so
+    the local fix will either be dropped or land as a conflict. Small enough to carry either way, but
+    every service on the template has the same silent-failure handler. The template is not cloned in
+    this workspace, so the local copy could not be diffed against upstream to confirm it has not
+    already diverged.
+
+12. ~~**`libs/onboarding` is the only workspace that does not run `biome check`.**~~ **Done** in
+    `bb5d341`. The reason it stopped being deferrable: `biome lint src/` skips the `organizeImports`
+    assist, so nine files were warnings to the root `biome check .` and clean to `yarn lint` — and any
+    `biome check --write` at the root silently restaged them into whatever commit was open. They turned
+    up inside the API authentication commit that way and had to be split back out. The churn the
+    original note was avoiding is real but one-off; being restaged at random was not.
+
+9. **The 10 MB upload limit is a guess.** `MAX_BYTES` in `apps/api/src/documents/upload.ts`. There
+   was no existing limit in the repo or the prototype to inherit, and it was chosen for scanned
+   certificates and multi-page PDFs. **Confirm against real file sizes with the service team**, and
+   remember the file is buffered in memory, so the ceiling is really 10 MB × concurrent uploads
+   against the pod's memory limit.
+
+16. **The shared `pg.Pool` has no size limit and will stall when exhausted** (found 2026-09-02).
+
+    **Read this first if a test hangs: on 2026-09-03 this was blamed for an e2e hang and was measured
+    innocent.** The symptom matched the description below exactly — a deterministic hang inside a
+    function performing a second concurrent login — so the pool was the obvious suspect. Polling
+    `pg_stat_activity` while the test hung showed connections peaking at **3** against the default max
+    of 10. The real cause was `browser.newContext()` inheriting the file's `storageState`, so the
+    "anonymous" context was already signed in and waited forever for a login form that never rendered
+    (`fc6e40c`). The pool defect below is still real and still unfixed; it was simply not this. **A
+    plausible recorded cause is not evidence — measure before acting on it.**
+
+    The pool
+    backing Prisma and the session store is created in `libs/postgres-prisma` with **no `max`**, so
+    `node-postgres` defaults to 10. OIDC login is several round trips on that pool — token exchange,
+    userinfo, session writes — and under load (7 Playwright workers × concurrent logins) the pool drains
+    and `pool.connect()` queues forever with no timeout. The symptom was a 30-second test hang on
+    `/oauth2/callback`, which read as a broken login rather than pool exhaustion. Playwright's default
+    test timeout rescued it, but in production a `/oauth2/callback` that never responds would wedge the
+    session and leave the user hung. **Not fixed here** — it is a real defect but its scope is wider than
+    e2e tests (every route handler reaching Prisma or the session store is affected), and any interim fix
+    risks diverging from what the template should eventually ship. The right action is upstreaming a
+    sensible pool config to `hmcts/expressjs-monorepo-template` — checked size, connection timeout, idle
+    timeout — for the same reason as items 1, 11 and 15. The e2e suite mitigates by keeping logins to a
+    minimum: the setup project signs in once, most tests share that session, and the one journey that
+    needed its own session (the Welsh check, because `localeMiddleware` writes `req.session.locale`) now
+    creates a throwaway context rather than signing in per test. That keeps the concurrent logins under
+    the threshold that stalls the pool — a workaround, not a fix. Future: make `max` and
+    `connectionTimeoutMillis` explicit in `libs/postgres-prisma/src/index.ts` when upstreaming the change.
+
+15. **Every page is titled "Express Monorepo Template", and the header names no service at all.** Found
+    while checking what actually pointed at `/` (2026-09-02). Two separate faults that look like one:
+
+    - **`apps/web/src/locales/en.ts` sets `serviceName: "Express Monorepo Template"`** — a re-scaffold
+      leftover. It still reaches `page-title.njk` (`{{ title }} - {{ serviceName }} - {{ govUk }}`), so
+      **every page in the service is titled `<page> - Express Monorepo Template - GOV.UK`**, verified in
+      the rendered HTML. User-visible, in the browser tab and in every bookmark. A one-value fix, but
+      **the value is a content decision** — what this is called to the people using it, plus the Welsh —
+      so it wants asking rather than defaulting to the repo name.
+    - **`govukHeader` ignores `serviceName` and `serviceUrl` in govuk-frontend 6.** The starter's
+      `site-header.njk` passes both; the installed 6.2.0 header template mentions neither, because v6
+      moved them to `govukServiceNavigation`. So no service-name link renders, and the header is bare but
+      for the crown. Fixing it means switching the starter to `govukServiceNavigation` — and
+      `libs/express-govuk-starter` is **template-provided**, so this wants upstreaming for the same
+      reason as items 1 and 11 rather than patching locally, and it affects every service on the
+      template. Note axe cannot catch either fault: a title of "Express Monorepo Template - GOV.UK" is
+      present and non-empty, which is all `document-title` checks.
+
+14. **The case list has no pagination.** Steve's, 2026-09-02, for the backlog. `findDeedPolls` selects
+    every case matching the filter and `index.njk` renders all of them into one `govukTable` — fine at
+    the ~40 rows a dev database holds, and not fine at the volume a live deed-poll caseload reaches.
+    Note the shape of the work is more than a `LIMIT`: the filter tabs would need to carry the page
+    through, the count is needed for the pager, and **there is no sort control**, so "page 2" is only
+    meaningful once the order is explicit — `findDeedPolls`'s current order is whatever it is rather
+    than something the page states. `.claude/rules/backend.md`'s own performance note asks for
+    pagination on list endpoints, so `GET /deed-polls` in `apps/api` wants the same treatment and the
+    two should agree on the parameter names. Worth doing together, and worth asking the service team
+    what a caseworker actually sorts and filters by before designing it.
+
+13. **`e2e-tests` is not covered by `yarn lint`, and 6 of its files fail `biome check`.** Exactly the
+    shape of item 12: the workspace has no `lint` script, so `turbo lint`'s 11 tasks skip it entirely,
+    while a root `biome check .` reports 9 errors — all pre-existing template formatting (single quotes,
+    where the repo is configured for double). **Which means a root `biome check --write` will silently
+    restage them into whatever commit is open**, which is the specific accident item 12 was closed to
+    stop. The three files added by the Phase 4 verification are written to conform and lint clean; the
+    template's were left alone deliberately, so the formatting churn does not land inside a change about
+    tests. Fixing it is: add `"lint": "biome check ."` to `e2e-tests/package.json` and format the five
+    template files, as its own commit.
+
+10. **Upload type-checking is by declared MIME type only.** `ALLOWED_MIME_TYPES` reads the
+    `Content-Type` the client puts on the multipart part, which a client can lie about. It stops
+    accidents, not attacks, and there is no virus scanning. Real inspection arrives with CDAM in
+    Phase 10; until then uploads are local-development only anyway, since local disk cannot go to AKS.
+
+## Branch state
+
+[`feat/deed-poll-migration`](https://github.com/hmcts/deed-poll-admin/tree/feat/deed-poll-migration)
+is published with upstream tracking configured; 138 files, +12,060 lines against master as of
+2026-09-01. The diff was scanned for secrets before publishing — no `.env`, keys or credential-shaped
+strings. The only hits were the template's `SESSION_SECRET` placeholder and Helm `secretRef` names,
+which are references, not values.
+
+**No PR is open, deliberately.** This is work in progress through Phase 2 of 6, so a PR would sit
+open for weeks. Revisit once Track A is green.
+
+## PR #47 and what CI actually says (2026-09-03)
+
+**[PR #47](https://github.com/hmcts/deed-poll-admin/pull/47) is open for `feat/deed-poll-migration`** —
+284 files, +24,922/−768. GitHub reports `mergeable=MERGEABLE` with `mergeStateStatus=UNSTABLE`: it
+conflicts with nothing, and its checks fail.
+
+**This is the first time CI has ever run against this branch**, and the result is the most useful thing
+learned all day: **not one failure is in the branch's code.** `Build / Test / Test Changed Packages`
+**passes**. Every failure is a repository-level prerequisite that has never been set up.
+
+| Check | Why it fails | Already tracked as |
+|---|---|---|
+| `Build / Lint / Lint Changed Packages` | runs `yarn workspace @hmcts/postgres-prisma exec prisma validate`, which needs `DATABASE_URL`; the env is empty → `PrismaConfigEnvError` | the `DATABASE_URL` row in the credentials table, guessed there as "likely removable" — it is not removable while lint runs `prisma validate` |
+| `Build & Publish` × 4 (api, web, crons, postgres) | `azure/login`: *"Not all values are present. Ensure 'client-id' and 'tenant-id' are supplied"* | `AZURE_CLIENT_ID` / `AZURE_TENANT_ID`, Phase 6 item 3 (federated credentials) |
+| `Infrastructure / Terraform / Terraform Plan` | the same `azure/login` failure | ditto |
+| `Security Scan / osv-scan` | *"Code Security must be enabled for this repository to use code scanning"* | **new — was not recorded anywhere.** A repository setting, not a credential. **Fixed** — see the visibility section |
+| `SonarCloud Code Analysis` | ~~no `SONAR_TOKEN`~~ — **that was wrong**, see below | **Fixed** — it was the quality gate |
+
+**A correction, because the first version of this section overstated it.** It said "the repository has no
+secrets at all", from `gh api repos/hmcts/deed-poll-admin/actions/secrets` returning `total_count: 0`.
+That call returns **repository** secrets only. There are **28 organisation secrets available to this
+repo**, listed by `gh api repos/hmcts/deed-poll-admin/actions/organization-secrets` — and they include
+`SONAR_TOKEN`, `REGISTRY_USERNAME`/`_PASSWORD`/`_LOGIN_SERVER`, `NPM_API_TOKEN` and `GITLEAKS_LICENSE`.
+
+What is still true, and is what the Azure work rests on: **there is no `AZURE_CLIENT_ID` or
+`AZURE_TENANT_ID` at either level**, nor `AZURE_CREDENTIALS_CFT_*`, nor `DATABASE_URL`. So the
+federated-credentials request stands unchanged; only the Sonar diagnosis was wrong. Check
+`organization-secrets` as well as `secrets` before concluding a secret is missing.
+
+**Corrects a prediction made earlier in this session.** It was expected that `terraform plan` would fail
+on `main.tf:15` / `keyvault.tf:4`, the `data` blocks reading a resource group and key vault that do not
+exist. **It fails earlier than that, at Azure login**, so the missing shared infrastructure has not yet
+been reached and remains unverified rather than confirmed. Terraform also logged *"No product name
+provided and could not extract from Chart.yaml"*, which may be a second, separate configuration problem
+and has not been investigated.
+
+**`Deploy`, `Smoke Test` and `E2E` all report `skipping`** — the build failure gates them. So merging
+would not currently produce a failed AAT deploy; it would stop before that. Good, but it also means the
+deploy path stays untested.
+
+**Master's pipeline has been failing all day, not just on this PR.** `Main` is `failure` on the merges of
+#41, #43 and #44. These gaps are chronic — the pipeline has never been green, because the prerequisites
+have never existed — so a red PR #47 is not evidence of anything wrong with the branch.
+
+### So is it ready to merge?
+
+The code is. Nothing in `feat/deed-poll-migration` is what makes CI red, and locally
+`install --immutable`, `lint`, `build`, `test` (1542) and `test:e2e` (21) all pass. But **CI cannot go
+green until platform onboarding happens**, which is Phase 6's external work — so "merge when CI is
+green" and "merge when the gates clear" are the same statement. The recorded decision to wait therefore
+still holds, and #47 is best treated as a review vehicle rather than something to merge now.
+
+## Repository visibility, and the history secret scan (2026-09-03)
+
+**`deed-poll-admin` is `internal`. Every comparable HMCTS service repo is `public`** — checked:
+`expressjs-monorepo-template`, `cath-service`, `pcs-api`, `rpx-xui-webapp`. That asymmetry is the root
+cause of the `osv-scan` failure rather than a missing setting, and it may simply be a default nobody
+revisited.
+
+**Code Security cannot be enabled on this repository.** It is `disabled`, and the API refuses to change
+it even for a repo admin:
+
+```
+422 An enterprise policy prevented modifying Code Security enablement.
+    Contact your enterprise owner for details.
+```
+
+Public repos get code scanning free, which is why the peer repos need no licence and show no such
+setting. So the options are: make the repository public, request enterprise enablement (a paid seat that
+no peer service needed), or stop uploading SARIF. The third was taken as an interim — see
+`.github/workflows/job.osv-scanner.yml`, which explains itself and says to revert once the entitlement
+exists. **`--fail-on-severity=HIGH` still gates merges**, so the scan's value is intact; what is lost is
+the security-tab alert list, which was unusable anyway.
+
+### The history was scanned before recommending anything about visibility
+
+Going public exposes history, not just current code — and an inherited branch was named
+`fix/remove_localhost_private_key_from_vcs`, which was reason enough to look properly. Earlier secret
+checks in this file covered only the **branch diff**; this covered every blob.
+
+**Scope:** 5,803 objects — everything reachable from all refs, plus all 47 deleted orphan branches from
+[`DELETED_BRANCHES.md`](DELETED_BRANCHES.md). Those matter because **their objects are still on GitHub**:
+`git fetch origin <sha>` for a deleted branch's commit still succeeds, so a visibility change exposes
+them by SHA even though no ref points at them. 4,549 blobs were content-scanned for private-key blocks,
+AWS access key ids, Azure `AccountKey=`, GitHub tokens, Slack tokens and JWTs.
+
+**Result — two hits, and the important one is not in current history:**
+
+| Finding | Where | Assessment |
+|---|---|---|
+| A real 1,679-byte **`BEGIN RSA PRIVATE KEY`** at `src/main/resources/localhost-ssl/localhost.key` | **15 of the 47 deleted orphan branches.** *Not* reachable from `master` or `feat/deed-poll-migration` | The key the deleted branch was named after. The `src/main/resources` path is a Java layout, so it predates the expressjs template entirely — inherited ancestry, never this service's. A localhost dev TLS key, so low value to an attacker, but it is a real private key and would become publicly retrievable |
+| `-----BEGIN RSA PRIVATE KEY-----` in `.yarn/unplugged/…/node-gyp/test/fixtures/certs.js` | Deleted orphan branches only | **Not a secret.** node-gyp's own published test fixture, shipped in the public npm package. Also not in current history |
+
+**No AWS keys, no Azure account keys, no GitHub or Slack tokens, no JWTs anywhere.**
+
+**So: current history is clean.** The blocker on going public is not this service's code — it is the
+inherited orphan objects. Two ways to clear it, both needing someone with more than repo admin:
+
+1. **Ask GitHub Support to garbage-collect unreachable objects** on the repository, which is the
+   documented route after removing secrets from history. The refs are already deleted, so nothing else is
+   needed first.
+2. **Decide the localhost key does not matter** — a self-signed key for `localhost` grants an attacker
+   nothing on any HMCTS system. Defensible, and probably true, but it should be an explicit decision
+   recorded here rather than an omission, because "there is a private key in the public history" is a
+   sentence that will be asked about later.
+
+Either way, **do not treat the earlier "diff was scanned for secrets" note as covering this.** It did
+not; this section does.
+
+## Branch inventory
+
+Taken 2026-09-03. **48 remote branches besides `master`; 6 relate to this codebase and 42 do not.**
+
+Regenerate rather than trusting these numbers — they moved twice during the session as branches were
+created and merged:
+
+```sh
+git fetch --prune origin
+for b in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin \
+             | sed 's|^origin/||' | grep -vE '^(HEAD|master|origin)$'); do
+  git merge-base --is-ancestor "origin/${b}" origin/master 2>/dev/null && { echo "MERGED     $b"; continue; }
+  mb=$(git merge-base "origin/${b}" origin/master 2>/dev/null)
+  git rev-parse --verify -q "$mb" >/dev/null 2>&1 && echo "shares     $b" || echo "UNRELATED  $b"
+done
+```
+
+### The 6 that relate to this codebase
+
+| Branch | State | Disposition |
+|---|---|---|
+| `feat/deed-poll-migration` | 53 ahead, level with master, all five checks green | **the work.** Keep; still no PR by choice |
+| `fix/lockfile-lodash-4.18.1` | shares history, 1 ahead, pre-rescaffold | delete — syncs `lodash 4.18.1` into a lockfile with no lodash, and touches `.pnp.cjs` / `.yarn/install-state.gz`, which this setup does not use |
+| `chore/gitignore-safety-entries` | merged (#43) | delete |
+| `fix/biome-manifest-lockfile-mismatch` | merged (#42) | delete |
+| `fix/tsx-lockfile-sync` | merged (#44) | delete |
+| `chore/rescaffold-monorepo-template` | merged (#23) | delete |
+
+`renovate/tsx-4.x` was in this table as "merged broken"; it is merged (#41) and its branch is gone. The
+lockfile it left behind is fixed by #44 — see ["Master's CI was red"](#masters-ci-was-red-twice-in-one-day).
+
+### The 42 with no shared history, and what they actually are
+
+**Corrects an earlier version of this section**, which said they were "branches inherited with the repo
+from the template it was copied from". The *names* come from the old template, but the mechanism is
+different and matters:
+
+- **Each is a single orphan root commit** — no parent, message `Initialize <branch-name>`, all authored
+  2026-08-20. So all 42 were produced by one bulk operation rather than carried over as real history.
+  That is why `git merge-base` finds nothing: each is its own root.
+- **Each holds a full tree snapshot** of the pre-rescaffold codebase — 2381 files on `timja-patch-1`,
+  1331 on `update-axios`, 283 on `renovate/express-4.x`, 73 on a `snyk-upgrade-*` — including
+  `.eslintrc.js`, `.eslintignore` and `.github/workflows/checks.yml`.
+- **Those files are absent from master.** `82e8b0d` replaced the tree wholesale on 2026-08-21 and the
+  repo moved from ESLint to Biome. So whatever each branch changed, it changed files that no longer
+  exist, and there is no common base to diff against to recover the intent.
+
+**Bot-named, 24** — disposable, since the bot re-raises anything still relevant:
+`renovate/{babel-monorepo, chai-5.x-lockfile, codeceptjs-3.x-lockfile, cookie-parser-1.x,
+eslint-config-prettier-8.x, express-4.x, major-eslint-monorepo, node-22.x-lockfile,
+postcss-8.x-lockfile, require-directory-2.x}`, `renovate-label`,
+`dependabot/npm_and_yarn/{azure/msal-node-2.9.2, braces-3.0.3, follow-redirects-1.15.6,
+grpc/grpc-js-1.10.9, micromatch-4.0.8, phin-3.7.1, terser-5.15.0, webpack-5.94.0}`, and five
+hash-suffixed `snyk-upgrade-*`.
+
+**Human-named, 18:** `addsetup`, `adusumillipraveen-patch-1`, `fix-empty-preview-env`,
+`fix-graceful-shutdown`, `fix/remove_localhost_private_key_from_vcs`, `follow-redirects`,
+`info-provider-1.2.0`, `library-patch-fix-branch`, `switch-away-from-csurf-to-tiny-csrf`,
+`task/jenkins-config`, `timja-patch-1`, `timja-patch-2`, `tooling-refresh`, `update-axios`,
+`update-cnp`, `update-routeing`, `update-routeing-exports`, `webpackhash`.
+
+**Check the PRs before deleting any of them.** Deleting a branch closes its PR, and since the tree each
+targets is gone, **a PR body may be the only surviving statement of what the branch was for** — the
+commit message is just `Initialize <name>`. That needs `gh`, whose token was invalid throughout this
+session.
+
+Two worth a look regardless of the rest:
+
+- **`fix/remove_localhost_private_key_from_vcs`** — the name implies a private key was committed to the
+  template at some point. Worth confirming it never reached *this* repo's history before the branch
+  naming it disappears. Not checked.
+- **`task/jenkins-config`** — relevant to ["The HMCTS Way documents the Jenkins pipeline
+  only"](#the-hmcts-way-documents-the-jenkins-pipeline-only--confirmed-not-inferred), since this repo
+  deploys via GitHub Actions instead.
+
+## Master's CI was red twice in one day
+
+Both faults came from the Renovate batch merged on 2026-09-03, and **neither was visible to
+`yarn test`** — which is the point worth carrying forward. `vitest` transpiles without typechecking, so
+the suite cannot see a type error, and it never reaches an install failure at all.
+
+| | Cause | Symptom | Fixed by |
+|---|---|---|---|
+| 1 | **#27** bumped `@biomejs/biome` to 2.5.12 in `package.json` but not `yarn.lock` (still 2.5.8) | `yarn install --immutable` fails in 0.1s | **#42**, reverting to 2.5.8 |
+| 2 | **#35** bumped `pg` 8.21.0 → 8.23.0 and `@types/pg` 8.20.0 → 8.23.1 while `@prisma/adapter-pg` stayed 7.8.0 | `yarn build` fails, TS2345 at `libs/postgres-prisma/src/index.ts:24` | **#42**, reverting both |
+| 3 | **#41** bumped `tsx` to 4.23.13 in `package.json` but not `yarn.lock` | `yarn install --immutable` fails again | **#44**, adding the lockfile entry |
+
+**The biome one could not simply be relockfiled.** 2.5.12 was published seven hours earlier and Yarn 4's
+`npmMinimalAgeGate` defaults to 1440 minutes, so resolution is refused — `YN0016: all versions
+satisfying "2.5.12" are quarantined`. That is a supply-chain cooldown working as designed, not a
+registry problem. Reverting was the immediate unblock; Renovate can raise it again past the gate.
+
+**#3 was fixed forward rather than reverted**, because `tsx 4.23.13` was days old and therefore
+resolvable — the gate did not explain that one, so Renovate's lockfile step is failing for its own
+reason.
+
+Two things follow, and the second matters more than any individual fix:
+
+- **The `pg` root cause is unresolved and was misdiagnosed first.** It looked like duplicate
+  `@types/pg` (the lockfile carried 8.15.5, 8.15.6, 8.20.0 and 8.23.1, and adapter-pg asks for
+  `^8.16.0`). `yarn dedupe @types/pg` unified `*`, `^8.16.0` and `8.23.1` onto one 8.23.1 and **the
+  build still failed**, so it is a real constraint. A `pg` bump needs `@prisma/adapter-pg` bumped with
+  it and the pair tested together.
+- **#27 broke install and merged before #31–#40, so CI could not have verified any of them.** Every PR
+  after it would have failed at the install step. #35's build break landing is a direct consequence.
+  **Two Renovate PRs in a row shipped a manifest change with no lockfile entry** — worth fixing the
+  Renovate configuration rather than repairing instances by hand.
+
+## Renovate PR #31 (checked, not merged)
+
+**Checked 2026-09-03. It merges cleanly and clears 12 of the advisories. Not merged** — parked task 2
+said report only, and it still stands as a decision for Steve.
+
+**Mergeability is not in question at all: it is a fast-forward.** PR #31 is
+`renovate/applicationinsights-3.x` at `c292fbc`, whose parent **is** current master `8bf8563`, so master
+has not moved since the PR was cut and there is nothing to merge. Confirmed two ways —
+`git merge-base --is-ancestor` says master is an ancestor of the PR head, and `git merge-tree` produces
+a clean result tree with no conflicts. Both were run without touching any working tree, in throwaway
+worktrees since removed.
+
+It changes two files: `libs/cloud-native-platform/package.json` (`applicationinsights` 3.15.0 → 3.16.0)
+and `yarn.lock`. Not lockfile-only, but a manifest bump is what a version update is.
+
+**Measured, by running `yarn npm audit --all --recursive` against both trees** rather than reasoning
+from the lockfile:
+
+| | master `8bf8563` | PR #31 `c292fbc` |
+|---|---|---|
+| total | **28** (12 high, 16 moderate) | **16** (6 high, 10 moderate) |
+| `protobufjs` | 11 | **0** |
+| `@opentelemetry/propagator-jaeger` | 1 | **0** |
+| `fast-uri` | 4 | 4 |
+| `@hono/node-server`, `mysql2`, `qs` | 2 each | 2 each |
+| `@opentelemetry/core`, `@types/config`, `deepmerge-ts`, `tsconfck`, `uuid`, `valibot` | 1 each | 1 each |
+
+**The mechanism is not the one predicted, and is better.** The note here expected the bump to "carry
+`protobufjs@8.0.1`" to a patched version. What actually happens is that `@opentelemetry/otlp-transformer`
+goes 0.217.0 → 0.220.0 and **no longer depends on `protobufjs` 8.x at all**, so the exactly-pinned
+`protobufjs@npm:8.0.1` entry disappears from the lockfile rather than being upgraded. That is why 12 clear
+rather than 11 — `@opentelemetry/propagator-jaeger` goes with it. `@grpc/grpc-js` and
+`@grpc/proto-loader` are unchanged, so they were never the problem.
+
+### Three different advisory counts, and why none of them is drift
+
+An earlier note in this session said Dependabot had "drifted to 22, up from the 20 recorded in
+PROGRESS.md". **That comparison was wrong** — it put two different tools' numbers side by side as though
+one had moved:
+
+- **20** was `yarn npm audit` on 2026-08-23, recorded below.
+- **28** is `yarn npm audit` today, on a **byte-identical lockfile** — master's `yarn.lock` last changed
+  in `b4e77d4` on 2026-08-23 and has not been touched since. So nothing regressed and no dependency
+  changed: **8 new advisories were published against packages that were already there.** That is the
+  only thing that can have happened, and it is worth knowing as the background rate.
+- **22** is GitHub Dependabot's own count, from the push warning. It groups and scopes differently from
+  `yarn npm audit --all --recursive`, which counts every advisory against every package across all
+  workspaces including dev dependencies. The two are not required to agree and comparing them tells you
+  nothing.
+
+**Compare like with like, and prefer `yarn npm audit` locally**, because it is the one that can be run
+against an arbitrary tree — which is what made the before/after table above possible.
+
+**`power_app_nest/` is not the source of any of this, verified again 2026-09-03.** It is untracked, **no
+commit on any branch has ever touched the path**, and it is gitignored on this branch — so Dependabot
+cannot see its `package-lock.json`, and master carries exactly one lockfile (root `yarn.lock`). This is
+the third time that question has come up; the reasoning is below under "Dependency alerts on master" and
+has not changed.
+
+**Loose end 4 is still live and was re-confirmed while checking:** `power_app_nest/` is ignored only on
+this branch. `git show origin/master:.gitignore` has no entry for it, so on master a stray `git add -A`
+would still try to commit ~498M of `node_modules` and 57 document blobs.
+
+## Dependency alerts on master
+
+**Resolved 2026-08-23** — [PR #36](https://github.com/hmcts/deed-poll-admin/pull/36) is merged
+(`8bf8563`) and this branch has merged master to pick it up (`ce73cc5`). Kept for the reasoning, and
+because the residue below is still live. History, in case the numbers are ever questioned again:
+
+**Do not repeat the mistake this section replaces.** An earlier note in this file claimed the 97
+Dependabot alerts were an artefact of the migration branch adding dependencies "to a tree that still
+contains the old lockfile entries on master", and would "drop sharply once `power_app_nest/` is
+deleted at the end of Phase 4". That is wrong in three ways, checked on 2026-08-23:
+
+- **`power_app_nest/` has never been tracked.** Zero files on `origin/master`, and no commit on any
+  branch has ever touched the path. Its dependencies were never in the tracked lockfile, so deleting
+  the directory at the end of Phase 4 cannot change the alert count.
+- **There is one tracked lockfile**, root `yarn.lock`, on both master and this branch.
+- **Alerts are computed against the default branch.** This branch's lockfile change is not on
+  master, so the count is master's and is unaffected by the migration either way.
+
+The real cause of the 82 → 97 jump is the re-scaffold itself. `82e8b0d` (PR #23) replaced master's
+`yarn.lock` wholesale with the template's, and it is the only change to that file on master since the
+2026-08-20 Renovate bumps. The template pulls in `applicationinsights` (`libs/cloud-native-platform`),
+and with it `@opentelemetry/otlp-transformer` → `@grpc/proto-loader` → `protobufjs`, plus
+`@grpc/grpc-js`. That cluster alone accounts for 11 of the 41 high alerts and one of the two criticals.
+
+Composition: 2 critical, 41 high, 49 medium, 5 low. Concentrated in a handful of transitive roots —
+`protobufjs` 11, `tar` 5, `fast-uri` 5, `brace-expansion` 3.
+
+Most of it is a stale-lockfile artefact rather than a dependency the workspace actually pins, because
+the declared ranges already admit the patched versions:
+
+| Package | Locked | First patched | Range in lockfile |
+|---|---|---|---|
+| `protobufjs` | 7.5.4 | 7.5.5 | `^7.5.3` — a refresh resolves it |
+| `tar` | 7.5.9 | 7.5.21 | `^7.4.3` — a refresh resolves it |
+| `@grpc/grpc-js` | 1.14.3 | 1.14.4 | `^1.14.3` — a refresh resolves it |
+| `protobufjs` | 8.0.1 | 8.6.6 | pinned exact; needs its dependent bumped |
+
+So this was fixable with a targeted `yarn up -R` and no manifest changes — it was **not** work to
+defer to Phase 4.
+
+**Remediated in [PR #36](https://github.com/hmcts/deed-poll-admin/pull/36)**, merged to master on
+2026-08-23 from `chore/refresh-lockfile-security` — deliberately kept out of the re-platforming diff.
+`yarn npm audit --all --recursive` went from 99 advisories (2 critical, 41 high, 51 moderate, 5 low) to
+20 (0 critical, 7 high, 13 moderate), lockfile-only, with lint, build and test clean. This branch
+merged master at `ce73cc5` and audits at the same 20; `libs/deed-poll` is unchanged at 441 tests.
+
+The 20 that remain are pinned by their dependents rather than by us, so each needs the dependent
+bumped. **11 of them are a single `protobufjs@8.0.1`**, pinned exactly by the OpenTelemetry stack under
+`applicationinsights`; Renovate PR #31 (`applicationinsights` 3.16.0) should carry it. Two are not
+vulnerabilities at all — `@types/config` is a stub package that `config` supersedes (delete the
+dependency from `apps/api` to clear it), and `tsconfck` is merely flagged unmaintained.
+
+**The figure 20 is as of 2026-08-23 and is now 28 on the same unchanged lockfile** — see
+["Renovate PR #31"](#renovate-pr-31-checked-not-merged) above, which measures both and explains why that
+is new advisories rather than any change here. The `protobufjs` reasoning held up; PR #31 clears 12 rather
+than 11, and by removing the dependency instead of upgrading it.
+

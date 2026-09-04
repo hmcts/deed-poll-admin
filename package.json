@@ -7,6 +7,8 @@
     "libs/*"
   ],
   "scripts": {
+    "progress": "node scripts/progress-dashboard.mjs",
+    "progress:write": "node scripts/progress-dashboard.mjs --write --tests",
     "test": "turbo test",
     "test:force": "turbo test --force",
     "test:coverage": "turbo test -- --coverage",
@@ -31,7 +33,12 @@
     "db:migrate:dev": "yarn workspace @hmcts/postgres run migrate:dev",
     "db:generate": "yarn workspace @hmcts/postgres-prisma run generate",
     "db:studio": "yarn workspace @hmcts/postgres run studio",
-    "db:drop": "yarn workspace @hmcts/postgres run migrate:reset"
+    "db:drop": "yarn workspace @hmcts/postgres run migrate:reset",
+    "db:migrate:ccd": "yarn workspace @hmcts/postgres run migrate:ccd",
+    "idam:build": "node scripts/build-idam-simulator.mjs",
+    "idam:users": "node scripts/seed-idam-users.mjs",
+    "welsh:extract": "node scripts/extract-welsh-strings.mjs",
+    "welsh:check": "node scripts/extract-welsh-strings.mjs --check"
   },
   "keywords": [],
   "author": "HMCTS",

@@ -18,6 +18,14 @@ deed-poll-admin-web:
   nodejs:
     image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:${WEB_IMAGE}"
     ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}.platform.hmcts.net"
+    environment:
+      # MUST be the ingressHost above with /oauth2/callback on the end, and MUST be registered with
+      # IDAM verbatim — IDAM refuses a redirect_uri that does not match a registered one exactly, so a
+      # mismatch here breaks login in this environment and nowhere else. Set here rather than in
+      # apps/web/helm/values.yaml because that chart's own ingressHost is overridden by this file: the
+      # two values have to be decided in the same place or they drift, and the subchart default was
+      # already wrong for every deployed environment.
+      IDAM_REDIRECT_URI: "https://${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}.platform.hmcts.net/oauth2/callback"
 
 # API application configuration
 deed-poll-admin-api:

@@ -13,8 +13,9 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest watch",
-    "lint": "biome lint src/",
-    "format": "biome format src/ --write"
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write ."
   },
   "devDependencies": {
     "typescript": "6.0.3"

@@ -1,0 +1,86 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/file-upload/macro.njk" import govukFileUpload %}
+{% from "govuk/components/select/macro.njk" import govukSelect %}
+{% from "govuk/components/input/macro.njk" import govukInput %}
+{% from "govuk/components/radios/macro.njk" import govukRadios %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{#
+  SSR document-upload form.
+
+  Types come from the reference table, so an empty table shows a message rather than a form whose only
+  mandatory select has nothing in it.
+
+  The file input is never repopulated on a re-render — browsers do not allow it — so a rejected upload
+  always costs the file selection. The type, name and direction choices are replayed, which is what a
+  redirect with `?error=` could not do.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if errorMessage %}
+      {{ govukErrorSummary({
+        titleText: errorSummaryTitle,
+        errorList: [{ text: errorMessage, href: "#" + errorField }]
+      }) }}
+    {% endif %}
+
+    <span class="govuk-caption-l">{{ case.displayReference }}</span>
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+    {% if not hasTypes %}
+      <p class="govuk-body">{{ noTypes }}</p>
+      <p class="govuk-body"><a class="govuk-link" href="/deed-polls/{{ case.id }}#documents">{{ cancel }}</a></p>
+    {% else %}
+      <form method="post" action="/deed-polls/{{ case.id }}/documents/upload" enctype="multipart/form-data" novalidate>
+        {{ govukFileUpload({
+          id: "file",
+          name: "file",
+          label: { text: fileLabel },
+          hint: { text: fileHint },
+          errorMessage: { text: errorMessage } if errorField == "file"
+        }) }}
+
+        {{ govukSelect({
+          id: "documentTypeId",
+          name: "documentTypeId",
+          label: { text: typeLabel },
+          items: documentTypes,
+          value: values.documentTypeId,
+          errorMessage: { text: errorMessage } if errorField == "documentTypeId"
+        }) }}
+
+        {{ govukInput({
+          id: "name",
+          name: "name",
+          label: { text: nameLabel },
+          hint: { text: nameHint },
+          value: values.name,
+          errorMessage: { text: errorMessage } if errorField == "name"
+        }) }}
+
+        {% set directionItems = [] %}
+        {% for o in directionOptions %}
+          {% set directionItems = (directionItems.push({
+            value: o.value,
+            text: o.text,
+            checked: (values.direction == o.value) or (not values.direction and o.value == "Incoming")
+          }), directionItems) %}
+        {% endfor %}
+        {{ govukRadios({
+          name: "direction",
+          fieldset: { legend: { text: directionLabel } },
+          hint: { text: directionHint },
+          items: directionItems,
+          errorMessage: { text: errorMessage } if errorField == "direction"
+        }) }}
+
+        {{ govukButton({ text: submit }) }}
+        <a class="govuk-link govuk-!-margin-left-3" href="/deed-polls/{{ case.id }}#documents">{{ cancel }}</a>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -22,9 +22,17 @@ export default defineConfig({
     video: process.env.CI ? 'retain-on-failure' : 'off',
   },
   projects: [
+    // Signs in once through the real local IDAM and saves the session, so the journeys that need a
+    // caseworker do not each pay for the OIDC round trip. `requireAuth` in apps/web is global, so
+    // every page but the public allowlist needs one. See ./tests/idam-session.ts.
+    {
+      name: 'setup',
+      testMatch: /auth\.setup\.ts/,
+    },
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      dependencies: ['setup'],
     },
   ],
   webServer: process.env.EXPRESSJS_MONOREPO_TEMPLATE_WEB_URL || process.env.TEST_URL ? undefined : {

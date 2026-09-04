@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { nameSchema, dobSchema, addressSchema, roleSchema, formatZodErrors, createErrorSummary } from "./validation.js";
+import { describe, expect, it } from "vitest";
+import { addressSchema, createErrorSummary, dobSchema, formatZodErrors, nameSchema, roleSchema } from "./validation.js";
 
 describe("nameSchema", () => {
   it("should validate valid name data", () => {
