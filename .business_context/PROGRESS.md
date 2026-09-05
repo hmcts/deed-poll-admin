@@ -1,12 +1,44 @@
 # Migration progress — handover
 
-Last updated: 2026-09-04. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
+Last updated: 2026-09-05. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md). Backend: [`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md).
 
 **Track A is code-complete.** Phases 0–4 are done, Phase 5's login flow is built and working, and
 **Phase 6 no longer has anything in it that is code.** Everything that remains is a credential, a
 platform question, or IDAM.
 
-## Pick up here (end of 2026-09-04 session)
+## Pick up here (end of 2026-09-05 session)
+
+**The work has moved to a new repo.** `hmcts/deed-poll-api` now exists and holds a Spring Boot service
+that will replace `apps/api`. **Its resume state is [`deed-poll-api/docs/RESUME.md`](../../deed-poll-api/docs/RESUME.md)
+— read that before restarting Ralphex**, and [`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md) for why any
+of it is shaped as it is.
+
+Three repos now, and the naming matters because it was conflated once already:
+
+| Repo | What | State |
+|---|---|---|
+| `deed-poll-admin` | **internal staff app** — `apps/web`, the caseworker UI | this repo; Phases 0–6 done |
+| `deed-poll-api` | **the backend**, Spring Boot | tasks 0–11 of 17 built by Ralphex |
+| `deed-poll-web` | **citizen service**, public and anonymous in release 1 | a separate Ralphex run was in progress |
+
+### What happened on 2026-09-05
+
+- **Ralphex built tasks 0–11 of the API foundation** — 112 Java files, 511 tests, 3 Flyway migrations,
+  the whole domain ported from `libs/deed-poll` with the conformance harness. On branch
+  `deed-poll-api-01-foundation`, pushed. **Task 12 is half-finished and its work is uncommitted**, on
+  purpose.
+- **PRs #67 and #68 merged**, so the plans, the Ralphex build plan and the pruned handover are all on
+  master. Five stale local branches deleted, recorded in
+  [`DELETED_BRANCHES.md`](DELETED_BRANCHES.md).
+- **Nothing changed in *this* repo's deployability.** The four Azure secrets are still missing and the
+  list below is unchanged.
+
+### Where this repo picks up
+
+**Nothing here is blocked on `deed-poll-api`, and vice versa.** The items below can all proceed in
+parallel with the Ralphex work, and items 1–2 gate everything downstream.
+
+## Pick up here — this repo (unchanged from 2026-09-04)
 
 **Read [`WAYS_OF_WORKING.md`](WAYS_OF_WORKING.md) first.** It is the shortest useful thing in this
 directory, and both of the decisions it carried are now settled — see them for what was decided and
@@ -43,6 +75,24 @@ about those than any earlier version of it — **four secrets are needed, not on
    [`welsh-translation-request.csv`](welsh-translation-request.csv) for review** — 50 UI strings and 68
    prose strings, each with an unreviewed machine draft and a confidence. Read the ones marked `LOW`
    first; two of those are legal terms and one is a word collision, not a translation nicety.
+
+### New on 2026-09-05, for the two new repos
+
+5. **Create `hmcts/deed-poll-shared-infrastructure`** and move the resource group and Key Vault out of
+   this repo's `infrastructure/`. **There is no template** — copy `pt-shared-infrastructure`, which is
+   cloned at `../apps/pt/pt-shared-infrastructure`. **Do this before the first successful
+   `Terraform Apply`**: nothing has ever been applied, so there is no state to migrate, and that window
+   closes the moment the credentials land. See [Moving the shared
+   infrastructure](DEED_POLL_API_PLAN.md#moving-the-shared-infrastructure).
+6. **Settle `deed-poll-api`'s default branch.** It is `main`; this repo and `spring-boot-template` use
+   `master`, and HMCTS Jenkins conventions assume `master` in places. Cheaper to change before a pipeline
+   exists. **Not a decision for an agent.**
+7. **Jenkins onboarding for both new repos** — `cnp-jenkins-config` entries. Neither needs a
+   federated-credential PR, because Jenkins has its own credentials path, so neither joins the queue #99
+   is stuck in.
+8. **Consider fixing `SecurityConfigurationTest` by hand.** Ralphex spent its last half-hour on a Spring
+   context ambiguity. That is often five minutes for a human and a long loop for an agent — fix it, commit
+   it, and let Ralphex resume at task 13.
 
 ### What is actually left in Phase 6
 
