@@ -1,25 +1,86 @@
 # Migration progress — handover
 
-Last updated: 2026-09-05. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md). Backend: [`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md).
+Last updated: 2026-09-06. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md). Backend:
+[`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md). **Infrastructure and pipeline:
+[`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md).**
 
-**Track A is code-complete.** Phases 0–4 are done, Phase 5's login flow is built and working, and
-**Phase 6 no longer has anything in it that is code.** Everything that remains is a credential, a
-platform question, or IDAM.
+**Track A's application code is complete.** Phases 0–4 are done and Phase 5's login flow is built and
+working. **Phase 6 has been redefined** — an earlier version of this file said nothing in it was code any
+more, and as of 2026-09-06 that is no longer true. See below.
 
-## Pick up here (end of 2026-09-05 session)
+## Pick up here (end of 2026-09-06 session)
+
+**Read [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md) first.** Five decisions were taken on
+2026-09-06 that supersede much of Phase 6 as this file describes it, and rewriting every affected passage
+below would lose the reasoning that produced them. **Where this file and that one disagree, that one is
+current.**
+
+### What changed on 2026-09-06
+
+1. **All four repos move to the Jenkins CNP pipeline.** `.github/workflows/` is deleted entirely from
+   `deed-poll-admin`, `deed-poll-web` and `deed-poll-api` — not just the deploy-side workflows. The
+   reasoning is divergence from the estate and cognitive load.
+2. **`hmcts/deed-poll-infra` holds the shared infrastructure**, replacing this repo's `infrastructure/`
+   directory. That directory is already deleted from the working tree here.
+3. **The shared Postgres server lives in `deed-poll-infra`**, and this repo's session table moves into its
+   own `session` schema so that api's Flyway can own `public` without meeting a table it did not create.
+4. **Vault secrets are prefixed per component** where sharing them would be unsafe —
+   `admin-session-secret`, `admin-idam-client-secret`, and `app-insights-connection-string` replacing
+   `ExpressJsAppInsightsConnectionString`.
+5. **S2S stays out of the first Terraform apply**, because the `data` lookup fails until the microservice
+   is registered.
+
+### The Azure-credential blocker is gone
+
+**This is the most important consequence and it invalidates a lot of what follows.** The four missing
+secrets (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CREDENTIALS_CFT_PREVIEW`,
+`AZURE_CREDENTIALS_CFT_AAT`) were **GitHub Actions-specific**. Jenkins authenticates as its own managed
+identity, so none of them is needed.
+
+- **[`azure-github-federation-config#99`](https://github.com/hmcts/azure-github-federation-config/pull/99)
+  was closed on 2026-09-06**, with a comment explaining why. The branch was left in place so it can be
+  reopened if the pipeline decision is ever revisited.
+- The `job.terraform.yml:95` `_PREVIEW`/`_AAT` trap recorded further down this file **is moot** — that
+  workflow is being deleted.
+- **Every passage below that treats these secrets as a gate is stale.** They are struck through where
+  practical and superseded wholesale where not.
+
+**The new critical-path external dependency is `cnp-jenkins-config` onboarding — four entries.** That
+trades an unreviewed queue for a well-trodden path.
+
+### Where to pick up
+
+Ordering, per [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md)'s execution plan:
+
+1. **Install Terraform in the devcontainer.** It is not installed, so a Ralphex run on a Terraform-only
+   repo would start with validation commands that cannot execute.
+2. **First commit in `deed-poll-infra`.** The repo has none, and Ralphex needs at least one before it will
+   start.
+3. **`deed-poll-infra`, then this repo** — both worth a Ralphex plan. **`deed-poll-web` and
+   `deed-poll-api` by hand**, because both have work in flight that a second concurrent branch would
+   collide with.
+4. **Raise the four `cnp-jenkins-config` entries** in parallel with all of it.
+
+Items 4 (Welsh) and 6 (api's default branch) from the 2026-09-05 list below are unaffected and still
+stand. Items 1, 3, 5 and 7 are superseded.
+
+## Pick up here (end of 2026-09-05 session) — largely superseded, see above
 
 **The work has moved to a new repo.** `hmcts/deed-poll-api` now exists and holds a Spring Boot service
 that will replace `apps/api`. **Its resume state is [`deed-poll-api/docs/RESUME.md`](../../deed-poll-api/docs/RESUME.md)
 — read that before restarting Ralphex**, and [`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md) for why any
 of it is shaped as it is.
 
-Three repos now, and the naming matters because it was conflated once already:
+**Four repos** as of 2026-09-06, and the naming matters because it was conflated once already:
 
 | Repo | What | State |
 |---|---|---|
 | `deed-poll-admin` | **internal staff app** — `apps/web`, the caseworker UI | this repo; Phases 0–6 done |
 | `deed-poll-api` | **the backend**, Spring Boot | tasks 0–11 of 17 built by Ralphex |
 | `deed-poll-web` | **citizen service**, public and anonymous in release 1 | a separate Ralphex run was in progress |
+| `deed-poll-infra` | **shared Terraform** — resource group, Key Vault, App Insights, Redis, Postgres | created 2026-09-06; no commits yet. See [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md) |
+
+Note the name is `deed-poll-infra`, **not** the HMCTS-conventional `-shared-infrastructure`.
 
 ### What happened on 2026-09-05
 
@@ -56,7 +117,14 @@ about those than any earlier version of it — **four secrets are needed, not on
 
 ### Tomorrow, in order
 
-1. **Raise one consolidated credentials request, rather than chasing #99 alone.**
+**Items 1, 3, 5 and 7 below are superseded by the 2026-09-06 decisions.** They are left in place because
+each records a measurement or a trap that is still worth knowing, but do not work from them. Items 2, 4,
+6 and 8 still stand.
+
+1. ~~**Raise one consolidated credentials request, rather than chasing #99 alone.**~~ **Superseded
+   2026-09-06 — no GitHub Actions credentials are needed at all.** #99 is closed. What follows is the
+   measurement of what *would* have been needed, kept because it is the clearest record of how much the
+   GitHub Actions path was actually asking for.
    [`azure-github-federation-config#99`](https://github.com/hmcts/azure-github-federation-config/pull/99)
    has not moved since 2026-09-03 18:27 — still `OPEN`, `MERGEABLE`, `REVIEW_REQUIRED`, with four other
    Renovate PRs unreviewed ahead of it. **It also covers only about a quarter of what is needed**: it
@@ -66,7 +134,10 @@ about those than any earlier version of it — **four secrets are needed, not on
 2. **Ask which repo declares the `deed-poll` Kubernetes namespace.** The one outstanding Phase 6 item
    that is a *question* rather than a piece of work, and a one-line answer for anyone who has done it.
    `cnp-flux-config` is still not cloned here, which is why it is unconfirmed.
-3. **Decide whether `job.terraform.yml:95` hardcoding `AZURE_CREDENTIALS_CFT_PREVIEW` is a bug.** It
+3. ~~**Decide whether `job.terraform.yml:95` hardcoding `AZURE_CREDENTIALS_CFT_PREVIEW` is a bug.**~~
+   **Moot 2026-09-06 — that workflow is being deleted.** The analysis below stands as a description of the
+   action's behaviour, and may be worth reporting upstream to `cnp-githubactions-library` for the repos
+   still using it. It
    passes the *preview* credential regardless of environment, while `stage.infrastructure.yml` only ever
    targets `environment: aat`. `job.helm-deploy.yml` switches `_PREVIEW`/`_AAT` by environment; Terraform
    does not. **The practical consequence is a trap: provisioning only `_AAT` leaves Terraform Apply
@@ -78,7 +149,11 @@ about those than any earlier version of it — **four secrets are needed, not on
 
 ### New on 2026-09-05, for the two new repos
 
-5. **Create `hmcts/deed-poll-shared-infrastructure`** and move the resource group and Key Vault out of
+5. ~~**Create `hmcts/deed-poll-shared-infrastructure`**~~ **Done 2026-09-06, as `hmcts/deed-poll-infra`.**
+   The files are copied across and this repo's `infrastructure/` is deleted from the working tree; the
+   repo has no commits yet. Scope grew beyond the resource group and Key Vault — App Insights, Redis and
+   Postgres are shared too, per `DEED_POLL_INFRA_PLAN.md` Decision 2. Original wording: move the resource
+   group and Key Vault out of
    this repo's `infrastructure/`. **There is no template** — copy `pt-shared-infrastructure`, which is
    cloned at `../apps/pt/pt-shared-infrastructure`. **Do this before the first successful
    `Terraform Apply`**: nothing has ever been applied, so there is no state to migrate, and that window
@@ -87,26 +162,33 @@ about those than any earlier version of it — **four secrets are needed, not on
 6. **Settle `deed-poll-api`'s default branch.** It is `main`; this repo and `spring-boot-template` use
    `master`, and HMCTS Jenkins conventions assume `master` in places. Cheaper to change before a pipeline
    exists. **Not a decision for an agent.**
-7. **Jenkins onboarding for both new repos** — `cnp-jenkins-config` entries. Neither needs a
-   federated-credential PR, because Jenkins has its own credentials path, so neither joins the queue #99
-   is stuck in.
+7. **Jenkins onboarding — now all *four* repos**, not two. `cnp-jenkins-config` entries. The note below
+   turned out to be the decisive observation of the whole exercise: Jenkins has its own credentials path,
+   so none of these joins the queue #99 was stuck in. On 2026-09-06 that reasoning was extended to admin
+   and web as well, and #99 was closed.
 8. **Consider fixing `SecurityConfigurationTest` by hand.** Ralphex spent its last half-hour on a Spring
    context ambiguity. That is often five minutes for a human and a long loop for an agent — fix it, commit
    it, and let Ralphex resume at task 13.
 
 ### What is actually left in Phase 6
 
-Nothing in it is code any more, and nothing in it is mine to do.
+**Rewritten 2026-09-06.** The previous version said nothing in it was code and nothing in it was mine to
+do. The pipeline decision changed both halves of that: there is real code work again, and most of it is
+ours.
 
 | Item | State |
 |---|---|
-| Shared resource group, Key Vault, workload identity | ✅ **Done 2026-09-04** by [PR #64](https://github.com/hmcts/deed-poll-admin/pull/64), in this repo's own `infrastructure/` rather than a separate repo. See ["Why the shared infrastructure is not a separate repo"](#why-the-shared-infrastructure-is-not-a-separate-repo) |
-| `session-secret` in the vault | ✅ **No longer manual** — generated by `random_password` in `keyvault.tf`, created on the first successful apply |
-| `deed-poll` Kubernetes namespace | Platform-level; which repo declares it is **still unconfirmed**. `cnp-flux-config` is not cloned here |
-| `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` | Absent at repository *and* organisation level. **PR #99 creates the app registration but does not set these** — someone has to add them as secrets once it merges |
-| `AZURE_CREDENTIALS_CFT_PREVIEW` | Absent. Needed by **Terraform** (`job.terraform.yml:95`) and preview `helm-deploy`. Note the trap in item 3 above: Terraform uses this one even for AAT |
-| `AZURE_CREDENTIALS_CFT_AAT` | Absent. Needed by AAT `helm-deploy` and `job.helm-cleanup.yml` |
-| `idam-client-secret` in the vault | Blocked on IDAM. Must be added by hand — the value comes from IDAM's reply, so there is nothing to generate |
+| Shared resource group, Key Vault, workload identity | ✅ Written and working, but **moving** to `hmcts/deed-poll-infra` — originally [PR #64](https://github.com/hmcts/deed-poll-admin/pull/64) in this repo's `infrastructure/`. See [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md) |
+| Migrate all four repos to the Jenkins CNP pipeline | **New, and the bulk of what is left.** Delete `.github/workflows/`, add `Jenkinsfile_CNP`, rewrite `variables.tf` for `withInfraPipeline`'s variable set |
+| Move the session table to its own `session` schema | **New.** One `schemaName` option plus a migration creating the schema. Lets api's Flyway own `public` cleanly |
+| Rename the per-component vault secrets | **New.** `admin-session-secret`, `admin-idam-client-secret`, `app-insights-connection-string`. Must happen before IDAM replies |
+| `cnp-jenkins-config` onboarding, four entries | **New, and now the critical path.** External |
+| `session-secret` in the vault | ✅ Still generated rather than manual — `random_password` in the shared repo's `key-vault.tf`, on the first successful apply. Renamed per component |
+| `deed-poll` Kubernetes namespace | Platform-level, **still unconfirmed**, but no longer a bare question: under Jenkins it is a `cnp-flux-config` change per component |
+| ~~`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`~~ | ✅ **No longer needed.** GitHub Actions-specific; Jenkins authenticates as its own managed identity. PR #99 closed 2026-09-06 |
+| ~~`AZURE_CREDENTIALS_CFT_PREVIEW`~~, ~~`AZURE_CREDENTIALS_CFT_AAT`~~ | ✅ **No longer needed**, same reason. The `_PREVIEW`/`_AAT` trap goes with them |
+| `idam-client-secret` in the vault | Blocked on IDAM, **unchanged by any of this**. Added by hand once IDAM replies — the value is theirs, so there is nothing to generate. Renaming to `admin-idam-client-secret` must land first |
+| S2S microservice registration | **New.** Deliberately out of the first apply; the registration path is not yet identified |
 | Path to live | Production only, and much may not apply — internal caseworker service on `platform.hmcts.net`, not public |
 
 **Phase 5 is unchanged: wait for IDAM.** The registration PR is raised and nothing here can be verified
@@ -133,7 +215,17 @@ A short session, three merges, and one architectural decision that is worth not 
 4. **This file was pruned** from 2,297 lines, and the Phase 3 slice detail and the superseded 2026-09-03
    CI sections moved to [`archive/`](archive/). That closes the second of the two open questions.
 
-### Why the shared infrastructure is not a separate repo
+### Why the shared infrastructure is not a separate repo — reversed 2026-09-06
+
+**Both premises of this section have since failed, and its own evidence is what overturned it.** It argued
+against a separate repo because (a) admin was the only component and (b) this service is GitHub Actions.
+`deed-poll-api` and `deed-poll-web` broke (a) — and on 2026-09-06 the pipeline decision broke (b), which
+was the load-bearing half. The observation below that *all 85 of those repos are Jenkins* is precisely the
+divergence argument that led to moving all four repos onto the CNP pipeline.
+
+`hmcts/deed-poll-infra` now exists. See [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md). The rest of
+this section is kept because the three template traps at the end of it are still real and still worth not
+rediscovering.
 
 The other **85** HMCTS `*-shared-infrastructure` repos all exist, and all of them are Jenkins — checked
 by cloning `pt-shared-infrastructure` and `pcs-shared-infrastructure`, both of which carry
@@ -439,7 +531,7 @@ TRACK A — productionise in the monorepo (deployable on its own, no CCD)
  3  JSON API → apps/api        ██████████████████████  done — 29 handlers; transitional, see CDAM plan
  4  SSR pages → apps/web       █████████████████████░  12/12 ported, e2e + axe green; Welsh out for review
  5  authentication (IDAM)      ████████████████████░░  ◀── HERE. code done; PR raised, awaiting IDAM
- 6  config, Helm, deployment   ██████████████████░░░░  infra + CI done; needs namespace and 4 Azure secrets
+ 6  config, Helm, deployment   ████████████░░░░░░░░░░  reopened 2026-09-06: Jenkins CNP migration + infra split
 
 TRACK B — CCD adoption (separable; start only once Track A is green)
 ════════════════════════════════════════════════════════════════════════════
@@ -450,24 +542,29 @@ TRACK B — CCD adoption (separable; start only once Track A is green)
 11  platform onboarding        ░░░░░░░░░░░░░░░░░░░░░░  all external, long lead times
 ```
 
-Three things gate a deploy, none of them code:
+What gates a deploy, **rewritten 2026-09-06** — and no longer "none of them code", since the Jenkins
+migration and the infra split both are:
 
 | Gate | Why it blocks |
 |---|---|
 | Phase 5 auth | **Registration PR raised 2026-09-03; waiting on IDAM.** Both apps authenticate, but until the client is registered there is nothing to point them at, and `idam-client-secret` cannot exist in the vault until IDAM supplies its value — so nobody can log in to a deployed instance, and `assertIdamSettings` refuses to start without it. No longer a task, just a wait |
-| Azure credentials | **Four secrets, none of which exists** at repository or organisation level, so every job authenticating to Azure fails. [PR #99](https://github.com/hmcts/azure-github-federation-config/pull/99) covers roughly a quarter of it. See the Phase 6 table above for the full list and the `_PREVIEW`/`_AAT` trap |
+| ~~Azure credentials~~ | ✅ **No longer a gate, 2026-09-06.** The four secrets were GitHub Actions-specific and Jenkins authenticates as its own managed identity. [PR #99](https://github.com/hmcts/azure-github-federation-config/pull/99) is closed |
+| Jenkins onboarding | **The replacement gate.** Four `cnp-jenkins-config` entries, one per repo. External, but a well-trodden path rather than an unreviewed queue |
+| Jenkins CNP migration | **New and ours.** `.github/workflows/` out, `Jenkinsfile_CNP` in, `variables.tf` rewritten for `withInfraPipeline`. See [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md) |
+| `deed-poll-infra` first apply | Nothing has ever been applied anywhere. Every component reads the vault this root creates, and **nothing enforces that ordering mechanically** |
 | CI has no database | The `ccd` schema tests skip in CI. Honest, but not coverage |
 
 **No longer a gate:** the shared infrastructure. `infrastructure/` used to read the resource group and
 Key Vault as `data` with nothing creating them, so the plan failed before reaching a resource; both are
-created now. See ["Why the shared infrastructure is not a separate
-repo"](#why-the-shared-infrastructure-is-not-a-separate-repo).
+created now — and as of 2026-09-06 they live in `hmcts/deed-poll-infra`. See ["Why the shared
+infrastructure is not a separate repo"](#why-the-shared-infrastructure-is-not-a-separate-repo-reversed-2026-09-06).
 
-**Also no longer a gate:** CI itself. Lint, test, `osv-scan`, SonarCloud and `Terraform Format` all pass
-on master, having never passed before 2026-09-03. See ["Master's CI was
-red"](archive/SESSION_HISTORY_2026-09-03.md#masters-ci-was-red-twice-in-one-day) and ["Repository
-visibility, and the history secret
-scan"](#repository-visibility-and-the-history-secret-scan-2026-09-03).
+**CI, with a caveat added 2026-09-06.** Lint, test, `osv-scan`, SonarCloud and `Terraform Format` all pass
+on master, having never passed before 2026-09-03 — see ["Master's CI was
+red"](archive/SESSION_HISTORY_2026-09-03.md#masters-ci-was-red-twice-in-one-day). **All of it is being
+deleted** with `.github/workflows/`, and replaced by the equivalent stages of the CNP Jenkins pipeline.
+That was a deliberate trade for lower divergence from the estate; the one thing with no Jenkins equivalent
+is CodeQL.
 
 <!-- BEGIN GENERATED DASHBOARD -->
 
@@ -1340,7 +1437,11 @@ Two things fall out of it:
   default, so the resource group would have been `deed-poll-aat-expressjs` and the Postgres server tagged
   the same. Now `admin`.
 
-### Still to do in Phase 6 — all external, and none of it is code
+### Still to do in Phase 6 — all external, and none of it is code — superseded 2026-09-06
+
+**This whole section describes the GitHub Actions path and is no longer the plan.** Items 3 onward concern
+federated credentials that Jenkins does not need. Kept because it is the fullest record of what that path
+required, and because items 1 and 2 are still accurate history.
 
 Read from `infrastructure/` and the workspace's ported CNP docs, in rough dependency order. **The
 summary in ["What is actually left in Phase 6"](#what-is-actually-left-in-phase-6) at the top of this
@@ -1382,6 +1483,11 @@ Checked directly against the source repo (`hmcts/hmcts.github.io`, cloned to
 all, and just one is about deployment — the federated-credentials guide below. The port is complete, so
 nothing is missing locally: 10 upstream `new-component` pages, 10 ported.
 
+**As of 2026-09-06 this section stopped being an awkward finding and became the argument that settled the
+pipeline question.** The HMCTS Way documenting only Jenkins, and `cnp-githubactions-library` appearing
+nowhere in it, is exactly the divergence that moving all four repos to the CNP pipeline removes. The
+credentials subsections below are now historical.
+
 So the answer to "does the HMCTS Way tell us how to build our pipeline" is **no, not this pipeline.** It
 describes the Jenkins route in full — `cnp-jenkins-config`, charts published to `hmcts-charts`, Flux
 reconciling a `HelmRelease`, `values.aat.template.yaml` templated with `${SERVICE_FQDN}` — and this repo
@@ -1400,7 +1506,10 @@ is missing is credentials and platform prerequisites, not workflow code. Worth o
 Platform Operations that GHA is a supported route for a CFT service rather than a template experiment,
 because if Flux turns out to be required for production, a `cnp-flux-config` PR joins the list above.
 
-#### The credentials the pipeline needs
+#### The credentials the pipeline needs — historical as of 2026-09-06
+
+**None of these is needed any more.** They are GitHub Actions secrets, and the workflows referencing them
+are being deleted with the move to the Jenkins CNP pipeline. Kept as the record of what that path required.
 
 Every secret the workflows reference, and what each is for:
 
