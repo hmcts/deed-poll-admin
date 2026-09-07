@@ -2,6 +2,17 @@
 
 Written 2026-09-04. Supersedes Phase 10 of [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
+**Amended 2026-09-06 by [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md) on three points**, none of
+which changes this plan's design — but this file is wrong about them where it is not annotated:
+
+1. **The session table lives in its own `session` schema**, not `public`. See the amendment under the
+   persistence diagram.
+2. **The Postgres server is provisioned by `hmcts/deed-poll-infra`.** This service consumes it and owns its
+   *schemas*; it does not create the server, and `deed-poll-api/infrastructure/` is deleted.
+3. **`deed-poll-api` deploys via the Jenkins CNP pipeline** — `withPipeline` with product `deed-poll` and
+   component `api`, replacing the template's unconfigured `rpe`/`demo`. Its `.github/workflows/` are
+   deleted, CodeQL included.
+
 ## Scope
 
 **This plan covers one thing: replacing `apps/api` with a Spring Boot service.** It is deliberately
@@ -161,8 +172,19 @@ where it attaches:
    ├─ ccd schema      case_data, case_event,
    │                  message_queue_candidates, es_queue
    │                                  ← owned by the SDK (Flyway)
-   └─ session table                   ← owned by apps/web (pg.Pool)
+   └─ session schema  session table   ← owned by apps/web (pg.Pool)
 ```
+
+**Amended 2026-09-06: the session table is in its own `session` schema, not `public`.** As first written
+this diagram put it in `public`, which would have made `apps/web`'s `pg.Pool` and this service's Flyway
+both owners of one schema — a smaller instance of the table-level split the **"Rejected: splitting
+ownership by table"** note below argues against. `PostgresStore` already takes a
+`schemaName` option, so the fix costs one config value plus a migration creating the schema. Every schema
+now has exactly one owner and Flyway never meets a table it did not create. See
+[`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md) Decision 3.
+
+**The Postgres server itself is provisioned by `hmcts/deed-poll-infra`**, not by this repo — so "one
+server, one database" is now a shared-infrastructure fact rather than something this service creates.
 
 **One API for both audiences is the right call, and it is what the estate does** — `pcs-api` and
 `nfdiv-case-api` each serve a citizen frontend and a caseworker surface. What makes it safe once
@@ -541,7 +563,7 @@ there than at Stage 4.
 |---|---|
 | **Moves to Java** | `libs/deed-poll` domain services, Zod schemas → Bean Validation or equivalent, the conformance harness, `file-storage.ts` → CDAM |
 | **Stays TypeScript** | All of `apps/web`: pages, Nunjucks, Welsh, IDAM login (Phase 5), session handling. Plus the parts of `libs/deed-poll` `apps/web` genuinely needs — `auth/roles`, `currentUser`, `upload-policy` constants, error types for HTTP mapping (15 auth + 16 root test blocks) |
-| **Keeps a database connection** | `apps/web`, even after the cutover. `@hmcts-cft/express-session-postgres` holds sessions in Postgres over a `pg.Pool`, so `apps/web` still needs database credentials and still owns the session table. **"`apps/web` becomes a pure UI" is therefore not quite true** — it stops owning case data, not all persistence. Its readiness check (`deedPollDatabaseChecks`) will need re-pointing at what it actually depends on rather than at the case tables |
+| **Keeps a database connection** | `apps/web`, even after the cutover. `@hmcts-cft/express-session-postgres` holds sessions in Postgres over a `pg.Pool`, so `apps/web` still needs database credentials and still owns the session table — **in its own `session` schema as of 2026-09-06, not `public`; see the amendment under the diagram above.** **"`apps/web` becomes a pure UI" is therefore not quite true** — it stops owning case data, not all persistence. Its readiness check (`deedPollDatabaseChecks`) will need re-pointing at what it actually depends on rather than at the case tables |
 | **Deleted** | `apps/api` and its 261 route tests. `apps/postgres/ccd-runtime/` — 25 vendored SQL files the SDK's own Flyway replaces. The template's `onboarding/*` and `users*` routes |
 | **Decided separately** | Whether the deletes, witness writes, document-type writes and `validate` are ever rebuilt. Default: no, until something asks |
 
