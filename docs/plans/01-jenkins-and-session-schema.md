@@ -85,12 +85,18 @@ turns CI red if it lands on its own.
 `libs/express-session-redis` exists in the template and in `deed-poll-web`, but not here — this repo's
 `libs/` has only `express-session-postgres`.
 
-- [ ] Copy `libs/express-session-redis` in **from `hmcts/expressjs-monorepo-template`**, which is the source of truth. `deed-poll-web` has a copy and it is almost certainly identical, but taking it from web would silently inherit any local edit web has made
-- [ ] Register it the way the other `@hmcts-cft/*` libs are registered — the workspace list in the root `package.json`, and `apps/web`'s dependencies
-- [ ] Add `redis` as a dependency of `apps/web`, pinned exactly per this repo's pinned-dependency rule. It is needed for `createClient`
-- [ ] Run `yarn install --immutable` after — the check that catches a lockfile disagreeing with its manifests
-- [ ] **Do not delete `libs/express-session-postgres`.** Leaving it costs nothing, and deleting a template-provided lib is a re-scaffold conflict waiting to happen
-- [ ] Mark completed
+- [x] Copy `libs/express-session-redis` in **from `hmcts/expressjs-monorepo-template`**, which is the source of truth. `deed-poll-web` has a copy and it is almost certainly identical, but taking it from web would silently inherit any local edit web has made
+  - Fetched the five files from the template at `HEAD`. Web's copy turned out to be byte-identical in `src/index.ts` and `src/index.test.ts` — its only divergence is the `repository`/`homepage`/`bugs` metadata, re-pointed at `deed-poll-web`. Ours is re-pointed at `deed-poll-admin` and carries `"private": true`, matching every other vendored lib here (`express-session-postgres`, `cloud-native-platform`, `simple-router`, `express-govuk-starter`); web omits `private`.
+- [x] Register it the way the other `@hmcts-cft/*` libs are registered — the workspace list in the root `package.json`, and `apps/web`'s dependencies
+  - The root `workspaces` list is the glob `libs/*`, so it needed no edit. The registrations that are per-lib and *did*: the root `tsconfig.json` `paths` entry, `apps/web/tsconfig.json`'s `references`, and `apps/web`'s dependency on `workspace:*`.
+- [x] Add `redis` as a dependency of `apps/web`, pinned exactly per this repo's pinned-dependency rule. It is needed for `createClient`
+  - `redis` at `6.0.0` and `connect-redis` at `9.0.0`, both matching `deed-poll-web` so the two repos resolve the same versions. `connect-redis` is a peer dependency of the lib and is what provides `RedisStore`, so `apps/web` has to declare it too.
+- [x] Run `yarn install --immutable` after — the check that catches a lockfile disagreeing with its manifests
+  - Clean. It warns that the lib does not provide `redis` to `connect-redis`'s peer requirement; that comes from the template's own manifest, is identical in `deed-poll-web`, and sits alongside three pre-existing warnings of the same kind in this repo.
+- [x] **Do not delete `libs/express-session-postgres`.** Leaving it costs nothing, and deleting a template-provided lib is a re-scaffold conflict waiting to happen
+  - Untouched. `apps/web/src/app.ts` still constructs the Postgres store — the swap is task 2.
+- [x] Mark completed
+  - `yarn lint`, `yarn build` and `yarn test` all pass. 1,555 tests, up from the 1,548 baseline by the vendored lib's 7.
 
 ### Task 2: Swap the session store to Redis
 
