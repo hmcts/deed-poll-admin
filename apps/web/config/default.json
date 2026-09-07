@@ -1,5 +1,8 @@
 {
   "port": 3000,
+  "redis": {
+    "url": "redis://localhost:6379"
+  },
   "session": {
     "secret": "session-secret"
   },

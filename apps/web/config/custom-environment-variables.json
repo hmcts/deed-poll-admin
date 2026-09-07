@@ -1,5 +1,8 @@
 {
   "port": "PORT",
+  "redis": {
+    "url": "REDIS_URL"
+  },
   "session": {
     "secret": "SESSION_SECRET"
   },
