@@ -135,15 +135,24 @@ same template.
 Four `values.yaml` files carry a `keyVaults: deed-poll:` block: `apps/web`, `apps/api`, `apps/crons` and
 `apps/postgres`. Not all four reference every secret — read each rather than assuming.
 
-- [ ] `ExpressJsAppInsightsConnectionString` → `app-insights-connection-string` in every file that references it. The old name came from the expressjs template, and `deed-poll-api` is Spring Boot and reads the same secret
-- [ ] `session-secret` → `admin-session-secret`
-- [ ] `idam-client-secret` → `admin-idam-client-secret`
-- [ ] **Add `redis-url` → `REDIS_URL` to `apps/web`'s list** — the store from task 2 needs it, and the shared root writes it
-- [ ] **Leave `postgres-url` in place, in all four charts.** This is the one thing not to tidy: this app still reads case data through Prisma until the api cutover, so removing the database credential would break every case page. It comes out at the cutover, with Prisma, not here
-- [ ] Keep every `alias` exactly as it is. The application reads `SESSION_SECRET`, `IDAM_CLIENT_SECRET`, `APPLICATION_INSIGHTS_CONNECTION_STRING` and `DATABASE_URL`, and none of those changes
-- [ ] Keep the comments explaining that the chart fails on a missing secret and that `idam-client-secret` cannot exist until IDAM replies — update the name in that comment too
-- [ ] Grep the whole repo for the three old names, including `helm/deed-poll-admin/values*.template.yaml`, and confirm none survives
-- [ ] Mark completed
+- [x] `ExpressJsAppInsightsConnectionString` → `app-insights-connection-string` in every file that references it. The old name came from the expressjs template, and `deed-poll-api` is Spring Boot and reads the same secret
+  - Three of the four charts referenced it: `apps/web`, `apps/api`, `apps/crons`. `apps/postgres` names only `postgres-url` — it is the Prisma Studio service and has no App Insights wiring, which is why the task said to read each rather than assume.
+- [x] `session-secret` → `admin-session-secret`
+  - `apps/web` only; no other chart holds a session secret. Note what was deliberately *not* renamed: `apps/web/config/default.json`'s `session.secret` is the literal string `"session-secret"` as a local placeholder **value**, and `assertSessionSecret` refuses to start on exactly that string outside development and test. It is not a vault name, and changing it would disarm that guard.
+- [x] `idam-client-secret` → `admin-idam-client-secret`
+  - `apps/web` only. Also updated the one place in application code that names the vault entry in prose: `apps/web/src/auth/settings.ts:54`'s `IDAM_CLIENT_SECRET is empty` error, which told the reader to go look for an entry that no longer exists under that name. No test asserts that substring.
+- [x] **Add `redis-url` → `REDIS_URL` to `apps/web`'s list** — the store from task 2 needs it, and the shared root writes it
+  - Placed after `postgres-url`, before the two must-exist-first secrets, so the vault-provided infrastructure URLs read together.
+- [x] **Leave `postgres-url` in place, in all four charts.** This is the one thing not to tidy: this app still reads case data through Prisma until the api cutover, so removing the database credential would break every case page. It comes out at the cutover, with Prisma, not here
+  - All four still carry it, and `apps/web`'s now says why in a comment, so the next reader tidying vestigial Postgres wiring finds the reason at the line rather than in this plan.
+- [x] Keep every `alias` exactly as it is. The application reads `SESSION_SECRET`, `IDAM_CLIENT_SECRET`, `APPLICATION_INSIGHTS_CONNECTION_STRING` and `DATABASE_URL`, and none of those changes
+  - Confirmed by diff: every changed line is a `- name:`, and no `alias:` line was touched. `REDIS_URL` is new rather than changed.
+- [x] Keep the comments explaining that the chart fails on a missing secret and that `idam-client-secret` cannot exist until IDAM replies — update the name in that comment too
+  - Both kept and renamed. Added one sentence to the session-secret comment recording *why* it is per component and not shared with `deed-poll-web` — one signing key across a caseworker service and a public one makes a forged cookie portable between them — since the rename is otherwise indistinguishable from cosmetic prefixing.
+- [x] Grep the whole repo for the three old names, including `helm/deed-poll-admin/values*.template.yaml`, and confirm none survives
+  - Nothing survives in charts or application code. The two umbrella templates turned out to name no vault secrets at all — they override images, ingress hosts and `IDAM_REDIRECT_URI` — so they needed no edit. What still matches, correctly: `infrastructure/*.tf`, which task 4 deletes wholesale, and `.business_context/` plus this plan, which record the rename as history.
+- [x] Mark completed
+  - `yarn lint`, `yarn build` and `yarn test` all pass. 1,562 tests, unchanged — this task changes no TypeScript behaviour, only chart secret names and one error-message string.
 
 ### Task 4: Delete `infrastructure/` and `.github/workflows/` — one commit
 

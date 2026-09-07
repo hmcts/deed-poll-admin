@@ -15,7 +15,7 @@ nodejs:
   keyVaults:
     deed-poll:
       secrets:
-        - name: ExpressJsAppInsightsConnectionString
+        - name: app-insights-connection-string
           alias: APPLICATION_INSIGHTS_CONNECTION_STRING
         - name: postgres-url
           alias: DATABASE_URL

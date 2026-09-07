@@ -51,7 +51,7 @@ export function assertIdamSettings(settings: IdamConfig): void {
 
   if (settings.clientSecret.trim().length === 0) {
     throw new Error(
-      `IDAM_CLIENT_SECRET is empty under NODE_ENV ${JSON.stringify(process.env.NODE_ENV)}. The code exchange sends it, so every login would fail at the callback. It comes from the idam-client-secret key vault entry.`
+      `IDAM_CLIENT_SECRET is empty under NODE_ENV ${JSON.stringify(process.env.NODE_ENV)}. The code exchange sends it, so every login would fail at the callback. It comes from the admin-idam-client-secret key vault entry.`
     );
   }
 }
