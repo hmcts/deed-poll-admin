@@ -36,6 +36,5 @@
 - **/plan** - Start with a JIRA ticket, generate specification.md and tasks.md
 - **/implement** - Show full-stack agent orchestration
 
-## Part 7: GitHub Actions Integration
-- Automated security analysis
-- PR comment feedback
+> The GitHub Actions section this demo used to end on is gone: `.github/workflows/` was deleted when this repo moved
+> to the Jenkins CNP pipeline, `workflow.claude.yml` with it. Claude runs locally instead.

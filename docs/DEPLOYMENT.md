@@ -4,12 +4,19 @@ This guide covers deployment procedures for the application, including both prev
 
 ## Overview
 
-The application is deployed to Azure Kubernetes Service (AKS) using Helm charts. The deployment strategy differs between environments:
+The application is deployed to Azure Kubernetes Service (AKS) using Helm charts, driven by the **Jenkins CNP
+pipeline** (`Jenkinsfile_CNP`). The deployment strategy differs between environments:
 
 | Environment | Trigger | Cluster | Purpose |
 |-------------|---------|---------|---------|
 | Preview | Pull Request | `cft-preview-01-aks` | Isolated testing per PR |
-| Production | Manual/Merge to master | TBD | Live application |
+| AAT / Production | Merge to `master` | `cft-aat-00-aks` / prod | Live application |
+
+This repo owns **no Terraform**. The resource group, Key Vault, App Insights, Redis and Postgres all live in
+[`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra), and that root must have applied at least
+once before anything here can deploy — nothing enforces that ordering mechanically. See
+[`PIPELINES.md`](PIPELINES.md) for the pipeline itself and for the work still outstanding before a deploy can
+go green.
 
 ## Prerequisites
 
@@ -18,7 +25,7 @@ The application is deployed to Azure Kubernetes Service (AKS) using Helm charts.
 - **Azure Portal**: Access to HMCTS Azure subscription
 - **AKS Cluster**: kubectl credentials for target cluster
 - **Container Registry**: Push access to `hmctsprod.azurecr.io`
-- **GitHub**: Repository write access for workflow triggers
+- **Jenkins**: the pipeline authenticates as its own managed identity — no repository secrets are involved
 
 ### Tools Required
 
@@ -43,10 +50,13 @@ az aks get-credentials \
 ```
 helm/deed-poll-admin/
 ├── Chart.yaml                    # Dependencies on sub-charts
-├── values.yaml                   # Default values
+├── values.template.yaml          # AAT/prod template (envsubst'd at deploy time)
 ├── values.preview.template.yaml  # Preview environment template
 └── charts/                       # Cached dependencies
 ```
+
+> The Jenkins pipeline expects this at `charts/deed-poll-admin/`, not `helm/deed-poll-admin/`, and expects a
+> `values.yaml` to exist. Both gaps are recorded in [`PIPELINES.md`](PIPELINES.md).
 
 ### Sub-Charts
 
@@ -156,14 +166,16 @@ yarn db:migrate:dev --name fix_previous_migration
 
 ### Azure Key Vault Integration
 
-Secrets are injected from Azure Key Vault:
+Secrets are injected from the `deed-poll-{env}` Key Vault, which is created by
+[`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra), not by anything in this repo. The chart
+mounts them as a properties volume; the Jenkins pipeline does not inject them.
 
 ```yaml
 # In Helm values
 keyVaults:
   deed-poll:
     secrets:
-      - name: AppInsightsConnectionString
+      - name: app-insights-connection-string
         alias: APPLICATION_INSIGHTS_CONNECTION_STRING
       - name: postgres-url
         alias: DATABASE_URL
@@ -171,16 +183,26 @@ keyVaults:
 
 ### Required Secrets
 
-| Secret | Description |
-|--------|-------------|
-| `AppInsightsConnectionString` | Application Insights telemetry |
-| `postres-url` | PostgreSQL connection string of Terraform DB |
+Names are **per component** where sharing would be unsafe — `deed-poll-web` reads the same vault, and one
+session signing key across a caseworker service and a public one would make a forged cookie portable between
+them.
+
+| Secret | Alias | Description |
+|--------|-------|-------------|
+| `app-insights-connection-string` | `APPLICATION_INSIGHTS_CONNECTION_STRING` | Application Insights telemetry. Shared — `deed-poll-api` is Spring Boot and reads the same entry |
+| `postgres-url` | `DATABASE_URL` | PostgreSQL connection string. Shared — one database. Still needed here because this app reads case data through Prisma until the `deed-poll-api` cutover |
+| `redis-url` | `REDIS_URL` | Session store. Shared instance, separate key prefix per app |
+| `admin-session-secret` | `SESSION_SECRET` | Session cookie signing key |
+| `admin-idam-client-secret` | `IDAM_CLIENT_SECRET` | IDAM OIDC client secret. **Does not exist yet** — it comes from IDAM by hand once the client registration lands |
+
+The chart fails to start a pod when a named secret is absent from the vault, so the last two entries are the
+ones to check first when a deploy will not come up.
 
 ### Adding New Secrets
 
-1. Add secret to Azure Key Vault
-2. Update Helm values to reference it
-3. Update application to use the environment variable
+1. Add the secret to the vault in `hmcts/deed-poll-infra` — not by hand in the portal
+2. Update the app's `helm/values.yaml` `keyVaults:` block to reference it
+3. Update the application to read the aliased environment variable
 
 ## Health Checks
 
@@ -280,6 +302,8 @@ docker push hmctsprod.azurecr.io/deed-poll/app:manual
 # 3. Deploy with Helm
 cd helm/deed-poll-admin
 helm dependency update
+ENVIRONMENT=aat TEAM_NAME=deed-poll WEB_IMAGE=manual \
+  envsubst < values.template.yaml > values.yaml
 helm upgrade --install {release-name} . \
   --namespace {namespace} \
   --values values.yaml \
@@ -346,7 +370,9 @@ helm upgrade {release-name} . \
 
 ## References
 
-- **Pipelines**: `docs/PIPELINES.md` - CI/CD pipeline documentation
-- **Architecture**: `docs/ARCHITECTURE.md` - System architecture
-- **Scripts**: `.github/scripts/README.md` - Helper scripts
-- **Job Documentation**: `.github/workflows/jobs/*/README.md` - Individual job details
+- **Pipelines**: [`PIPELINES.md`](PIPELINES.md) — the Jenkins CNP pipeline, and what is still outstanding
+- **Architecture**: [`ARCHITECTURE.md`](ARCHITECTURE.md) — system architecture
+- **Shared infrastructure**: [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra) — the vault,
+  Redis, Postgres and App Insights this chart depends on
+- **Why it is split this way**:
+  [`.business_context/DEED_POLL_INFRA_PLAN.md`](../.business_context/DEED_POLL_INFRA_PLAN.md)

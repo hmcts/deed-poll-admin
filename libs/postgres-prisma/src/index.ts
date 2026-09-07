@@ -9,7 +9,7 @@ if (process.env.POSTGRES_HOST && process.env.POSTGRES_USER && process.env.POSTGR
 }
 
 // Default to local PostgreSQL when DATABASE_URL is absent. Empty counts as absent — the same reason
-// `prisma.config.ts` does not use `??=`: a Helm `env:` value or a GitHub Actions secret that does not
+// `prisma.config.ts` does not use `??=`: a Helm `env:` value or a mounted vault secret that does not
 // exist arrives as the empty string, which `??=` preserves. Here that would build a pool against `""`
 // and fail at connect time rather than falling back, so the failure would be a connection error naming
 // no host rather than anything pointing at the missing configuration.

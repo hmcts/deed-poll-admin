@@ -598,23 +598,24 @@ documents         ███████   7/7    done  incl. multipart upload, d
 @hmcts-cft/cloud-native-platform        140 passed
 @hmcts-cft/express-govuk-starter        127 passed
 @hmcts-cft/express-session-postgres      23 passed
+@hmcts-cft/express-session-redis          7 passed
 @hmcts-cft/simple-router                 41 passed
 @hmcts/api                              261 passed
 @hmcts/crons                             10 passed
 @hmcts/deed-poll                        590 passed
 @hmcts/onboarding                        72 passed
 @hmcts/postgres                          11 passed
-@hmcts/web                              273 passed
+@hmcts/web                              280 passed
 ─────────────────────────────────────────────────────
-total                                  1548 passed
+total                                  1562 passed
 ```
 
 ### Branch
 
 ```
-master
-0 commits ahead of master
-HEAD  1d752fd  Create the shared resource group and Key Vault this root has always assumed (#64)
+jenkins-and-session-schema
+4 commits ahead of master
+HEAD  01c7a6b  feat: delete infrastructure/ and .github/workflows/ together
 ```
 
 <!-- END GENERATED DASHBOARD -->

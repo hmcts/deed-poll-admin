@@ -8,8 +8,24 @@ This monorepo contains the apps, libraries, and infrastructure for the Deed Poll
 [hmcts/expressjs-monorepo-template](https://github.com/hmcts/expressjs-monorepo-template); the `libs/` packages are
 vendored copies of that template's shared libraries, kept private to this repo.
 
-Sessions are stored in PostgreSQL. There is no Redis in this service — the template's Redis support was removed during
-scaffolding.
+Sessions are stored in Redis (`@hmcts-cft/express-session-redis`). PostgreSQL is still used for case data, read through
+Prisma, until the `deed-poll-api` cutover — so this service depends on both, and its readiness check names both.
+
+## Deployment
+
+This repo deploys through the **Jenkins CNP pipeline**: `Jenkinsfile_CNP` at the root, `withPipeline("nodejs",
+"deed-poll", "admin")`. There is no GitHub Actions pipeline — `.github/workflows/` was deleted in full, and
+`.github/renovate.json` is the only thing left under `.github/` that the platform reads.
+
+This repo also owns **no Terraform**. The resource group, Key Vault, App Insights, Redis and Postgres are all
+provisioned by [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra), the product's shared root, which
+`deed-poll-web` and `deed-poll-api` read from too. Do not add an `infrastructure/` directory here.
+
+- The reasoning behind both decisions, and the four others taken with them:
+  [`.business_context/DEED_POLL_INFRA_PLAN.md`](.business_context/DEED_POLL_INFRA_PLAN.md)
+- What the pipeline runs, and what is still outstanding before a deploy can go green:
+  [`docs/PIPELINES.md`](docs/PIPELINES.md)
+- Charts, secrets, environments and troubleshooting: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
 
 ## ✨ Key Features
 
@@ -25,7 +41,7 @@ scaffolding.
 - **Security Headers**: Pre-configured Helmet.js with CSP, HSTS, and nonce-based script protection
 - **Asset Pipeline**: Vite-powered asset compilation with SCSS support and production optimization
 - **Cookie Management**: Built-in support for cookie consent
-- **Session Handling**: Session management backed by PostgreSQL
+- **Session Handling**: Session management backed by Redis
 
 ### Simple Router  
 A lightweight file-system router for Express applications, inspired by Next.js routing.
@@ -43,7 +59,7 @@ A lightweight file-system router for Express applications, inspired by Next.js r
 - Shared libraries for common functionality
 - Testing with Vitest and Playwright
 - Helm charts for Kubernetes deployment
-- GitHub Actions CI/CD pipeline
+- Jenkins CNP CI/CD pipeline (`Jenkinsfile_CNP`)
 - Biome for fast linting and formatting
 
 ## Project Structure
@@ -261,11 +277,14 @@ yarn test:coverage          # Coverage report
 
 ## Security
 
-The GitHub Action pipelines contain a number of security checks, including:
+The Jenkins CNP pipeline runs a number of security checks:
 
-- **Dependency Scanning**: Automatically scans for vulnerabilities in dependencies
-- **SonarQube**: SAST analysis for code quality and security
-- **Claude Security Scans**: Claude AI-powered security scans for code vulnerabilities
+- **Dependency Scanning**: `yarn audit` with suppressions, published as a CVE report
+- **Container Scanning**: image scanning on push to the ACR
+- **SonarQube**: SAST analysis for code quality and security, configured by `sonar-project.properties`
+
+CodeQL was lost in the move off GitHub Actions — it is GitHub-native and has no Jenkins equivalent. That was accepted
+deliberately; see [`.business_context/DEED_POLL_INFRA_PLAN.md`](.business_context/DEED_POLL_INFRA_PLAN.md), Decision 3.
 
 ## License
 
