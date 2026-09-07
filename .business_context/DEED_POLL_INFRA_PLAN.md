@@ -115,7 +115,7 @@ discarded deliberately.
 - `git::https://` module sources were required *because* GitHub Actions runners have no deploy key for
   hmcts repos. Jenkins agents do, and the estate convention is `git@github.com:`. **Keep `git::https://`
   anyway** — it works under both and there is no reason to churn it.
-- `.terraform-version` is not used by either pipeline. Delete rather than maintain a decorative file.
+- ~~`.terraform-version` is not used by either pipeline.~~ **Wrong — see the correction in the file table below.** Both pt and pcs carry one (1.15.8 and 1.10.4); the original check used an `ls` that missed dotfiles. It stays.
 - Deployment moves to Flux, so the open "which repo declares the `deed-poll` namespace" question in
   `PROGRESS.md` becomes a concrete `cnp-flux-config` change per component rather than a question.
 
@@ -154,39 +154,72 @@ Recorded so they are not reintroduced:
 
 ---
 
-## Decision 3 — Postgres is shared, and admin's sessions stay in Postgres in their own schema
+## Decision 3 — Postgres is shared, and admin's sessions move to Redis
 
-**Steve's calls, 2026-09-06.** The Postgres flexible server lives in `deed-poll-infra`, and
-`deed-poll-admin` **keeps `@hmcts-cft/express-session-postgres`** — moving the session table into its own
-schema rather than moving the store to Redis.
+**Steve's calls. Postgres shared, 2026-09-06. Sessions to Redis, 2026-09-07.**
 
-**This reverses an earlier recommendation in this document.** Redis was proposed to keep the session table
-out of the `public` schema that api's Flyway will own. Steve's challenge — admin is low-volume, so why add
-Redis — was right, and checking the library settled it: `PostgresStore` already takes a **`schemaName`**
-option (defaulting to `"public"`) alongside `tableName`, and creates its own table with
-`CREATE TABLE IF NOT EXISTS %I.%I`. So the isolation Redis was buying costs **one config value**.
+The Postgres flexible server lives in `deed-poll-infra`. `deed-poll-admin` swaps
+`@hmcts-cft/express-session-postgres` for `@hmcts-cft/express-session-redis`, which is what
+`deed-poll-web` already uses.
 
-| | Move to Redis | Keep Postgres, own schema |
-|---|---|---|
-| Work in admin | port `libs/express-session-redis` from the template, swap the store, update tests, re-point readiness, add a key prefix | pass `schemaName`, add a migration creating the schema |
-| Solves the Flyway ownership problem | yes | yes |
-| New infrastructure | none — Redis exists anyway for web | none |
-| New secret for admin | `redis-url` | none |
+### This decision reversed twice, and the record is worth keeping
 
-Redis is still provisioned in `deed-poll-infra`, because **`deed-poll-web` needs it** — it already uses
-`@hmcts-cft/express-session-redis`. Admin simply does not consume it.
+**First**, Redis was proposed here to keep the session table out of the `public` schema api's Flyway will
+own. **Then** it was rejected, on Steve's challenge — admin is low-volume, so why add Redis — and because
+`PostgresStore` takes a `schemaName` option, which made the isolation look like one config value.
+**Finally**, Redis again. Three things falsified the middle position:
 
-### The one thing to get right
+- **`schemaName` does not work on its own.** `PostgresStore` issues `CREATE TABLE IF NOT EXISTS %I.%I` but
+  never `CREATE SCHEMA`, so "one config value" was really a config value, a Prisma migration, and an open
+  question about whether Prisma would report the unmodelled schema as drift.
+- **Redis costs no infrastructure.** It is provisioned in the shared root regardless, because web needs it.
+  The middle position's cost table counted `redis-url` as a new secret while ignoring that the instance was
+  being created anyway.
+- **The residue was the point.** Keeping Prisma in admin solely to own one schema, for a table Prisma does
+  not model, is exactly the noise that would survive the api cutover — which is what Steve objected to on
+  2026-09-07, and the objection stands on its own regardless of the schema mechanics.
 
-`CREATE TABLE IF NOT EXISTS session.session` **does not create the schema.** `PostgresStore` only issues
-the `CREATE TABLE`, so something else must `CREATE SCHEMA IF NOT EXISTS` first or startup fails.
+The lesson worth carrying: the middle decision was reached by reading the library's *options* and stopping,
+rather than its *implementation*. `schemaName` existing is not the same as `schemaName` working.
 
-Do it in an admin Prisma migration. It survives the api cutover untouched, because api's Flyway owns
-`public` and `ccd` and has no reason to look at this one.
+### `deed-poll-api` must not own sessions
 
-Worth raising upstream separately: the library exposes `schemaName` but cannot actually use a schema that
-does not already exist. That is a template gap, and per convention it gets fixed in
-`hmcts/expressjs-monorepo-template` rather than patched in place here.
+Considered on 2026-09-07 and rejected. Admin would call api to read and write session state, which would
+let admin drop its database connection sooner. Four reasons not to:
+
+- **`express-session` reads the store on every request**, and admin's `requireAuth` is global — so every
+  page render would begin with an HTTP round trip to api. Admin's availability becomes the product of two
+  services, and a local query in the same VNet becomes a network hop plus serialisation.
+- **It moves IDAM credentials into a second service.** The session holds the access, refresh and ID tokens.
+  A compromise of api would expose every caseworker's refresh token; today they never leave admin.
+- **It couples an audience-agnostic backend to one frontend's internals.** Either api models admin's OIDC
+  session shape — and api serves both the citizen and caseworker frontends — or it becomes a blob store,
+  which is a bespoke Redis over HTTP with worse latency and no TTL semantics.
+- **Nothing in the estate does it.** `pcs-frontend`, `pt-frontend` and `deed-poll-web` all hold their own
+  sessions.
+
+### What Redis is actually for
+
+One thing: session storage. Read from `deed-poll-web`, which is the working example —
+`expressSessionRedis` in `apps/web/src/app.ts`, a `redis` readiness check that pings it, and a TTL that
+`connect-redis` derives from the cookie's `maxAge` rather than a second setting. **Rate limiting is
+deliberately not on Redis** in web; those counters are in-memory and per-pod, with the ceiling documented.
+
+### Prisma does not leave admin yet
+
+Worth being precise, because the two are easy to conflate. Admin still reads **case data** through Prisma —
+`apps/web`, `apps/api`, the health checks, the view models and the schemas all go through `libs/deed-poll`.
+That ends at the **api cutover**, not here. Moving sessions to Redis removes the last *reason* to keep
+Prisma afterwards, so the cutover can delete it cleanly instead of leaving a migration history whose only
+surviving job is one schema.
+
+So admin's charts keep `postgres-url` **and** gain `redis-url`, and its readiness check must name both.
+
+### Still worth raising upstream
+
+`PostgresStore` accepts a `schemaName` it cannot create. No longer blocking anything here, but it is a real
+template gap and the next service to try it will lose the same time. Fix it in
+`hmcts/expressjs-monorepo-template`, not in place — this repo gets re-scaffolded.
 
 ### Who actually shares the database
 
@@ -203,12 +236,11 @@ So it is **admin and api** during transition, and **api alone** afterwards.
 |---|---|---|
 | `public` — domain tables | admin's Prisma, `apps/postgres/prisma/migrations/` | **api's Flyway** |
 | `ccd` — `case_data`, `case_event`, `message_queue_candidates`, `es_queue` | admin's vendored `apps/postgres/ccd-runtime/` (25 SQL files) | **api, via the SDK's Flyway.** The vendored files are deleted |
-| `session` schema — the session table | **admin's `pg.Pool`**, in its own schema | unchanged — still admin's |
+| the session table | **not in Postgres at all** — admin's sessions are in Redis | unchanged; still Redis |
 
 `DEED_POLL_API_PLAN.md:229` rejected two migration tools against one Postgres and that still holds — the
-cutover *moves* ownership rather than sharing it. **Giving the session table its own schema is what keeps
-that true**: every schema has exactly one owner, and Flyway never meets a table it did not create.
-
+cutover *moves* ownership rather than sharing it. **Taking the session table out of Postgres entirely is what keeps that true**: every schema in the
+database then has exactly one owner, and Flyway never meets a table it did not create.
 This supersedes `DEED_POLL_API_PLAN.md:159`, which puts the session table in `public`. Admin therefore
 keeps `postgres-url` permanently rather than only until the cutover.
 
@@ -227,9 +259,10 @@ database's **sole** consumer, which is not true here:
 
 - **The database is named `deed-poll`**, not `deed-poll-admin`. It is one shared database, and pcs names
   theirs after the product. `postgres-url` hardcodes the name, so it changes with it.
-- **Admin keeps `postgres-url` and needs no `redis-url`.** Web is the only Redis consumer.
+- **Admin keeps `postgres-url` *and* gains `redis-url`.** Postgres for case data until the api cutover, Redis for sessions from now on. Both frontends consume Redis.
 - Admin's readiness check `deedPollDatabaseChecks` still needs re-pointing at the api cutover: it probes
-  the case tables today, and afterwards should probe what the app actually depends on — the session schema.
+  the case tables today. It must gain Redis now, and drop the case tables at the cutover — so for the
+  moment it names both, because until the cutover this app genuinely depends on both.
   That is cutover work, not part of this.
 
 ---
