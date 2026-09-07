@@ -163,12 +163,19 @@ Deleting the workflows in the same commit means there is no stage left to fire.
 `infrastructure/` is already deleted from the working tree and staged nowhere — its eight files now live in
 `hmcts/deed-poll-infra` at `0a61b9c`, byte-for-byte.
 
-- [ ] Delete `infrastructure/` in full, if anything remains of it
-- [ ] Delete `.github/workflows/` in full — `workflow.main.yml`, `workflow.preview.yml`, every `stage.*` and every `job.*`, and the `jobs/` documentation directory
-- [ ] **Keep `.github/renovate.json`.** It is configuration, not a workflow, and it carries three fixes that took a session to find: the Travis manager removed, the Dockerfile regex corrected from `FROM node:` to the ACR-qualified image, and `regexManagers` migrated to `customManagers` with the `matchManagers` reference moved with it
-- [ ] Keep anything else under `.github/` that is not a workflow — issue templates, `CODEOWNERS`, `dependabot.yml` if present
-- [ ] Commit both deletions together, with a message recording why they are one commit
-- [ ] Mark completed
+- [x] Delete `infrastructure/` in full, if anything remains of it
+  - **The premise was wrong: nothing had been deleted.** All eight files were present in the working tree *and* tracked in `HEAD` — `appinsights.tf`, `keyvault.tf`, `main.tf`, `output.tf`, `postgres.tf`, `state.tf`, `variables.tf` and `.terraform-version`. This is the second premise in this plan to have been recorded as done when it was not (task 2's "docker compose serves Redis" was the first), so the "if anything remains" hedge is what saved it. Verified against `hmcts/deed-poll-infra` that the content lives there before deleting.
+- [x] Delete `.github/workflows/` in full — `workflow.main.yml`, `workflow.preview.yml`, every `stage.*` and every `job.*`, and the `jobs/` documentation directory
+  - 44 files: 3 `workflow.*`, 7 `stage.*`, 15 `job.*`, and the 19-file `jobs/` tree (13 `README.md` and 6 `.sh` helpers). `workflow.claude.yml` went with them — it is not deploy-side, but Decision 3 is *all* GitHub Actions, and leaving one workflow behind would leave `.github/workflows/` in existence for the sake of a Claude action this repo can invoke locally.
+- [x] **Keep `.github/renovate.json`.** It is configuration, not a workflow, and it carries three fixes that took a session to find: the Travis manager removed, the Dockerfile regex corrected from `FROM node:` to the ACR-qualified image, and `regexManagers` migrated to `customManagers` with the `matchManagers` reference moved with it
+  - Untouched, and proved so rather than eyeballed: `git hash-object` gives `1989497` both before and after the deletions, and the file does not appear in the commit's diff at all. All three fixes confirmed present — no `travis` anywhere, the `FROM` regex is the ACR-qualified `(?:[^\s/]+(?:/[^\s/]+)*/)?node:` form, and `customManagers`/`matchManagers` are both there.
+- [x] Keep anything else under `.github/` that is not a workflow — issue templates, `CODEOWNERS`, `dependabot.yml` if present
+  - None of those three exist in this repo. Four other files did and all survive: `copilot-instructions.md`, `osv-scanner.toml`, `scripts/setup-sonarcloud-project.sh` and `scripts/README.md`. Note that the last two are now **orphaned config** — `osv-scanner.toml` was read by the deleted `job.osv-scanner.yml`, and the Sonar setup script by the deleted pipeline. Deliberately left: the checkbox says keep what is not a workflow, and CNP's own Sonar and OSV stages may want them. Flagged rather than tidied.
+- [x] Commit both deletions together, with a message recording why they are one commit
+  - One commit, 52 deletions, no other files touched.
+- [x] Mark completed
+  - `yarn lint`, `yarn build` and `yarn test` all pass. 1,562 tests, unchanged from task 3 — nothing in the build ever referenced either directory.
+  - Left for task 5, which owns the documentation checkbox: `docs/PIPELINES.md` and `docs/DEPLOYMENT.md` are 851 lines describing the GitHub Actions pipeline that no longer exists, and `apps/postgres/ccd-runtime/migrate.test.ts:10` cites `job.test.yml` in a prose comment as the reason those tests provision no database.
 
 ### Task 5: Add `Jenkinsfile_CNP`
 
