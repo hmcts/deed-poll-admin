@@ -451,18 +451,37 @@ Optional estate niceties both reference repos carry and this one does not: `.edi
 time: a component cannot deploy until this root has applied once, and **nothing enforces it
 mechanically.**
 
-| Order | Repo | How |
+| Order | Repo | Plan |
 |---|---|---|
-| 1 | `deed-poll-infra` | **Ralphex.** Enough work to be worth a plan, and no in-flight work to collide with |
-| 2 | `deed-poll-admin` | **Ralphex.** The session-store move is real application work with tests |
-| 3 | `deed-poll-web` | **By hand.** See below |
-| 4 | `deed-poll-api` | **By hand.** See below |
+| 1 | `deed-poll-infra` | `docs/plans/01-jenkins-and-shared-split.md` |
+| 2 | `deed-poll-admin` | `docs/plans/01-jenkins-and-session-schema.md` |
+| 3 | `deed-poll-web` | `docs/plans/jenkins-pipeline-cutover.md` |
+| 4 | `deed-poll-api` | `docs/plans/jenkins-pipeline-cutover.md` |
 
-**Do not run Ralphex on web or api for this.** Both have work in flight — api has task 12 of 17
-half-finished with uncommitted files, and web has 15 unpushed commits on `walking-skeleton` with plan 01's
-review phases never run. A second concurrent branch in either would collide. Their infra tasks are also
-small enough that a plan is overkill: web is "delete a directory, edit one `values.yaml`, add a
-Jenkinsfile", api is "fix two lines and delete a directory".
+**Revised 2026-09-07.** This table previously said web and api should be done **by hand**, for two reasons
+that have both expired:
+
+- *"Both have work in flight."* They did — api had task 12 of 17 half-finished with uncommitted files, web
+  had 15 unpushed commits with its review phases never run. Both are now merged to `master` with clean
+  trees, so there is nothing for a Ralphex branch to collide with.
+- *"api is fix two lines and delete a directory."* **Wrong, and worth recording why.** api still carries
+  `spring-boot-template`'s identity throughout: `Jenkinsfile_nightly` declares `rpe` /
+  `spring-boot-template`, and the chart is `charts/rpe-spring-boot-template` with its `keyVaults` block
+  commented out — so it needs renaming to `charts/deed-poll-api` with an `annotations.team` the CNP tooling
+  reads as the product. That estimate came from reading the two `Jenkinsfile_CNP` lines and stopping.
+
+The two cutover plans are named identically on purpose: same filename in both repos means the same piece of
+work, and Ralphex derives its branch name from the plan file, so both get the same branch name too.
+
+**One asymmetry between them, and it is not cosmetic.** api's chart maps the four `postgres-*` secrets
+individually, because `application.yaml` reads the database as `DB_HOST` / `DB_PORT` / `DB_NAME` /
+`DB_USER_NAME` / `DB_PASSWORD`. web's chart reads no database secret at all. `postgres-url` exists in the
+vault for the Node services, which want a composed URL — the shared root provisions both forms because the
+two runtimes genuinely differ, not by duplication.
+
+**Jenkins onboarding comes after these runs, not before.** A `cnp-jenkins-config` entry for a repo with no
+`Jenkinsfile_CNP` — or one still declaring `rpe` — is premature, and none of the four has a correct one
+until its plan has run. That is why the four requests have not been raised.
 
 ### `deed-poll-infra`
 
@@ -499,19 +518,22 @@ terraform init -backend=false && terraform validate
 Validation: `yarn lint`, `yarn build`, `yarn test`, `yarn test:e2e`. All three of the first must run — see
 `PROGRESS.md` on why `test` alone is not enough.
 
-### `deed-poll-web`
+### `deed-poll-web` and `deed-poll-api`
 
-1. Delete `infrastructure/` (after `redis.tf` has landed in `deed-poll-infra`)
-2. `apps/web/helm/values.yaml`: rename the App Insights secret, drop `postgres-url`, add `web-session-secret`
-3. Drop the vestigial `@hmcts/postgres-prisma` dependency from `apps/web` — already flagged in that repo's own `PROGRESS.md` as contradicting the no-database decision
-4. Delete `.github/workflows/`; add `Jenkinsfile_CNP`
+**Both now have their own plans**, and those are authoritative:
 
-### `deed-poll-api`
+- `deed-poll-web/docs/plans/jenkins-pipeline-cutover.md` — 5 tasks
+- `deed-poll-api/docs/plans/jenkins-pipeline-cutover.md` — 6 tasks
 
-1. `Jenkinsfile_CNP` — `product = "rpe"` → `"deed-poll"`, `component = "demo"` → `"api"`
-2. Delete `infrastructure/`
-3. Delete `.github/workflows/` — `ci.yml`, `codeql.yml` and `publish-openapi.yaml`. The OpenAPI publish has a Jenkins equivalent; CodeQL does not, and that is accepted
-4. Helm values: `app-insights-connection-string` and `postgres-url`
+Task lists for these two used to be inlined here. They are gone rather than kept in step, because two
+copies of a task list is how one of them ends up wrong — and one of them **was**. This document previously
+told api to read `postgres-url`, which is precisely the secret it must not use: `application.yaml` reads
+the database as `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER_NAME` / `DB_PASSWORD`, so its chart maps the
+four `postgres-*` secrets individually. `postgres-url` exists for the Node services. The inlined list also
+omitted the chart rename entirely, which is the largest single piece of api's cutover.
+
+What stays here is the decision context those plans implement — Decisions 1 to 5 above, and the fact that
+neither repo can deploy until this shared root has applied once.
 
 ### External, all parallel and none of it code
 
