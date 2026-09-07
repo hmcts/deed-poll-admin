@@ -1,0 +1,20 @@
+# ralphex config for deed-poll-admin.
+#
+# Matches deed-poll-api's and deed-poll-web's, deliberately: all four repos in this programme are
+# reviewed by the same tool with the same settings, so a difference between them should mean
+# something rather than being an accident of which one was set up first.
+#
+# Without this file ralphex falls back to the global config, where external_review_tool is unset
+# and therefore defaults to codex — and there is no OpenAI credential in this devcontainer, so the
+# external review phase dies with a 401. That is exactly what happened to deed-poll-api on
+# 2026-09-07 after it had completed every task.
+
+# There is no Codex licence here. The GitHub Copilot CLI does the external review instead. Note that
+# .ralphex/copilot-review.sh pins the model explicitly — see the comment in that file for why an
+# unpinned run is not an independent review at all.
+external_review_tool = custom
+custom_review_script = .ralphex/copilot-review.sh
+
+# Terminate the external review loop after 3 rounds that change nothing, rather than running to the
+# iteration cap. A reviewer that has stopped finding things is done.
+review_patience = 3

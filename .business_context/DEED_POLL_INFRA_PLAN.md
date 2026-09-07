@@ -32,6 +32,11 @@ apply, which is the reason to finish this now rather than after the credentials 
 | `deed-poll-web` | citizen service, anonymous in release 1 | Jenkins, `withPipeline` |
 | `deed-poll-api` | Spring Boot backend, owns the domain schema | Jenkins, `withPipeline` |
 
+**All four default to `master`** as of 2026-09-06. `deed-poll-api` and `deed-poll-infra` were on `main` and
+were renamed with the GitHub rename API, which moves the default pointer and retargets open PRs. Done
+before Jenkins onboarding deliberately: HMCTS Jenkins conventions assume `master` in places, and the
+rename was free while `deed-poll-infra` had one commit and no pipeline.
+
 ---
 
 ## Decision 1 — Jenkins CNP for all four repos
@@ -319,7 +324,8 @@ commits and an empty remote.
 | `README.md`, `renovate.json`, `.gitignore` | — | **New.** Both reference repos carry a README and `renovate.json` |
 | `state.tf` | — | **Delete.** The backend moves into `provider.tf`; neither reference repo has this file |
 | `output.tf` | — | **Delete.** Neither reference repo has one; these outputs existed for the GitHub Actions job summary |
-| `.terraform-version`, `.terraform.lock.hcl` | — | **Delete.** Neither is in pt or pcs. `.terraform.lock.hcl` was never tracked in admin either |
+| `.terraform-version` | existing | **Keep, unchanged.** ⚠️ **Correction:** an earlier version of this document said to delete it because pt and pcs did not carry one. They both do — pcs pins `1.10.4`, pt pins `1.15.8` — and the earlier `ls` simply missed dotfiles. Ours pins `1.16.1`, which satisfies `state.tf`'s `required_version >= 1.14.0`. It was decorative under GitHub Actions; do not assume the same of Jenkins |
+| `.terraform.lock.hcl` | — | **Gitignored rather than deleted.** Neither reference repo tracks one, and `terraform init` regenerates it, so deleting without ignoring just recreates the question on the next init |
 
 ### `deed-poll-api`
 
@@ -351,15 +357,52 @@ red run.
 
 ## The one thing that is not a move: `variables.tf`
 
-`deed-poll-infra/variables.tf` is shaped for `cnp-githubactions-library/terraform-deploy`, which passed
-`subscription`, `aks_subscription_id`, `ci_service_principal_object_id`, `tenant_id` and `builtFrom`.
-**`withInfraPipeline` passes none of them.** `pcs-shared-infrastructure/variables.tf` in full is
-`product`, `location` (default `"UK South"`), `env`, `jenkins_AAD_objectId`, `common_tags`,
-`product_group_name` (with a product-specific default), plus module tuning — with the tenant read from
-`data.azurerm_client_config.current`.
+**Corrected 2026-09-06 against `hmcts/cnp-jenkins-library` itself**, shallow-cloned and read rather than
+inferred. An earlier version of this document said `withInfraPipeline` "passes none of them", deduced from
+which variables `pcs-shared-infrastructure` happens to declare. **That was wrong**, and it would have sent
+Ralphex to delete variables the pipeline does supply.
 
-So every variable and every reference to one changes. This is driven by Decision 1, not Decision 2, and
-it is the largest single piece of work in the shared repo.
+What the pipeline actually provides — `spinInfra.groovy` is the shared Terraform step, used by both
+`withPipeline` and `withInfraPipeline`:
+
+| Variable | How | Where |
+|---|---|---|
+| `product` | `-var product=` | `spinInfra.groovy:135` |
+| `env` | `-var env=` | `spinInfra.groovy:135` |
+| `common_tags` | `-var common_tags=` | `spinInfra.groovy:135` |
+| `subscription` | `TF_VAR_subscription` | `spinInfra.groovy:123` |
+| `component` | `TF_VAR_component` | `spinInfra.groovy:124` — **but see the warning below** |
+| `aks_subscription_id` | `TF_VAR_aks_subscription_id`, when the environment has an AKS subscription | `spinInfra.groovy:129` |
+| `jenkins_AAD_objectId` | `TF_VAR_jenkins_AAD_objectId` | `withSubscription.groovy:46` |
+| per-environment overrides | `-var-file=${env}.tfvars`, **only if that file exists** | `spinInfra.groovy:136` |
+
+So the rewrite is **smaller than described earlier**:
+
+- **Keep** `product`, `env`, `common_tags`, `subscription`, `aks_subscription_id`
+- **Add** `jenkins_AAD_objectId`
+- **Drop** `ci_service_principal_object_id`, `builtFrom` and `tenant_id` — the tenant comes from
+  `data.azurerm_client_config.current`
+- **`location` and `product_group_name` need defaults**, since the pipeline supplies neither. `"UK South"`
+  and a product group, following pt and pcs
+
+### `component` is empty in an infra pipeline — do not rely on it
+
+`withInfraPipeline(String product, String component = null, Closure body)`. Both pt and pcs call it as
+`withInfraPipeline(product)`, so `component` is **null** and `TF_VAR_component` is empty. That is exactly
+why neither of their `variables.tf` declares it.
+
+`postgres.tf` currently passes `component = var.component` to the Postgres module. **Hardcode a literal
+there instead** — an empty component would silently land in the server's tags and naming. Do not "fix" it
+by giving the variable a default: an empty `TF_VAR_component` from the pipeline overrides a default, so the
+default would not protect anything.
+
+### Also verified, and it retires an open worry
+
+The backend state key is `${productName}/${environmentDeploymentTarget}/terraform.tfstate`
+(`spinInfra.groovy:115`) and the whole `terraform init -reconfigure` is built by the pipeline. So the
+GitHub Actions state-key limitation recorded elsewhere in `.business_context/` is not merely inapplicable —
+under Jenkins the backend is not this repo's concern at all, which is why `provider.tf` carries a bare
+`backend "azurerm" {}` and nothing else.
 
 Also inherited from the old file and needing attention: the `component` variable's comment opens "This
 repo is `deed-poll-admin`", and `product_group_name` is hardcoded to `"DTS CFT Developers"` with a note to
@@ -375,17 +418,32 @@ Possession Claim Service"`, both as variable defaults rather than inline.
 
 ## Execution plan
 
-### Pre-flight, before any Ralphex run
+### Pre-flight — done 2026-09-06
 
-1. **Install Terraform in the devcontainer.** It is **not installed** — `terraform: command not found`.
-   A Terraform-only repo whose validation commands cannot run means Ralphex starts red, which is a known
-   failure mode for it. Pin `>= 1.14.0` per the current `required_version`.
-2. **Check whether `terraform init -backend=false` can fetch the `git::https://` modules from here.**
-   Corepack cannot reach `repo.yarnpkg.com` from this devcontainer, so network egress is not a given. If
-   modules cannot be fetched, `terraform validate` is unavailable and `terraform fmt -check -recursive`
-   is the only offline validation — weak, but honest.
-3. **First commit in `deed-poll-infra`.** Ralphex needs at least one commit before it will start, and the
-   repo has none. This is a human task, not task 1 of a plan.
+1. ✅ **Terraform installed**, 1.16.1, at `~/.local/bin/terraform` (already on `PATH`). No elevation
+   needed: `x86_64`, and `releases.hashicorp.com` is reachable. **It will not survive a devcontainer
+   rebuild** — add it to `.devcontainer/` as a feature so the next rebuild does not silently lose it.
+2. ✅ **Module fetching works.** Measured on the pre-rewrite tree:
+   - `terraform fmt -check -recursive` — clean
+   - `terraform init -backend=false` — installs azurerm 4.81.0, azuread 3.9.0, random 3.9.0, **and
+     fetches all three `git::https://` modules**
+   - `terraform validate` — *Success! The configuration is valid.*
+
+   So both validation commands are available and **currently green**, which is the precondition a Ralphex
+   plan needs. Note what `validate` does *not* do: it type-checks the configuration, so it will pass
+   whether or not the pipeline actually supplies the variables the config declares. It is not a substitute
+   for a plan against real credentials.
+3. ✅ **First commit made** — `0a61b9c` on `main`, the eight files byte-for-byte as they were in
+   `deed-poll-admin@45d8524`, plus a `.gitignore`. Deliberately unreshaped so the next commit's diff shows
+   exactly what the Jenkins rewrite changed.
+
+   `.gitignore` covers `.terraform/` — **360M once modules and providers are fetched.** Neither
+   `pt-shared-infrastructure` nor `pcs-shared-infrastructure` ignores it; that is a gap in their
+   `.gitignore`, not a convention worth copying.
+
+Optional estate niceties both reference repos carry and this one does not: `.editorconfig`,
+`.pre-commit-config.yaml`, `.github/stale.yml`, and a `LICENSE` in pcs. Note their `.github/` holds
+**only** `stale.yml` — no workflows, consistent with Jenkins-only.
 
 ### Ordering
 
@@ -410,15 +468,25 @@ Jenkinsfile", api is "fix two lines and delete a directory".
 
 1. `provider.tf` — new. Move the two provider blocks out of `main.tf` and `required_providers` + `backend "azurerm" {}` out of `state.tf`; delete `state.tf`
 2. `main.tf` — trim to the single shared resource group; rename the resource `shared` → `rg` to match pt/pcs
-3. `variables.tf` — rewrite for Jenkins: add `jenkins_AAD_objectId`, drop `subscription`, `aks_subscription_id`, `ci_service_principal_object_id`, `tenant_id`, `builtFrom` and `component`; make `product_group_name` a variable with a default
+3. `variables.tf` — add `jenkins_AAD_objectId`; drop only `ci_service_principal_object_id`, `tenant_id` and `builtFrom`; **keep** `product`, `env`, `common_tags`, `subscription` and `aks_subscription_id`, all of which the pipeline supplies; give `location` and `product_group_name` defaults. See the corrected table above — an earlier version of this plan had this task deleting variables the pipeline does provide
 4. `key-vault.tf` — rename from `keyvault.tf`; `object_id = var.jenkins_AAD_objectId`; add the `jenkins-${env}-mi` data source for `jenkins_object_id`; `grant_preview_jenkins_access = var.env == "aat"`; tenant from `data.azurerm_client_config.current`; split `session_secret` into `admin-session-secret` and `web-session-secret`
 5. `app-insights.tf` — rename from `appinsights.tf`; repoint `resource_group_name` at the shared RG; rename the secret to `app-insights-connection-string`
 6. `postgres.tf` — database `deed-poll-admin` → `deed-poll`; fix the name hardcoded in `postgres-url`; `admin_user_object_id = var.jenkins_AAD_objectId`; drop `var.component`
 7. `redis.tf` — bring in from `deed-poll-web/infrastructure/redis.tf`; drop `${var.component}` from the instance name
-8. Delete `output.tf`, `.terraform-version`, `.terraform.lock.hcl`
-9. `Jenkinsfile_CNP`, `README.md`, `renovate.json`, `.gitignore`
+8. Delete `output.tf`. **Keep `.terraform-version`** — see the correction in the file table above
+9. `Jenkinsfile_CNP` and `README.md`. `.gitignore` already landed in `0a61b9c`, and **`renovate.json`
+   comes from merging `deed-poll-infra#1`** rather than being authored — Renovate onboarded the repo by
+   itself, and its proposed file is byte-identical to `pt-shared-infrastructure`'s and this workspace's
+   own. It extends the org shared config `local>hmcts/.github:renovate-config`, which is *not* what caused
+   admin's automerge problem — that came from the expressjs template's hand-written
+   `.github/renovate.json`
 
-Validation: `terraform fmt -check -recursive`, and `terraform validate` if pre-flight 2 allows.
+Validation, both verified green on the pre-rewrite tree at pre-flight:
+
+```
+terraform fmt -check -recursive
+terraform init -backend=false && terraform validate
+```
 
 ### `deed-poll-admin`
 

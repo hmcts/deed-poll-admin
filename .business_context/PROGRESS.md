@@ -159,9 +159,12 @@ each records a measurement or a trap that is still worth knowing, but do not wor
    `Terraform Apply`**: nothing has ever been applied, so there is no state to migrate, and that window
    closes the moment the credentials land. See [Moving the shared
    infrastructure](DEED_POLL_API_PLAN.md#moving-the-shared-infrastructure).
-6. **Settle `deed-poll-api`'s default branch.** It is `main`; this repo and `spring-boot-template` use
-   `master`, and HMCTS Jenkins conventions assume `master` in places. Cheaper to change before a pipeline
-   exists. **Not a decision for an agent.**
+6. ~~**Settle `deed-poll-api`'s default branch.**~~ **Settled 2026-09-06: all four repos use `master`.**
+   Steve's call. `deed-poll-api` and the newly created `deed-poll-infra` were both on `main`; both were
+   renamed via the GitHub rename API, which moves the default-branch pointer and retargets open PRs.
+   Deliberately done **before** Jenkins onboarding, since HMCTS Jenkins conventions assume `master` in
+   places, and while `deed-poll-infra` still had one commit and no pipeline. `deed-poll-api`'s
+   uncommitted task-12 work was verified untouched afterwards — the rename never checked anything out.
 7. **Jenkins onboarding — now all *four* repos**, not two. `cnp-jenkins-config` entries. The note below
    turned out to be the decisive observation of the whole exercise: Jenkins has its own credentials path,
    so none of these joins the queue #99 was stuck in. On 2026-09-06 that reasoning was extended to admin
