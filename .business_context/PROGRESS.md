@@ -635,17 +635,17 @@ documents         ███████   7/7    done  incl. multipart upload, d
 @hmcts/deed-poll                        590 passed
 @hmcts/onboarding                        72 passed
 @hmcts/postgres                          11 passed
-@hmcts/web                              280 passed
+@hmcts/web                              298 passed
 ─────────────────────────────────────────────────────
-total                                  1562 passed
+total                                  1580 passed
 ```
 
 ### Branch
 
 ```
 jenkins-and-session-schema
-4 commits ahead of master
-HEAD  01c7a6b  feat: delete infrastructure/ and .github/workflows/ together
+6 commits ahead of master
+HEAD  784655c  fix: address code review findings
 ```
 
 <!-- END GENERATED DASHBOARD -->
