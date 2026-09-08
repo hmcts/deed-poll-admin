@@ -2,7 +2,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { deedPollDatabaseChecks } from "@hmcts/deed-poll";
-import { getPropertiesVolumeSecrets, healthcheck, monitoringMiddleware } from "@hmcts-cft/cloud-native-platform";
+import { healthcheck, monitoringMiddleware } from "@hmcts-cft/cloud-native-platform";
 import { createSimpleRouter } from "@hmcts-cft/simple-router";
 import compression from "compression";
 import cors from "cors";
@@ -14,11 +14,10 @@ import { errorHandler } from "./errors.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const chartPath = path.join(__dirname, "../helm/values.yaml");
 
 export async function createApp(): Promise<Express> {
-  await getPropertiesVolumeSecrets({ chartPath, omit: ["DATABASE_URL"] });
-
+  // `server.ts` has already loaded the key vault secrets into the environment by the time this runs, and
+  // it has to be that way round rather than a call from here: see ./secrets.ts.
   const { default: config } = await import("config");
   const app = express();
 

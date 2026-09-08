@@ -203,11 +203,37 @@ them.
 The chart fails to start a pod when a named secret is absent from the vault, so the last two entries are the
 ones to check first when a deploy will not come up.
 
+### When the secrets are read, and why the order matters
+
+`loadSecrets()` — `apps/web/src/secrets.ts` and `apps/api/src/secrets.ts` — reads the mounted volume into
+`process.env`, and each app's `server.ts` awaits it **before** importing `./app.js`, dynamically:
+
+```ts
+await loadSecrets();
+const { createApp } = await import("./app.js");
+```
+
+That ordering is load-bearing rather than tidy. `config` resolves `custom-environment-variables.json` once,
+when it is first loaded, and caches the result — it is not a lazy read on `.get()`. ESM evaluates everything
+an entrypoint statically imports before the entrypoint runs a line, so loading the secrets from inside
+`createApp` was too late: `config` had already resolved every value from the placeholders in
+`config/default.json`, and a pod read `redis://localhost:6379` and the checked-in session secret however
+correct its vault was. `libs/postgres-prisma` has the same shape one layer down — it builds its pool from
+`DATABASE_URL` at module scope.
+
+The symptom is misleading, which is what makes it worth knowing: `assertRedisUrl` crashloops the pod with an
+error blaming a missing `redis-url` entry that is present. A static
+`import { createApp } from "./app.js"` in either `server.ts` reintroduces it, and
+`apps/*/src/server.test.ts` exists to fail when one does.
+
 ### Adding New Secrets
 
 1. Add the secret to the vault in `hmcts/deed-poll-infra` — not by hand in the portal
 2. Update the app's `helm/values.yaml` `keyVaults:` block to reference it
 3. Update the application to read the aliased environment variable
+4. Read it through `config` (add it to `config/default.json` and `custom-environment-variables.json`) or
+   straight from `process.env` — either works, because `loadSecrets()` has already run. Do **not** add a
+   second `getPropertiesVolumeSecrets` call inside `createApp`
 
 ## Health Checks
 
@@ -244,6 +270,13 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 5
 ```
+
+The Redis entry checks `isReady` and bounds the `PING` (`redisStatus` in `apps/web/src/app.ts`) rather than
+awaiting a bare ping. A reconnecting node-redis client has `isOpen` true and `isReady` false and *queues*
+commands instead of failing them, so a bare ping never settles — and `runChecks` awaits every check with a
+bare `Promise.all`, so the endpoint would hang for the whole outage and report neither Redis nor the database.
+Kubernetes would still take the pod out of service on the probe's own timeout, so the cost is an endpoint
+that tells whoever is diagnosing the outage nothing.
 
 ## Troubleshooting
 

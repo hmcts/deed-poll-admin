@@ -23,6 +23,9 @@ const mocks = vi.hoisted(() => {
   const redisClient = {
     on: vi.fn(),
     connect: vi.fn(async () => undefined),
+    // `isReady` and not just `ping`, because the readiness check consults it first — a reconnecting client
+    // has `isReady` false and queues commands rather than failing them. See `redisStatus`.
+    isReady: true,
     ping: vi.fn(async () => "PONG")
   };
 
@@ -32,8 +35,7 @@ const mocks = vi.hoisted(() => {
     createClient: vi.fn(() => redisClient),
     expressSessionRedis: vi.fn(() => passthrough),
     expressSessionPostgres: vi.fn(() => passthrough),
-    healthcheck: vi.fn(() => passthrough),
-    getPropertiesVolumeSecrets: vi.fn(async () => ({}))
+    healthcheck: vi.fn(() => passthrough)
   };
 });
 
@@ -50,11 +52,12 @@ vi.mock("@hmcts-cft/express-govuk-starter", () => ({
   notFoundHandler: vi.fn(() => mocks.passthrough)
 }));
 
-// A partial mock: `hc.raw` is the real one, because what the readiness entry does when Redis fails is part
-// of what is being pinned.
+// A partial mock: only the two things that reach out of the process are doubled, so everything the
+// readiness entry itself does stays real — that is part of what is being pinned. `loadSecrets` is not here
+// because `createApp` no longer loads the secrets; `server.ts` does, before importing this module at all.
+// See ./secrets.ts and ./server.test.ts.
 vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts-cft/cloud-native-platform")>()),
-  getPropertiesVolumeSecrets: mocks.getPropertiesVolumeSecrets,
   monitoringMiddleware: vi.fn(() => mocks.passthrough),
   healthcheck: mocks.healthcheck
 }));
@@ -84,6 +87,7 @@ function sessionRedisOptions(): SessionRedisOptions {
 describe("createApp", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    mocks.redisClient.isReady = true;
     await createApp();
   });
 
@@ -118,13 +122,6 @@ describe("createApp", () => {
     expect(mocks.redisClient.on).toHaveBeenCalledWith("error", expect.any(Function));
   });
 
-  // `omit` applies only on the non-production path, where a developer running against a real vault would
-  // otherwise have the deployed URLs overwrite their local ones. Asserted because dropping either name from
-  // the list points a local run at a deployed database or session store with no visible signal.
-  it("should keep the local database and Redis URLs when reading a real vault outside production", async () => {
-    expect(mocks.getPropertiesVolumeSecrets).toHaveBeenCalledWith(expect.objectContaining({ omit: ["DATABASE_URL", "REDIS_URL"] }));
-  });
-
   it("should put Redis and the deed-poll database on readiness together, since this app depends on both", async () => {
     // Names taken from `deedPollDatabaseChecks` itself rather than restated. Restating them while also
     // mocking the function that produces them is how the earlier version of this test came to compare a
@@ -148,6 +145,34 @@ describe("createApp", () => {
 
   it("should report readiness DOWN from Redis when the ping fails", async () => {
     mocks.redisClient.ping.mockRejectedValueOnce(new Error("connect ECONNREFUSED 127.0.0.1:6379"));
+
+    const status = await healthcheckOptions().readinessChecks.redis();
+
+    expect(status).toBe("DOWN");
+  });
+
+  /**
+   * The state a bare `ping()` cannot report, and the reason `redisStatus` exists.
+   *
+   * A reconnecting client has `isOpen` true and `isReady` false, and node-redis queues commands issued in
+   * that state instead of failing them — the same offline queue that makes serving without a connection
+   * safe at startup. So the ping neither resolves nor rejects, and the healthcheck middleware awaits its
+   * checks with a bare `Promise.all`: readiness would hang for the whole outage rather than answer 503,
+   * taking the database results down with it.
+   */
+  it("should report readiness DOWN from Redis while the client is reconnecting, without issuing a command", async () => {
+    mocks.redisClient.isReady = false;
+
+    const status = await healthcheckOptions().readinessChecks.redis();
+
+    expect(status).toBe("DOWN");
+    expect(mocks.redisClient.ping).not.toHaveBeenCalled();
+  });
+
+  // The connection that drops between `isReady` and the reply, where the command is queued after the check
+  // has already passed. Bounded so the probe still answers.
+  it("should report readiness DOWN from Redis when the ping never settles", async () => {
+    mocks.redisClient.ping.mockImplementationOnce(() => new Promise<string>(() => {}));
 
     const status = await healthcheckOptions().readinessChecks.redis();
 

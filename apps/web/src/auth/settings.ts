@@ -1,10 +1,12 @@
 /**
  * IDAM settings, read from `config` once per call rather than captured at import time.
  *
- * Not a module-level constant because `getPropertiesVolumeSecrets()` in `app.ts` populates the
- * environment from Azure Key Vault *during* app creation, and `config` resolves
- * `custom-environment-variables.json` lazily. A constant evaluated at import would capture the
- * placeholder defaults instead of the real secrets.
+ * Reading per call rather than into a module-level constant, but that is **not** what makes the key vault
+ * secrets visible, and this docblock used to claim it was: `config` resolves
+ * `custom-environment-variables.json` once, when it is first loaded, and caches the result. What matters
+ * is that `server.ts` has already run `loadSecrets()` before this module is evaluated — and the static
+ * `import config` below is precisely the edge that defeated loading the secrets inside `createApp`. See
+ * ../secrets.ts.
  */
 import { plainHttpPermitted } from "@hmcts/deed-poll";
 import config from "config";

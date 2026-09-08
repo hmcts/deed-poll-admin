@@ -2,7 +2,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { deedPollDatabaseChecks, plainHttpPermitted } from "@hmcts/deed-poll";
-import { getPropertiesVolumeSecrets, hc, healthcheck, monitoringMiddleware } from "@hmcts-cft/cloud-native-platform";
+import { type HealthStatus, healthcheck, monitoringMiddleware } from "@hmcts-cft/cloud-native-platform";
 import { configureCookieManager, configureGovuk, configureHelmet, configureNonce, errorHandler, notFoundHandler } from "@hmcts-cft/express-govuk-starter";
 import { expressSessionRedis } from "@hmcts-cft/express-session-redis";
 import { createSimpleRouter } from "@hmcts-cft/simple-router";
@@ -18,13 +18,17 @@ import { domainErrorHandler } from "./errors.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const chartPath = path.join(__dirname, "../helm/values.yaml");
 const isDev = process.env.NODE_ENV !== "production" && process.env.VITE_MIDDLEWARE !== "false";
 /**
  * How long startup waits for the first Redis connection before serving anyway. See `getRedisClient` —
  * this is a bound on the wait, not a connect timeout: the client keeps retrying after it elapses.
  */
 const REDIS_CONNECT_TIMEOUT_MS = 2_000;
+/**
+ * How long a readiness probe waits for `PING` before calling Redis down. See `redisStatus` — a probe that
+ * waits indefinitely reports nothing at all.
+ */
+const REDIS_PING_TIMEOUT_MS = 1_000;
 /**
  * Twenty-four hours, stated rather than inherited.
  *
@@ -43,8 +47,8 @@ const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24;
 const SESSION_KEY_PREFIX = "admin-sess:";
 
 export async function createApp(): Promise<Express> {
-  await getPropertiesVolumeSecrets({ chartPath, omit: ["DATABASE_URL", "REDIS_URL"] });
-
+  // `server.ts` has already loaded the key vault secrets into the environment by the time this runs, and
+  // it has to be that way round rather than a call from here: see ./secrets.ts.
   const { default: config } = await import("config");
   const redisUrl = config.get<string>("redis.url");
   assertRedisUrl(redisUrl);
@@ -121,7 +125,7 @@ export async function createApp(): Promise<Express> {
       checks: {},
       readinessChecks: {
         ...deedPollDatabaseChecks(),
-        redis: hc.raw(() => redisConnection.ping())
+        redis: () => redisStatus(redisConnection)
       }
     })
   );
@@ -210,3 +214,32 @@ async function getRedisClient(url: string) {
   ]);
   return redisClient;
 }
+
+/**
+ * Readiness from Redis, and deliberately not a bare `ping()`.
+ *
+ * A bare ping cannot report the outage it is there to report. The offline queue `getRedisClient` relies on
+ * is the same queue that swallows this: while the client is reconnecting `isOpen` is true and `isReady` is
+ * false, so node-redis **queues** the command and the promise it returns neither resolves nor rejects.
+ * `runChecks` in the healthcheck middleware is a bare `Promise.all` with no timeout of its own, so
+ * `/health/readiness` would then hang for the whole outage — never a 503, and the database results never
+ * reported either, since they are awaited alongside. Kubernetes would still take the pod out of service on
+ * its own probe timeout, so the symptom is an endpoint that is useless to whoever is diagnosing the
+ * outage rather than a pod serving traffic it cannot handle.
+ *
+ * `isReady` answers the ordinary case without touching the socket. The bound covers the connection that
+ * drops between that check and the reply, and it is a bound on the *probe*, not on the client — nothing
+ * here gives up on Redis.
+ */
+async function redisStatus(client: RedisConnection): Promise<HealthStatus> {
+  if (!client.isReady) return "DOWN";
+
+  // No `catch` on the ping itself: `Promise.race` subscribes to it either way, so a rejection arriving
+  // after the timer has won is still handled and cannot surface as an unhandled rejection.
+  return Promise.race([
+    client.ping().then<HealthStatus>(() => "UP"),
+    delay(REDIS_PING_TIMEOUT_MS, undefined, { ref: false }).then<HealthStatus>(() => "DOWN")
+  ]).catch<HealthStatus>(() => "DOWN");
+}
+
+type RedisConnection = Awaited<ReturnType<typeof getRedisClient>>;
