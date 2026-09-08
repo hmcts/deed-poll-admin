@@ -47,19 +47,25 @@ fi
 echo "Running database migrations..."
 npx prisma migrate deploy --config=./prisma.config.ts
 
-if [ $? -eq 0 ]; then
-  echo "Migrations completed successfully"
-  echo "Starting health proxy on port 5555..."
-  node health-server.mjs &
-  HEALTH_PID=$!
+echo "Migrations completed successfully"
+echo "Starting health proxy on port 5555..."
+node health-server.mjs &
+HEALTH_PID=$!
 
+# Prisma Studio is an unauthenticated read/write browser over every table, and the chart publishes this
+# pod on `deed-poll-admin-postgres.<env>.platform.hmcts.net` — so starting it unconditionally puts
+# applicant names, dates of birth and addresses behind no login at all, in a service where every other
+# surface goes through IDAM. It is therefore opt-in.
+#
+# It had never actually started: the secret loop above ran `export "postgres-url"=…`, which aborts a POSIX
+# shell under `set -e`, so the container died before this point. Fixing that loop is what made the
+# exposure live, which is why the gate lands with it rather than later.
+if [ "${ENABLE_PRISMA_STUDIO:-}" = "true" ]; then
   echo "Starting Prisma Studio on port 5556..."
   npx prisma studio --config=./prisma.config.ts --port 5556 --browser none &
   STUDIO_PID=$!
-
-  # Wait for both processes
-  wait $HEALTH_PID $STUDIO_PID
+  wait "$HEALTH_PID" "$STUDIO_PID"
 else
-  echo "Migration failed, exiting..."
-  exit 1
+  echo "Prisma Studio disabled (set ENABLE_PRISMA_STUDIO=true to enable)."
+  wait "$HEALTH_PID"
 fi

@@ -138,7 +138,8 @@ Database migrations are handled by the `postgres` application:
 1. **Build**: Creates Docker image with Prisma migrations
 2. **Deploy**: Kubernetes Job runs `yarn db:migrate`
 3. **Wait**: Helm waits for job completion before proceeding
-4. **Verify**: Check migration status in Prisma Studio
+4. **Verify**: Check the migration container's logs. Prisma Studio is not exposed in deployed
+   environments — see [`apps/postgres/README.md`](../apps/postgres/README.md)
 
 ### Running Migrations Manually
 

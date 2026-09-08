@@ -152,12 +152,12 @@ The database layer is split into two components:
 - CamelCase TypeScript interface mapping
 - Database connection pooling
 
-#### Prisma Studio Service (`apps/postgres`)
-- Long-running service providing database inspection interface
-- Runs database migrations on pod startup
-- Hosts Prisma Studio on port 5556 (proxied via port 5555)
-- Health proxy for Kubernetes health checks
-- Accessible via ingress in preview/production environments
+#### Migration Service (`apps/postgres`)
+- Long-running service that runs database migrations on pod startup
+- Health proxy on port 5555 for Kubernetes health checks
+- Can also host Prisma Studio on port 5556 (proxied via 5555), but **only when
+  `ENABLE_PRISMA_STUDIO=true`** — off by default, because Studio is an unauthenticated read/write
+  browser over applicant PII and this pod has an ingress host
 - Deployed using HMCTS `nodejs` Helm chart
 
 **Database Schema**:
@@ -166,26 +166,35 @@ The database layer is split into two components:
 - **Document**: File attachments
 - **CaseNote**: Audit trail
 
-### 4. Prisma Studio Service (`apps/postgres`)
+### 4. Migration Service (`apps/postgres`)
 
-**Purpose**: Database inspection and migration management
+**Purpose**: Schema migration, plus optional database inspection
 
 **Key Features**:
 - Runs database migrations on startup via `prisma migrate deploy`
-- Provides web-based Prisma Studio interface for database inspection
 - Health proxy server (port 5555) for Kubernetes health checks
-- Proxies traffic to Prisma Studio (port 5556)
 - Long-running service deployed using HMCTS `nodejs` chart
+- Optionally hosts Prisma Studio (port 5556) for database inspection
 
 **Architecture Pattern**:
 The health proxy solves the HMCTS `nodejs` chart v3.2.0 limitation that forces HTTP health checks:
 - HTTP server on port 5555 responds to K8s probes
-- All other traffic proxied to Prisma Studio on port 5556
-- Both run continuously as a single pod
+- All other traffic is proxied to Prisma Studio on port 5556 when Studio is enabled, and answered with
+  404 when it is not
+
+**Prisma Studio is off unless `ENABLE_PRISMA_STUDIO=true`**, and turning it on in a deployed environment
+should be a deliberate, temporary act. Studio is a full read/write CRUD browser with no authentication of
+its own, this pod carries an ingress host, and the tables behind it (`deedpoll_deedpoll`,
+`deedpoll_witness`, `onboarding_submission`) hold applicant names, dates of birth and addresses. Every
+other surface in this service sits behind IDAM; Studio would not.
+
+Local inspection does not go through this service at all — `yarn db:studio` runs Studio directly against
+the Compose database.
 
 **Access**:
-- Preview: `https://<team>-<release>-postgres.preview.platform.hmcts.net`
-- Production: Via configured ingress host
+- Preview: `https://<team>-<release>-postgres.preview.platform.hmcts.net` — health endpoints only unless
+  Studio is explicitly enabled
+- Production: Via configured ingress host, same caveat
 
 ### 5. Session Store (Redis)
 
