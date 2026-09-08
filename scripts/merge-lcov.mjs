@@ -13,7 +13,7 @@
  * would produce a report naming files that do not exist, and `apps/web/src/app.ts` and `apps/api/src/app.ts`
  * would collide on one entry. Each record is prefixed with the package directory instead.
  */
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,6 +23,12 @@ const OUTPUT = path.join(ROOT, "lcov.info");
 
 function main() {
   const reports = WORKSPACE_DIRS.flatMap(findReports);
+
+  // Removed before anything else, because Jenkins reuses a workspace: a run that merges nothing would
+  // otherwise leave the previous build's report in place, and Sonar would attribute the earlier commit's
+  // coverage to this one and pass the gate on it. Reporting 0% is wrong and visible; reporting a stale
+  // number is wrong and invisible.
+  rmSync(OUTPUT, { force: true });
 
   if (reports.length === 0) {
     // Not a failure: `yarn test` without `--coverage` legitimately produces none, and failing here would

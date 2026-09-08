@@ -25,6 +25,17 @@ describe("sessionUser", () => {
   it("tolerates a session that has never been namespaced", () => {
     expect(sessionUser({ session: {} } as unknown as Request)).toBeUndefined();
   });
+
+  it("leaves an un-namespaced session untouched, so an anonymous request writes nothing to the store", () => {
+    // `express-session` persists a brand-new session if it was modified, `saveUninitialized: false` or
+    // not. `requireAuth` is global and reads the user on every non-public request, so creating the
+    // namespace on read meant a Redis key per anonymous request, each for the cookie's full maxAge.
+    const session = {};
+
+    sessionUser({ session } as unknown as Request);
+
+    expect(session).toEqual({});
+  });
 });
 
 describe("startFlow and takeFlow", () => {
@@ -47,6 +58,13 @@ describe("startFlow and takeFlow", () => {
 
   it("yields undefined when no flow was ever started", () => {
     expect(takeFlow(request())).toBeUndefined();
+  });
+
+  it("leaves an un-namespaced session untouched when there is no flow to take", () => {
+    const session = {};
+
+    expect(takeFlow({ session } as unknown as Request)).toBeUndefined();
+    expect(session).toEqual({});
   });
 
   it("replaces an abandoned flow rather than keeping the first", () => {

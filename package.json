@@ -22,7 +22,7 @@
     "lint:changed": "turbo lint --filter='...[HEAD^1]'",
     "build": "turbo build",
     "build:force": "turbo build --force",
-    "clean": "find . -name '*.tsbuildinfo' -delete && find apps libs -name 'dist' -type d -prune -exec rm -rf {} +",
+    "clean": "find . -name '*.tsbuildinfo' -not -path '*/node_modules/*' -delete && find apps libs -name node_modules -prune -o -name dist -type d -prune -exec rm -rf {} +",
     "start": "yarn dev:up && yarn start:api & yarn start:web",
     "start:api": "NODE_ENV=production yarn workspace @hmcts/api run start",
     "start:web": "NODE_ENV=production yarn workspace @hmcts/web run start",
