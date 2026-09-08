@@ -240,16 +240,34 @@ nodejs:
   aadIdentityName: deed-poll
   ingressHost: deed-poll-admin-web.{{ .Values.global.environment }}.platform.hmcts.net
   image: 'hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:latest'
-  environment:
-    REDIS_URL: 'redis://deed-poll-{{ .Values.global.environment }}.redis.cache.windows.net:6379'
   keyVaults:
     deed-poll:
       secrets:
-        - name: ExpressJsAppInsightsConnectionString
+        - name: app-insights-connection-string
           alias: APPLICATION_INSIGHTS_CONNECTION_STRING
-        - name: db-url
+        - name: postgres-url
           alias: DATABASE_URL
+        - name: redis-url
+          alias: REDIS_URL
+        - name: admin-session-secret
+          alias: SESSION_SECRET
+        - name: admin-idam-client-secret
+          alias: IDAM_CLIENT_SECRET
 ```
+
+Note the shape of that block, because getting it wrong is silent:
+
+- **Secret names are per component** where sharing would be unsafe — `admin-session-secret`,
+  `admin-idam-client-secret`. `deed-poll-web` reads the same vault, and one session signing key across a
+  caseworker service and a public one makes a forged cookie portable between them. `app-insights-connection-string`
+  and `postgres-url` are deliberately shared. The old `ExpressJsAppInsightsConnectionString` and `db-url` names
+  came from the expressjs template and no longer exist.
+- **`REDIS_URL` comes from the vault, not from an `environment:` literal.** The shared root writes a
+  `rediss://` URL against the TLS port; a hardcoded `redis://...:6379` would be both the wrong port and
+  cleartext, and sessions here carry IDAM access and refresh tokens. `assertRedisUrl` in
+  `apps/web/src/auth/session.ts` refuses to start on either mistake outside development.
+- The chart **fails to start a pod when a named secret is absent**, which is the right way round for the two
+  `admin-` entries.
 
 ### Values Templates
 The umbrella chart uses environment-specific templates with variable substitution:
@@ -301,6 +319,12 @@ redis:
   enabled: true
   architecture: standalone
 ```
+
+**The `redis:` half of that preview block is not in the real file yet** — it is what a per-PR session store
+would look like, not what is there. `values.preview.template.yaml` currently provisions the database and
+nothing for Redis, and `deed-poll-infra` does not apply in `preview`, so a preview deploy has no `redis-url`.
+Whether preview gets an ephemeral subchart or points at the AAT cache is undecided — gap 4 in
+`docs/PIPELINES.md`. Do not present it as existing.
 
 ## Jenkins CNP CI/CD Pipeline
 

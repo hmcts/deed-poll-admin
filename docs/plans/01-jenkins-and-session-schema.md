@@ -179,9 +179,13 @@ Deleting the workflows in the same commit means there is no stage left to fire.
 
 ### Task 5: Add `Jenkinsfile_CNP`
 
-The umbrella chart is `helm/deed-poll-admin/` and its `Chart.yaml` declares `annotations.team: deed-poll`,
-so product `deed-poll` and component `admin` line up with the CNP convention of
-`helm/{product}-{component}` without renaming anything.
+The umbrella chart is `helm/deed-poll-admin/` and its `Chart.yaml` declares `annotations.team: deed-poll`, so
+product `deed-poll` and component `admin` are the right pair.
+
+**Corrected after the fact:** this preamble originally said that lined up with a CNP convention of
+`helm/{product}-{component}`. It does not — `Helm.HELM_RESOURCES_DIR` is the literal `charts`, and
+`helmInstall` requires `charts/deed-poll-admin/values.yaml`. Nothing was moved, so a deploy cannot start. See
+the completion notes on this task and blocker 1 in `docs/PIPELINES.md`.
 
 - [x] Add `Jenkinsfile_CNP` with the `Infrastructure` library, `def type = "nodejs"`, `def product = "deed-poll"`, `def component = "admin"`, and `withPipeline(type, product, component) { }`
   - Library pinned to `2.4.4`, the same version `hmcts/deed-poll-infra` pins, so the product's two pipelines move together. Pinning is the estate norm and unpinned is not: pcs pins `2.4.9`, pt-frontend `2.5.4`, pt-shared-infrastructure `2.4.4`. Attached to `_` rather than to the `def type` line, matching `deed-poll-infra` and avoiding an annotation on a local variable declaration.
@@ -207,6 +211,12 @@ so product `deed-poll` and component `admin` line up with the CNP convention of
   `PROGRESS.md`'s generated dashboard. Treat a drop as a regression.
 - `yarn test:e2e` passes 21/21 when run by hand, with the `yarn` shim on `PATH` and
   `docker compose up -d` running.
+  - **Not met, and not deferred quietly.** Chromium is not installed in the environment this was implemented
+    in, so login was verified with `curl` against the local `rse-idam-simulator` instead — see task 2's notes.
+    The Playwright suite is also the only thing anywhere that exercises a real `RedisStore` round trip, and it
+    now runs in no pipeline at all: `.github/workflows/job.e2e-test.yml` was deleted and `Jenkinsfile_CNP`'s
+    body is empty, so nothing runs it. **Run it by hand before merging**, and treat wiring it into a stage as
+    outstanding work.
 - Sessions are in Redis. No `session` schema and no session table anywhere in Postgres, and no Prisma migration was added.
 - The readiness check names **both** Redis and the deed-poll tables — this app still reads case data through Prisma until the api cutover.
 - No `infrastructure/` directory and no `.github/workflows/` directory. `.github/renovate.json` still

@@ -14,6 +14,7 @@
  * Everything `createApp` mounts that touches the filesystem, a network or a database is doubled — this
  * is a test of the wiring, not of Nunjucks, Vite or Postgres.
  */
+import { deedPollDatabaseChecks } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 
@@ -32,12 +33,7 @@ const mocks = vi.hoisted(() => {
     expressSessionRedis: vi.fn(() => passthrough),
     expressSessionPostgres: vi.fn(() => passthrough),
     healthcheck: vi.fn(() => passthrough),
-    // Named as `deedPollDatabaseChecks` names them, so a rename there fails this rather than passing on
-    // keys that no longer exist.
-    deedPollDatabaseChecks: vi.fn(() => ({
-      postgres: async () => "UP" as const,
-      deedPollSchema: async () => "UP" as const
-    }))
+    getPropertiesVolumeSecrets: vi.fn(async () => ({}))
   };
 });
 
@@ -54,26 +50,35 @@ vi.mock("@hmcts-cft/express-govuk-starter", () => ({
   notFoundHandler: vi.fn(() => mocks.passthrough)
 }));
 
-// Partial mocks, both of them: `hc.raw` and the rest of the deed-poll domain are the real ones, because
-// what the readiness entry does when Redis fails is part of what is being pinned.
+// A partial mock: `hc.raw` is the real one, because what the readiness entry does when Redis fails is part
+// of what is being pinned.
 vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts-cft/cloud-native-platform")>()),
-  getPropertiesVolumeSecrets: vi.fn(async () => ({})),
+  getPropertiesVolumeSecrets: mocks.getPropertiesVolumeSecrets,
   monitoringMiddleware: vi.fn(() => mocks.passthrough),
   healthcheck: mocks.healthcheck
 }));
-vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
-  deedPollDatabaseChecks: mocks.deedPollDatabaseChecks
-}));
+// `@hmcts/deed-poll` is deliberately **not** mocked. `deedPollDatabaseChecks` only builds functions —
+// nothing touches the database until one is called — so the real one can run, and the readiness assertion
+// below can compare against the names it really produces. Mocking it was how that assertion came to check a
+// hardcoded list against a hardcoded list.
 
 type HealthcheckOptions = {
   checks: Record<string, () => Promise<"UP" | "DOWN">>;
   readinessChecks: Record<string, () => Promise<"UP" | "DOWN">>;
 };
 
+type SessionRedisOptions = {
+  sessionOptions: { secret: string; cookie: Record<string, unknown> };
+  storeOptions: { prefix: string };
+};
+
 function healthcheckOptions(): HealthcheckOptions {
   return mocks.healthcheck.mock.calls[0][0] as unknown as HealthcheckOptions;
+}
+
+function sessionRedisOptions(): SessionRedisOptions {
+  return mocks.expressSessionRedis.mock.calls[0][0] as unknown as SessionRedisOptions;
 }
 
 describe("createApp", () => {
@@ -82,12 +87,26 @@ describe("createApp", () => {
     await createApp();
   });
 
-  it("should build the session store on Redis, and not on Postgres", async () => {
-    expect(mocks.expressSessionRedis).toHaveBeenCalledWith({
-      redisConnection: mocks.redisClient,
-      sessionOptions: { secret: "session-secret" }
-    });
+  it("should build the session store on Redis with the connected client, and not on Postgres", async () => {
+    expect(mocks.expressSessionRedis).toHaveBeenCalledWith(expect.objectContaining({ redisConnection: mocks.redisClient }));
+    expect(sessionRedisOptions().sessionOptions.secret).toBe("session-secret");
     expect(mocks.expressSessionPostgres).not.toHaveBeenCalled();
+  });
+
+  // Every flag stated at the call site rather than inherited, and pinned here because the library spreads
+  // `sessionOptions` over its defaults — a partial `cookie` replaces the whole default object, so any future
+  // edit to one of these silently drops the rest. Two are behaviour the store swap changed by itself:
+  // `expressSessionRedis` defaults `maxAge` to four hours where the Postgres store it replaced defaulted to
+  // twenty-four, and `express-session` sets no `sameSite` at all. `secure` is false only because vitest sets
+  // `NODE_ENV=test`, which `plainHttpPermitted` allowlists.
+  it("should give the session cookie a 24-hour lifetime, httpOnly and sameSite=lax explicitly", async () => {
+    expect(sessionRedisOptions().sessionOptions.cookie).toEqual({ maxAge: 86_400_000, httpOnly: true, secure: false, sameSite: "lax" });
+  });
+
+  // One Redis per product, shared with `deed-poll-web`, so the library's default `sess:` prefix would put a
+  // public service's sessions and this one's IDAM tokens in a single keyspace.
+  it("should prefix session keys per component, since the product's Redis is shared with deed-poll-web", async () => {
+    expect(sessionRedisOptions().storeOptions).toEqual({ prefix: "admin-sess:" });
   });
 
   it("should connect a Redis client at the configured URL before mounting the session middleware", async () => {
@@ -99,8 +118,21 @@ describe("createApp", () => {
     expect(mocks.redisClient.on).toHaveBeenCalledWith("error", expect.any(Function));
   });
 
+  // `omit` applies only on the non-production path, where a developer running against a real vault would
+  // otherwise have the deployed URLs overwrite their local ones. Asserted because dropping either name from
+  // the list points a local run at a deployed database or session store with no visible signal.
+  it("should keep the local database and Redis URLs when reading a real vault outside production", async () => {
+    expect(mocks.getPropertiesVolumeSecrets).toHaveBeenCalledWith(expect.objectContaining({ omit: ["DATABASE_URL", "REDIS_URL"] }));
+  });
+
   it("should put Redis and the deed-poll database on readiness together, since this app depends on both", async () => {
-    expect(Object.keys(healthcheckOptions().readinessChecks)).toEqual(["postgres", "deedPollSchema", "redis"]);
+    // Names taken from `deedPollDatabaseChecks` itself rather than restated. Restating them while also
+    // mocking the function that produces them is how the earlier version of this test came to compare a
+    // hardcoded list against a hardcoded list — a rename in the domain passed.
+    const databaseChecks = Object.keys(deedPollDatabaseChecks());
+
+    expect(databaseChecks.length).toBeGreaterThan(0);
+    expect(Object.keys(healthcheckOptions().readinessChecks)).toEqual([...databaseChecks, "redis"]);
   });
 
   it("should leave liveness empty, so a dependency outage does not restart every pod", async () => {
@@ -120,5 +152,40 @@ describe("createApp", () => {
     const status = await healthcheckOptions().readinessChecks.redis();
 
     expect(status).toBe("DOWN");
+  });
+});
+
+/**
+ * Startup against a Redis that is not there.
+ *
+ * Its own `describe` because these have to override the client double *before* `createApp` runs, where the
+ * suite above builds the app in `beforeEach`.
+ *
+ * This is the case that has no visible symptom if it regresses. node-redis retries the initial connection
+ * indefinitely by default, so `connect()` neither resolves nor rejects — and awaiting it bare means
+ * `createApp` never returns, `server.ts` never reaches `app.listen`, and the pod answers no probe at all.
+ * Kubernetes then restarts pods over a dependency outage, which is what the empty liveness checks exist to
+ * prevent. Nothing in a green test run or a healthy environment would reveal it.
+ */
+describe("createApp when Redis is unreachable", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should still build the app when the connection never settles, so the process can serve and report readiness DOWN", async () => {
+    // Never resolves and never rejects — the real client's behaviour against a refused connection, not an
+    // invented one. Takes the real startup bound to complete, which is the point being asserted.
+    mocks.redisClient.connect.mockImplementationOnce(() => new Promise<undefined>(() => {}));
+
+    const app = await createApp();
+
+    expect(app).toBeDefined();
+    expect(mocks.expressSessionRedis).toHaveBeenCalled();
+  });
+
+  it("should still build the app when the connection rejects outright", async () => {
+    mocks.redisClient.connect.mockRejectedValueOnce(new Error("connect ECONNREFUSED 127.0.0.1:6379"));
+
+    await expect(createApp()).resolves.toBeDefined();
   });
 });

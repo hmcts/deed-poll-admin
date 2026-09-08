@@ -91,8 +91,13 @@ Preview environments are automatically created for each pull request:
 - URLs: `https://{team}-{release}-{service}.preview.platform.hmcts.net`
 
 **Automatic Cleanup:**
-- Environments are deleted when PRs are closed
-- Labels `ns:`, `prd:`, `rel:` track cleanup targets
+- Environments are deleted when PRs are closed, by the platform's preview pipeline
+- The `ns:`, `prd:` and `rel:` PR labels went with `.github/workflows/` — `job.pr-comment.yml` was the only
+  thing that applied them and `job.helm-cleanup.yml` the only thing that read them. Nothing does either now
+
+**No session store here yet.** `values.preview.template.yaml` provisions a per-PR database but nothing for
+Redis, and `deed-poll-infra` does not apply in `preview` — so a preview deploy has no `redis-url` and
+`assertRedisUrl` refuses the loopback default. Outstanding, as gap 4 in [`PIPELINES.md`](PIPELINES.md).
 
 ### Production Environment
 
@@ -191,7 +196,7 @@ them.
 |--------|-------|-------------|
 | `app-insights-connection-string` | `APPLICATION_INSIGHTS_CONNECTION_STRING` | Application Insights telemetry. Shared — `deed-poll-api` is Spring Boot and reads the same entry |
 | `postgres-url` | `DATABASE_URL` | PostgreSQL connection string. Shared — one database. Still needed here because this app reads case data through Prisma until the `deed-poll-api` cutover |
-| `redis-url` | `REDIS_URL` | Session store. Shared instance, separate key prefix per app |
+| `redis-url` | `REDIS_URL` | Session store. One instance per environment shared with `deed-poll-web`, so this app prefixes its keys `admin-sess:` rather than the library default `sess:`. Written as `rediss://` against the TLS port, and `assertRedisUrl` refuses to start on a cleartext or loopback URL outside development |
 | `admin-session-secret` | `SESSION_SECRET` | Session cookie signing key |
 | `admin-idam-client-secret` | `IDAM_CLIENT_SECRET` | IDAM OIDC client secret. **Does not exist yet** — it comes from IDAM by hand once the client registration lands |
 
@@ -206,14 +211,22 @@ ones to check first when a deploy will not come up.
 
 ## Health Checks
 
+**Do not point liveness at `/health`.** `healthcheck()` serves `/health`, `/health/readiness` and
+`/readiness` from `readinessChecks`, and only `/health/liveness` and `/liveness` from `checks` — see
+`libs/cloud-native-platform/src/healthcheck/healthcheck-middleware.ts`. `apps/web` deliberately leaves
+`checks` **empty** and puts Redis and the deed-poll tables on readiness alone, so that a dependency outage
+takes pods out of service instead of restarting them: restarting cannot fix someone else's Redis, and a
+rolling restart turns a recoverable outage into a self-inflicted one. A liveness probe on `/health` would
+run the readiness checks and undo all of that.
+
 ### Liveness Probe
 
-Checks if the application is running:
+Whether the process is answering at all. Deliberately has no checks behind it:
 
 ```yaml
 livenessProbe:
   httpGet:
-    path: /health
+    path: /health/liveness
     port: 3000
   initialDelaySeconds: 30
   periodSeconds: 10
@@ -221,12 +234,12 @@ livenessProbe:
 
 ### Readiness Probe
 
-Checks if the application can accept traffic:
+Whether the application can serve traffic — Redis reachable, and the deed-poll tables present:
 
 ```yaml
 readinessProbe:
   httpGet:
-    path: /health
+    path: /health/readiness
     port: 3000
   initialDelaySeconds: 5
   periodSeconds: 5
@@ -257,7 +270,9 @@ kubectl logs {pod-name} -n {namespace}
 
 #### Helm Release Stuck
 
-The deployment scripts handle this automatically, but for manual recovery:
+Nothing recovers this automatically any more — the lock handling and retry logic lived in
+`deploy-preview.sh`, which went with `.github/workflows/`. `helmInstall` fails the build instead, so recover
+by hand:
 
 ```bash
 # Check release status

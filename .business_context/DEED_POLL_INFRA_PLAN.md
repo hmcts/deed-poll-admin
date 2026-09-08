@@ -542,8 +542,18 @@ terraform init -backend=false && terraform validate
 
 ### `deed-poll-admin`
 
-1. Pass `storeOptions: { schemaName: "session" }` to `expressSessionPostgres` in `apps/web/src/app.ts`; update tests
-2. Add a Prisma migration creating the schema — `CREATE SCHEMA IF NOT EXISTS session`. Without it the store's `CREATE TABLE IF NOT EXISTS session.session` fails at startup
+**Steps 1–2 below are superseded** — they said to keep sessions in Postgres under a `session` schema. That was
+reversed on 2026-09-07 and **done differently**: sessions moved to Redis. `PostgresStore` accepts a
+`schemaName` it cannot create, so "one config value" was a config value plus a migration plus a Prisma drift
+question, and Redis was already provisioned for `deed-poll-web` at no extra infrastructure. Decision 3 above
+carries the full reasoning. Do not build a `session` schema.
+
+1. ~~Pass `storeOptions: { schemaName: "session" }` to `expressSessionPostgres`~~ → vendor
+   `libs/express-session-redis` from `hmcts/expressjs-monorepo-template`, swap `expressSessionPostgres` for
+   `expressSessionRedis` in `apps/web/src/app.ts`, add `redis.url` to `config/` and `redis-url`/`REDIS_URL` to
+   the chart, add Redis to readiness, and add a `redis` service to `docker-compose.yml`
+2. ~~Add a Prisma migration creating the schema~~ → **no migration and no schema.** The Redis store needs no
+   DDL. Done: see `docs/plans/01-jenkins-and-session-schema.md`, task 2
 3. All four `values.yaml`: `ExpressJsAppInsightsConnectionString` → `app-insights-connection-string`, `session-secret` → `admin-session-secret`, `idam-client-secret` → `admin-idam-client-secret`
 4. **One commit:** delete `infrastructure/` *and* `.github/workflows/` together — see the note under admin's file table for why splitting them turns CI red
 5. `Jenkinsfile_CNP` — new

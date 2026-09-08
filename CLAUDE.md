@@ -46,6 +46,25 @@ deed-poll-admin/
 └── package.json                # Root configuration
 ```
 
+## Deployment and sessions
+
+Two facts that are easy to get wrong from the code alone, and expensive to get wrong:
+
+- **CI/CD is the Jenkins CNP pipeline**, `Jenkinsfile_CNP` at the root — `withPipeline("nodejs", "deed-poll",
+  "admin")`. There are **no GitHub Actions workflows and none should be added**: `.github/workflows/` was
+  deleted in full and `.github/renovate.json` is all that is left under `.github/` that the platform reads.
+  The pipeline's test stage runs `yarn test`, `yarn test:coverage` **and** `yarn test:a11y`, and fails on a
+  missing script — so do not delete any of the three. See `docs/PIPELINES.md`, which also lists the four
+  things still blocking a green deploy.
+- **This repo owns no Terraform.** The resource group, Key Vault, App Insights, Redis and Postgres are all in
+  [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra). **Do not create an `infrastructure/`
+  directory here.**
+- **Sessions are in Redis**, via `@hmcts-cft/express-session-redis` and `REDIS_URL`. Postgres/Prisma is case
+  data only, until the `deed-poll-api` cutover. Local Redis comes from `docker compose`, so `yarn dev` needs
+  Docker running. `libs/express-session-postgres` is still on disk and still a dependency of `apps/web`
+  deliberately — it is template-provided and unwiring it invites a re-scaffold conflict — but nothing imports
+  it, and a change that puts sessions back on Postgres is a regression, not a refactor.
+
 # Agent instructions
 
 Claude must follow these instructions strictly when contributing code. Rules and conventions are mandatory and must be adhered to without exception. After implementing code, Claude must review it to ensure full compliance with these guidelines.

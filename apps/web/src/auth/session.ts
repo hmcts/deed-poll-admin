@@ -71,6 +71,38 @@ export function assertSessionSecret(secret: string): void {
   );
 }
 
+/**
+ * Refuse to start on a session store URL that cannot be the real one, outside development and test.
+ *
+ * Two accidents, one guard, and both are silent. `config/default.json` carries
+ * `redis://localhost:6379`, so a `redis-url` entry missing or renamed in an environment's vault does not
+ * fail — it falls back to a loopback address, and the only symptom is a readiness probe that never goes
+ * green next to a repeating `ECONNREFUSED 127.0.0.1:6379`. And a cleartext `redis://` to a real host puts
+ * everything this session holds on the wire unencrypted: the IDAM id, access and refresh tokens above.
+ * `hmcts/deed-poll-infra` writes a `rediss://` URL against the TLS port, so plain `redis://` in a deployed
+ * environment means the value did not come from there.
+ *
+ * Same allowlist and the same reason as `assertSessionSecret` and `assertIdamSettings`: a
+ * `!== "production"` test would accept both in `aat`, in preview, and anywhere `NODE_ENV` is unset.
+ */
+export function assertRedisUrl(url: string): void {
+  if (plainHttpPermitted()) return;
+
+  const { protocol, hostname } = new URL(url);
+
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    throw new Error(
+      `REDIS_URL is ${url} under NODE_ENV ${JSON.stringify(process.env.NODE_ENV)}, which is config/default.json's local placeholder. Nothing is listening on loopback in a pod, so readiness would never go green. It comes from the redis-url key vault entry.`
+    );
+  }
+
+  if (protocol !== "rediss:") {
+    throw new Error(
+      `REDIS_URL uses ${protocol} under NODE_ENV ${JSON.stringify(process.env.NODE_ENV)}. Sessions carry IDAM access and refresh tokens, so an unencrypted connection puts them on the wire. The redis-url key vault entry is written as rediss:// against the TLS port.`
+    );
+  }
+}
+
 /** The signed-in user, or undefined. Undefined means not signed in — never "signed in with no roles". */
 export function sessionUser(req: Request): CurrentUser | undefined {
   return namespace(req).user;

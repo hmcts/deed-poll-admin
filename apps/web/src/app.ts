@@ -1,6 +1,7 @@
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { deedPollDatabaseChecks } from "@hmcts/deed-poll";
+import { deedPollDatabaseChecks, plainHttpPermitted } from "@hmcts/deed-poll";
 import { getPropertiesVolumeSecrets, hc, healthcheck, monitoringMiddleware } from "@hmcts-cft/cloud-native-platform";
 import { configureCookieManager, configureGovuk, configureHelmet, configureNonce, errorHandler, notFoundHandler } from "@hmcts-cft/express-govuk-starter";
 import { expressSessionRedis } from "@hmcts-cft/express-session-redis";
@@ -11,7 +12,7 @@ import express from "express";
 import { createClient } from "redis";
 import { refreshMiddleware } from "./auth/refresh-middleware.js";
 import { requireAuth } from "./auth/require-auth.js";
-import { assertSessionSecret } from "./auth/session.js";
+import { assertRedisUrl, assertSessionSecret } from "./auth/session.js";
 import { assertIdamSettings, idamSettings } from "./auth/settings.js";
 import { domainErrorHandler } from "./errors.js";
 
@@ -19,12 +20,35 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const chartPath = path.join(__dirname, "../helm/values.yaml");
 const isDev = process.env.NODE_ENV !== "production" && process.env.VITE_MIDDLEWARE !== "false";
+/**
+ * How long startup waits for the first Redis connection before serving anyway. See `getRedisClient` —
+ * this is a bound on the wait, not a connect timeout: the client keeps retrying after it elapses.
+ */
+const REDIS_CONNECT_TIMEOUT_MS = 2_000;
+/**
+ * Twenty-four hours, stated rather than inherited.
+ *
+ * This is the lifetime the Postgres store this replaced defaulted to. `expressSessionRedis` defaults to
+ * four, so leaving it to the library would have signed caseworkers out three times as often as an
+ * unremarked side effect of a store swap.
+ */
+const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24;
+/**
+ * Keyed per component, because the shared root provisions **one** Redis for the whole product and
+ * `deed-poll-web` reads the same `redis-url`. Under the library default of `sess:` a public-facing
+ * service and this caseworker service would share one namespace — and this app's sessions hold IDAM
+ * access and refresh tokens. Distinct signing secrets already stop a cookie being portable between the
+ * two; this is the keyspace half of the same argument.
+ */
+const SESSION_KEY_PREFIX = "admin-sess:";
 
 export async function createApp(): Promise<Express> {
   await getPropertiesVolumeSecrets({ chartPath, omit: ["DATABASE_URL", "REDIS_URL"] });
 
   const { default: config } = await import("config");
-  const redisConnection = await getRedisClient(config.get<string>("redis.url"));
+  const redisUrl = config.get<string>("redis.url");
+  assertRedisUrl(redisUrl);
+  const redisConnection = await getRedisClient(redisUrl);
   const app = express();
 
   app.set("trust proxy", 1);
@@ -53,7 +77,33 @@ export async function createApp(): Promise<Express> {
   //     runs. It would be a proxy, not a layer.
   //   - Every frontend in the estate holds its own sessions — `pcs-frontend`, `pt-frontend`,
   //     `deed-poll-web`. None holds its own case data.
-  app.use(expressSessionRedis({ redisConnection, sessionOptions: { secret: sessionSecret } }));
+  //
+  // Every cookie flag is stated here rather than inherited from the library, and that is not verbosity:
+  // `expressSessionRedis` spreads `sessionOptions` **over** its defaults, so a partial `cookie` replaces
+  // the whole default object — passing only `maxAge` would silently drop `secure` and `httpOnly`. Stating
+  // all four means no future edit to one of them can quietly remove the others.
+  app.use(
+    expressSessionRedis({
+      redisConnection,
+      sessionOptions: {
+        secret: sessionSecret,
+        cookie: {
+          maxAge: SESSION_MAX_AGE_MS,
+          httpOnly: true,
+          // `plainHttpPermitted()` rather than `NODE_ENV === "production"`, which is what the library
+          // uses: that reading leaves the cookie sent in cleartext in `aat`, in preview, and anywhere
+          // `NODE_ENV` is simply unset. See `libs/deed-poll/src/auth/plain-http.ts` on the polarity.
+          secure: !plainHttpPermitted(),
+          // `express-session` sets no `sameSite` at all by default, which leaves the attribute to
+          // per-browser defaults for a cookie that is this app's only authenticator. Lax and not Strict:
+          // IDAM returns the user by a cross-site top-level GET to `/oauth2/callback`, and Strict would
+          // withhold the cookie carrying the in-flight `flow`, failing every login at the callback.
+          sameSite: "lax"
+        }
+      },
+      storeOptions: { prefix: SESSION_KEY_PREFIX }
+    })
+  );
   // Readiness only, never liveness. `healthcheck()` defaults `readinessChecks` to `checks`, so this
   // previously put Postgres on **both** — meaning a database blip failed liveness and Kubernetes
   // restarted every web pod. Restarting cannot fix someone else's database, and a rolling restart of
@@ -130,6 +180,18 @@ export async function createApp(): Promise<Express> {
  * the store on every request and `requireAuth` is global, so a client that has not connected yet would
  * fail the first page load rather than the first sign-in.
  *
+ * **Waited for, but not waited for indefinitely**, and that distinction is the whole point of the race
+ * below. node-redis's default reconnect strategy returns a backoff delay for every cause except a socket
+ * timeout, and `RedisSocket#connect` loops until the client is ready — so against an unreachable Redis
+ * `connect()` neither resolves nor rejects. Awaiting it bare means `createApp` never returns, `app.listen`
+ * in `server.ts` never runs, and **no probe is answered at all**: Kubernetes then restarts every pod over
+ * someone else's outage, which is exactly the failure the empty `checks: {}` above exists to prevent.
+ *
+ * Serving without a connected store is safe rather than merely better than crashlooping: commands issued
+ * before the client is ready go to node-redis's offline queue, so a connection that completes late costs a
+ * slow first request, not an error, and readiness reports `redis: DOWN` until it does. The client keeps
+ * retrying after the bound elapses — nothing here gives up.
+ *
  * Takes the URL rather than the `config` instance — `deed-poll-web` passes `config` typed as `any`, which
  * this repo's rules do not allow, and the only thing wanted from it is one string.
  */
@@ -139,6 +201,12 @@ async function getRedisClient(url: string) {
   // which takes the process down — so a Redis blip would restart every pod rather than fail readiness.
   redisClient.on("error", (error) => console.error("Redis Client Error", error));
 
-  await redisClient.connect();
+  // `catch` on the connect and not on the race: whichever side wins, a rejection arriving later still has
+  // a handler, so a bad URL cannot surface as an unhandled rejection after startup has moved on. The timer
+  // is unreferenced so a fast connect does not hold the event loop open for the rest of the bound.
+  await Promise.race([
+    redisClient.connect().catch((error) => console.error("Redis Client Error", error)),
+    delay(REDIS_CONNECT_TIMEOUT_MS, undefined, { ref: false })
+  ]);
   return redisClient;
 }

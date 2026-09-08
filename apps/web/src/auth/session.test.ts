@@ -3,7 +3,7 @@ import type { Request } from "express";
 import { afterEach, describe, expect, it } from "vitest";
 import { pageRequest, type RequestDouble } from "../express-doubles.js";
 import type { AuthFlowState } from "./idam.js";
-import { assertSessionSecret, sessionIdToken, sessionUser, signIn, signOut, startFlow, takeFlow } from "./session.js";
+import { assertRedisUrl, assertSessionSecret, sessionIdToken, sessionUser, signIn, signOut, startFlow, takeFlow } from "./session.js";
 
 const FLOW: AuthFlowState = { codeVerifier: "a-verifier", state: "a-state", returnTo: "/deed-polls" };
 
@@ -173,5 +173,46 @@ describe("assertSessionSecret", () => {
     process.env.NODE_ENV = "production";
 
     expect(() => assertSessionSecret("a-real-secret-from-the-key-vault")).not.toThrow();
+  });
+});
+
+describe("assertRedisUrl", () => {
+  const original = process.env.NODE_ENV;
+
+  afterEach(() => {
+    process.env.NODE_ENV = original;
+  });
+
+  it("allows the local placeholder in development, where that is the Redis docker compose serves", () => {
+    process.env.NODE_ENV = "development";
+
+    expect(() => assertRedisUrl("redis://localhost:6379")).not.toThrow();
+  });
+
+  // Same reason the secret guard is not production-only: `redis.url` has a working-looking default, so a
+  // `redis-url` entry missing from an environment's vault does not fail — it points the store at loopback,
+  // and the only symptom is a readiness probe that never goes green.
+  it.each(["production", "aat", "preview", "demo", "ithc", ""])("refuses to start on the loopback placeholder under NODE_ENV=%o", (env) => {
+    process.env.NODE_ENV = env;
+
+    expect(() => assertRedisUrl("redis://localhost:6379")).toThrow(/placeholder/);
+  });
+
+  it("refuses 127.0.0.1 as well as the localhost spelling", () => {
+    process.env.NODE_ENV = "production";
+
+    expect(() => assertRedisUrl("rediss://127.0.0.1:6380")).toThrow(/placeholder/);
+  });
+
+  it("refuses a cleartext URL to a real host, since sessions carry IDAM tokens", () => {
+    process.env.NODE_ENV = "production";
+
+    expect(() => assertRedisUrl("redis://deed-poll-prod.redis.cache.windows.net:6379")).toThrow(/on the wire/);
+  });
+
+  it("accepts the rediss:// URL the shared root writes", () => {
+    process.env.NODE_ENV = "production";
+
+    expect(() => assertRedisUrl("rediss://deed-poll-prod.redis.cache.windows.net:6380")).not.toThrow();
   });
 });

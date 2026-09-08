@@ -95,7 +95,9 @@ deed-poll-admin/
 
 - Node.js 22+
 - Yarn 4+
-- Docker (optional, for PostgreSQL)
+- Docker — **required**, not optional. `yarn dev` runs `docker compose up -d` first, which serves PostgreSQL,
+  Redis and the IDAM simulator. The web app connects to Redis during startup and refuses to start on a
+  missing IDAM issuer, so it does not come up without them
 
 ### Quick Setup
 
@@ -114,6 +116,9 @@ yarn dev
 | Web Application | http://localhost:3000 | Main web interface with GOV.UK styling |
 | API Server | http://localhost:3001 | REST API backend |
 | Prisma Studio | http://localhost:5555 | Database management UI |
+| PostgreSQL | localhost:5432 | Case data, from `docker compose` |
+| Redis | localhost:6379 | Session store, from `docker compose`. Overridden by `REDIS_URL`; the default is `redis://localhost:6379` |
+| IDAM simulator | http://localhost:5556 | Local OIDC issuer for the login flow. Build the image first with `yarn idam:build`, then seed users with `yarn idam:users` |
 
 
 ## 📦 Development

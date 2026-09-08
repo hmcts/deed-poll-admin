@@ -34,14 +34,22 @@ The `yarn` scripts each stage invokes, and whether this repo has them:
 |---|---|---|
 | Build | `yarn lint` | yes |
 | Test | `yarn test` | yes |
-| Test | `yarn test:coverage` — optional, skipped when absent | yes |
-| Test | `yarn test:a11y` — optional, skipped when absent | no; the axe checks live in the Playwright suite |
+| Test | `yarn test:coverage` | yes |
+| Test | `yarn test:a11y` | yes — a documented no-op, see below |
 | Security | `yarn-audit-with-suppressions.sh`, written into the workspace by the library | n/a |
 | Sonar | `sonar-scanner`, configured by `sonar-project.properties` | yes |
 | Smoke (after each deploy) | `yarn test:smoke` | **no — see the gaps below** |
 | Functional (functional-test environments) | `yarn test:functional` | **no — see the gaps below** |
 
-Two things worth knowing:
+Three things worth knowing:
+
+- **None of the test-stage scripts is optional.** `YarnBuilder.test()` is `yarn("test")` then
+  `runYarn("test:coverage")` then `runYarn("test:a11y")`, and `runYarn` ends with
+  `if (status != 0 && !task.contains('install')) steps.error(...)`. A missing script is not skipped — yarn
+  exits non-zero on `Couldn't find a script named ...` and the stage fails. That is why the root
+  `package.json` carries a `test:a11y` that only prints a line explaining itself: the axe-core assertions
+  live in the Playwright suite, which needs browsers and a running app and so cannot run on the bare test
+  agent, but the script has to exist for the stage to go green.
 
 - **The build stage does not run `yarn build`.** `YarnBuilder.build()` is `yarn lint` plus version info,
   nothing more. Type errors are caught instead by the image build, because each `Dockerfile` runs
@@ -55,14 +63,16 @@ Two things worth knowing:
 
 ```bash
 yarn lint       # what the build stage runs
-yarn test       # what the test stage runs
+yarn test       # the test stage runs all three of these, and fails on any of them
+yarn test:coverage
+yarn test:a11y
 yarn build      # not run by the build stage, but run inside every image build
 ```
 
 ## What still has to happen before this pipeline can deploy
 
-The `Jenkinsfile_CNP` is correct and minimal, but a green deploy needs more than the Jenkinsfile. All four
-of these are outstanding, and the first three are **inside this repo**:
+The `Jenkinsfile_CNP` is correct and minimal, but a green deploy needs more than the Jenkinsfile. All five
+of these are outstanding, and the first four are **inside this repo**:
 
 1. **The chart directory is in the wrong place.** `helmInstall` reads `Helm.HELM_RESOURCES_DIR`, which is the
    literal `charts`, and throws `No Helm charts directory found at charts` if it is missing. It then looks for
@@ -81,7 +91,16 @@ of these are outstanding, and the first three are **inside this repo**:
 3. **No `yarn test:smoke`.** `sectionDeployToAKS` calls `builder.smokeTest()` after every deploy,
    unconditionally, and `yarn test:functional` on functional-test environments. Both are missing, so both
    would fail the run once a deploy succeeds.
-4. **External onboarding**, tracked in [`.business_context/PROGRESS.md`](../.business_context/PROGRESS.md):
+4. **Preview environments have no session store.** `helm/deed-poll-admin/values.preview.template.yaml`
+   provisions a per-PR Postgres through `secretRef: postgres`, but sets nothing at all for Redis — no
+   `redis:` subchart and no `REDIS_URL` — and `hmcts/deed-poll-infra` applies per environment on the `aat`,
+   `demo`, `ithc`, `perftest` and `prod` branches, not in `preview`. `apps/web` now holds sessions in Redis,
+   and `assertRedisUrl` refuses to start on `config/default.json`'s loopback default outside development, so
+   a preview pod would fail fast rather than come up sessionless. Two ways out, and this is a decision, not a
+   rename: enable a `redis` subchart per PR the way the AAT template disables one, or point preview at the
+   AAT cache's `redis-url`. The first is ephemeral and isolated; the second shares a cache across every open
+   PR. Not decided.
+5. **External onboarding**, tracked in [`.business_context/PROGRESS.md`](../.business_context/PROGRESS.md):
    four `cnp-jenkins-config` entries, the `deed-poll` namespace and a HelmRelease per component in
    `cnp-flux-config`, and the IDAM client registration that `admin-idam-client-secret` depends on.
 

@@ -195,7 +195,12 @@ The health proxy solves the HMCTS `nodejs` chart v3.2.0 limitation that forces H
 - Express session integration
 - Distributed session support
 - TTL-based expiration
-- Keyed `sess:<id>`, with no schema and no migration
+- Keyed `admin-sess:<id>`, with no schema and no migration. Per component rather than the library's default
+  `sess:`, because the shared root provisions one Redis for the product and `deed-poll-web` reads the same
+  `redis-url` — a caseworker service's IDAM tokens and a public service's sessions should not share a keyspace
+- Cookie: 24 hours, `httpOnly`, `sameSite=lax`, and `Secure` outside development and test. All four stated at
+  the call site in `apps/web/src/app.ts`, not inherited — the library spreads caller options over its
+  defaults, so a partial `cookie` silently replaces the whole default object
 
 Sessions are held here rather than behind `deed-poll-api` deliberately — see the comment at the store call
 site in `apps/web/src/app.ts` for the reasoning. `libs/express-session-postgres` is still vendored but no
@@ -310,9 +315,15 @@ Automated preview environments are created for each pull request, allowing teams
 
 **Trigger**: pull requests, and merges to `master`
 
-The pipeline is `Jenkinsfile_CNP` — `withPipeline("nodejs", "deed-poll", "admin")` with an empty body. It
-builds the image, runs `yarn lint` and `yarn test`, deploys the umbrella chart to the `deed-poll` namespace on
-`cft-preview-01-aks`, then runs smoke tests against the deployed URL and posts the environment back to the PR.
+The pipeline is `Jenkinsfile_CNP` — `withPipeline("nodejs", "deed-poll", "admin")` with an empty body. What it
+is *for*: build the image, run `yarn lint` and the test stage, deploy the umbrella chart to the `deed-poll`
+namespace on `cft-preview-01-aks`, then smoke-test the deployed URL and post the environment back to the PR.
+
+**It cannot do the deploy half of that yet.** The chart is at `helm/` where the library reads `charts/`, the
+pipeline builds one image where the umbrella chart wants four, there is no `yarn test:smoke`, and preview has
+no Redis. Four blockers, enumerated with the library source that proves each in
+[`PIPELINES.md`](PIPELINES.md); two of them are design decisions rather than renames. Read that before
+assuming a red build is a regression.
 
 The previous GitHub Actions pipeline and the five bash scripts it composed (`detect-affected-apps.sh`,
 `generate-build-metadata.sh`, `set-image-variables.sh`, `deploy-preview.sh`, `get-deployment-urls.sh`) were
@@ -330,19 +341,19 @@ mismatch and the rest of the work outstanding before a deploy can go green.
 **Shared Resources**, all provisioned by [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra)
 rather than by anything in this repo:
 - Azure Flexible PostgreSQL Server: `deed-poll-preview`
-- Redis: one instance per environment, shared with `deed-poll-web`
 - Key Vault: `deed-poll-{env}`
 - AKS Cluster: `cft-preview-01-aks`
 - Azure Container Registry: `hmctsprod.azurecr.io`
 
+Redis is provisioned there too — one instance per environment, shared with `deed-poll-web` — but **only from
+`aat` upwards**: the shared root applies per environment on the `aat`, `demo`, `ithc`, `perftest` and `prod`
+branches, not in `preview`. Preview therefore has no session store, which is gap 4 in
+[`PIPELINES.md`](PIPELINES.md).
+
 ### Cleanup
 
-Preview environments are tagged for cleanup:
-- `ns:{team-name}`: Kubernetes namespace
-- `prd:{team-name}`: Product name
-- `rel:{release-name}`: Specific release identifier
-
-Cleanup is triggered when PRs are closed (handled by HMCTS platform).
+Cleanup is triggered when PRs are closed, and is the platform's. The `ns:`, `prd:` and `rel:` PR labels that
+used to track cleanup targets went with `.github/workflows/` — nothing applies or reads them now.
 
 ## Scalability Design
 
