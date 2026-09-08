@@ -280,6 +280,17 @@ yarn test:e2e               # E2E tests
 yarn test:coverage          # Coverage report
 ```
 
+### Running `yarn test:e2e` locally
+
+Needs `docker compose up -d`, plus two things that are easy to lose an hour to:
+
+- **`yarn idam:users` must have been run** against the running simulator. Without the seeded users the
+  login page loads and simply never proceeds, which reads as a broken sign-in rather than an unseeded one.
+- **Set `REDIS_URL=redis://127.0.0.1:6379` in the devcontainer.** `config/default.json` says
+  `redis://localhost:6379`, and here `localhost` resolves to `::1` first while Docker's published port
+  binds IPv4 only — so the session store never connects, and the first request to save a session takes the
+  web server down before Playwright can start. Not a fault in the app: `redis-cli ping` passes throughout.
+
 ## Security
 
 The Jenkins CNP pipeline runs a number of security checks:
