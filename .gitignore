@@ -83,3 +83,7 @@ crash.*.log
 # (`terraform providers lock -platform=linux_amd64 -platform=linux_arm64 -platform=darwin_arm64`),
 # otherwise init fails on a missing checksum for the platform it is running on.
 **/.terraform.lock.hcl
+# Broadened after `steves_notes.md` slipped past the exact-name entry above: a personal note under a
+# slightly different name is untracked-but-not-ignored again, which is the one state `git add -A` commits
+# by accident.
+steve*.md
