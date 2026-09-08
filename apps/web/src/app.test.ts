@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => {
     on: vi.fn(),
     connect: vi.fn(async () => undefined),
     // `isReady` and not just `ping`, because the readiness check consults it first — a reconnecting client
-    // has `isReady` false and queues commands rather than failing them. See `redisStatus`.
+    // has `isOpen` true and `isReady` false, which answers "down" without a round trip. See `redisStatus`.
     isReady: true,
     ping: vi.fn(async () => "PONG")
   };
@@ -114,8 +114,21 @@ describe("createApp", () => {
   });
 
   it("should connect a Redis client at the configured URL before mounting the session middleware", async () => {
-    expect(mocks.createClient).toHaveBeenCalledWith({ url: "redis://localhost:6379" });
+    expect(mocks.createClient).toHaveBeenCalledWith(expect.objectContaining({ url: "redis://localhost:6379" }));
     expect(mocks.redisClient.connect).toHaveBeenCalled();
+  });
+
+  /**
+   * The option with no local symptom and the worst remote one.
+   *
+   * With node-redis's default offline queue, a command issued while the client is reconnecting is buffered
+   * and its promise never settles. `express-session` reads the store on every request and `requireAuth` is
+   * global, so dropping this turns a Redis outage into browsers hanging indefinitely — no error page and no
+   * log line — instead of the 500 that `errorHandler()` renders. Nothing about a healthy environment, and no
+   * other test here, would notice: both settings behave identically while Redis is up.
+   */
+  it("should reject session store commands rather than queue them while Redis is unreachable", async () => {
+    expect(mocks.createClient).toHaveBeenCalledWith(expect.objectContaining({ disableOfflineQueue: true }));
   });
 
   it("should register an error listener on the Redis client, so a later connection failure cannot end the process", async () => {
@@ -154,11 +167,10 @@ describe("createApp", () => {
   /**
    * The state a bare `ping()` cannot report, and the reason `redisStatus` exists.
    *
-   * A reconnecting client has `isOpen` true and `isReady` false, and node-redis queues commands issued in
-   * that state instead of failing them — the same offline queue that makes serving without a connection
-   * safe at startup. So the ping neither resolves nor rejects, and the healthcheck middleware awaits its
-   * checks with a bare `Promise.all`: readiness would hang for the whole outage rather than answer 503,
-   * taking the database results down with it.
+   * A reconnecting client has `isOpen` true and `isReady` false, so a ping tells the probe nothing it did
+   * not already know while costing a round trip on a socket that is being re-established. The healthcheck
+   * middleware awaits its checks with a bare `Promise.all`, so any check that stalls hangs readiness for the
+   * whole outage rather than answering 503, taking the database results down with it.
    */
   it("should report readiness DOWN from Redis while the client is reconnecting, without issuing a command", async () => {
     mocks.redisClient.isReady = false;

@@ -272,11 +272,24 @@ readinessProbe:
 ```
 
 The Redis entry checks `isReady` and bounds the `PING` (`redisStatus` in `apps/web/src/app.ts`) rather than
-awaiting a bare ping. A reconnecting node-redis client has `isOpen` true and `isReady` false and *queues*
-commands instead of failing them, so a bare ping never settles — and `runChecks` awaits every check with a
-bare `Promise.all`, so the endpoint would hang for the whole outage and report neither Redis nor the database.
-Kubernetes would still take the pod out of service on the probe's own timeout, so the cost is an endpoint
-that tells whoever is diagnosing the outage nothing.
+awaiting a bare ping. `runChecks` awaits every check with a bare `Promise.all`, so a check that does not
+settle hangs the endpoint for the whole outage and reports neither Redis nor the database. Kubernetes would
+still take the pod out of service on the probe's own timeout, so the cost is an endpoint that tells whoever is
+diagnosing the outage nothing.
+
+### What a Redis outage looks like
+
+The client is created with `disableOfflineQueue: true`. Without it, node-redis *buffers* commands issued while
+the client is reconnecting — `isOpen` true, `isReady` false — and the promise never settles: since
+`express-session` reads the store on every request and `requireAuth` is global, an outage would present as
+browsers hanging with no error page and no log line, and with an unbounded backlog of queued commands, because
+the empty liveness checks mean nothing restarts the pod either. With it, a store operation during an outage
+rejects immediately and the request gets the starter's 500 page.
+
+The trade is deliberate: a sub-second reconnect (an Azure Cache failover, a patching window) now 500s the
+requests in flight rather than making them wait it out. Readiness already takes the pod out of the Service for
+anything longer, and a bounded error beats an unbounded wait. `apps/web/src/session-store.test.ts` pins it
+against a closed port, so a regression fails the suite rather than waiting for an outage to reveal itself.
 
 ## Troubleshooting
 

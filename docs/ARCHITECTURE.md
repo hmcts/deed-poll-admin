@@ -201,6 +201,9 @@ The health proxy solves the HMCTS `nodejs` chart v3.2.0 limitation that forces H
 - Cookie: 24 hours, `httpOnly`, `sameSite=lax`, and `Secure` outside development and test. All four stated at
   the call site in `apps/web/src/app.ts`, not inherited — the library spreads caller options over its
   defaults, so a partial `cookie` silently replaces the whole default object
+- Fails fast during an outage rather than queueing: the client sets `disableOfflineQueue`, so a store read
+  while Redis is away returns a 500 instead of hanging until it comes back. See
+  [`DEPLOYMENT.md`](DEPLOYMENT.md#what-a-redis-outage-looks-like)
 
 Sessions are held here rather than behind `deed-poll-api` deliberately — see the comment at the store call
 site in `apps/web/src/app.ts` for the reasoning. `libs/express-session-postgres` is still vendored but no

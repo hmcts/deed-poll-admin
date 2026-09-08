@@ -109,6 +109,65 @@ describe.skipIf(!redisReachable)("a session through a real Redis", () => {
   });
 });
 
+/**
+ * The same wiring against a Redis that is not there, which needs no service and so runs everywhere.
+ *
+ * This is the half of the store's behaviour that `app.test.ts` can only assert as a constructor argument.
+ * With node-redis's default offline queue a store read during an outage is buffered and never settles, so
+ * `express-session` never calls back and the request hangs for as long as Redis is away — the failure mode
+ * with no error page, no log line and no bound. `disableOfflineQueue` in `apps/web/src/app.ts` is what makes
+ * it a rejection instead, and this asserts the consequence rather than the flag: a response arrives.
+ */
+describe("a session request while Redis is unreachable", () => {
+  let client: ReturnType<typeof createClient>;
+  let baseUrl: string;
+  let close: () => Promise<void>;
+
+  beforeAll(async () => {
+    // Port 1 rather than a plausible one: nothing can be listening, so this cannot pass by accident against a
+    // developer's local Redis. `reconnectStrategy` left at the default, since a client that has given up
+    // rejects for a different reason (`ClientClosedError`) than the one under test.
+    client = createClient({ url: "redis://127.0.0.1:1", disableOfflineQueue: true });
+    client.on("error", () => {});
+    // Mirrors `getRedisClient`: the connection is waited for, but only up to a bound, and the app is built
+    // either way.
+    await Promise.race([client.connect().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]);
+
+    const app = express();
+    app.use(expressSessionRedis({ redisConnection: client, sessionOptions: { secret: "a-test-secret" }, storeOptions: { prefix: PREFIX } }));
+    // Writes rather than reads, so the store is reached on a request carrying no cookie: `express-session`
+    // will not read the store for a session id it cannot verify, and signing one here would mean restating
+    // `cookie-signature`'s wire format in a test. `save` is what `signIn` calls, and forwarding its error is
+    // what that route does too — see ./auth/session.ts.
+    app.get("/write", (req, res, next) => {
+      (req.session as unknown as { subject?: string }).subject = "a-caseworker";
+      req.session.save((error) => (error ? next(error) : res.json({ id: req.sessionID })));
+    });
+
+    const server = createServer(app);
+    server.listen(0);
+    await once(server, "listening");
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    close = () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+  });
+
+  afterAll(async () => {
+    await close?.();
+    client?.destroy();
+  });
+
+  it("answers with an error instead of hanging until Redis returns", async () => {
+    // The timeout is half the assertion. A regression to the offline queue does not fail on the status — it
+    // never produces one, and this aborts instead.
+    const response = await fetch(`${baseUrl}/write`, { signal: AbortSignal.timeout(2_000) });
+
+    expect(response.status).toBe(500);
+  });
+});
+
 async function connect() {
   const client = createClient({ url: REDIS_URL });
   client.on("error", () => {});

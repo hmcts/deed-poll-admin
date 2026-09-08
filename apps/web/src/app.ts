@@ -191,16 +191,28 @@ export async function createApp(): Promise<Express> {
  * in `server.ts` never runs, and **no probe is answered at all**: Kubernetes then restarts every pod over
  * someone else's outage, which is exactly the failure the empty `checks: {}` above exists to prevent.
  *
- * Serving without a connected store is safe rather than merely better than crashlooping: commands issued
- * before the client is ready go to node-redis's offline queue, so a connection that completes late costs a
- * slow first request, not an error, and readiness reports `redis: DOWN` until it does. The client keeps
- * retrying after the bound elapses — nothing here gives up.
+ * Serving without a connected store is safe rather than merely better than crashlooping: readiness reports
+ * `redis: DOWN` until the connection completes, so Kubernetes keeps the pod out of the Service, and the
+ * client keeps retrying after the bound elapses — nothing here gives up. A request that does arrive first
+ * gets the starter's 500 page, which is what `disableOfflineQueue` below buys.
  *
  * Takes the URL rather than the `config` instance — `deed-poll-web` passes `config` typed as `any`, which
  * this repo's rules do not allow, and the only thing wanted from it is one string.
  */
 async function getRedisClient(url: string) {
-  const redisClient = createClient({ url });
+  // `disableOfflineQueue` is not a tuning knob here, it is what stops a Redis outage hanging every request.
+  // With node-redis's default queue, a command issued while the client is reconnecting — `isOpen` true,
+  // `isReady` false — is buffered and its promise **neither resolves nor rejects** until Redis returns
+  // (`RedisClient#sendCommand`). `express-session` reads the store on every request and `requireAuth` is
+  // global, so the whole outage would present as browsers spinning indefinitely: no error page, no log line,
+  // and an unbounded backlog of queued commands and held sockets, since the empty liveness checks mean
+  // nothing restarts the pod either. Rejecting instead turns that into a `ClientOfflineError` that reaches
+  // `errorHandler()` as a 500 — the ordinary "problem with the service" page, which is diagnosable.
+  //
+  // The cost is that a sub-second reconnect (an Azure Cache failover, a patching window) now 500s the
+  // requests in flight rather than making them wait it out. That is the right way round: readiness already
+  // takes the pod out of the Service for anything longer, and a bounded error beats an unbounded wait.
+  const redisClient = createClient({ url, disableOfflineQueue: true });
   // Without a listener, a connection error after startup is an unhandled `error` event on an EventEmitter,
   // which takes the process down — so a Redis blip would restart every pod rather than fail readiness.
   redisClient.on("error", (error) => console.error("Redis Client Error", error));
@@ -218,18 +230,19 @@ async function getRedisClient(url: string) {
 /**
  * Readiness from Redis, and deliberately not a bare `ping()`.
  *
- * A bare ping cannot report the outage it is there to report. The offline queue `getRedisClient` relies on
- * is the same queue that swallows this: while the client is reconnecting `isOpen` is true and `isReady` is
- * false, so node-redis **queues** the command and the promise it returns neither resolves nor rejects.
- * `runChecks` in the healthcheck middleware is a bare `Promise.all` with no timeout of its own, so
- * `/health/readiness` would then hang for the whole outage — never a 503, and the database results never
- * reported either, since they are awaited alongside. Kubernetes would still take the pod out of service on
- * its own probe timeout, so the symptom is an endpoint that is useless to whoever is diagnosing the
- * outage rather than a pod serving traffic it cannot handle.
+ * `runChecks` in the healthcheck middleware is a bare `Promise.all` with no timeout of its own, so any check
+ * that does not settle hangs `/health/readiness` for the whole outage — never a 503, and the database
+ * results never reported either, since they are awaited alongside. Kubernetes would still take the pod out
+ * of service on its own probe timeout, so the symptom is an endpoint that is useless to whoever is
+ * diagnosing the outage rather than a pod serving traffic it cannot handle. A probe must therefore answer
+ * on its own terms and never inherit the client's patience.
  *
- * `isReady` answers the ordinary case without touching the socket. The bound covers the connection that
- * drops between that check and the reply, and it is a bound on the *probe*, not on the client — nothing
- * here gives up on Redis.
+ * `isReady` answers the ordinary case without touching the socket: a reconnecting client has `isOpen` true
+ * and `isReady` false, which is the state that says "down" without a round trip. The bound covers the
+ * connection that drops between that check and the reply. `disableOfflineQueue` in `getRedisClient` means
+ * such a ping would reject rather than stall, but the probe does not rely on that — the whole point here is
+ * that it settles regardless. Either way this is a bound on the *probe*, not on the client; nothing here
+ * gives up on Redis.
  */
 async function redisStatus(client: RedisConnection): Promise<HealthStatus> {
   if (!client.isReady) return "DOWN";

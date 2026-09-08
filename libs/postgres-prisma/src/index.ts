@@ -20,8 +20,9 @@ const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL
 });
 
-// Shared so the session store reuses this pool and the DATABASE_URL derivation above,
-// rather than rebuilding the connection string from POSTGRES_* itself.
+// Shared so the raw-SQL callers — `deedPollDatabaseChecks`'s `select 1` and the CCD schema CLI — reuse
+// this pool and the DATABASE_URL derivation above, rather than rebuilding the connection string from
+// POSTGRES_* themselves. It no longer backs a session store: sessions are in Redis.
 export { pool as pgPool };
 
 // Create driver adapter

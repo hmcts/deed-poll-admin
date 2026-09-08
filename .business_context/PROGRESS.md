@@ -635,17 +635,17 @@ documents         ███████   7/7    done  incl. multipart upload, d
 @hmcts/deed-poll                        590 passed
 @hmcts/onboarding                        72 passed
 @hmcts/postgres                          11 passed
-@hmcts/web                              303 passed
+@hmcts/web                              305 passed
 ─────────────────────────────────────────────────────
-total                                  1589 passed
+total                                  1591 passed
 ```
 
 ### Branch
 
 ```
 jenkins-and-session-schema
-7 commits ahead of master
-HEAD  60444bb  chore: regenerate the progress dashboard
+8 commits ahead of master
+HEAD  d9d2cda  fix: address code review findings
 ```
 
 <!-- END GENERATED DASHBOARD -->
