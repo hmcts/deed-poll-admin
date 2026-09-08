@@ -4,12 +4,19 @@ This guide covers deployment procedures for the application, including both prev
 
 ## Overview
 
-The application is deployed to Azure Kubernetes Service (AKS) using Helm charts. The deployment strategy differs between environments:
+The application is deployed to Azure Kubernetes Service (AKS) using Helm charts, driven by the **Jenkins CNP
+pipeline** (`Jenkinsfile_CNP`). The deployment strategy differs between environments:
 
 | Environment | Trigger | Cluster | Purpose |
 |-------------|---------|---------|---------|
 | Preview | Pull Request | `cft-preview-01-aks` | Isolated testing per PR |
-| Production | Manual/Merge to master | TBD | Live application |
+| AAT / Production | Merge to `master` | `cft-aat-00-aks` / prod | Live application |
+
+This repo owns **no Terraform**. The resource group, Key Vault, App Insights, Redis and Postgres all live in
+[`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra), and that root must have applied at least
+once before anything here can deploy — nothing enforces that ordering mechanically. See
+[`PIPELINES.md`](PIPELINES.md) for the pipeline itself and for the work still outstanding before a deploy can
+go green.
 
 ## Prerequisites
 
@@ -18,7 +25,7 @@ The application is deployed to Azure Kubernetes Service (AKS) using Helm charts.
 - **Azure Portal**: Access to HMCTS Azure subscription
 - **AKS Cluster**: kubectl credentials for target cluster
 - **Container Registry**: Push access to `hmctsprod.azurecr.io`
-- **GitHub**: Repository write access for workflow triggers
+- **Jenkins**: the pipeline authenticates as its own managed identity — no repository secrets are involved
 
 ### Tools Required
 
@@ -43,10 +50,13 @@ az aks get-credentials \
 ```
 helm/deed-poll-admin/
 ├── Chart.yaml                    # Dependencies on sub-charts
-├── values.yaml                   # Default values
+├── values.template.yaml          # AAT/prod template (envsubst'd at deploy time)
 ├── values.preview.template.yaml  # Preview environment template
 └── charts/                       # Cached dependencies
 ```
+
+> The Jenkins pipeline expects this at `charts/deed-poll-admin/`, not `helm/deed-poll-admin/`, and expects a
+> `values.yaml` to exist. Both gaps are recorded in [`PIPELINES.md`](PIPELINES.md).
 
 ### Sub-Charts
 
@@ -81,8 +91,13 @@ Preview environments are automatically created for each pull request:
 - URLs: `https://{team}-{release}-{service}.preview.platform.hmcts.net`
 
 **Automatic Cleanup:**
-- Environments are deleted when PRs are closed
-- Labels `ns:`, `prd:`, `rel:` track cleanup targets
+- Environments are deleted when PRs are closed, by the platform's preview pipeline
+- The `ns:`, `prd:` and `rel:` PR labels went with `.github/workflows/` — `job.pr-comment.yml` was the only
+  thing that applied them and `job.helm-cleanup.yml` the only thing that read them. Nothing does either now
+
+**No session store here yet.** `values.preview.template.yaml` provisions a per-PR database but nothing for
+Redis, and `deed-poll-infra` does not apply in `preview` — so a preview deploy has no `redis-url` and
+`assertRedisUrl` refuses the loopback default. Outstanding, as gap 4 in [`PIPELINES.md`](PIPELINES.md).
 
 ### Production Environment
 
@@ -123,7 +138,8 @@ Database migrations are handled by the `postgres` application:
 1. **Build**: Creates Docker image with Prisma migrations
 2. **Deploy**: Kubernetes Job runs `yarn db:migrate`
 3. **Wait**: Helm waits for job completion before proceeding
-4. **Verify**: Check migration status in Prisma Studio
+4. **Verify**: Check the migration container's logs. Prisma Studio is not exposed in deployed
+   environments — see [`apps/postgres/README.md`](../apps/postgres/README.md)
 
 ### Running Migrations Manually
 
@@ -156,14 +172,16 @@ yarn db:migrate:dev --name fix_previous_migration
 
 ### Azure Key Vault Integration
 
-Secrets are injected from Azure Key Vault:
+Secrets are injected from the `deed-poll-{env}` Key Vault, which is created by
+[`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra), not by anything in this repo. The chart
+mounts them as a properties volume; the Jenkins pipeline does not inject them.
 
 ```yaml
 # In Helm values
 keyVaults:
   deed-poll:
     secrets:
-      - name: AppInsightsConnectionString
+      - name: app-insights-connection-string
         alias: APPLICATION_INSIGHTS_CONNECTION_STRING
       - name: postgres-url
         alias: DATABASE_URL
@@ -171,27 +189,71 @@ keyVaults:
 
 ### Required Secrets
 
-| Secret | Description |
-|--------|-------------|
-| `AppInsightsConnectionString` | Application Insights telemetry |
-| `postres-url` | PostgreSQL connection string of Terraform DB |
+Names are **per component** where sharing would be unsafe — `deed-poll-web` reads the same vault, and one
+session signing key across a caseworker service and a public one would make a forged cookie portable between
+them.
+
+| Secret | Alias | Description |
+|--------|-------|-------------|
+| `app-insights-connection-string` | `APPLICATION_INSIGHTS_CONNECTION_STRING` | Application Insights telemetry. Shared — `deed-poll-api` is Spring Boot and reads the same entry |
+| `postgres-url` | `DATABASE_URL` | PostgreSQL connection string. Shared — one database. Still needed here because this app reads case data through Prisma until the `deed-poll-api` cutover |
+| `redis-url` | `REDIS_URL` | Session store. One instance per environment shared with `deed-poll-web`, so this app prefixes its keys `admin-sess:` rather than the library default `sess:`. Written as `rediss://` against the TLS port, and `assertRedisUrl` refuses to start on a cleartext or loopback URL outside development |
+| `admin-session-secret` | `SESSION_SECRET` | Session cookie signing key |
+| `admin-idam-client-secret` | `IDAM_CLIENT_SECRET` | IDAM OIDC client secret. **Does not exist yet** — it comes from IDAM by hand once the client registration lands |
+
+The chart fails to start a pod when a named secret is absent from the vault, so the last two entries are the
+ones to check first when a deploy will not come up.
+
+### When the secrets are read, and why the order matters
+
+`loadSecrets()` — `apps/web/src/secrets.ts` and `apps/api/src/secrets.ts` — reads the mounted volume into
+`process.env`, and each app's `server.ts` awaits it **before** importing `./app.js`, dynamically:
+
+```ts
+await loadSecrets();
+const { createApp } = await import("./app.js");
+```
+
+That ordering is load-bearing rather than tidy. `config` resolves `custom-environment-variables.json` once,
+when it is first loaded, and caches the result — it is not a lazy read on `.get()`. ESM evaluates everything
+an entrypoint statically imports before the entrypoint runs a line, so loading the secrets from inside
+`createApp` was too late: `config` had already resolved every value from the placeholders in
+`config/default.json`, and a pod read `redis://localhost:6379` and the checked-in session secret however
+correct its vault was. `libs/postgres-prisma` has the same shape one layer down — it builds its pool from
+`DATABASE_URL` at module scope.
+
+The symptom is misleading, which is what makes it worth knowing: `assertRedisUrl` crashloops the pod with an
+error blaming a missing `redis-url` entry that is present. A static
+`import { createApp } from "./app.js"` in either `server.ts` reintroduces it, and
+`apps/*/src/server.test.ts` exists to fail when one does.
 
 ### Adding New Secrets
 
-1. Add secret to Azure Key Vault
-2. Update Helm values to reference it
-3. Update application to use the environment variable
+1. Add the secret to the vault in `hmcts/deed-poll-infra` — not by hand in the portal
+2. Update the app's `helm/values.yaml` `keyVaults:` block to reference it
+3. Update the application to read the aliased environment variable
+4. Read it through `config` (add it to `config/default.json` and `custom-environment-variables.json`) or
+   straight from `process.env` — either works, because `loadSecrets()` has already run. Do **not** add a
+   second `getPropertiesVolumeSecrets` call inside `createApp`
 
 ## Health Checks
 
+**Do not point liveness at `/health`.** `healthcheck()` serves `/health`, `/health/readiness` and
+`/readiness` from `readinessChecks`, and only `/health/liveness` and `/liveness` from `checks` — see
+`libs/cloud-native-platform/src/healthcheck/healthcheck-middleware.ts`. `apps/web` deliberately leaves
+`checks` **empty** and puts Redis and the deed-poll tables on readiness alone, so that a dependency outage
+takes pods out of service instead of restarting them: restarting cannot fix someone else's Redis, and a
+rolling restart turns a recoverable outage into a self-inflicted one. A liveness probe on `/health` would
+run the readiness checks and undo all of that.
+
 ### Liveness Probe
 
-Checks if the application is running:
+Whether the process is answering at all. Deliberately has no checks behind it:
 
 ```yaml
 livenessProbe:
   httpGet:
-    path: /health
+    path: /health/liveness
     port: 3000
   initialDelaySeconds: 30
   periodSeconds: 10
@@ -199,16 +261,36 @@ livenessProbe:
 
 ### Readiness Probe
 
-Checks if the application can accept traffic:
+Whether the application can serve traffic — Redis reachable, and the deed-poll tables present:
 
 ```yaml
 readinessProbe:
   httpGet:
-    path: /health
+    path: /health/readiness
     port: 3000
   initialDelaySeconds: 5
   periodSeconds: 5
 ```
+
+The Redis entry checks `isReady` and bounds the `PING` (`redisStatus` in `apps/web/src/app.ts`) rather than
+awaiting a bare ping. `runChecks` awaits every check with a bare `Promise.all`, so a check that does not
+settle hangs the endpoint for the whole outage and reports neither Redis nor the database. Kubernetes would
+still take the pod out of service on the probe's own timeout, so the cost is an endpoint that tells whoever is
+diagnosing the outage nothing.
+
+### What a Redis outage looks like
+
+The client is created with `disableOfflineQueue: true`. Without it, node-redis *buffers* commands issued while
+the client is reconnecting — `isOpen` true, `isReady` false — and the promise never settles: since
+`express-session` reads the store on every request and `requireAuth` is global, an outage would present as
+browsers hanging with no error page and no log line, and with an unbounded backlog of queued commands, because
+the empty liveness checks mean nothing restarts the pod either. With it, a store operation during an outage
+rejects immediately and the request gets the starter's 500 page.
+
+The trade is deliberate: a sub-second reconnect (an Azure Cache failover, a patching window) now 500s the
+requests in flight rather than making them wait it out. Readiness already takes the pod out of the Service for
+anything longer, and a bounded error beats an unbounded wait. `apps/web/src/session-store.test.ts` pins it
+against a closed port, so a regression fails the suite rather than waiting for an outage to reveal itself.
 
 ## Troubleshooting
 
@@ -235,7 +317,9 @@ kubectl logs {pod-name} -n {namespace}
 
 #### Helm Release Stuck
 
-The deployment scripts handle this automatically, but for manual recovery:
+Nothing recovers this automatically any more — the lock handling and retry logic lived in
+`deploy-preview.sh`, which went with `.github/workflows/`. `helmInstall` fails the build instead, so recover
+by hand:
 
 ```bash
 # Check release status
@@ -280,6 +364,8 @@ docker push hmctsprod.azurecr.io/deed-poll/app:manual
 # 3. Deploy with Helm
 cd helm/deed-poll-admin
 helm dependency update
+ENVIRONMENT=aat TEAM_NAME=deed-poll WEB_IMAGE=manual \
+  envsubst < values.template.yaml > values.yaml
 helm upgrade --install {release-name} . \
   --namespace {namespace} \
   --values values.yaml \
@@ -346,7 +432,9 @@ helm upgrade {release-name} . \
 
 ## References
 
-- **Pipelines**: `docs/PIPELINES.md` - CI/CD pipeline documentation
-- **Architecture**: `docs/ARCHITECTURE.md` - System architecture
-- **Scripts**: `.github/scripts/README.md` - Helper scripts
-- **Job Documentation**: `.github/workflows/jobs/*/README.md` - Individual job details
+- **Pipelines**: [`PIPELINES.md`](PIPELINES.md) — the Jenkins CNP pipeline, and what is still outstanding
+- **Architecture**: [`ARCHITECTURE.md`](ARCHITECTURE.md) — system architecture
+- **Shared infrastructure**: [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra) — the vault,
+  Redis, Postgres and App Insights this chart depends on
+- **Why it is split this way**:
+  [`.business_context/DEED_POLL_INFRA_PLAN.md`](../.business_context/DEED_POLL_INFRA_PLAN.md)

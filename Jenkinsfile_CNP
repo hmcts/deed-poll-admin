@@ -1,0 +1,25 @@
+#!groovy
+//noinspection GroovyUnusedAssignment
+@Library("Infrastructure@2.4.4") _
+
+def type = "nodejs"
+def product = "deed-poll"
+def component = "admin"
+
+// `product` / `component` are the pair the shared Terraform root was written against: this app reads the
+// `deed-poll-${env}` vault, and its secrets are prefixed `admin-` per component. The Jenkinsfile this repo
+// carried before the re-scaffold declared `rpe` / `expressjs-template` — template boilerplate that had
+// never been configured. See `.business_context/DEED_POLL_INFRA_PLAN.md`.
+//
+// The library is pinned to the same version as `hmcts/deed-poll-infra`'s `withInfraPipeline`, so the
+// product's two pipelines move together. Pinning is the estate norm — pcs and pt both pin.
+//
+// Empty body deliberately:
+//   - secrets reach this app through the Helm chart's `keyVaults:` block (a properties volume), not
+//     `loadVaultSecrets`, so there is nothing for the pipeline to inject into the build;
+//   - `yarn build` is not called here because the Dockerfile runs it, so a type error fails the image
+//     build rather than passing unnoticed (`yarn test` transpiles without type-checking);
+//   - there is no `Jenkinsfile_nightly` — see `docs/PIPELINES.md` for that and for the onboarding work
+//     this pipeline still needs before it can deploy.
+withPipeline(type, product, component) {
+}

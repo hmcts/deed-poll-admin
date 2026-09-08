@@ -24,6 +24,9 @@
       "@hmcts-cft/express-session-postgres": [
         "./libs/express-session-postgres/src"
       ],
+      "@hmcts-cft/express-session-redis": [
+        "./libs/express-session-redis/src"
+      ],
       "@hmcts-cft/cloud-native-platform": [
         "./libs/cloud-native-platform/src"
       ],

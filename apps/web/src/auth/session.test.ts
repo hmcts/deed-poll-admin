@@ -3,7 +3,7 @@ import type { Request } from "express";
 import { afterEach, describe, expect, it } from "vitest";
 import { pageRequest, type RequestDouble } from "../express-doubles.js";
 import type { AuthFlowState } from "./idam.js";
-import { assertSessionSecret, sessionIdToken, sessionUser, signIn, signOut, startFlow, takeFlow } from "./session.js";
+import { assertRedisUrl, assertSessionSecret, sessionIdToken, sessionUser, signIn, signOut, startFlow, takeFlow } from "./session.js";
 
 const FLOW: AuthFlowState = { codeVerifier: "a-verifier", state: "a-state", returnTo: "/deed-polls" };
 
@@ -24,6 +24,17 @@ describe("sessionUser", () => {
 
   it("tolerates a session that has never been namespaced", () => {
     expect(sessionUser({ session: {} } as unknown as Request)).toBeUndefined();
+  });
+
+  it("leaves an un-namespaced session untouched, so an anonymous request writes nothing to the store", () => {
+    // `express-session` persists a brand-new session if it was modified, `saveUninitialized: false` or
+    // not. `requireAuth` is global and reads the user on every non-public request, so creating the
+    // namespace on read meant a Redis key per anonymous request, each for the cookie's full maxAge.
+    const session = {};
+
+    sessionUser({ session } as unknown as Request);
+
+    expect(session).toEqual({});
   });
 });
 
@@ -47,6 +58,13 @@ describe("startFlow and takeFlow", () => {
 
   it("yields undefined when no flow was ever started", () => {
     expect(takeFlow(request())).toBeUndefined();
+  });
+
+  it("leaves an un-namespaced session untouched when there is no flow to take", () => {
+    const session = {};
+
+    expect(takeFlow({ session } as unknown as Request)).toBeUndefined();
+    expect(session).toEqual({});
   });
 
   it("replaces an abandoned flow rather than keeping the first", () => {
@@ -173,5 +191,66 @@ describe("assertSessionSecret", () => {
     process.env.NODE_ENV = "production";
 
     expect(() => assertSessionSecret("a-real-secret-from-the-key-vault")).not.toThrow();
+  });
+});
+
+describe("assertRedisUrl", () => {
+  const original = process.env.NODE_ENV;
+
+  afterEach(() => {
+    process.env.NODE_ENV = original;
+  });
+
+  it("allows the local placeholder in development, where that is the Redis docker compose serves", () => {
+    process.env.NODE_ENV = "development";
+
+    expect(() => assertRedisUrl("redis://localhost:6379")).not.toThrow();
+  });
+
+  // Same reason the secret guard is not production-only: `redis.url` has a working-looking default, so a
+  // `redis-url` entry missing from an environment's vault does not fail — it points the store at loopback,
+  // and the only symptom is a readiness probe that never goes green.
+  it.each(["production", "aat", "preview", "demo", "ithc", ""])("refuses to start on the loopback placeholder under NODE_ENV=%o", (env) => {
+    process.env.NODE_ENV = env;
+
+    expect(() => assertRedisUrl("redis://localhost:6379")).toThrow(/placeholder/);
+  });
+
+  it.each(["rediss://127.0.0.1:6380", "rediss://[::1]:6380"])("refuses %s as well as the localhost spelling", (url) => {
+    process.env.NODE_ENV = "production";
+
+    expect(() => assertRedisUrl(url)).toThrow(/placeholder/);
+  });
+
+  // The vault value is `rediss://:<access-key>@host:6380`, so a message quoting it puts the access key in
+  // stdout and App Insights — where startup failures are read by more people, and kept longer, than
+  // anything else this app logs.
+  it("names the scheme and host but never the credential in the URL", () => {
+    process.env.NODE_ENV = "production";
+
+    expect(() => assertRedisUrl("redis://:an-access-key@deed-poll-prod.redis.cache.windows.net:6379")).toThrow(/on the wire/);
+    expect(() => assertRedisUrl("redis://:an-access-key@deed-poll-prod.redis.cache.windows.net:6379")).not.toThrow(/an-access-key/);
+    expect(() => assertRedisUrl("redis://:an-access-key@localhost:6379")).not.toThrow(/an-access-key/);
+  });
+
+  // `new URL` throws `TypeError: Invalid URL` and names neither the setting nor where it comes from, so the
+  // one input shape this guard exists to explain would be the one it said least about.
+  it("explains a value that is not a URL at all, without quoting it", () => {
+    process.env.NODE_ENV = "production";
+
+    expect(() => assertRedisUrl("an-access-key-pasted-on-its-own")).toThrow(/redis-url key vault entry/);
+    expect(() => assertRedisUrl("an-access-key-pasted-on-its-own")).not.toThrow(/an-access-key-pasted-on-its-own/);
+  });
+
+  it("refuses a cleartext URL to a real host, since sessions carry IDAM tokens", () => {
+    process.env.NODE_ENV = "production";
+
+    expect(() => assertRedisUrl("redis://deed-poll-prod.redis.cache.windows.net:6379")).toThrow(/on the wire/);
+  });
+
+  it("accepts the rediss:// URL the shared root writes", () => {
+    process.env.NODE_ENV = "production";
+
+    expect(() => assertRedisUrl("rediss://deed-poll-prod.redis.cache.windows.net:6380")).not.toThrow();
   });
 });

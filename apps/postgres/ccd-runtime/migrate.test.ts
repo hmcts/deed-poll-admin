@@ -6,9 +6,9 @@
  * asserting that replaying upstream's migration history outside Flyway produces a schema that
  * actually behaves — and documenting the two connection requirements that are easy to miss.
  *
- * Requires a reachable PostgreSQL. Skipped when there is none, because the CI test job does not
- * provision a database (`.github/workflows/job.test.yml` has no `services:` block) — so treat these
- * as local-only coverage until it does.
+ * Requires a reachable PostgreSQL. Skipped when there is none, because the CI test stage does not
+ * provision a database — the Jenkins CNP pipeline's nodejs test stage runs `yarn test` on a bare
+ * agent — so treat these as local-only coverage until it does.
  */
 
 import pg from "pg";

@@ -22,18 +22,28 @@ apps/postgres/
 ├── helm/
 │   ├── Chart.yaml         # Uses HMCTS nodejs chart v3.2.0
 │   └── values.yaml        # Configured as long-running service
-├── start.sh               # Startup script: runs migrations, health proxy, and Studio
-├── health-server.mjs      # HTTP proxy for health checks (port 5555) -> Studio (port 5556)
+├── start.sh               # Startup script: runs migrations, then the health proxy (and Studio if enabled)
+├── health-server.mjs      # Health endpoints (port 5555); proxies to Studio (5556) only when enabled
 └── Dockerfile             # Executes start.sh
 ```
 
 ### Architecture
 
-The postgres service runs two components:
-1. **Health Proxy** (port 5555): HTTP server that responds to K8s health checks and proxies to Studio
-2. **Prisma Studio** (port 5556): Database management interface
+The postgres service runs a migration step and then up to two components:
+1. **Health Proxy** (port 5555): HTTP server that responds to K8s health checks. Always runs.
+2. **Prisma Studio** (port 5556): Database management interface. Runs **only when
+   `ENABLE_PRISMA_STUDIO=true`**; the proxy answers 404 for non-health paths otherwise.
 
 This architecture works around the HMCTS nodejs chart v3.2.0 limitation that forces HTTP health checks.
+
+Studio is opt-in because it is an unauthenticated read/write CRUD browser over every table — including
+`deedpoll_deedpoll`, `deedpoll_witness` and `onboarding_submission`, which hold applicant names, dates of
+birth and addresses — and this pod carries an ingress host. Nothing in front of it checks a user, in a
+service where every other surface goes through IDAM. Enable it deliberately and temporarily, for one
+environment, and turn it back off.
+
+Local inspection does not go through this service: `yarn db:studio` runs the `studio` script in
+`package.json` directly against the Compose database.
 
 ## Creating Migrations
 
@@ -69,23 +79,25 @@ Use descriptive names that explain the change:
 2. **Deploy**:
    - Helm deploys `apps/postgres` as a long-running service
    - On startup, `start.sh` runs `prisma migrate deploy`
-   - If migrations fail, container restarts (per K8s restart policy)
-   - If migrations succeed, health proxy starts on port 5555 and Prisma Studio on port 5556
+   - If migrations fail, `set -e` exits the container, which restarts (per K8s restart policy)
+   - If migrations succeed, the health proxy starts on port 5555
 
 3. **Service Runtime**:
-   - Health proxy and Prisma Studio run continuously
-   - Accessible via ingress (e.g., `<team>-<release>-postgres.preview.platform.hmcts.net`)
+   - Health proxy runs continuously
+   - Reachable via ingress (e.g., `<team>-<release>-postgres.preview.platform.hmcts.net`)
    - HTTP health checks on port 5555 (`/health/liveness`, `/health/readiness`)
-   - All other requests proxied to Prisma Studio on port 5556
+   - All other requests get 404, unless `ENABLE_PRISMA_STUDIO=true`, in which case they are proxied to
+     Prisma Studio on port 5556
    - Migrations run again if pod restarts
 
 ### Preview Deployments
 
-Migrations and Studio run automatically in preview environments:
+Migrations run automatically in preview environments:
 - Service deploys alongside web/API apps
 - Uses same database as preview apps
-- Prisma Studio accessible at: `<team>-<release>-postgres.preview.platform.hmcts.net`
 - Changes detected by Turborepo
+- Prisma Studio is **not** exposed. To inspect a preview database, prefer `kubectl port-forward` to the
+  Postgres instance over enabling Studio on a public ingress host.
 
 ### Production Deployments
 
@@ -93,7 +105,8 @@ Configure via Flux/ArgoCD to:
 - Enable the postgres subchart
 - Set the correct image tag
 - Configure DATABASE_URL via Azure Key Vault
-- Set appropriate ingress host for Studio access
+- Leave `ENABLE_PRISMA_STUDIO` unset — an unauthenticated CRUD browser over applicant PII does not belong
+  on a production ingress
 
 ## Configuration
 
@@ -125,22 +138,23 @@ The postgres service supports two methods of database configuration:
 
 If both methods are provided, individual variables take precedence.
 
+**Prisma Studio**:
+- `ENABLE_PRISMA_STUDIO`: set to the exact string `true` to start Studio on port 5556 and proxy
+  non-health requests to it. Anything else, including unset, leaves it off.
+
 ## Accessing Prisma Studio
 
-### Preview Environments
+Locally, use `yarn db:studio` — it does not go through this service.
 
-```
-https://<team>-<release>-postgres.preview.platform.hmcts.net
-```
+In a deployed environment, Studio is off. Prefer `kubectl port-forward` against the Postgres instance;
+that gives the same access without publishing an unauthenticated CRUD interface over applicant PII on
+`*.platform.hmcts.net`.
 
-For example:
-```
-https://deed-poll-pr-123-postgres.preview.platform.hmcts.net
-```
-
-### Production Environments
-
-Access via the configured ingress host in your Flux/ArgoCD values.
+If you genuinely need Studio in a non-production environment, set `ENABLE_PRISMA_STUDIO=true` on the
+`deed-poll-admin-postgres` component, use it, and unset it again. It is then served on the component's
+ingress host (e.g. `https://deed-poll-pr-123-postgres.preview.platform.hmcts.net`) with no login of its
+own, so treat it as a temporary, deliberate exception rather than a standing configuration. Do not do
+this in production.
 
 ## Troubleshooting
 

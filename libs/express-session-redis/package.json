@@ -1,0 +1,44 @@
+{
+  "name": "@hmcts-cft/express-session-redis",
+  "version": "0.1.3",
+  "private": true,
+  "description": "Express session middleware backed by Redis with sensible defaults.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hmcts/deed-poll-admin.git",
+    "directory": "libs/express-session-redis"
+  },
+  "homepage": "https://github.com/hmcts/deed-poll-admin/tree/master/libs/express-session-redis#readme",
+  "bugs": "https://github.com/hmcts/deed-poll-admin/issues",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
+  },
+  "peerDependencies": {
+    "connect-redis": "^9.0.0",
+    "express": "^5.1.0",
+    "express-session": "^1.18.2"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/express-session": "1.19.0",
+    "connect-redis": "9.0.0",
+    "express-session": "1.19.0"
+  }
+}

@@ -9,7 +9,7 @@ if (process.env.POSTGRES_HOST && process.env.POSTGRES_USER && process.env.POSTGR
 }
 
 // Default to local PostgreSQL when DATABASE_URL is absent. Empty counts as absent — the same reason
-// `prisma.config.ts` does not use `??=`: a Helm `env:` value or a GitHub Actions secret that does not
+// `prisma.config.ts` does not use `??=`: a Helm `env:` value or a mounted vault secret that does not
 // exist arrives as the empty string, which `??=` preserves. Here that would build a pool against `""`
 // and fail at connect time rather than falling back, so the failure would be a connection error naming
 // no host rather than anything pointing at the missing configuration.
@@ -20,8 +20,9 @@ const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL
 });
 
-// Shared so the session store reuses this pool and the DATABASE_URL derivation above,
-// rather than rebuilding the connection string from POSTGRES_* itself.
+// Shared so the raw-SQL callers — `deedPollDatabaseChecks`'s `select 1` and the CCD schema CLI — reuse
+// this pool and the DATABASE_URL derivation above, rather than rebuilding the connection string from
+// POSTGRES_* themselves. It no longer backs a session store: sessions are in Redis.
 export { pool as pgPool };
 
 // Create driver adapter

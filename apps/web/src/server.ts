@@ -1,6 +1,12 @@
-import { createApp } from "./app.js";
+import { loadSecrets } from "./secrets.js";
 
 const PORT = process.env.PORT || 3000;
+
+// Secrets first, then the app — and `./app.js` is imported dynamically for exactly that reason. A static
+// import is evaluated before any statement here runs, and the first thing that reaches `config` freezes
+// the environment it was loaded with for the life of the process. See ./secrets.ts.
+await loadSecrets();
+const { createApp } = await import("./app.js");
 
 async function startServer() {
   const app = await createApp();

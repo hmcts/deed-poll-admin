@@ -1,6 +1,6 @@
 # Migration progress — handover
 
-Last updated: 2026-09-06. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md). Backend:
+Last updated: 2026-09-07. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md). Backend:
 [`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md). **Infrastructure and pipeline:
 [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md).**
 
@@ -8,7 +8,34 @@ Last updated: 2026-09-06. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md). Backen
 working. **Phase 6 has been redefined** — an earlier version of this file said nothing in it was code any
 more, and as of 2026-09-06 that is no longer true. See below.
 
-## Pick up here (end of 2026-09-06 session)
+## Pick up here (end of 2026-09-07 session)
+
+### What changed on 2026-09-07 — `deed-poll-admin` only
+
+[`docs/plans/01-jenkins-and-session-schema.md`](../docs/plans/01-jenkins-and-session-schema.md) landed, five
+commits on `jenkins-and-session-schema`. It is authoritative for this repo over everything the 2026-09-06
+notes below say about admin's pipeline and sessions.
+
+1. **Sessions are in Redis, not a Postgres `session` schema.** This *reverses* item 3 of the 2026-09-06 list
+   below. `PostgresStore` takes a `schemaName` it cannot create, and Redis was already provisioned for
+   `deed-poll-web`, so admin using it added no infrastructure. No migration, no session table, no `session`
+   schema — and `public` now has exactly one prospective owner, api's Flyway.
+2. **The Jenkins migration is done for this repo.** `Jenkinsfile_CNP` added, `.github/workflows/` and
+   `infrastructure/` both deleted in one commit each. `deed-poll-web` and `deed-poll-api` are still to do.
+3. **The vault secret renames are done for this repo**, in all four charts, plus a new `redis-url`/`REDIS_URL`
+   entry on `apps/web`.
+4. **Four things still block a green deploy, and two are design decisions rather than renames.** Enumerated
+   against the library source in [`docs/PIPELINES.md`](../docs/PIPELINES.md): the chart is at `helm/` where
+   `helmInstall` reads `charts/`; the pipeline builds one image where the umbrella chart wants four; there is
+   no `yarn test:smoke`; and preview has no Redis. **None of these is tracked in the tables below** — read
+   `PIPELINES.md` for them.
+5. **The Playwright suite now runs in no pipeline.** `job.e2e-test.yml` went with `.github/workflows/` and
+   `Jenkinsfile_CNP`'s body is empty. It is also the only thing that exercises a real `RedisStore` round trip,
+   so wiring it into a stage is outstanding work rather than a nicety.
+
+## What the 2026-09-06 session recorded
+
+
 
 **Read [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md) first.** Five decisions were taken on
 2026-09-06 that supersede much of Phase 6 as this file describes it, and rewriting every affected passage
@@ -22,8 +49,9 @@ current.**
    reasoning is divergence from the estate and cognitive load.
 2. **`hmcts/deed-poll-infra` holds the shared infrastructure**, replacing this repo's `infrastructure/`
    directory. That directory is already deleted from the working tree here.
-3. **The shared Postgres server lives in `deed-poll-infra`**, and this repo's session table moves into its
-   own `session` schema so that api's Flyway can own `public` without meeting a table it did not create.
+3. **The shared Postgres server lives in `deed-poll-infra`**, and ~~this repo's session table moves into its
+   own `session` schema so that api's Flyway can own `public` without meeting a table it did not create.~~
+   **Reversed on 2026-09-07 — sessions moved to Redis instead. See above.**
 4. **Vault secrets are prefixed per component** where sharing them would be unsafe —
    `admin-session-secret`, `admin-idam-client-secret`, and `app-insights-connection-string` replacing
    `ExpressJsAppInsightsConnectionString`.
@@ -182,9 +210,11 @@ ours.
 | Item | State |
 |---|---|
 | Shared resource group, Key Vault, workload identity | ✅ Written and working, but **moving** to `hmcts/deed-poll-infra` — originally [PR #64](https://github.com/hmcts/deed-poll-admin/pull/64) in this repo's `infrastructure/`. See [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md) |
-| Migrate all four repos to the Jenkins CNP pipeline | **New, and the bulk of what is left.** Delete `.github/workflows/`, add `Jenkinsfile_CNP`, rewrite `variables.tf` for `withInfraPipeline`'s variable set |
-| Move the session table to its own `session` schema | **New.** One `schemaName` option plus a migration creating the schema. Lets api's Flyway own `public` cleanly |
-| Rename the per-component vault secrets | **New.** `admin-session-secret`, `admin-idam-client-secret`, `app-insights-connection-string`. Must happen before IDAM replies |
+| Migrate all four repos to the Jenkins CNP pipeline | ✅ **for `deed-poll-admin`** (2026-09-07): `.github/workflows/` deleted, `Jenkinsfile_CNP` added. Still to do for `deed-poll-web` and `deed-poll-api`, each of which has its own plan |
+| ~~Move the session table to its own `session` schema~~ | ❌ **Reversed, not done.** Sessions moved to Redis on 2026-09-07 — no table, no schema, no migration. `public` is api's alone |
+| Rename the per-component vault secrets | ✅ **for `deed-poll-admin`** (2026-09-07), in all four charts, plus a new `redis-url` entry on `apps/web`. Still to do for web and api |
+| Four blockers on a green admin deploy | **New.** Chart at `helm/` vs `charts/`; one image vs four; no `yarn test:smoke`; preview has no Redis. Two are design decisions. Detail in [`../docs/PIPELINES.md`](../docs/PIPELINES.md) |
+| Wire the Playwright suite into a pipeline stage | **New.** `job.e2e-test.yml` went with `.github/workflows/` and nothing replaced it. It is also the only test anywhere that exercises a real `RedisStore` round trip |
 | `cnp-jenkins-config` onboarding, four entries | **New, and now the critical path.** External |
 | `session-secret` in the vault | ✅ Still generated rather than manual — `random_password` in the shared repo's `key-vault.tf`, on the first successful apply. Renamed per component |
 | `deed-poll` Kubernetes namespace | Platform-level, **still unconfirmed**, but no longer a bare question: under Jenkins it is a `cnp-flux-config` change per component |
@@ -598,23 +628,24 @@ documents         ███████   7/7    done  incl. multipart upload, d
 @hmcts-cft/cloud-native-platform        140 passed
 @hmcts-cft/express-govuk-starter        127 passed
 @hmcts-cft/express-session-postgres      23 passed
+@hmcts-cft/express-session-redis          7 passed
 @hmcts-cft/simple-router                 41 passed
-@hmcts/api                              261 passed
+@hmcts/api                              265 passed
 @hmcts/crons                             10 passed
 @hmcts/deed-poll                        590 passed
 @hmcts/onboarding                        72 passed
 @hmcts/postgres                          11 passed
-@hmcts/web                              273 passed
+@hmcts/web                              305 passed
 ─────────────────────────────────────────────────────
-total                                  1548 passed
+total                                  1591 passed
 ```
 
 ### Branch
 
 ```
-master
-0 commits ahead of master
-HEAD  1d752fd  Create the shared resource group and Key Vault this root has always assumed (#64)
+jenkins-and-session-schema
+8 commits ahead of master
+HEAD  d9d2cda  fix: address code review findings
 ```
 
 <!-- END GENERATED DASHBOARD -->

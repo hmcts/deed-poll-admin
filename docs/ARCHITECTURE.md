@@ -35,12 +35,12 @@ The HMCTS Express Monorepo Template is a production-ready, cloud-native applicat
                               │
 ┌─────────────────────────────┴────────────────────────────────────┐
 │                         Data Layer                               │
-│    ┌────────────────────┐                                        │
-│    │  PostgreSQL        │                                        │
-│    │  - Port: 5432      │                                        │
-│    │  - Prisma ORM      │                                        │
-│    │  - Session Store   │                                        │
-│    └────────────────────┘                                        │
+│    ┌────────────────────┐   ┌────────────────────┐               │
+│    │  PostgreSQL        │   │  Redis             │               │
+│    │  - Port: 5432      │   │  - Port: 6379      │               │
+│    │  - Prisma ORM      │   │  - Session Store   │               │
+│    │  - Case data       │   │                    │               │
+│    └────────────────────┘   └────────────────────┘               │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -96,7 +96,7 @@ The web application uses Simple Router for automatic route discovery from the `a
 - GOV.UK Frontend 5.11.2
 - Vite for asset bundling
 - SCSS for styling
-- PostgreSQL for session management
+- Redis for session management, PostgreSQL for case data
 
 **Features**:
 - Server-side rendering
@@ -152,12 +152,12 @@ The database layer is split into two components:
 - CamelCase TypeScript interface mapping
 - Database connection pooling
 
-#### Prisma Studio Service (`apps/postgres`)
-- Long-running service providing database inspection interface
-- Runs database migrations on pod startup
-- Hosts Prisma Studio on port 5556 (proxied via port 5555)
-- Health proxy for Kubernetes health checks
-- Accessible via ingress in preview/production environments
+#### Migration Service (`apps/postgres`)
+- Long-running service that runs database migrations on pod startup
+- Health proxy on port 5555 for Kubernetes health checks
+- Can also host Prisma Studio on port 5556 (proxied via 5555), but **only when
+  `ENABLE_PRISMA_STUDIO=true`** — off by default, because Studio is an unauthenticated read/write
+  browser over applicant PII and this pod has an ingress host
 - Deployed using HMCTS `nodejs` Helm chart
 
 **Database Schema**:
@@ -165,38 +165,58 @@ The database layer is split into two components:
 - **Case**: Case management system
 - **Document**: File attachments
 - **CaseNote**: Audit trail
-- **UserSession**: Session persistence
 
-### 4. Prisma Studio Service (`apps/postgres`)
+### 4. Migration Service (`apps/postgres`)
 
-**Purpose**: Database inspection and migration management
+**Purpose**: Schema migration, plus optional database inspection
 
 **Key Features**:
 - Runs database migrations on startup via `prisma migrate deploy`
-- Provides web-based Prisma Studio interface for database inspection
 - Health proxy server (port 5555) for Kubernetes health checks
-- Proxies traffic to Prisma Studio (port 5556)
 - Long-running service deployed using HMCTS `nodejs` chart
+- Optionally hosts Prisma Studio (port 5556) for database inspection
 
 **Architecture Pattern**:
 The health proxy solves the HMCTS `nodejs` chart v3.2.0 limitation that forces HTTP health checks:
 - HTTP server on port 5555 responds to K8s probes
-- All other traffic proxied to Prisma Studio on port 5556
-- Both run continuously as a single pod
+- All other traffic is proxied to Prisma Studio on port 5556 when Studio is enabled, and answered with
+  404 when it is not
+
+**Prisma Studio is off unless `ENABLE_PRISMA_STUDIO=true`**, and turning it on in a deployed environment
+should be a deliberate, temporary act. Studio is a full read/write CRUD browser with no authentication of
+its own, this pod carries an ingress host, and the tables behind it (`deedpoll_deedpoll`,
+`deedpoll_witness`, `onboarding_submission`) hold applicant names, dates of birth and addresses. Every
+other surface in this service sits behind IDAM; Studio would not.
+
+Local inspection does not go through this service at all — `yarn db:studio` runs Studio directly against
+the Compose database.
 
 **Access**:
-- Preview: `https://<team>-<release>-postgres.preview.platform.hmcts.net`
-- Production: Via configured ingress host
+- Preview: `https://<team>-<release>-postgres.preview.platform.hmcts.net` — health endpoints only unless
+  Studio is explicitly enabled
+- Production: Via configured ingress host, same caveat
 
-### 5. Session Store (PostgreSQL)
+### 5. Session Store (Redis)
 
-**Purpose**: Session storage in the service database, via `@hmcts-cft/express-session-postgres`
+**Purpose**: Session storage in Redis, via `@hmcts-cft/express-session-redis`
 
 **Features**:
 - Express session integration
 - Distributed session support
 - TTL-based expiration
-- Append-only persistence
+- Keyed `admin-sess:<id>`, with no schema and no migration. Per component rather than the library's default
+  `sess:`, because the shared root provisions one Redis for the product and `deed-poll-web` reads the same
+  `redis-url` — a caseworker service's IDAM tokens and a public service's sessions should not share a keyspace
+- Cookie: 24 hours, `httpOnly`, `sameSite=lax`, and `Secure` outside development and test. All four stated at
+  the call site in `apps/web/src/app.ts`, not inherited — the library spreads caller options over its
+  defaults, so a partial `cookie` silently replaces the whole default object
+- Fails fast during an outage rather than queueing: the client sets `disableOfflineQueue`, so a store read
+  while Redis is away returns a 500 instead of hanging until it comes back. See
+  [`DEPLOYMENT.md`](DEPLOYMENT.md#what-a-redis-outage-looks-like)
+
+Sessions are held here rather than behind `deed-poll-api` deliberately — see the comment at the store call
+site in `apps/web/src/app.ts` for the reasoning. `libs/express-session-postgres` is still vendored but no
+longer wired up.
 
 ## Shared Libraries
 
@@ -229,7 +249,7 @@ app.use(healthcheck()); // /health, /health/readiness, /health/liveness
 - **Nunjucks Configuration**: Template engine setup
 - **Asset Management**: Vite integration for SCSS/JS
 - **Security Headers**: Helmet.js with CSP
-- **Session Stores**: PostgreSQL adapter
+- **Session Stores**: Redis adapter
 - **Cookie Manager**: GDPR-compliant cookie consent
 - **Error Handling**: User-friendly error pages
 - **Filters**: Date, currency, time formatting
@@ -303,72 +323,25 @@ Each deployable application has its own Helm chart:
 
 Automated preview environments are created for each pull request, allowing teams to test changes in isolation before merging.
 
-### GitHub Actions Workflow
+### Jenkins CNP pipeline
 
-**Trigger**: Pull requests to `master` branch
+**Trigger**: pull requests, and merges to `master`
 
-**Concurrency**: One deployment per PR (cancels in-progress runs)
+The pipeline is `Jenkinsfile_CNP` — `withPipeline("nodejs", "deed-poll", "admin")` with an empty body. What it
+is *for*: build the image, run `yarn lint` and the test stage, deploy the umbrella chart to the `deed-poll`
+namespace on `cft-preview-01-aks`, then smoke-test the deployed URL and post the environment back to the PR.
 
-**Jobs**:
+**It cannot do the deploy half of that yet.** The chart is at `helm/` where the library reads `charts/`, the
+pipeline builds one image where the umbrella chart wants four, there is no `yarn test:smoke`, and preview has
+no Redis. Four blockers, enumerated with the library source that proves each in
+[`PIPELINES.md`](PIPELINES.md); two of them are design decisions rather than renames. Read that before
+assuming a red build is a regression.
 
-1. **Detect Affected Apps** (`.github/scripts/detect-affected-apps.sh`)
-   - Uses Turborepo to detect which apps changed
-   - Returns JSON arrays of affected apps and all Helm apps
-   - Only apps with changes are rebuilt
-
-2. **Build & Publish** (Matrix job)
-   - Builds Docker images only for affected apps
-   - Tags with timestamp: `pr-{id}-{sha}-{timestamp}`
-   - Also tags with static tag: `pr-{id}` (for unaffected apps)
-   - Pushes to Azure Container Registry
-
-3. **Deploy to Preview**
-   - Reads metadata from Helm charts (team, app names)
-   - Sets dynamic image variables for each app:
-     - Affected apps: Use new timestamped tag
-     - Unaffected apps: Use `latest` tag
-   - Deploys umbrella chart with `--atomic` and retry logic
-   - Handles Helm lock errors from cancelled workflows
-   - Provisions a PostgreSQL database per PR
-
-4. **Get Preview URLs**
-   - Retrieves ingress URLs from Kubernetes
-   - Posts URLs to PR as comment
-   - Tags PR for cleanup tracking
-
-5. **E2E Tests**
-   - Runs Playwright tests against preview environment
-   - Uses app-specific URL environment variables
-   - Posts test results to PR
-   - Uploads artifacts on failure
-
-### Deployment Scripts
-
-**detect-affected-apps.sh**:
-- Uses `turbo ls --affected` to detect changed apps
-- Filters to apps with Dockerfiles
-- Returns JSON for matrix build strategy
-
-**generate-build-metadata.sh**:
-- Extracts team/app names from Helm Chart.yaml
-- Generates timestamp and short SHA
-- Constructs image tags and registry paths
-
-**set-image-variables.sh**:
-- Sets `{APP}_IMAGE` environment variables
-- Affected apps get timestamped tags
-- Unaffected apps use `latest`
-
-**deploy-preview.sh**:
-- Checks Helm release status and recovers from stuck states
-- Implements retry logic with exponential backoff
-- Handles "another operation in progress" errors
-- Rolls back or uninstalls stuck releases
-
-**get-deployment-urls.sh**:
-- Waits for ingress resources to be ready
-- Extracts URLs from Kubernetes ingress objects
-- Returns JSON mapping app names to URLs
+The previous GitHub Actions pipeline and the five bash scripts it composed (`detect-affected-apps.sh`,
+`generate-build-metadata.sh`, `set-image-variables.sh`, `deploy-preview.sh`, `get-deployment-urls.sh`) were
+deleted with `.github/workflows/`. Their per-app selective-build behaviour has **no equivalent** in the CNP
+pipeline, which builds one image per component — see [`PIPELINES.md`](PIPELINES.md), which records that
+mismatch and the rest of the work outstanding before a deploy can go green.
 
 ### Infrastructure Components
 
@@ -377,24 +350,27 @@ Automated preview environments are created for each pull request, allowing teams
 - Kubernetes namespace: `{team-name}`
 - Ingress hosts: `{team}-{release}-{app}.preview.platform.hmcts.net`
 
-**Shared Resources**:
+**Shared Resources**, all provisioned by [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra)
+rather than by anything in this repo:
 - Azure Flexible PostgreSQL Server: `deed-poll-preview`
+- Key Vault: `deed-poll-{env}`
 - AKS Cluster: `cft-preview-01-aks`
 - Azure Container Registry: `hmctsprod.azurecr.io`
 
+Redis is provisioned there too — one instance per environment, shared with `deed-poll-web` — but **only from
+`aat` upwards**: the shared root applies per environment on the `aat`, `demo`, `ithc`, `perftest` and `prod`
+branches, not in `preview`. Preview therefore has no session store, which is gap 4 in
+[`PIPELINES.md`](PIPELINES.md).
+
 ### Cleanup
 
-Preview environments are tagged for cleanup:
-- `ns:{team-name}`: Kubernetes namespace
-- `prd:{team-name}`: Product name
-- `rel:{release-name}`: Specific release identifier
-
-Cleanup is triggered when PRs are closed (handled by HMCTS platform).
+Cleanup is triggered when PRs are closed, and is the platform's. The `ns:`, `prd:` and `rel:` PR labels that
+used to track cleanup targets went with `.github/workflows/` — nothing applies or reads them now.
 
 ## Scalability Design
 
 - Stateless application design
-- PostgreSQL-backed sessions for distribution
+- Redis-backed sessions for distribution
 - Kubernetes HPA support
 
 ## Technology Stack Summary
@@ -406,6 +382,7 @@ Cleanup is triggered when PRs are closed (handled by HMCTS platform).
 | Language | TypeScript |
 | Database | PostgreSQL |
 | ORM | Prisma |
+| Session store | Redis |
 | Template Engine | Nunjucks |
 | UI Framework | GOV.UK Frontend |
 | Build Tool | Turbo |
@@ -413,4 +390,5 @@ Cleanup is triggered when PRs are closed (handled by HMCTS platform).
 | Testing | Vitest, Playwright |
 | Container | Docker (Multi-stage Alpine) |
 | Orchestration | Kubernetes + Helm |
+| CI/CD | Jenkins CNP (`Jenkinsfile_CNP`) |
 

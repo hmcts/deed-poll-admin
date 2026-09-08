@@ -17,6 +17,25 @@ services:
       retries: 5
       start_period: 10s
 
+  # The session store. Named and configured identically to `deed-poll-web`'s service, on the same port,
+  # so the two repos share one local Redis rather than racing for 6379 — whichever compose file is up,
+  # both apps reach the same instance, and starting the second one fails on the container name instead of
+  # quietly running a second store.
+  redis:
+    image: redis:8-alpine
+    container_name: deed-poll-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    command: redis-server --appendonly yes
+
   # Local IDAM, for the OIDC login flow. `hmcts/rse-idam-simulator` — the HMCTS-standard local
   # issuer — rather than anything written here: a stub written alongside the code it verifies can
   # only ever confirm the author's assumptions, and one did exactly that (it put roles in the ID
@@ -45,3 +64,4 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:

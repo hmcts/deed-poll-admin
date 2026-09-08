@@ -1,6 +1,6 @@
 ---
 name: infrastructure-engineer
-description: Specializes in Kubernetes pod diagnostics, Helm chart creation using HMCTS base charts, Azure infrastructure with Terraform, and GitHub Actions CI/CD pipelines. Expert in troubleshooting AKS deployments and working with HMCTS CNP modules.
+description: Specializes in Kubernetes pod diagnostics, Helm chart creation using HMCTS base charts, Azure infrastructure with Terraform, and the Jenkins CNP CI/CD pipeline. Expert in troubleshooting AKS deployments and working with HMCTS CNP modules.
 tools: Read, Write, Edit, Bash, Grep, Glob
 ---
 
@@ -38,13 +38,17 @@ tools: Read, Write, Edit, Bash, Grep, Glob
 - Configure environment-specific values templates
 - Integrate Key Vault secrets via HMCTS chart conventions
 
-### 5. GitHub Actions CI/CD
-- Design reusable workflow jobs for build, test, deploy
-- Implement change detection for selective builds
+### 5. Jenkins CNP CI/CD
+- Maintain `Jenkinsfile_CNP` and the `withPipeline` / `withInfraPipeline` callbacks
+- Keep Helm charts and values templates in the shape the pipeline expects
 - Configure preview deployments for pull requests
-- Manage environment-specific deployment pipelines
+- Manage environment-specific values templates
 
 ## HMCTS Terraform Module Standards
+
+**This repo owns no Terraform.** All of it lives in [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra),
+the product's shared root. The standards below apply when working in *that* repo — do not create an
+`infrastructure/` directory here.
 
 ### Provider and State Configuration
 ```hcl
@@ -98,9 +102,9 @@ resource "azurerm_resource_group" "rg" {
 ### Using HMCTS Modules
 
 **Important: Module Source URL Format**
-- Use `git::https://github.com/hmcts/...` for GitHub Actions CI/CD (this repo)
-- HMCTS repos using Jenkins may use `git@github.com:hmcts/...` (SSH) - do not copy this format
-- GitHub Actions does not have SSH git access, so HTTPS is required
+- Use `git::https://github.com/hmcts/...`. Much of the estate uses `git@github.com:hmcts/...` (SSH), which works
+  on Jenkins agents because they carry a deploy key
+- `git::https://` works under both, so there is no reason to churn existing sources to SSH
 
 ```hcl
 # Application Insights
@@ -236,16 +240,34 @@ nodejs:
   aadIdentityName: deed-poll
   ingressHost: deed-poll-admin-web.{{ .Values.global.environment }}.platform.hmcts.net
   image: 'hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:latest'
-  environment:
-    REDIS_URL: 'redis://deed-poll-{{ .Values.global.environment }}.redis.cache.windows.net:6379'
   keyVaults:
     deed-poll:
       secrets:
-        - name: ExpressJsAppInsightsConnectionString
+        - name: app-insights-connection-string
           alias: APPLICATION_INSIGHTS_CONNECTION_STRING
-        - name: db-url
+        - name: postgres-url
           alias: DATABASE_URL
+        - name: redis-url
+          alias: REDIS_URL
+        - name: admin-session-secret
+          alias: SESSION_SECRET
+        - name: admin-idam-client-secret
+          alias: IDAM_CLIENT_SECRET
 ```
+
+Note the shape of that block, because getting it wrong is silent:
+
+- **Secret names are per component** where sharing would be unsafe — `admin-session-secret`,
+  `admin-idam-client-secret`. `deed-poll-web` reads the same vault, and one session signing key across a
+  caseworker service and a public one makes a forged cookie portable between them. `app-insights-connection-string`
+  and `postgres-url` are deliberately shared. The old `ExpressJsAppInsightsConnectionString` and `db-url` names
+  came from the expressjs template and no longer exist.
+- **`REDIS_URL` comes from the vault, not from an `environment:` literal.** The shared root writes a
+  `rediss://` URL against the TLS port; a hardcoded `redis://...:6379` would be both the wrong port and
+  cleartext, and sessions here carry IDAM access and refresh tokens. `assertRedisUrl` in
+  `apps/web/src/auth/session.ts` refuses to start on either mistake outside development.
+- The chart **fails to start a pod when a named secret is absent**, which is the right way round for the two
+  `admin-` entries.
 
 ### Values Templates
 The umbrella chart uses environment-specific templates with variable substitution:
@@ -298,81 +320,52 @@ redis:
   architecture: standalone
 ```
 
-## GitHub Actions CI/CD Pipeline
+**The `redis:` half of that preview block is not in the real file yet** — it is what a per-PR session store
+would look like, not what is there. `values.preview.template.yaml` currently provisions the database and
+nothing for Redis, and `deed-poll-infra` does not apply in `preview`, so a preview deploy has no `redis-url`.
+Whether preview gets an ephemeral subchart or points at the AAT cache is undecided — gap 4 in
+`docs/PIPELINES.md`. Do not present it as existing.
 
-This repo uses GitHub Actions with reusable workflows instead of Flux/ArgoCD GitOps.
+## Jenkins CNP CI/CD Pipeline
 
-### Workflow Structure
-```
-.github/workflows/
-├── workflow.main.yml          # Master branch deployments
-├── workflow.preview.yml       # PR preview deployments
-├── stage.build.yml            # Build stage (lint, test, images)
-├── stage.deploy.yml           # Deploy stage (Helm)
-├── stage.infrastructure.yml   # Terraform stage
-├── job.detect-changes.yml     # Change detection for selective builds
-├── job.build-and-publish-images.yml
-├── job.helm-deploy.yml        # Helm deployment job
-├── job.terraform.yml          # Terraform plan/apply job
-└── job.e2e-test.yml           # E2E test job
-```
+This repo builds and deploys through the Jenkins CNP pipeline. `.github/workflows/` no longer exists — the
+GitHub Actions pipeline and `cnp-githubactions-library` were dropped in full. See `docs/PIPELINES.md` for what
+the pipeline runs and what is still outstanding, and `.business_context/DEED_POLL_INFRA_PLAN.md` for why.
 
-### Main Workflow Pattern
-```yaml
-# workflow.main.yml - Triggered on push to master
-name: Main
+### Jenkinsfile_CNP
 
-on:
-  push:
-    branches: [master]
+```groovy
+@Library("Infrastructure@2.4.4") _
 
-jobs:
-  detect-code-changes:
-    uses: ./.github/workflows/job.detect-changes.yml
-    with:
-      paths: "^(yarn\\.lock|apps/|libs/|helm/)"
+def type = "nodejs"
+def product = "deed-poll"
+def component = "admin"
 
-  detect-infra-changes:
-    uses: ./.github/workflows/job.detect-changes.yml
-    with:
-      paths: "^infrastructure/"
-
-  build-stage:
-    needs: [detect-code-changes]
-    if: needs.detect-code-changes.outputs.has-changes == 'true'
-    uses: ./.github/workflows/stage.build.yml
-
-  infrastructure-stage:
-    needs: [detect-infra-changes]
-    if: needs.detect-infra-changes.outputs.has-changes == 'true'
-    uses: ./.github/workflows/stage.infrastructure.yml
-    with:
-      plan-only: false
-
-  deploy-stage:
-    needs: [build-stage, infrastructure-stage]
-    uses: ./.github/workflows/stage.deploy.yml
-    with:
-      environment: aat
+withPipeline(type, product, component) {
+}
 ```
 
-### Helm Deploy Action
-Deployments use `hmcts/cnp-githubactions-library/helm-deploy`:
-```yaml
-- name: Deploy to AAT
-  uses: hmcts/cnp-githubactions-library/helm-deploy@main
-  with:
-    environment: cft-aat-00
-    team-name: ${{ env.TEAM_NAME }}
-    application-name: ${{ env.APPLICATION_NAME }}
-    azure-credentials: ${{ secrets.AZURE_CREDENTIALS_CFT_AAT }}
-    release-name: ${{ env.RELEASE_NAME }}
-    namespace: ${{ env.TEAM_NAME }}
-    chart: helm/${{ env.APPLICATION_NAME }}
-    values-template: helm/${{ env.APPLICATION_NAME }}/values.template.yaml
-    subchart-paths: apps/*/helm
-    oci-registry: hmctsprod.azurecr.io
-```
+The body is empty deliberately: secrets arrive through the chart's `keyVaults:` block rather than
+`loadVaultSecrets`, and `yarn build` runs inside the image build rather than in the pipeline.
+
+### What the library expects from the repo
+
+Read these four files in `hmcts/cnp-jenkins-library` before changing anything pipeline-shaped. They answer most
+questions, and this repo does **not** currently satisfy all of them:
+
+| File | What it decides |
+|---|---|
+| `vars/withPipeline.groovy` | stage order, and the `type` → builder mapping |
+| `src/uk/gov/hmcts/contino/YarnBuilder.groovy` | which `yarn` scripts each stage calls |
+| `vars/helmInstall.groovy` | the chart must be at `charts/<product>-<component>/` and have a `values.yaml`; the single built image reaches values templates as `${IMAGE_NAME}` |
+| `vars/sectionDeployToAKS.groovy` | `yarn test:smoke` after every deploy, `yarn test:functional` on functional-test environments |
+
+### Terraform
+
+None in this repo. `withInfraPipeline(product)` in `hmcts/deed-poll-infra` owns it, and that pipeline supplies
+`product`, `env`, `common_tags`, `subscription`, `component`, `aks_subscription_id` and `jenkins_AAD_objectId`
+— so do not declare variables for values it already passes, and do not rely on `component` in an infra root,
+where it is empty.
 
 ## Pod Diagnostics and Troubleshooting
 
@@ -422,7 +415,7 @@ kubectl exec <pod-name> -n <namespace> -- curl <service-url>
    - Add to umbrella chart dependencies
 
 3. **Troubleshoot deployment failures**
-   - Check GitHub Actions workflow logs
+   - Check the Jenkins build console output for the failing stage
    - Review Helm release status
    - Analyze pod events and descriptions
    - Verify image availability in ACR
@@ -479,10 +472,9 @@ az acr login --name hmctsprod
 az keyvault secret list --vault-name <vault>
 az keyvault secret show --vault-name <vault> --name <secret>
 
-# GitHub Actions Debugging
-gh run list --workflow=workflow.main.yml
-gh run view <run-id> --log
-gh run rerun <run-id>
+# Jenkins
+# Builds run on build.platform.hmcts.net. There is no `gh run` equivalent — read the console output
+# for the failing stage, and note that a red stage names the `yarn` script or `helm` command it ran
 ```
 
 ## Best Practices
@@ -509,11 +501,10 @@ gh run rerun <run-id>
 - Enable/disable dependencies via conditions
 
 ### CI/CD Pipelines
-- Use change detection to skip unnecessary builds
-- Implement reusable workflow jobs
-- Run infrastructure and code pipelines in parallel
-- Use environment-specific secrets and credentials
-- Promote images after successful E2E tests
+- Pin the shared library version, and keep it in step with `hmcts/deed-poll-infra`
+- Keep the `withPipeline` body as small as the service allows
+- Put per-environment differences in `values.<env>.template.yaml`, not in the Jenkinsfile
+- Let secrets reach the app through the chart's `keyVaults:` block rather than the pipeline environment
 
 ## Anti-Patterns to Avoid
 
@@ -522,5 +513,5 @@ gh run rerun <run-id>
 - Using latest tags for container images
 - Ignoring resource limits and quotas
 - Hardcoding environment values in charts
-- Skipping change detection in CI/CD
+- Landing a pipeline stage that has never run alongside other untested changes
 - Not using HMCTS standard modules

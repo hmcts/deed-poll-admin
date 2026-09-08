@@ -1,499 +1,131 @@
-# CI/CD Pipelines Guide
+# CI/CD Pipeline Guide
 
-This document explains the GitHub Actions pipeline architecture, including the design philosophy, pipeline structure, and how to extend the system.
+This repo builds and deploys through the **Jenkins CNP pipeline**. `Jenkinsfile_CNP` at the repo root is the
+whole configuration:
 
-## Pipeline Philosophy
+```groovy
+@Library("Infrastructure@2.4.4") _
 
-The pipeline system follows a **modular, hierarchical structure**:
+def type = "nodejs"
+def product = "deed-poll"
+def component = "admin"
 
-```
-Workflow (workflow.preview.yml, workflow.main.yml)
-    └── Stage (stage.build.yml, stage.deploy.yml, etc.)
-        └── Job (job.lint.yml, job.test.yml, etc.)
-```
-
-**Design Principles:**
-- **Separation of Concerns**: Each job has a single responsibility
-- **Reusability**: Jobs and stages can be reused across pipelines
-- **Parallel Execution**: Jobs within a stage run in parallel
-- **Sequential Stages**: Stages run in order with dependencies
-- **Self-Documenting**: Each job has its own README.md
-
-## Directory Structure
-
-GitHub Actions requires all reusable workflows to be at the top level of `.github/workflows/`. We use a dot-prefix naming convention to organize them:
-
-```
-.github/workflows/
-├── workflow.preview.yml           # PR pipeline
-├── workflow.main.yml              # Master branch pipeline
-├── workflow.claude.yml            # AI assistant
-├── stage.build.yml                # Build stage workflow
-├── stage.infrastructure.yml       # Infrastructure stage workflow
-├── stage.deploy.yml               # Deploy stage workflow
-├── stage.smoke-test.yml           # Smoke test stage workflow
-├── stage.e2e.yml                  # E2E stage workflow
-├── job.detect-changes.yml         # Change detection job
-├── job.lint.yml                   # Lint job
-├── job.terraform-fmt.yml          # Terraform format check job
-├── job.test.yml                   # Test job
-├── job.osv-scanner.yml            # Security scanning job
-├── job.build-and-publish-images.yml  # Build images job
-├── job.terraform.yml              # Terraform plan/apply job
-├── job.helm-deploy.yml            # Helm deploy job
-├── job.pr-comment.yml             # PR comment job
-├── job.smoke-test.yml             # Smoke test job
-├── job.e2e-test.yml               # E2E test job
-└── jobs/                          # Documentation and scripts
-    ├── detect-changes/
-    │   └── README.md
-    ├── lint/
-    │   └── README.md
-    ├── test/
-    │   └── README.md
-    ├── osv-scanner/
-    │   └── README.md
-    ├── build-and-publish-images/
-    │   ├── README.md
-    │   ├── detect-affected-apps.sh
-    │   ├── generate-build-metadata.sh
-    │   └── set-image-variables.sh
-    ├── terraform-fmt/
-    │   └── README.md
-    ├── terraform/
-    │   └── README.md
-    ├── helm-deploy/
-    │   ├── README.md
-    │   └── deploy-preview.sh
-    ├── pr-comment/
-    │   ├── README.md
-    │   └── get-deployment-urls.sh
-    ├── smoke-test/
-    │   └── README.md
-    └── e2e-test/
-        └── README.md
+withPipeline(type, product, component) {
+}
 ```
 
-**Naming Convention:**
-- `workflow.*.yml` - Main pipeline workflows
-- `stage.*.yml` - Stage workflows that orchestrate jobs
-- `job.*.yml` - Individual job workflows
-- `jobs/*/` - Documentation and scripts for each job
-
-## Pipelines
-
-### Preview Pipeline (`workflow.preview.yml`)
-
-**Trigger:** Pull requests to `master` branch
-
-**Flow:**
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Preview Pipeline                             │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌────────────────────────┐    ┌─────────────────────────┐          │
-│  │ detect-code-changes    │    │ detect-infra-changes    │          │
-│  └───────────┬────────────┘    └────────────┬────────────┘          │
-│              │                              │                        │
-│              ▼                              ▼                        │
-│  ┌────────────────────────┐    ┌─────────────────────────┐          │
-│  │ BUILD STAGE            │    │ INFRASTRUCTURE STAGE    │          │
-│  │ (if code changes)      │    │ (if infra changes)      │          │
-│  │  ┌──────┐ ┌──────┐     │    │  ┌────────┐             │          │
-│  │  │ Lint │ │ Test │     │    │  │ TF Fmt │             │          │
-│  │  └──────┘ └──────┘     │    │  └───┬────┘             │          │
-│  │  ┌──────────┐          │    │      ▼                  │          │
-│  │  │ OSV Scan │          │    │  ┌────────────────────┐ │          │
-│  │  └──────────┘          │    │  │ Terraform Plan     │ │          │
-│  │  ┌───────────────┐     │    │  └────────────────────┘ │          │
-│  │  │ Build Images  │     │    └─────────────────────────┘          │
-│  │  └───────────────┘     │                                         │
-│  └───────────┬────────────┘                                         │
-│              │                                                       │
-│              ▼                                                       │
-│  ┌─────────────────────────────────────────────────────┐            │
-│  │ DEPLOY STAGE (if build succeeded)                    │            │
-│  │  ┌────────────────────────────────────────────────┐ │            │
-│  │  │ Helm Deploy                                     │ │            │
-│  │  └────────────────────────────────────────────────┘ │            │
-│  └─────────────────────────┬───────────────────────────┘            │
-│                            ▼                                         │
-│  ┌─────────────────────────────────────────────────────┐            │
-│  │ SMOKE TEST STAGE                                     │            │
-│  │  ┌──────────────┐ ┌─────────────────────────────┐   │            │
-│  │  │ PR Comment   │ │ Smoke Test (health checks)  │   │            │
-│  │  └──────────────┘ └─────────────────────────────┘   │            │
-│  └─────────────────────────┬───────────────────────────┘            │
-│                            ▼                                         │
-│  ┌─────────────────────────────────────────────────────┐            │
-│  │ E2E STAGE                                            │            │
-│  │  ┌────────────────────────────────────────────────┐ │            │
-│  │  │ Playwright E2E Tests                            │ │            │
-│  │  └────────────────────────────────────────────────┘ │            │
-│  └─────────────────────────────────────────────────────┘            │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-**Change Detection:**
-- Code changes (`yarn.lock`, `apps/`, `libs/`) → Build Stage
-- Infrastructure changes (`infrastructure/`) → Infrastructure Stage
-- Both run in parallel; stages are skipped if no relevant changes detected
-
-**Concurrency:** One deployment per PR (new pushes cancel in-progress runs)
-
-### Main Pipeline (`workflow.main.yml`)
-
-**Trigger:** Push to `master` branch
-
-**Flow:**
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                           Main Pipeline                              │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌────────────────────────┐    ┌─────────────────────────┐          │
-│  │ detect-code-changes    │    │ detect-infra-changes    │          │
-│  └───────────┬────────────┘    └────────────┬────────────┘          │
-│              │                              │                        │
-│              ▼                              ▼                        │
-│  ┌────────────────────────┐    ┌─────────────────────────┐          │
-│  │ BUILD STAGE            │    │ INFRASTRUCTURE STAGE    │          │
-│  │ (if code changes)      │    │ (if infra changes)      │          │
-│  │  ┌──────┐ ┌──────┐     │    │  ┌────────┐             │          │
-│  │  │ Lint │ │ Test │     │    │  │ TF Fmt │             │          │
-│  │  └──────┘ └──────┘     │    │  └───┬────┘             │          │
-│  │  ┌──────────┐          │    │      ▼                  │          │
-│  │  │ OSV Scan │          │    │  ┌────────────────────┐ │          │
-│  │  └──────────┘          │    │  │ Terraform Apply    │ │          │
-│  │  ┌───────────────┐     │    │  └────────────────────┘ │          │
-│  │  │ Build Images  │     │    └─────────────────────────┘          │
-│  │  └───────────────┘     │                                         │
-│  └───────────┬────────────┘                                         │
-│              │                                                       │
-│              ▼                                                       │
-│  ┌───────────────────────────────────────────────────────────────┐  │
-│  │ DEPLOY STAGE → SMOKE TEST → E2E → CLEANUP → PROMOTE           │  │
-│  │ (if build succeeded)                                           │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-**Change Detection:**
-- Code changes (`yarn.lock`, `apps/`, `libs/`) → Build Stage
-- Infrastructure changes (`infrastructure/`) → Infrastructure Stage (with Apply)
-- Both run in parallel; stages are skipped if no relevant changes detected
-
-**Purpose:** Validate code on merge, run full test suite for coverage reporting, apply infrastructure changes
-
-## Stages
-
-### Build Stage
-
-**Purpose:** Code quality, testing, security scanning, and image building
-
-**Condition:** Only runs if code changes detected (`yarn.lock`, `apps/`, `libs/`)
-
-**Jobs (parallel):**
-| Job | Purpose |
-|-----|---------|
-| Lint | Biome linting + Prisma schema validation |
-| Test | Unit tests with coverage + SonarCloud analysis |
-| OSV Scanner | Dependency vulnerability scanning |
-| Build Images | Docker image build and push to ACR |
-
-**Outputs:**
-- `affected-apps`: Apps that changed
-- `has-changes`: Whether deployment is needed
-- `timestamp`: Build timestamp
-- `short-sha`: Git SHA for tagging
-
-### Infrastructure Stage
-
-**Purpose:** Validate and apply infrastructure changes via Terraform
-
-**Condition:** Only runs if infrastructure changes detected (`infrastructure/`)
-
-**Jobs (sequential):**
-| Job | Purpose |
-|-----|---------|
-| Terraform Format | Terraform code formatting check |
-| Terraform | Terraform plan (PRs) or plan+apply (main branch) |
-
-**Inputs:** None (uses hardcoded `aat` environment and `nonprod` subscription)
-**Outputs:** `plan-exitcode` (0=no changes, 2=changes detected)
-
-**Behavior:**
-- Runs in parallel with Build Stage (independent change detection)
-- PRs: Plan only (no infrastructure changes applied)
-- Main branch: Plan + Apply
-
-### Deploy Stage
-
-**Purpose:** Deploy to Kubernetes using Helm
-
-**Jobs:**
-| Job | Purpose |
-|-----|---------|
-| Helm Deploy | Deploy umbrella chart to AKS |
-
-**Inputs:** `timestamp`, `short-sha`, `affected-apps`, `helm-apps`
-**Outputs:** `preview-urls` (base64-encoded JSON)
-
-### Smoke Test Stage
-
-**Purpose:** Verify deployment succeeded
-
-**Jobs (parallel):**
-| Job | Purpose |
-|-----|---------|
-| PR Comment | Post deployment URLs to PR |
-| Smoke Test | Health check deployed services |
-
-**Inputs:** `preview-urls`
-
-### E2E Stage
-
-**Purpose:** Full end-to-end testing
-
-**Jobs:**
-| Job | Purpose |
-|-----|---------|
-| E2E Test | Playwright tests against preview environment |
-
-**Inputs:** `preview-urls`
-
-## Jobs
-
-Each job has:
-- `job.*.yml`: The reusable workflow (at top level)
-- `jobs/*/README.md`: Documentation with inputs, outputs, secrets, artifacts
-- `jobs/*/*.sh`: Any required scripts
-
-### Job Documentation Format
-
-Each job's README.md follows this structure:
-
-```markdown
-# {Job Name}
-
-## Purpose
-Brief description of what the job does.
-
-## Inputs
-| Type | Name | Required | Description |
-
-## Artifacts
-| Direction | Name | Description |
-
-## Environment Variables
-| Name | Required | Description |
-
-## Secrets
-| Name | Required | Description |
-
-## Outputs
-| Name | Description |
-```
-
-## Data Flow
-
-### Output Passing Chain
-
-```
-build-and-publish-images-job.yml
-  → outputs: affected-apps, has-changes, timestamp, short-sha
-    → build-stage.yml exposes these outputs
-      → preview.yml passes to deploy-stage.yml
-        → helm-deploy-job.yml outputs: preview-urls
-          → deploy-stage.yml exposes preview-urls
-            → preview.yml passes to smoke-test-stage and e2e-stage
-```
-
-### Secrets Inheritance
-
-Secrets are passed using `secrets: inherit`:
-
-```yaml
-jobs:
-  build-stage:
-    uses: ./.github/workflows/stage.build.yml
-    secrets: inherit  # Passes all repository secrets
-```
-
-## Image Tagging Strategy
-
-### Dual Tag Approach
-
-**For affected apps (rebuilt):**
-- Tag: `pr-{PR#}-{SHA}` (e.g., `pr-123-abc1234`)
-- Forces Kubernetes to pull new image
-
-**For unaffected apps:**
-- Tag: `pr-{PR#}` (e.g., `pr-123`)
-- Uses existing image, no pod restart
-
-### Why This Matters
-
-Kubernetes only pulls images if the tag changes. Using dual tagging:
-1. Ensures changed apps always deploy fresh images
-2. Avoids unnecessary restarts for unchanged apps
-3. Optimizes deployment time
-
-## Adding New Jobs
-
-### 1. Create Workflow File
-
-```yaml
-# .github/workflows/job.my-new-job.yml
-name: My New Job
-
-on:
-  workflow_call:
-    inputs:
-      some-input:
-        required: true
-        type: string
-    outputs:
-      some-output:
-        description: "Description"
-        value: ${{ jobs.my-job.outputs.result }}
-
-jobs:
-  my-job:
-    name: My New Job
-    runs-on: ubuntu-latest
-    outputs:
-      result: ${{ steps.action.outputs.result }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Do something
-        id: action
-        run: echo "result=value" >> "$GITHUB_OUTPUT"
-```
-
-### 2. Create Documentation Folder
+`.github/workflows/` no longer exists. It held a 44-file GitHub Actions pipeline
+(`workflow.main.yml`, `workflow.preview.yml`, and the `stage.*` / `job.*` files it composed), deleted
+wholesale — see [`.business_context/DEED_POLL_INFRA_PLAN.md`](../.business_context/DEED_POLL_INFRA_PLAN.md),
+Decisions 1 and 3, for why, and for the one thing genuinely lost by the move (CodeQL, which has no Jenkins
+equivalent). `.github/renovate.json` stays: it is configuration, not a workflow.
+
+This repo also owns **no Terraform**. The resource group, Key Vault, App Insights, Redis and Postgres all
+live in [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra), which deploys itself with
+`withInfraPipeline`. There is no infrastructure stage here.
+
+## What the pipeline runs
+
+`type = "nodejs"` means the stages call `YarnBuilder`
+([`cnp-jenkins-library/src/uk/gov/hmcts/contino/YarnBuilder.groovy`](https://github.com/hmcts/cnp-jenkins-library/blob/master/src/uk/gov/hmcts/contino/YarnBuilder.groovy)).
+The `yarn` scripts each stage invokes, and whether this repo has them:
+
+| Stage | Script | Present here |
+|---|---|---|
+| Build | `yarn lint` | yes |
+| Test | `yarn test` | yes |
+| Test | `yarn test:coverage` | yes |
+| Test | `yarn test:a11y` | yes — a documented no-op, see below |
+| Security | `yarn-audit-with-suppressions.sh`, written into the workspace by the library | n/a |
+| Sonar | `sonar-scanner`, configured by `sonar-project.properties` | yes — coverage via the merge below |
+| Smoke (after each deploy) | `yarn test:smoke` | **no — see the gaps below** |
+| Functional (functional-test environments) | `yarn test:functional` | **no — see the gaps below** |
+
+Four things worth knowing:
+
+- **The Sonar stage needs a root `lcov.info`, and nothing in the pipeline produces one.** Vitest writes
+  coverage per workspace (`apps/web/coverage/lcov.info`, and ten more), with `SF:` paths relative to each
+  package; `sonar-project.properties` points at a single root report. The GitHub Actions test job used to
+  merge them with `npx lcov-result-merger --prepend-source-files`, and deleting that job removed the only
+  step that made the file — so Sonar would have found no report and reported 0% coverage on new code, which
+  is the condition the quality gate fails on. `yarn test:coverage` now ends with
+  `node scripts/merge-lcov.mjs`, which does the same merge and rewrites each `SF:` path to be root-relative.
+  Nothing else in the pipeline changes, because `test:coverage` is already what the test stage runs.
+
+- **None of the test-stage scripts is optional.** `YarnBuilder.test()` is `yarn("test")` then
+  `runYarn("test:coverage")` then `runYarn("test:a11y")`, and `runYarn` ends with
+  `if (status != 0 && !task.contains('install')) steps.error(...)`. A missing script is not skipped — yarn
+  exits non-zero on `Couldn't find a script named ...` and the stage fails. That is why the root
+  `package.json` carries a `test:a11y` that only prints a line explaining itself: the axe-core assertions
+  live in the Playwright suite, which needs browsers and a running app and so cannot run on the bare test
+  agent, but the script has to exist for the stage to go green.
+
+- **The build stage does not run `yarn build`.** `YarnBuilder.build()` is `yarn lint` plus version info,
+  nothing more. Type errors are caught instead by the image build, because each `Dockerfile` runs
+  `yarn install && yarn build` itself. This matters because `yarn test` runs vitest, which transpiles
+  without type-checking — a tree with type errors can have a fully green test run.
+- **Secrets are not injected by the pipeline.** There is no `loadVaultSecrets` call, because this app reads
+  its secrets from a properties volume mounted by the Helm chart's `keyVaults:` block. See
+  [`DEPLOYMENT.md`](DEPLOYMENT.md).
+
+## Running the same checks locally
 
 ```bash
-mkdir -p .github/workflows/jobs/my-new-job
+yarn lint       # what the build stage runs
+yarn test       # the test stage runs all three of these, and fails on any of them
+yarn test:coverage
+yarn test:a11y
+yarn build      # not run by the build stage, but run inside every image build
 ```
 
-### 3. Create README.md
+## What still has to happen before this pipeline can deploy
 
-Document the job following the standard format in `jobs/my-new-job/README.md`.
+The `Jenkinsfile_CNP` is correct and minimal, but a green deploy needs more than the Jenkinsfile. All five
+of these are outstanding, and the first four are **inside this repo**:
 
-### 4. Add to Stage
+1. **The chart directory is in the wrong place.** `helmInstall` reads `Helm.HELM_RESOURCES_DIR`, which is the
+   literal `charts`, and throws `No Helm charts directory found at charts` if it is missing. It then looks for
+   `charts/${product}-${component}/values.yaml` — `charts/deed-poll-admin/values.yaml` — and throws if that
+   file does not exist, before applying `values.template.yaml`. This repo keeps its umbrella chart at
+   `helm/deed-poll-admin/` with no `values.yaml`. Compare `pcs-api` and `pt-frontend`, both of which use
+   `charts/<product>-<component>/`.
+2. **The pipeline builds one image; the umbrella chart expects four.** `az acr build ... .` builds the root
+   `Dockerfile` into a single `deed-poll/admin` image, and `helmInstall` exposes it to the values templates as
+   `${IMAGE_NAME}`. This repo has no root `Dockerfile` — it has four, at `apps/{web,api,crons,postgres}/Dockerfile` —
+   and `helm/deed-poll-admin/values.template.yaml` references `${WEB_IMAGE}`, `${API_IMAGE}`, `${CRONS_IMAGE}`
+   and `${POSTGRES_IMAGE}`, which were set by the deleted GitHub Actions build job and are set by nothing now.
+   `envsubst` would substitute empty strings and produce untagged image references. **Resolving this is a
+   design decision, not a rename**: either one Jenkinsfile per deployable (four `product`/`component` pairs,
+   four charts), or one image with a root `Dockerfile` selecting an entrypoint. Not decided.
+3. **No `yarn test:smoke`.** `sectionDeployToAKS` calls `builder.smokeTest()` after every deploy,
+   unconditionally, and `yarn test:functional` on functional-test environments. Both are missing, so both
+   would fail the run once a deploy succeeds.
+4. **Preview environments have no session store.** `helm/deed-poll-admin/values.preview.template.yaml`
+   provisions a per-PR Postgres through `secretRef: postgres`, but sets nothing at all for Redis — no
+   `redis:` subchart and no `REDIS_URL` — and `hmcts/deed-poll-infra` applies per environment on the `aat`,
+   `demo`, `ithc`, `perftest` and `prod` branches, not in `preview`. `apps/web` now holds sessions in Redis,
+   and `assertRedisUrl` refuses to start on `config/default.json`'s loopback default outside development, so
+   a preview pod would fail fast rather than come up sessionless. Two ways out, and this is a decision, not a
+   rename: enable a `redis` subchart per PR the way the AAT template disables one, or point preview at the
+   AAT cache's `redis-url`. The first is ephemeral and isolated; the second shares a cache across every open
+   PR. Not decided.
+5. **External onboarding**, tracked in [`.business_context/PROGRESS.md`](../.business_context/PROGRESS.md):
+   four `cnp-jenkins-config` entries, the `deed-poll` namespace and a HelmRelease per component in
+   `cnp-flux-config`, and the IDAM client registration that `admin-idam-client-secret` depends on.
 
-```yaml
-# In the appropriate stage.*.yml file
-jobs:
-  my-new-job:
-    name: My New Job
-    uses: ./.github/workflows/job.my-new-job.yml
-    with:
-      some-input: ${{ inputs.some-value }}
-```
+## No `Jenkinsfile_nightly`
 
-## Adding New Stages
-
-### 1. Create Stage File
-
-```yaml
-# .github/workflows/stage.my-stage.yml
-name: My Stage
-
-on:
-  workflow_call:
-    inputs:
-      required-input:
-        required: true
-        type: string
-    outputs:
-      stage-output:
-        value: ${{ jobs.job-name.outputs.result }}
-
-jobs:
-  job-one:
-    uses: ./.github/workflows/job.job-one.yml
-    with:
-      input: ${{ inputs.required-input }}
-
-  job-two:
-    uses: ./.github/workflows/job.job-two.yml
-```
-
-### 2. Add to Pipeline
-
-```yaml
-# In preview.yml or main.yml
-jobs:
-  my-stage:
-    needs: [previous-stage]
-    uses: ./.github/workflows/stage.my-stage.yml
-    with:
-      required-input: ${{ needs.previous-stage.outputs.value }}
-    secrets: inherit
-```
-
-## Debugging Pipelines
-
-### View Workflow Logs
-
-1. Go to Actions tab in GitHub
-2. Select the workflow run
-3. Click on the failed job
-4. Expand step logs
-
-### Local Testing
-
-Test scripts locally before committing:
-
-```bash
-# Set up mock GitHub environment
-export GITHUB_OUTPUT=/tmp/github_output.txt
-export GITHUB_ENV=/tmp/github_env.txt
-
-# Run script
-.github/workflows/jobs/build-and-publish-images/detect-affected-apps.sh
-
-# Check outputs
-cat /tmp/github_output.txt
-```
-
-### Common Issues
-
-**"Workflow not found"**
-- Check file path is correct
-- Ensure `on: workflow_call` is present
-
-**"Input required but not provided"**
-- Verify all required inputs are passed from parent workflow
-
-**"Secret not found"**
-- Ensure `secrets: inherit` is set
-- Or explicitly pass secrets
-
-**"Output not available"**
-- Check job has `outputs:` section
-- Verify `GITHUB_OUTPUT` is used correctly
-
-## GitHub Actions Constraints
-
-- **Nesting depth**: Maximum 4 levels of reusable workflows
-- **Matrix limit**: 256 jobs in a matrix
-- **Timeout**: Default 360 minutes (configurable per job)
-- **Concurrency**: Managed by `concurrency` block
+Deliberate. A nightly is a separate pipeline with its own security, cross-browser and full-functional
+stages; adding one that has never run would land a second untested thing at the same time. `pcs-api` and
+`pt-frontend` both carry one and are the models when it is wanted.
 
 ## References
 
-- **Deployment Guide**: `docs/DEPLOYMENT.md`
-- **Architecture**: `docs/ARCHITECTURE.md`
-- **Job Documentation**: `.github/workflows/jobs/*/README.md`
-- **Scripts**: `.github/scripts/README.md`
-- [GitHub Actions Documentation](https://docs.github.com/en/actions)
-- [Reusable Workflows](https://docs.github.com/en/actions/using-workflows/reusing-workflows)
+- [`hmcts/cnp-jenkins-library`](https://github.com/hmcts/cnp-jenkins-library) — the pipeline itself.
+  `vars/withPipeline.groovy`, `vars/sectionDeployToAKS.groovy`, `vars/helmInstall.groovy` and
+  `src/uk/gov/hmcts/contino/YarnBuilder.groovy` are the four files that answer most questions
+- [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra) — the shared Terraform root and its
+  README
+- [`.business_context/DEED_POLL_INFRA_PLAN.md`](../.business_context/DEED_POLL_INFRA_PLAN.md) — the five
+  decisions behind this layout
+- [`DEPLOYMENT.md`](DEPLOYMENT.md) — charts, secrets, environments and troubleshooting
