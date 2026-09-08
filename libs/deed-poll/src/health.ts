@@ -29,6 +29,27 @@ import { pgPool, prisma } from "@hmcts/postgres-prisma";
 const CHECK_TIMEOUT_MS = 3_000;
 
 /**
+ * How long an attempt that has not settled is reused by later probes before one starts a fresh attempt.
+ * See `guarded` — reuse is what stops a blackholed database leaving one pool acquisition behind per probe,
+ * but reuse without a bound is worse than the leak: liveness carries no database check by deliberate
+ * choice (`checks: {}` in both apps), so a readiness check that can never answer UP again is a pod out of
+ * the Service until someone notices and restarts it by hand.
+ *
+ * A minute, against a probe period of seconds: long enough that a stuck attempt is reused across many
+ * probes rather than one, short enough that readiness follows the database back within a minute of it
+ * recovering. The attempts that accumulate are bounded by the outage length over this window — well under
+ * `pgPool`'s ten connections for any outage the OS resolves itself, which a blackholed connect does at the
+ * TCP layer whatever `connectionTimeoutMillis` says.
+ */
+const STALE_ATTEMPT_MS = 60_000;
+
+/**
+ * Distinguishes "the timer won" from "the check answered DOWN", which want different log lines — see
+ * `guarded`. A symbol rather than a third string, so it cannot collide with a `HealthCheck` status.
+ */
+const TIMED_OUT = Symbol("health check timed out");
+
+/**
  * Every table the deed-poll domain reads or writes, as named by the `@@map`s in
  * `libs/postgres-prisma/prisma/schema/deed-poll.prisma`.
  *
@@ -109,24 +130,66 @@ export function deedPollDatabaseChecks(): Record<string, () => Promise<"UP" | "D
  * refusing — an NSG change, a failover, a dropped route — never settles either query. The pool default is
  * deliberately not changed here: that would put a deadline on every application query, including the CCD
  * schema CLI's, to fix a probe. A probe must answer on its own terms; nothing here gives up on Postgres.
+ *
+ * Which is why the outstanding attempt is **shared rather than restarted, but only for `STALE_ATTEMPT_MS`**.
+ * The bound above ends the *probe*, not the query behind it — nothing here can cancel work already handed
+ * to `pgPool` — while Kubernetes probes on a fixed period whether the last one answered or not. Started
+ * afresh each time, every probe during a blackholed outage would leave another acquisition behind: the
+ * pool's ten connections all sit in a connect that never times out, and the pending queue behind them
+ * grows for as long as the outage lasts. Reused forever, the opposite failure: readiness is then pinned to
+ * one attempt that may never settle, and since only *that* attempt holds a connection the database coming
+ * back would be invisible — nine connections free, and nothing asking. Liveness carries no database check,
+ * so nothing restarts the pod either. Rotating on staleness keeps both bounded: at most one attempt per
+ * minute of outage, and readiness follows the database back inside a minute of it answering again.
  */
 function guarded(check: () => Promise<void>): () => Promise<"UP" | "DOWN"> {
+  let outstanding: Attempt | undefined;
+
   return async () => {
-    try {
-      // No `catch` on `check()` itself: `Promise.race` subscribes to it either way, so a rejection that
-      // arrives after the timer has won is still handled and cannot surface as an unhandled rejection. The
-      // timer is unreferenced so a fast check does not hold the event loop open for the rest of the bound.
-      const status = await Promise.race([check().then<"UP">(() => "UP"), delay(CHECK_TIMEOUT_MS, undefined, { ref: false }).then<"DOWN">(() => "DOWN")]);
+    if (outstanding === undefined || Date.now() - outstanding.startedAt >= STALE_ATTEMPT_MS) {
+      const started: Attempt = { status: attempt(check), startedAt: Date.now() };
 
-      // Logged out here rather than inside the timer branch, which resolves on every call — including the
-      // ones the check won — and would otherwise report a healthy database as timed out a bound later.
-      // `DOWN` can only have come from the timer: a check that fails throws, and is caught below.
-      if (status === "DOWN") console.error(`Health check failed: no answer within ${CHECK_TIMEOUT_MS}ms`);
+      // Cleared only while it is still the current attempt: a stale one that settles after being replaced
+      // must not discard the fresh attempt standing in for it, or the next probe would start a third.
+      void started.status.finally(() => {
+        if (outstanding === started) outstanding = undefined;
+      });
 
-      return status;
-    } catch (error) {
-      console.error("Health check failed:", error instanceof Error ? error.message : error);
+      outstanding = started;
+    }
+
+    // No `catch` here, and none needed: `attempt` reports a rejection as DOWN rather than rethrowing, so
+    // the shared promise cannot reject after the timer has won and cannot surface as an unhandled
+    // rejection. The timer is unreferenced so a fast check does not hold the event loop open for the rest
+    // of the bound.
+    const result = await Promise.race([outstanding.status, delay(CHECK_TIMEOUT_MS, TIMED_OUT, { ref: false })]);
+
+    // Logged out here rather than inside the timer branch, which resolves on every call — including the
+    // ones the check won — and would otherwise report a healthy database as timed out a bound later.
+    if (result === TIMED_OUT) {
+      console.error(`Health check failed: no answer within ${CHECK_TIMEOUT_MS}ms`);
       return "DOWN";
     }
+
+    return result;
   };
+}
+
+/**
+ * The check's own verdict, never a rejection — see `guarded` on why the shared promise must not reject.
+ */
+async function attempt(check: () => Promise<void>): Promise<"UP" | "DOWN"> {
+  try {
+    await check();
+    return "UP";
+  } catch (error) {
+    console.error("Health check failed:", error instanceof Error ? error.message : error);
+    return "DOWN";
+  }
+}
+
+/** One in-flight run of a check, with when it started — see `STALE_ATTEMPT_MS` for what that is for. */
+interface Attempt {
+  status: Promise<"UP" | "DOWN">;
+  startedAt: number;
 }
