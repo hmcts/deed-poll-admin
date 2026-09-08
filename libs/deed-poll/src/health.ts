@@ -13,7 +13,20 @@
  * In the domain rather than in each app because both apps ask the same question of the same schema, and
  * it needs nothing from Express to answer it.
  */
+import { setTimeout as delay } from "node:timers/promises";
 import { pgPool, prisma } from "@hmcts/postgres-prisma";
+
+/**
+ * How long a readiness check waits for the database before reporting it down. See `guarded` — this bounds
+ * the *probe*, not the pool, for the same reason as the Redis ping bound in `apps/web/src/app.ts`: a probe
+ * that outlives Kubernetes' own timeout tells whoever is diagnosing the outage nothing.
+ *
+ * Three seconds rather than the Redis ping's one, because these two are not pings: the first probe after a
+ * pod starts opens a pool connection, and a TLS handshake to Azure Postgres plus an `information_schema`
+ * query is comfortably slower than a round trip on an established socket. The failure to avoid is a bound
+ * tight enough to report a healthy database down and take the pod out of the Service on a cold start.
+ */
+const CHECK_TIMEOUT_MS = 3_000;
 
 /**
  * Every table the deed-poll domain reads or writes, as named by the `@@map`s in
@@ -84,12 +97,33 @@ export function deedPollDatabaseChecks(): Record<string, () => Promise<"UP" | "D
   };
 }
 
-/** Any throw is DOWN, with the reason logged rather than swallowed as `hc.raw` would. */
+/**
+ * Any throw is DOWN, with the reason logged rather than swallowed as `hc.raw` would — and any wait longer
+ * than `CHECK_TIMEOUT_MS` is DOWN too.
+ *
+ * The bound is not belt-and-braces. `runChecks` in `@hmcts-cft/cloud-native-platform` is a bare
+ * `Promise.all`, so a check that never settles hangs `/health/readiness` for the whole outage and takes
+ * every sibling result down with it — including the bounded Redis one in `apps/web/src/app.ts`, which is
+ * then reported nowhere. And these two checks can hang: `pgPool` is built with `connectionTimeoutMillis`
+ * left at its default of `0`, meaning wait forever, so a database that stops answering rather than
+ * refusing — an NSG change, a failover, a dropped route — never settles either query. The pool default is
+ * deliberately not changed here: that would put a deadline on every application query, including the CCD
+ * schema CLI's, to fix a probe. A probe must answer on its own terms; nothing here gives up on Postgres.
+ */
 function guarded(check: () => Promise<void>): () => Promise<"UP" | "DOWN"> {
   return async () => {
     try {
-      await check();
-      return "UP";
+      // No `catch` on `check()` itself: `Promise.race` subscribes to it either way, so a rejection that
+      // arrives after the timer has won is still handled and cannot surface as an unhandled rejection. The
+      // timer is unreferenced so a fast check does not hold the event loop open for the rest of the bound.
+      const status = await Promise.race([check().then<"UP">(() => "UP"), delay(CHECK_TIMEOUT_MS, undefined, { ref: false }).then<"DOWN">(() => "DOWN")]);
+
+      // Logged out here rather than inside the timer branch, which resolves on every call — including the
+      // ones the check won — and would otherwise report a healthy database as timed out a bound later.
+      // `DOWN` can only have come from the timer: a check that fails throws, and is caught below.
+      if (status === "DOWN") console.error(`Health check failed: no answer within ${CHECK_TIMEOUT_MS}ms`);
+
+      return status;
     } catch (error) {
       console.error("Health check failed:", error instanceof Error ? error.message : error);
       return "DOWN";

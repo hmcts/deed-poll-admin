@@ -11,7 +11,7 @@
     "progress:write": "node scripts/progress-dashboard.mjs --write --tests",
     "test": "turbo test",
     "test:force": "turbo test --force",
-    "test:coverage": "turbo test -- --coverage",
+    "test:coverage": "turbo test -- --coverage && node scripts/merge-lcov.mjs",
     "test:a11y": "echo 'No separate a11y suite: the axe-core checks run inside the Playwright suite (yarn test:e2e), which needs browsers and a running app. Present because YarnBuilder.test() invokes it and fails the Jenkins test stage on a missing script — see docs/PIPELINES.md.'",
     "test:changed": "turbo test --filter='...[HEAD^1]'",
     "test:e2e": "yarn workspace e2e-tests run test:e2e",

@@ -198,10 +198,30 @@ describe("assertRedisUrl", () => {
     expect(() => assertRedisUrl("redis://localhost:6379")).toThrow(/placeholder/);
   });
 
-  it("refuses 127.0.0.1 as well as the localhost spelling", () => {
+  it.each(["rediss://127.0.0.1:6380", "rediss://[::1]:6380"])("refuses %s as well as the localhost spelling", (url) => {
     process.env.NODE_ENV = "production";
 
-    expect(() => assertRedisUrl("rediss://127.0.0.1:6380")).toThrow(/placeholder/);
+    expect(() => assertRedisUrl(url)).toThrow(/placeholder/);
+  });
+
+  // The vault value is `rediss://:<access-key>@host:6380`, so a message quoting it puts the access key in
+  // stdout and App Insights — where startup failures are read by more people, and kept longer, than
+  // anything else this app logs.
+  it("names the scheme and host but never the credential in the URL", () => {
+    process.env.NODE_ENV = "production";
+
+    expect(() => assertRedisUrl("redis://:an-access-key@deed-poll-prod.redis.cache.windows.net:6379")).toThrow(/on the wire/);
+    expect(() => assertRedisUrl("redis://:an-access-key@deed-poll-prod.redis.cache.windows.net:6379")).not.toThrow(/an-access-key/);
+    expect(() => assertRedisUrl("redis://:an-access-key@localhost:6379")).not.toThrow(/an-access-key/);
+  });
+
+  // `new URL` throws `TypeError: Invalid URL` and names neither the setting nor where it comes from, so the
+  // one input shape this guard exists to explain would be the one it said least about.
+  it("explains a value that is not a URL at all, without quoting it", () => {
+    process.env.NODE_ENV = "production";
+
+    expect(() => assertRedisUrl("an-access-key-pasted-on-its-own")).toThrow(/redis-url key vault entry/);
+    expect(() => assertRedisUrl("an-access-key-pasted-on-its-own")).not.toThrow(/an-access-key-pasted-on-its-own/);
   });
 
   it("refuses a cleartext URL to a real host, since sessions carry IDAM tokens", () => {

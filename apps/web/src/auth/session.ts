@@ -88,17 +88,38 @@ export function assertSessionSecret(secret: string): void {
 export function assertRedisUrl(url: string): void {
   if (plainHttpPermitted()) return;
 
-  const { protocol, hostname } = new URL(url);
+  // Only ever the scheme and host reach a message. The real value is `rediss://:<access-key>@host:6380`,
+  // so interpolating `url` whole would put the cache's access key into stdout and App Insights — where a
+  // startup failure is read by more people, and kept for longer, than anything else this app logs.
+  const { protocol, hostname } = parseRedisUrl(url);
 
-  if (hostname === "localhost" || hostname === "127.0.0.1") {
+  // `[::1]` alongside the two IPv4 spellings, because `URL` keeps the brackets on an IPv6 host and a
+  // loopback that got past this guard is exactly the silent failure it exists to stop.
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]") {
     throw new Error(
-      `REDIS_URL is ${url} under NODE_ENV ${JSON.stringify(process.env.NODE_ENV)}, which is config/default.json's local placeholder. Nothing is listening on loopback in a pod, so readiness would never go green. It comes from the redis-url key vault entry.`
+      `REDIS_URL is ${protocol}//${hostname} under NODE_ENV ${JSON.stringify(process.env.NODE_ENV)}, which is config/default.json's local placeholder. Nothing is listening on loopback in a pod, so readiness would never go green. It comes from the redis-url key vault entry.`
     );
   }
 
   if (protocol !== "rediss:") {
     throw new Error(
       `REDIS_URL uses ${protocol} under NODE_ENV ${JSON.stringify(process.env.NODE_ENV)}. Sessions carry IDAM access and refresh tokens, so an unencrypted connection puts them on the wire. The redis-url key vault entry is written as rediss:// against the TLS port.`
+    );
+  }
+}
+
+/**
+ * `new URL` throws `TypeError: Invalid URL` and nothing else — no setting name, no origin — so the one
+ * input shape this guard exists to explain would be the one it said least about. Rethrown with the same
+ * detail as the two checks above, and like them quoting neither the value nor its length: a truncated or
+ * mis-quoted vault entry is still an access key.
+ */
+function parseRedisUrl(url: string): URL {
+  try {
+    return new URL(url);
+  } catch {
+    throw new Error(
+      `REDIS_URL is not a URL under NODE_ENV ${JSON.stringify(process.env.NODE_ENV)}. The value is not quoted here because it may still carry the access key. It comes from the redis-url key vault entry, written as rediss://<host>:<port>.`
     );
   }
 }

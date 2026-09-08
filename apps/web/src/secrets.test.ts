@@ -6,7 +6,14 @@ import { loadSecrets } from "./secrets.js";
 // this file's import graph should — that is the assertion.
 const configLoaded = vi.hoisted(() => ({ value: false }));
 
-vi.mock("@hmcts-cft/cloud-native-platform", () => ({ getPropertiesVolumeSecrets: vi.fn(async () => ({})) }));
+// `importOriginal` rather than a bare factory, so the real library — and everything it imports — is loaded
+// before the assertion below reads `configLoaded`. A factory would replace the module wholesale, leaving the
+// test blind to the one case it is written for: `config` arriving *through* this dependency rather than from
+// `secrets.ts` itself. The library declares `config` as a peerDependency, so that case is live.
+vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts-cft/cloud-native-platform")>()),
+  getPropertiesVolumeSecrets: vi.fn(async () => ({}))
+}));
 vi.mock("config", () => {
   configLoaded.value = true;
   return { default: { get: vi.fn() } };

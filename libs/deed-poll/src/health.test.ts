@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { prisma } from "@hmcts/postgres-prisma";
+import { pgPool, prisma } from "@hmcts/postgres-prisma";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DEED_POLL_TABLES, missingDeedPollTables } from "./health.js";
+import { DEED_POLL_TABLES, deedPollDatabaseChecks, missingDeedPollTables } from "./health.js";
 
-vi.mock("@hmcts/postgres-prisma", () => ({ prisma: { $queryRaw: vi.fn() } }));
+vi.mock("@hmcts/postgres-prisma", () => ({ prisma: { $queryRaw: vi.fn() }, pgPool: { query: vi.fn() } }));
 
 const SCHEMA = fileURLToPath(new URL("../../postgres-prisma/prisma/schema/deed-poll.prisma", import.meta.url));
 
@@ -71,5 +71,51 @@ describe("missingDeedPollTables", () => {
     await missingDeedPollTables();
 
     expect(vi.mocked(prisma.$queryRaw).mock.calls[0][0].join("?")).toContain("current_schema()");
+  });
+});
+
+describe("deedPollDatabaseChecks", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("reports UP when the database answers and the schema is complete", async () => {
+    vi.mocked(pgPool.query).mockResolvedValue({} as never);
+    vi.mocked(prisma.$queryRaw).mockResolvedValue(DEED_POLL_TABLES.map((table) => ({ table_name: table })) as never);
+
+    const checks = deedPollDatabaseChecks();
+
+    expect(await checks.postgres()).toBe("UP");
+    expect(await checks.deedPollSchema()).toBe("UP");
+  });
+
+  it("reports DOWN on an unreachable database rather than throwing into the middleware", async () => {
+    vi.mocked(pgPool.query).mockRejectedValue(new Error("ECONNREFUSED"));
+    vi.mocked(prisma.$queryRaw).mockRejectedValue(new Error("ECONNREFUSED"));
+
+    const checks = deedPollDatabaseChecks();
+
+    expect(await checks.postgres()).toBe("DOWN");
+    expect(await checks.deedPollSchema()).toBe("DOWN");
+  });
+
+  it("reports DOWN on an unmigrated database, which select 1 alone would pass", async () => {
+    vi.mocked(prisma.$queryRaw).mockResolvedValue([] as never);
+
+    expect(await deedPollDatabaseChecks().deedPollSchema()).toBe("DOWN");
+  });
+
+  /**
+   * The bound, and why it is not belt-and-braces: `runChecks` in `@hmcts-cft/cloud-native-platform` is a bare
+   * `Promise.all`, so a check that never settles hangs `/health/readiness` and takes every sibling result
+   * with it — including the bounded Redis one in `apps/web/src/app.ts`. `pgPool` is built with
+   * `connectionTimeoutMillis` at its default of `0`, meaning wait forever, so a database that stops answering
+   * rather than refusing is exactly this: a query that neither resolves nor rejects.
+   */
+  it.each(["postgres", "deedPollSchema"] as const)("reports DOWN when the %s query never settles", async (check) => {
+    vi.mocked(pgPool.query).mockReturnValue(new Promise(() => {}) as never);
+    vi.mocked(prisma.$queryRaw).mockReturnValue(new Promise(() => {}) as never);
+
+    await expect(deedPollDatabaseChecks()[check]()).resolves.toBe("DOWN");
   });
 });

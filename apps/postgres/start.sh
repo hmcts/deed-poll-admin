@@ -18,14 +18,31 @@ if [ -d "/mnt/secrets" ]; then
           # Verify it's not a symlink to a directory
           if [ ! -d "$secret" ]; then
             value=$(cat "$secret")
-            export "$name"="$value"
-            echo "  Loaded: $name"
+            # The CSI driver names each file after the key vault secret, not after the chart's `alias:` —
+            # applying the alias is the consumer's job (see `buildAliasMap` in
+            # libs/cloud-native-platform/src/properties-volume/properties.ts, which the two Node apps use).
+            # So this loop saw `postgres-url`, and `export "postgres-url"=...` is not a valid assignment in
+            # POSIX sh: it fails with "bad variable name", and because `export` is a special built-in that
+            # exits a non-interactive shell, `set -e` above aborted this script before `prisma migrate
+            # deploy` ever ran. The migration job could therefore never have succeeded.
+            env_name=$(echo "$name" | tr '[:lower:]' '[:upper:]' | tr '.-' '__')
+            export "$env_name"="$value"
+            echo "  Loaded: $name as $env_name"
           fi
         fi
       done
     fi
   done
-fi 
+fi
+
+# The chart's one secret is `postgres-url`, aliased to `DATABASE_URL` (apps/postgres/helm/values.yaml), and
+# `DATABASE_URL` is what `prisma.config.ts` reads. The loop above cannot apply that alias — it only sees
+# file names — so the single mapping is stated here. Without it `prisma migrate deploy` falls back to the
+# local placeholder in `prisma.config.ts` and migrates nothing that matters.
+if [ -z "${DATABASE_URL:-}" ] && [ -n "${POSTGRES_URL:-}" ]; then
+  export DATABASE_URL="$POSTGRES_URL"
+  echo "  Mapped POSTGRES_URL to DATABASE_URL"
+fi
 
 echo "Running database migrations..."
 npx prisma migrate deploy --config=./prisma.config.ts

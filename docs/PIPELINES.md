@@ -37,11 +37,20 @@ The `yarn` scripts each stage invokes, and whether this repo has them:
 | Test | `yarn test:coverage` | yes |
 | Test | `yarn test:a11y` | yes — a documented no-op, see below |
 | Security | `yarn-audit-with-suppressions.sh`, written into the workspace by the library | n/a |
-| Sonar | `sonar-scanner`, configured by `sonar-project.properties` | yes |
+| Sonar | `sonar-scanner`, configured by `sonar-project.properties` | yes — coverage via the merge below |
 | Smoke (after each deploy) | `yarn test:smoke` | **no — see the gaps below** |
 | Functional (functional-test environments) | `yarn test:functional` | **no — see the gaps below** |
 
-Three things worth knowing:
+Four things worth knowing:
+
+- **The Sonar stage needs a root `lcov.info`, and nothing in the pipeline produces one.** Vitest writes
+  coverage per workspace (`apps/web/coverage/lcov.info`, and ten more), with `SF:` paths relative to each
+  package; `sonar-project.properties` points at a single root report. The GitHub Actions test job used to
+  merge them with `npx lcov-result-merger --prepend-source-files`, and deleting that job removed the only
+  step that made the file — so Sonar would have found no report and reported 0% coverage on new code, which
+  is the condition the quality gate fails on. `yarn test:coverage` now ends with
+  `node scripts/merge-lcov.mjs`, which does the same merge and rewrites each `SF:` path to be root-relative.
+  Nothing else in the pipeline changes, because `test:coverage` is already what the test stage runs.
 
 - **None of the test-stage scripts is optional.** `YarnBuilder.test()` is `yarn("test")` then
   `runYarn("test:coverage")` then `runYarn("test:a11y")`, and `runYarn` ends with
