@@ -19,8 +19,8 @@ describe("createDeedPollSchema", () => {
   });
 
   it("keeps dates as ISO strings, accepting bare dates and date-times alike", () => {
-    // The domain coerces these to Date immediately before Prisma; the SSR forms submit
-    // YYYY-MM-DD while the API tends to send a full timestamp, so both must pass.
+    // The adapter converts these to `Date` at the wire boundary; the SSR forms submit
+    // YYYY-MM-DD while api sends a full timestamp, so both must pass.
     for (const value of ["2026-03-01", "2026-03-01T09:30:00Z", "2026-03-01T09:30:00+01:00", "2026-03-01T09:30:00"]) {
       expect(createDeedPollSchema.safeParse({ dateReceived: value }).success).toBe(true);
     }
@@ -37,9 +37,10 @@ describe("createDeedPollSchema", () => {
     expect(createDeedPollSchema.parse({ masterName: null }).masterName).toBeNull();
   });
 
-  it("rejects null where the column is not nullable, rather than letting Prisma fail later", () => {
-    // privacy, urgency, the three multiselects and the booleans all have Prisma defaults, so
-    // NULL is not a legal value for them — better a validation error than a database error.
+  it("rejects null where the field is not nullable, rather than letting api answer 400", () => {
+    // privacy, urgency, the three multiselects and the booleans are all defaulted rather than
+    // nullable, so NULL is not a legal value for them — better a validation error against the field
+    // than a 400 after the round trip.
     expect(createDeedPollSchema.safeParse({ privacy: null }).success).toBe(false);
     expect(createDeedPollSchema.safeParse({ iShall: null }).success).toBe(false);
     expect(createDeedPollSchema.safeParse({ publishToLondonGazette: null }).success).toBe(false);

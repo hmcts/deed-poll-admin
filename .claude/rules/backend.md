@@ -1,525 +1,114 @@
 ---
-paths: [libs/**/src/**/*.ts, apps/api/**/*.ts, libs/postgres-prisma/prisma/*.prisma]
+paths: [libs/**/src/**/*.ts, apps/web/src/pages/**/*.ts]
 ---
 
-# Backend Development Rules
+# Domain Layer Rules
 
-## API Route Pattern
+**There is no database and no JSON API in this repo.** Case data lives in
+[`hmcts/deed-poll-api`](https://github.com/hmcts/deed-poll-api); this app renders pages against it.
+`apps/api`, `apps/postgres`, `libs/postgres-prisma` and the Prisma schema were deleted — see
+`docs/plans/02-dal-cutover-to-api.md`. If you are about to write a query, a migration, a `prisma.*` call
+or an Express JSON route, stop: the operation either exists in `libs/deed-poll-api-client` or it is a
+change in api's repo first.
 
-Routes live in `apps/api/src/routes/` and export named HTTP method functions. Routes are auto-discovered by `createSimpleRouter`. Business logic is imported from `libs/`.
+## The three layers, and what each is allowed to know
 
-### Route Structure
+| Layer | Where | Knows about |
+|---|---|---|
+| Adapter | `libs/deed-poll-api-client/src/api/` | HTTP, the wire shape, `openapi.json`. Returns `ApiResult<T>` and **never throws** |
+| Domain | `libs/deed-poll/src/` | Cases, notes, witnesses, documents, the field rules, the view models. Reaches api only through `callApi` |
+| Pages | `apps/web/src/pages/` | Requests, sessions, Nunjucks. Calls domain functions, renders their errors |
 
-```typescript
-// apps/api/src/routes/[resource].ts
-import type { Request, Response } from "express";
-
-// GET /api/resource
-export const GET = async (req: Request, res: Response) => {
-  const result = await resourceService.findAll();
-  res.json(result);
-};
-
-// POST /api/resource
-export const POST = async (req: Request, res: Response) => {
-  const errors = validateInput(req.body);
-  if (errors.length > 0) {
-    return res.status(400).json({ errors });
-  }
-
-  const result = await resourceService.create(req.body);
-  res.status(201).json(result);
-};
-```
-
-### Dynamic Routes
-
-Use bracket notation for URL parameters:
-
-```
-apps/api/src/routes/users/[id].ts     → /api/users/:id
-apps/api/src/routes/cases/[caseId].ts → /api/cases/:caseId
-```
-
-```typescript
-// apps/api/src/routes/users/[id].ts
-export const GET = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const user = await userService.findById(id);
-
-  if (!user) {
-    return res.status(404).json({ error: "User not found" });
-  }
-
-  res.json(user);
-};
-
-export const PUT = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  // Update logic
-};
-
-export const DELETE = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  // Delete logic
-};
-```
-
-### Route Rules
-
-- **No business logic in routes** - delegate to service functions
-- **Validate input first** - return 400 for invalid requests
-- **Use appropriate status codes** - 200, 201, 400, 401, 403, 404, 500
-- **Return consistent response shapes** - same structure for success/error
+Nothing above the adapter imports the wire types or the mock — they are deliberately not exported from
+the package index. Nothing outside `libs/deed-poll/src/api/deed-poll-api.ts` builds an `ApiConfig` or
+branches on an `ApiResult`, and no page sees a base URL.
 
 ## Service Layer Pattern
 
-Services encapsulate business logic and are the only layer that should contain domain rules.
-
-### Service Structure
+A service function takes the ids it needs, an **already-validated** DTO, and a `Caller`. It returns domain
+data or throws a domain error, and it is usually one line: the page handler validates with
+`schema.safeParse` so it can re-render the form with the errors, and the service's parameter type is the
+schema's inferred type.
 
 ```typescript
-// libs/[module]/src/[feature]/[feature]-service.ts
-import { prisma } from "@hmcts/postgres-prisma";
+// libs/deed-poll/src/notes/service.ts
+import { getNote, type Note, patchNote } from "@hmcts/deed-poll-api-client";
+import { type Caller, callApi } from "../api/deed-poll-api.js";
+import type { UpdateNoteInput } from "./schemas.js";
 
-export async function createUser(data: CreateUserInput): Promise<User> {
-  // Business validation
-  if (await emailExists(data.email)) {
-    throw new Error("Email already registered");
-  }
-
-  // Business logic
-  return prisma.user.create({
-    data: {
-      ...data,
-      createdAt: new Date()
-    }
-  });
+export function findNote(deedPollId: string, id: string, caller: Caller): Promise<Note> {
+  return callApi(caller, (config) => getNote(deedPollId, id, config));
 }
 
-export async function findUserById(id: string): Promise<User | null> {
-  return prisma.user.findUnique({
-    where: { id }
-  });
+export function updateNote(deedPollId: string, id: string, dto: UpdateNoteInput, caller: Caller): Promise<Note> {
+  return callApi(caller, (config) => patchNote(deedPollId, id, dto.note, config));
 }
 ```
 
-### Service Rules
+### Rules
 
-- **Pure functions preferred** - same input always produces same output
-- **Throw descriptive errors** - include context for debugging
-- **Single responsibility** - one service per domain concept
-- **No HTTP concerns** - services don't know about requests/responses
+- **`Caller` is `{ accessToken }` and nothing else.** api authenticates every call and derives both the
+  audit author and the admin status from the token. Sending a user name or an `isAdmin` flag alongside it
+  would assert an identity api never verified. `apps/web` reads the token from the session
+  (`callerFromRequest`)
+- **Never re-check what api has already answered.** A child entity is nested under its case — api answers
+  404 for a note that is not under the case in the path, and witnesses and documents arrive *inside*
+  `GET /caseworker/cases/{id}`. A scoping pre-read is a second round trip for a fact the first call
+  already carried
+- **Do not recompute what api publishes.** `daysReceivedToEnroled`, `daysReceivedToReturned` and the
+  reference number are api's. A second implementation of a counter or a derived field is a correctness
+  bug, not duplication
+- **Pure functions preferred**, no HTTP concerns, one service per domain concept
+- **The local rule matrices stay** — `deed-poll-validation.ts`, `case-state.ts`, `upload-policy.ts`. api
+  enforces the same rules; a rule applied at both ends is pinned at both ends, and the conformance
+  harness pins these against the Dataverse exports
 
-## Data Access with Prisma
+## Reaching api
 
-### Query Organization
+`callApi` is the only door. It resolves the config from `DEED_POLL_API_URL` (defaulting to the mock at
+`http://localhost:3200`) and turns a classified failure into the error the pages already render:
 
-For complex domains, separate queries from services:
+| `ApiError.kind` | Becomes | Renders as |
+|---|---|---|
+| `not-found` | `NotFoundError` | 404 page |
+| `validation` | `InvalidInputError`, carrying api's field errors | the page handler catches it and re-renders its form with the errors against the fields. Reaching `domainErrorHandler` means a handler did not, which is a bug in that handler |
+| `forbidden` | `ForbiddenError` | 403, on the 404 template — a caseworker learns no more from it than that the case is not theirs |
+| `unauthorized` | `UnauthorizedError` | **500**, deliberately unmapped. `requireAuth` and `refreshMiddleware` own re-authentication; a redirect to `/login` from an error handler loops when the session is valid and only api rejected the token |
+| `conflict` | `ConflictError` | 500. Nothing in the UI can currently provoke one — the document-type delete that could went with `apps/api` — so it is a fault rather than a state to render |
+| `unavailable`, `timeout`, `invalid-response`, `unknown` | plain `Error` | 500 page, the same as a database outage did before |
 
-```typescript
-// libs/[module]/src/[feature]/[feature]-queries.ts
-import { prisma } from "@hmcts/postgres-prisma";
-
-export async function findUserWithCases(userId: string) {
-  return prisma.user.findUnique({
-    where: { id: userId },
-    include: {
-      cases: {
-        orderBy: { createdAt: "desc" },
-        take: 10
-      }
-    }
-  });
-}
-```
-
-### Prisma Best Practices
-
-#### 1. Schema conventions
-
-```prisma
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  firstName String   @map("first_name")
-  lastName  String   @map("last_name")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  cases Case[]
-
-  @@index([email])
-  @@map("user")
-}
-```
-
-**Naming rules:**
-- Model names: PascalCase (`User`, `CaseDocument`)
-- Table names: singular snake_case via `@@map("user")`
-- Field names: camelCase in code, snake_case in DB via `@map`
-- Add `@@index` for frequently queried fields
-
-#### 2. Use `select` Instead of `include`
-
-`select` is more efficient and explicit about what data you need:
-
-```typescript
-// ❌ BAD: include fetches ALL fields from related models
-const user = await prisma.user.findUnique({
-  where: { id: userId },
-  include: {
-    cases: true,
-    subscriptions: true
-  }
-});
-
-// ✅ GOOD: select only the fields you need
-const user = await prisma.user.findUnique({
-  where: { id: userId },
-  select: {
-    id: true,
-    email: true,
-    firstName: true,
-    cases: {
-      select: {
-        id: true,
-        title: true,
-        status: true
-      }
-    },
-    subscriptions: {
-      select: {
-        id: true,
-        searchType: true
-      }
-    }
-  }
-});
-```
-
-#### 3. Filter, Sort, and Search at the Database Level
-
-**NEVER** fetch all records and filter in JavaScript. Use Prisma's `where`, `orderBy`, and search operators:
-
-```typescript
-// ❌ BAD: Filtering in JavaScript after fetching all records
-const allUsers = await prisma.user.findMany();
-const activeUsers = allUsers.filter(u => u.status === "ACTIVE");
-const sorted = activeUsers.sort((a, b) => a.name.localeCompare(b.name));
-
-// ✅ GOOD: Filter and sort at database level
-const users = await prisma.user.findMany({
-  where: {
-    status: "ACTIVE",
-    deletedAt: null,
-    name: {
-      contains: searchTerm,
-      mode: "insensitive"
-    }
-  },
-  orderBy: {
-    name: "asc"
-  }
-});
-```
-
-#### 4. Avoid N+1 Queries
-
-```typescript
-// ❌ BAD: N+1 query - one query for locations, then one per location for regions
-const locations = await prisma.location.findMany();
-for (const location of locations) {
-  location.regions = await prisma.locationRegion.findMany({
-    where: { locationId: location.locationId }
-  });
-}
-
-// ✅ GOOD: Single query with nested select
-const locations = await prisma.location.findMany({
-  select: {
-    locationId: true,
-    name: true,
-    welshName: true,
-    locationRegions: {
-      select: {
-        region: {
-          select: {
-            regionId: true,
-            name: true,
-            welshName: true
-          }
-        }
-      }
-    }
-  }
-});
-```
-
-#### 5. Pagination Pattern
-
-Use for list endpoints that return collections to the client:
-
-```typescript
-export async function getLocationsPaginated(page: number, pageSize: number) {
-  const [locations, total] = await prisma.$transaction([
-    prisma.location.findMany({
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      where: { deletedAt: null },
-      orderBy: { name: "asc" },
-      select: {
-        locationId: true,
-        name: true,
-        welshName: true
-      }
-    }),
-    prisma.location.count({
-      where: { deletedAt: null }
-    })
-  ]);
-
-  return {
-    data: locations,
-    pagination: {
-      page,
-      pageSize,
-      total,
-      totalPages: Math.ceil(total / pageSize)
-    }
-  };
-}
-```
-
-#### 6. Use Enums in Prisma Schema
-
-Define enums for fields with fixed set of values:
-
-```prisma
-// ✅ GOOD: Using enum for searchType
-enum SearchType {
-  CASE_ID
-  CASE_URN
-  LOCATION_ID
-}
-
-model Subscription {
-  id         String     @id @default(cuid())
-  searchType SearchType @map("search_type")
-  searchValue String    @map("search_value")
-  
-  @@map("subscription")
-}
-```
-
-```typescript
-// TypeScript usage with enum
-import { SearchType } from "@prisma/client";
-
-const subscription = await prisma.subscription.create({
-  data: {
-    searchType: SearchType.LOCATION_ID,
-    searchValue: locationId.toString()
-  }
-});
-```
-
-**Don't use string literals for fields that should be enums:**
-
-```typescript
-// ❌ BAD: Magic strings
-searchType: "LOCATION_ID"
-
-// ✅ GOOD: Enum
-searchType: SearchType.LOCATION_ID
-```
-
-#### 7. Combine Filtering with Conditional Logic
-
-Build dynamic `where` clauses for optional filters:
-
-```typescript
-export async function searchLocations(options: {
-  search?: string;
-  language: "en" | "cy";
-  regions?: number[];
-  subJurisdictions?: number[];
-}) {
-  const searchField = options.language === "cy" ? "welshName" : "name";
-  
-  return prisma.location.findMany({
-    where: {
-      deletedAt: null,
-      ...(options.search && {
-        [searchField]: {
-          contains: options.search,
-          mode: "insensitive"
-        }
-      }),
-      ...(options.regions && options.regions.length > 0 && {
-        locationRegions: {
-          some: {
-            regionId: {
-              in: options.regions
-            }
-          }
-        }
-      }),
-      ...(options.subJurisdictions && options.subJurisdictions.length > 0 && {
-        locationSubJurisdictions: {
-          some: {
-            subJurisdictionId: {
-              in: options.subJurisdictions
-            }
-          }
-        }
-      })
-    },
-    orderBy: {
-      [searchField]: "asc"
-    },
-    select: {
-      locationId: true,
-      name: true,
-      welshName: true
-    }
-  });
-}
-```
-
-## Transaction Management
-
-Use transactions for operations that must succeed or fail together:
-
-```typescript
-export async function transferCase(caseId: string, newOwnerId: string) {
-  return prisma.$transaction(async (tx) => {
-    const existingCase = await tx.case.findUnique({
-      where: { id: caseId }
-    });
-
-    if (!existingCase) {
-      throw new Error("Case not found");
-    }
-
-    await tx.caseHistory.create({
-      data: {
-        caseId,
-        action: "TRANSFERRED",
-        previousOwnerId: existingCase.ownerId,
-        newOwnerId
-      }
-    });
-
-    return tx.case.update({
-      where: { id: caseId },
-      data: { ownerId: newOwnerId }
-    });
-  });
-}
-```
+Adding an operation: it must exist in `openapi.json` first. Add it to `client.ts`, let `contract.test.ts`
+pin it, add it to the mock, then call it from a service. An operation api does not have is not something
+to work around here — `apps/api`'s routes for the nine missing writes were deleted because a route that
+can only fail is worse than a 404.
 
 ## Input Validation
 
-### Validation Function Pattern
+Zod schemas, colocated with the domain they validate (`deed-poll/schemas.ts`, `notes/schemas.ts`,
+`documents/schemas.ts`), built from the shared primitives in `schema-primitives.ts`.
 
-```typescript
-// libs/[module]/src/[feature]/[feature]-validation.ts
-
-export function validateCreateUser(input: unknown): ValidationResult {
-  const errors: ValidationError[] = [];
-
-  if (!input || typeof input !== "object") {
-    return { valid: false, errors: [{ field: "body", message: "Invalid request body" }] };
-  }
-
-  const data = input as Record<string, unknown>;
-
-  if (!data.email || typeof data.email !== "string") {
-    errors.push({ field: "email", message: "Email is required" });
-  } else if (!isValidEmail(data.email)) {
-    errors.push({ field: "email", message: "Enter a valid email address" });
-  }
-
-  if (!data.firstName || typeof data.firstName !== "string") {
-    errors.push({ field: "firstName", message: "First name is required" });
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors,
-    data: errors.length === 0 ? data as CreateUserInput : undefined
-  };
-}
-
-interface ValidationResult {
-  valid: boolean;
-  errors: ValidationError[];
-  data?: CreateUserInput;
-}
-
-interface ValidationError {
-  field: string;
-  message: string;
-}
-```
-
-### Using Validation in Routes
-
-```typescript
-export const POST = async (req: Request, res: Response) => {
-  const validation = validateCreateUser(req.body);
-
-  if (!validation.valid) {
-    return res.status(400).json({ errors: validation.errors });
-  }
-
-  const user = await createUser(validation.data);
-  res.status(201).json(user);
-};
-```
+- **A schema is a shape and format guard, not a business rule.** Type-conditional mandatoriness lives in
+  `deed-poll-validation.ts`, which knows which fields a given Type demands
+- **Parse in the page handler, with `safeParse`.** A form has errors to render against its fields; a
+  service that threw on bad input would give the handler nothing to render. The service's DTO type is the
+  schema's inferred type, so an unvalidated object does not type-check as one
+- **Reject early where the error is better.** `upload-policy.ts` refuses an over-large file before it goes
+  on the wire, and `schema-primitives.ts` rejects `null` where api would answer 400 — a local message
+  beats a round trip to learn the same thing
+- **Do not accept fields api allocates.** `referencenumber` and `displayReference` are absent from the
+  create schema on purpose
 
 ## Error Handling
 
-### Route-Level Error Handling
+Throw the domain errors in `libs/deed-poll/src/errors.ts`; never throw an HTTP concern from a library.
+`apps/web/src/errors.ts` maps them to status codes and pages — that mapping is the only place that knows
+about transport.
 
 ```typescript
-export const POST = async (req: Request, res: Response) => {
-  try {
-    const result = await someService.process(req.body);
-    res.status(201).json(result);
-  } catch (error) {
-    if (error instanceof ValidationError) {
-      return res.status(400).json({ error: error.message });
-    }
-    if (error instanceof NotFoundError) {
-      return res.status(404).json({ error: error.message });
-    }
-    if (error instanceof UnauthorizedError) {
-      return res.status(401).json({ error: error.message });
-    }
-
-    // Log unexpected errors, return generic message
-    console.error("Unexpected error:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-```
-
-### Custom Error Classes
-
-```typescript
-// libs/[module]/src/errors.ts
-export class ValidationError extends Error {
+// libs/[module]/src/errors.ts — framework-free, one vocabulary of failure
+export class NotFoundError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "ValidationError";
-  }
-}
-
-export class NotFoundError extends Error {
-  constructor(resource: string, id: string) {
-    super(`${resource} with id ${id} not found`);
     this.name = "NotFoundError";
   }
 }
@@ -527,184 +116,50 @@ export class NotFoundError extends Error {
 
 ## Middleware Pattern
 
-### Factory Function Pattern
+Factory functions returning a `RequestHandler`, mounted once in `apps/web/src/app.ts`:
 
 ```typescript
-// libs/[module]/src/[middleware-name]-middleware.ts
-import type { Request, Response, NextFunction } from "express";
-
-export function requireAuth() {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    const token = req.headers.authorization?.replace("Bearer ", "");
-
-    if (!token) {
-      return res.status(401).json({ error: "Authentication required" });
-    }
-
-    try {
-      const user = await verifyToken(token);
-      req.user = user;
-      next();
-    } catch {
-      res.status(401).json({ error: "Invalid token" });
-    }
-  };
+export function requireAuth(): RequestHandler {
+  return (req: Request, res: Response, next: NextFunction) => { /* … */ };
 }
 ```
 
-### Applying Middleware
-
-Middleware is applied in `apps/api/src/app.ts`:
-
-```typescript
-// Global middleware (applied to all routes)
-app.use(express.json());
-app.use(cors({ origin: process.env.CORS_ORIGIN }));
-
-// Route-specific middleware applied via simple-router
-```
-
-## HTTP Status Codes
-
-| Code | Usage |
-|------|-------|
-| 200 | Successful GET, PUT, DELETE |
-| 201 | Successful POST (resource created) |
-| 204 | Successful DELETE (no content) |
-| 400 | Validation error, malformed request |
-| 401 | Authentication required or failed |
-| 403 | Authenticated but not authorized |
-| 404 | Resource not found |
-| 409 | Conflict (duplicate resource) |
-| 500 | Unexpected server error |
-
-## Response Formats
-
-### Success Response
-
-```typescript
-// Single resource
-res.json({ id: "123", name: "John", email: "john@example.com" });
-
-// Collection
-res.json({
-  data: [...],
-  pagination: {
-    page: 1,
-    pageSize: 20,
-    total: 100
-  }
-});
-
-// Created resource
-res.status(201).json({ id: "new-id", ...createdData });
-```
-
-### Error Response
-
-```typescript
-// Single error
-res.status(400).json({ error: "Email is required" });
-
-// Multiple errors (validation)
-res.status(400).json({
-  errors: [
-    { field: "email", message: "Enter a valid email address" },
-    { field: "firstName", message: "First name is required" }
-  ]
-});
-```
+`requireAuth` is the pattern to copy and the rule not to invert: it is mounted **globally with an
+allowlist**, so a new page is protected unless it asks to be public. A denylist makes a forgotten page
+silently anonymous. Read the docblock in `apps/web/src/auth/require-auth.ts` before changing either it or
+`plain-http.ts`.
 
 ## File Organization
 
 ```
-apps/api/src/routes/
-├── resource.ts                 # /api/resource
-├── resource.test.ts
-└── resource/
-    ├── [id].ts                 # /api/resource/:id
-    └── [id].test.ts
-
-libs/my-module/src/
+libs/deed-poll/src/
 ├── index.ts                    # Public exports
-└── resource/                   # Domain logic
-    ├── resource-service.ts
-    ├── resource-service.test.ts
-    ├── resource-queries.ts
-    └── resource-validation.ts
+├── api/deed-poll-api.ts        # The only place that knows where api is
+├── errors.ts                   # Domain errors
+└── notes/                      # One directory per domain concept
+    ├── service.ts              # Adapter calls
+    ├── service.test.ts
+    └── schemas.ts
+
+apps/web/src/pages/cases/       # Page handlers — GET/POST exports, discovered by simple-router
 ```
 
-## Testing API Routes
+Group by feature, never by type. No `utils/`, no `models/`, no `types.ts`.
 
-```typescript
-// routes/users.test.ts
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { GET, POST } from "./users.js";
+## Testing
 
-vi.mock("../user/user-service.js", () => ({
-  findAllUsers: vi.fn(),
-  createUser: vi.fn()
-}));
-
-describe("GET /api/users", () => {
-  it("returns list of users", async () => {
-    const mockUsers = [{ id: "1", name: "John" }];
-    vi.mocked(findAllUsers).mockResolvedValue(mockUsers);
-
-    const req = {} as Request;
-    const res = {
-      json: vi.fn()
-    } as unknown as Response;
-
-    await GET(req, res);
-
-    expect(res.json).toHaveBeenCalledWith({ users: mockUsers });
-  });
-});
-
-describe("POST /api/users", () => {
-  it("returns 400 for invalid input", async () => {
-    const req = { body: {} } as Request;
-    const res = {
-      status: vi.fn().mockReturnThis(),
-      json: vi.fn()
-    } as unknown as Response;
-
-    await POST(req, res);
-
-    expect(res.status).toHaveBeenCalledWith(400);
-  });
-});
-```
+See `.claude/rules/testing.md`. In short: mock `@hmcts/deed-poll-api-client` at the domain layer, spreading
+the original module so the enum arrays survive; test the adapter itself against the in-memory mock, not
+against a stubbed `fetch`.
 
 ## Anti-Patterns to Avoid
 
-### Route Anti-Patterns
-
-- ❌ Business logic in route handlers
-- ❌ Direct Prisma calls in routes (use services)
-- ❌ Inconsistent response formats
-- ❌ Missing input validation
-- ❌ Generic error messages ("Something went wrong")
-
-### Service Anti-Patterns
-
-- ❌ HTTP concerns in services (req, res, status codes)
-- ❌ Swallowing errors without logging
-- ❌ Side effects without transactions
-- ❌ Circular dependencies between services
-
-### Database Anti-Patterns
-
-- ❌ N+1 queries (use nested `select` or batch queries)
-- ❌ Selecting all fields when only a few needed
-- ❌ Missing indexes on frequently queried fields
-- ❌ Raw SQL when Prisma can handle it
-- ❌ Forgetting `@map` for snake_case DB columns
-
-### Security Anti-Patterns
-
-- ❌ Trusting user input without validation
-- ❌ Exposing internal error details to clients
-- ❌ Logging sensitive data (passwords, tokens)
-- ❌ Missing authentication on protected routes
+- ❌ A `prisma.*` call, a migration, a connection string, or a second data access layer of any kind
+- ❌ Importing `wire.ts` or the mock outside `libs/deed-poll-api-client`
+- ❌ Reading `DEED_POLL_API_URL` anywhere but `libs/deed-poll/src/api/deed-poll-api.ts`
+- ❌ Passing a user name or an admin flag to api alongside the token
+- ❌ A pre-read whose only purpose is to check scoping api already enforces
+- ❌ Recomputing a value api publishes
+- ❌ Catching an `ApiResult` failure and rendering it as the caseworker's mistake
+- ❌ Business logic in a page handler, or HTTP concerns in a library
+- ❌ Logging tokens, or exposing api's internal error text to a caseworker

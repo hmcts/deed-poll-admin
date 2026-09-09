@@ -350,11 +350,64 @@ them one `it()` per artifact column. e2e stays at **16** — the harness has no 
 
 ### Task 8: Charts, config and the record
 
-- [ ] Remove `postgres-url` / `DATABASE_URL` from all four `values.yaml`. This app no longer has a database
-- [ ] Add whatever api's base URL and S2S credential require. **This is a real outstanding dependency, not an optional one** — see `deed-poll-web/docs/external-dependencies.md`, which tracks the same requirement for the other frontend
-- [ ] Update `CLAUDE.md`: no Prisma, no database, no migrations. The Database Operations commands go
-- [ ] Update `.business_context/PROGRESS.md` and `DEED_POLL_API_PLAN.md` to record the cutover as done
-- [ ] Mark completed
+- [x] Remove `postgres-url` / `DATABASE_URL` from all four `values.yaml`. This app no longer has a database
+- [x] Add whatever api's base URL and S2S credential require. **This is a real outstanding dependency, not an optional one** — see `deed-poll-web/docs/external-dependencies.md`, which tracks the same requirement for the other frontend
+- [x] Update `CLAUDE.md`: no Prisma, no database, no migrations. The Database Operations commands go
+- [x] Update `.business_context/PROGRESS.md` and `DEED_POLL_API_PLAN.md` to record the cutover as done
+- [x] Mark completed
+
+Five things this task settled, each recorded at the file that carries it:
+
+- **The S2S credential is nothing to add, and that is a finding rather than a deferral.** api authenticates
+  a **forwarded IDAM access token and nothing else** — `SecurityConfiguration` is an OAuth2 resource server
+  with no `ServiceAuthorization` filter, and `bearerAuth` is the only security scheme in `openapi.json`. So
+  the caseworker's own token, out of the session, is the whole credential and there is no vault entry for
+  this chart to name. This differs from `deed-poll-web`, whose hand-written contract *required* a
+  `ServiceAuthorization` header, which is why that repo tracks it as outstanding: web's spec was written
+  before api existed, and api chose differently. Recorded at the `keyVaults` block and in
+  `docs/DEPLOYMENT.md`, with the argument that if api ever gains S2S the answer is a token provider minting
+  one per call plus a microservice name for *this* app — **not** a static token in an environment variable.
+- **The base URL is the subchart's, resolved per environment, and preview is the exception.**
+  `DEED_POLL_API_URL` is `http://deed-poll-api-{{ .Values.global.environment }}.service.core-compute-…`
+  in `apps/web/helm/values.yaml` — api's CNP internal host, not an ingress. The root AAT template
+  deliberately does **not** restate it (unlike `IDAM_REDIRECT_URI`, which it must, because that chart
+  overrides the `ingressHost` the two have to agree on). Preview overrides it to AAT's api because api's
+  preview deploys are per-PR hosts with no stable name — so **preview writes land in AAT's data**, stated at
+  the value rather than discovered later.
+- **Three chart dependencies had to go, not just two config lines.** `Chart.yaml` still declared
+  `deed-poll-admin-postgres` and `deed-poll-admin-api` as `file://` dependencies on directories task 5
+  deleted, which fails `helm dependency build` — so the chart could not resolve at all, a bigger breakage
+  than the `DATABASE_URL` this task was named for. `postgresql` went with them. Removed rather than
+  commented out, for the same reason.
+- **`apps/crons` lost its `omit: ["DATABASE_URL"]`.** It filtered a key the chart no longer maps.
+  `apps/web`'s `omit: ["REDIS_URL"]` stays and is not the same thing: it stops a developer running against
+  a real vault having the deployed session store replace their local one.
+- **`scripts/progress-dashboard.mjs`'s Phase 3 model is replaced rather than deleted.** It counted
+  `export const GET` under `apps/api/src/routes/**` against a hardcoded 29, so after task 5 it reported
+  0/29 — a deliberate deletion rendered as a total regression. What it counts now is api's published
+  caseworker operations (13, grouped by path) against the adapter's exported functions (14, the extra being
+  `checkApiReachable`), both derived, with `contract.test.ts` named as the thing that actually proves they
+  correspond. **No progress bar and no percentage**, deliberately: api publishes what it publishes, and the
+  writes it has no endpoint for are out of scope rather than outstanding.
+
+Also corrected, because they described current code in the terms of a deleted layer: `README.md`,
+`docs/ARCHITECTURE.md`, `docs/DEPLOYMENT.md` and `docs/PIPELINES.md` (which now lists **six** blockers, not
+four — platform onboarding and api not being deployed), `.claude/rules/backend.md` (which instructed
+contributors to write `prisma.*` calls in `apps/api/src/routes/`, both deleted) and
+`.claude/rules/testing.md` (whose unit-test example mocked `@hmcts/postgres-prisma`). Four stale test
+comments in `libs/deed-poll` went the same way. `grep -ri prisma apps/ libs/` is now historical rationale
+only — deliberate differences from the Prisma version, worth keeping, as task 7 recorded.
+
+**Test arithmetic: unchanged at 1,188**, verified by `yarn progress:write`, which now records that figure in
+`PROGRESS.md` rather than a stale one. This task changed configuration and prose, not behaviour — the one
+code change, dropping crons' `omit`, is covered by the existing `objectContaining` assertion.
+
+**One trap for whoever runs the suite by hand:** an exported `REDIS_URL` in your shell fails
+`app.test.ts`'s "connects a Redis client at the configured URL", which asserts `config/default.json`'s
+default. `yarn test` passes because turbo does not pass the variable through; a bare `vitest run` in
+`apps/web` inherits it. The README recommends exporting it for `yarn test:e2e` in the devcontainer, so the
+two instructions genuinely conflict — run the dashboard with `env -u REDIS_URL` if the suite is otherwise
+green.
 
 ## Success criteria
 

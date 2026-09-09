@@ -2,6 +2,20 @@
 
 Written 2026-09-04. Supersedes Phase 10 of [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md).
 
+> **The admin-side cutover is DONE, 2026-09-09.** This plan described the cutover as a later stage; it was
+> brought forward on Steve's call of 2026-09-07 and carried out in
+> [`docs/plans/02-dal-cutover-to-api.md`](../docs/plans/02-dal-cutover-to-api.md), eight tasks on
+> `dal-cutover-to-api`. **`deed-poll-admin` now owns no data access layer at all**: no Prisma, no pg pool,
+> no migrations, no `apps/api`, no `apps/postgres`, no `libs/postgres-prisma`, no `DATABASE_URL` and no
+> database credential in any chart. Every case, note, witness and document operation goes through one
+> adapter, `libs/deed-poll-api-client`, onto api's published spec (taken from api commit `847933a`).
+>
+> So the tables below are the *design*, and where they describe admin as still holding a database they are
+> **history rather than current state** — annotated where it matters. What is *not* done is api being
+> deployed: this plan's own pipeline cutover is outstanding, and until it lands admin runs against the
+> in-repo mock and a deployed admin pod would report readiness DOWN. See
+> [`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md#deed-poll-api).
+
 **Amended 2026-09-06 by [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md) on three points**, none of
 which changes this plan's design — but this file is wrong about them where it is not annotated:
 
@@ -565,17 +579,27 @@ there than at Stage 4.
 
 | | |
 |---|---|
-| **Moves to Java** | `libs/deed-poll` domain services, Zod schemas → Bean Validation or equivalent, the conformance harness, `file-storage.ts` → CDAM |
-| **Stays TypeScript** | All of `apps/web`: pages, Nunjucks, Welsh, IDAM login (Phase 5), session handling. Plus the parts of `libs/deed-poll` `apps/web` genuinely needs — `auth/roles`, `currentUser`, `upload-policy` constants, error types for HTTP mapping (15 auth + 16 root test blocks) |
-| **Keeps a database connection** | ~~`apps/web`, even after the cutover.~~ **No longer true as of 2026-09-07: sessions are in Redis, so `apps/web` needs `REDIS_URL` and, after the cutover, no database credential at all.** It keeps `postgres-url` only until then, because it still reads case data through Prisma. `apps/web` really does become a pure UI over api plus its own session store. Its readiness check (`deedPollDatabaseChecks`) still needs re-pointing at the cutover — at api reachability rather than at the case tables — with Redis staying alongside it |
-| **Deleted** | `apps/api` and its 261 route tests. `apps/postgres/ccd-runtime/` — 25 vendored SQL files the SDK's own Flyway replaces. The template's `onboarding/*` and `users*` routes |
-| **Decided separately** | Whether the deletes, witness writes, document-type writes and `validate` are ever rebuilt. Default: no, until something asks |
+| **Moves to Java** | `libs/deed-poll`'s query layer (**done** — every function is an adapter call now), Zod schemas → Bean Validation or equivalent, the conformance harness's *structural* layer (**done**, api commit `9db5fe3`), `file-storage.ts` → CDAM (**done here** — the file is deleted and api owns storage; CDAM itself is api's plan 03) |
+| **Stays TypeScript** | All of `apps/web`: pages, Nunjucks, Welsh, IDAM login (Phase 5), session handling. Plus the parts of `libs/deed-poll` `apps/web` genuinely needs — `auth/roles`, `currentUser`, `upload-policy` constants, error types for HTTP mapping (15 auth + 16 root test blocks). **In the event this was more than expected and deliberately so**: the view models, the field-rule matrix, `case-state.ts` and the four rule layers of the conformance harness all stayed, because a rule enforced at both ends must be pinned at both ends |
+| **Keeps a database connection** | ~~`apps/web`, even after the cutover.~~ ~~**No longer true as of 2026-09-07: sessions are in Redis.**~~ **Settled 2026-09-09: nothing in this repo holds a database credential.** `apps/web` is a pure UI over api plus its own session store, `postgres-url` is out of all four charts, and `deedPollDatabaseChecks` was replaced by `deedPollApiStatus()` — api reachability, with Redis alongside it, exactly as this row asked |
+| **Deleted** | `apps/api` and its 261 route tests (**done**). `apps/postgres/ccd-runtime/` — 25 vendored SQL files the SDK's own Flyway replaces (**done**, with the rest of `apps/postgres`). The template's `onboarding/*` and `users*` routes (**done** — `libs/onboarding` and its eight pages went too, which is plan 03's task 1 carried out early) |
+| **Decided separately** | Whether the deletes, witness writes, document-type writes and `validate` are ever rebuilt. Default: no, until something asks. **Still no**, except note delete, which api gained as its thirteenth caseworker operation (`847933a`) because admin's note form has always had the button |
 
 **Protect the conformance harness.** Those 32 tests are the proof the migration did not silently drop
 Dataverse columns — the correctness argument for the whole exercise. Re-point them at the Java schema
 rather than letting them lapse, and carry their caveat with them: the Dataverse exports are
 **alphabetically truncated (A–R)**, so they assert forward coverage only and must never be read as a
 complete column set.
+
+**Done, 2026-09-09, and the answer was "one layer of five moves".** Recorded in full at
+[`libs/deed-poll/src/conformance/README.md`](../libs/deed-poll/src/conformance/README.md). The structural
+layer is api's now — `9db5fe3` ported it and vendored the Dataverse exports, and api's version is strictly
+stronger, because the TypeScript one only checked that its map *had a key* per source column and never that
+the field it named existed. The four rule layers (`state-cascade`, `field-rules`, `conditional-gates`,
+`enum-values`) stayed in admin, since the rules they pin are still applied there. The A–R caveat travelled
+and is now *asserted* rather than merely documented — and it turns out to matter more than it read: the
+columns the truncation hides are `Type`, `State` and `Urgency`, precisely the ones the four remaining
+layers drive their rules from, so the two halves were always complementary rather than overlapping.
 
 ---
 

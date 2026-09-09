@@ -23,26 +23,23 @@ The HMCTS Express Monorepo Template is a production-ready, cloud-native applicat
 │  │  - Express 5.x + Nunjucks                               │     │
 │  │  - GOV.UK Design System                                 │     │
 │  │  - Port: 3000                                           │     │
-│  └──────────────────────────┬──────────────────────────────┘     │
-│                             │                                    │
-│  ┌──────────────────────────┴──────────────────────────────┐     │
-│  │         REST API (@hmcts/api)                           │     │
-│  │  - Express 5.x                                          │     │
-│  │  - JSON API                                             │     │
-│  │  - Port: 3001                                           │     │
-│  └─────────────────────────────────────────────────────────┘     │
-└─────────────────────────────┬───────────────────────────────────┘
-                              │
-┌─────────────────────────────┴────────────────────────────────────┐
-│                         Data Layer                               │
-│    ┌────────────────────┐   ┌────────────────────┐               │
-│    │  PostgreSQL        │   │  Redis             │               │
-│    │  - Port: 5432      │   │  - Port: 6379      │               │
-│    │  - Prisma ORM      │   │  - Session Store   │               │
-│    │  - Case data       │   │                    │               │
-│    └────────────────────┘   └────────────────────┘               │
-└──────────────────────────────────────────────────────────────────┘
+│  └──────────────┬──────────────────────────┬───────────────┘     │
+│                 │ libs/deed-poll           │ express-session     │
+│                 │ libs/deed-poll-api-client│                     │
+└─────────────────┼──────────────────────────┼─────────────────────┘
+                  │ HTTP, bearer token       │
+┌─────────────────┴──────────────┐  ┌────────┴─────────────────────┐
+│  deed-poll-api (another repo)  │  │  Redis                       │
+│  - Spring Boot                 │  │  - Port: 6379                │
+│  - Owns the case data          │  │  - Session store only        │
+│  - Owns the database           │  │  - admin-sess: keyspace      │
+└────────────────────────────────┘  └──────────────────────────────┘
 ```
+
+**There is no data layer in this repo.** The database, the migrations and the ORM all moved to
+[`hmcts/deed-poll-api`](https://github.com/hmcts/deed-poll-api) — see
+[`../docs/plans/02-dal-cutover-to-api.md`](plans/02-dal-cutover-to-api.md). What is left here is a
+presentation layer plus one session store, and the only state this app owns is the session.
 
 ## Monorepo Structure
 
@@ -51,19 +48,18 @@ The project uses Yarn Workspaces with Turborepo for efficient monorepo managemen
 ```
 deed-poll-admin/
 ├── apps/                       # Deployable applications
-│   ├── api/                    # REST API service
 │   ├── crons/                  # Scheduled jobs (CronJob)
-│   ├── postgres/               # Prisma Studio & migration runner
 │   └── web/                    # Web frontend application
 │       └── src/
 │           ├── pages/          # File-based page routes (auto-discovered)
 │           └── locales/        # App-level translations
 ├── libs/                       # Reusable packages
 │   ├── cloud-native-platform/  # Azure integration & monitoring
+│   ├── deed-poll/              # The case domain: services, validation, view models
+│   ├── deed-poll-api-client/   # The adapter onto deed-poll-api, and its in-memory mock
 │   ├── express-govuk-starter/  # GOV.UK Design System integration
-│   ├── postgres-prisma/        # Prisma client library
 │   ├── simple-router/          # File-based routing system
-│   └── [feature-module]/       # Feature modules (e.g. onboarding)
+│   └── [feature-module]/       # Feature modules
 │       └── src/
 │           └── [domain]/       # Reusable functions consumed by apps
 ├── helm/                       # Helm charts
@@ -78,9 +74,9 @@ The web application uses Simple Router for automatic route discovery from the `a
 
 1. **Route Discovery**: All `.ts`/`.js` files under `pages/` are scanned recursively
 2. **URL Mapping**:
-   - `pages/onboarding/name.ts` → `/onboarding/name`
-   - `pages/onboarding/(group)/page.ts` → `/onboarding/page` (parenthetical dirs are route groups — stripped from URL)
-   - `pages/onboarding/confirmation/[id].ts` → `/onboarding/confirmation/:id`
+   - `pages/deed-polls/new.ts` → `/deed-polls/new`
+   - `pages/deed-polls/(group)/page.ts` → `/deed-polls/page` (parenthetical dirs are route groups — stripped from URL)
+   - `pages/deed-polls/[id]/notes/[noteId]/edit.ts` → `/deed-polls/:id/notes/:noteId/edit`
 3. **HTTP Methods**: Files export named functions (`GET`, `POST`) per HTTP method
 4. **Views**: Nunjucks templates co-located with controllers; `(group)` directories are added as view paths so templates remain discoverable
 
@@ -96,7 +92,7 @@ The web application uses Simple Router for automatic route discovery from the `a
 - GOV.UK Frontend 5.11.2
 - Vite for asset bundling
 - SCSS for styling
-- Redis for session management, PostgreSQL for case data
+- Redis for session management; `deed-poll-api` over HTTP for case data
 
 **Features**:
 - Server-side rendering
@@ -113,90 +109,45 @@ The web application uses Simple Router for automatic route discovery from the `a
 - Co-located page templates and controllers
 - Business logic imported from `libs/` feature modules
 
-### 2. REST API (`apps/api`)
+### 2. The api client (`libs/deed-poll-api-client`)
 
-**Purpose**: Backend API service for data operations
+**Purpose**: the single adapter onto `deed-poll-api`, and the only code here that speaks HTTP to it
 
-**Key Technologies**:
-- Express 5.x
-- TypeScript with strict mode
-- Prisma ORM for database access
-- CORS support
+**Key decisions**:
+- **It never throws.** Every operation returns `ApiResult<T>` — a discriminated union of `{ ok: true, data }`
+  and a classified `{ ok: false, error }` — so an unreachable or refusing api is an ordinary state a page
+  can render rather than a 500. This is a caseworker's whole working day: "the backend blinked" must not
+  lose their form
+- **`openapi.json` is api's published document, not a hand-written contract.** Taken from api commit
+  `847933a` and recorded in `SPEC-PROVENANCE.md`; `src/api/contract.test.ts` fails if the adapter and the
+  spec disagree, so divergence is a bug in one of them rather than licence to invent
+- **The wire types and the mock are not exported from the package index**, deliberately. Nothing above the
+  adapter knows api exists
+- **Two value conversions happen here and nowhere else**: date-times become `Date` pinned to UTC (api's
+  `LocalDateTime` is zoneless, and `new Date()` would read it as local, shifting date-only columns by a
+  timezone), and `refundAmount` is a `number`
 
-**Features**:
-- RESTful endpoints
-- File-based routing
-- Compression middleware
-- Health check endpoints
-- Error handling
+**The mock (`src/mock/`)**: an in-memory implementation of every operation this app uses, on port 3200.
+`yarn dev` and `yarn test:e2e` run against it, and the unit suite drives it in process. api is not deployed
+yet and nothing here waits for it.
 
-**API Structure**:
-```
-/api/
-├── users/          # User management
-├── users/[id]      # Dynamic routing
-└── [resource]/     # Additional resources
-```
+### 3. The case domain (`libs/deed-poll`)
 
-### 3. Database Layer
+**Purpose**: the deed-poll model — services, validation, the field-rule matrix, the view models
 
-**Purpose**: Data persistence, schema management, and database inspection
+- **`src/api/deed-poll-api.ts` is the only place that knows where api is.** `callApi` resolves the config
+  from `DEED_POLL_API_URL` and turns a classified `ApiResult` failure into a domain error the pages already
+  render. `apiConfig` is private to that file, so no page sees a base URL
+- **Every service function takes a `Caller` — `{ accessToken }`.** api authenticates each call and derives
+  both the audit author and the admin status from the token, so passing a user name or an admin flag
+  alongside it would assert an identity api never verified
+- **The rules stay local as well as remote.** `deed-poll-validation.ts`, `case-state.ts` and
+  `upload-policy.ts` are applied here *and* by api on purpose: a client that rejects early gives a better
+  error than a 400. `src/conformance/` pins those rules against the Dataverse exports — see its `README.md`
+  for which layers stayed and which moved to api
+- **No query layer.** There is nothing between a service function and the adapter
 
-The database layer is split into two components:
-
-#### Database Client (`libs/postgres-prisma`)
-- Provides Prisma ORM client for type-safe database queries
-- Owns all Prisma schemas — feature modules do not define their own
-- Exports Prisma client for use across applications
-- Snake_case database naming convention
-- CamelCase TypeScript interface mapping
-- Database connection pooling
-
-#### Migration Service (`apps/postgres`)
-- Long-running service that runs database migrations on pod startup
-- Health proxy on port 5555 for Kubernetes health checks
-- Can also host Prisma Studio on port 5556 (proxied via 5555), but **only when
-  `ENABLE_PRISMA_STUDIO=true`** — off by default, because Studio is an unauthenticated read/write
-  browser over applicant PII and this pod has an ingress host
-- Deployed using HMCTS `nodejs` Helm chart
-
-**Database Schema**:
-- **User**: Authentication and user management
-- **Case**: Case management system
-- **Document**: File attachments
-- **CaseNote**: Audit trail
-
-### 4. Migration Service (`apps/postgres`)
-
-**Purpose**: Schema migration, plus optional database inspection
-
-**Key Features**:
-- Runs database migrations on startup via `prisma migrate deploy`
-- Health proxy server (port 5555) for Kubernetes health checks
-- Long-running service deployed using HMCTS `nodejs` chart
-- Optionally hosts Prisma Studio (port 5556) for database inspection
-
-**Architecture Pattern**:
-The health proxy solves the HMCTS `nodejs` chart v3.2.0 limitation that forces HTTP health checks:
-- HTTP server on port 5555 responds to K8s probes
-- All other traffic is proxied to Prisma Studio on port 5556 when Studio is enabled, and answered with
-  404 when it is not
-
-**Prisma Studio is off unless `ENABLE_PRISMA_STUDIO=true`**, and turning it on in a deployed environment
-should be a deliberate, temporary act. Studio is a full read/write CRUD browser with no authentication of
-its own, this pod carries an ingress host, and the tables behind it (`deedpoll_deedpoll`,
-`deedpoll_witness`, `onboarding_submission`) hold applicant names, dates of birth and addresses. Every
-other surface in this service sits behind IDAM; Studio would not.
-
-Local inspection does not go through this service at all — `yarn db:studio` runs Studio directly against
-the Compose database.
-
-**Access**:
-- Preview: `https://<team>-<release>-postgres.preview.platform.hmcts.net` — health endpoints only unless
-  Studio is explicitly enabled
-- Production: Via configured ingress host, same caveat
-
-### 5. Session Store (Redis)
+### 4. Session Store (Redis)
 
 **Purpose**: Session storage in Redis, via `@hmcts-cft/express-session-redis`
 
@@ -268,10 +219,10 @@ app.use(healthcheck()); // /health, /health/readiness, /health/liveness
 
 **Example**:
 ```typescript
-// apps/api/src/routes/users/[id].ts
+// apps/web/src/pages/deed-polls/[id]/index.ts
 export const GET = async (req, res) => {
-  const user = await getUser(req.params.id);
-  res.json(user);
+  const deedPoll = await findDeedPoll(req.params.id, callerFromRequest(req));
+  res.render("deed-polls/[id]/index", detailView(deedPoll));
 };
 ```
 
@@ -298,11 +249,13 @@ helm/deed-poll-admin/
 ```
 
 **Dependencies**:
-- `deed-poll-admin-postgres`: Database migration and Prisma Studio service
 - `deed-poll-admin-web`: Web frontend application
-- `deed-poll-admin-api`: REST API service
 - `deed-poll-admin-crons`: Scheduled jobs
-- `postgresql`: Database provisioning (HMCTS chart)
+
+Three dependencies went with the data access layer — `deed-poll-admin-postgres` and `deed-poll-admin-api`
+pointed at deleted directories, and `postgresql` provisioned a per-PR database with nothing to put in it.
+A `file://` dependency on a missing chart fails `helm dependency build`, so they were removed rather than
+disabled.
 
 **Key Features**:
 - Each app can be enabled/disabled via conditions
@@ -332,8 +285,9 @@ is *for*: build the image, run `yarn lint` and the test stage, deploy the umbrel
 namespace on `cft-preview-01-aks`, then smoke-test the deployed URL and post the environment back to the PR.
 
 **It cannot do the deploy half of that yet.** The chart is at `helm/` where the library reads `charts/`, the
-pipeline builds one image where the umbrella chart wants four, there is no `yarn test:smoke`, and preview has
-no Redis. Four blockers, enumerated with the library source that proves each in
+pipeline builds one image where the umbrella chart wants two, there is no `yarn test:smoke`, and preview has
+no Redis — four blockers inside this repo, plus platform onboarding and the fact that `deed-poll-api` is not
+deployed either. All six are enumerated with the library source that proves each in
 [`PIPELINES.md`](PIPELINES.md); two of them are design decisions rather than renames. Read that before
 assuming a red build is a regression.
 
@@ -346,13 +300,14 @@ mismatch and the rest of the work outstanding before a deploy can go green.
 ### Infrastructure Components
 
 **Per-Preview Resources**:
-- PostgreSQL database: `{release-name}`
 - Kubernetes namespace: `{team-name}`
 - Ingress hosts: `{team}-{release}-{app}.preview.platform.hmcts.net`
+- **No database.** The per-PR Postgres went with the data access layer. A preview instead points
+  `DEED_POLL_API_URL` at AAT's api, which means preview writes land in AAT's data — stated at the value in
+  `helm/deed-poll-admin/values.preview.template.yaml`
 
 **Shared Resources**, all provisioned by [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra)
 rather than by anything in this repo:
-- Azure Flexible PostgreSQL Server: `deed-poll-preview`
 - Key Vault: `deed-poll-{env}`
 - AKS Cluster: `cft-preview-01-aks`
 - Azure Container Registry: `hmctsprod.azurecr.io`
@@ -380,8 +335,7 @@ used to track cleanup targets went with `.github/workflows/` — nothing applies
 | Runtime | Node.js |
 | Framework | Express.js |
 | Language | TypeScript |
-| Database | PostgreSQL |
-| ORM | Prisma |
+| Case data | `deed-poll-api` over HTTP — no database in this repo |
 | Session store | Redis |
 | Template Engine | Nunjucks |
 | UI Framework | GOV.UK Frontend |

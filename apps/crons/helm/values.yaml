@@ -14,8 +14,9 @@ job:
       secrets:
         - name: app-insights-connection-string
           alias: APPLICATION_INSIGHTS_CONNECTION_STRING
-        - name: postgres-url
-          alias: DATABASE_URL
+        # No `postgres-url`: this repo owns no database since the `deed-poll-api` cutover, and the only
+        # script here is the template's `example`. A cron that ever needs case data goes through
+        # `libs/deed-poll` and therefore needs `DEED_POLL_API_URL` and a token, not a connection string.
   schedule: "0 0/10 * * *" # this is just a placeholder, configure in your flux
   concurrencyPolicy: Forbid
 

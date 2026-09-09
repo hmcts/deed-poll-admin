@@ -1,23 +1,14 @@
 # Base values template for production-like environments (AAT, Prod)
-# Database and cache infrastructure is managed by Terraform, not Helm
+# The Key Vault, Redis and App Insights this chart reads are managed by Terraform in
+# `hmcts/deed-poll-infra`, not by Helm. There is no database: see `docs/plans/02-dal-cutover-to-api.md`.
 global:
   environment: ${ENVIRONMENT:-aat}
 
-# Enable/disable subcharts
-postgres:
-  enabled: true
+# Enable/disable subcharts. Two components deploy, and the `postgres`, `api` and `postgresql` toggles that
+# used to sit here went with the charts they switched — `apps/postgres` and `apps/api` were deleted with
+# the data access layer, and the per-environment database with them.
 web:
   enabled: true
-# `api` is off deliberately. Nothing consumes it: apps/web imports `libs/deed-poll` in-process and makes
-# no HTTP calls, and the e2e suite drives a browser against apps/web only. It is also slated for
-# replacement by a Spring Boot `deed-poll-api` in its own repo — see
-# `.business_context/DEED_POLL_API_PLAN.md` — so deploying it would expose an ingress host, and an
-# authenticated but unguarded DELETE that cascades (loose end 5 in PROGRESS.md), for no consumer.
-#
-# Turn it back on by setting this to true; nothing else has to change. Worth doing if something ever
-# needs the JSON API before `deed-poll-api` exists, but guard the delete routes first.
-api:
-  enabled: false
 crons:
   enabled: true
 
@@ -34,12 +25,10 @@ deed-poll-admin-web:
       # two values have to be decided in the same place or they drift, and the subchart default was
       # already wrong for every deployed environment.
       IDAM_REDIRECT_URI: "https://${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}.platform.hmcts.net/oauth2/callback"
-
-# API application configuration
-deed-poll-admin-api:
-  nodejs:
-    image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-api:${API_IMAGE}"
-    ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-api.${ENVIRONMENT}.platform.hmcts.net"
+      # `DEED_POLL_API_URL` is deliberately NOT overridden here, unlike the redirect URI above. The
+      # subchart's default already resolves per environment from `global.environment`, and api's host is
+      # api's to decide — a second spelling of it in this file is the drift the redirect URI comment
+      # describes, without the constraint that forces it.
 
 # Crons application configuration
 deed-poll-admin-crons:
@@ -48,13 +37,3 @@ deed-poll-admin-crons:
     schedule: "*/5 * * * *"
     suspend: false
     kind: CronJob
-
-# Postgres Prisma Studio service configuration
-deed-poll-admin-postgres:
-  nodejs:
-    image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-postgres:${POSTGRES_IMAGE}"
-    ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-postgres.${ENVIRONMENT}.platform.hmcts.net"
-
-# Dev dependencies - DISABLED for AAT/Prod (managed by Terraform)
-postgresql:
-  enabled: false

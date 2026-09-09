@@ -20,9 +20,11 @@ wholesale — see [`.business_context/DEED_POLL_INFRA_PLAN.md`](../.business_con
 Decisions 1 and 3, for why, and for the one thing genuinely lost by the move (CodeQL, which has no Jenkins
 equivalent). `.github/renovate.json` stays: it is configuration, not a workflow.
 
-This repo also owns **no Terraform**. The resource group, Key Vault, App Insights, Redis and Postgres all
+This repo also owns **no Terraform**. The resource group, Key Vault, App Insights and Redis all
 live in [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra), which deploys itself with
-`withInfraPipeline`. There is no infrastructure stage here.
+`withInfraPipeline`. There is no infrastructure stage here. The Postgres that root provisions is
+`deed-poll-api`'s; this repo has no database — see
+[`plans/02-dal-cutover-to-api.md`](plans/02-dal-cutover-to-api.md).
 
 ## What the pipeline runs
 
@@ -80,7 +82,7 @@ yarn build      # not run by the build stage, but run inside every image build
 
 ## What still has to happen before this pipeline can deploy
 
-The `Jenkinsfile_CNP` is correct and minimal, but a green deploy needs more than the Jenkinsfile. All five
+The `Jenkinsfile_CNP` is correct and minimal, but a green deploy needs more than the Jenkinsfile. All six
 of these are outstanding, and the first four are **inside this repo**:
 
 1. **The chart directory is in the wrong place.** `helmInstall` reads `Helm.HELM_RESOURCES_DIR`, which is the
@@ -89,20 +91,21 @@ of these are outstanding, and the first four are **inside this repo**:
    file does not exist, before applying `values.template.yaml`. This repo keeps its umbrella chart at
    `helm/deed-poll-admin/` with no `values.yaml`. Compare `pcs-api` and `pt-frontend`, both of which use
    `charts/<product>-<component>/`.
-2. **The pipeline builds one image; the umbrella chart expects four.** `az acr build ... .` builds the root
+2. **The pipeline builds one image; the umbrella chart expects two.** `az acr build ... .` builds the root
    `Dockerfile` into a single `deed-poll/admin` image, and `helmInstall` exposes it to the values templates as
-   `${IMAGE_NAME}`. This repo has no root `Dockerfile` — it has four, at `apps/{web,api,crons,postgres}/Dockerfile` —
-   and `helm/deed-poll-admin/values.template.yaml` references `${WEB_IMAGE}`, `${API_IMAGE}`, `${CRONS_IMAGE}`
-   and `${POSTGRES_IMAGE}`, which were set by the deleted GitHub Actions build job and are set by nothing now.
-   `envsubst` would substitute empty strings and produce untagged image references. **Resolving this is a
-   design decision, not a rename**: either one Jenkinsfile per deployable (four `product`/`component` pairs,
-   four charts), or one image with a root `Dockerfile` selecting an entrypoint. Not decided.
+   `${IMAGE_NAME}`. This repo has no root `Dockerfile` — it has two, at `apps/{web,crons}/Dockerfile` — and
+   `helm/deed-poll-admin/values.template.yaml` references `${WEB_IMAGE}` and `${CRONS_IMAGE}`, which were set
+   by the deleted GitHub Actions build job and are set by nothing now. `envsubst` would substitute empty
+   strings and produce untagged image references. **Resolving this is a design decision, not a rename**:
+   either one Jenkinsfile per deployable (two `product`/`component` pairs, two charts), or one image with a
+   root `Dockerfile` selecting an entrypoint. Not decided — but it is a smaller decision than it was, since
+   `${API_IMAGE}` and `${POSTGRES_IMAGE}` went with the data access layer.
 3. **No `yarn test:smoke`.** `sectionDeployToAKS` calls `builder.smokeTest()` after every deploy,
    unconditionally, and `yarn test:functional` on functional-test environments. Both are missing, so both
    would fail the run once a deploy succeeds.
 4. **Preview environments have no session store.** `helm/deed-poll-admin/values.preview.template.yaml`
-   provisions a per-PR Postgres through `secretRef: postgres`, but sets nothing at all for Redis — no
-   `redis:` subchart and no `REDIS_URL` — and `hmcts/deed-poll-infra` applies per environment on the `aat`,
+   sets nothing at all for Redis — no `redis:` subchart and no `REDIS_URL` — and `hmcts/deed-poll-infra`
+   applies per environment on the `aat`,
    `demo`, `ithc`, `perftest` and `prod` branches, not in `preview`. `apps/web` now holds sessions in Redis,
    and `assertRedisUrl` refuses to start on `config/default.json`'s loopback default outside development, so
    a preview pod would fail fast rather than come up sessionless. Two ways out, and this is a decision, not a
@@ -110,8 +113,13 @@ of these are outstanding, and the first four are **inside this repo**:
    AAT cache's `redis-url`. The first is ephemeral and isolated; the second shares a cache across every open
    PR. Not decided.
 5. **External onboarding**, tracked in [`.business_context/PROGRESS.md`](../.business_context/PROGRESS.md):
-   four `cnp-jenkins-config` entries, the `deed-poll` namespace and a HelmRelease per component in
-   `cnp-flux-config`, and the IDAM client registration that `admin-idam-client-secret` depends on.
+   a `cnp-jenkins-config` entry per component — two now, not four — the `deed-poll` namespace and a
+   HelmRelease per component in `cnp-flux-config`, and the IDAM client registration that
+   `admin-idam-client-secret` depends on.
+6. **`deed-poll-api` is not deployed.** Not a defect in this repo and not fixable here: every case page
+   needs it, so a deploy that otherwise succeeded would come up with readiness DOWN until api's own
+   pipeline cutover lands. `DEED_POLL_API_URL` already names the host it will answer on. See
+   [`DEPLOYMENT.md`](DEPLOYMENT.md#deed-poll-api).
 
 ## No `Jenkinsfile_nightly`
 

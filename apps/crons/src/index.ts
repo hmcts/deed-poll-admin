@@ -7,7 +7,11 @@ const __dirname = path.dirname(__filename);
 const chartPath = path.join(__dirname, "../helm/values.yaml");
 
 export const main = async () => {
-  await getPropertiesVolumeSecrets({ chartPath, omit: ["DATABASE_URL"] });
+  // No `omit`: it listed `DATABASE_URL`, which the chart no longer maps because this repo has no
+  // database. See `apps/web/src/secrets.ts` for what `omit` is for — a developer running against a real
+  // vault, whose local session store the deployed one must not silently replace. Nothing crons reads has
+  // that problem.
+  await getPropertiesVolumeSecrets({ chartPath });
   const scriptName = process.env.SCRIPT_NAME;
 
   if (!scriptName) {

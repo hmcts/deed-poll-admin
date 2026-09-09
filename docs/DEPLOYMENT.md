@@ -12,11 +12,15 @@ pipeline** (`Jenkinsfile_CNP`). The deployment strategy differs between environm
 | Preview | Pull Request | `cft-preview-01-aks` | Isolated testing per PR |
 | AAT / Production | Merge to `master` | `cft-aat-00-aks` / prod | Live application |
 
-This repo owns **no Terraform**. The resource group, Key Vault, App Insights, Redis and Postgres all live in
+This repo owns **no Terraform**. The resource group, Key Vault, App Insights and Redis all live in
 [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra), and that root must have applied at least
 once before anything here can deploy — nothing enforces that ordering mechanically. See
 [`PIPELINES.md`](PIPELINES.md) for the pipeline itself and for the work still outstanding before a deploy can
 go green.
+
+It also owns **no database**. The Postgres that shared root provisions is `deed-poll-api`'s; this app holds no
+connection string, runs no migration and serves no page without api. See
+[deed-poll-api](#deed-poll-api) below for what that adds to a deploy.
 
 ## Prerequisites
 
@@ -74,10 +78,13 @@ apps/{app}/helm/
 | Dependency | Source | Purpose |
 |------------|--------|---------|
 | `deed-poll-admin-web` | Local (`apps/web/helm`) | Web frontend |
-| `deed-poll-admin-api` | Local (`apps/api/helm`) | REST API |
 | `deed-poll-admin-crons` | Local (`apps/crons/helm`) | Scheduled jobs |
-| `deed-poll-admin-postgres` | Local (`apps/postgres/helm`) | Database migrations |
-| `postgresql` | `oci://hmctsprod.azurecr.io/helm` | PostgreSQL database |
+
+Two components, not four. `deed-poll-admin-api` and `deed-poll-admin-postgres` pointed at `apps/api/helm`
+and `apps/postgres/helm`, both deleted with the data access layer, and `postgresql` provisioned a per-PR
+database this app has nothing to put in. All three were removed from `Chart.yaml` rather than switched off:
+a `file://` dependency on a missing directory fails `helm dependency build`, so a commented-out entry would
+be a chart that cannot resolve.
 
 ## Environment Configuration
 
@@ -95,16 +102,20 @@ Preview environments are automatically created for each pull request:
 - The `ns:`, `prd:` and `rel:` PR labels went with `.github/workflows/` — `job.pr-comment.yml` was the only
   thing that applied them and `job.helm-cleanup.yml` the only thing that read them. Nothing does either now
 
-**No session store here yet.** `values.preview.template.yaml` provisions a per-PR database but nothing for
-Redis, and `deed-poll-infra` does not apply in `preview` — so a preview deploy has no `redis-url` and
-`assertRedisUrl` refuses the loopback default. Outstanding, as gap 4 in [`PIPELINES.md`](PIPELINES.md).
+**No session store here yet.** `deed-poll-infra` does not apply in `preview`, so a preview deploy has no
+`redis-url` and `assertRedisUrl` refuses the loopback default. Outstanding, as gap 4 in
+[`PIPELINES.md`](PIPELINES.md).
+
+**And no database, by design.** The per-PR Postgres went with the data access layer. A preview points
+`DEED_POLL_API_URL` at AAT's api instead, which means **preview writes land in AAT's data** — acceptable
+while there is no live data, and stated at the value itself so it is not discovered later.
 
 ### Production Environment
 
 Production configuration should include:
 
 **Key Differences from Preview:**
-- Persistent database (not ephemeral)
+- Its own `deed-poll-api`, not AAT's
 - Proper resource limits and requests
 - Horizontal pod autoscaling
 - Production-grade secrets management
@@ -129,44 +140,25 @@ web:
         memory: 1Gi
 ```
 
-## Database Migrations
+## deed-poll-api
 
-Database migrations are handled by the `postgres` application:
+**This app serves no case page without api**, and api is a separate deployable in
+[`hmcts/deed-poll-api`](https://github.com/hmcts/deed-poll-api). There are no migrations here to run and no
+database to connect to: that is api's, along with the schema and the Flyway migrations that maintain it.
 
-### Migration Process
+### What a deploy of this app needs from api
 
-1. **Build**: Creates Docker image with Prisma migrations
-2. **Deploy**: Kubernetes Job runs `yarn db:migrate`
-3. **Wait**: Helm waits for job completion before proceeding
-4. **Verify**: Check the migration container's logs. Prisma Studio is not exposed in deployed
-   environments — see [`apps/postgres/README.md`](../apps/postgres/README.md)
+| Item | State |
+|---|---|
+| **api deployed to the target environment** | **Outstanding.** api's own `docs/plans/jenkins-pipeline-cutover.md` is what makes this true; until it lands, a deployed pod's readiness probe reports DOWN and Kubernetes keeps it out of the Service. That is the intended behaviour — a pod that cannot reach api cannot serve a single case page |
+| `DEED_POLL_API_URL` | Set in `apps/web/helm/values.yaml` to `http://deed-poll-api-{env}.service.core-compute-{env}.internal` — the CNP internal host of api's `charts/deed-poll-api`, cluster-internal and cleartext, not an ingress. Preview overrides it to AAT's, because api's preview deploys are per-PR hosts with no stable name |
+| `DEED_POLL_API_TIMEOUT_MS` | Optional. An unset or unparseable value falls back to the adapter's own default rather than becoming `NaN`. The readiness probe does **not** use it: `HEALTH_PROBE_TIMEOUT_MS` is fixed at 2s, because a probe must answer on its own terms |
+| **An S2S credential** | **Nothing to add, and adding one would be wrong.** api authenticates a *forwarded IDAM access token* and nothing else — see its `SecurityConfiguration`, an OAuth2 resource server with no `ServiceAuthorization` filter, and `openapi.json`, whose only security scheme is `bearerAuth`. The caseworker's own token, held in this app's session, is the whole credential. If api ever adds S2S, the answer is a token provider minting one per call against `service-auth-provider-api`, plus an S2S microservice name registered for **this app**; it is not a static secret in the vault. `deed-poll-web/docs/external-dependencies.md` tracks the same requirement for the other frontend |
 
-### Running Migrations Manually
+### There is no rollback of data from here
 
-```bash
-# From local machine with database access
-yarn db:migrate
-
-# Or apply pending migrations only
-yarn db:migrate:dev
-
-# View database
-yarn db:studio
-```
-
-### Rollback Procedure
-
-Prisma doesn't support automatic rollback. For production issues:
-
-1. **Assess Impact**: Determine if rollback is necessary
-2. **Create Fix Migration**: Generate migration to reverse changes
-3. **Deploy Fix**: Run through normal deployment pipeline
-4. **Verify**: Confirm data integrity
-
-```bash
-# Generate new migration to fix issues
-yarn db:migrate:dev --name fix_previous_migration
-```
+An api change that needs reverting is reverted in api. This app holds no schema, so a rollback here is a
+Helm rollback of a stateless pod — see [Rollback Procedures](#rollback-procedures).
 
 ## Secrets Management
 
@@ -183,8 +175,8 @@ keyVaults:
     secrets:
       - name: app-insights-connection-string
         alias: APPLICATION_INSIGHTS_CONNECTION_STRING
-      - name: postgres-url
-        alias: DATABASE_URL
+      - name: redis-url
+        alias: REDIS_URL
 ```
 
 ### Required Secrets
@@ -196,18 +188,18 @@ them.
 | Secret | Alias | Description |
 |--------|-------|-------------|
 | `app-insights-connection-string` | `APPLICATION_INSIGHTS_CONNECTION_STRING` | Application Insights telemetry. Shared — `deed-poll-api` is Spring Boot and reads the same entry |
-| `postgres-url` | `DATABASE_URL` | PostgreSQL connection string. Shared — one database. Still needed here because this app reads case data through Prisma until the `deed-poll-api` cutover |
 | `redis-url` | `REDIS_URL` | Session store. One instance per environment shared with `deed-poll-web`, so this app prefixes its keys `admin-sess:` rather than the library default `sess:`. Written as `rediss://` against the TLS port, and `assertRedisUrl` refuses to start on a cleartext or loopback URL outside development |
 | `admin-session-secret` | `SESSION_SECRET` | Session cookie signing key |
 | `admin-idam-client-secret` | `IDAM_CLIENT_SECRET` | IDAM OIDC client secret. **Does not exist yet** — it comes from IDAM by hand once the client registration lands |
 
 The chart fails to start a pod when a named secret is absent from the vault, so the last two entries are the
-ones to check first when a deploy will not come up.
+ones to check first when a deploy will not come up. **`postgres-url` is deliberately not in that list**: this
+app holds no database credential since the api cutover, and neither does `apps/crons`.
 
 ### When the secrets are read, and why the order matters
 
-`loadSecrets()` — `apps/web/src/secrets.ts` and `apps/api/src/secrets.ts` — reads the mounted volume into
-`process.env`, and each app's `server.ts` awaits it **before** importing `./app.js`, dynamically:
+`loadSecrets()` — `apps/web/src/secrets.ts` — reads the mounted volume into `process.env`, and
+`server.ts` awaits it **before** importing `./app.js`, dynamically:
 
 ```ts
 await loadSecrets();
@@ -219,13 +211,14 @@ when it is first loaded, and caches the result — it is not a lazy read on `.ge
 an entrypoint statically imports before the entrypoint runs a line, so loading the secrets from inside
 `createApp` was too late: `config` had already resolved every value from the placeholders in
 `config/default.json`, and a pod read `redis://localhost:6379` and the checked-in session secret however
-correct its vault was. `libs/postgres-prisma` has the same shape one layer down — it builds its pool from
-`DATABASE_URL` at module scope.
+correct its vault was. `libs/deed-poll` avoids the same trap differently — `deed-poll-api.ts` reads
+`process.env.DEED_POLL_API_URL` lazily, per call, rather than resolving a base URL at module scope, so it is
+correct at any point in the startup sequence.
 
 The symptom is misleading, which is what makes it worth knowing: `assertRedisUrl` crashloops the pod with an
 error blaming a missing `redis-url` entry that is present. A static
-`import { createApp } from "./app.js"` in either `server.ts` reintroduces it, and
-`apps/*/src/server.test.ts` exists to fail when one does.
+`import { createApp } from "./app.js"` in `server.ts` reintroduces it, and `apps/web/src/server.test.ts`
+exists to fail when one does.
 
 ### Adding New Secrets
 
@@ -241,7 +234,7 @@ error blaming a missing `redis-url` entry that is present. A static
 **Do not point liveness at `/health`.** `healthcheck()` serves `/health`, `/health/readiness` and
 `/readiness` from `readinessChecks`, and only `/health/liveness` and `/liveness` from `checks` — see
 `libs/cloud-native-platform/src/healthcheck/healthcheck-middleware.ts`. `apps/web` deliberately leaves
-`checks` **empty** and puts Redis and the deed-poll tables on readiness alone, so that a dependency outage
+`checks` **empty** and puts Redis and `deed-poll-api` on readiness alone, so that a dependency outage
 takes pods out of service instead of restarting them: restarting cannot fix someone else's Redis, and a
 rolling restart turns a recoverable outage into a self-inflicted one. A liveness probe on `/health` would
 run the readiness checks and undo all of that.
@@ -261,7 +254,7 @@ livenessProbe:
 
 ### Readiness Probe
 
-Whether the application can serve traffic — Redis reachable, and the deed-poll tables present:
+Whether the application can serve traffic — Redis reachable, and `deed-poll-api` answering:
 
 ```yaml
 readinessProbe:
@@ -274,9 +267,16 @@ readinessProbe:
 
 The Redis entry checks `isReady` and bounds the `PING` (`redisStatus` in `apps/web/src/app.ts`) rather than
 awaiting a bare ping. `runChecks` awaits every check with a bare `Promise.all`, so a check that does not
-settle hangs the endpoint for the whole outage and reports neither Redis nor the database. Kubernetes would
+settle hangs the endpoint for the whole outage and reports neither Redis nor api. Kubernetes would
 still take the pod out of service on the probe's own timeout, so the cost is an endpoint that tells whoever is
 diagnosing the outage nothing.
+
+The api entry is `deedPollApiStatus()` in `libs/deed-poll/src/api/deed-poll-api.ts`, and it is what replaced
+the Postgres table check when the data access layer went. It hits api's unauthenticated `/health` with its own
+fixed 2s timeout — deliberately not `DEED_POLL_API_TIMEOUT_MS`, for the `Promise.all` reason above — and logs
+the classification (`unavailable` vs `timeout`) before collapsing to UP/DOWN, because being paged for
+"readiness DOWN" with no further detail wastes most of the diagnosis. It proves reachability only: the sole
+token this app holds is a caseworker's, in a session, and no session exists at probe time.
 
 ### What a Redis outage looks like
 
@@ -335,19 +335,26 @@ helm rollback {release-name} {revision} -n {namespace}
 helm uninstall {release-name} -n {namespace} --no-hooks
 ```
 
-#### Database Connection Issues
+#### Readiness DOWN, or every case page 500s
+
+Almost always api. The pod logs one line per failed probe naming the classification:
 
 ```bash
-# Check postgres pod
-kubectl get pods -n {namespace} | grep postgres
-
-# View connection logs
-kubectl logs {postgres-pod} -n {namespace}
-
-# Test connection from app pod
+# What the probe itself says
 kubectl exec -it {app-pod} -n {namespace} -- \
-  /bin/sh -c 'echo "SELECT 1;" | psql $DATABASE_URL'
+  /bin/sh -c 'wget -qO- http://localhost:3000/health/readiness'
+
+# Whether api is reachable from this pod at the URL this pod is using
+kubectl exec -it {app-pod} -n {namespace} -- \
+  /bin/sh -c 'echo $DEED_POLL_API_URL && wget -qO- $DEED_POLL_API_URL/health'
+
+# The classification, logged by deedPollApiStatus
+kubectl logs {app-pod} -n {namespace} | grep 'deed-poll-api readiness'
 ```
+
+`unavailable` is api down or the URL wrong; `timeout` is api too slow, which waiting may fix. A 401 from a
+case page rather than the probe is the other shape: the probe is unauthenticated, so it stays UP while every
+caseworker's token is being rejected.
 
 ### Manual Deployment
 
@@ -397,11 +404,11 @@ kubectl get events -n {namespace} --sort-by='.lastTimestamp'
 kubectl describe resourcequota -n {namespace}
 ```
 
-### Prisma Studio
+### Inspecting case data
 
-Access database through Prisma Studio:
-- Preview: `https://{team}-{release}-postgres.preview.platform.hmcts.net`
-- Production: Internal access only
+Not from here. There is no database and no Studio: the data is api's, so inspection is api's tooling against
+api's database. This was `https://{team}-{release}-postgres.preview.platform.hmcts.net`, an unauthenticated
+read/write browser over applicant PII behind an ingress host, and it is not something to rebuild.
 
 ## Rollback Procedures
 
@@ -435,6 +442,8 @@ helm upgrade {release-name} . \
 - **Pipelines**: [`PIPELINES.md`](PIPELINES.md) — the Jenkins CNP pipeline, and what is still outstanding
 - **Architecture**: [`ARCHITECTURE.md`](ARCHITECTURE.md) — system architecture
 - **Shared infrastructure**: [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra) — the vault,
-  Redis, Postgres and App Insights this chart depends on
+  Redis and App Insights this chart depends on
+- **The service holding the data**: [`hmcts/deed-poll-api`](https://github.com/hmcts/deed-poll-api), and
+  [`docs/plans/02-dal-cutover-to-api.md`](plans/02-dal-cutover-to-api.md) for why it holds it
 - **Why it is split this way**:
   [`.business_context/DEED_POLL_INFRA_PLAN.md`](../.business_context/DEED_POLL_INFRA_PLAN.md)
