@@ -78,6 +78,9 @@ describe("deed-poll/service", () => {
 
   it("clears an existing Gazette notice date on update when publish flips to No", async () => {
     prisma.deedPoll.findUnique.mockResolvedValue({
+      notes: [],
+      witnesses: [],
+      documents: [],
       id: "x",
       displayReference: "KBDP2026-00001",
       dateNoticeSentToLondonGazette: new Date("2026-08-01T00:00:00.000Z")
@@ -122,6 +125,9 @@ describe("deed-poll/service", () => {
     // The reason this gate exists: without it the row keeps minor data that no
     // page will ever show again.
     prisma.deedPoll.findUnique.mockResolvedValue({
+      notes: [],
+      witnesses: [],
+      documents: [],
       id: "x",
       displayReference: "KBDP2026-00001",
       type: "Minor",
@@ -143,6 +149,9 @@ describe("deed-poll/service", () => {
     // The gate reads the MERGED type, so a patch touching only `parents` on a Minor
     // case must not wipe the value it just set.
     prisma.deedPoll.findUnique.mockResolvedValue({
+      notes: [],
+      witnesses: [],
+      documents: [],
       id: "x",
       displayReference: "KBDP2026-00001",
       type: "Minor",
@@ -187,6 +196,9 @@ describe("deed-poll/service", () => {
 
   it("recalculates state on update from merged dates (enrolment → Enroled)", async () => {
     prisma.deedPoll.findUnique.mockResolvedValue({
+      notes: [],
+      witnesses: [],
+      documents: [],
       id: "x",
       displayReference: "KBDP2026-00001",
       dateReceived: new Date("2026-01-01T00:00:00.000Z")
@@ -212,6 +224,9 @@ describe("deed-poll/service", () => {
 
   it("re-prefixes the display reference on a DP→DR type flip", async () => {
     prisma.deedPoll.findUnique.mockResolvedValue({
+      notes: [],
+      witnesses: [],
+      documents: [],
       id: "x",
       displayReference: "KBDP2026-00007"
     });
@@ -230,6 +245,9 @@ describe("deed-poll/service", () => {
   describe("privacy authorisation on update", () => {
     beforeEach(() => {
       prisma.deedPoll.findUnique.mockResolvedValue({
+        notes: [],
+        witnesses: [],
+        documents: [],
         id: "x",
         displayReference: "KBDP2026-00001",
         type: "Adult",
@@ -279,6 +297,9 @@ describe("deed-poll/service", () => {
       // The hole is write access to the field, not the Private value specifically:
       // downgrading a Private case to Normal is the more damaging direction.
       prisma.deedPoll.findUnique.mockResolvedValue({
+        notes: [],
+        witnesses: [],
+        documents: [],
         id: "x",
         displayReference: "KBDP2026-00001",
         type: "MinorTransgender",
@@ -347,6 +368,9 @@ describe("deed-poll/service", () => {
   describe("cross-field date rules", () => {
     it("rejects a patch that leaves the record both enroled and returned", async () => {
       prisma.deedPoll.findUnique.mockResolvedValue({
+        notes: [],
+        witnesses: [],
+        documents: [],
         id: "x",
         displayReference: "KBDP2026-00001",
         dateEnroled: new Date("2026-08-01T00:00:00.000Z")
@@ -357,6 +381,9 @@ describe("deed-poll/service", () => {
 
     it("rejects a signature received before requested", async () => {
       prisma.deedPoll.findUnique.mockResolvedValue({
+        notes: [],
+        witnesses: [],
+        documents: [],
         id: "x",
         displayReference: "KBDP2026-00001",
         signatureRequestedDate: new Date("2026-08-15T00:00:00.000Z")
@@ -373,6 +400,9 @@ describe("deed-poll/service", () => {
       // The fix for a contradictory record must not itself be blocked: blanking
       // dateEnroled on an enroled+returned case is exactly how a caseworker resolves it.
       prisma.deedPoll.findUnique.mockResolvedValue({
+        notes: [],
+        witnesses: [],
+        documents: [],
         id: "x",
         displayReference: "KBDP2026-00001",
         dateEnroled: new Date("2026-08-01T00:00:00.000Z"),
@@ -403,6 +433,9 @@ describe("deed-poll/service", () => {
 
     it("leaves a consistent signature pair alone", async () => {
       prisma.deedPoll.findUnique.mockResolvedValue({
+        notes: [],
+        witnesses: [],
+        documents: [],
         id: "x",
         displayReference: "KBDP2026-00001",
         signatureRequestedDate: new Date("2026-08-03T00:00:00.000Z")
@@ -417,7 +450,7 @@ describe("deed-poll/service", () => {
   });
 
   it("remove deletes after existence check", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue({ id: "x" });
+    prisma.deedPoll.findUnique.mockResolvedValue({ id: "x", notes: [], witnesses: [], documents: [] });
     prisma.deedPoll.delete.mockResolvedValue({ id: "x" });
     await removeDeedPoll("x");
     expect(prisma.deedPoll.delete).toHaveBeenCalledWith({ where: { id: "x" } });

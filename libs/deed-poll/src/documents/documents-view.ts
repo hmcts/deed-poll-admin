@@ -9,7 +9,7 @@
  * `notes-view.ts` already does this for the notes subgrid, and the witnesses subgrid needs nothing —
  * its three fields are plain strings the template prints as-is.
  */
-import type { DeedPollSupportingDocument, DeedPollSupportingDocumentType } from "@hmcts/postgres-prisma";
+import type { Document } from "@hmcts/deed-poll-api-client";
 import { formatValue, NOT_PROVIDED } from "../deed-poll/detail-view.js";
 import type { FieldDef } from "../deed-poll/form-fields.js";
 
@@ -36,21 +36,19 @@ export interface DocumentRow {
 
 export const DOCUMENT_COLUMNS = ["Document", "Type", "Direction", "Added"];
 
-/** A document with its type relation loaded, as `findDeedPoll` returns them. */
-type DocumentWithType = DeedPollSupportingDocument & { documentType?: DeedPollSupportingDocumentType | null };
-
-export function buildDocumentsView(documents: DocumentWithType[]): DocumentRow[] {
+export function buildDocumentsView(documents: Document[]): DocumentRow[] {
   return documents.map((document) => ({
     id: document.id,
-    name: document.name,
-    // The type is a relation, and the FK is required — but `findDeedPoll` is the only caller that
-    // includes it, so an absent relation means "not loaded" rather than "no type". Saying
-    // "Not provided" would be a claim about the data; this is a claim about the query.
+    name: document.name ?? NOT_PROVIDED,
+    // The type is a relation, and the FK is required — but a document read on its own does not
+    // carry it, so an absent one means "not loaded" rather than "no type". Saying "Not provided"
+    // would be a claim about the data; this is a claim about the read.
     type: document.documentType?.name ?? NOT_PROVIDED,
     direction: formatValue(DIRECTION_FIELD, document.direction),
     added: formatValue(ADDED_FIELD, document.createdOn),
-    // A metadata row can exist before its file arrives — `createDocument` makes one with no
-    // storageKey — so a link would 404 for a document that is legitimately still pending.
-    downloadable: Boolean(document.storageKey)
+    // A metadata row can exist before its file arrives, so a link would 404 for a document that is
+    // legitimately still pending. `hasFile` is api's answer to that question — where it keeps the
+    // bytes is not this app's business, which is why it publishes the fact and not a storage key.
+    downloadable: document.hasFile
   }));
 }

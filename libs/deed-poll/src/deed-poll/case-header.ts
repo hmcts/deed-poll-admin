@@ -1,4 +1,4 @@
-import type { DeedPoll } from "@hmcts/postgres-prisma";
+import type { CaseDetail } from "@hmcts/deed-poll-api-client";
 import { LABELS } from "./enums/dynamics-values.js";
 
 /**
@@ -41,6 +41,15 @@ export interface CaseHeader {
   entityLabel: string;
   rows: CaseHeaderRow[];
 }
+
+/**
+ * The five fields the header reads, and only those.
+ *
+ * Narrowed to a `Pick` of the case rather than taking the whole record: the header is a fixed set
+ * of facts, and a signature saying so is both honest about the coupling and indifferent to the 70
+ * columns it never touches.
+ */
+export type CaseHeaderInput = Partial<Pick<CaseDetail, "type" | "state" | "modifiedBy" | "modifiedOn" | "createdBy">>;
 
 /** Look a stored enum member up in the shared label registry. */
 function label(set: string, value: unknown): string {
@@ -94,7 +103,7 @@ function author(raw: unknown): string {
  * the record, and a header whose rows came and went by case would be harder to read,
  * not cleaner.
  */
-export function buildCaseHeader(record: Partial<DeedPoll>): CaseHeader {
+export function buildCaseHeader(record: CaseHeaderInput): CaseHeader {
   return {
     entityLabel: ENTITY_LABEL,
     rows: [

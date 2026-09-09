@@ -165,12 +165,30 @@ export async function createDeedPoll(dto: CreateDeedPollInput, ctx: WriteContext
   });
 }
 
+/**
+ * The two columns whose stored shape is not the shape the view models now expect, converted where
+ * the query ends — the only place that should know either format.
+ *
+ * `refundAmount` is a Prisma `Decimal` where api sends a JSON number, and a document's `hasFile` is
+ * what api publishes in place of the local `storageKey`, because where the bytes live is not a
+ * caller's business. Both differences are recorded in `libs/deed-poll-api-client/src/api/wire.ts`.
+ * These two functions go with the queries around them, in tasks 3 and 4 of
+ * `docs/plans/02-dal-cutover-to-api.md`, when the adapter becomes the only source of a case.
+ */
+function toCase<T extends { refundAmount: Prisma.Decimal | null }>(row: T): Omit<T, "refundAmount"> & { refundAmount: number | null } {
+  return { ...row, refundAmount: row.refundAmount?.toNumber() ?? null };
+}
+
+function toDocument<T extends { storageKey: string | null }>(row: T): T & { hasFile: boolean } {
+  return { ...row, hasFile: row.storageKey != null };
+}
+
 export async function findDeedPolls(where?: Prisma.DeedPollWhereInput): Promise<DeedPollWithComputed[]> {
   const found = await prisma.deedPoll.findMany({
     where,
     orderBy: { createdOn: "desc" }
   });
-  return withComputedAll(found);
+  return withComputedAll(found.map(toCase));
 }
 
 /**
@@ -193,7 +211,7 @@ export async function findDeedPoll(id: string): Promise<DeedPollWithChildren> {
   if (!found) {
     throw new NotFoundError(`DeedPoll ${id} not found`);
   }
-  return withComputed(found);
+  return withComputed({ ...toCase(found), documents: found.documents.map(toDocument) });
 }
 
 export async function updateDeedPoll(id: string, dto: UpdateDeedPollInput, ctx: WriteContext = DEFAULT_WRITE_CONTEXT): Promise<DeedPollWithComputed> {
@@ -257,7 +275,7 @@ export async function updateDeedPoll(id: string, dto: UpdateDeedPollInput, ctx: 
   delete data.createdBy;
 
   const updated = await prisma.deedPoll.update({ where: { id }, data });
-  return withComputed(updated);
+  return withComputed(toCase(updated));
 }
 
 export async function removeDeedPoll(id: string): Promise<void> {

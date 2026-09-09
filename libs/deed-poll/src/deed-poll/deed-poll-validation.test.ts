@@ -1,6 +1,6 @@
-import { DeedPollType, MaritalStatus, ReferToMaster } from "@hmcts/postgres-prisma";
 import { describe, expect, it } from "vitest";
 import { applyCreateDefaults, getFieldRules, validate } from "./deed-poll-validation.js";
+import { DeedPollType, MaritalStatus, ReferToMaster } from "./enums/option-sets.js";
 
 describe("deed-poll-validation", () => {
   describe("getFieldRules — per-type required/visible matrix", () => {

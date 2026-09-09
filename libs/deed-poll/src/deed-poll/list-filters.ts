@@ -9,12 +9,24 @@
  * `all` deliberately has no `where`: `findDeedPolls(undefined)` returns everything, and an empty
  * object would be an equivalent but noisier way of saying so.
  */
-import { DeedPollState, type Prisma } from "@hmcts/postgres-prisma";
+import { DeedPollState } from "./enums/option-sets.js";
 
 export interface ListFilter {
   key: string;
   label: string;
-  where?: Prisma.DeedPollWhereInput;
+  where?: ListFilterWhere;
+}
+
+/**
+ * The state predicate a filter stands for.
+ *
+ * Structurally what Prisma's generated `DeedPollWhereInput` supplied for the `state` column,
+ * restated because `libs/postgres-prisma` goes in task 5 of `docs/plans/02-dal-cutover-to-api.md`
+ * and no filter here ever constrained any of the other 70. It stays a predicate rather than
+ * becoming a bare list of states so the "Open" rule below can still be written by exclusion.
+ */
+export interface ListFilterWhere {
+  state: DeedPollState | { notIn: DeedPollState[] };
 }
 
 /**

@@ -1,5 +1,5 @@
-import { DocumentDirection } from "@hmcts/postgres-prisma";
 import { describe, expect, it } from "vitest";
+import { DocumentDirection } from "../deed-poll/enums/option-sets.js";
 import { createDocumentSchema, createDocumentTypeSchema, updateDocumentSchema, updateDocumentTypeSchema } from "./schemas.js";
 
 const validDocument = {

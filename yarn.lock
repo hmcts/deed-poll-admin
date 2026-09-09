@@ -912,7 +912,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@hmcts/deed-poll-api-client@workspace:libs/deed-poll-api-client":
+"@hmcts/deed-poll-api-client@workspace:*, @hmcts/deed-poll-api-client@workspace:libs/deed-poll-api-client":
   version: 0.0.0-use.local
   resolution: "@hmcts/deed-poll-api-client@workspace:libs/deed-poll-api-client"
   dependencies:
@@ -925,6 +925,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@hmcts/deed-poll@workspace:libs/deed-poll"
   dependencies:
+    "@hmcts/deed-poll-api-client": "workspace:*"
     "@hmcts/postgres-prisma": "workspace:*"
     typescript: "npm:6.0.3"
     vitest: "npm:*"

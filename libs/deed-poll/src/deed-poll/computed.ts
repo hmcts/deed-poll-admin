@@ -1,4 +1,4 @@
-import type { DeedPoll, DeedPollNote, DeedPollSupportingDocument, DeedPollSupportingDocumentType, DeedPollWitness } from "@hmcts/postgres-prisma";
+import type { CaseDetail, SavedCase } from "@hmcts/deed-poll-api-client";
 
 /**
  * Derived (non-stored) columns, ported from the source's calculated fields in
@@ -59,25 +59,21 @@ export function withComputedAll<T extends Parameters<typeof computedFor>[0]>(rec
   return records.map((r) => withComputed(r));
 }
 
-/** Convenience alias for the common case: a full DeedPoll plus derived columns. */
-export type DeedPollWithComputed = WithComputed<DeedPoll>;
+/** Convenience alias for the common case: a full case plus derived columns. */
+export type DeedPollWithComputed = WithComputed<SavedCase>;
 
 /**
- * One case as `findOne()` actually returns it: the record, its derived columns AND the
- * three child collections that method eager-loads.
+ * One case as `findDeedPoll()` returns it: the record, its derived columns AND the three child
+ * collections.
  *
- * Split out from `DeedPollWithComputed` (which `findAll()` returns, children absent)
- * because the two shapes are genuinely different and a single type covering both would
- * have to lie about one of them. It lied in favour of `findAll` until 2026-08-10, so any
- * server-side use of `case.notes` was a type error even though the data was there —
- * Nunjucks is untyped, which is why the templates never noticed.
+ * Split out from `DeedPollWithComputed` (which `findDeedPolls()` returns, children absent) because
+ * the two shapes are genuinely different and a single type covering both would have to lie about
+ * one of them. It lied in favour of the list until 2026-08-10, so any server-side use of
+ * `case.notes` was a type error even though the data was there — Nunjucks is untyped, which is why
+ * the templates never noticed.
+ *
+ * The children now come from `CaseDetail` itself: api returns a case with its notes, witnesses and
+ * documents in one response, so the three arrays are part of the shape rather than a join this app
+ * asks for.
  */
-export type DeedPollWithChildren = WithComputed<
-  DeedPoll & {
-    notes: DeedPollNote[];
-    witnesses: DeedPollWitness[];
-    documents: (DeedPollSupportingDocument & {
-      documentType: DeedPollSupportingDocumentType | null;
-    })[];
-  }
->;
+export type DeedPollWithChildren = WithComputed<CaseDetail>;

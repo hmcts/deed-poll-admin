@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { optionalIsoDate, optionalText, optionalTextMax, optionSetValues } from "../schema-primitives.js";
 import {
   DeedPollState,
   DeedPollType,
@@ -9,9 +11,7 @@ import {
   Privacy,
   ReferToMaster,
   Urgency
-} from "@hmcts/postgres-prisma";
-import { z } from "zod";
-import { optionalIsoDate, optionalText, optionalTextMax, optionSetValues } from "../schema-primitives.js";
+} from "./enums/option-sets.js";
 
 /**
  * Create payload for a DeedPoll. Every field is optional — a case is logged incrementally,

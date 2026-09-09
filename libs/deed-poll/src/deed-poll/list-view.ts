@@ -11,7 +11,7 @@
  * It reuses `formatValue` and `FIELD_BY_NAME`, so a column shows exactly what the same field shows
  * on the detail page. A second formatter here would be a second opinion about what a Type is called.
  */
-import type { DeedPoll } from "@hmcts/postgres-prisma";
+import type { CaseSummary } from "@hmcts/deed-poll-api-client";
 import { formatValue, NOT_PROVIDED } from "./detail-view.js";
 import { FIELD_BY_NAME } from "./form-fields.js";
 
@@ -31,9 +31,12 @@ export interface CaseListRow {
 /** The table's column headings, beside the row builder so the two cannot fall out of step. */
 export const CASE_LIST_COLUMNS = ["Reference", "Privacy", "Received", "Type", "State", "New forename"];
 
-export function buildCaseList(
-  cases: Pick<DeedPoll, "id" | "displayReference" | "privacy" | "dateReceived" | "type" | "state" | "newForename">[]
-): CaseListRow[] {
+/**
+ * `CaseSummary` is exactly these seven columns — api's list response carries no more, because a
+ * table that shows six cells has no business asking for 70 — so the row builder takes it whole
+ * rather than picking from it.
+ */
+export function buildCaseList(cases: CaseSummary[]): CaseListRow[] {
   return cases.map((record) => ({
     id: record.id,
     // Not run through formatValue: the reference is already a display string, so formatting it

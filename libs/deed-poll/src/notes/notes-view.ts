@@ -1,4 +1,4 @@
-import type { DeedPollNote } from "@hmcts/postgres-prisma";
+import type { Note } from "@hmcts/deed-poll-api-client";
 import { formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
 
 /**
@@ -10,7 +10,7 @@ import { formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
  * are paired into two:
  *
  *   - **NoteID** keeps its label but shows a short code derived from `id`, not the
- *     source's autonumber (which is not ported — see `DeedPollNote` in schema.prisma).
+ *     source's autonumber (which is not ported — api's note carries no such column).
  *     See `shortCode()` for why 8 characters is safe here.
  *   - **Deed Poll** repeats the `<h1>` of the page the grid is nested inside. The
  *     documents subgrid on the same page does not restate it either.
@@ -103,7 +103,7 @@ function instant(raw: Date | string | null | undefined): number | null {
  * pages cannot format one note differently. `unmodified` lets the page make the same
  * "Not edited" statement the grid does rather than repeating the creation pair.
  */
-export function buildNoteDetail(note: DeedPollNote): NoteRow {
+export function buildNoteDetail(note: Note): NoteRow {
   return buildNotesView([note]).rows[0];
 }
 
@@ -119,7 +119,7 @@ export function buildNoteDetail(note: DeedPollNote): NoteRow {
  * A note with no usable `modifiedOn` sorts last rather than being dropped or treated as
  * the epoch, the same rule the prototype's case timeline follows.
  */
-export function buildNotesView(notes: DeedPollNote[]): NotesView {
+export function buildNotesView(notes: Note[]): NotesView {
   const rows = [...notes]
     .sort((a, b) => {
       const at = instant(a.modifiedOn);

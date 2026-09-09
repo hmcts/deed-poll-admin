@@ -1,6 +1,6 @@
-import { DeedPollState } from "@hmcts/postgres-prisma";
 import { describe, expect, it } from "vitest";
 import { type CaseStateInput, collectDateRuleErrors, deriveState, hasContradiction } from "./case-state.js";
+import { DeedPollState } from "./enums/option-sets.js";
 
 const D = (iso: string) => new Date(iso);
 const SOME = D("2026-01-01T00:00:00.000Z");

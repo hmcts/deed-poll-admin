@@ -1,5 +1,5 @@
-import { DocumentDirection } from "@hmcts/postgres-prisma";
 import { z } from "zod";
+import { DocumentDirection } from "../deed-poll/enums/option-sets.js";
 import { optionalText, optionSetValues } from "../schema-primitives.js";
 
 /**

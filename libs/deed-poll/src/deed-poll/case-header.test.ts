@@ -1,6 +1,6 @@
-import { DeedPollState, DeedPollType } from "@hmcts/postgres-prisma";
 import { describe, expect, it } from "vitest";
 import { buildCaseHeader, ENTITY_LABEL, formatTimestamp, NOT_RECORDED } from "./case-header.js";
+import { DeedPollState, DeedPollType } from "./enums/option-sets.js";
 
 /** Flatten the header rows to key = value for easy assertions. */
 const flatten = (header: ReturnType<typeof buildCaseHeader>) => Object.fromEntries(header.rows.map((r) => [r.key, r.value]));

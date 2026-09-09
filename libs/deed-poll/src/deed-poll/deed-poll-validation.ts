@@ -1,4 +1,4 @@
-import { DeedPollType, MaritalStatus, PostCounter, ReferToMaster, Urgency } from "@hmcts/postgres-prisma";
+import { DeedPollType, MaritalStatus, PostCounter, ReferToMaster, Urgency } from "./enums/option-sets.js";
 
 /**
  * A single field's UI + validation rule for a given Type, as consumed by both

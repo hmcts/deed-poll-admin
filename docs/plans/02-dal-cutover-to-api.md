@@ -106,10 +106,31 @@ Two things worth knowing before task 2 uses this:
 
 Do this **before** touching any query, because it is mechanical and it makes the query work reviewable.
 
-- [ ] For each of the 13 type-only files listed above, replace `import type { … } from "@hmcts/postgres-prisma"` with the equivalent type from the api client
-- [ ] Where a Prisma type and the api type genuinely differ — dates as `Date` versus ISO strings, `Decimal` versus `number` — **do not paper over it with a cast.** Record the difference and convert at the adapter boundary, which is the only place that should know about the wire format
-- [ ] Change no logic. The diff for this task should be imports and type annotations only
-- [ ] Mark completed
+- [x] For each of the 13 type-only files listed above, replace `import type { … } from "@hmcts/postgres-prisma"` with the equivalent type from the api client
+- [x] Where a Prisma type and the api type genuinely differ — dates as `Date` versus ISO strings, `Decimal` versus `number` — **do not paper over it with a cast.** Record the difference and convert at the adapter boundary, which is the only place that should know about the wire format
+- [x] Change no logic. The diff for this task should be imports and type annotations only
+- [x] Mark completed
+
+Three things the re-point turned up, all recorded at the code that deals with them:
+
+- **The enums needed a home.** Prisma's generated enums were a type AND a value under one name, and seven
+  of the 13 files use `DeedPollState.Returned` rather than a bare string. The client publishes member
+  ARRAYS (pinned against the spec by `contract.test.ts`) and union types, so
+  `deed-poll/enums/option-sets.ts` turns each array back into the named-member object those rules were
+  written against. The members are never restated — every object is BUILT from the client's array — so a
+  member added at api's end reaches the Dynamics label maps without an edit.
+- **`storageKey` became `hasFile`.** `documents-view.ts` derived "is this row downloadable" from the local
+  storage key; api publishes the fact and not the key, deliberately. This is the one place where the
+  re-point could not be an annotation, and the difference is at both ends: the wire module and the row
+  builder.
+- **The still-Prisma query layer converts at its own edge.** `service.ts` gained two four-line functions
+  turning a `Decimal` into a number and adding `hasFile` to a document row, because the view models above
+  it now describe api's shape while the query below it is still Prisma's. They go with the queries around
+  them in tasks 3 and 4 — they are the seam, not a permanent adapter.
+
+`list-filters.ts` also lost `Prisma.DeedPollWhereInput`, restated as a two-member `ListFilterWhere` so the
+"Open by exclusion" rule survives task 5. Task 3 is what stops the service reading it at all: api resolves
+a filter KEY.
 
 ### Task 3: Replace the case query layer
 

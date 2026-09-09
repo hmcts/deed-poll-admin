@@ -1,5 +1,4 @@
-import { findDeedPolls } from "@hmcts/deed-poll";
-import { DeedPollState } from "@hmcts/postgres-prisma";
+import { DeedPollState, findDeedPolls } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GET } from "./index.js";

@@ -19,6 +19,7 @@ export * from "./deed-poll/deed-poll-validation.js";
 export * from "./deed-poll/detail-view.js";
 export * from "./deed-poll/edit-view.js";
 export * from "./deed-poll/enums/dynamics-values.js";
+export * from "./deed-poll/enums/option-sets.js";
 export * from "./deed-poll/form-fields.js";
 export * from "./deed-poll/form-payload.js";
 export * from "./deed-poll/form-presentation.js";

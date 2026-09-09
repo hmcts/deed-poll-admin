@@ -28,6 +28,28 @@ import {
 } from "./wire.js";
 
 /**
+ * The option-set members, re-exported because they are api's published vocabulary rather than a
+ * detail of how a response is parsed.
+ *
+ * The rest of `wire.js` stays unexported — see the note in `../index.ts` — but these arrays are
+ * plain data, pinned against the spec by `contract.test.ts`, and `libs/deed-poll` builds its
+ * enum members and Dynamics label maps out of them now that Prisma's generated ones are going.
+ */
+export {
+  DEED_POLL_STATE,
+  DEED_POLL_TYPE,
+  DOCUMENT_DIRECTION,
+  MARITAL_STATUS,
+  MASTER_DECISION,
+  NATIONALITY,
+  NATIONALITY_SECTION,
+  POST_COUNTER,
+  PRIVACY,
+  REFER_TO_MASTER,
+  URGENCY
+} from "./wire.js";
+
+/**
  * Ten seconds. Long enough for api to reach Postgres under load, short enough that a caseworker is not
  * left on a blank page: without an explicit signal `fetch` waits on the OS, which can be minutes.
  */
@@ -371,9 +393,24 @@ export type DocumentType = WireDocumentType;
 export type FieldRules = WireFieldRules["rules"];
 export type FieldRule = FieldRules[string];
 export type CaseWrite = WireCaseWrite;
+
+/**
+ * The option sets, as the member unions a caller annotates with.
+ *
+ * Derived from the response shape rather than restated, so a member added to api's enum reaches
+ * these without a second edit. `NonNullable` because every one of these columns is nullable on a
+ * case — an option set's members are not the same question as whether one has been chosen.
+ */
 export type CaseType = NonNullable<SavedCase["type"]>;
 export type CaseState = NonNullable<SavedCase["state"]>;
 export type Privacy = NonNullable<SavedCase["privacy"]>;
+export type Urgency = NonNullable<SavedCase["urgency"]>;
+export type PostCounter = NonNullable<SavedCase["postCounter"]>;
+export type MaritalStatus = NonNullable<SavedCase["maritalStatus"]>;
+export type Nationality = NonNullable<SavedCase["nationality"]>;
+export type NationalitySection = NonNullable<SavedCase["nationalitySection"]>;
+export type MasterDecision = NonNullable<SavedCase["masterDecision"]>;
+export type ReferToMaster = NonNullable<SavedCase["referToMasterChoice"]>;
 export type DocumentDirection = NonNullable<Document["direction"]>;
 
 export interface FieldRulesQuery {

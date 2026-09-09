@@ -1,5 +1,5 @@
-import { DeedPollType, MaritalStatus } from "@hmcts/postgres-prisma";
 import { describe, expect, it } from "vitest";
+import { DeedPollType, MaritalStatus } from "./enums/option-sets.js";
 import { createDeedPollSchema, updateDeedPollSchema } from "./schemas.js";
 
 describe("createDeedPollSchema", () => {
