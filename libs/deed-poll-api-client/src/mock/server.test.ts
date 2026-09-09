@@ -114,6 +114,63 @@ describe("POST /__mock/cases", () => {
     // way a page under test gets one.
     expect(read.witnesses[0].declarant).toBe(true);
   });
+
+  it("should read a seeded date sent as a string, since JSON has no Date", async () => {
+    // Left as a string it reaches the response serialiser, which 500s AND leaves the unusable record in
+    // the map — so the next read of the list fails too, long after the request that caused it.
+    const response = await post("/__mock/cases", { dateReceived: "2026-01-01T00:00:00", dateEnroled: "2026-02-01T00:00:00" });
+
+    expect(response.status).toBe(201);
+    const seeded = await response.json();
+    expect(seeded.dateReceived).toBe("2026-01-01T00:00:00.000");
+    // Computed from the pair, which is only possible if both were read as dates.
+    expect(seeded.daysReceivedToEnroled).toBe(31);
+    expect((await get("/caseworker/cases")).cases).toHaveLength(1);
+  });
+
+  it("should refuse a seeded field it cannot read rather than storing it", async () => {
+    const response = await post("/__mock/cases", { dateReceived: "not-a-date" });
+
+    expect(response.status).toBe(400);
+    expect((await get("/caseworker/cases")).cases).toEqual([]);
+  });
+});
+
+describe("the audit author", () => {
+  // api takes no author parameter — it derives one from the caller's token — so this is the only thing
+  // that makes `Created By` right, and the e2e create journey asserts it.
+  const token = (subject: string) => `x.${Buffer.from(JSON.stringify({ sub: subject }), "utf8").toString("base64url")}.signature`;
+
+  it("should attribute a case to the subject the forwarded token names", async () => {
+    const created = await (await post("/caseworker/cases", { dateReceived: "2026-03-10" }, { authorization: `Bearer ${token("admin@example.com")}` })).json();
+
+    expect(created.createdBy).toBe("admin@example.com");
+    expect(created.modifiedBy).toBe("admin@example.com");
+  });
+
+  it("should attribute a note to the token's subject too, not to the case's author", async () => {
+    const seeded = mock.seed({ createdBy: "Someone Else" });
+
+    const note = await (
+      await post(`/caseworker/cases/${seeded.id}/notes`, { note: "Chased" }, { authorization: `Bearer ${token("caseworker@example.com")}` })
+    ).json();
+
+    expect(note.createdBy).toBe("caseworker@example.com");
+  });
+
+  it("should fall back to a name that is obviously not IDAM's when no token was forwarded", async () => {
+    const created = await (await post("/caseworker/cases", { dateReceived: "2026-03-10" })).json();
+
+    expect(created.createdBy).toBe("Mock Caseworker");
+  });
+
+  it("should fall back rather than fail when the token is not a decodable JWT", async () => {
+    // A hand-rolled `curl` against the mock, which should still work.
+    const response = await post("/caseworker/cases", { dateReceived: "2026-03-10" }, { authorization: "Bearer opaque-token" });
+
+    expect(response.status).toBe(201);
+    expect((await response.json()).createdBy).toBe("Mock Caseworker");
+  });
 });
 
 describe("the reference number", () => {
@@ -259,10 +316,10 @@ describe("when the scenario says api is unavailable", () => {
   });
 });
 
-async function post(path: string, body?: unknown): Promise<Response> {
+async function post(path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Response> {
   return fetch(`${mock.url}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
 }

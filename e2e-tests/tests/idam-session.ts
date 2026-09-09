@@ -19,7 +19,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page } from "@playwright/test";
 
-const ADMIN_EMAIL = "admin@example.com";
+/**
+ * Exported because it is also the audit author a write is attributed to under the mock, which stamps the
+ * token's `sub` — see `auditName` in `libs/deed-poll-api-client/src/mock/server.ts`.
+ */
+export const ADMIN_EMAIL = "admin@example.com";
 
 /** Whatever `scripts/seed-idam-users.mjs` set. The simulator does not check it — see below. */
 const PASSWORD = "Pa55word11";

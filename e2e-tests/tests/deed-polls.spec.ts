@@ -11,7 +11,7 @@
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
-import { ADMIN_STORAGE_STATE, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsAdmin } from "./idam-session.js";
+import { ADMIN_EMAIL, ADMIN_STORAGE_STATE, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsAdmin } from "./idam-session.js";
 
 /** The reference number's year comes from Date Received, so a fixed date keeps the shape assertable. */
 const DATE_RECEIVED = { day: "10", month: "3", year: "2026" };
@@ -50,9 +50,14 @@ test("caseworker creates a case and edits one of its tabs", async ({ page, brows
   // No date beyond Date Received, so the derived state is the default. Both this and the author come
   // from the header rather than the Application tab — see caseHeader().
   await expect(caseHeader(page)).toContainText("Received");
-  // The IDAM name, not the service account. The new-case page hardcoded `userName: undefined` until
-  // Phase 5 made identity real, and nothing but a real login could have caught it.
-  await expect(caseHeader(page)).toContainText("An Admin");
+  // The signed-in caseworker, not the service account. The new-case page hardcoded `userName: undefined`
+  // until Phase 5 made identity real, and nothing but a real login could have caught it — the author is
+  // api's now, derived from the token the page forwards, so a page that stopped forwarding it fails here.
+  //
+  // The subject rather than "An Admin" because the mock has no IDAM to resolve the display name from: it
+  // stamps the token's `sub`, which `rse-idam-simulator` sets to the email. Against api this reads "An
+  // Admin". See `auditName` in the mock.
+  await expect(caseHeader(page)).toContainText(ADMIN_EMAIL);
   await expectNoAccessibilityViolations(page);
 
   await expectWelshKeysResolve(browser, caseUrl);

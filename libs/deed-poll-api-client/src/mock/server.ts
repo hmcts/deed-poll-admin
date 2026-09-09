@@ -15,18 +15,19 @@
  * `GET /health` is outside the contract too, so `yarn dev` and Playwright's `webServer` have something to
  * wait for — and so the readiness check task 5 adds has something to probe.
  *
- * **Four of api's rules are restated here, and only four.** A mock that applied none of them would let a
+ * **Five of api's rules are restated here, and only five.** A mock that applied none of them would let a
  * page ship having never seen a real reference number or a derived state:
  *
  *   1. Reference-number allocation — the year from Date Received, the prefix from Type, a per-year serial.
  *   2. State derivation from the populated dates.
  *   3. The two cross-field date refusals.
  *   4. The per-type field-rule matrix.
+ *   5. The audit author taken from the caller's token — see `auditName`.
  *
- * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`
- * and `ReferenceNumbers` — not this file. Everything else api does (the privacy lock, the minor and
- * Gazette write gates, create-time defaults, audit stamping from a token) is deliberately NOT modelled:
- * no page's behaviour depends on it, and a half-copy would be a second opinion to keep in step. If a page
+ * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
+ * `ReferenceNumbers` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
+ * privacy lock, the minor and Gazette write gates, create-time defaults) is deliberately NOT modelled: no
+ * page's behaviour depends on it, and a half-copy would be a second opinion to keep in step. If a page
  * ever does depend on one, model it here and say so in this list.
  */
 import { randomUUID } from "node:crypto";
@@ -79,6 +80,14 @@ const MIGRATED_RELAXED_FIELDS = [
   "nationalitySection"
 ] as const;
 
+/**
+ * A seeded case, with every field optional and its dates coerced from strings.
+ *
+ * The saved-case schema rather than a list of date fields kept here, so the one place that decides how an
+ * api date is read stays `wire.ts`.
+ */
+const SEEDABLE_CASE = WIRE_SCHEMAS.SavedCaseResponse.partial();
+
 /** The columns whose presence decides the state, and the audit columns a write stamps. */
 const CASE_DEFAULTS = {
   privacy: "Normal",
@@ -128,7 +137,20 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     // Seeding, so a test can start from a case in a given state without driving the create form. Outside
     // the contract deliberately: it skips the refusals a real create applies.
     if (method === "POST" && pathname === "/__mock/cases") {
-      const seeded = seed((await readJsonBody(req)) as Partial<MockCase> | null);
+      const body = await readJsonBody(req);
+      // `seed` holds a `MockCase`, whose dates are `Date` — which is what an in-process caller passes.
+      // Over HTTP they arrive as the ISO strings `JSON.parse` leaves behind, and a string reaching
+      // `isoDates` or `daysBetween` is a 500 that ALSO leaves the unusable record in the map, so every
+      // later read of the list fails for the rest of the process. Coerced through the saved-case schema so
+      // the formats accepted are the wire's, and merged back over the body so the children this route also
+      // seeds survive the parse that would otherwise strip them.
+      //
+      // The case's own fields, not its children's: a document's bytes are a `Buffer` and no JSON body can
+      // carry one, so a case WITH children is seeded in process through `mock.seed` instead.
+      const coerced = SEEDABLE_CASE.safeParse(body ?? {});
+      if (!coerced.success) return send(res, 400, fieldErrorsFrom(coerced.error.issues));
+
+      const seeded = seed(body === null ? null : { ...(body as Partial<MockCase>), ...(coerced.data as Partial<MockCase>) });
       return send(res, 201, toDetail(seeded));
     }
 
@@ -211,6 +233,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     serials.set(year, serial);
 
     const now = new Date();
+    const author = auditName(req);
     const record: MockCase = {
       ...CASE_DEFAULTS,
       ...patch,
@@ -223,8 +246,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       andAlsoMyOld: patch.andAlsoMyOld ?? [],
       createdOn: now,
       modifiedOn: now,
-      createdBy: options.userName ?? MOCK_USER_NAME,
-      modifiedBy: options.userName ?? MOCK_USER_NAME,
+      createdBy: author,
+      modifiedBy: author,
       notes: [],
       witnesses: [],
       documents: []
@@ -250,7 +273,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       // The prefix is recomputed from the new type; the year and serial are never re-allocated.
       displayReference: reprefix(record.displayReference, merged.type),
       modifiedOn: new Date(),
-      modifiedBy: options.userName ?? MOCK_USER_NAME
+      modifiedBy: auditName(req)
     });
 
     return send(res, 200, toSaved(record));
@@ -264,13 +287,14 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
         if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
 
         const now = new Date();
+        const author = auditName(req);
         const created: MockNote = {
           id: randomUUID(),
           note: parsed.data.note.trim(),
           createdOn: now,
           modifiedOn: now,
-          createdBy: options.userName ?? MOCK_USER_NAME,
-          modifiedBy: options.userName ?? MOCK_USER_NAME
+          createdBy: author,
+          modifiedBy: author
         };
         record.notes.push(created);
         return send(res, 201, toWireNote(created));
@@ -292,7 +316,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       // An empty patch re-stamps the author and nothing else, which is api's documented behaviour.
       if (parsed.data.note !== undefined) note.note = parsed.data.note.trim();
       note.modifiedOn = new Date();
-      note.modifiedBy = options.userName ?? MOCK_USER_NAME;
+      note.modifiedBy = auditName(req);
       return send(res, 200, toWireNote(note));
     }
 
@@ -400,8 +424,10 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       andAlsoMyOld: [],
       createdOn: now,
       modifiedOn: now,
-      createdBy: options.userName ?? MOCK_USER_NAME,
-      modifiedBy: options.userName ?? MOCK_USER_NAME,
+      // The fallback, not a caller's name: seeding is not a write by anyone, so there is no token to
+      // attribute it to. A test that needs a particular author sets `createdBy` in the body.
+      createdBy: MOCK_USER_NAME,
+      modifiedBy: MOCK_USER_NAME,
       notes: [],
       witnesses: [],
       documents: [],
@@ -465,8 +491,40 @@ export async function startMockApi(options: MockApiOptions & { port?: number } =
   };
 }
 
-/** Audit text for a mock write. Not a plausible IDAM name: a real one is the app's to supply. */
+/** Who a write is attributed to when the caller forwarded no token. Deliberately not a plausible name. */
 const MOCK_USER_NAME = "Mock Caseworker";
+
+/**
+ * Who a write is attributed to: the caller the forwarded token names.
+ *
+ * **Modelled because a page depends on it.** api derives the audit author from the caller's token and takes
+ * no author parameter, so nothing but the token reaching api makes `Created By` right — and the new-case
+ * page sent `userName: undefined` for a whole phase without anything noticing. Stamping a constant here
+ * would leave that undetectable again: the e2e create journey asserts this value for exactly that reason.
+ *
+ * **The `sub`, where api uses the display name.** api resolves the name from IDAM's `/o/userinfo`
+ * (`IdamUserInfoClient`) — an access token carries no name claim — and the mock has no IDAM to ask, so it
+ * stamps the subject the token already carries: an email, for `rse-idam-simulator`. A difference in the
+ * TEXT, not in where identity comes from, which is the part a page can get wrong.
+ *
+ * **Decoded, never verified.** Verification needs IDAM's JWKS, and a mock that refused a badly-signed
+ * token would be asserting something no page depends on. Anything undecodable is the fallback rather than
+ * an error, so a hand-rolled `curl` against the mock still works.
+ */
+function auditName(req: IncomingMessage): string {
+  const bearer = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? "");
+  const payload = bearer?.[1].split(".")[1];
+  if (payload === undefined) return MOCK_USER_NAME;
+
+  try {
+    const claims: unknown = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    const subject = (claims as { sub?: unknown } | null)?.sub;
+
+    return typeof subject === "string" && subject.length > 0 ? subject : MOCK_USER_NAME;
+  } catch {
+    return MOCK_USER_NAME;
+  }
+}
 
 const CASE_TYPES = ["Adult", "AdultTransgender", "Minor", "MinorTransgender", "DeedOfRelinquishment", "Unknown"];
 
@@ -716,8 +774,6 @@ function parseMultipart(body: Buffer, contentType: string): ParsedUpload | null 
 
 export interface MockApiOptions {
   scenario?: MockScenario;
-  /** Audit name recorded on a write. api derives this from the caller's token; the mock has none. */
-  userName?: string;
 }
 
 export interface MockApi {

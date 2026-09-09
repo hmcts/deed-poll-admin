@@ -1701,8 +1701,12 @@ the two the plan named:
 
 Two assertions are worth keeping for what they prove rather than what they check:
 
-- **`Created By` is "An Admin", the IDAM name.** The new-case page hardcoded `userName: undefined`
-  until Phase 5, and nothing but a real login could have caught it. Now a test would.
+- **`Created By` is the signed-in caseworker, not the service account.** The new-case page hardcoded
+  `userName: undefined` until Phase 5, and nothing but a real login could have caught it. Now a test
+  would. The author is api's since the DAL cutover — derived from the token the page forwards, never
+  sent as a parameter — so the assertion also proves the token travels. Against the mock it reads the
+  token's `sub`, an email, because the mock has no IDAM to resolve "An Admin" from; against api it
+  reads the IDAM display name.
 - **The state after saving both signature dates is Awaiting *Enrolment*, not Awaiting Signature.** The
   cascade tests received before requested — the source workflow's ordering, preserved deliberately —
   so this pins the precedence where a caseworker would actually see it. It also proves the save reached
