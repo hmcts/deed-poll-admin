@@ -38,6 +38,9 @@
       ],
       "@hmcts/deed-poll": [
         "./libs/deed-poll/src"
+      ],
+      "@hmcts/deed-poll-api-client": [
+        "./libs/deed-poll-api-client/src"
       ]
     },
     "esModuleInterop": true,

@@ -912,6 +912,15 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@hmcts/deed-poll-api-client@workspace:libs/deed-poll-api-client":
+  version: 0.0.0-use.local
+  resolution: "@hmcts/deed-poll-api-client@workspace:libs/deed-poll-api-client"
+  dependencies:
+    typescript: "npm:6.0.3"
+    zod: "npm:4.4.3"
+  languageName: unknown
+  linkType: soft
+
 "@hmcts/deed-poll@workspace:*, @hmcts/deed-poll@workspace:libs/deed-poll":
   version: 0.0.0-use.local
   resolution: "@hmcts/deed-poll@workspace:libs/deed-poll"

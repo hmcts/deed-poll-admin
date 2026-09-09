@@ -33,8 +33,9 @@ submit branching on `action`. Steve's call, 2026-09-07: **add it to api.**
 published spec. Note that api's `CLAUDE.md` states "12 operations, no thirteenth" as an invariant and there
 is a test asserting the route count — both have to move to 13 deliberately, not be worked around.
 
-**This plan cannot complete until that has merged.** Everything up to and including task 4 can proceed
-without it.
+**Merged, 2026-09-08** — api commit `847933a`, "Expose the note delete as the thirteenth caseworker
+operation (#4)". The route count invariant moved to 13 deliberately, as this section asked. Nothing in this
+plan is blocked on another repo any more, and task 6 can be done whenever its turn comes.
 
 ### Source material — read these, do not re-derive them
 
@@ -81,12 +82,25 @@ without it.
 
 ### Task 1: Generate the api client and its mock
 
-- [ ] Create `libs/deed-poll-api-client/`, mirroring `../deed-poll-web/libs/deed-poll-api-client/`'s layout: the spec, a `src/api/client.ts` adapter, a `src/api/wire.ts` for the wire shape, and `src/mock/`
-- [ ] Take the spec from api's published document rather than writing one. Record which api commit it was taken from, so a later divergence is dateable
-- [ ] The adapter returns `ApiResult<T>` and never throws. Model the union on web's
-- [ ] Do not export `wire` or `mock` from the package index
-- [ ] Add an in-memory mock implementing every operation this app uses, and a script to run it, as web has `yarn mock:api`
-- [ ] Mark completed
+- [x] Create `libs/deed-poll-api-client/`, mirroring `../deed-poll-web/libs/deed-poll-api-client/`'s layout: the spec, a `src/api/client.ts` adapter, a `src/api/wire.ts` for the wire shape, and `src/mock/`
+- [x] Take the spec from api's published document rather than writing one. Record which api commit it was taken from, so a later divergence is dateable — `openapi.json`, from api `847933a`, recorded in `SPEC-PROVENANCE.md`
+- [x] The adapter returns `ApiResult<T>` and never throws. Model the union on web's — plus `unauthorized` and `forbidden`, which web has no use for and this app's `errors.ts` already maps
+- [x] Do not export `wire` or `mock` from the package index
+- [x] Add an in-memory mock implementing every operation this app uses, and a script to run it, as web has `yarn mock:api`
+- [x] Mark completed
+
+Two things worth knowing before task 2 uses this:
+
+- **The wire keys are camelCase**, unlike web's client. api is Spring with Jackson's defaults, so nothing is
+  renamed at the boundary and the adapter's domain types are aliases of the wire types rather than
+  restatements. What IS converted is two value types, both documented at the code that does it: date-times
+  become `Date` (pinned to UTC — api's `LocalDateTime` is zoneless and `new Date()` would read it as local,
+  shifting every date-only column by a timezone), and `refundAmount` stays a `number` where Prisma gave a
+  `Decimal`.
+- **`STRICT_RESPONSE_PROPERTIES` is a decision, not a derivation.** springdoc publishes no nullability for a
+  response, so which properties reject null had to be chosen; `contract.test.ts` pins the list so it cannot
+  drift into rejecting an ordinary half-logged case. The note-delete endpoint the prerequisite asked for is
+  in the document, so **task 6 is unblocked** — the adapter already wires it.
 
 ### Task 2: Re-point the type-only imports
 
