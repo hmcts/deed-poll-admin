@@ -685,7 +685,7 @@ published in the spec   13
 adapter functions       14
 ```
 
-- The adapter's extra function is `checkApiReachable`, which the readiness probe uses against api's unauthenticated `/health` — not a caseworker operation.
+- The adapter's extra function is `checkApiReachable`, which the readiness probe uses against api's unauthenticated `/health/liveness` — not a caseworker operation. The path is the liveness group and not the ungrouped `/health` on purpose: see the docblock at the function.
 - `src/api/contract.test.ts` is what proves the two lines correspond; this table only counts them.
 
 ### Phase 4 — SSR pages
@@ -702,19 +702,19 @@ adapter functions       14
 @hmcts-cft/express-session-redis          7 passed
 @hmcts-cft/simple-router                 41 passed
 @hmcts/crons                             10 passed
-@hmcts/deed-poll                        442 passed
-@hmcts/deed-poll-api-client             128 passed
-@hmcts/web                              311 passed
+@hmcts/deed-poll                        443 passed
+@hmcts/deed-poll-api-client             136 passed
+@hmcts/web                              323 passed
 ─────────────────────────────────────────────────────
-total                                  1229 passed
+total                                  1250 passed
 ```
 
 ### Branch
 
 ```
 dal-cutover-to-api
-8 commits ahead of master
-HEAD  6f4e54a  feat: charts, config and the record — no database credential anywhere
+15 commits ahead of master
+HEAD  b01cc3a  fix: address code review findings
 ```
 
 <!-- END GENERATED DASHBOARD -->

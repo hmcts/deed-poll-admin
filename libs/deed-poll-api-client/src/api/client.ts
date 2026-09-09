@@ -261,8 +261,12 @@ function bounded(body: ReadableStream<Uint8Array>, timeoutMs: number): ReadableS
       let stalled = false;
       const timer = setTimeout(() => {
         stalled = true;
-        // Releases the socket rather than leaving it waiting on bytes nobody is going to read.
-        void reader.cancel(new DOMException("timeout", "TimeoutError"));
+        // Releases the socket rather than leaving it waiting on bytes nobody is going to read. The
+        // rejection is swallowed rather than left floating: `cancel` rejects when the stream is already
+        // errored — api's connection dropping in the same tick as this timer — and an unhandled rejection
+        // is a fatal uncaught exception in Node, so the pod would exit over one failed download. The
+        // reason for cancelling is recorded in `stalled`, so a failed cancel needs nothing beyond this.
+        reader.cancel(new DOMException("timeout", "TimeoutError")).catch(() => {});
       }, timeoutMs);
 
       try {
@@ -417,7 +421,14 @@ async function failureFromResponse(response: Response): Promise<ApiError> {
   const message = parsed.success ? parsed.data.error : `deed-poll-api answered ${response.status}`;
   const fieldErrors = parsed.success ? (parsed.data.errors ?? []) : [];
 
-  if (response.status === 400 || response.status === 422) return { kind: "validation", status: response.status, message, fieldErrors };
+  // 413 and 415 sit with 400: a file api judges too large or of a type it will not take is the
+  // caseworker's input, not a fault. Left as `unknown` they became a plain `Error` and the 500 page,
+  // which is the trap `upload-policy.ts` documents — telling someone the service has broken when in
+  // fact their file was refused. `upload-policy.ts` rejects both locally first, but its size limit is
+  // this repo's guess and api's is api's, so the window between the two is reachable.
+  if (response.status === 400 || response.status === 413 || response.status === 415 || response.status === 422) {
+    return { kind: "validation", status: response.status, message, fieldErrors };
+  }
   if (response.status === 401) return { kind: "unauthorized", status: response.status, message };
   if (response.status === 403) return { kind: "forbidden", status: response.status, message };
   if (response.status === 404) return { kind: "not-found", status: response.status, message };

@@ -379,7 +379,7 @@ function renderApi(api) {
     `${"adapter functions".padEnd(24)}${api.adapterFunctions}`,
     "```",
     "",
-    "- The adapter's extra function is `checkApiReachable`, which the readiness probe uses against api's unauthenticated `/health` — not a caseworker operation.",
+    "- The adapter's extra function is `checkApiReachable`, which the readiness probe uses against api's unauthenticated `/health/liveness` — not a caseworker operation. The path is the liveness group and not the ungrouped `/health` on purpose: see the docblock at the function.",
     "- `src/api/contract.test.ts` is what proves the two lines correspond; this table only counts them.",
     ""
   ];

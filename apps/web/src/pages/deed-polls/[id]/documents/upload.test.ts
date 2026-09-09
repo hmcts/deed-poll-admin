@@ -68,6 +68,17 @@ describe("document upload page", () => {
       expect(res.render.mock.calls[0][1].documentTypes).toContainEqual({ value: TYPE_ID, text: "Birth certificate" });
     });
 
+    it("labels a type api published without a name with its id, so the option is never blank", async () => {
+      // `name` is nullable on the wire. An option with no text is selectable, invisible on the page and
+      // unreadable to a screen reader, so the id stands in — the same treatment documents-view.ts gives it.
+      vi.mocked(findDocumentTypes).mockResolvedValue([{ id: "type-nameless", name: null }] as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].documentTypes).toContainEqual({ value: "type-nameless", text: "type-nameless" });
+    });
+
     it("offers an empty first option so no type is preselected", async () => {
       const res = response();
 
@@ -144,7 +155,7 @@ describe("document upload page", () => {
     });
 
     it("shows the domain's own message, against the file field, when no file was sent", async () => {
-      vi.mocked(uploadDocument).mockRejectedValue(new InvalidInputError("Select a file to upload"));
+      vi.mocked(uploadDocument).mockRejectedValue(new InvalidInputError("Select a file to upload", [{ field: "file", message: "Select a file to upload" }]));
       const res = response();
 
       await handler(request({ documentTypeId: TYPE_ID }), res);
@@ -152,6 +163,21 @@ describe("document upload page", () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.render.mock.calls[0][1].errorMessage).toBe("Select a file to upload");
       expect(res.render.mock.calls[0][1].errorField).toBe("file");
+    });
+
+    it("shows this page's own copy, not api's wording, when api refuses the file without naming a field", async () => {
+      // How a 413 arrives: api's size limit is below this app's, and `failureFromResponse` classifies it
+      // as validation so it lands here rather than on the 500 page. The message is developer-facing —
+      // "deed-poll-api answered 413" when the body is not api's JSON — so it must not be rendered.
+      vi.mocked(uploadDocument).mockRejectedValue(new InvalidInputError("deed-poll-api answered 413"));
+      const res = response();
+
+      await handler(request({ documentTypeId: TYPE_ID }, aFile), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errorField).toBe("file");
+      expect(res.render.mock.calls[0][1].errorMessage).not.toContain("deed-poll-api");
+      expect(res.render.mock.calls[0][1].errorMessage).toContain("could not be uploaded");
     });
 
     it("shows an unknown document type against the type field rather than 404ing the page", async () => {

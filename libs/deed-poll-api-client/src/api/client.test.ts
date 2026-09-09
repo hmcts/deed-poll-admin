@@ -550,6 +550,9 @@ describe("when api answers a status the contract does not describe", () => {
       [401, "unauthorized"],
       [403, "forbidden"],
       [409, "conflict"],
+      // A refused upload is the caseworker's input, so it must reach a form rather than the 500 page.
+      [413, "validation"],
+      [415, "validation"],
       [418, "unknown"]
     ] as const) {
       const answering = await listen(

@@ -26,6 +26,7 @@ import {
 } from "@hmcts/deed-poll-api-client";
 import { type Caller, callApi } from "../api/deed-poll-api.js";
 import { InvalidInputError, NotFoundError } from "../errors.js";
+import { UPLOAD_FILE_FIELD } from "./upload-policy.js";
 
 /** Documents for a case. A missing case is api's 404, so this never answers `[]` for one. */
 export async function findDocuments(deedPollId: string, caller: Caller): Promise<Document[]> {
@@ -62,7 +63,10 @@ export async function uploadDocument(
   opts: { name?: string; direction?: DocumentDirection },
   caller: Caller
 ): Promise<Document> {
-  if (!file) throw new InvalidInputError("Select a file to upload");
+  // Attributed to the file input, the way `uploadTypeRejection` and `uploadLimitRejection` are: a
+  // rejection that names its field is one a form can render against the control, and it leaves "no field
+  // named" meaning "this came from api", which is what lets a page tell its own copy from api's.
+  if (!file) throw new InvalidInputError("Select a file to upload", [{ field: UPLOAD_FILE_FIELD, message: "Select a file to upload" }]);
 
   return callApi(caller, (config) =>
     apiUploadDocument(

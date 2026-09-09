@@ -89,6 +89,14 @@ describe("documents/service", () => {
       expect(apiUploadDocument).not.toHaveBeenCalled();
     });
 
+    it("should attribute the missing file to the file input, so a form renders it against the control", async () => {
+      // It also leaves "no field named" meaning "this rejection is api's", which is what lets the upload
+      // page render its own copy for api's field-less refusals instead of api's developer-facing wording.
+      const error = await uploadDocument("case-1", "type-1", undefined, {}, CALLER).catch((thrown) => thrown);
+
+      expect((error as InvalidInputError).errors).toEqual([{ field: "file", message: "Select a file to upload" }]);
+    });
+
     it("should surface api's field errors as an InvalidInputError the upload form can render", async () => {
       vi.mocked(apiUploadDocument).mockResolvedValue({
         ok: false,
