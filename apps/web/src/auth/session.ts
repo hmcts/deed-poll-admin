@@ -29,7 +29,7 @@ interface DeedPollSession {
   idToken?: string;
   /** Refresh token from IDAM, used to extend the session without re-authentication. */
   refreshToken?: string;
-  /** Access token from IDAM, currently unused but kept for future API calls. */
+  /** Access token from IDAM, presented to `deed-poll-api` as the caller's bearer credential. */
   accessToken?: string;
   /** Unix timestamp (seconds) when the access token expires. */
   tokenExpiresAt?: number;
@@ -181,6 +181,17 @@ export function signIn(req: Request, user: CurrentUser, subject: string, tokens:
       req.session.save((saveError) => (saveError ? reject(saveError) : resolve()));
     });
   });
+}
+
+/**
+ * The access token, for calling `deed-poll-api` as the signed-in caseworker.
+ *
+ * api authenticates every caseworker route and derives both the audit author and the admin status from
+ * this token, so it is what identity now travels on — not the `CurrentUser` above, which stays what
+ * this app's own pages read for their own decisions.
+ */
+export function sessionAccessToken(req: Request): string | undefined {
+  return namespace(req)?.accessToken;
 }
 
 /** The id token, for ending the IDAM session at logout. */

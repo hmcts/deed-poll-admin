@@ -54,7 +54,7 @@ describe("createDeedPollSchema", () => {
   it("strips unknown keys, as the whitelisting validation pipe did", () => {
     const result = createDeedPollSchema.parse({ newForename: "Ada", displayReference: "KBDP2026-00001" });
 
-    // displayReference is allocated by reference-number.ts and must not be settable by a caller.
+    // displayReference is allocated by api and must not be settable by a caller.
     expect(result).toEqual({ newForename: "Ada" });
   });
 });

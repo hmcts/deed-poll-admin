@@ -6,13 +6,13 @@
  * `field-rules` in the API, and pinned by a wiring test for the same reason.
  *
  * The form asks for four things, not the whole case: a case is logged incrementally, and the rest
- * is filled in through the edit tabs. `dateReceived` is the one that cannot be deferred, because
- * `allocateForCreate` derives the reference number's year from it — a create without it is a 400,
- * which is why the field is on this form at all rather than left to the Application tab.
+ * is filled in through the edit tabs. `dateReceived` is the one that cannot be deferred, because api
+ * derives the reference number's year from it — a create without it comes back as a 400 attributed to
+ * that field, which is why the field is on this form at all rather than left to the Application tab.
  */
 import { composeDateParts, createDeedPoll, createDeedPollSchema, DEED_POLL_TYPE_LABEL, InvalidInputError } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { userFromRequest } from "../../auth/current-user.js";
+import { callerFromRequest } from "../../auth/current-user.js";
 
 const en = {
   title: "New deed poll case",
@@ -59,16 +59,14 @@ export const POST = async (req: Request, res: Response) => {
   }
 
   try {
-    // Read from the request, not hardcoded. This page carried `{ isAdmin: false, userName: undefined }`
-    // until Phase 5 made identity real, which meant two things: every case created through the form
-    // was attributed to the service account, and an admin creating a Private case silently got Normal,
-    // because `defaultPrivacy` is told nobody is an admin.
-    const { isAdmin, name } = userFromRequest(req);
-    const created = await createDeedPoll(parsed.data, { isAdmin, userName: name });
+    // The caller's own token, not this app's. api attributes the case and decides the create-time
+    // privacy default from it, so a page that sent a service credential would create every case as the
+    // service account — which is what this page did until Phase 5 made identity real.
+    const created = await createDeedPoll(parsed.data, callerFromRequest(req));
     return res.redirect(`/deed-polls/${created.id}`);
   } catch (error) {
     // A missing or unusable Date Received surfaces here rather than from the schema, because the
-    // schema accepts a case with no dates at all — it is the reference-number allocation that
+    // schema accepts a case with no dates at all — it is api's reference-number allocation that
     // cannot proceed. Re-rendered with the error rather than 500ing at a browser.
     if (error instanceof InvalidInputError) {
       return rerender(

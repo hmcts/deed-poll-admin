@@ -6,6 +6,7 @@
 // The prototype expressed these as Nest @Injectable() classes. They held no state, so
 // per this repo's conventions they are plain exported functions here.
 
+export * from "./api/deed-poll-api.js";
 export * from "./auth/current-user.js";
 export * from "./auth/idam-claims.js";
 export * from "./auth/plain-http.js";
@@ -13,7 +14,6 @@ export * from "./auth/roles.js";
 export * from "./deed-poll/card-layout.js";
 export * from "./deed-poll/case-header.js";
 export * from "./deed-poll/case-state.js";
-export * from "./deed-poll/computed.js";
 export * from "./deed-poll/date-parts.js";
 export * from "./deed-poll/deed-poll-validation.js";
 export * from "./deed-poll/detail-view.js";
@@ -26,7 +26,6 @@ export * from "./deed-poll/form-presentation.js";
 export * from "./deed-poll/form-validation.js";
 export * from "./deed-poll/list-filters.js";
 export * from "./deed-poll/list-view.js";
-export * from "./deed-poll/reference-number.js";
 export * from "./deed-poll/schemas.js";
 export * from "./deed-poll/service.js";
 export * from "./documents/document-types.js";

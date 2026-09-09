@@ -1,15 +1,18 @@
-import { DEEDPOLL_ADMIN, findDeedPoll, NotFoundError, removeDeedPoll, SERVICE_ACCOUNT_NAME, updateDeedPoll } from "@hmcts/deed-poll";
+import { findDeedPoll, NotFoundError, updateDeedPoll } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
-import { requestDouble, responseDouble, routeHandler } from "../../express-doubles.js";
-import { DELETE, GET, PATCH } from "./[id].js";
+import { requestDouble, responseDouble } from "../../express-doubles.js";
+import { GET, PATCH } from "./[id].js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
   findDeedPoll: vi.fn(),
-  updateDeedPoll: vi.fn(),
-  removeDeedPoll: vi.fn()
+  updateDeedPoll: vi.fn()
 }));
+
+/** The caller's bearer token, which is the whole of what these handlers pass on. */
+const bearer = { headers: { authorization: "Bearer caseworker-token" } };
+const CALLER = { accessToken: "caseworker-token" };
 
 describe("/deed-polls/:id routes", () => {
   beforeEach(() => {
@@ -22,9 +25,9 @@ describe("/deed-polls/:id routes", () => {
       vi.mocked(findDeedPoll).mockResolvedValue(found as never);
       const res = responseDouble();
 
-      await GET(requestDouble({ params: { id: "case-1" } }), res);
+      await GET(requestDouble({ params: { id: "case-1" }, ...bearer }), res);
 
-      expect(findDeedPoll).toHaveBeenCalledWith("case-1");
+      expect(findDeedPoll).toHaveBeenCalledWith("case-1", CALLER);
       expect(res.json).toHaveBeenCalledWith(found);
     });
 
@@ -44,24 +47,34 @@ describe("/deed-polls/:id routes", () => {
       vi.mocked(updateDeedPoll).mockResolvedValue(updated as never);
       const res = responseDouble();
 
-      await PATCH(requestDouble({ params: { id: "case-1" }, body: { newForename: "Ada" } }), res);
+      await PATCH(requestDouble({ params: { id: "case-1" }, body: { newForename: "Ada" }, ...bearer }), res);
 
-      expect(updateDeedPoll).toHaveBeenCalledWith("case-1", { newForename: "Ada" }, { isAdmin: false, userName: SERVICE_ACCOUNT_NAME });
+      expect(updateDeedPoll).toHaveBeenCalledWith("case-1", { newForename: "Ada" }, CALLER);
       expect(res.json).toHaveBeenCalledWith(updated);
     });
 
-    it("should pass isAdmin true for an admin caller, since privacy is admin-only on an existing record", async () => {
+    it("should forward the caller's token rather than its own opinion of their privileges", async () => {
+      // Privacy is admin-only on an existing record, and it is `deed-poll-api` that decides whether
+      // this caller may set it — from the token, not from an `isAdmin` flag this app could assert.
       vi.mocked(updateDeedPoll).mockResolvedValue({ id: "case-1" } as never);
 
-      await PATCH(requestDouble({ params: { id: "case-1" }, body: { privacy: "Private" }, roles: DEEDPOLL_ADMIN }), responseDouble());
+      await PATCH(requestDouble({ params: { id: "case-1" }, body: { privacy: "Private" }, ...bearer }), responseDouble());
 
-      expect(updateDeedPoll).toHaveBeenCalledWith("case-1", { privacy: "Private" }, { isAdmin: true, userName: SERVICE_ACCOUNT_NAME });
+      expect(updateDeedPoll).toHaveBeenCalledWith("case-1", { privacy: "Private" }, CALLER);
+    });
+
+    it("should pass no token for a request that arrived without one, so api answers 401", async () => {
+      vi.mocked(updateDeedPoll).mockResolvedValue({ id: "case-1" } as never);
+
+      await PATCH(requestDouble({ params: { id: "case-1" }, body: {} }), responseDouble());
+
+      expect(updateDeedPoll).toHaveBeenCalledWith("case-1", {}, { accessToken: undefined });
     });
 
     it("should forward a nullable field's null, so a patch can clear a value", async () => {
       vi.mocked(updateDeedPoll).mockResolvedValue({ id: "case-1" } as never);
 
-      await PATCH(requestDouble({ params: { id: "case-1" }, body: { dateReceived: null } }), responseDouble());
+      await PATCH(requestDouble({ params: { id: "case-1" }, body: { dateReceived: null }, ...bearer }), responseDouble());
 
       expect(updateDeedPoll).toHaveBeenCalledWith("case-1", { dateReceived: null }, expect.anything());
     });
@@ -75,32 +88,9 @@ describe("/deed-polls/:id routes", () => {
     it("should accept an empty patch, matching the partial schema", async () => {
       vi.mocked(updateDeedPoll).mockResolvedValue({ id: "case-1" } as never);
 
-      await PATCH(requestDouble({ params: { id: "case-1" }, body: {} }), responseDouble());
+      await PATCH(requestDouble({ params: { id: "case-1" }, body: {}, ...bearer }), responseDouble());
 
       expect(updateDeedPoll).toHaveBeenCalledWith("case-1", {}, expect.anything());
-    });
-  });
-
-  describe("DELETE /deed-polls/:id", () => {
-    it("should delete the case and respond 204 with no body", async () => {
-      vi.mocked(removeDeedPoll).mockResolvedValue(undefined);
-      const res = responseDouble();
-
-      await routeHandler(DELETE)(requestDouble({ params: { id: "case-1" } }), res);
-
-      expect(removeDeedPoll).toHaveBeenCalledWith("case-1");
-      expect(res.status).toHaveBeenCalledWith(204);
-      expect(res.send).toHaveBeenCalledWith();
-      expect(res.json).not.toHaveBeenCalled();
-    });
-
-    it("should let a NotFoundError propagate rather than reporting 204 for a case that never existed", async () => {
-      vi.mocked(removeDeedPoll).mockRejectedValue(new NotFoundError("DeedPoll missing not found"));
-      const res = responseDouble();
-
-      await expect(routeHandler(DELETE)(requestDouble({ params: { id: "missing" } }), res)).rejects.toThrow(NotFoundError);
-
-      expect(res.status).not.toHaveBeenCalled();
     });
   });
 });

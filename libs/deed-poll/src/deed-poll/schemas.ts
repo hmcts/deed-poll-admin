@@ -23,8 +23,8 @@ import {
  * guard, exactly as the DTO it replaces did.
  *
  * `referencenumber` and `displayReference` are intentionally absent — they are allocated by
- * `reference-number.ts`. `state` is accepted only for seeding/import; normally it is derived by
- * `case-state.ts` from the populated dates.
+ * `deed-poll-api`, which does not accept them on a write. `state` is accepted only for seeding and
+ * import; normally api derives it from the populated dates.
  */
 export const createDeedPollSchema = z.object({
   // --- General / classification ---

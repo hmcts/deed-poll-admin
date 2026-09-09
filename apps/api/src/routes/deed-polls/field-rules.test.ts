@@ -1,5 +1,4 @@
-import { getCaseFieldRules } from "@hmcts/deed-poll";
-import { DeedPollType } from "@hmcts/postgres-prisma";
+import { DeedPollType, getCaseFieldRules } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
 import { requestDouble, responseDouble } from "../../express-doubles.js";
@@ -13,24 +12,24 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
 describe("GET /deed-polls/field-rules", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getCaseFieldRules).mockReturnValue({} as never);
+    vi.mocked(getCaseFieldRules).mockResolvedValue({} as never);
   });
 
   it("should return the rules for the requested type", async () => {
     const rules = { visible: ["ageOfMinor"], required: ["ageOfMinor"] };
-    vi.mocked(getCaseFieldRules).mockReturnValue(rules as never);
+    vi.mocked(getCaseFieldRules).mockResolvedValue(rules as never);
     const res = responseDouble();
 
     await GET(requestDouble({ query: { type: DeedPollType.Minor } }), res);
 
-    expect(getCaseFieldRules).toHaveBeenCalledWith(DeedPollType.Minor);
+    expect(getCaseFieldRules).toHaveBeenCalledWith({ type: DeedPollType.Minor }, expect.anything());
     expect(res.json).toHaveBeenCalledWith(rules);
   });
 
   it("should pass null when no type is supplied, so the caller gets the typeless matrix", async () => {
     await GET(requestDouble({ query: {} }), responseDouble());
 
-    expect(getCaseFieldRules).toHaveBeenCalledWith(null);
+    expect(getCaseFieldRules).toHaveBeenCalledWith({ type: null }, expect.anything());
   });
 
   it("should reject an unrecognised type instead of silently answering with the typeless rules", async () => {
@@ -54,6 +53,6 @@ describe("GET /deed-polls/field-rules", () => {
   it("should ignore query parameters it does not model, so migrated cannot be forced over HTTP", async () => {
     await expect(GET(requestDouble({ query: { type: DeedPollType.Minor, migrated: "true" } }), responseDouble())).resolves.toBeUndefined();
 
-    expect(getCaseFieldRules).toHaveBeenCalledWith(DeedPollType.Minor);
+    expect(getCaseFieldRules).toHaveBeenCalledWith({ type: DeedPollType.Minor }, expect.anything());
   });
 });

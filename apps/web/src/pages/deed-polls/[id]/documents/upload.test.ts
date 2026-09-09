@@ -1,6 +1,7 @@
 import { findDeedPoll, findDocumentTypes, InvalidInputError, NotFoundError, uploadDocument } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { pageRequest } from "../../../../express-doubles.js";
 import { GET, POST } from "./upload.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -17,8 +18,13 @@ const types = [{ id: TYPE_ID, name: "Birth certificate", applicableMaritalStatus
 /** POST is exported as [parser, handler]; the parser needs a real request, so tests drive handler. */
 const handler = (POST as ((req: Request, res: Response) => Promise<void>)[])[1];
 
+/**
+ * Built through `pageRequest`, not by hand: the page reads the session for the token it calls api with,
+ * so a double without one throws before the handler does anything. `file` is what the multipart parser
+ * would have left behind, which no shared double models.
+ */
 function request(body: Record<string, unknown> = {}, file?: unknown): Request {
-  return { params: { id: "case-1" }, body, file } as unknown as Request;
+  return Object.assign(pageRequest({ params: { id: "case-1" }, body }), { file }) as unknown as Request;
 }
 
 function response() {

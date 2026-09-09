@@ -19,7 +19,7 @@
  */
 import { createNote, createNoteSchema, findDeedPoll, MAX_NOTE_LENGTH, zodErrorToFieldErrors } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { userFromRequest } from "../../../../auth/current-user.js";
+import { callerFromRequest, userFromRequest } from "../../../../auth/current-user.js";
 
 const en = {
   title: "Add a note",
@@ -36,7 +36,7 @@ const en = {
 const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
-  const found = await findDeedPoll(req.params.id);
+  const found = await findDeedPoll(req.params.id, callerFromRequest(req));
 
   res.render("deed-polls/note-form", { case: found, value: "", error: null, en, cy });
 };
@@ -47,7 +47,7 @@ export const POST = async (req: Request, res: Response) => {
   const parsed = createNoteSchema.safeParse({ note: (req.body as { note?: unknown }).note });
 
   if (!parsed.success) {
-    const found = await findDeedPoll(req.params.id);
+    const found = await findDeedPoll(req.params.id, callerFromRequest(req));
     const [first] = zodErrorToFieldErrors(parsed.error);
 
     return res.status(400).render("deed-polls/note-form", {

@@ -20,7 +20,7 @@ describe("POST /deed-polls/:id/validate", () => {
 
     await POST(requestDouble({ params: { id: "case-1" } }), res);
 
-    expect(validateCaseForSubmit).toHaveBeenCalledWith("case-1");
+    expect(validateCaseForSubmit).toHaveBeenCalledWith("case-1", expect.anything());
     expect(res.json).toHaveBeenCalledWith(record);
     expect(res.status).not.toHaveBeenCalled();
   });
@@ -43,8 +43,11 @@ describe("POST /deed-polls/:id/validate", () => {
   it("should ignore any request body, because the case being checked is the persisted one", async () => {
     vi.mocked(validateCaseForSubmit).mockResolvedValue({ id: "case-1" } as never);
 
-    await POST(requestDouble({ params: { id: "case-1" }, body: { newSurname: "Lovelace" } }), responseDouble());
+    await POST(
+      requestDouble({ params: { id: "case-1" }, body: { newSurname: "Lovelace" }, headers: { authorization: "Bearer caseworker-token" } }),
+      responseDouble()
+    );
 
-    expect(validateCaseForSubmit).toHaveBeenCalledWith("case-1");
+    expect(validateCaseForSubmit).toHaveBeenCalledWith("case-1", { accessToken: "caseworker-token" });
   });
 });

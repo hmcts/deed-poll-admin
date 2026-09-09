@@ -11,6 +11,7 @@
  */
 import { buildCaseList, CASE_LIST_COLUMNS, filterFor, filterTabs, findDeedPolls } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
+import { callerFromRequest } from "../../auth/current-user.js";
 
 const en = {
   title: "Deed poll cases",
@@ -29,8 +30,11 @@ const en = {
 const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
+  // Resolved locally as well as at api's end: the key is what api is sent, and the resolved filter is
+  // what the tab bar highlights. Both fall back to "all", so a bookmarked `?filter=nonsense` shows
+  // everything under a highlighted "All applications" rather than an unhighlighted tab bar.
   const filter = filterFor(req.query.filter);
-  const cases = await findDeedPolls(filter.where);
+  const cases = await findDeedPolls(filter.key, callerFromRequest(req));
 
   res.render("deed-polls/index", {
     cases: buildCaseList(cases),

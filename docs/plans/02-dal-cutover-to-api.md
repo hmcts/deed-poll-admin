@@ -134,11 +134,41 @@ a filter KEY.
 
 ### Task 3: Replace the case query layer
 
-- [ ] `deed-poll/service.ts` — every function becomes an adapter call: list, create, read, patch. `GET/POST /caseworker/cases`, `GET/PATCH /caseworker/cases/{id}`
-- [ ] `deed-poll/reference-number.ts` — **delete the allocation logic.** api owns reference numbers now; it allocates them from a sequential counter and returns one on create. This app must not generate them, and a second allocator against the same counter is a correctness bug, not a duplication
-- [ ] Field rules come from `GET /caseworker/cases/field-rules`, not from a local table
-- [ ] Keep the error mapping in `apps/web/src/errors.ts`. `NotFoundError` → 404 and `ForbiddenError` → 403 still apply; they now originate from an adapter result rather than a domain throw
-- [ ] Mark completed
+- [x] `deed-poll/service.ts` — every function becomes an adapter call: list, create, read, patch. `GET/POST /caseworker/cases`, `GET/PATCH /caseworker/cases/{id}`
+- [x] `deed-poll/reference-number.ts` — **delete the allocation logic.** api owns reference numbers now; it allocates them from a sequential counter and returns one on create. This app must not generate them, and a second allocator against the same counter is a correctness bug, not a duplication — the whole file went, nothing outside the service read it
+- [x] Field rules come from `GET /caseworker/cases/field-rules`, not from a local table
+- [x] Keep the error mapping in `apps/web/src/errors.ts`. `NotFoundError` → 404 and `ForbiddenError` → 403 still apply; they now originate from an adapter result rather than a domain throw
+- [x] Mark completed
+
+Five things the replacement settled, each recorded at the code that deals with it:
+
+- **The write context became a token.** Every function takes a `Caller` — `{ accessToken }` — in place of
+  `{ isAdmin, userName }`, because api authenticates each call and derives BOTH the audit author and the
+  admin status from the token. Sending either alongside it would let this app assert an identity api never
+  verified. `apps/web` reads it from the session (`callerFromRequest`); `apps/api` forwards the bearer
+  token it arrived with. `apiConfig()` stays private to `libs/deed-poll/src/api/deed-poll-api.ts`, so no
+  page sees a base URL.
+- **The adapter's `ApiResult` becomes a domain throw at the service, not at the page.** That is what the
+  fourth box above asks for: `not-found` → `NotFoundError`, `validation` → `InvalidInputError` with api's
+  field errors, and `unavailable`/`timeout`/`invalid-response` → a plain `Error` on the 500 page, which is
+  where a database outage went before. `unauthorized` maps to `UnauthorizedError`, which `errors.ts` does
+  **not** render — an expired token reaching a page is a 500. Left alone deliberately: `requireAuth` and
+  `refreshMiddleware` own re-authentication, and a redirect to `/login` from an error handler loops when
+  the session is valid and only api rejected the token.
+- **`computed.ts` went with the query.** api publishes `daysReceivedToEnroled` and
+  `daysReceivedToReturned` on every case it returns, so attaching them again on the read path was the same
+  second-opinion problem as a second reference-number allocator. `DeedPollWithComputed` and
+  `DeedPollWithChildren` are `SavedCase` and `CaseDetail` now.
+- **`removeDeedPoll` and `apps/api`'s `DELETE /deed-polls/:id` are gone.** api has no case delete — it is
+  in this plan's "out of scope" — so the alternative was a route that could only fail. Its admin-only
+  guard (Steve, 2026-09-03) goes with it; restoring the operation is a change in api first. `validate` has
+  no endpoint either but `validateCaseForSubmit` survives, because it is the local matrix applied to a
+  record api supplies, and it reads no database.
+- **The local field-rule matrix stays.** `deed-poll-validation.ts` still holds it and `edit-view.ts` still
+  reads it directly, because the plan keeps the validation and the view models as they are and the
+  conformance harness pins that matrix against the Dataverse exports. What changed is that
+  `getCaseFieldRules` — the function a page asks — is api's answer now. Both ends carrying the rules is
+  the arrangement `upload-policy.ts` already has, on purpose.
 
 ### Task 4: Replace the notes, witnesses and documents query layers
 

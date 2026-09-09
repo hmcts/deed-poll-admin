@@ -14,7 +14,7 @@
  */
 import { buildNoteDetail, createNoteSchema, findDeedPoll, findNote, MAX_NOTE_LENGTH, removeNote, updateNote, zodErrorToFieldErrors } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { userFromRequest } from "../../../../../auth/current-user.js";
+import { callerFromRequest, userFromRequest } from "../../../../../auth/current-user.js";
 
 const en = {
   titlePrefix: "Amend note",
@@ -34,7 +34,7 @@ const en = {
 const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
-  const [found, note] = await Promise.all([findDeedPoll(req.params.id), findNote(req.params.id, req.params.noteId)]);
+  const [found, note] = await Promise.all([findDeedPoll(req.params.id, callerFromRequest(req)), findNote(req.params.id, req.params.noteId)]);
 
   res.render("deed-polls/note-edit", { case: found, note: buildNoteDetail(note), value: note.note, error: null, en, cy });
 };
@@ -51,7 +51,7 @@ export const POST = async (req: Request, res: Response) => {
   const parsed = createNoteSchema.safeParse({ note: body.note });
 
   if (!parsed.success) {
-    const [found, note] = await Promise.all([findDeedPoll(req.params.id), findNote(req.params.id, req.params.noteId)]);
+    const [found, note] = await Promise.all([findDeedPoll(req.params.id, callerFromRequest(req)), findNote(req.params.id, req.params.noteId)]);
     const [first] = zodErrorToFieldErrors(parsed.error);
 
     return res.status(400).render("deed-polls/note-edit", {

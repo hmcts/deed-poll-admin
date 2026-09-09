@@ -19,8 +19,7 @@
  * than a fixture, so the file layout under test is the real one.
  */
 import { fileURLToPath } from "node:url";
-import { DEEDPOLL_ADMIN, findDeedPoll, findDeedPolls, getCaseFieldRules, NotFoundError } from "@hmcts/deed-poll";
-import { DeedPollType } from "@hmcts/postgres-prisma";
+import { DEEDPOLL_ADMIN, DeedPollType, findDeedPoll, findDeedPolls, getCaseFieldRules, NotFoundError } from "@hmcts/deed-poll";
 import { createSimpleRouter } from "@hmcts-cft/simple-router";
 import express, { type Express } from "express";
 import request from "supertest";
@@ -34,7 +33,6 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   findDeedPoll: vi.fn(),
   createDeedPoll: vi.fn(),
   updateDeedPoll: vi.fn(),
-  removeDeedPoll: vi.fn(),
   validateCaseForSubmit: vi.fn(),
   getCaseFieldRules: vi.fn(),
   findNotes: vi.fn(),
@@ -70,7 +68,7 @@ describe("deed-poll routes wired through simple-router", () => {
 
   it("should resolve /deed-polls/field-rules as the static route, not as an id", async () => {
     const rules = { visible: ["ageOfMinor"] };
-    vi.mocked(getCaseFieldRules).mockReturnValue(rules as never);
+    vi.mocked(getCaseFieldRules).mockResolvedValue(rules as never);
     vi.mocked(findDeedPoll).mockRejectedValue(new NotFoundError("DeedPoll field-rules not found"));
 
     const response = await request(await appWithDeedPollRoutes()).get("/deed-polls/field-rules");
@@ -86,7 +84,7 @@ describe("deed-poll routes wired through simple-router", () => {
     const response = await request(await appWithDeedPollRoutes()).get("/deed-polls/case-1");
 
     expect(response.status).toBe(200);
-    expect(findDeedPoll).toHaveBeenCalledWith("case-1");
+    expect(findDeedPoll).toHaveBeenCalledWith("case-1", expect.anything());
   });
 
   it("should mount the nested validate route under the id parameter", async () => {
@@ -96,7 +94,7 @@ describe("deed-poll routes wired through simple-router", () => {
     const response = await request(await appWithDeedPollRoutes()).post("/deed-polls/case-1/validate");
 
     expect(response.status).toBe(200);
-    expect(validateCaseForSubmit).toHaveBeenCalledWith("case-1");
+    expect(validateCaseForSubmit).toHaveBeenCalledWith("case-1", expect.anything());
   });
 
   it("should turn a rejected Zod parse into a 400 carrying per-field errors", async () => {
@@ -118,12 +116,12 @@ describe("deed-poll routes wired through simple-router", () => {
   });
 
   it("should answer 200 for a valid field-rules type through the query string", async () => {
-    vi.mocked(getCaseFieldRules).mockReturnValue({} as never);
+    vi.mocked(getCaseFieldRules).mockResolvedValue({} as never);
 
     const response = await request(await appWithDeedPollRoutes()).get(`/deed-polls/field-rules?type=${DeedPollType.Minor}`);
 
     expect(response.status).toBe(200);
-    expect(getCaseFieldRules).toHaveBeenCalledWith(DeedPollType.Minor);
+    expect(getCaseFieldRules).toHaveBeenCalledWith({ type: DeedPollType.Minor }, expect.anything());
   });
 
   it("should answer 404 with the domain's message when a case is missing", async () => {
@@ -135,14 +133,13 @@ describe("deed-poll routes wired through simple-router", () => {
     expect(response.body).toEqual({ error: "DeedPoll missing not found" });
   });
 
-  it("should answer 204 with an empty body on delete", async () => {
-    const { removeDeedPoll } = await import("@hmcts/deed-poll");
-    vi.mocked(removeDeedPoll).mockResolvedValue(undefined);
-
+  it("should answer 404 for a case delete, which api has no endpoint for and this app no longer routes", async () => {
+    // The route went with the data access layer in task 3 of docs/plans/02-dal-cutover-to-api.md, and
+    // this is what says so: a 404 here rather than a 204 is the whole of the behaviour change, and it
+    // would otherwise be provable only by the absence of a test.
     const response = await request(await appWithDeedPollRoutes()).delete("/deed-polls/case-1");
 
-    expect(response.status).toBe(204);
-    expect(response.text).toBe("");
+    expect(response.status).toBe(404);
   });
 
   it("should answer 201 on create and 200 on the collection, matching the prototype's status codes", async () => {
@@ -156,11 +153,12 @@ describe("deed-poll routes wired through simple-router", () => {
   });
 
   it("should answer 400, not 500, when a create cannot allocate a reference number", async () => {
-    // Regression guard. reference-number.ts threw a bare Error for an absent Date Received, which
-    // errorHandler cannot recognise, so the single most obvious request against this API — a
-    // create with no Date Received — answered "Internal server error". Asserted here rather than
-    // only in the domain because the defect was the pairing of the two, and only a real request
-    // shows which the caller actually sees.
+    // Regression guard, and it still holds now that the allocation is api's: the failure arrives as an
+    // InvalidInputError carrying the field either way. It used to be a bare Error from
+    // reference-number.ts, which errorHandler cannot recognise, so the single most obvious request
+    // against this API — a create with no Date Received — answered "Internal server error". Asserted
+    // here rather than only in the domain because the defect was the pairing of the two, and only a
+    // real request shows which the caller actually sees.
     const { createDeedPoll, InvalidInputError } = await import("@hmcts/deed-poll");
     vi.mocked(createDeedPoll).mockRejectedValue(
       new InvalidInputError("Cannot allocate a reference number without a Date Received to derive the year", [
@@ -176,19 +174,20 @@ describe("deed-poll routes wired through simple-router", () => {
     expect(response.body.errors).toEqual([{ field: "dateReceived", message: "Enter the date the application was received" }]);
   });
 
-  it("should pass the authenticated caller's admin flag and name through to the domain", async () => {
-    // Previously this set `x-user-roles` and proved the header scheme was wired. There is no header
-    // scheme now; identity comes from a bearer token, which cannot be minted here. So this pins the
-    // narrower thing it can: whoever `authenticate()` resolved reaches the domain unaltered. That the
-    // middleware resolves them correctly is `auth/authenticate.test.ts` and `auth/idam.test.ts`.
+  it("should forward the caller's bearer token to the domain, and nothing it made up itself", async () => {
+    // Previously this asserted the resolved caller's `isAdmin` and name reached the domain. Neither is
+    // sent any more: api derives both from the token, so what is worth pinning is that the token this
+    // request arrived with is what travels — a handler that dropped it would make every write a 401,
+    // and one that substituted a service credential would attribute every case to this app.
     const { createDeedPoll } = await import("@hmcts/deed-poll");
     vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
 
     await request(await appWithDeedPollRoutes())
       .post("/deed-polls")
+      .set("authorization", "Bearer caseworker-token")
       .send({});
 
-    expect(createDeedPoll).toHaveBeenCalledWith({}, { isAdmin: true, userName: "A Caseworker" });
+    expect(createDeedPoll).toHaveBeenCalledWith({}, { accessToken: "caseworker-token" });
   });
 });
 
@@ -317,7 +316,7 @@ describe("nested notes and witnesses wired through simple-router", () => {
 });
 
 /**
- * The three deletes are admin-only, and this is the only place that proves it.
+ * The two remaining deletes are admin-only, and this is the only place that proves it.
  *
  * They export an array — `[requireRoles(DEEDPOLL_ADMIN), handler]` — so a unit test can only reach the
  * handler, past the guard. Whether the guard is mounted at all, and whether `errorHandler` turns its
@@ -342,8 +341,9 @@ describe("deleting is restricted to the admin role", () => {
     return app;
   }
 
+  // The case delete is absent: api has no endpoint for it, so the route went rather than being left
+  // guarded. See the DELETE assertion in the first block.
   const deletes = [
-    { what: "a case", path: "/deed-polls/case-1", fn: "removeDeedPoll" },
     { what: "a note", path: "/deed-polls/case-1/notes/note-1", fn: "removeNote" },
     { what: "a witness", path: "/deed-polls/case-1/witnesses/witness-1", fn: "removeWitness" }
   ] as const;

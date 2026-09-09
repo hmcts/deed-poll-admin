@@ -1,17 +1,20 @@
-import { createDeedPoll, DEEDPOLL_ADMIN, findDeedPolls, SERVICE_ACCOUNT_NAME } from "@hmcts/deed-poll";
+import { createDeedPoll, findDeedPolls } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
 import { requestDouble, responseDouble } from "../../express-doubles.js";
 import { GET, POST } from "./index.js";
 
-// The schema is under test alongside the handler, so only the persistence-backed service
-// functions are replaced. createDeedPollSchema, the error classes and currentUser are all the
-// real implementations.
+// The schema is under test alongside the handler, so only the two api-backed service functions are
+// replaced. createDeedPollSchema, the error classes and currentUser are all the real implementations.
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
   findDeedPolls: vi.fn(),
   createDeedPoll: vi.fn()
 }));
+
+/** The caller's bearer token, which is the whole of what these handlers pass on. */
+const bearer = { headers: { authorization: "Bearer caseworker-token" } };
+const CALLER = { accessToken: "caseworker-token" };
 
 describe("/deed-polls collection routes", () => {
   beforeEach(() => {
@@ -29,12 +32,12 @@ describe("/deed-polls collection routes", () => {
       expect(res.json).toHaveBeenCalledWith(cases);
     });
 
-    it("should not pass a filter, so the domain's ordering is what the caller sees", async () => {
+    it("should not pass a filter, so api resolves its own default and the caller sees everything", async () => {
       vi.mocked(findDeedPolls).mockResolvedValue([] as never);
 
-      await GET(requestDouble(), responseDouble());
+      await GET(requestDouble(bearer), responseDouble());
 
-      expect(findDeedPolls).toHaveBeenCalledWith();
+      expect(findDeedPolls).toHaveBeenCalledWith(undefined, CALLER);
     });
   });
 
@@ -44,19 +47,21 @@ describe("/deed-polls collection routes", () => {
       vi.mocked(createDeedPoll).mockResolvedValue(created as never);
       const res = responseDouble();
 
-      await POST(requestDouble({ body: { newForename: "Ada" } }), res);
+      await POST(requestDouble({ body: { newForename: "Ada" }, ...bearer }), res);
 
-      expect(createDeedPoll).toHaveBeenCalledWith({ newForename: "Ada" }, { isAdmin: false, userName: SERVICE_ACCOUNT_NAME });
+      expect(createDeedPoll).toHaveBeenCalledWith({ newForename: "Ada" }, CALLER);
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith(created);
     });
 
-    it("should pass isAdmin true when the caller holds the admin role, since it drives the privacy default", async () => {
+    it("should forward the caller's token, which is what api reads their admin status from", async () => {
+      // The create-time privacy default depends on it, and api derives it from the token rather than
+      // being told — so there is nothing left here for an `isAdmin` flag to say.
       vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
 
-      await POST(requestDouble({ body: {}, roles: DEEDPOLL_ADMIN, userName: "A Caseworker" }), responseDouble());
+      await POST(requestDouble({ body: {}, ...bearer }), responseDouble());
 
-      expect(createDeedPoll).toHaveBeenCalledWith({}, { isAdmin: true, userName: "A Caseworker" });
+      expect(createDeedPoll).toHaveBeenCalledWith({}, CALLER);
     });
 
     it("should throw a ZodError for an invalid enum value rather than reaching the domain", async () => {

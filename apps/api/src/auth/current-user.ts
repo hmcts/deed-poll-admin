@@ -19,8 +19,9 @@
  * middlewares write to (Passport among them) and a silent overwrite of the authenticated caller is
  * exactly the collision worth not having.
  */
-import type { CurrentUser } from "@hmcts/deed-poll";
+import type { Caller, CurrentUser } from "@hmcts/deed-poll";
 import type { Request } from "express";
+import { bearerToken } from "./idam.js";
 
 const RESOLVED_USER = Symbol("deedPollCurrentUser");
 
@@ -37,6 +38,18 @@ export function userFromRequest(req: Request): CurrentUser {
   }
 
   return user;
+}
+
+/**
+ * The caller as `deed-poll-api` needs them: the bearer token this request arrived with, forwarded.
+ *
+ * Taken off the header rather than reconstructed, because it is the caller's own credential and api
+ * derives its own view of them from it. Forwarding is only defensible because both services trust the
+ * same IDAM issuer, and it is what keeps a case attributed to the caseworker who asked for it rather
+ * than to this app.
+ */
+export function callerFromRequest(req: Request): Caller {
+  return { accessToken: bearerToken(req.header("authorization")) };
 }
 
 type RequestWithUser = Request & { [RESOLVED_USER]?: CurrentUser };

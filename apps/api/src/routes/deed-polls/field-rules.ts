@@ -17,10 +17,10 @@
  * branch, answering 200 with the rules for no type at all. That is a wrong answer presented as
  * a right one.
  */
-import { getCaseFieldRules } from "@hmcts/deed-poll";
-import { DeedPollType } from "@hmcts/postgres-prisma";
+import { DeedPollType, getCaseFieldRules } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { z } from "zod";
+import { callerFromRequest } from "../../auth/current-user.js";
 
 const fieldRulesQuerySchema = z.object({
   type: z.enum(DeedPollType).optional()
@@ -32,5 +32,5 @@ export const GET = async (req: Request, res: Response) => {
     throw parsed.error;
   }
 
-  res.json(getCaseFieldRules(parsed.data.type ?? null));
+  res.json(await getCaseFieldRules({ type: parsed.data.type ?? null }, callerFromRequest(req)));
 };

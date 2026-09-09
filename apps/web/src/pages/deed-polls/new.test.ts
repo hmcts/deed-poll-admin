@@ -19,7 +19,7 @@ const validBody = {
 };
 
 function request(body: Record<string, string> = {}): Request {
-  return pageRequest({ body, name: "A Caseworker" });
+  return pageRequest({ body, name: "A Caseworker", accessToken: "caseworker-token" });
 }
 
 const response = pageResponse;
@@ -109,8 +109,18 @@ describe("new deed poll page", () => {
       expect(res.render.mock.calls[0][1].values["dateReceived-day"]).toBe("99");
     });
 
+    it("creates as the signed-in caseworker, so api attributes the case to them", async () => {
+      // Not `{ isAdmin, userName }` any more: api reads both off the token, and a page that sent its
+      // own opinion of them would be asserting an identity api never verified.
+      vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
+
+      await POST(request(validBody), response());
+
+      expect(createDeedPoll).toHaveBeenCalledWith(expect.anything(), { accessToken: "caseworker-token" });
+    });
+
     it("surfaces a missing Date Received as a form error, not a 500", async () => {
-      // The schema accepts a case with no dates; it is reference-number allocation that cannot
+      // The schema accepts a case with no dates; it is api's reference-number allocation that cannot
       // proceed, so the failure arrives from the domain rather than from safeParse.
       vi.mocked(createDeedPoll).mockRejectedValue(
         new InvalidInputError("Cannot allocate a reference number without a Date Received to derive the year", [

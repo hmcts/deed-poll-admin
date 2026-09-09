@@ -15,15 +15,15 @@
  *
  * No role middleware is mounted, matching the prototype: `RolesGuard` was registered globally
  * but no deed-poll handler carried `@Roles(...)`, so every one of these was open. The real
- * privilege check is inside `createDeedPoll`, which takes `isAdmin` and uses it to decide
- * whether the caller may set `privacy`.
+ * privilege check is `deed-poll-api`'s, which reads the caller's admin status off the forwarded
+ * token and uses it to decide whether they may set `privacy`.
  */
 import { createDeedPoll, createDeedPollSchema, findDeedPolls } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { userFromRequest } from "../../auth/current-user.js";
+import { callerFromRequest } from "../../auth/current-user.js";
 
-export const GET = async (_req: Request, res: Response) => {
-  res.json(await findDeedPolls());
+export const GET = async (req: Request, res: Response) => {
+  res.json(await findDeedPolls(undefined, callerFromRequest(req)));
 };
 
 export const POST = async (req: Request, res: Response) => {
@@ -32,11 +32,9 @@ export const POST = async (req: Request, res: Response) => {
     throw parsed.error;
   }
 
-  // Admin status drives the create-time privacy auto-default (ported from
-  // deedpoll_javascript's admin branch in FormPresentationService); the name is audit text
-  // only, recorded as createdBy/modifiedBy.
-  const { isAdmin, name } = userFromRequest(req);
-  const created = await createDeedPoll(parsed.data, { isAdmin, userName: name });
+  // The caller's own token is forwarded and nothing else: `deed-poll-api` decides the create-time
+  // privacy auto-default and the createdBy/modifiedBy audit text from it, rather than being told.
+  const created = await createDeedPoll(parsed.data, callerFromRequest(req));
 
   res.status(201).json(created);
 };

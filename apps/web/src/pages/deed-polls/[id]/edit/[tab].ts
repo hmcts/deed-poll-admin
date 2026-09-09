@@ -34,7 +34,7 @@ import {
   updateDeedPoll
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { userFromRequest } from "../../../../auth/current-user.js";
+import { callerFromRequest, userFromRequest } from "../../../../auth/current-user.js";
 
 const en = {
   titlePrefix: "Edit",
@@ -50,7 +50,7 @@ const en = {
 const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
-  const found = await findDeedPoll(req.params.id);
+  const found = await findDeedPoll(req.params.id, callerFromRequest(req));
   const { isAdmin } = userFromRequest(req);
 
   // Lenient on read: the tab id comes from a URL that may have been edited or bookmarked against an
@@ -59,7 +59,6 @@ export const GET = async (req: Request, res: Response) => {
 };
 
 export const POST = async (req: Request, res: Response) => {
-  const { isAdmin, name } = userFromRequest(req);
   const body = req.body as Record<string, unknown>;
 
   // **Strict on write, deliberately unlike GET.** `tabFor` falls back to the first tab, which is
@@ -79,7 +78,7 @@ export const POST = async (req: Request, res: Response) => {
   }
 
   try {
-    await updateDeedPoll(req.params.id, buildUpdatePatch(body, fields), { isAdmin, userName: name });
+    await updateDeedPoll(req.params.id, buildUpdatePatch(body, fields), callerFromRequest(req));
   } catch (error) {
     if (error instanceof InvalidInputError) {
       return rerenderWithErrors(req, res, tab, error.errors);
@@ -101,7 +100,7 @@ export const POST = async (req: Request, res: Response) => {
  * over the record for exactly that reason.
  */
 async function rerenderWithErrors(req: Request, res: Response, tab: TabDef, errors: FormError[]) {
-  const found = await findDeedPoll(req.params.id);
+  const found = await findDeedPoll(req.params.id, callerFromRequest(req));
   const { isAdmin } = userFromRequest(req);
 
   res.status(400);

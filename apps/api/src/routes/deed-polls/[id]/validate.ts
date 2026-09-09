@@ -14,7 +14,8 @@
  */
 import { validateCaseForSubmit } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
+import { callerFromRequest } from "../../../auth/current-user.js";
 
 export const POST = async (req: Request, res: Response) => {
-  res.json(await validateCaseForSubmit(req.params.id));
+  res.json(await validateCaseForSubmit(req.params.id, callerFromRequest(req)));
 };

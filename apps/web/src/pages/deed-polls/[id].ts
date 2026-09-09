@@ -21,7 +21,7 @@ import {
   getCaseFieldRules
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { userFromRequest } from "../../auth/current-user.js";
+import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
 
 const en = {
   title: "Case",
@@ -46,7 +46,8 @@ const en = {
 const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
-  const found = await findDeedPoll(req.params.id);
+  const caller = callerFromRequest(req);
+  const found = await findDeedPoll(req.params.id, caller);
   const { isAdmin } = userFromRequest(req);
 
   const presentation = buildPresentation(
@@ -54,7 +55,12 @@ export const GET = async (req: Request, res: Response) => {
     { isAdmin, isNew: false }
   );
 
-  const rules = getCaseFieldRules(found.type, found.migratedRecord === true, found.publishToLondonGazette !== false);
+  // A second call rather than a value carried on the case: the rules depend on the type, the migrated
+  // flag and the Gazette choice, and api answers that question rather than being asked for a case.
+  const rules = await getCaseFieldRules(
+    { type: found.type, migrated: found.migratedRecord === true, publishToGazette: found.publishToLondonGazette !== false },
+    caller
+  );
 
   res.render("deed-polls/detail", {
     // The page title is the reference, so it is passed rather than sitting in `en`: it is data.

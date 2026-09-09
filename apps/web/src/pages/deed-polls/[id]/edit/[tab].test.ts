@@ -31,7 +31,7 @@ const found = {
 };
 
 function request(tab: string, body: Record<string, unknown> = {}, admin = false): Request {
-  return pageRequest({ params: { id: "case-1", tab }, body, admin, name: "A Caseworker" });
+  return pageRequest({ params: { id: "case-1", tab }, body, admin, name: "A Caseworker", accessToken: "caseworker-token" });
 }
 
 const response = pageResponse;
@@ -146,10 +146,10 @@ describe("case edit tab page", () => {
       expect(Object.keys(patch).sort()).toEqual([...(refundFields ?? [])].sort());
     });
 
-    it("passes the caller's name and admin status to the domain", async () => {
+    it("passes the caller's own token, since api derives the author and the privacy entitlement from it", async () => {
       await POST(request(APPLICATION, bodyFor(APPLICATION), true), response());
 
-      expect(updateDeedPoll).toHaveBeenCalledWith("case-1", expect.anything(), { isAdmin: true, userName: expect.any(String) });
+      expect(updateDeedPoll).toHaveBeenCalledWith("case-1", expect.anything(), { accessToken: "caseworker-token" });
     });
 
     it("re-renders with a 400 when a date part is not a real date, before reaching the domain", async () => {

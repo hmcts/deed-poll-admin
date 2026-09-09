@@ -27,6 +27,7 @@ import {
   zodErrorToFieldErrors
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
+import { callerFromRequest } from "../../../../auth/current-user.js";
 import { uploadRejection, uploadSingleFile } from "../../../../documents/upload.js";
 
 const en = {
@@ -113,7 +114,7 @@ async function rerender(req: Request, res: Response, field: string, message: str
 }
 
 async function render(req: Request, res: Response, error: { field?: string; message?: string }) {
-  const [found, types] = await Promise.all([findDeedPoll(req.params.id), findDocumentTypes()]);
+  const [found, types] = await Promise.all([findDeedPoll(req.params.id, callerFromRequest(req)), findDocumentTypes()]);
 
   res.render("deed-polls/document-upload", {
     case: found,
