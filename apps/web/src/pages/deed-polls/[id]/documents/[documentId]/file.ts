@@ -19,6 +19,7 @@
  * member of the public's upload in this origin under the app's own `default-src 'self'`, which is
  * strictly worse than either honouring api's whole answer or overriding it to `attachment`.
  */
+import { pipeline } from "node:stream";
 import { downloadDocument } from "@hmcts/deed-poll";
 import type { NextFunction, Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
@@ -36,13 +37,33 @@ export const GET = async (req: Request, res: Response, next: NextFunction) => {
   const download = await downloadDocument(req.params.id, req.params.documentId, callerFromRequest(req));
 
   res.setHeader("Content-Type", download.contentType);
-  res.setHeader("Content-Disposition", download.contentDisposition ?? FALLBACK_DISPOSITION);
+  res.setHeader("Content-Disposition", containedDisposition(download.contentDisposition, download.contentSecurityPolicy));
   if (download.contentSecurityPolicy) res.setHeader("Content-Security-Policy", download.contentSecurityPolicy);
   if (download.contentTypeOptions) res.setHeader("X-Content-Type-Options", download.contentTypeOptions);
   // Documents are case data; a shared cache must not keep a copy.
   res.setHeader("Cache-Control", "no-store");
 
-  // Without this a mid-stream failure leaves the request hanging until it times out.
-  download.body.on("error", next);
-  download.body.pipe(res);
+  // `pipeline` rather than `pipe`: a caseworker cancelling a large scan closes the response, and `pipe`
+  // leaves api's body unread and uncancelled, so undici holds that connection out of its pool. It also
+  // forwards a mid-stream failure, without which the request hangs until it times out.
+  pipeline(download.body, res, (error) => {
+    if (error) next(error);
+  });
 };
+
+/**
+ * api's disposition, but never `inline` without the policy that makes an inline render safe.
+ *
+ * The two headers are one decision — see the note at the top of this file. api pairs them today, so this
+ * only bites if that stops being true: a proxy stripping response headers, or an api build that serves
+ * `inline` and no policy. Downgrading to a download is the containment that survives either, and the
+ * filename is kept because that part of api's answer was never the hazard.
+ */
+function containedDisposition(disposition: string | null, contentSecurityPolicy: string | null): string {
+  if (!disposition) return FALLBACK_DISPOSITION;
+
+  const [type, ...params] = disposition.split(";");
+  if (contentSecurityPolicy || type.trim().toLowerCase() === "attachment") return disposition;
+
+  return ["attachment", ...params].join(";");
+}

@@ -202,6 +202,18 @@ describe("case edit tab page", () => {
       expect(field.value).toBe("Typed");
     });
 
+    it("shows api's message when its rejection names no field, rather than an empty error summary", async () => {
+      // The template hides an empty summary, so a 400 with no field errors would re-render the tab looking
+      // as though nothing had happened.
+      vi.mocked(updateDeedPoll).mockRejectedValue(new InvalidInputError("deed-poll-api answered 400"));
+      const res = response();
+
+      await POST(request(APPLICATION, bodyFor(APPLICATION)), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "deed-poll-api answered 400", href: undefined }]);
+    });
+
     it("rethrows anything that is not a validation failure, so a real fault is not hidden", async () => {
       vi.mocked(updateDeedPoll).mockRejectedValue(new Error("connect ECONNREFUSED"));
 

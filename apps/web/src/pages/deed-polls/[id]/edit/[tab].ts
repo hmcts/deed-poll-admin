@@ -81,7 +81,11 @@ export const POST = async (req: Request, res: Response) => {
     await updateDeedPoll(req.params.id, buildUpdatePatch(body, fields), callerFromRequest(req));
   } catch (error) {
     if (error instanceof InvalidInputError) {
-      return rerenderWithErrors(req, res, tab, error.errors);
+      // A rejection that names no field still has to say something: `buildErrorSummary([])` is empty and
+      // the template hides an empty summary, so the caseworker would get their tab back with no
+      // indication the save failed. The field is deliberately blank — no input is implicated, and
+      // `buildErrorSummary` then renders the message without a link.
+      return rerenderWithErrors(req, res, tab, error.errors.length > 0 ? error.errors : [{ field: "", message: error.message }]);
     }
     // Not a validation failure, so let it surface honestly rather than as an empty error summary
     // over a real fault.

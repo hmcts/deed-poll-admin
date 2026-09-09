@@ -69,11 +69,12 @@ export const POST = async (req: Request, res: Response) => {
     // schema accepts a case with no dates at all — it is api's reference-number allocation that
     // cannot proceed. Re-rendered with the error rather than 500ing at a browser.
     if (error instanceof InvalidInputError) {
-      return rerender(
-        req,
-        res,
-        error.errors.map((fieldError) => ({ text: fieldError.message, href: `#${fieldError.field}` }))
-      );
+      // A rejection that names no field still has to say something. `fieldErrors` is legitimately empty
+      // when api answers 400 without an `errors` array, or when the failure body was not api's at all —
+      // a proxy's HTML — and the template hides an empty summary, so the caseworker would get their form
+      // back with no indication anything failed. The message stands in for the missing field errors, with
+      // no `href` because there is no input to link to.
+      return rerender(req, res, summaryFor(error));
     }
     throw error;
   }
@@ -86,6 +87,12 @@ export const POST = async (req: Request, res: Response) => {
  * these errors are per-field so they need to render against their inputs — which a query string
  * cannot express. The same reasoning the prototype applied to its edit form, applied here too.
  */
-function rerender(req: Request, res: Response, errorSummary: { text: string; href: string }[]) {
+function rerender(req: Request, res: Response, errorSummary: { text: string; href?: string }[]) {
   res.status(400).render("deed-polls/new", { values: req.body, typeOptions, errorSummary, en, cy });
+}
+
+function summaryFor(error: InvalidInputError): { text: string; href?: string }[] {
+  if (error.errors.length === 0) return [{ text: error.message }];
+
+  return error.errors.map((fieldError) => ({ text: fieldError.message, href: `#${fieldError.field}` }));
 }

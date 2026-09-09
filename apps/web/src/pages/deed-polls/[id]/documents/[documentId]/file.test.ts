@@ -113,7 +113,7 @@ describe("document download route", () => {
     expect(res.headers["Content-Disposition"]).toBe('attachment; filename="document"');
   });
 
-  it("should set no security headers of its own when api sends none, rather than inventing a policy", async () => {
+  it("should invent no policy of its own when api sends none, and download rather than render in place", async () => {
     vi.mocked(downloadDocument).mockResolvedValue(apiDownload({ contentSecurityPolicy: null, contentTypeOptions: null }) as never);
     const res = streamResponse();
 
@@ -121,6 +121,21 @@ describe("document download route", () => {
 
     expect(res.headers["Content-Security-Policy"]).toBeUndefined();
     expect(res.headers["X-Content-Type-Options"]).toBeUndefined();
+    // An `inline` PDF under this app's own `default-src 'self'` is the one combination the route must not
+    // produce, so the disposition is downgraded — with api's filename kept, which was never the hazard.
+    expect(res.headers["Content-Disposition"]).toBe('attachment; filename="deed poll.pdf"');
+  });
+
+  it("should relay an attachment disposition unchanged even when api names no policy", async () => {
+    // Nothing renders an attachment, so there is nothing for a policy to contain.
+    vi.mocked(downloadDocument).mockResolvedValue(
+      apiDownload({ contentDisposition: 'attachment; filename="scan.tiff"', contentSecurityPolicy: null }) as never
+    );
+    const res = streamResponse();
+
+    await GET(pageRequest({ params: PARAMS }), res, vi.fn());
+
+    expect(res.headers["Content-Disposition"]).toBe('attachment; filename="scan.tiff"');
   });
 
   it("should pipe api's bytes to the response", async () => {
@@ -143,7 +158,23 @@ describe("document download route", () => {
     await GET(pageRequest({ params: PARAMS }), streamResponse(), next);
     const failure = new Error("connection reset");
     download.body.emit("error", failure);
+    // `pipeline` calls back after it has destroyed both streams, which is a tick later than the emit.
+    await new Promise((resolve) => setImmediate(resolve));
 
     expect(next).toHaveBeenCalledWith(failure);
+  });
+
+  it("should destroy api's body when the response closes, so a cancelled download frees the upstream connection", async () => {
+    // `pipe` leaves the body unread and uncancelled, and undici then holds that connection out of its
+    // pool — steady socket accumulation against api for every caseworker who cancels a large scan.
+    const download = apiDownload();
+    vi.mocked(downloadDocument).mockResolvedValue(download as never);
+    const res = streamResponse();
+
+    await GET(pageRequest({ params: PARAMS }), res, vi.fn());
+    res.destroy();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(download.body.destroyed).toBe(true);
   });
 });

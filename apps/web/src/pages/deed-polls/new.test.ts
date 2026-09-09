@@ -135,6 +135,19 @@ describe("new deed poll page", () => {
       expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "Enter the date the application was received", href: "#dateReceived" }]);
     });
 
+    it("shows api's message when its rejection names no field, rather than an empty error summary", async () => {
+      // api omits `errors` when it has none, and an unparseable failure body — a proxy's HTML 400 — leaves
+      // none either. The template hides an empty summary, so without this the caseworker gets a 400 and no
+      // indication of what failed.
+      vi.mocked(createDeedPoll).mockRejectedValue(new InvalidInputError("deed-poll-api answered 400"));
+      const res = response();
+
+      await POST(request(validBody), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "deed-poll-api answered 400" }]);
+    });
+
     it("rethrows anything that is not a validation failure, so a real fault is not hidden", async () => {
       vi.mocked(createDeedPoll).mockRejectedValue(new Error("connect ECONNREFUSED"));
 
