@@ -1,5 +1,5 @@
 /**
- * Document-type collection, ported from `document-types.controller.ts` (`@Get()` / `@Post()`).
+ * Document-type collection, ported from `document-types.controller.ts` (`@Get()`).
  *
  * **Not nested under a case.** Document types are global reference data — the list of things a
  * supporting document can be, with the marital statuses and case types each applies to — so they
@@ -7,24 +7,17 @@
  * `/deed-polls/:id/documents`. That is why this is the one Phase 3 resource outside
  * `routes/deed-polls/`.
  *
- * Reference data is normally seeded and edited rarely, so these are effectively admin operations.
- * They are left unguarded to match the prototype, which carried no `@Roles(...)` anywhere — but the
- * case for guarding this is stronger than for case data, because a wrong edit here changes what
- * every case's document form offers. Noted with the other authorisation questions in
- * `.business_context/PROGRESS.md`, not decided here.
+ * **`GET` only, and there is no `[id].ts` any more.** `deed-poll-api` publishes
+ * `GET /caseworker/document-types` and nothing else: no single-type read, and no writes at all. The
+ * `POST` here, and the whole of `[id].ts` with its `PATCH` and its 409-answering `DELETE`, went with
+ * those functions in task 4 of `docs/plans/02-dal-cutover-to-api.md`. The authorisation question the
+ * old comment left open — whether editing reference data should be admin-only, since a wrong edit
+ * changes what every case's document form offers — is api's to answer when it rebuilds the writes.
  */
-import { createDocumentType, createDocumentTypeSchema, findDocumentTypes } from "@hmcts/deed-poll";
+import { findDocumentTypes } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
+import { callerFromRequest } from "../../auth/current-user.js";
 
-export const GET = async (_req: Request, res: Response) => {
-  res.json(await findDocumentTypes());
-};
-
-export const POST = async (req: Request, res: Response) => {
-  const parsed = createDocumentTypeSchema.safeParse(req.body);
-  if (!parsed.success) {
-    throw parsed.error;
-  }
-
-  res.status(201).json(await createDocumentType(parsed.data));
+export const GET = async (req: Request, res: Response) => {
+  res.json(await findDocumentTypes(callerFromRequest(req)));
 };

@@ -8,16 +8,17 @@
  * same URL position would both work — `discoverRoutes` keys on the URL path, so there is no
  * conflict — but it would read as an accident.
  *
- * `createNote` takes only `{ userName }`, not the `{ isAdmin, userName }` the case writes take:
- * there is no privileged field on a note, so admin status is not part of the decision. Passing it
- * would imply a rule that does not exist.
+ * `createNote` used to take `{ userName }` — the caller's name, so the row could be attributed. It
+ * takes the caller's bearer token now and nothing else: `deed-poll-api` stamps both audit names from
+ * the token it authenticated, so a name sent alongside would be this app asserting an author api never
+ * verified. Same change as the case routes; see `../../[id].ts`.
  */
 import { createNote, createNoteSchema, findNotes } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { userFromRequest } from "../../../../auth/current-user.js";
+import { callerFromRequest } from "../../../../auth/current-user.js";
 
 export const GET = async (req: Request, res: Response) => {
-  res.json(await findNotes(req.params.id));
+  res.json(await findNotes(req.params.id, callerFromRequest(req)));
 };
 
 export const POST = async (req: Request, res: Response) => {
@@ -26,8 +27,7 @@ export const POST = async (req: Request, res: Response) => {
     throw parsed.error;
   }
 
-  const { name } = userFromRequest(req);
-  const created = await createNote(req.params.id, parsed.data, { userName: name });
+  const created = await createNote(req.params.id, parsed.data, callerFromRequest(req));
 
   res.status(201).json(created);
 };

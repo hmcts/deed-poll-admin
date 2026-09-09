@@ -1,4 +1,4 @@
-import { createNote, findNotes, NotFoundError, SERVICE_ACCOUNT_NAME } from "@hmcts/deed-poll";
+import { createNote, findNotes, NotFoundError } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
 import { requestDouble, responseDouble } from "../../../../express-doubles.js";
@@ -9,6 +9,10 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   findNotes: vi.fn(),
   createNote: vi.fn()
 }));
+
+/** The caller's bearer token, which is the whole of what these handlers pass on. */
+const bearer = { headers: { authorization: "Bearer caseworker-token" } };
+const CALLER = { accessToken: "caseworker-token" };
 
 describe("/deed-polls/:id/notes collection routes", () => {
   beforeEach(() => {
@@ -21,9 +25,9 @@ describe("/deed-polls/:id/notes collection routes", () => {
       vi.mocked(findNotes).mockResolvedValue(notes as never);
       const res = responseDouble();
 
-      await GET(requestDouble({ params: { id: "case-1" } }), res);
+      await GET(requestDouble({ params: { id: "case-1" }, ...bearer }), res);
 
-      expect(findNotes).toHaveBeenCalledWith("case-1");
+      expect(findNotes).toHaveBeenCalledWith("case-1", CALLER);
       expect(res.json).toHaveBeenCalledWith(notes);
     });
 
@@ -43,33 +47,28 @@ describe("/deed-polls/:id/notes collection routes", () => {
       vi.mocked(createNote).mockResolvedValue(created as never);
       const res = responseDouble();
 
-      await POST(requestDouble({ params: { id: "case-1" }, body: { note: "Called the applicant" } }), res);
+      await POST(requestDouble({ params: { id: "case-1" }, body: { note: "Called the applicant" }, ...bearer }), res);
 
-      expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called the applicant" }, { userName: SERVICE_ACCOUNT_NAME });
+      expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called the applicant" }, CALLER);
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith(created);
     });
 
-    it("should attribute the note to the caller when a name is supplied", async () => {
+    it("should forward the caller's token and no author name, because api stamps the author from the token", async () => {
+      // What this replaces asserted that the session's user name reached the domain. Sending it now
+      // would let this app attribute a note to whoever it liked, so the assertion is the inverse: the
+      // token travels and nothing else about the caller does.
       vi.mocked(createNote).mockResolvedValue({ id: "note-1" } as never);
 
-      await POST(requestDouble({ params: { id: "case-1" }, body: { note: "Called" }, userName: "A Caseworker" }), responseDouble());
+      await POST(requestDouble({ params: { id: "case-1" }, body: { note: "Called" }, userName: "A Caseworker", ...bearer }), responseDouble());
 
-      expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called" }, { userName: "A Caseworker" });
+      expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called" }, CALLER);
     });
 
-    it("should not pass isAdmin, because a note has no privileged field", async () => {
+    it("should store the trimmed note, so surrounding whitespace never reaches the record", async () => {
       vi.mocked(createNote).mockResolvedValue({ id: "note-1" } as never);
 
-      await POST(requestDouble({ params: { id: "case-1" }, body: { note: "Called" }, roles: "deedpoll-admin" }), responseDouble());
-
-      expect(createNote).toHaveBeenCalledWith("case-1", expect.anything(), { userName: SERVICE_ACCOUNT_NAME });
-    });
-
-    it("should store the trimmed note, so surrounding whitespace never reaches the column", async () => {
-      vi.mocked(createNote).mockResolvedValue({ id: "note-1" } as never);
-
-      await POST(requestDouble({ params: { id: "case-1" }, body: { note: "  Called the applicant  " } }), responseDouble());
+      await POST(requestDouble({ params: { id: "case-1" }, body: { note: "  Called the applicant  " }, ...bearer }), responseDouble());
 
       expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called the applicant" }, expect.anything());
     });

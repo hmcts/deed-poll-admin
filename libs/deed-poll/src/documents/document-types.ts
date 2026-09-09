@@ -1,63 +1,25 @@
-import { type DeedPollSupportingDocumentType, prisma } from "@hmcts/postgres-prisma";
-import { ConflictError, NotFoundError } from "../errors.js";
-import type { CreateDocumentTypeInput, UpdateDocumentTypeInput } from "./schemas.js";
-
 /**
- * CRUD for supporting-document *types* — global reference data (not nested under
- * a case). Documents reference a type by FK, and a type still in use cannot be deleted.
+ * Supporting-document types — the list of things a document can be, with the marital statuses and case
+ * types each applies to. Global reference data, not case data, which is why this is not nested.
+ *
+ * **Read-only, and one function.** api publishes `GET /caseworker/document-types` and nothing else:
+ * task 4 of `docs/plans/02-dal-cutover-to-api.md` records the absence of document-type writes as
+ * deliberate, and `DEED_POLL_API_PLAN.md` lists them among the operations not rebuilt until something
+ * asks. Nothing in this app asks — the only reader is the upload form's type dropdown — so the create,
+ * patch and delete went rather than being left as routes that could only fail, and
+ * `createDocumentTypeSchema`/`updateDocumentTypeSchema` with them.
+ *
+ * The in-use check that made the delete a 409 rather than a foreign-key 500 went too. It was a real
+ * defect fix and it is not lost: the constraint it protected is api's database now, and enforcing it is
+ * whoever rebuilds the delete's problem to solve on that side.
+ *
+ * There is no single-type read either. api has no `GET /caseworker/document-types/{id}`, and filtering
+ * the list here to synthesise one would be inventing an operation the contract does not offer.
  */
+import { type DocumentType, listDocumentTypes } from "@hmcts/deed-poll-api-client";
+import { type Caller, callApi } from "../api/deed-poll-api.js";
 
-export function createDocumentType(dto: CreateDocumentTypeInput): Promise<DeedPollSupportingDocumentType> {
-  return prisma.deedPollSupportingDocumentType.create({ data: dto });
-}
-
-export function findDocumentTypes(): Promise<DeedPollSupportingDocumentType[]> {
-  return prisma.deedPollSupportingDocumentType.findMany({
-    orderBy: { name: "asc" }
-  });
-}
-
-export async function findDocumentType(id: string): Promise<DeedPollSupportingDocumentType> {
-  const type = await prisma.deedPollSupportingDocumentType.findUnique({
-    where: { id }
-  });
-  if (!type) throw new NotFoundError(`Document type ${id} not found`);
-  return type;
-}
-
-export async function updateDocumentType(id: string, dto: UpdateDocumentTypeInput): Promise<DeedPollSupportingDocumentType> {
-  await findDocumentType(id);
-  return prisma.deedPollSupportingDocumentType.update({
-    where: { id },
-    data: dto
-  });
-}
-
-/**
- * Delete a type, refusing if any document still references it.
- *
- * The reference check is explicit rather than left to the foreign key. The `documentType`
- * relation is required and declares no `onDelete`, so Postgres already refuses — but it does so
- * as a `RESTRICT` violation surfaced through the `PrismaPg` adapter as a `DriverAdapterError`
- * carrying SQLSTATE 23001 on `err.cause.code`. That is not one of the domain errors, so it
- * reached `apps/api`'s error middleware unrecognised and became a generic 500: an ordinary
- * caseworker deleting a type that happens to be in use was told the server had broken.
- *
- * Checking here means the answer is a 409 naming the number of documents, which is both true
- * and actionable, and it does not depend on the driver's internal error shape — that would be
- * fragile across a Prisma upgrade, and would fail by silently reverting to 500.
- *
- * A document created between this count and the delete would still hit the FK and produce that
- * 500. The window is tiny, the database refuses either way so integrity holds, and closing it
- * would mean parsing the driver internals this check exists to avoid.
- */
-export async function removeDocumentType(id: string): Promise<void> {
-  await findDocumentType(id);
-
-  const inUse = await prisma.deedPollSupportingDocument.count({ where: { documentTypeId: id } });
-  if (inUse > 0) {
-    throw new ConflictError(`Cannot delete this document type: ${inUse} document(s) still reference it`);
-  }
-
-  await prisma.deedPollSupportingDocumentType.delete({ where: { id } });
+/** Every document type, as api orders them — by name, which is the order the dropdown wants. */
+export function findDocumentTypes(caller: Caller): Promise<DocumentType[]> {
+  return callApi(caller, (config) => listDocumentTypes(config));
 }

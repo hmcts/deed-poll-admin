@@ -1,32 +1,18 @@
 /**
- * A single document's metadata, ported from `documents.controller.ts` (`@Get(':id')` /
- * `@Patch(':id')` / `@Delete(':id')`).
+ * A single document's metadata, ported from `documents.controller.ts` (`@Get(':id')`).
  *
- * Both ids on every call, as with notes and witnesses: `findDocument` matches on
- * `{ id, deedPollId }`, so a document belonging to another case is a 404 rather than reachable
- * through the wrong parent's URL.
+ * **`GET` only.** api publishes neither a document patch nor a document delete — both are in the
+ * plan's "out of scope" list, not rebuilt until something asks — so the `PATCH` and `DELETE` went with
+ * `updateDocument` and `removeDocument`. The blob cleanup the delete used to do is gone with them: api
+ * owns the bytes, so there is no local file to orphan.
  *
- * `DELETE` removes the row and then its stored blob. It answers 204 even if the blob cleanup
- * fails — see `removeDocument`, where that is deliberate and was not always true.
+ * Both ids are still passed. `findDocument` looks only in this case's own document list, so a document
+ * belonging to another case is a 404 rather than reachable through the wrong parent's URL.
  */
-import { findDocument, removeDocument, updateDocument, updateDocumentSchema } from "@hmcts/deed-poll";
+import { findDocument } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
+import { callerFromRequest } from "../../../../auth/current-user.js";
 
 export const GET = async (req: Request, res: Response) => {
-  res.json(await findDocument(req.params.id, req.params.documentId));
-};
-
-export const PATCH = async (req: Request, res: Response) => {
-  const parsed = updateDocumentSchema.safeParse(req.body);
-  if (!parsed.success) {
-    throw parsed.error;
-  }
-
-  res.json(await updateDocument(req.params.id, req.params.documentId, parsed.data));
-};
-
-export const DELETE = async (req: Request, res: Response) => {
-  await removeDocument(req.params.id, req.params.documentId);
-
-  res.status(204).send();
+  res.json(await findDocument(req.params.id, req.params.documentId, callerFromRequest(req)));
 };

@@ -5,14 +5,16 @@
  * builds a router over *its* directory and document-types is a sibling, not a child — which is the
  * substantive fact about this resource: it is global reference data, mounted at the top level.
  *
- * The thing worth pinning here is the **409**. It is the only one in this phase, it is reachable by
- * an ordinary caseworker action (deleting a type that happens to be in use), and before
- * `removeDocumentType` checked for references it was a 500 — the FK refusal arrived as a
- * `DriverAdapterError` that the error middleware could not recognise. A unit test on the handler
- * cannot show which status a caller receives; only a real request can.
+ * **This used to be about the 409.** `removeDocumentType` refused to delete a type any document still
+ * referenced, and before that check existed the FK refusal arrived as a `DriverAdapterError` the error
+ * middleware could not recognise, so an ordinary caseworker deleting a type in use was told the server
+ * had broken. The whole resource is read-only now — `deed-poll-api` publishes no document-type writes —
+ * so the constraint, and the responsibility for answering a 409 for it, are api's. What is left worth
+ * pinning is that the collection is mounted where it claims to be and that the retired routes answer
+ * 404 rather than something worse.
  */
 import { fileURLToPath } from "node:url";
-import { ConflictError, DEEDPOLL_ADMIN, findDocumentType, findDocumentTypes, NotFoundError, removeDocumentType } from "@hmcts/deed-poll";
+import { DEEDPOLL_ADMIN, findDocumentTypes, NotFoundError } from "@hmcts/deed-poll";
 import { createSimpleRouter } from "@hmcts-cft/simple-router";
 import express, { type Express } from "express";
 import request from "supertest";
@@ -22,14 +24,13 @@ import { attachUserDouble } from "../../express-doubles.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
-  findDocumentTypes: vi.fn(),
-  createDocumentType: vi.fn(),
-  findDocumentType: vi.fn(),
-  updateDocumentType: vi.fn(),
-  removeDocumentType: vi.fn()
+  findDocumentTypes: vi.fn()
 }));
 
 const routesDir = fileURLToPath(new URL(".", import.meta.url));
+
+/** The token the request arrives with, which the handler forwards and nothing else. */
+const CALLER = { accessToken: "caseworker-token" };
 
 async function appWithDocumentTypeRoutes(): Promise<Express> {
   const app = express();
@@ -46,67 +47,37 @@ describe("document-type routes wired through simple-router", () => {
     process.env.NODE_ENV = "test";
   });
 
-  it("should answer 409 when deleting a type that documents still reference", async () => {
-    vi.mocked(removeDocumentType).mockRejectedValue(new ConflictError("Cannot delete this document type: 2 document(s) still reference it"));
-
-    const response = await request(await appWithDocumentTypeRoutes()).delete("/document-types/type-1");
-
-    expect(response.status).toBe(409);
-    expect(response.body).toEqual({ error: "Cannot delete this document type: 2 document(s) still reference it" });
-  });
-
-  it("should answer 204 when deleting a type nothing references", async () => {
-    vi.mocked(removeDocumentType).mockResolvedValue(undefined);
-
-    const response = await request(await appWithDocumentTypeRoutes()).delete("/document-types/type-1");
-
-    expect(response.status).toBe(204);
-    expect(response.text).toBe("");
-  });
-
-  it("should keep 404 and 409 distinct, since one means the type is gone and the other that it is in use", async () => {
-    vi.mocked(removeDocumentType).mockRejectedValue(new NotFoundError("Document type type-1 not found"));
-
-    const response = await request(await appWithDocumentTypeRoutes()).delete("/document-types/type-1");
-
-    expect(response.status).toBe(404);
-  });
-
   it("should mount the collection at the top level, not under a case", async () => {
     vi.mocked(findDocumentTypes).mockResolvedValue([] as never);
 
+    const response = await request(await appWithDocumentTypeRoutes())
+      .get("/document-types")
+      .set("authorization", "Bearer caseworker-token");
+
+    expect(response.status).toBe(200);
+    expect(findDocumentTypes).toHaveBeenCalledWith(CALLER);
+  });
+
+  it("should let a NotFoundError become a 404 rather than a 500", async () => {
+    vi.mocked(findDocumentTypes).mockRejectedValue(new NotFoundError("Document types not found"));
+
     const response = await request(await appWithDocumentTypeRoutes()).get("/document-types");
 
-    expect(response.status).toBe(200);
-    expect(findDocumentTypes).toHaveBeenCalledWith();
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: "Document types not found" });
   });
 
-  it("should route an id to the dynamic route", async () => {
-    vi.mocked(findDocumentType).mockResolvedValue({ id: "type-1" } as never);
+  // The single-type read, the create, the patch and the 409-answering delete all went in task 4 of
+  // docs/plans/02-dal-cutover-to-api.md: api publishes none of them. A 404 here rather than a 200 or a
+  // 204 is the whole of the behaviour change, and it would otherwise be provable only by absence.
+  it.each([
+    { what: "a single-type read", send: (app: Express) => request(app).get("/document-types/type-1") },
+    { what: "a create", send: (app: Express) => request(app).post("/document-types").send({ name: "Birth certificate" }) },
+    { what: "a patch", send: (app: Express) => request(app).patch("/document-types/type-1").send({ name: "Renamed" }) },
+    { what: "a delete", send: (app: Express) => request(app).delete("/document-types/type-1") }
+  ])("should answer 404 for $what, which api has no endpoint for", async ({ send }) => {
+    const response = await send(await appWithDocumentTypeRoutes());
 
-    const response = await request(await appWithDocumentTypeRoutes()).get("/document-types/type-1");
-
-    expect(response.status).toBe(200);
-    expect(findDocumentType).toHaveBeenCalledWith("type-1");
-  });
-
-  it("should answer 400 with a field error for a create with no name", async () => {
-    const response = await request(await appWithDocumentTypeRoutes())
-      .post("/document-types")
-      .send({});
-
-    expect(response.status).toBe(400);
-    expect(response.body.errors).toEqual([expect.objectContaining({ field: "name" })]);
-  });
-
-  it("should answer 201 on create", async () => {
-    const { createDocumentType } = await import("@hmcts/deed-poll");
-    vi.mocked(createDocumentType).mockResolvedValue({ id: "type-1" } as never);
-
-    const response = await request(await appWithDocumentTypeRoutes())
-      .post("/document-types")
-      .send({ name: "Birth certificate" });
-
-    expect(response.status).toBe(201);
+    expect(response.status).toBe(404);
   });
 });

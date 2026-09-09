@@ -13,6 +13,8 @@
  * No request or response logging, deliberately: a case body is an applicant's name, address, date of
  * birth and the reason they are changing their name. The no-PII-in-logs rule has no debugging exception.
  */
+import { Readable } from "node:stream";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import type { z } from "zod";
 import {
   UNSPECIFIED_SCHEMAS,
@@ -124,7 +126,15 @@ export function createNote(caseId: string, note: string, config: ApiConfig): Pro
   return request(config, "POST", `/caseworker/cases/${encodeURIComponent(caseId)}/notes`, WIRE_SCHEMAS.NoteResponse, { note });
 }
 
-export function patchNote(caseId: string, noteId: string, note: string, config: ApiConfig): Promise<ApiResult<Note>> {
+/**
+ * Amend a note.
+ *
+ * `note` is optional because api's `UpdateNoteRequest` declares it so: an empty patch is legitimate
+ * there and re-stamps `modifiedBy`. An omitted value is left out of the body rather than sent as null
+ * — `JSON.stringify` drops an undefined property — so api applies its own rule instead of being told
+ * to clear the text.
+ */
+export function patchNote(caseId: string, noteId: string, note: string | undefined, config: ApiConfig): Promise<ApiResult<Note>> {
   return request(config, "PATCH", notePath(caseId, noteId), WIRE_SCHEMAS.NoteResponse, { note });
 }
 
@@ -176,7 +186,13 @@ export async function downloadDocument(caseId: string, documentId: string, confi
   return {
     ok: true,
     data: {
-      body: response.body,
+      // Converted to a Node stream here rather than by each caller. `fetch` produces a web
+      // `ReadableStream` and an Express response wants something with `.pipe`, so the two download
+      // routes both had to bridge it — and TypeScript makes that bridge unpleasant, because
+      // `lib.dom`'s `ReadableStream` and `node:stream/web`'s are structurally different types for the
+      // same runtime object. Doing it at the only module that knows a response is HTTP keeps the cast
+      // out of the pages entirely, which is what decision 1 of the plan asks for.
+      body: Readable.fromWeb(response.body as NodeReadableStream<Uint8Array>),
       contentType: response.headers.get("content-type") ?? "application/octet-stream",
       contentDisposition: response.headers.get("content-disposition")
     }
@@ -429,9 +445,14 @@ export interface DocumentUpload {
   direction?: DocumentDirection;
 }
 
-/** A document's bytes, still streaming, plus what api said they are. */
+/**
+ * A document's bytes, still streaming, plus what api said they are.
+ *
+ * A Node `Readable` rather than the web stream `fetch` produced, so a route can pipe it straight at an
+ * Express response. Nothing is buffered on the way through: a scanned deed poll is megabytes.
+ */
 export interface DocumentDownload {
-  body: ReadableStream<Uint8Array>;
+  body: Readable;
   contentType: string;
   contentDisposition: string | null;
 }

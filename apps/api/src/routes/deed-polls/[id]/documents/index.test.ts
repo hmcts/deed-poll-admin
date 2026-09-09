@@ -1,16 +1,17 @@
-import { createDocument, findDocuments, NotFoundError } from "@hmcts/deed-poll";
+import { findDocuments, NotFoundError } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ZodError } from "zod";
 import { requestDouble, responseDouble } from "../../../../express-doubles.js";
-import { GET, POST } from "./index.js";
+import * as route from "./index.js";
+import { GET } from "./index.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
-  findDocuments: vi.fn(),
-  createDocument: vi.fn()
+  findDocuments: vi.fn()
 }));
 
-const metadata = { direction: "Incoming", name: "birth.pdf", documentTypeId: "07f3f0e0-0000-4000-8000-000000000000" };
+/** The caller's bearer token, which is the whole of what this handler passes on. */
+const bearer = { headers: { authorization: "Bearer caseworker-token" } };
+const CALLER = { accessToken: "caseworker-token" };
 
 describe("/deed-polls/:id/documents collection routes", () => {
   beforeEach(() => {
@@ -23,9 +24,9 @@ describe("/deed-polls/:id/documents collection routes", () => {
       vi.mocked(findDocuments).mockResolvedValue(documents as never);
       const res = responseDouble();
 
-      await GET(requestDouble({ params: { id: "case-1" } }), res);
+      await GET(requestDouble({ params: { id: "case-1" }, ...bearer }), res);
 
-      expect(findDocuments).toHaveBeenCalledWith("case-1");
+      expect(findDocuments).toHaveBeenCalledWith("case-1", CALLER);
       expect(res.json).toHaveBeenCalledWith(documents);
     });
 
@@ -36,45 +37,9 @@ describe("/deed-polls/:id/documents collection routes", () => {
     });
   });
 
-  describe("POST", () => {
-    it("should create metadata only and respond 201, with no file involved", async () => {
-      const created = { id: "doc-1", ...metadata };
-      vi.mocked(createDocument).mockResolvedValue(created as never);
-      const res = responseDouble();
-
-      await POST(requestDouble({ params: { id: "case-1" }, body: metadata }), res);
-
-      expect(createDocument).toHaveBeenCalledWith("case-1", metadata);
-      expect(res.status).toHaveBeenCalledWith(201);
-      expect(res.json).toHaveBeenCalledWith(created);
-    });
-
-    it("should reject a body with no document type, which the FK would otherwise fail on", async () => {
-      await expect(POST(requestDouble({ params: { id: "case-1" }, body: { direction: "Incoming", name: "a.pdf" } }), responseDouble())).rejects.toThrow(
-        ZodError
-      );
-
-      expect(createDocument).not.toHaveBeenCalled();
-    });
-
-    it("should reject a document type that is not a uuid", async () => {
-      await expect(POST(requestDouble({ params: { id: "case-1" }, body: { ...metadata, documentTypeId: "not-a-uuid" } }), responseDouble())).rejects.toThrow(
-        ZodError
-      );
-
-      expect(createDocument).not.toHaveBeenCalled();
-    });
-
-    it("should reject an unrecognised direction", async () => {
-      await expect(POST(requestDouble({ params: { id: "case-1" }, body: { ...metadata, direction: "Sideways" } }), responseDouble())).rejects.toThrow(ZodError);
-
-      expect(createDocument).not.toHaveBeenCalled();
-    });
-
-    it("should reject an empty body, because a document needs a type and a direction", async () => {
-      await expect(POST(requestDouble({ params: { id: "case-1" }, body: {} }), responseDouble())).rejects.toThrow(ZodError);
-
-      expect(createDocument).not.toHaveBeenCalled();
-    });
+  // The metadata-only create is gone: api has no endpoint for a document row with no file, and nothing in
+  // this app logged one. Uploading bytes is `upload.ts`, which is the operation api does publish.
+  it("should export no POST, because api has no metadata-only document create", () => {
+    expect(route).not.toHaveProperty("POST");
   });
 });

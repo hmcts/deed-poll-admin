@@ -1,4 +1,4 @@
-import { createNote, findDeedPoll, MAX_NOTE_LENGTH, NotFoundError, SERVICE_ACCOUNT_NAME } from "@hmcts/deed-poll";
+import { createNote, findDeedPoll, MAX_NOTE_LENGTH, NotFoundError } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../express-doubles.js";
@@ -16,8 +16,11 @@ const found = { id: "case-1", displayReference: "KBDP2026-00001", notes: [], wit
 
 const PARAMS = { id: "case-1" };
 
-function request(body: Record<string, unknown> = {}, userName?: string): Request {
-  return pageRequest({ params: PARAMS, body, name: userName });
+/** The session's access token, which is the whole of what this page passes to the domain. */
+const CALLER = { accessToken: "session-token" };
+
+function request(body: Record<string, unknown> = {}): Request {
+  return pageRequest({ params: PARAMS, body, accessToken: "session-token" });
 }
 
 const response = pageResponse;
@@ -62,14 +65,16 @@ describe("add a note page", () => {
 
       await POST(request({ note: "  Called the applicant  " }), res);
 
-      expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called the applicant" }, { userName: SERVICE_ACCOUNT_NAME });
+      expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called the applicant" }, CALLER);
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1#notes");
     });
 
-    it("attributes the note to the caller", async () => {
-      await POST(request({ note: "Called" }, "A Caseworker"), response());
+    it("sends the session's token and no author name, because api stamps the author from the token", async () => {
+      // This used to assert the session's display name reached the domain. Sending it now would let
+      // this app attribute a note to whoever it liked, so what is pinned is the inverse.
+      await POST(pageRequest({ params: PARAMS, body: { note: "Called" }, name: "A Caseworker", accessToken: "session-token" }), response());
 
-      expect(createNote).toHaveBeenCalledWith("case-1", expect.anything(), { userName: "A Caseworker" });
+      expect(createNote).toHaveBeenCalledWith("case-1", expect.anything(), CALLER);
     });
 
     it("re-renders with a 400 for a blank note rather than storing whitespace", async () => {

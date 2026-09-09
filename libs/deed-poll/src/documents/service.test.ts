@@ -1,222 +1,124 @@
-import { prisma as prismaClient } from "@hmcts/postgres-prisma";
+import { downloadDocument as apiDownloadDocument, uploadDocument as apiUploadDocument, getCase } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InvalidInputError, NotFoundError } from "../errors.js";
-import { createFileReadStream, deleteFile, saveFile } from "./file-storage.js";
-import type { UploadedFile } from "./service.js";
-import { createDocument, downloadDocument, findDocument, findDocuments, removeDocument, updateDocument, uploadDocument } from "./service.js";
+import { downloadDocument, findDocument, findDocuments, uploadDocument } from "./service.js";
 
-// Partial mock: only the client is replaced. The Prisma enums (DocumentDirection,
-// DeedPollType, …) are real values the source modules import, so they must pass through.
-vi.mock("@hmcts/postgres-prisma", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@hmcts/postgres-prisma")>()),
-  prisma: {
-    deedPoll: { findUnique: vi.fn() },
-    deedPollSupportingDocumentType: { findUnique: vi.fn() },
-    deedPollSupportingDocument: {
-      create: vi.fn(),
-      findMany: vi.fn(),
-      findFirst: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn()
-    }
-  }
+vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts/deed-poll-api-client")>()),
+  getCase: vi.fn(),
+  uploadDocument: vi.fn(),
+  downloadDocument: vi.fn()
 }));
 
-vi.mock("./file-storage.js", () => ({
-  saveFile: vi.fn(),
-  deleteFile: vi.fn(),
-  createFileReadStream: vi.fn()
-}));
+const CALLER = { accessToken: "caseworker-token" };
 
-const prisma = vi.mocked(prismaClient, { deep: true });
+const ok = <T>(data: T) => ({ ok: true as const, data });
 
-// The blob store was an injected FileStorageService; it is now a module. Mapping the mocked
-// functions back onto the old method names keeps every assertion below unchanged.
-const storage = {
-  save: vi.mocked(saveFile),
-  delete: vi.mocked(deleteFile),
-  createReadStream: vi.mocked(createFileReadStream)
-};
+const caseWith = (documents: { id: string; hasFile?: boolean }[]) => ok({ id: "case-1", notes: [], witnesses: [], documents });
+
+const aFile = { buffer: Buffer.from("scanned bytes"), originalname: "birth-certificate.pdf", mimetype: "application/pdf", size: 13 };
 
 describe("documents/service", () => {
-  const dto = {
-    direction: "Incoming" as const,
-    name: "Birth certificate",
-    documentTypeId: "type1"
-  };
-
   beforeEach(() => {
     vi.clearAllMocks();
-    // Defaults the Nest providers used to set at construction time.
-    storage.save.mockResolvedValue("stored-key");
-    storage.delete.mockResolvedValue(undefined);
-    storage.createReadStream.mockReturnValue("stream" as never);
+    process.env.DEED_POLL_API_URL = "http://api.test";
   });
 
-  it("creates a document when parent and type both exist", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
-    prisma.deedPollSupportingDocumentType.findUnique.mockResolvedValue({
-      id: "type1"
+  describe("findDocuments", () => {
+    it("should return the documents api sent inside the case", async () => {
+      vi.mocked(getCase).mockResolvedValue(caseWith([{ id: "doc-1", hasFile: true }]) as never);
+
+      expect(await findDocuments("case-1", CALLER)).toEqual([{ id: "doc-1", hasFile: true }]);
+      expect(getCase).toHaveBeenCalledWith("case-1", expect.objectContaining({ baseUrl: "http://api.test" }));
     });
-    prisma.deedPollSupportingDocument.create.mockResolvedValue({ id: "d1" });
-    await createDocument("case1", dto);
-    expect(prisma.deedPollSupportingDocument.create).toHaveBeenCalledWith({
-      data: { ...dto, deedPollId: "case1" }
-    });
-  });
 
-  it("404s when the parent case is missing", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue(null);
-    await expect(createDocument("nope", dto)).rejects.toBeInstanceOf(NotFoundError);
-    expect(prisma.deedPollSupportingDocument.create).not.toHaveBeenCalled();
-  });
+    it("should throw NotFoundError for a case that does not exist, rather than an empty list", async () => {
+      vi.mocked(getCase).mockResolvedValue({ ok: false, error: { kind: "not-found", status: 404, message: "DeedPoll nope not found" } } as never);
 
-  it("lists documents for a case that exists, with their type included", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
-    prisma.deedPollSupportingDocument.findMany.mockResolvedValue([{ id: "d1" }]);
-
-    await expect(findDocuments("case1")).resolves.toEqual([{ id: "d1" }]);
-
-    expect(prisma.deedPollSupportingDocument.findMany).toHaveBeenCalledWith({
-      where: { deedPollId: "case1" },
-      orderBy: { createdOn: "asc" },
-      include: { documentType: true }
+      await expect(findDocuments("nope", CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 
-  it("404s listing documents for a case that does not exist, rather than answering an empty list", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue(null);
+  describe("findDocument", () => {
+    it("should return the document with the matching id", async () => {
+      vi.mocked(getCase).mockResolvedValue(caseWith([{ id: "doc-1" }, { id: "doc-2" }]) as never);
 
-    await expect(findDocuments("nope")).rejects.toBeInstanceOf(NotFoundError);
-
-    expect(prisma.deedPollSupportingDocument.findMany).not.toHaveBeenCalled();
-  });
-
-  it("returns an empty list for a real case with no documents", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
-    prisma.deedPollSupportingDocument.findMany.mockResolvedValue([]);
-
-    await expect(findDocuments("case1")).resolves.toEqual([]);
-  });
-
-  it("404s when the document type is missing", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
-    prisma.deedPollSupportingDocumentType.findUnique.mockResolvedValue(null);
-    await expect(createDocument("case1", dto)).rejects.toBeInstanceOf(NotFoundError);
-    expect(prisma.deedPollSupportingDocument.create).not.toHaveBeenCalled();
-  });
-
-  it("findOne 404s across parents", async () => {
-    prisma.deedPollSupportingDocument.findFirst.mockResolvedValue(null);
-    await expect(findDocument("case1", "d1")).rejects.toBeInstanceOf(NotFoundError);
-  });
-
-  it("removes after an existence check and cleans up the blob", async () => {
-    prisma.deedPollSupportingDocument.findFirst.mockResolvedValue({
-      id: "d1",
-      storageKey: "k1"
+      expect(await findDocument("case-1", "doc-2", CALLER)).toEqual({ id: "doc-2" });
     });
-    prisma.deedPollSupportingDocument.delete.mockResolvedValue({ id: "d1" });
-    await removeDocument("case1", "d1");
-    expect(prisma.deedPollSupportingDocument.delete).toHaveBeenCalledWith({
-      where: { id: "d1", deedPollId: "case1" }
-    });
-    expect(storage.delete).toHaveBeenCalledWith("k1");
-  });
 
-  it("still succeeds when the blob cleanup fails, because the row is already gone", async () => {
-    // The comment here claimed best-effort cleanup while a failed unlink propagated, so a delete
-    // that had actually worked answered 500. The caller then retries and gets a 404, with no way to
-    // tell the difference. An orphaned blob is recoverable; a contradictory status is not.
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    prisma.deedPollSupportingDocument.findFirst.mockResolvedValue({ id: "d1", storageKey: "k1" });
-    prisma.deedPollSupportingDocument.delete.mockResolvedValue({ id: "d1" });
-    storage.delete.mockRejectedValue(new Error("EACCES: permission denied, unlink"));
+    it("should throw NotFoundError for a document that belongs to a different case", async () => {
+      vi.mocked(getCase).mockResolvedValue(caseWith([{ id: "doc-1" }]) as never);
 
-    await expect(removeDocument("case1", "d1")).resolves.toBeUndefined();
-
-    expect(prisma.deedPollSupportingDocument.delete).toHaveBeenCalled();
-    expect(logged).toHaveBeenCalled();
-    logged.mockRestore();
-  });
-
-  it("names the document and storage key when cleanup fails, so the orphan can be found", async () => {
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    prisma.deedPollSupportingDocument.findFirst.mockResolvedValue({ id: "d1", storageKey: "k1" });
-    prisma.deedPollSupportingDocument.delete.mockResolvedValue({ id: "d1" });
-    storage.delete.mockRejectedValue(new Error("EACCES"));
-
-    await removeDocument("case1", "d1");
-
-    expect(logged.mock.calls[0][0]).toContain("d1");
-    expect(logged.mock.calls[0][0]).toContain("k1");
-    logged.mockRestore();
-  });
-
-  const file = {
-    originalname: "birth.pdf",
-    mimetype: "application/pdf",
-    size: 1234,
-    buffer: Buffer.from("pdf")
-  } as UploadedFile;
-
-  it("uploads: stores the blob and records metadata", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
-    prisma.deedPollSupportingDocumentType.findUnique.mockResolvedValue({
-      id: "type1"
-    });
-    prisma.deedPollSupportingDocument.create.mockResolvedValue({ id: "d1" });
-    await uploadDocument("case1", "type1", file);
-    expect(storage.save).toHaveBeenCalledWith(file.buffer);
-    const data = prisma.deedPollSupportingDocument.create.mock.calls[0][0].data;
-    expect(data).toMatchObject({
-      deedPollId: "case1",
-      documentTypeId: "type1",
-      direction: "Incoming",
-      name: "birth.pdf",
-      storageKey: "stored-key",
-      originalName: "birth.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: 1234
+      await expect(findDocument("case-1", "doc-of-another-case", CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 
-  it("uploads: rejects a request with no file", async () => {
-    await expect(uploadDocument("case1", "type1", undefined)).rejects.toBeInstanceOf(InvalidInputError);
-    expect(storage.save).not.toHaveBeenCalled();
-  });
+  describe("uploadDocument", () => {
+    it("should send the bytes, the type and the file's own name to api's multipart endpoint", async () => {
+      vi.mocked(apiUploadDocument).mockResolvedValue(ok({ id: "doc-1", hasFile: true }) as never);
 
-  it("download: returns the row and a stream", async () => {
-    prisma.deedPollSupportingDocument.findFirst.mockResolvedValue({
-      id: "d1",
-      storageKey: "k1"
+      const created = await uploadDocument("case-1", "type-1", aFile, {}, CALLER);
+
+      expect(created.id).toBe("doc-1");
+      const [caseId, upload] = vi.mocked(apiUploadDocument).mock.calls[0];
+      expect(caseId).toBe("case-1");
+      expect(upload).toEqual({
+        documentTypeId: "type-1",
+        name: "birth-certificate.pdf",
+        mimeType: "application/pdf",
+        bytes: aFile.buffer,
+        documentName: undefined,
+        direction: undefined
+      });
     });
-    const out = await downloadDocument("case1", "d1");
-    expect(storage.createReadStream).toHaveBeenCalledWith("k1");
-    expect(out.stream).toBe("stream");
-  });
 
-  it("download: 404s when the row has no attached file", async () => {
-    prisma.deedPollSupportingDocument.findFirst.mockResolvedValue({
-      id: "d1",
-      storageKey: null
+    it("should forward an overriding name and direction only when the form supplied them", async () => {
+      // Omitted rather than defaulted, so api applies its own rules — the row's name falls back to the
+      // file's and the direction to Incoming. Defaulting here would be a second opinion about both.
+      vi.mocked(apiUploadDocument).mockResolvedValue(ok({ id: "doc-1", hasFile: true }) as never);
+
+      await uploadDocument("case-1", "type-1", aFile, { name: "Birth certificate", direction: "Outgoing" }, CALLER);
+
+      const [, upload] = vi.mocked(apiUploadDocument).mock.calls[0];
+      expect(upload.documentName).toBe("Birth certificate");
+      expect(upload.direction).toBe("Outgoing");
     });
-    await expect(downloadDocument("case1", "d1")).rejects.toBeInstanceOf(NotFoundError);
+
+    it("should reject a submission with no file before anything reaches api", async () => {
+      await expect(uploadDocument("case-1", "type-1", undefined, {}, CALLER)).rejects.toBeInstanceOf(InvalidInputError);
+      expect(apiUploadDocument).not.toHaveBeenCalled();
+    });
+
+    it("should surface api's field errors as an InvalidInputError the upload form can render", async () => {
+      vi.mocked(apiUploadDocument).mockResolvedValue({
+        ok: false,
+        error: { kind: "validation", status: 400, message: "Invalid input", fieldErrors: [{ field: "documentTypeId", message: "Choose a document type" }] }
+      } as never);
+
+      const error = await uploadDocument("case-1", "type-1", aFile, {}, CALLER).catch((thrown: unknown) => thrown);
+
+      expect(error).toBeInstanceOf(InvalidInputError);
+      expect((error as InvalidInputError).errors).toEqual([{ field: "documentTypeId", message: "Choose a document type" }]);
+    });
   });
 
-  it("404s updating a document that belongs to another case, before writing", async () => {
-    prisma.deedPollSupportingDocument.findFirst.mockResolvedValue(null);
-    await expect(updateDocument("case1", "d1", { name: "renamed" })).rejects.toBeInstanceOf(NotFoundError);
-    expect(prisma.deedPollSupportingDocument.update).not.toHaveBeenCalled();
-  });
+  describe("downloadDocument", () => {
+    it("should return api's stream and the headers it put on it, buffering nothing", async () => {
+      const download = { body: new ReadableStream<Uint8Array>(), contentType: "application/pdf", contentDisposition: 'attachment; filename="deed.pdf"' };
+      vi.mocked(apiDownloadDocument).mockResolvedValue(ok(download) as never);
 
-  it("scopes the update to the parent case, so the write does not rely on the guard above it", async () => {
-    prisma.deedPollSupportingDocument.findFirst.mockResolvedValue({ id: "d1" });
-    prisma.deedPollSupportingDocument.update.mockResolvedValue({ id: "d1" });
-    await updateDocument("case1", "d1", { name: "renamed" });
-    expect(prisma.deedPollSupportingDocument.update).toHaveBeenCalledWith({
-      where: { id: "d1", deedPollId: "case1" },
-      data: { name: "renamed" }
+      expect(await downloadDocument("case-1", "doc-1", CALLER)).toBe(download);
+      expect(apiDownloadDocument).toHaveBeenCalledWith("case-1", "doc-1", expect.anything());
+    });
+
+    it("should throw NotFoundError when the row has no attached file, which is api's answer now", async () => {
+      // The local check this replaces read `storageKey`, which api deliberately does not publish.
+      vi.mocked(apiDownloadDocument).mockResolvedValue({
+        ok: false,
+        error: { kind: "not-found", status: 404, message: "This document has no attached file" }
+      } as never);
+
+      await expect(downloadDocument("case-1", "doc-1", CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 });

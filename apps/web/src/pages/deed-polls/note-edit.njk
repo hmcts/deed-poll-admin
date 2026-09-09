@@ -15,10 +15,14 @@
      heading, using the same formatting helper as the notes grid, so the two pages cannot disagree
      about one note.
 
-  Delete is a second submit button on the SAME form rather than its own route: two forms would mean two
-  routes that could drift. The handler branches on `action`, checking delete first. No confirmation
-  step — the note is one field of text, and an interstitial on every deletion is friction paid on the
-  safe path. Styled as a warning so it cannot be mistaken for the primary action.
+  The delete button is temporarily absent, and returns in task 6 of docs/plans/02-dal-cutover-to-api.md
+  with the service function behind it — the handler cannot delete a note until then, and a button that
+  posts to a branch that does not exist would save the note instead, which is the one outcome worse than
+  no button. When it comes back it is a second submit on THIS form rather than its own route (two forms
+  would mean two routes that could drift), the handler checks `action === "delete"` before validating,
+  there is no confirmation step — the note is one field of text, and an interstitial on every deletion is
+  friction paid on the safe path — and it is styled as a warning so it cannot be mistaken for the
+  primary action.
 #}
 {% block content %}
 <div class="govuk-grid-row">
@@ -57,7 +61,6 @@
 
       <div class="govuk-button-group">
         {{ govukButton({ text: save, name: "action", value: "save" }) }}
-        {{ govukButton({ text: delete, name: "action", value: "delete", classes: "govuk-button--warning" }) }}
         <a class="govuk-link" href="/deed-polls/{{ case.id }}#notes">{{ cancel }}</a>
       </div>
     </form>

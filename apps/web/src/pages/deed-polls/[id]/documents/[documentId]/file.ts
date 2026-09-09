@@ -10,34 +10,23 @@
  *
  * A deliberate near-duplicate of `apps/api/src/routes/deed-polls/[id]/documents/[documentId]/file.ts`.
  * The two differ only in that the API's is reached by an API client and this by a link on a page;
- * everything substantive — the scoping, the sanitised filename, the stream error forwarding — is the
- * same, and the reasoning is recorded there.
+ * everything substantive — the scoping, the forwarded headers, the stream error forwarding — is the
+ * same, and the reasoning is recorded there, including why the filename is `deed-poll-api`'s to compose
+ * rather than this route's to sanitise.
  */
 import { downloadDocument } from "@hmcts/deed-poll";
 import type { NextFunction, Request, Response } from "express";
-
-const FALLBACK_FILENAME = "document";
+import { callerFromRequest } from "../../../../../auth/current-user.js";
 
 export const GET = async (req: Request, res: Response, next: NextFunction) => {
-  const { doc, stream } = await downloadDocument(req.params.id, req.params.documentId);
+  const download = await downloadDocument(req.params.id, req.params.documentId, callerFromRequest(req));
 
-  res.setHeader("Content-Type", doc.mimeType ?? "application/octet-stream");
-  res.setHeader("Content-Disposition", `attachment; filename="${safeFilename(doc.originalName ?? doc.name)}"`);
+  res.setHeader("Content-Type", download.contentType);
+  if (download.contentDisposition) res.setHeader("Content-Disposition", download.contentDisposition);
   // Documents are case data; a shared cache must not keep a copy.
   res.setHeader("Cache-Control", "no-store");
 
   // Without this a mid-stream failure leaves the request hanging until it times out.
-  stream.on("error", next);
-  stream.pipe(res);
+  download.body.on("error", next);
+  download.body.pipe(res);
 };
-
-/**
- * Reduce a filename to characters safe in a quoted header value. `originalName` is whatever the
- * uploading client called the file, so it reaches here as attacker-controlled text on a response
- * header: a quote would break out of the quoted value, and a newline would make the header invalid,
- * which Node rejects by throwing mid-response — a 500 on a working download.
- */
-function safeFilename(name: string): string {
-  const cleaned = name.replace(/[^A-Za-z0-9._ -]/g, "").trim();
-  return cleaned.length > 0 ? cleaned : FALLBACK_FILENAME;
-}

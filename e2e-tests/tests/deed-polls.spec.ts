@@ -87,7 +87,10 @@ test("caseworker creates a case and edits one of its tabs", async ({ page, brows
   await expect(page.locator("#signature")).toContainText("25 March 2026");
 });
 
-test("caseworker adds, amends and deletes a note", async ({ page }) => {
+// The deletion leg is temporarily absent, and returns in task 6 of
+// docs/plans/02-dal-cutover-to-api.md with the button and the handler branch it drives. Nothing about
+// the journey changed otherwise — `deed-poll-api` holds the notes now instead of Postgres.
+test("caseworker adds and amends a note", async ({ page }) => {
   // Arrange: a case to hang notes off. The create journey is asserted in the test above; here it is
   // only setup, so it is driven and not checked.
   await page.goto("/deed-polls/new");
@@ -133,7 +136,6 @@ test("caseworker adds, amends and deletes a note", async ({ page }) => {
   await page.getByRole("link", { name: /amend this note/ }).click();
   await expect(page).toHaveURL(/\/notes\/[0-9a-f-]{36}\/edit$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^[0-9A-F]{4}-[0-9A-F]{4}$/);
-  const amendUrl = page.url();
 
   await page.getByLabel("Note").fill("Applicant called to chase the enrolment date. Advised of the Gazette step.");
   await page.getByRole("button", { name: "Save note" }).click();
@@ -141,15 +143,6 @@ test("caseworker adds, amends and deletes a note", async ({ page }) => {
   await expect(page).toHaveURL(`${caseUrl}#notes`);
   await expect(page.locator("#notes")).toContainText("Advised of the Gazette step.");
   await expect(page.locator("#notes")).not.toContainText("Not edited");
-
-  // Delete is the second submit button on the amend form, not its own route, and there is no
-  // confirmation step — the note is one field of text.
-  await page.goto(amendUrl);
-  await page.getByRole("button", { name: "Delete note" }).click();
-
-  await expect(page).toHaveURL(`${caseUrl}#notes`);
-  await expect(page.locator("#notes")).toContainText("None recorded.");
-  await expect(page.locator("#notes")).not.toContainText("Advised of the Gazette step.");
 });
 
 /**

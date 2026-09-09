@@ -19,7 +19,7 @@
  */
 import { createNote, createNoteSchema, findDeedPoll, MAX_NOTE_LENGTH, zodErrorToFieldErrors } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { callerFromRequest, userFromRequest } from "../../../../auth/current-user.js";
+import { callerFromRequest } from "../../../../auth/current-user.js";
 
 const en = {
   title: "Add a note",
@@ -59,8 +59,9 @@ export const POST = async (req: Request, res: Response) => {
     });
   }
 
-  const { name } = userFromRequest(req);
-  await createNote(req.params.id, parsed.data, { userName: name });
+  // The caller's token and nothing else: api stamps the note's author from it, so the session's name
+  // is not sent alongside — it would be this app asserting an identity api never verified.
+  await createNote(req.params.id, parsed.data, callerFromRequest(req));
 
   res.redirect(`/deed-polls/${req.params.id}#notes`);
 };

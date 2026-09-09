@@ -39,12 +39,8 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   createNote: vi.fn(),
   findNote: vi.fn(),
   updateNote: vi.fn(),
-  removeNote: vi.fn(),
   findWitnesses: vi.fn(),
-  createWitness: vi.fn(),
-  findWitness: vi.fn(),
-  updateWitness: vi.fn(),
-  removeWitness: vi.fn()
+  findWitness: vi.fn()
 }));
 
 const routesDir = fileURLToPath(new URL(".", import.meta.url));
@@ -195,7 +191,7 @@ describe("deed-poll routes wired through simple-router", () => {
 // static route win" but "does each of the two path parameters land in the right place". A handler
 // that read `req.params.id` for the child id, or passed the ids the wrong way round, would still
 // satisfy its own unit test — the double supplies whatever params the test names — but would make
-// every note in the database reachable through any case's URL.
+// every note reachable through any case's URL.
 describe("nested notes and witnesses wired through simple-router", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -209,7 +205,7 @@ describe("nested notes and witnesses wired through simple-router", () => {
     const response = await request(await appWithDeedPollRoutes()).get("/deed-polls/case-1/notes/note-9");
 
     expect(response.status).toBe(200);
-    expect(findNote).toHaveBeenCalledWith("case-1", "note-9");
+    expect(findNote).toHaveBeenCalledWith("case-1", "note-9", expect.anything());
   });
 
   it("should pass the case id and the witness id from their own path segments, in that order", async () => {
@@ -219,7 +215,7 @@ describe("nested notes and witnesses wired through simple-router", () => {
     const response = await request(await appWithDeedPollRoutes()).get("/deed-polls/case-1/witnesses/witness-9");
 
     expect(response.status).toBe(200);
-    expect(findWitness).toHaveBeenCalledWith("case-1", "witness-9");
+    expect(findWitness).toHaveBeenCalledWith("case-1", "witness-9", expect.anything());
   });
 
   it("should route the notes collection to the collection handler, not to the single-note route", async () => {
@@ -229,7 +225,7 @@ describe("nested notes and witnesses wired through simple-router", () => {
     const response = await request(await appWithDeedPollRoutes()).get("/deed-polls/case-1/notes");
 
     expect(response.status).toBe(200);
-    expect(findNotes).toHaveBeenCalledWith("case-1");
+    expect(findNotes).toHaveBeenCalledWith("case-1", expect.anything());
     expect(findNote).not.toHaveBeenCalled();
   });
 
@@ -244,24 +240,21 @@ describe("nested notes and witnesses wired through simple-router", () => {
     expect(findDeedPoll).not.toHaveBeenCalled();
   });
 
-  it("should answer 201 on a nested create and 204 on a nested delete", async () => {
-    const { createNote, removeWitness } = await import("@hmcts/deed-poll");
+  it("should answer 201 on a nested create", async () => {
+    const { createNote } = await import("@hmcts/deed-poll");
     vi.mocked(createNote).mockResolvedValue({ id: "note-1" } as never);
-    vi.mocked(removeWitness).mockResolvedValue(undefined);
-    const app = await appWithDeedPollRoutes();
 
-    const created = await request(app).post("/deed-polls/case-1/notes").send({ note: "Called" });
-    const deleted = await request(app).delete("/deed-polls/case-1/witnesses/witness-1");
+    const created = await request(await appWithDeedPollRoutes())
+      .post("/deed-polls/case-1/notes")
+      .send({ note: "Called" });
 
     expect(created.status).toBe(201);
-    expect(deleted.status).toBe(204);
-    expect(deleted.text).toBe("");
   });
 
   it("should answer 404, not an empty list, when listing children of a case that does not exist", async () => {
     // findNotes/findWitnesses/findDocuments used to filter by deedPollId without checking the
     // parent, so a mistyped case id answered 200 with [] — indistinguishable from a real case that
-    // has no notes. They assert the parent now; this pins what the caller sees as a result.
+    // has no notes. api's nested routes 404 for it; this pins what the caller sees as a result.
     const { findNotes } = await import("@hmcts/deed-poll");
     vi.mocked(findNotes).mockRejectedValue(new NotFoundError("DeedPoll nope not found"));
 
@@ -303,30 +296,32 @@ describe("nested notes and witnesses wired through simple-router", () => {
     expect(createNote).not.toHaveBeenCalled();
   });
 
-  it("should attribute a nested note write to the authenticated caller and pass no isAdmin", async () => {
+  it("should forward the caller's token on a nested write and no author name of its own", async () => {
+    // Previously this asserted the resolved caller's name reached the domain so the note could be
+    // attributed. api stamps the author from the token now, so sending a name alongside would let this
+    // app attribute a note to whoever it liked — and dropping the token would make every write a 401.
     const { createNote } = await import("@hmcts/deed-poll");
     vi.mocked(createNote).mockResolvedValue({ id: "note-1" } as never);
 
     await request(await appWithDeedPollRoutes())
       .post("/deed-polls/case-1/notes")
+      .set("authorization", "Bearer caseworker-token")
       .send({ note: "Called the applicant" });
 
-    expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called the applicant" }, { userName: "A Caseworker" });
+    expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called the applicant" }, { accessToken: "caseworker-token" });
   });
 });
 
 /**
- * The two remaining deletes are admin-only, and this is the only place that proves it.
+ * The child deletes are gone, and this is what says so.
  *
- * They export an array — `[requireRoles(DEEDPOLL_ADMIN), handler]` — so a unit test can only reach the
- * handler, past the guard. Whether the guard is mounted at all, and whether `errorHandler` turns its
- * `ForbiddenError` into a 403 rather than a 500, are properties of the assembled router.
- *
- * **Both directions are asserted for each route.** A check that only ever refuses would pass if it
- * refused everyone, and the refusal has to leave the record intact — a 403 that still deleted the row
- * would be the worst possible outcome, so each case also asserts the domain function was never called.
+ * They were `[requireRoles(DEEDPOLL_ADMIN), handler]` — admin-only, on the reasoning that removing a note
+ * or a witness is a records change rather than data entry. api has no witness delete at all, and its note
+ * delete is wired through in task 6 of `docs/plans/02-dal-cutover-to-api.md`; either way authorisation is
+ * api's decision from the caller's own token now, so a second role check in this app would be one rule
+ * with two owners. A 404 here rather than a 204 or a 403 is the whole of the behaviour change.
  */
-describe("deleting is restricted to the admin role", () => {
+describe("the child deletes api has no endpoint for", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.NODE_ENV = "test";
@@ -341,34 +336,16 @@ describe("deleting is restricted to the admin role", () => {
     return app;
   }
 
-  // The case delete is absent: api has no endpoint for it, so the route went rather than being left
-  // guarded. See the DELETE assertion in the first block.
-  const deletes = [
-    { what: "a note", path: "/deed-polls/case-1/notes/note-1", fn: "removeNote" },
-    { what: "a witness", path: "/deed-polls/case-1/witnesses/witness-1", fn: "removeWitness" }
+  const paths = [
+    { what: "a note", path: "/deed-polls/case-1/notes/note-1" },
+    { what: "a witness", path: "/deed-polls/case-1/witnesses/witness-1" }
   ] as const;
 
-  for (const { what, path, fn } of deletes) {
-    it(`should refuse to delete ${what} for a caseworker without the admin role, and not delete it`, async () => {
-      const domain = await import("@hmcts/deed-poll");
-      const remove = vi.mocked(domain[fn]);
-      remove.mockResolvedValue(undefined as never);
+  for (const { what, path } of paths) {
+    it.each([DEEDPOLL_ADMIN, undefined])(`should answer 404 deleting ${what} whatever the caller's roles (%s)`, async (roles) => {
+      const response = await request(await appAs(roles)).delete(path);
 
-      const response = await request(await appAs(undefined)).delete(path);
-
-      expect(response.status).toBe(403);
-      expect(remove).not.toHaveBeenCalled();
-    });
-
-    it(`should allow an admin to delete ${what}`, async () => {
-      const domain = await import("@hmcts/deed-poll");
-      const remove = vi.mocked(domain[fn]);
-      remove.mockResolvedValue(undefined as never);
-
-      const response = await request(await appAs(DEEDPOLL_ADMIN)).delete(path);
-
-      expect(response.status).toBe(204);
-      expect(remove).toHaveBeenCalled();
+      expect(response.status).toBe(404);
     });
   }
 });

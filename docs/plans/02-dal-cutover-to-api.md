@@ -172,12 +172,48 @@ Five things the replacement settled, each recorded at the code that deals with i
 
 ### Task 4: Replace the notes, witnesses and documents query layers
 
-- [ ] `notes/service.ts` — list, create, read, patch against `/caseworker/cases/{id}/notes`. **Leave the delete unported for now**; it is the prerequisite above, and task 6 completes it
-- [ ] `witnesses/service.ts` — **read-only.** Witnesses arrive inside `GET /caseworker/cases/{id}`, and api has no witness write endpoints, deliberately. This app's edit form renders witnesses as a managed list with zero editable fields, so nothing is lost
-- [ ] `documents/service.ts` — upload via the multipart `POST /caseworker/cases/{id}/documents`, download via `GET …/documents/{documentId}/file`. **Delete `file-storage.ts`**: local disk was always a development story, pods are ephemeral and replicas share no volume, and api owns storage now
-- [ ] `documents/document-types.ts` — `GET /caseworker/document-types`, read-only. api has no document-type writes, also deliberate
-- [ ] Keep `upload-policy.ts` where it is. The 10 MB limit and the accepted-type list are enforced by both sides on purpose; a client that rejects early gives a better error than a 400 from api
-- [ ] Mark completed
+- [x] `notes/service.ts` — list, create, read, patch against `/caseworker/cases/{id}/notes`. **Leave the delete unported for now**; it is the prerequisite above, and task 6 completes it
+- [x] `witnesses/service.ts` — **read-only.** Witnesses arrive inside `GET /caseworker/cases/{id}`, and api has no witness write endpoints, deliberately. This app's edit form renders witnesses as a managed list with zero editable fields, so nothing is lost
+- [x] `documents/service.ts` — upload via the multipart `POST /caseworker/cases/{id}/documents`, download via `GET …/documents/{documentId}/file`. **Delete `file-storage.ts`**: local disk was always a development story, pods are ephemeral and replicas share no volume, and api owns storage now
+- [x] `documents/document-types.ts` — `GET /caseworker/document-types`, read-only. api has no document-type writes, also deliberate
+- [x] Keep `upload-policy.ts` where it is. The 10 MB limit and the accepted-type list are enforced by both sides on purpose; a client that rejects early gives a better error than a 400 from api
+- [x] Mark completed
+
+Five things the child-entity replacement settled, each recorded at the code that deals with it:
+
+- **The per-call scoping guard went, and the guarantee did not.** Every function in these three files
+  used to run `assertCaseExists` and then carry `{ id, deedPollId }` in its own `where` — belt and
+  braces, so an unscoped write was not expressible. api's note routes are nested under the case, and
+  its witnesses and documents arrive INSIDE the case, so another case's child is not in the list this
+  app looks at. Re-checking here would mean a second round trip to learn what the first call already
+  said. The 404-not-`[]` distinction survives with it: a mistyped case id and a real case with no notes
+  are still different answers.
+- **Nine operations went, and none of them is a regression.** api publishes no witness writes, no
+  document metadata-only create, no document patch, no document delete and no document-type writes —
+  all recorded in `DEED_POLL_API_PLAN.md` as not rebuilt until something asks, and nothing in this app
+  asks. `createWitnessSchema`, `updateWitnessSchema`, `createDocumentSchema`, `updateDocumentSchema`
+  and both document-type schemas went with them, along with `apps/api`'s eight routes and
+  `routes/document-types/[id].ts` entirely. A route that could only fail is worse than a 404, and the
+  wiring tests assert the 404s so the change is not provable only by absence. The in-use check that
+  made the document-type delete a 409 rather than a foreign-key 500 was a real defect fix: the
+  constraint it protected is api's database now, and enforcing it belongs with whoever rebuilds that
+  delete.
+- **`downloadDocument` streams and composes nothing.** api decides the filename and the disposition,
+  so both download routes forward its headers instead of building one — which retires `safeFilename`
+  and the header-injection guard around it, because the value is a server's output rather than an
+  uploading client's text. The conversion from `fetch`'s web stream to a Node one is in the adapter,
+  not in the two routes: `lib.dom`'s `ReadableStream` and `node:stream/web`'s are different types for
+  the same runtime object, and that cast belongs where HTTP is already known about.
+- **`upload-policy.ts` is untouched and is now load-bearing at both ends.** The 25 MB limit rejects a
+  body before it goes on the wire, which is a better error than a 400 after the upload — and the
+  missing-file rejection stays local too, because a form with no file part is a form the caseworker has
+  not finished. What went is the local defaulting: api names the row from the file and defaults the
+  direction to Incoming, so neither is sent unless the form supplied it.
+- **The note form lost its delete button, temporarily and deliberately.** Task 6 restores the branch,
+  the button and the e2e leg together; wiring one without the others leaves a control that saves when
+  the caseworker asked to delete. The behaviour to restore exactly is recorded at the handler, and the
+  test asserting that a missing `action` is never destructive is still there — it is the half of the
+  rule that must hold either way.
 
 ### Task 5: Remove Prisma, the pool and the migrations
 

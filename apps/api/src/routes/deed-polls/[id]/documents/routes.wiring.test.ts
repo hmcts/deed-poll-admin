@@ -13,6 +13,11 @@
  * Route ordering matters here too: `/documents/upload` and `/documents/:documentId` both match
  * `POST .../documents/upload`, and only `sortRoutes` ordering by parameter count keeps the static
  * one in front.
+ *
+ * The download's own headers are `deed-poll-api`'s now, forwarded rather than composed — so the four
+ * filename tests that lived here, including the header-injection guard, moved with the responsibility.
+ * What is left to prove at this end is that api's headers reach the client unaltered and that a failure
+ * still becomes a status code.
  */
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
@@ -27,16 +32,16 @@ import { attachUserDouble } from "../../../../express-doubles.js";
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
   findDocuments: vi.fn(),
-  createDocument: vi.fn(),
   findDocument: vi.fn(),
-  updateDocument: vi.fn(),
-  removeDocument: vi.fn(),
   uploadDocument: vi.fn(),
   downloadDocument: vi.fn()
 }));
 
 const routesDir = fileURLToPath(new URL(".", import.meta.url));
 const TYPE_ID = "07f3f0e0-0000-4000-8000-000000000000";
+
+/** The token the request arrives with, which every handler here forwards and nothing else. */
+const CALLER = { accessToken: "caseworker-token" };
 
 async function appWithDocumentRoutes(): Promise<Express> {
   const app = express();
@@ -71,6 +76,7 @@ describe("documents routes wired through simple-router", () => {
 
       await request(await appWithDocumentRoutes())
         .post("/deed-polls/case-1/documents/upload")
+        .set("authorization", "Bearer caseworker-token")
         .field("documentTypeId", TYPE_ID)
         .field("name", "Birth certificate")
         .field("direction", "Outgoing")
@@ -85,7 +91,8 @@ describe("documents routes wired through simple-router", () => {
           mimetype: "application/pdf",
           size: 8
         }),
-        { name: "Birth certificate", direction: "Outgoing" }
+        { name: "Birth certificate", direction: "Outgoing" },
+        CALLER
       );
     });
 
@@ -98,7 +105,7 @@ describe("documents routes wired through simple-router", () => {
         .field("deedPollId", "attacker-supplied")
         .attach("file", Buffer.from("x"), { filename: "a.pdf", contentType: "application/pdf" });
 
-      expect(uploadDocument).toHaveBeenCalledWith("case-1", TYPE_ID, expect.anything(), expect.anything());
+      expect(uploadDocument).toHaveBeenCalledWith("case-1", TYPE_ID, expect.anything(), expect.anything(), expect.anything());
     });
 
     it("should answer 400 when the document type is missing from the form", async () => {
@@ -112,6 +119,8 @@ describe("documents routes wired through simple-router", () => {
     });
 
     it("should answer 400 for a file over the limit, not 500", async () => {
+      // Rejected here rather than by api, which is the point of keeping `upload-policy.ts` local: a
+      // 25MB body is not put on the wire only to be refused at the other end.
       const response = await request(await appWithDocumentRoutes())
         .post("/deed-polls/case-1/documents/upload")
         .field("documentTypeId", TYPE_ID)
@@ -132,17 +141,17 @@ describe("documents routes wired through simple-router", () => {
       expect(response.status).toBe(400);
       expect(response.body.error).toBe("Select a file to upload");
       // Reached the domain with no file, rather than being rejected by the parser.
-      expect(uploadDocument).toHaveBeenCalledWith("case-1", TYPE_ID, undefined, expect.anything());
+      expect(uploadDocument).toHaveBeenCalledWith("case-1", TYPE_ID, undefined, expect.anything(), expect.anything());
     });
   });
 
   describe("download", () => {
-    const streaming = (body: string, doc: Record<string, unknown>) => {
-      vi.mocked(downloadDocument).mockResolvedValue({ doc, stream: Readable.from([body]) } as never);
+    const streaming = (body: string, headers: { contentType: string; contentDisposition: string | null }) => {
+      vi.mocked(downloadDocument).mockResolvedValue({ body: Readable.from([body]), ...headers } as never);
     };
 
-    it("should stream the bytes back with the stored MIME type", async () => {
-      streaming("file contents", { mimeType: "application/pdf", originalName: "birth.pdf", name: "birth.pdf" });
+    it("should stream the bytes back with the content type api sent", async () => {
+      streaming("file contents", { contentType: "application/pdf", contentDisposition: 'attachment; filename="birth.pdf"' });
 
       // .buffer() because supertest parses an application/pdf response into a Buffer on
       // response.body rather than onto response.text.
@@ -155,45 +164,25 @@ describe("documents routes wired through simple-router", () => {
       expect(response.body.toString()).toBe("file contents");
     });
 
-    it("should send it as an attachment named after the original file", async () => {
-      streaming("x", { mimeType: "application/pdf", originalName: "birth certificate.pdf", name: "doc" });
+    it("should forward api's Content-Disposition unaltered, because api decides the filename", async () => {
+      streaming("x", { contentType: "application/pdf", contentDisposition: 'attachment; filename="birth certificate.pdf"' });
 
       const response = await request(await appWithDocumentRoutes()).get("/deed-polls/case-1/documents/doc-1/file");
 
       expect(response.headers["content-disposition"]).toBe('attachment; filename="birth certificate.pdf"');
     });
 
-    it("should not let an uploaded filename inject into the header", async () => {
-      // originalName is whatever the uploading client called the file. A quote would break out of
-      // the quoted value; a newline would make the header invalid and Node would throw mid-response,
-      // turning a working download into a 500.
-      streaming("x", { mimeType: "application/pdf", originalName: 'evil".pdf\r\nX-Injected: yes', name: "doc" });
+    it("should set no Content-Disposition at all when api sent none, rather than inventing a filename", async () => {
+      streaming("x", { contentType: "application/pdf", contentDisposition: null });
 
       const response = await request(await appWithDocumentRoutes()).get("/deed-polls/case-1/documents/doc-1/file");
 
       expect(response.status).toBe(200);
-      expect(response.headers["content-disposition"]).toBe('attachment; filename="evil.pdfX-Injected yes"');
-      expect(response.headers["x-injected"]).toBeUndefined();
-    });
-
-    it("should fall back to a generic name when sanitising leaves nothing", async () => {
-      streaming("x", { mimeType: "application/pdf", originalName: "日本語", name: "日本語" });
-
-      const response = await request(await appWithDocumentRoutes()).get("/deed-polls/case-1/documents/doc-1/file");
-
-      expect(response.headers["content-disposition"]).toBe('attachment; filename="document"');
-    });
-
-    it("should default the content type when the row has none recorded", async () => {
-      streaming("x", { mimeType: null, originalName: "a.pdf", name: "a.pdf" });
-
-      const response = await request(await appWithDocumentRoutes()).get("/deed-polls/case-1/documents/doc-1/file");
-
-      expect(response.headers["content-type"]).toContain("application/octet-stream");
+      expect(response.headers["content-disposition"]).toBeUndefined();
     });
 
     it("should tell caches not to keep case data", async () => {
-      streaming("x", { mimeType: "application/pdf", originalName: "a.pdf", name: "a.pdf" });
+      streaming("x", { contentType: "application/pdf", contentDisposition: null });
 
       const response = await request(await appWithDocumentRoutes()).get("/deed-polls/case-1/documents/doc-1/file");
 
@@ -212,10 +201,12 @@ describe("documents routes wired through simple-router", () => {
     it("should scope the download to both ids, so another case's document is not readable", async () => {
       vi.mocked(downloadDocument).mockRejectedValue(new NotFoundError("Document doc-1 not found"));
 
-      const response = await request(await appWithDocumentRoutes()).get("/deed-polls/other-case/documents/doc-1/file");
+      const response = await request(await appWithDocumentRoutes())
+        .get("/deed-polls/other-case/documents/doc-1/file")
+        .set("authorization", "Bearer caseworker-token");
 
       expect(response.status).toBe(404);
-      expect(downloadDocument).toHaveBeenCalledWith("other-case", "doc-1");
+      expect(downloadDocument).toHaveBeenCalledWith("other-case", "doc-1", CALLER);
     });
   });
 });

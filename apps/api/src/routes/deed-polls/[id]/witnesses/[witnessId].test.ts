@@ -1,17 +1,19 @@
-import { findWitness, NotFoundError, removeWitness, updateWitness } from "@hmcts/deed-poll";
+import { findWitness, NotFoundError } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ZodError } from "zod";
-import { requestDouble, responseDouble, routeHandler } from "../../../../express-doubles.js";
-import { DELETE, GET, PATCH } from "./[witnessId].js";
+import { requestDouble, responseDouble } from "../../../../express-doubles.js";
+import * as route from "./[witnessId].js";
+import { GET } from "./[witnessId].js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
-  findWitness: vi.fn(),
-  updateWitness: vi.fn(),
-  removeWitness: vi.fn()
+  findWitness: vi.fn()
 }));
 
 const params = { id: "case-1", witnessId: "witness-1" };
+
+/** The caller's bearer token, which is the whole of what this handler passes on. */
+const bearer = { headers: { authorization: "Bearer caseworker-token" } };
+const CALLER = { accessToken: "caseworker-token" };
 
 describe("/deed-polls/:id/witnesses/:witnessId routes", () => {
   beforeEach(() => {
@@ -24,9 +26,9 @@ describe("/deed-polls/:id/witnesses/:witnessId routes", () => {
       vi.mocked(findWitness).mockResolvedValue(witness as never);
       const res = responseDouble();
 
-      await GET(requestDouble({ params }), res);
+      await GET(requestDouble({ params, ...bearer }), res);
 
-      expect(findWitness).toHaveBeenCalledWith("case-1", "witness-1");
+      expect(findWitness).toHaveBeenCalledWith("case-1", "witness-1", CALLER);
       expect(res.json).toHaveBeenCalledWith(witness);
     });
 
@@ -37,59 +39,10 @@ describe("/deed-polls/:id/witnesses/:witnessId routes", () => {
     });
   });
 
-  describe("PATCH", () => {
-    it("should apply the patch scoped to both ids and return the updated witness", async () => {
-      const updated = { id: "witness-1", witnessOccupation: "Commodore" };
-      vi.mocked(updateWitness).mockResolvedValue(updated as never);
-      const res = responseDouble();
-
-      await PATCH(requestDouble({ params, body: { witnessOccupation: "Commodore" } }), res);
-
-      expect(updateWitness).toHaveBeenCalledWith("case-1", "witness-1", { witnessOccupation: "Commodore" });
-      expect(res.json).toHaveBeenCalledWith(updated);
-    });
-
-    it("should accept a single field, because the update schema is partial", async () => {
-      vi.mocked(updateWitness).mockResolvedValue({ id: "witness-1" } as never);
-
-      await PATCH(requestDouble({ params, body: { declarant: true } }), responseDouble());
-
-      expect(updateWitness).toHaveBeenCalledWith("case-1", "witness-1", { declarant: true });
-    });
-
-    it("should reject a field of the wrong type rather than reaching the domain", async () => {
-      await expect(PATCH(requestDouble({ params, body: { declarant: "yes" } }), responseDouble())).rejects.toThrow(ZodError);
-
-      expect(updateWitness).not.toHaveBeenCalled();
-    });
-
-    it("should reject an over-length address, as the source column limit still applies on a patch", async () => {
-      await expect(PATCH(requestDouble({ params, body: { witnessAddress: "x".repeat(251) } }), responseDouble())).rejects.toThrow(ZodError);
-
-      expect(updateWitness).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("DELETE", () => {
-    it("should delete scoped to both ids and respond 204 with no body", async () => {
-      vi.mocked(removeWitness).mockResolvedValue(undefined);
-      const res = responseDouble();
-
-      await routeHandler(DELETE)(requestDouble({ params }), res);
-
-      expect(removeWitness).toHaveBeenCalledWith("case-1", "witness-1");
-      expect(res.status).toHaveBeenCalledWith(204);
-      expect(res.send).toHaveBeenCalledWith();
-      expect(res.json).not.toHaveBeenCalled();
-    });
-
-    it("should let a NotFoundError propagate rather than reporting 204 for a witness it did not delete", async () => {
-      vi.mocked(removeWitness).mockRejectedValue(new NotFoundError("Witness witness-1 not found"));
-      const res = responseDouble();
-
-      await expect(routeHandler(DELETE)(requestDouble({ params }), res)).rejects.toThrow(NotFoundError);
-
-      expect(res.status).not.toHaveBeenCalled();
-    });
+  // Witnesses are read-only: api publishes no witness writes, so the PATCH and the admin-only DELETE
+  // went with them rather than being left as routes that could only fail.
+  it("should export neither PATCH nor DELETE, because api publishes no witness writes", () => {
+    expect(route).not.toHaveProperty("PATCH");
+    expect(route).not.toHaveProperty("DELETE");
   });
 });

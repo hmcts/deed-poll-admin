@@ -85,15 +85,20 @@ const handler = async (req: Request, res: Response) => {
   }
 
   try {
-    await uploadDocument(req.params.id, parsed.data.documentTypeId, req.file, {
-      name: parsed.data.name,
-      direction: parsed.data.direction
-    });
+    await uploadDocument(
+      req.params.id,
+      parsed.data.documentTypeId,
+      req.file,
+      { name: parsed.data.name, direction: parsed.data.direction },
+      callerFromRequest(req)
+    );
   } catch (error) {
     // A missing file arrives as InvalidInputError("Select a file to upload") from the domain, which
-    // owns that message so this page and the API give the same one. An unknown document type arrives
-    // as NotFoundError — a 404 would be wrong here, because the caseworker picked from a list this
-    // page rendered, so it belongs against the field they chose from.
+    // owns that message so this page and the API give the same one. api's own rejections arrive the
+    // same way, carrying its field names — which are this form's field names, so an error against
+    // `documentTypeId` still lands on the control the caseworker used. An unknown document type
+    // arrives as NotFoundError: a 404 would be wrong here, because they picked from a list this page
+    // rendered, so it belongs against the field they chose from.
     if (error instanceof InvalidInputError) {
       return rerender(req, res, error.errors[0]?.field ?? "file", error.errors[0]?.message ?? error.message);
     }
@@ -114,7 +119,8 @@ async function rerender(req: Request, res: Response, field: string, message: str
 }
 
 async function render(req: Request, res: Response, error: { field?: string; message?: string }) {
-  const [found, types] = await Promise.all([findDeedPoll(req.params.id, callerFromRequest(req)), findDocumentTypes()]);
+  const caller = callerFromRequest(req);
+  const [found, types] = await Promise.all([findDeedPoll(req.params.id, caller), findDocumentTypes(caller)]);
 
   res.render("deed-polls/document-upload", {
     case: found,

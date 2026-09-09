@@ -24,7 +24,7 @@ const handler = (POST as ((req: Request, res: Response) => Promise<void>)[])[1];
  * would have left behind, which no shared double models.
  */
 function request(body: Record<string, unknown> = {}, file?: unknown): Request {
-  return Object.assign(pageRequest({ params: { id: "case-1" }, body }), { file }) as unknown as Request;
+  return Object.assign(pageRequest({ params: { id: "case-1" }, body, accessToken: "session-token" }), { file }) as unknown as Request;
 }
 
 function response() {
@@ -39,6 +39,9 @@ function response() {
 
 const aFile = { buffer: Buffer.from("%PDF-1.4"), originalname: "birth.pdf", mimetype: "application/pdf", size: 8 };
 
+/** The session's access token, which is the whole of what this page passes to the domain. */
+const CALLER = { accessToken: "session-token" };
+
 describe("document upload page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -49,7 +52,13 @@ describe("document upload page", () => {
   });
 
   describe("GET", () => {
-    it("renders the form with the document types from the reference table", async () => {
+    it("asks api for the document types, presenting the session's token", async () => {
+      await GET(request(), response());
+
+      expect(findDocumentTypes).toHaveBeenCalledWith(CALLER);
+    });
+
+    it("renders the form with the document types api published", async () => {
       const res = response();
 
       await GET(request(), res);
@@ -67,7 +76,7 @@ describe("document upload page", () => {
       expect(res.render.mock.calls[0][1].documentTypes[0].value).toBe("");
     });
 
-    it("flags an empty reference table, so the page shows a message rather than an unusable form", async () => {
+    it("flags an empty type list, so the page shows a message rather than an unusable form", async () => {
       vi.mocked(findDocumentTypes).mockResolvedValue([] as never);
       const res = response();
 
@@ -89,17 +98,17 @@ describe("document upload page", () => {
 
       await handler(request({ documentTypeId: TYPE_ID, name: "Birth certificate", direction: "Incoming" }, aFile), res);
 
-      expect(uploadDocument).toHaveBeenCalledWith("case-1", TYPE_ID, aFile, { name: "Birth certificate", direction: "Incoming" });
+      expect(uploadDocument).toHaveBeenCalledWith("case-1", TYPE_ID, aFile, { name: "Birth certificate", direction: "Incoming" }, CALLER);
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1#documents");
     });
 
     it("passes the case id from the path, not from a form field", async () => {
       await handler(request({ documentTypeId: TYPE_ID, deedPollId: "attacker-supplied" }, aFile), response());
 
-      expect(uploadDocument).toHaveBeenCalledWith("case-1", TYPE_ID, aFile, expect.anything());
+      expect(uploadDocument).toHaveBeenCalledWith("case-1", TYPE_ID, aFile, expect.anything(), CALLER);
     });
 
-    it("treats a blank optional name as absent, so the file's own name is used", async () => {
+    it("treats a blank optional name as absent, so api's own fallback to the file name applies", async () => {
       await handler(request({ documentTypeId: TYPE_ID, name: "" }, aFile), response());
 
       expect(vi.mocked(uploadDocument).mock.calls[0][3]).toEqual({ name: undefined, direction: undefined });

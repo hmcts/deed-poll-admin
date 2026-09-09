@@ -1,88 +1,55 @@
-import { type DeedPollNote, prisma } from "@hmcts/postgres-prisma";
-import { SERVICE_ACCOUNT_NAME } from "../auth/current-user.js";
-import { NotFoundError } from "../errors.js";
+/**
+ * Case notes, read and written through `deed-poll-api`.
+ *
+ * The scoping this file used to enforce by hand — `assertCaseExists` before every list, `{ id,
+ * deedPollId }` in every `where`, belt and braces so an unscoped write was not expressible — is api's
+ * now. Its note routes are all nested under `/caseworker/cases/{id}/notes`, so a note id belonging to
+ * another case answers 404 there rather than being reachable through the wrong parent's URL. That is
+ * the same guarantee, made at the only place that can still make it; re-checking here would mean
+ * asking api for the case as well, which is a second round trip to learn something the note call
+ * already told us.
+ *
+ * **Authorship is no longer a parameter.** `NoteAuthor` and the `SERVICE_ACCOUNT_NAME` fallback are
+ * gone: api stamps `createdBy` and `modifiedBy` from the caller's own token, so passing a name
+ * alongside it would let this app attribute a note to whoever it liked. See `../api/deed-poll-api.ts`
+ * for why the `Caller` carries only the token.
+ *
+ * **There is no `removeNote` yet.** api has the endpoint — it is its thirteenth caseworker operation,
+ * added for this app — and the adapter already wires it, but porting it is task 6 of
+ * `docs/plans/02-dal-cutover-to-api.md` along with the note form's delete branch, so the two arrive
+ * together rather than leaving a service function nothing calls.
+ */
+import { createNote as apiCreateNote, getNote, listNotes, type Note, patchNote } from "@hmcts/deed-poll-api-client";
+import { type Caller, callApi } from "../api/deed-poll-api.js";
 import type { CreateNoteInput, UpdateNoteInput } from "./schemas.js";
 
 /**
- * Who is writing a note. Optional throughout: an omitted name is stamped as the
- * service account, exactly as the case's own audit columns behave.
+ * Notes for a case, as api orders them — newest first, the order the subgrid renders.
+ *
+ * A missing case is still a 404 rather than an empty list, which was worth a comment when this file
+ * had to arrange it: filtering by `deedPollId` alone answered `[]` with 200 both for a mistyped case
+ * id and for a real case with no notes, and only one of those is true. api's nested route answers 404
+ * for the first, so the distinction now costs nothing to keep.
  */
-export interface NoteAuthor {
-  userName?: string;
+export function findNotes(deedPollId: string, caller: Caller): Promise<Note[]> {
+  return callApi(caller, (config) => listNotes(deedPollId, config));
+}
+
+export function findNote(deedPollId: string, id: string, caller: Caller): Promise<Note> {
+  return callApi(caller, (config) => getNote(deedPollId, id, config));
+}
+
+export function createNote(deedPollId: string, dto: CreateNoteInput, caller: Caller): Promise<Note> {
+  return callApi(caller, (config) => apiCreateNote(deedPollId, dto.note, config));
 }
 
 /**
- * Nested CRUD for case notes. All operations are scoped to a parent DeedPoll so
- * a note can never be read or mutated outside its case. The parent's existence
- * is checked on create (FK would fail anyway, but a 404 is clearer than a 500).
+ * Amend a note.
  *
- * The scoping is applied twice on the write paths, deliberately. `findNote` runs first
- * because it produces the `NotFoundError` the route layer maps to a clean 404, and the
- * `update`/`delete` that follow *also* carry `deedPollId` in their own `where` — Prisma
- * permits a non-unique filter alongside the unique `id`, so this costs nothing.
- *
- * Belt and braces on purpose: with only the guard, cross-case safety would be a
- * convention — one line that a later `updateX` could omit, leaving an unscoped write
- * that no existing test would catch. With it in the `where` too, an unscoped write is
- * not expressible. See "Phase 3 slice 2" in `.business_context/PROGRESS.md`.
+ * `dto.note` may be absent — `updateNoteSchema` is a partial — and that is passed through rather than
+ * defaulted, because api accepts an empty patch and re-stamps `modifiedBy` for it. An edit can only
+ * ever move `modifiedBy`: `UpdateNoteInput` cannot carry `createdBy`, and api would not honour it.
  */
-
-async function assertCaseExists(deedPollId: string): Promise<void> {
-  const exists = await prisma.deedPoll.findUnique({
-    where: { id: deedPollId },
-    select: { id: true }
-  });
-  if (!exists) throw new NotFoundError(`DeedPoll ${deedPollId} not found`);
-}
-
-export async function createNote(deedPollId: string, dto: CreateNoteInput, author: NoteAuthor = {}): Promise<DeedPollNote> {
-  await assertCaseExists(deedPollId);
-  // Both stamped on create: the source shows a Modified By on a note that has only
-  // ever been created, so "modified" means "last written", not "edited since".
-  const name = author.userName ?? SERVICE_ACCOUNT_NAME;
-  return prisma.deedPollNote.create({
-    data: { ...dto, deedPollId, createdBy: name, modifiedBy: name }
-  });
-}
-
-/**
- * Notes for a case, newest first.
- *
- * The parent is checked, so a missing case is a 404 rather than an empty list. Filtering by
- * `deedPollId` alone — which is what this did, following the prototype — answers `[]` with 200
- * for a case id that does not exist, and `[]` with 200 for a real case that has no notes. Those
- * are different facts and only one of them is true, so a caller who mistypes a case id is told
- * the case has no notes. `assertCaseExists` is the same check every create in this file already
- * makes; doing it here too costs one indexed primary-key lookup.
- */
-export async function findNotes(deedPollId: string): Promise<DeedPollNote[]> {
-  await assertCaseExists(deedPollId);
-  return prisma.deedPollNote.findMany({
-    where: { deedPollId },
-    orderBy: { createdOn: "desc" }
-  });
-}
-
-export async function findNote(deedPollId: string, id: string): Promise<DeedPollNote> {
-  const note = await prisma.deedPollNote.findFirst({
-    where: { id, deedPollId }
-  });
-  if (!note) throw new NotFoundError(`Note ${id} not found`);
-  return note;
-}
-
-export async function updateNote(deedPollId: string, id: string, dto: UpdateNoteInput, author: NoteAuthor = {}): Promise<DeedPollNote> {
-  await findNote(deedPollId, id); // 404 if missing or wrong parent
-  // `createdBy` is never in the patch — UpdateNoteInput cannot carry it — so an edit
-  // can only ever move `modifiedBy`, matching the case's updateNote() rule that no
-  // update may rewrite who created a record.
-  return prisma.deedPollNote.update({
-    where: { id, deedPollId },
-    data: { ...dto, modifiedBy: author.userName ?? SERVICE_ACCOUNT_NAME }
-  });
-}
-
-export async function removeNote(deedPollId: string, id: string): Promise<void> {
-  await findNote(deedPollId, id);
-  await prisma.deedPollNote.delete({ where: { id, deedPollId } });
+export function updateNote(deedPollId: string, id: string, dto: UpdateNoteInput, caller: Caller): Promise<Note> {
+  return callApi(caller, (config) => patchNote(deedPollId, id, dto.note, config));
 }

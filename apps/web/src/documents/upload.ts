@@ -22,9 +22,10 @@
  * development the starter's 500 page even showed the right message, which made it look like a status
  * bug rather than a routing one.
  *
- * Memory storage rather than disk, because `saveFile(buffer)` in the domain takes a `Buffer`.
- * Multer's disk storage would write a temp file for us to read straight back and write again, and
- * would leave the temp file behind on a failure path.
+ * Memory storage rather than disk, because `uploadDocument` puts the bytes straight into the multipart
+ * body it sends `deed-poll-api`. Multer's disk storage would write a temp file for us to read back and
+ * forward, and would leave the temp file behind on a failure path — and this app now has no local file
+ * storage at all, which is what task 4 of `docs/plans/02-dal-cutover-to-api.md` removed.
  */
 import { type InvalidInputError, isAllowedUploadType, MAX_UPLOAD_BYTES, UPLOAD_FILE_FIELD, uploadLimitRejection, uploadTypeRejection } from "@hmcts/deed-poll";
 import type { NextFunction, Request, RequestHandler, Response } from "express";

@@ -1,26 +1,16 @@
 /**
- * Witnesses collection for a case, ported from `witnesses.controller.ts` (`@Get()` / `@Post()`).
+ * Witnesses collection for a case, ported from `witnesses.controller.ts` (`@Get()`).
  *
- * No user context at all, unlike notes: `DeedPollWitness` has no `createdBy`/`modifiedBy` columns,
- * so there is nothing to attribute and `createWitness` takes no author argument. The prototype's
- * controller likewise never injected `@User()`.
- *
- * Note that `createWitnessSchema` requires all four fields — witnesses are not logged
- * incrementally the way a case is, so an empty body is a 400 here where it is a 201 on
- * `/deed-polls`.
+ * **`GET` only.** `deed-poll-api` publishes no witness write endpoints — task 4 of
+ * `docs/plans/02-dal-cutover-to-api.md` records that as deliberate — so the `POST` went with
+ * `createWitness` and `createWitnessSchema` rather than being left as a route that could only fail.
+ * Nothing consumed it: this app's edit form renders witnesses as a managed list with no editable
+ * fields. Restoring the operation is a change in api first.
  */
-import { createWitness, createWitnessSchema, findWitnesses } from "@hmcts/deed-poll";
+import { findWitnesses } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
+import { callerFromRequest } from "../../../../auth/current-user.js";
 
 export const GET = async (req: Request, res: Response) => {
-  res.json(await findWitnesses(req.params.id));
-};
-
-export const POST = async (req: Request, res: Response) => {
-  const parsed = createWitnessSchema.safeParse(req.body);
-  if (!parsed.success) {
-    throw parsed.error;
-  }
-
-  res.status(201).json(await createWitness(req.params.id, parsed.data));
+  res.json(await findWitnesses(req.params.id, callerFromRequest(req)));
 };

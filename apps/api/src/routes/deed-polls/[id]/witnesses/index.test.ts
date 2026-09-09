@@ -1,21 +1,17 @@
-import { createWitness, findWitnesses } from "@hmcts/deed-poll";
+import { findWitnesses, NotFoundError } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ZodError } from "zod";
 import { requestDouble, responseDouble } from "../../../../express-doubles.js";
-import { GET, POST } from "./index.js";
+import * as route from "./index.js";
+import { GET } from "./index.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
-  findWitnesses: vi.fn(),
-  createWitness: vi.fn()
+  findWitnesses: vi.fn()
 }));
 
-const witness = {
-  witnessName: "Grace Hopper",
-  witnessAddress: "1 Navy Yard, London",
-  witnessOccupation: "Rear Admiral",
-  declarant: false
-};
+/** The caller's bearer token, which is the whole of what this handler passes on. */
+const bearer = { headers: { authorization: "Bearer caseworker-token" } };
+const CALLER = { accessToken: "caseworker-token" };
 
 describe("/deed-polls/:id/witnesses collection routes", () => {
   beforeEach(() => {
@@ -28,60 +24,26 @@ describe("/deed-polls/:id/witnesses collection routes", () => {
       vi.mocked(findWitnesses).mockResolvedValue(witnesses as never);
       const res = responseDouble();
 
-      await GET(requestDouble({ params: { id: "case-1" } }), res);
+      await GET(requestDouble({ params: { id: "case-1" }, ...bearer }), res);
 
-      expect(findWitnesses).toHaveBeenCalledWith("case-1");
+      expect(findWitnesses).toHaveBeenCalledWith("case-1", CALLER);
       expect(res.json).toHaveBeenCalledWith(witnesses);
+    });
+
+    it("should let a NotFoundError propagate, so a missing case 404s rather than answering an empty list", async () => {
+      vi.mocked(findWitnesses).mockRejectedValue(new NotFoundError("DeedPoll nope not found"));
+      const res = responseDouble();
+
+      await expect(GET(requestDouble({ params: { id: "nope" } }), res)).rejects.toThrow(NotFoundError);
+
+      expect(res.json).not.toHaveBeenCalled();
     });
   });
 
-  describe("POST /deed-polls/:id/witnesses", () => {
-    it("should create the witness against the case and respond 201", async () => {
-      const created = { id: "witness-1", ...witness };
-      vi.mocked(createWitness).mockResolvedValue(created as never);
-      const res = responseDouble();
-
-      await POST(requestDouble({ params: { id: "case-1" }, body: witness }), res);
-
-      expect(createWitness).toHaveBeenCalledWith("case-1", witness);
-      expect(res.status).toHaveBeenCalledWith(201);
-      expect(res.json).toHaveBeenCalledWith(created);
-    });
-
-    it("should pass no author context, because a witness has no createdBy column to stamp", async () => {
-      vi.mocked(createWitness).mockResolvedValue({ id: "witness-1" } as never);
-
-      await POST(requestDouble({ params: { id: "case-1" }, body: witness, userName: "A Caseworker" }), responseDouble());
-
-      expect(createWitness).toHaveBeenCalledWith("case-1", witness);
-    });
-
-    it("should reject an empty body, because all four witness fields are required", async () => {
-      await expect(POST(requestDouble({ params: { id: "case-1" }, body: {} }), responseDouble())).rejects.toThrow(ZodError);
-
-      expect(createWitness).not.toHaveBeenCalled();
-    });
-
-    it("should reject a partial witness, unlike a case which is logged incrementally", async () => {
-      await expect(POST(requestDouble({ params: { id: "case-1" }, body: { witnessName: "Grace Hopper" } }), responseDouble())).rejects.toThrow(ZodError);
-
-      expect(createWitness).not.toHaveBeenCalled();
-    });
-
-    it("should reject a name longer than the source column allows", async () => {
-      const tooLong = { ...witness, witnessName: "x".repeat(101) };
-
-      await expect(POST(requestDouble({ params: { id: "case-1" }, body: tooLong }), responseDouble())).rejects.toThrow(ZodError);
-
-      expect(createWitness).not.toHaveBeenCalled();
-    });
-
-    it("should strip unknown keys, as the global ValidationPipe's whitelist option did", async () => {
-      vi.mocked(createWitness).mockResolvedValue({ id: "witness-1" } as never);
-
-      await POST(requestDouble({ params: { id: "case-1" }, body: { ...witness, notAField: "dropped" } }), responseDouble());
-
-      expect(createWitness).toHaveBeenCalledWith("case-1", witness);
-    });
+  // api has no witness write endpoints, deliberately — see the head of `index.ts`. Asserted rather than
+  // left implicit, because a route that accepted a body and then failed is worse than one that 404s, and
+  // "no POST" is otherwise provable only by the absence of a test.
+  it("should export no POST, because api publishes no witness create", () => {
+    expect(route).not.toHaveProperty("POST");
   });
 });
