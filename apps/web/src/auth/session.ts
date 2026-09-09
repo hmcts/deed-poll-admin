@@ -6,8 +6,8 @@
  * and become an admin — and Phase 5 is where it goes. It is not merely disabled: reading it is gone
  * from this app entirely, so there is no configuration under which it comes back.
  *
- * Namespaced under `deedPoll` per `.claude/rules/frontend.md`, so it cannot collide with the
- * onboarding journey's session data in the same store.
+ * Namespaced under `deedPoll` per `.claude/rules/frontend.md`, so a second journey added later cannot
+ * collide with it in the same store.
  */
 import { type CurrentUser, plainHttpPermitted } from "@hmcts/deed-poll";
 import type { Request } from "express";

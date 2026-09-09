@@ -8,8 +8,7 @@
  *
  * This replaced the template's marketing home page, which described `hmcts/expressjs-monorepo-template`
  * rather than this service. `/` needs a handler rather than nothing: it is what anyone visiting the
- * bare hostname or a bookmarked root gets, and the onboarding confirmation page's return button points
- * at it.
+ * bare hostname or a bookmarked root gets.
  *
  * Note it is *not* reached from the GOV.UK header, despite `site-header.njk` passing `serviceUrl: "/"`.
  * govuk-frontend 6 removed `serviceName` and `serviceUrl` from `govukHeader` in favour of

@@ -5,7 +5,12 @@
     "rootDir": "./src",
     "declaration": true,
     "declarationMap": true,
-    "composite": true
+    "composite": true,
+    // Stated rather than inherited, as `libs/deed-poll-api-client` also states it. Node's globals used
+    // to arrive here transitively through `@hmcts/postgres-prisma`'s own `@types/node`; that dependency
+    // went with the data access layer, and `process`, `Buffer` and `node:fs` are still used — by the
+    // api base URL, the document upload and the conformance artifact loader respectively.
+    "types": ["node"]
   },
   "include": ["src/**/*"],
   "exclude": ["**/*.test.ts", "dist", "node_modules"]

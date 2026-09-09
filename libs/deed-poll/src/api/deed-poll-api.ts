@@ -19,11 +19,22 @@
  * vault secrets have been mounted into the environment. Reading the environment lazily, per call, is
  * correct at any point in the startup sequence.
  */
-import type { ApiConfig, ApiError, ApiResult } from "@hmcts/deed-poll-api-client";
+import { type ApiConfig, type ApiError, type ApiResult, checkApiReachable } from "@hmcts/deed-poll-api-client";
 import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } from "../errors.js";
 
 /** The mock api's port. `yarn mock:api` starts it there; nothing deployed relies on this default. */
 const DEFAULT_BASE_URL = "http://localhost:3200";
+
+/**
+ * How long a readiness probe waits for api's `/health` before calling it down.
+ *
+ * Deliberately shorter than the application timeout `apiConfig` resolves, and deliberately **not**
+ * overridable by `DEED_POLL_API_TIMEOUT_MS`: a probe must answer on its own terms and never inherit a
+ * caller's patience. `runChecks` in `@hmcts-cft/cloud-native-platform` is a bare `Promise.all`, so a
+ * probe slower than Kubernetes' own timeout reports nothing at all — and takes the sibling Redis result
+ * in `apps/web/src/app.ts` down with it.
+ */
+const HEALTH_PROBE_TIMEOUT_MS = 2_000;
 
 /**
  * Who is making the call, as far as api is concerned.
@@ -33,9 +44,9 @@ const DEFAULT_BASE_URL = "http://localhost:3200";
  * the token, so passing either alongside it would be a second opinion about the caller — and one this
  * app could set freely.
  *
- * Optional because `apps/api`'s routes and the unit tests both have calls with no caller to speak of.
- * A call without a token is a 401 from api rather than an unauthenticated read, which is the right way
- * for it to fail.
+ * Optional because the unit tests have calls with no caller to speak of, and because the readiness
+ * probe below has no session to read a token from. A call without a token is a 401 from api rather
+ * than an unauthenticated read, which is the right way for it to fail.
  */
 export interface Caller {
   /** The caller's IDAM access token, presented as a bearer credential. */
@@ -53,6 +64,44 @@ export async function callApi<T>(caller: Caller, call: (config: ApiConfig) => Pr
   if (result.ok) return result.data;
 
   throw errorFor(result.error);
+}
+
+/**
+ * Whether api is answering, as a readiness check.
+ *
+ * This is what replaced `deedPollDatabaseChecks()` when the data access layer went — task 5 of
+ * `docs/plans/02-dal-cutover-to-api.md`, which asks for it in those terms. It is the same argument the
+ * Postgres check made, pointed at the dependency that took its place: this app can serve no case page
+ * without api, so a probe that went green while api was unreachable would have Kubernetes send traffic
+ * to a pod that 500s every request.
+ *
+ * No `Caller`, because api's `/health` is unauthenticated. So this proves reachability and says nothing
+ * about whether this app's credentials work — and it cannot do better: the only token this app holds is
+ * a caseworker's, in a session, and no session exists at probe time.
+ *
+ * **None of the `guarded`/shared-attempt machinery the Postgres check needed comes with it, and that is
+ * the point rather than an omission.** That existed because `pgPool` was built with
+ * `connectionTimeoutMillis` at its default of `0`: a database that stopped answering rather than
+ * refusing left a query that neither resolved nor rejected, so the probe had to bound it, share the
+ * outstanding attempt, and rotate it on staleness. Every call through `client.ts` carries an
+ * `AbortSignal.timeout` and classifies the abort as `timeout`, so this settles by construction and
+ * leaves nothing behind to share.
+ *
+ * Plain `Promise<"UP" | "DOWN">`, which is what `@hmcts-cft/cloud-native-platform`'s `HealthCheck`
+ * returns, so the domain needs no dependency on the app framework to supply it. **Whether it is
+ * readiness or liveness is the app's call, not this file's** — see `apps/web/src/app.ts`, which puts it
+ * on readiness only, for why.
+ */
+export async function deedPollApiStatus(): Promise<"UP" | "DOWN"> {
+  const result = await checkApiReachable({ ...apiConfig({}), timeoutMs: HEALTH_PROBE_TIMEOUT_MS });
+  if (result.ok) return "UP";
+
+  // `HealthCheck` collapses to UP/DOWN, so the classification is logged here or lost — and being paged
+  // for "readiness DOWN" with no further detail is most of the diagnosis wasted. `unavailable` and
+  // `timeout` mean different things operationally: one is a service that is down, the other a service
+  // that is too slow, and only one of them is fixed by waiting.
+  console.error(`deed-poll-api readiness check failed (${result.error.kind}): ${result.error.message}`);
+  return "DOWN";
 }
 
 function apiConfig(caller: Caller): ApiConfig {

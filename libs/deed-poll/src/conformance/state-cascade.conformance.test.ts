@@ -8,9 +8,10 @@
  * including the documented quirk that Awaiting Enrolment (signature received)
  * outranks the referral check.
  */
-import { DeedPollState } from "@hmcts/postgres-prisma";
+
 import { describe, expect, it } from "vitest";
 import { type CaseStateInput, collectDateRuleErrors, deriveState, hasContradiction } from "../deed-poll/case-state.js";
+import { DeedPollState } from "../deed-poll/enums/option-sets.js";
 
 const D = new Date("2026-01-01");
 

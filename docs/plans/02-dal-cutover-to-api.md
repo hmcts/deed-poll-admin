@@ -217,12 +217,56 @@ Five things the child-entity replacement settled, each recorded at the code that
 
 ### Task 5: Remove Prisma, the pool and the migrations
 
-- [ ] Delete `apps/api` and its tests. Nothing consumes it
-- [ ] Delete `apps/postgres`, `libs/postgres-prisma`, and the migrations under `apps/postgres/prisma/migrations/`
-- [ ] Remove the pg pool from `apps/web/src/app.ts` and the `@hmcts/postgres-prisma` dependency from every `package.json` that names it
-- [ ] **Re-point the readiness check.** `deedPollDatabaseChecks()` goes; what replaces it is Redis — already added in plan 01 — plus a check that api answers. A probe that goes green while api is unreachable is worse than no probe, because Kubernetes will send traffic to a pod that cannot serve a single case page
-- [ ] `yarn install --immutable` afterwards
-- [ ] Mark completed
+- [x] Delete `apps/api` and its tests. Nothing consumes it
+- [x] Delete `apps/postgres`, `libs/postgres-prisma`, and the migrations under `apps/postgres/prisma/migrations/`
+- [x] Remove the pg pool from `apps/web/src/app.ts` and the `@hmcts/postgres-prisma` dependency from every `package.json` that names it
+- [x] **Re-point the readiness check.** `deedPollDatabaseChecks()` goes; what replaces it is Redis — already added in plan 01 — plus a check that api answers. A probe that goes green while api is unreachable is worse than no probe, because Kubernetes will send traffic to a pod that cannot serve a single case page
+- [x] `yarn install --immutable` afterwards
+- [x] Mark completed
+
+Five things the removal settled, each recorded at the code that deals with it:
+
+- **`libs/onboarding` and its pages went too, and this plan did not ask for it.**
+  `03-collapse-to-single-app.md` names this as a defect in plan 02 and it is right: onboarding's
+  `queries.ts` called `prisma.onboardingSubmission`, so `libs/postgres-prisma` could not be deleted
+  while it existed and the "leave every task green" constraint left no third option. Plan 03's own
+  decision 3 — template demo content, unreachable by navigation, deletion rather than migration — is
+  what was carried out, early: `libs/onboarding/`, the eight pages under
+  `apps/web/src/pages/onboarding/`, their two asset entries, and
+  `e2e-tests/tests/onboarding-happy-path.spec.ts`. **Plan 03 task 1 is therefore already done**, and
+  its test arithmetic needs revising: the drop landed here instead.
+- **`health.ts` went in full rather than being edited down.** Every part of it existed for a fault
+  `pgPool` could produce and api cannot — `DEED_POLL_TABLES` for an unmigrated database, and the
+  `guarded`/shared-attempt/staleness machinery for a query that neither resolves nor rejects because
+  `connectionTimeoutMillis` was `0`. Every call through `client.ts` carries an `AbortSignal.timeout`,
+  so the replacement settles by construction. `deedPollApiStatus` is 4 lines and lives in
+  `libs/deed-poll/src/api/deed-poll-api.ts`, next to the private `apiConfig` it needs — with the
+  argument for dropping the machinery written at it, so nobody reinstates it by analogy.
+- **The probe's timeout is fixed at 2s and is deliberately not `DEED_POLL_API_TIMEOUT_MS`.** A probe
+  must answer on its own terms: `runChecks` is a bare `Promise.all`, so a probe that waited the
+  application's patience out would report nothing at all and take the Redis result with it. Both halves
+  are pinned by `deed-poll-api.test.ts`, against a real socket — a server that accepts and never answers
+  is the case a stubbed `fetch` would define away, and it is the one that matters.
+- **Three OSV ignores went with Prisma.** Two `mysql2` advisories and one `deepmerge-ts`, all ignored
+  only because the Prisma CLI pinned them exactly. Neither package is in `yarn.lock` any more, and an
+  ignore for an absent dependency would silently suppress the same advisory if it returned for an
+  unrelated reason.
+- **`libs/deed-poll` had to state `"types": ["node"]`.** Node's globals reached it transitively through
+  `@hmcts/postgres-prisma`'s own `@types/node`; `apps/web` was getting `multer` the same way, from
+  `apps/api`. Both are declared now. This is the sort of breakage `yarn test` cannot see and `yarn build`
+  can, which is what the note under Validation Commands is about.
+
+Left for the tasks that own them: `DATABASE_URL` and `postgres-url` are still in the four `values.yaml`
+and in `apps/crons`' `omit` list — task 8. `scripts/progress-dashboard.mjs` now reports zero ported
+handlers because it counted `apps/api`'s route files; its Phase 3 model died with them, and the record
+is task 8's. The conformance harness compiles and passes: it reads the Dataverse artifacts, not the
+Prisma schema, and its three enum imports were re-pointed at `enums/option-sets.ts` — a one-line change
+each, leaving task 7's decision about its home genuinely open.
+
+**Test arithmetic, so a deliberate deletion is not mistaken for a regression:** 1,608 unit tests →
+**1,261**, and 21 e2e → **16**. The drop is `apps/api` (211 declarations, more once `it.each` expands),
+`apps/postgres` (15), `libs/onboarding` (72), the onboarding pages (32) and `health.test.ts` (14), less
+the 7 added for `deedPollApiStatus`. No other suite lost a test.
 
 ### Task 6: Note deletion, once api has the endpoint
 

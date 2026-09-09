@@ -1,7 +1,7 @@
 // Deed-poll domain logic, ported from the power_app_nest prototype.
 //
-// Framework-agnostic by design: no Express, no HTTP concerns, no Nest DI. The apps
-// (apps/web pages, apps/api routes) import named functions from here.
+// Framework-agnostic by design: no Express, no HTTP concerns, no Nest DI. `apps/web`'s pages
+// import named functions from here.
 //
 // The prototype expressed these as Nest @Injectable() classes. They held no state, so
 // per this repo's conventions they are plain exported functions here.
@@ -34,7 +34,6 @@ export * from "./documents/schemas.js";
 export * from "./documents/service.js";
 export * from "./documents/upload-policy.js";
 export * from "./errors.js";
-export * from "./health.js";
 export * from "./notes/note-form.js";
 export * from "./notes/notes-view.js";
 export * from "./notes/schemas.js";

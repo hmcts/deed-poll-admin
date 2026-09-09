@@ -39,12 +39,12 @@ describe("loadSecrets", () => {
     expect(configLoaded.value).toBe(false);
   });
 
-  // Asserted because dropping either name points a local run at a deployed database or session store with
-  // no visible signal.
-  it("should keep the local database and Redis URLs when reading a real vault outside production", async () => {
+  // Asserted because dropping the name points a local run at the deployed session store with no visible
+  // signal. `DATABASE_URL` was the other entry and went with the data access layer: there is no database.
+  it("should keep the local Redis URL when reading a real vault outside production", async () => {
     await loadSecrets();
 
-    expect(vi.mocked(getPropertiesVolumeSecrets)).toHaveBeenCalledWith(expect.objectContaining({ omit: ["DATABASE_URL", "REDIS_URL"] }));
+    expect(vi.mocked(getPropertiesVolumeSecrets)).toHaveBeenCalledWith(expect.objectContaining({ omit: ["REDIS_URL"] }));
   });
 
   // The chart is what names the vault and its secrets, so a wrong path loads nothing and fails only at the

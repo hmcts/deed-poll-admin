@@ -164,9 +164,9 @@ async function fillNewCaseForm(page: Page, name: { forename: string; surname: st
  * **In a context and session of its own, which is the whole point of the function.** `localeMiddleware`
  * persists the chosen language to `req.session.locale`, so requesting `?lng=cy` is a *write* to the
  * session — and the session behind `ADMIN_STORAGE_STATE` is shared with every other test that restores
- * it. Done on the shared session, this line switched the onboarding spec into Welsh mid-run, and its
- * English locators stopped matching. The symptom was a 30-second timeout waiting for a button whose
- * name had changed, in a different file, which reads as anything but a language leak.
+ * it. Done on the shared session, this line switched another spec into Welsh mid-run and its English
+ * locators stopped matching. The symptom was a 30-second timeout waiting for a button whose name had
+ * changed, in a different file, which reads as anything but a language leak.
  *
  * So: any authenticated check that writes to the session needs its own session, exactly as
  * `idam-session.ts` says. One extra login is cheaper than an interference bug.
@@ -225,11 +225,10 @@ function caseHeader(page: Page): Locator {
  * Checked inline at each point of a journey rather than in a test of its own, per
  * `.claude/rules/e2e-testing.md`.
  *
- * **No exclusions, deliberately.** `homepage.spec.ts` and `onboarding-happy-path.spec.ts` both
- * exclude `.govuk-footer__link` and `.language` as known template issues, and both are in the shared
- * layout these pages also render — but every deed-poll page passes without them, so adding them here
- * would suppress findings that do not exist and hide any that appear later. Reinstate one only with
- * evidence.
+ * **No exclusions, deliberately.** The template's own specs excluded `.govuk-footer__link` and
+ * `.language` as known issues, and both are in the shared layout these pages also render — but every
+ * deed-poll page passes without them, so adding them here would suppress findings that do not exist and
+ * hide any that appear later. Reinstate one only with evidence.
  *
  * Reported as `id: selector` strings rather than raw violation objects so a failure names the rule and
  * the element instead of printing an unreadable object graph.

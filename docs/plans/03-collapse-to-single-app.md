@@ -109,6 +109,13 @@ endpoint, so the right answer is deletion, not migration.
 
 ### Task 1: Delete the onboarding demo
 
+**Already done, 2026-09-09, by plan 02 task 5** — every box below is satisfied; verify and tick rather
+than repeat. It could not be deferred: `libs/onboarding` was the only thing still importing
+`@hmcts/postgres-prisma`, which task 5 deletes, and task 5's own constraint is to leave `yarn build`
+green. Decision 3 above is what was carried out, unchanged. **The test-count arithmetic in Constraints
+needs revising:** the onboarding drop landed in plan 02's commit, so this plan's own delta is smaller
+than 72 unit and 5 e2e — see the note under plan 02 task 5 for the numbers as they actually fell.
+
 - [ ] Delete `libs/onboarding/` entirely, and remove `@hmcts/onboarding` from every `package.json` naming it
 - [ ] Delete `apps/web/src/pages/onboarding/` — `(start)`, `(name)`, `(role)`, `(date-of-birth)`, `(address)`,
       `(summary)`, `confirmation` and `index.ts`
