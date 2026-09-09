@@ -81,8 +81,9 @@ endpoint, so the right answer is deletion, not migration.
 5. **`libs/` stays a workspace.** Do **not** flatten the libraries into `src/`. Four of them
    (`cloud-native-platform`, `express-govuk-starter`, `simple-router`, `express-session-postgres`) are
    template-provided at `82e8b0d`, and keeping them as packages is what makes a future template re-scaffold
-   tractable. `libs/deed-poll` is 75 files of tested domain logic and the conformance argument for the whole
-   migration — it earns its boundary.
+   tractable. `libs/deed-poll` is 68 files of tested domain logic — 443 tests — and still holds the four
+   conformance *rule* layers, so it earns its boundary. (It was 75 files before plan 02; the structural
+   conformance layer retired to api, and the query layer became adapter calls.)
 6. **`libs/express-session-postgres` stays on disk and stays a dependency**, unused, as recorded in
    `CLAUDE.md`. It is template-provided; unwiring it invites a re-scaffold conflict. Do not "tidy" it as part
    of this plan.
@@ -99,9 +100,11 @@ endpoint, so the right answer is deletion, not migration.
 - **Test counts must not drop except where tests are deliberately deleted.** The onboarding removal this plan
   was written to do has already happened, in plan 02 task 5, so its 72 unit and 5 e2e tests are already out of
   the baseline. Record the arithmetic in each completion note so a future reader can tell a deliberate
-  deletion from a regression. The baseline this plan starts from is **1,229 unit and 16 e2e**, and task 1
-  changes neither — every remaining task should be arithmetically neutral, since deleting `apps/crons` and
-  collapsing the chart takes no page or service with it.
+  deletion from a regression. The baseline this plan starts from is **1,256 unit and 17 e2e**, measured on
+  `master` at `5dc0d08` after plan 02 merged — not the 1,229 an earlier revision of this line quoted, which
+  was counted mid-run before that plan's own review commits added 27 more.
+  - **One deliberate drop is expected: `apps/crons`'s 10 tests**, when task 2 deletes it. So 1,256 → **1,246**,
+    and nothing after that should move. The e2e count does not change at all — no task here touches a page.
 - `REDIS_URL=redis://127.0.0.1:6379` and `yarn idam:users` are needed for `test:e2e` in the devcontainer.
   See the README.
 
@@ -226,8 +229,10 @@ task: zero** — the 72 unit and 5 e2e tests were already charged to plan 02.
 ## Success criteria
 
 - `yarn lint`, `yarn build`, `yarn test` and `yarn test:e2e` all pass.
-- **Unit tests 1,229 and e2e 16**, unchanged: the onboarding tests this plan was written to remove were
-  already deleted by plan 02, and nothing else here deletes a test. Any drop is a regression.
+- **Unit tests 1,246 and e2e 17.** From a 1,256 baseline, the only drop is `apps/crons`'s 10 tests, deleted
+  with it in task 2. The onboarding tests this plan was originally written to remove were already deleted by
+  plan 02. Any other drop is a regression — say so in the completion note either way, rather than leaving a
+  reader to work out whether tests vanished on purpose.
 - No `apps/` directory. No `helm/` directory. No `libs/onboarding`. No `@hmcts/crons`.
 - `charts/deed-poll-admin/values.yaml` exists, and `charts/deed-poll-admin/` contains no `dependencies:`.
 - A root `Dockerfile` exists and is the one the pipeline would build.
