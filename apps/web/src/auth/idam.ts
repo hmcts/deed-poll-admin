@@ -73,8 +73,8 @@ export async function idamConfiguration(config: IdamConfig): Promise<client.Conf
       // `openid-client` refuses a cleartext issuer by default, and is right to: the code exchange
       // sends the client secret over the same connection the tokens come back on. That default is why
       // `/login` 500s against the local simulator until this is granted. The allowlist behind
-      // `plainHttpPermitted` is shared with `apps/api`, which has to make the opposite call — reject
-      // rather than permit — from the same decision.
+      // `plainHttpPermitted` lives in the domain library rather than here because the same decision used
+      // to be read the opposite way — reject rather than permit — by the deleted `apps/api`.
       ...(plainHttpPermitted() ? { execute: [client.allowInsecureRequests] } : {})
     });
   }
@@ -201,9 +201,9 @@ export function callbackUrl(config: IdamConfig, req: Request): URL {
  *
  * **Returns tokens only, and does not read `/o/userinfo`.** It used to build a `CurrentUser` from
  * userinfo, and the only caller discarded it — a wasted round trip per refresh. Re-reading roles here
- * would be a real feature (it would make a withdrawn role take effect mid-session, which is what
- * `apps/api` achieves by reading userinfo per request) but it is a deliberate behaviour change rather
- * than part of a refresh, so it is not smuggled in here.
+ * would be a real feature — it would make a withdrawn role take effect mid-session, which is what the
+ * deleted `apps/api` got for free by reading userinfo per request — but it is a deliberate behaviour
+ * change rather than part of a refresh, so it is not smuggled in here.
  *
  * **An absent `id_token` is not an error.** OpenID Connect Core §12.2 states the refresh response is a
  * normal token response *"except that it might not contain an `id_token`"*, and its own example omits

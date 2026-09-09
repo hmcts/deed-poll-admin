@@ -1,3 +1,2 @@
 // Business logic exports
-// Note: Config exports (pageRoutes, apiRoutes, etc.) are in config.ts
-// to avoid circular dependencies during Prisma client generation
+// Note: Config exports (pageRoutes, etc.) are in config.ts to avoid circular dependencies

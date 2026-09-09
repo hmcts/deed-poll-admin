@@ -16,7 +16,17 @@
  * interstitial on every deletion is friction paid on the safe path. The button is styled as a warning
  * so it cannot be mistaken for the primary action.
  */
-import { buildNoteDetail, createNoteSchema, findDeedPoll, findNote, MAX_NOTE_LENGTH, removeNote, updateNote, zodErrorToFieldErrors } from "@hmcts/deed-poll";
+import {
+  buildNoteDetail,
+  createNoteSchema,
+  findDeedPoll,
+  findNote,
+  InvalidInputError,
+  MAX_NOTE_LENGTH,
+  removeNote,
+  updateNote,
+  zodErrorToFieldErrors
+} from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
 
@@ -57,24 +67,40 @@ export const POST = async (req: Request, res: Response) => {
   const parsed = createNoteSchema.safeParse({ note: body.note });
 
   if (!parsed.success) {
-    const [found, note] = await Promise.all([findDeedPoll(req.params.id, caller), findNote(req.params.id, req.params.noteId, caller)]);
     const [first] = zodErrorToFieldErrors(parsed.error);
 
-    return res.status(400).render("deed-polls/note-edit", {
-      case: found,
-      note: buildNoteDetail(note),
-      // The submitted text, not the stored note: the point of re-rendering is that what was typed is
-      // still there to be corrected.
-      value: typeof body.note === "string" ? body.note : "",
-      error: first?.message ?? null,
-      en,
-      cy
-    });
+    return rerender(req, res, first?.message ?? null);
   }
 
-  // The caller's token and nothing else: api re-stamps `modifiedBy` from it, so the session's name is
-  // not sent alongside.
-  await updateNote(req.params.id, req.params.noteId, parsed.data, caller);
+  try {
+    // The caller's token and nothing else: api re-stamps `modifiedBy` from it, so the session's name is
+    // not sent alongside.
+    await updateNote(req.params.id, req.params.noteId, parsed.data, caller);
+  } catch (error) {
+    // api applies its own note rules and this form does not mirror all of them, so a rejection it has no
+    // local equivalent for still belongs against the textarea — see the same catch on `../new.ts`.
+    if (error instanceof InvalidInputError) {
+      return rerender(req, res, error.errors[0]?.message ?? error.message);
+    }
+    throw error;
+  }
 
   res.redirect(`/deed-polls/${req.params.id}#notes`);
 };
+
+async function rerender(req: Request, res: Response, error: string | null) {
+  const caller = callerFromRequest(req);
+  const [found, note] = await Promise.all([findDeedPoll(req.params.id, caller), findNote(req.params.id, req.params.noteId, caller)]);
+  const body = req.body as { note?: unknown };
+
+  res.status(400).render("deed-polls/note-edit", {
+    case: found,
+    note: buildNoteDetail(note),
+    // The submitted text, not the stored note: the point of re-rendering is that what was typed is still
+    // there to be corrected.
+    value: typeof body.note === "string" ? body.note : "",
+    error,
+    en,
+    cy
+  });
+}

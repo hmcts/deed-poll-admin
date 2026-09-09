@@ -46,6 +46,10 @@ afterAll(async () => {
 
 beforeEach(() => {
   mock.setScenario("happy-path");
+  // Reset as well as re-scenario: one mock is shared across the file, so without this the cases and the
+  // per-year reference serials accumulate and every assertion about a serial or a list length depends on
+  // what ran before it.
+  mock.reset();
 });
 
 describe("createCase", () => {
@@ -187,7 +191,11 @@ describe("getFieldRules", () => {
   it("should hide the gazette notice date when publishing to the gazette is off", async () => {
     const result = await getFieldRules({ type: "Adult", publishToGazette: false }, config);
 
-    expect(result.ok && result.data.dateNoticeSentToLondonGazette.visible).toBe(false);
+    // Guarded rather than `result.ok && …`, which short-circuits to false and so passes for a call that
+    // never reached the rules at all.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.dateNoticeSentToLondonGazette.visible).toBe(false);
   });
 
   it("should refuse an unrecognised type rather than answering the no-type rules", async () => {
@@ -334,6 +342,42 @@ describe("documents", () => {
     expect(new Uint8Array(await new Response(result.data.body).arrayBuffer())).toEqual(bytes);
   });
 
+  it("should carry api's inline disposition together with the policy that makes it safe to honour", async () => {
+    // A PNG is on api's inline allowlist, and a caller that forwarded the disposition without the policy
+    // would render a member of the public's upload in its own origin. Both headers or neither.
+    const id = await caseId();
+    const uploaded = await uploadDocument(
+      id,
+      { documentTypeId: DOCUMENT_TYPE_ID, name: "scan.png", mimeType: "image/png", bytes: new Uint8Array([1]) },
+      config
+    );
+    if (!uploaded.ok) throw new Error("document was not uploaded");
+
+    const result = await downloadDocument(id, uploaded.data.id, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.contentDisposition).toMatch(/^inline;/);
+    expect(result.data.contentSecurityPolicy).toBe("default-src 'none'; sandbox");
+    expect(result.data.contentTypeOptions).toBe("nosniff");
+  });
+
+  it("should carry an attachment disposition for a type nothing renders, which is api's narrower list", async () => {
+    const id = await caseId();
+    const uploaded = await uploadDocument(
+      id,
+      { documentTypeId: DOCUMENT_TYPE_ID, name: "scan.tif", mimeType: "image/tiff", bytes: new Uint8Array([1]) },
+      config
+    );
+    if (!uploaded.ok) throw new Error("document was not uploaded");
+
+    const result = await downloadDocument(id, uploaded.data.id, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.contentDisposition).toMatch(/^attachment;/);
+  });
+
   it("should list the document types api serves", async () => {
     const result = await listDocumentTypes(config);
 
@@ -402,10 +446,69 @@ describe("when api is unavailable", () => {
     }
   });
 
+  it("should time out a JSON call that gets headers and then stalls, because its body is read here", async () => {
+    const stalling = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.write('{"filter":"all","cases":');
+        // Never finished, so the body read is what has to be bounded rather than the connect.
+      })
+    );
+
+    try {
+      const result = await listCases(undefined, { baseUrl: stalling.url, timeoutMs: 100 });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.kind).toBe("timeout");
+    } finally {
+      await stalling.close();
+    }
+  });
+
   it("should never throw, whatever the failure", async () => {
     // The property the whole `ApiResult` shape exists for: a caseworker's half-filled form must not be
     // lost to an exception from the data layer.
     await expect(listCases(undefined, { baseUrl: "http://localhost:1", timeoutMs: 500 })).resolves.toMatchObject({ ok: false });
+  });
+});
+
+describe("the download's timeout, which covers the answer and not the body", () => {
+  it("should still time out when api never answers the download at all", async () => {
+    const silent = await listen(createServer(() => {}));
+
+    try {
+      const result = await downloadDocument("case-1", "doc-1", { baseUrl: silent.url, timeoutMs: 50 });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.kind).toBe("timeout");
+    } finally {
+      await silent.close();
+    }
+  });
+
+  it("should deliver a body that takes longer than the timeout to arrive, rather than truncating it", async () => {
+    // The regression this guards: an `AbortSignal` is not scoped to the headers, so a single whole-exchange
+    // timeout fires mid-body on a large download. The response has already gone out as a 200, so nothing
+    // can be rendered about it — the caseworker just saves a corrupt file. 25 MB is an ordinary scan.
+    const dripping = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/pdf" });
+        res.write("first");
+        setTimeout(() => res.end("second"), 120);
+      })
+    );
+
+    try {
+      const result = await downloadDocument("case-1", "doc-1", { baseUrl: dripping.url, timeoutMs: 60 });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      await expect(new Response(result.data.body as unknown as ReadableStream).text()).resolves.toBe("firstsecond");
+    } finally {
+      await dripping.close();
+    }
   });
 });
 

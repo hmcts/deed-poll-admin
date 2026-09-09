@@ -63,6 +63,12 @@ tests → **1,188**, and 21 e2e → **16**. The drops are `apps/api` (211 declar
 `libs/onboarding` (72), the onboarding pages (32), `health.test.ts` (14) and the conformance harness's
 structural layer (78), less 7 added for `deedPollApiStatus` and 5 for note deletion.
 
+The code review that followed took it to **1,229**, all additions and each one closing a gap the deletions
+opened: the download route had no test at all (10), the multipart parser lost its twin's coverage when
+`apps/api` went (13), the zoneless date-time conversion the deployed app depends on was exercised by nothing
+(8), the note forms gained the api-rejection path they were missing (4), and the adapter gained the two
+download-timeout rules and the forwarded security headers (6). e2e stays at **16**.
+
 **What is outstanding, and none of it is code in this repo:** api is not deployed, so a deployed pod reports
 readiness DOWN until api's own pipeline cutover lands — [`docs/PIPELINES.md`](../docs/PIPELINES.md) now lists
 six blockers rather than four, and [`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md#deed-poll-api) records what a
@@ -274,7 +280,7 @@ ours.
 | Migrate all four repos to the Jenkins CNP pipeline | ✅ **for `deed-poll-admin`** (2026-09-07): `.github/workflows/` deleted, `Jenkinsfile_CNP` added. Still to do for `deed-poll-web` and `deed-poll-api`, each of which has its own plan |
 | ~~Move the session table to its own `session` schema~~ | ❌ **Reversed, not done.** Sessions moved to Redis on 2026-09-07 — no table, no schema, no migration. `public` is api's alone |
 | Rename the per-component vault secrets | ✅ **for `deed-poll-admin`** (2026-09-07), in all four charts, plus a new `redis-url` entry on `apps/web`. Still to do for web and api |
-| Four blockers on a green admin deploy | **New.** Chart at `helm/` vs `charts/`; one image vs four; no `yarn test:smoke`; preview has no Redis. Two are design decisions. Detail in [`../docs/PIPELINES.md`](../docs/PIPELINES.md) |
+| Six blockers on a green admin deploy | **New.** Chart at `helm/` vs `charts/`; one image vs two; no `yarn test:smoke`; preview has no Redis; `cnp-jenkins-config` onboarding; `deed-poll-api` not deployed. Two are design decisions. Detail in [`../docs/PIPELINES.md`](../docs/PIPELINES.md) |
 | Wire the Playwright suite into a pipeline stage | **New.** `job.e2e-test.yml` went with `.github/workflows/` and nothing replaced it. It is also the only test anywhere that exercises a real `RedisStore` round trip |
 | `cnp-jenkins-config` onboarding, four entries | **New, and now the critical path.** External |
 | `session-secret` in the vault | ✅ Still generated rather than manual — `random_password` in the shared repo's `key-vault.tf`, on the first successful apply. Renamed per component |
@@ -697,18 +703,18 @@ adapter functions       14
 @hmcts-cft/simple-router                 41 passed
 @hmcts/crons                             10 passed
 @hmcts/deed-poll                        442 passed
-@hmcts/deed-poll-api-client             115 passed
-@hmcts/web                              283 passed
+@hmcts/deed-poll-api-client             128 passed
+@hmcts/web                              311 passed
 ─────────────────────────────────────────────────────
-total                                  1188 passed
+total                                  1229 passed
 ```
 
 ### Branch
 
 ```
 dal-cutover-to-api
-7 commits ahead of master
-HEAD  4d7bac3  feat: record the conformance harness's home — structural layer to api, rules stay
+8 commits ahead of master
+HEAD  6f4e54a  feat: charts, config and the record — no database credential anywhere
 ```
 
 <!-- END GENERATED DASHBOARD -->

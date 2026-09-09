@@ -35,13 +35,28 @@ export default defineConfig({
       dependencies: ['setup'],
     },
   ],
-  webServer: process.env.EXPRESSJS_MONOREPO_TEMPLATE_WEB_URL || process.env.TEST_URL ? undefined : {
-    command: 'yarn dev:nowatch',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
-    cwd: '..',
-    stdout: 'pipe',
-    stderr: 'pipe',
-  },
+  // Two servers, and the mock is its own entry rather than being backgrounded inside the app's command.
+  // `yarn dev:nowatch` starts it with `&` and nothing gates on it, so a first case-page request that beat
+  // the mock's bind rendered the 500 page — a flake that reads as an application bug. The mock serves
+  // /health for exactly this.
+  webServer: process.env.EXPRESSJS_MONOREPO_TEMPLATE_WEB_URL || process.env.TEST_URL ? undefined : [
+    {
+      command: 'yarn mock:api',
+      url: 'http://localhost:3200/health',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60 * 1000,
+      cwd: '..',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      command: 'yarn dev:nowatch:web',
+      url: 'http://localhost:3000',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120 * 1000,
+      cwd: '..',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  ],
 });

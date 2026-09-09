@@ -81,7 +81,7 @@ deed-poll-admin/
 │   ├── cloud-native-platform/  # Cloud Native Platform features
 │   ├── deed-poll/              # The case domain — services, validation, view models
 │   ├── deed-poll-api-client/   # The single adapter onto deed-poll-api, plus its in-memory mock
-│   ├── express-gov-uk-starter/ # GOV.UK Frontend integration
+│   ├── express-govuk-starter/  # GOV.UK Frontend integration
 │   ├── simple-router/          # Simple Router features
 │   └── [your-module]/          # Your feature modules
 │       └── src/

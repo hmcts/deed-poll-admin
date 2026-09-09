@@ -38,6 +38,15 @@ import { DEFAULT_SCENARIO, isMockScenario, MOCK_DOCUMENT_TYPES, MOCK_SCENARIOS, 
 /** Five digits, zero-padded, as api's `ReferenceNumbers` formats it. */
 const REFERENCE_SERIAL_DIGITS = 5;
 
+/**
+ * The types api serves `inline` rather than as an attachment, from its `INLINE_MIME_TYPES`.
+ *
+ * Narrower than the upload policy's list on purpose at api's end and therefore here: TIFF and the two
+ * Word types are download-only because nothing renders them, and the renderable-and-dangerous types —
+ * SVG, HTML — are on neither list.
+ */
+const INLINE_MIME_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
+
 /** The fields whose visibility or mandatoriness varies by type, per api's field-rule matrix. */
 const RULED_FIELDS = [
   "inPerson",
@@ -112,8 +121,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     }
 
     if (method === "POST" && pathname === "/__mock/reset") {
-      cases.clear();
-      serials.clear();
+      reset();
       return send(res, 200, { scenario });
     }
 
@@ -336,7 +344,12 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
       res.writeHead(200, {
         "content-type": document.mimeType,
-        "content-disposition": `attachment; filename="${document.originalName.replace(/[^A-Za-z0-9._ -]/g, "")}"`,
+        // `inline` for the three types a browser renders natively, `attachment` otherwise — api's
+        // allowlist, mirrored so a caller cannot be written against a disposition the real service
+        // never sends. The two headers below travel with it: an inline PDF's viewer runs embedded
+        // script, and the policy is what makes rendering one in the caller's origin defensible.
+        "content-disposition": `${INLINE_MIME_TYPES.has(document.mimeType) ? "inline" : "attachment"}; filename="${document.originalName.replace(/[^A-Za-z0-9._ -]/g, "")}"`,
+        "content-security-policy": "default-src 'none'; sandbox",
         "x-content-type-options": "nosniff",
         "cache-control": "no-store"
       });
@@ -399,6 +412,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     return record;
   }
 
+  function reset(): void {
+    cases.clear();
+    serials.clear();
+  }
+
   return {
     server,
     get scenario() {
@@ -407,7 +425,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     setScenario(next: MockScenario) {
       scenario = next;
     },
-    seed
+    seed,
+    reset
   };
 }
 
@@ -437,6 +456,7 @@ export async function startMockApi(options: MockApiOptions & { port?: number } =
     },
     setScenario: mock.setScenario,
     seed: mock.seed,
+    reset: mock.reset,
     url: address && typeof address === "object" ? `http://localhost:${address.port}` : "http://localhost",
     close: () =>
       new Promise<void>((resolve, reject) => {
@@ -598,8 +618,16 @@ function isoDates<T extends object>(value: T): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).map(([key, member]) => [key, member instanceof Date ? iso(member) : member]));
 }
 
+/**
+ * A date-time in api's format, which is **zoneless** — `2026-03-10T00:00:00.000`, not `…Z`.
+ *
+ * Every date-time api publishes is a Jackson-serialised `LocalDateTime`, so it carries no offset. That is
+ * the whole reason `wire.ts` has `toUtcDate`: read as local time, a midnight date west of Greenwich renders
+ * as the previous day. Emitting `toISOString()` here would make the mock the one caller of the adapter that
+ * never takes that path, so the conversion the deployed app depends on would be exercised by nothing.
+ */
 function iso(value: Date | null | undefined): string | null {
-  return value ? value.toISOString() : null;
+  return value ? value.toISOString().replace(/Z$/, "") : null;
 }
 
 /** Whole days between two dates in UTC, as api's computed columns count them. */
@@ -698,6 +726,14 @@ export interface MockApi {
   setScenario(scenario: MockScenario): void;
   /** Put a case straight into memory, bypassing the create rules. For tests that start mid-lifecycle. */
   seed(record: Partial<MockCase> | null): MockCase;
+  /**
+   * Forget every case and every reference serial.
+   *
+   * In process as well as over `POST /__mock/reset`, so a suite sharing one mock across a file can start
+   * each test from empty. Without it the per-year serials accumulate, and any assertion on a reference
+   * number or a list length becomes dependent on what ran before it.
+   */
+  reset(): void;
 }
 
 export interface RunningMockApi extends MockApi {

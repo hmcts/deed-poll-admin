@@ -46,7 +46,7 @@ The `yarn` scripts each stage invokes, and whether this repo has them:
 Four things worth knowing:
 
 - **The Sonar stage needs a root `lcov.info`, and nothing in the pipeline produces one.** Vitest writes
-  coverage per workspace (`apps/web/coverage/lcov.info`, and ten more), with `SF:` paths relative to each
+  coverage per workspace (`apps/web/coverage/lcov.info`, and eight more), with `SF:` paths relative to each
   package; `sonar-project.properties` points at a single root report. The GitHub Actions test job used to
   merge them with `npx lcov-result-merger --prepend-source-files`, and deleting that job removed the only
   step that made the file — so Sonar would have found no report and reported 0% coverage on new code, which

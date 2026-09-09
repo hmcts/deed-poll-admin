@@ -898,6 +898,7 @@ __metadata:
     "@types/govuk-frontend": "npm:5.11.0"
     "@types/multer": "npm:2.2.0"
     "@types/nunjucks": "npm:3.2.6"
+    "@types/supertest": "npm:7.2.1"
     config: "npm:4.4.2"
     connect-redis: "npm:9.0.0"
     cookie-parser: "npm:1.4.7"
@@ -911,6 +912,7 @@ __metadata:
     openid-client: "npm:6.8.7"
     redis: "npm:6.0.0"
     sass: "npm:1.103.1"
+    supertest: "npm:7.2.2"
     vite: "npm:8.0.16"
     vite-plugin-static-copy: "npm:4.1.1"
   languageName: unknown

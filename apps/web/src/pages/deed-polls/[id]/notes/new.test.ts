@@ -1,4 +1,4 @@
-import { createNote, findDeedPoll, MAX_NOTE_LENGTH, NotFoundError } from "@hmcts/deed-poll";
+import { createNote, findDeedPoll, InvalidInputError, MAX_NOTE_LENGTH, NotFoundError } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../express-doubles.js";
@@ -113,6 +113,38 @@ describe("add a note page", () => {
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(createNote).not.toHaveBeenCalled();
+    });
+
+    it("keeps the typed note on screen when api rejects it for a rule this form does not mirror", async () => {
+      // Uncaught, this reached the 500 page: `domainErrorHandler` passes InvalidInputError on, because a
+      // page that validates is expected to have caught it. api applies rules this form has no local copy
+      // of, so its rejections have to land against the textarea like any other.
+      vi.mocked(createNote).mockRejectedValue(
+        new InvalidInputError("Request body is not valid", [{ field: "note", message: "Notes are closed on an enroled case" }])
+      );
+      const res = response();
+
+      await POST(request({ note: "Called the applicant" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].error).toBe("Notes are closed on an enroled case");
+      expect(res.render.mock.calls[0][1].value).toBe("Called the applicant");
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+
+    it("falls back to api's message when its rejection names no field", async () => {
+      vi.mocked(createNote).mockRejectedValue(new InvalidInputError("Notes are closed on an enroled case"));
+      const res = response();
+
+      await POST(request({ note: "Called" }), res);
+
+      expect(res.render.mock.calls[0][1].error).toBe("Notes are closed on an enroled case");
+    });
+
+    it("lets an unreachable api reach the error handler rather than blaming the caseworker for it", async () => {
+      vi.mocked(createNote).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): deed-poll-api could not be reached"));
+
+      await expect(POST(request({ note: "Called" }), response())).rejects.toThrow(/unavailable/);
     });
   });
 });

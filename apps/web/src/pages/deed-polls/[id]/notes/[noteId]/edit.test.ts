@@ -1,4 +1,4 @@
-import { findDeedPoll, findNote, MAX_NOTE_LENGTH, NotFoundError, removeNote, updateNote } from "@hmcts/deed-poll";
+import { findDeedPoll, findNote, InvalidInputError, MAX_NOTE_LENGTH, NotFoundError, removeNote, updateNote } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../../express-doubles.js";
@@ -151,6 +151,28 @@ describe("amend a note page", () => {
       vi.mocked(removeNote).mockRejectedValue(new NotFoundError("Note not found"));
 
       await expect(POST(request({ action: "delete" }), response())).rejects.toThrow(NotFoundError);
+    });
+
+    it("keeps the typed amendment on screen when api rejects it for a rule this form does not mirror", async () => {
+      // Uncaught, this reached the 500 page and lost the amendment: `domainErrorHandler` passes
+      // InvalidInputError on, on the grounds that a page which validates has caught it.
+      vi.mocked(updateNote).mockRejectedValue(
+        new InvalidInputError("Request body is not valid", [{ field: "note", message: "Notes are closed on an enroled case" }])
+      );
+      const res = response();
+
+      await POST(request({ note: "Called twice", action: "save" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].error).toBe("Notes are closed on an enroled case");
+      expect(res.render.mock.calls[0][1].value).toBe("Called twice");
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+
+    it("lets an unreachable api reach the error handler rather than blaming the caseworker for it", async () => {
+      vi.mocked(updateNote).mockRejectedValue(new Error("deed-poll-api call failed (timeout): deed-poll-api did not respond in time"));
+
+      await expect(POST(request({ note: "Called twice", action: "save" }), response())).rejects.toThrow(/timeout/);
     });
   });
 });

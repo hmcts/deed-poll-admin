@@ -5,8 +5,8 @@
  * Static, so it resolves before `[documentId]/file.ts` — `sortRoutes` orders by parameter count and
  * this has one fewer.
  *
- * The POST exports an **array** so the multipart parser runs before the handler, the same shape
- * `requireRoles` established in the API. See `apps/web/src/documents/upload.ts`.
+ * The POST exports an **array** so the multipart parser runs before the handler — a shape
+ * `simple-router` supports for exactly this. See `apps/web/src/documents/upload.ts`.
  *
  * **The file cannot be preserved across a re-render**, because browsers do not repopulate a file
  * input — so unlike the note forms, a rejected upload always costs the caseworker the file selection.

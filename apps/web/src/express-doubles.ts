@@ -1,8 +1,8 @@
 /**
  * Request/response doubles for page tests.
  *
- * Shared rather than inlined per file, for the reason `apps/api/src/express-doubles.ts` gives — and
- * this app has a sharper version of it. Phase 5 moved identity from a request header to a session, and
+ * Shared rather than inlined per file, and the reason is a change this app has already lived through.
+ * Phase 5 moved identity from a request header to a session, and
  * every page test that had built its own double with a `header()` function broke at once, because the
  * doubles had no `session` for the namespace helper to write to. One place to change would have been
  * one edit.

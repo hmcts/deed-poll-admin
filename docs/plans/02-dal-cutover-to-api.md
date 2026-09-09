@@ -409,6 +409,63 @@ default. `yarn test` passes because turbo does not pass the variable through; a 
 two instructions genuinely conflict — run the dashboard with `env -u REDIS_URL` if the suite is otherwise
 green.
 
+### Post-review corrections
+
+Recorded here rather than folded into the tasks, because they are the review's findings and not the plan's
+boxes. Five were behaviour, and the first is the one that mattered:
+
+- **The download route dropped the two headers that make api's `inline` disposition safe.** api serves PDFs,
+  JPEGs and PNGs `inline` — its call, so a caseworker checking a birth certificate does not have to download
+  it — and pairs that with `Content-Security-Policy: default-src 'none'; sandbox` and
+  `X-Content-Type-Options: nosniff`, because a PDF viewer executes script embedded in the document. Task 4's "forward its headers instead of building one" was implemented as
+  `Content-Type` and `Content-Disposition` only, so an applicant's upload rendered in this app's origin under
+  helmet's `default-src 'self'`. `master` always sent `attachment`, so inline rendering was **new** here and
+  the argument for it was left behind in api. `DocumentDownload` carries all four now, the route forwards
+  them, and the mock sends what api sends — it was answering `attachment` for everything, so no test could
+  have caught the difference.
+- **A download's timeout covered the whole exchange, including the body.** `AbortSignal.timeout` is not
+  scoped to the response headers, so a 25 MB scan on anything but a fast link aborted mid-stream — and the
+  headers were already sent, so `domainErrorHandler` delegates and the caseworker silently saves a truncated
+  file. `send` now takes a `streaming` flag: the timer is cancellable and is cleared once the response is in
+  hand, while a JSON call stays bounded end to end because its body is small and read there. Both rules are
+  pinned against a real dripping server.
+- **A body read the timeout cut short was classified `invalid-response`.** That kind means "a bug at one end
+  or the other" and is the one an operator is meant to investigate, so reporting a stall as one sent them
+  hunting a contract defect. It is a `timeout` now.
+- **The note forms did not catch the `InvalidInputError` api can now throw.** Before the cutover the note
+  services could not reject text the local schema had accepted; now any rule api applies that this form does
+  not mirror reached the 500 page and discarded what the caseworker had typed. Both forms catch it and
+  re-render, as the upload page and the edit tab already did.
+- **`requestNoContent` left `/health`'s body unread**, which keeps the connection out of `undici`'s pool
+  until it is collected — socket churn on a readiness probe that runs for the life of the pod.
+
+Three test gaps the deletions opened, all closed:
+
+- **The download route had no test at all**, and the nine assertions that covered the same logic went with
+  `apps/api`'s wiring tests. Dropping the caller, the `no-store`, the disposition or the stream error handler
+  would all have shipped green.
+- **The multipart parser was the repo's only one and was untested** (25% statements), its twin's nine tests
+  having gone the same way. The uncovered branch is exactly the one whose docblock records that propagating
+  instead of stashing on `res.locals` produced a 500.
+- **The zoneless date-time conversion was exercised by nothing.** `toUtcDate` exists because api's
+  `LocalDateTime` carries no offset, and the mock serialised with `toISOString()` — so every test took the
+  pass-through branch and deleting the conversion would have passed the suite while shifting every date by
+  the local offset in a deployed non-UTC environment. The mock emits api's format now, and `wire.test.ts`
+  pins the conversion directly.
+
+Also: one assertion read `expect(result.ok && ….visible).toBe(false)`, which passes for a call that failed;
+`client.test.ts` now resets the mock between tests rather than accumulating cases and reference serials; and
+Playwright waits on the mock's `/health` instead of racing a backgrounded `yarn mock:api`.
+
+**Test arithmetic: 1,188 → 1,229**, all additions. e2e unchanged at **16**.
+
+The stale-prose sweep task 7 started went further: `apps/api` and `apps/postgres` are now referred to only in
+the past tense, and the `.claude/` instruction files — which *generate* code rather than describing it — no
+longer teach Prisma. `full-stack-engineer.md` had a Prisma data-access section and a schema-design section,
+`module-scaffold` shipped a `schema.prisma.template`, `optimize.md` was a Prisma/PostgreSQL tuning guide, and
+`infrastructure-engineer.md` still showed the three chart dependencies task 8 deleted along with
+`postgres-url`. A stale doc misleads a reader; a stale instruction file writes the code back.
+
 ## Success criteria
 
 - `yarn lint`, `yarn build` and `yarn test` all pass.

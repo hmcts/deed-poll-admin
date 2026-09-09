@@ -172,10 +172,14 @@ export function uploadDocument(caseId: string, upload: DocumentUpload, config: A
  * Returns the body as a stream plus the headers a download response needs, rather than buffering: a
  * scanned deed poll is megabytes, and the page's job is to forward them. api decides the filename and
  * the disposition, so neither is re-derived here.
+ *
+ * `streaming`, so the timeout bounds how long api takes to ANSWER rather than how long the body takes
+ * to arrive. A 25 MB scan on a slow link legitimately outlives `DEFAULT_TIMEOUT_MS`, and an abort after
+ * the headers are sent does not fail the download — it truncates it, which no error page can undo.
  */
 export async function downloadDocument(caseId: string, documentId: string, config: ApiConfig): Promise<ApiResult<DocumentDownload>> {
   const path = `/caseworker/cases/${encodeURIComponent(caseId)}/documents/${encodeURIComponent(documentId)}/file`;
-  const sent = await send(config, "GET", path, undefined, "*/*");
+  const sent = await send(config, "GET", path, undefined, "*/*", true);
   if (!sent.ok) return sent;
 
   const response = sent.response;
@@ -194,7 +198,9 @@ export async function downloadDocument(caseId: string, documentId: string, confi
       // out of the pages entirely, which is what decision 1 of the plan asks for.
       body: Readable.fromWeb(response.body as NodeReadableStream<Uint8Array>),
       contentType: response.headers.get("content-type") ?? "application/octet-stream",
-      contentDisposition: response.headers.get("content-disposition")
+      contentDisposition: response.headers.get("content-disposition"),
+      contentSecurityPolicy: response.headers.get("content-security-policy"),
+      contentTypeOptions: response.headers.get("x-content-type-options")
     }
   };
 }
@@ -233,7 +239,12 @@ async function request<S extends z.ZodType>(config: ApiConfig, method: string, p
   let payload: unknown;
   try {
     payload = await sent.response.json();
-  } catch {
+  } catch (error) {
+    // A read the timeout cut short is a slow api, not a contract breach. `invalid-response` means "a bug at
+    // one end or the other" and is the thing an operator is meant to investigate rather than dismiss, so
+    // reporting a stall as one sends them hunting a defect when the answer is that api stopped talking.
+    if (isAborted(error)) return { ok: false, error: transportError(error) };
+
     return { ok: false, error: { kind: "invalid-response", status: sent.response.status, message: `${method} ${path} returned a body that is not JSON` } };
   }
 
@@ -253,8 +264,14 @@ async function request<S extends z.ZodType>(config: ApiConfig, method: string, p
 /** A call whose success carries nothing to parse — a 204, or a probe where only the status matters. */
 async function requestNoContent(config: ApiConfig, method: string, path: string): Promise<ApiResult<void>> {
   const sent = await send(config, method, path, undefined, "application/json");
+  if (!sent.ok) return sent;
 
-  return sent.ok ? { ok: true, data: undefined } : sent;
+  // Discarded rather than ignored: `/health` answers 200 with a body, and `undici` holds the connection
+  // out of its pool until an unread body is garbage-collected. The readiness probe runs for the life of
+  // the pod, so that is socket churn on a timer.
+  await sent.response.body?.cancel();
+
+  return { ok: true, data: undefined };
 }
 
 /**
@@ -262,32 +279,50 @@ async function requestNoContent(config: ApiConfig, method: string, path: string)
  *
  * Split from `request` so the streaming download shares the classification. Failures come back as the
  * same `ApiResult` shape, which is what lets every caller branch once.
+ *
+ * `streaming` chooses what the timeout covers, and the two answers are genuinely different rules rather
+ * than a knob. A JSON call is bounded end to end, because its body is small and read here: an api that
+ * sends headers and then stalls must still fail. A download's body is the CALLER's to read and is
+ * megabytes, so the clock stops once the response is in hand — an `AbortSignal` is not scoped to the
+ * headers, and firing it mid-body truncates the file the caseworker is saving while the response has
+ * already gone out as a 200.
  */
-async function send(config: ApiConfig, method: string, path: string, body: unknown, accept: string): Promise<SendResult> {
+async function send(config: ApiConfig, method: string, path: string, body: unknown, accept: string, streaming = false): Promise<SendResult> {
   const url = `${config.baseUrl.replace(/\/+$/, "")}${path}`;
   const isForm = body instanceof FormData;
-  let response: Response;
+  const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  // A cancellable timer for the streaming case; `AbortSignal.timeout` cannot be called off once armed.
+  const controller = streaming ? new AbortController() : undefined;
+  const timer = controller === undefined ? undefined : setTimeout(() => controller.abort(new DOMException("timeout", "TimeoutError")), timeoutMs);
 
   try {
-    response = await fetch(url, {
-      method,
-      // Let fetch set the multipart content-type: it has to append the boundary it generated, and
-      // setting the header by hand produces a body no server can parse.
-      headers: {
-        accept,
-        ...(config.accessToken === undefined ? {} : { authorization: `Bearer ${config.accessToken}` }),
-        ...(body !== undefined && !isForm ? { "content-type": "application/json" } : {})
-      },
-      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
-      signal: AbortSignal.timeout(config.timeoutMs ?? DEFAULT_TIMEOUT_MS)
-    });
-  } catch (error) {
-    return { ok: false, error: transportError(error) };
+    let response: Response;
+
+    try {
+      response = await fetch(url, {
+        method,
+        // Let fetch set the multipart content-type: it has to append the boundary it generated, and
+        // setting the header by hand produces a body no server can parse.
+        headers: {
+          accept,
+          ...(config.accessToken === undefined ? {} : { authorization: `Bearer ${config.accessToken}` }),
+          ...(body !== undefined && !isForm ? { "content-type": "application/json" } : {})
+        },
+        body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
+        signal: controller?.signal ?? AbortSignal.timeout(timeoutMs)
+      });
+    } catch (error) {
+      return { ok: false, error: transportError(error) };
+    }
+
+    if (!response.ok) return { ok: false, error: await failureFromResponse(response) };
+
+    return { ok: true, response };
+  } finally {
+    // Inside the `finally` so the failure body above is still read under the timeout: an unavailable api
+    // often answers with a proxy's HTML, and reading that must not be the unbounded wait.
+    clearTimeout(timer);
   }
-
-  if (!response.ok) return { ok: false, error: await failureFromResponse(response) };
-
-  return { ok: true, response };
 }
 
 /**
@@ -298,12 +333,21 @@ async function send(config: ApiConfig, method: string, path: string, body: unkno
  * same page.
  */
 function transportError(error: unknown): ApiError {
-  const name = error instanceof Error ? error.name : "";
-  if (name === "TimeoutError" || name === "AbortError") {
-    return { kind: "timeout", message: "deed-poll-api did not respond in time" };
-  }
+  if (isAborted(error)) return { kind: "timeout", message: "deed-poll-api did not respond in time" };
 
   return { kind: "unavailable", message: "deed-poll-api could not be reached" };
+}
+
+/**
+ * Whether the abort signal cut this short, rather than the connection failing.
+ *
+ * By name, because Node reports it as a `DOMException` and not as a distinguishable type — and the same
+ * check has to serve both the `fetch` and the body read, which fail at different points for one cause.
+ */
+function isAborted(error: unknown): boolean {
+  const name = error instanceof Error ? error.name : "";
+
+  return name === "TimeoutError" || name === "AbortError";
 }
 
 /**
@@ -450,11 +494,20 @@ export interface DocumentUpload {
  *
  * A Node `Readable` rather than the web stream `fetch` produced, so a route can pipe it straight at an
  * Express response. Nothing is buffered on the way through: a scanned deed poll is megabytes.
+ *
+ * **All four headers, not just the two a download needs to be readable.** api serves PDFs, JPEGs and
+ * PNGs `inline`, and the policy that makes that safe travels with the disposition: a PDF is an
+ * active-content format whose viewer runs embedded script, so api pairs `inline` with
+ * `Content-Security-Policy: default-src 'none'; sandbox` and `X-Content-Type-Options: nosniff`. Carrying
+ * the disposition without the policy honours api's decision to render in place while dropping its
+ * argument for why that is allowed.
  */
 export interface DocumentDownload {
   body: Readable;
   contentType: string;
   contentDisposition: string | null;
+  contentSecurityPolicy: string | null;
+  contentTypeOptions: string | null;
 }
 
 type SendResult = { ok: true; response: Response } | { ok: false; error: ApiError };

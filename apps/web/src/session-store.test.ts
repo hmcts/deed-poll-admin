@@ -12,8 +12,9 @@
  * `docs/PIPELINES.md` — and it needs browsers and a running app, so it is not the backstop here either.
  *
  * Requires a reachable Redis, served by this repo's `docker compose` on 6379. Skipped when there is none,
- * for the same reason `apps/postgres/ccd-runtime/migrate.test.ts` skips: the Jenkins nodejs test stage runs
- * `yarn test` on a bare agent with no services. Treat this as local-only coverage until a stage provides one.
+ * because the Jenkins nodejs test stage runs `yarn test` on a bare agent with no services — the only such
+ * skip left in the repo, now that the deleted `apps/postgres` migration tests have gone with the data
+ * access layer. Treat this as local-only coverage until a stage provides one.
  *
  * Driven over real HTTP rather than by calling the store directly. Calling `store.set`/`store.get` would
  * test `connect-redis` and not the wiring — what is being pinned is that a cookie issued on one request

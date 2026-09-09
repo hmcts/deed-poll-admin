@@ -62,6 +62,12 @@ export function updateNote(deedPollId: string, id: string, dto: UpdateNoteInput,
 - **The local rule matrices stay** — `deed-poll-validation.ts`, `case-state.ts`, `upload-policy.ts`. api
   enforces the same rules; a rule applied at both ends is pinned at both ends, and the conformance
   harness pins these against the Dataverse exports
+- **Option sets are built, never restated.** `deed-poll/enums/option-sets.ts` turns the client's exported
+  member ARRAYS (`DEED_POLL_STATE`, `URGENCY`, …) into `{ Member: "Member" }` objects, so the rules can go on
+  reading `DeedPollState.Returned` and a member added at api's end reaches the Dynamics label maps without an
+  edit here. Add a new option set by importing its array and calling `members()`, not by typing the members
+  out. The local type names deliberately differ from api's — `DeedPollType` is an alias of `CaseType` —
+  because they keep the Dynamics vocabulary the rules were written in
 
 ## Reaching api
 
@@ -141,7 +147,7 @@ libs/deed-poll/src/
     ├── service.test.ts
     └── schemas.ts
 
-apps/web/src/pages/cases/       # Page handlers — GET/POST exports, discovered by simple-router
+apps/web/src/pages/deed-polls/  # Page handlers — GET/POST exports, discovered by simple-router
 ```
 
 Group by feature, never by type. No `utils/`, no `models/`, no `types.ts`.

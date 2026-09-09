@@ -28,6 +28,7 @@
     "start:web": "NODE_ENV=production yarn workspace @hmcts/web run start",
     "dev": "yarn dev:up && turbo watch dev",
     "dev:nowatch": "yarn dev:up && yarn mock:api & yarn workspace @hmcts/web run dev:nowatch",
+    "dev:nowatch:web": "yarn dev:up && yarn workspace @hmcts/web run dev:nowatch",
     "dev:up": "docker compose up -d",
     "dev:down": "docker compose down",
     "idam:build": "node scripts/build-idam-simulator.mjs",

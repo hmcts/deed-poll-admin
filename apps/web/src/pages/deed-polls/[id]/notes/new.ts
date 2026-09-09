@@ -17,7 +17,7 @@
  * which is true but is an argument about how much there is to lose, not about whether losing it is
  * acceptable.
  */
-import { createNote, createNoteSchema, findDeedPoll, MAX_NOTE_LENGTH, zodErrorToFieldErrors } from "@hmcts/deed-poll";
+import { createNote, createNoteSchema, findDeedPoll, InvalidInputError, MAX_NOTE_LENGTH, zodErrorToFieldErrors } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
 
@@ -47,21 +47,38 @@ export const POST = async (req: Request, res: Response) => {
   const parsed = createNoteSchema.safeParse({ note: (req.body as { note?: unknown }).note });
 
   if (!parsed.success) {
-    const found = await findDeedPoll(req.params.id, callerFromRequest(req));
     const [first] = zodErrorToFieldErrors(parsed.error);
 
-    return res.status(400).render("deed-polls/note-form", {
-      case: found,
-      value: (req.body as { note?: string }).note ?? "",
-      error: first?.message ?? null,
-      en,
-      cy
-    });
+    return rerender(req, res, first?.message ?? null);
   }
 
-  // The caller's token and nothing else: api stamps the note's author from it, so the session's name
-  // is not sent alongside — it would be this app asserting an identity api never verified.
-  await createNote(req.params.id, parsed.data, callerFromRequest(req));
+  try {
+    // The caller's token and nothing else: api stamps the note's author from it, so the session's name
+    // is not sent alongside — it would be this app asserting an identity api never verified.
+    await createNote(req.params.id, parsed.data, callerFromRequest(req));
+  } catch (error) {
+    // api applies its own note rules and this form does not mirror all of them, so a rejection it has
+    // no local equivalent for still has to reach the textarea rather than the 500 page —
+    // `domainErrorHandler` deliberately passes `InvalidInputError` on, on the grounds that a page which
+    // validates has caught it, and a caseworker losing what they typed to a rule they cannot see is the
+    // failure this catch exists for.
+    if (error instanceof InvalidInputError) {
+      return rerender(req, res, error.errors[0]?.message ?? error.message);
+    }
+    throw error;
+  }
 
   res.redirect(`/deed-polls/${req.params.id}#notes`);
 };
+
+async function rerender(req: Request, res: Response, error: string | null) {
+  const found = await findDeedPoll(req.params.id, callerFromRequest(req));
+
+  res.status(400).render("deed-polls/note-form", {
+    case: found,
+    value: (req.body as { note?: string }).note ?? "",
+    error,
+    en,
+    cy
+  });
+}

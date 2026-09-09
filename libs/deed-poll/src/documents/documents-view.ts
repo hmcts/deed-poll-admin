@@ -40,9 +40,10 @@ export function buildDocumentsView(documents: Document[]): DocumentRow[] {
   return documents.map((document) => ({
     id: document.id,
     name: document.name ?? NOT_PROVIDED,
-    // The type is a relation, and the FK is required — but a document read on its own does not
-    // carry it, so an absent one means "not loaded" rather than "no type". Saying "Not provided"
-    // would be a claim about the data; this is a claim about the read.
+    // Every document has a type — it is what the upload form makes the caseworker choose — but api
+    // publishes the nested object as nullable, so an absent one means "not carried on this response"
+    // rather than "no type". Saying "Not provided" would be a claim about the data; this is a claim
+    // about the read.
     type: document.documentType?.name ?? NOT_PROVIDED,
     direction: formatValue(DIRECTION_FIELD, document.direction),
     added: formatValue(ADDED_FIELD, document.createdOn),
