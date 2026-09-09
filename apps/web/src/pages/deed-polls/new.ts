@@ -10,7 +10,15 @@
  * derives the reference number's year from it — a create without it comes back as a 400 attributed to
  * that field, which is why the field is on this form at all rather than left to the Application tab.
  */
-import { composeDateParts, createDeedPoll, createDeedPollSchema, DEED_POLL_TYPE_LABEL, InvalidInputError } from "@hmcts/deed-poll";
+import {
+  collectDateErrors,
+  composeDateParts,
+  createDeedPoll,
+  createDeedPollSchema,
+  DEED_POLL_TYPE_LABEL,
+  FIELD_BY_NAME,
+  InvalidInputError
+} from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../auth/current-user.js";
 
@@ -38,6 +46,20 @@ export const GET = async (_req: Request, res: Response) => {
 
 export const POST = async (req: Request, res: Response) => {
   const body = req.body as Record<string, string>;
+
+  // Before composing, because `composeDateParts` rolls an impossible date over rather than refusing it:
+  // `31/2/2026` becomes 3 March and a two-digit `26` becomes 1926. Neither reaches api as a rejection —
+  // both are dates — and api derives the reference number's year from this field and never re-derives it,
+  // so a typo waved through here is stamped on the case as `KBDP1926-…` permanently. The edit tabs run the
+  // same check for the same reason; this form had been composing unguarded.
+  const dateErrors = collectDateErrors(body, [FIELD_BY_NAME.dateReceived]);
+  if (dateErrors.length > 0) {
+    return rerender(
+      req,
+      res,
+      dateErrors.map((dateError) => ({ text: dateError.message, href: `#${dateError.field}` }))
+    );
+  }
 
   // Only the four fields the form offers are read. Building from the body wholesale would let a
   // hand-crafted POST set anything on the schema, including `state`, which is derived not supplied.

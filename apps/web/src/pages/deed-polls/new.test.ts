@@ -109,6 +109,46 @@ describe("new deed poll page", () => {
       expect(res.render.mock.calls[0][1].values["dateReceived-day"]).toBe("99");
     });
 
+    it("rejects a date that does not exist rather than letting it roll over to the next month", async () => {
+      // 31 February composes to 3 March, which api would accept as a date. Since the reference number's
+      // year is derived from this field once and never again, a rolled-over date is stamped on the case.
+      const res = response();
+
+      await POST(request({ ...validBody, "dateReceived-day": "31", "dateReceived-month": "2" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "Date received must be a real date", href: "#dateReceived" }]);
+      expect(createDeedPoll).not.toHaveBeenCalled();
+    });
+
+    it("rejects a two-digit year, which Date.UTC would read as the 1900s", async () => {
+      const res = response();
+
+      await POST(request({ ...validBody, "dateReceived-year": "26" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(createDeedPoll).not.toHaveBeenCalled();
+    });
+
+    it("names the missing parts when a date is only partly filled in", async () => {
+      const res = response();
+
+      await POST(request({ ...validBody, "dateReceived-month": "" }), res);
+
+      expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "Date received must include a month", href: "#dateReceived" }]);
+      expect(createDeedPoll).not.toHaveBeenCalled();
+    });
+
+    it("leaves a wholly blank date to api, which rejects it as the field it cannot allocate a reference without", async () => {
+      // All three parts blank is not a typo, so the date check passes it through — the create then fails
+      // at api with an error attributed to `dateReceived`, which is the message the caseworker needs.
+      vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
+
+      await POST(request({ type: "Adult" }), response());
+
+      expect(createDeedPoll).toHaveBeenCalledWith(expect.objectContaining({ dateReceived: undefined }), expect.anything());
+    });
+
     it("creates as the signed-in caseworker, so api attributes the case to them", async () => {
       // Not `{ isAdmin, userName }` any more: api reads both off the token, and a page that sent its
       // own opinion of them would be asserting an identity api never verified.
