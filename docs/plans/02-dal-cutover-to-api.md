@@ -447,6 +447,29 @@ boxes. Five were behaviour, and the first is the one that mattered:
 - **`requestNoContent` left `/health`'s body unread**, which keeps the connection out of `undici`'s pool
   until it is collected — socket churn on a readiness probe that runs for the life of the pod.
 
+A later pass found three more, all of them the download fix's arguments applied where they had not been:
+
+- **The upload was bounded by the JSON default, which is the mistake the download had already had fixed.**
+  `DEFAULT_TIMEOUT_MS` is ten seconds and is really measuring api's thinking time, because a JSON request
+  body is a few hundred bytes. A multipart upload is up to `MAX_UPLOAD_BYTES` — 25 MB — and the same clock
+  covered pushing all of it across the wire *and* api storing it: a sustained 2.5 MB/s with nothing left
+  over. The download's answer is not available here, because a per-read bound needs a body being READ and
+  `fetch` exposes no upload progress, so the lever is patience: `UPLOAD_TIMEOUT_MS`, sixty seconds, still
+  overridden by `DEED_POLL_API_TIMEOUT_MS` so an operator sets one number. And the failure avoided is worse
+  than a slow page — an abort lands after api may already have committed the row, leaving a document the
+  caseworker was told failed and, since api has no document delete, nothing to remove it with.
+- **api's developer-facing wording reached the error summary on the edit tab and the new-case form.** Both
+  rendered `error.message` when a rejection named no field, and that message is `failureFromResponse`'s
+  fallback — literally "deed-poll-api answered 400" — whenever api's failure body does not parse, which a
+  proxy's HTML 400 guarantees. `.claude/rules/backend.md` forbids exactly this. Both now do what the upload
+  page already did: log api's wording, render their own copy. Naming no field is what identifies the
+  refusal as api's, since every local rejection attributes itself.
+- **`callApi` was on `@hmcts/deed-poll`'s public surface**, via `export *`. It hands its caller an
+  `ApiConfig` and lets it invoke any adapter function directly — the one seam the rules say nothing outside
+  `api/deed-poll-api.ts` crosses — so a page could have reached api bypassing the domain layer and its
+  error mapping. The index exports `Caller` and `deedPollApiStatus` by name now, which is all `apps/web`
+  ever imported from that module.
+
 Three test gaps the deletions opened, all closed:
 
 - **The download route had no test at all**, and the nine assertions that covered the same logic went with

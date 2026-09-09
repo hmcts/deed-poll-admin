@@ -57,6 +57,27 @@ export {
  */
 export const DEFAULT_TIMEOUT_MS = 10_000;
 
+/**
+ * Sixty seconds, for the one call that sends a body instead of receiving one.
+ *
+ * `DEFAULT_TIMEOUT_MS` is sized for a request whose body is a few hundred bytes, so the clock is really
+ * measuring api's thinking time. A multipart upload is up to `MAX_UPLOAD_BYTES` — 25 MB — and the same
+ * clock covers pushing all of it across the wire *and* api storing it, which ten seconds does not
+ * reliably allow: 25 MB in ten seconds needs a sustained 2.5 MB/s with nothing left over for the write.
+ *
+ * It is the download's problem in the other direction, and it does not have the download's answer. There
+ * a per-read bound replaces the whole-exchange one, because a body this app is READING can be measured
+ * chunk by chunk. A body it is SENDING cannot: `fetch` gives no hook on upload progress, so the only
+ * available lever is more patience. And the failure being avoided is worse than a slow page — an abort
+ * lands after api may already have committed the document row, leaving a document the caseworker was
+ * told failed and no endpoint to delete it with (see `documents/service.ts`, four writes api does not
+ * have).
+ *
+ * Still bounded, and still overridable: `DEED_POLL_API_TIMEOUT_MS` wins over this the same way it wins
+ * over the default, so an environment that needs a different figure sets one number rather than two.
+ */
+const UPLOAD_TIMEOUT_MS = 60_000;
+
 /** The multipart field name api reads the upload from. Matches `UploadPolicy.UPLOAD_FILE_FIELD`. */
 const UPLOAD_FILE_FIELD = "file";
 
@@ -163,7 +184,11 @@ export function uploadDocument(caseId: string, upload: DocumentUpload, config: A
   if (upload.documentName !== undefined) form.append("name", upload.documentName);
   if (upload.direction !== undefined) form.append("direction", upload.direction);
 
-  return request(config, "POST", `/caseworker/cases/${encodeURIComponent(caseId)}/documents`, WIRE_SCHEMAS.DocumentResponse, form);
+  // The only call given a timeout of its own — see `UPLOAD_TIMEOUT_MS` for why the JSON default is the
+  // wrong bound for a request that sends 25 MB.
+  const timeoutMs = config.timeoutMs ?? UPLOAD_TIMEOUT_MS;
+
+  return request({ ...config, timeoutMs }, "POST", `/caseworker/cases/${encodeURIComponent(caseId)}/documents`, WIRE_SCHEMAS.DocumentResponse, form);
 }
 
 /**

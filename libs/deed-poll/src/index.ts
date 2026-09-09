@@ -6,7 +6,13 @@
 // The prototype expressed these as Nest @Injectable() classes. They held no state, so
 // per this repo's conventions they are plain exported functions here.
 
-export * from "./api/deed-poll-api.js";
+// Named, not `export *`, because `callApi` must NOT be on this package's public surface: it hands its
+// caller an `ApiConfig` and lets it invoke any adapter function directly, which is the seam
+// `.claude/rules/backend.md` states nothing outside `api/deed-poll-api.ts` crosses. A page that reached
+// api through it would bypass the domain layer and its error mapping. `Caller` is public because
+// `apps/web`'s `callerFromRequest` returns one, and `deedPollApiStatus` because `app.ts` mounts it as a
+// readiness check.
+export { type Caller, deedPollApiStatus } from "./api/deed-poll-api.js";
 export * from "./auth/current-user.js";
 export * from "./auth/idam-claims.js";
 export * from "./auth/plain-http.js";

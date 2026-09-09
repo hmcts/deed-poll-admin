@@ -175,17 +175,21 @@ describe("new deed poll page", () => {
       expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "Enter the date the application was received", href: "#dateReceived" }]);
     });
 
-    it("shows api's message when its rejection names no field, rather than an empty error summary", async () => {
+    it("shows this page's own copy when api's rejection names no field, and does not leak api's wording", async () => {
       // api omits `errors` when it has none, and an unparseable failure body — a proxy's HTML 400 — leaves
-      // none either. The template hides an empty summary, so without this the caseworker gets a 400 and no
-      // indication of what failed.
+      // none either. The template hides an empty summary, so the summary must say something; but api's
+      // message is developer-facing ("deed-poll-api answered 400"), and `.claude/rules/backend.md` keeps
+      // api's internal error text away from caseworkers. So it is logged and the page's copy is rendered.
       vi.mocked(createDeedPoll).mockRejectedValue(new InvalidInputError("deed-poll-api answered 400"));
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
       const res = response();
 
       await POST(request(validBody), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "deed-poll-api answered 400" }]);
+      expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "The case could not be created. Check the details and try again." }]);
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("deed-poll-api answered 400"));
+      logged.mockRestore();
     });
 
     it("rethrows anything that is not a validation failure, so a real fault is not hidden", async () => {

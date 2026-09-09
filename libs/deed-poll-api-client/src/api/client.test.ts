@@ -474,6 +474,57 @@ describe("when api is unavailable", () => {
   });
 });
 
+describe("the upload's timeout, which is longer than the JSON default", () => {
+  it("should still be bounded by a configured timeout, rather than by its own longer default", async () => {
+    // The regression this guards: giving the upload more patience must not make it ignore the environment's
+    // figure. `DEED_POLL_API_TIMEOUT_MS` is one number an operator sets, and an upload that outlived it
+    // would hold a pod's worker on a request nobody bounded.
+    const silent = await listen(createServer(() => {}));
+
+    try {
+      const result = await uploadDocument(
+        "case-1",
+        { documentTypeId: DOCUMENT_TYPE_ID, name: "scan.pdf", mimeType: "application/pdf", bytes: new Uint8Array([1]) },
+        { baseUrl: silent.url, timeoutMs: 50 }
+      );
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.kind).toBe("timeout");
+    } finally {
+      await silent.close();
+    }
+  });
+
+  it("should not apply the ten-second JSON default to an upload that no config bounds", async () => {
+    // Sent with no `timeoutMs` at all, so `UPLOAD_TIMEOUT_MS` is what governs. A server that answers after
+    // longer than a full-size upload plausibly needs cannot be waited on in a unit test, so what is pinned
+    // is the observable half: the call is not cut short at the JSON default. The reasoning for the figure
+    // itself is at the constant.
+    const answering = await listen(
+      createServer((_req, res) => {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "answered late but well inside the upload's patience" }));
+      })
+    );
+
+    try {
+      const result = await uploadDocument(
+        "case-1",
+        { documentTypeId: DOCUMENT_TYPE_ID, name: "scan.pdf", mimeType: "application/pdf", bytes: new Uint8Array([1]) },
+        { baseUrl: answering.url }
+      );
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      // A classified 400 rather than a timeout: the request completed on the upload's clock.
+      expect(result.error.kind).toBe("validation");
+    } finally {
+      await answering.close();
+    }
+  });
+});
+
 describe("the download's timeout, which covers the answer and not the body", () => {
   it("should still time out when api never answers the download at all", async () => {
     const silent = await listen(createServer(() => {}));

@@ -32,7 +32,10 @@ const en = {
   dateReceivedLabel: "Date received",
   dateReceivedHint: "For example, 27 3 2026",
   submit: "Create case",
-  errorSummaryTitle: "There is a problem"
+  errorSummaryTitle: "There is a problem",
+  // Shown when api refuses the create without naming a field — see the same constant on the edit tab.
+  // api's own wording is developer-facing and `.claude/rules/backend.md` keeps it away from caseworkers.
+  createRefused: "The case could not be created. Check the details and try again."
 };
 
 // English content in the cy shape — see the note in index.ts.
@@ -114,7 +117,12 @@ function rerender(req: Request, res: Response, errorSummary: { text: string; hre
 }
 
 function summaryFor(error: InvalidInputError): { text: string; href?: string }[] {
-  if (error.errors.length === 0) return [{ text: error.message }];
+  // No field named means the refusal came from api rather than from this form's own schema, so its
+  // developer-facing wording is logged and the page's copy is rendered without a link to any input.
+  if (error.errors.length === 0) {
+    console.error(`case create refused with no field named: ${error.message}`);
+    return [{ text: en.createRefused }];
+  }
 
   return error.errors.map((fieldError) => ({ text: fieldError.message, href: `#${fieldError.field}` }));
 }
