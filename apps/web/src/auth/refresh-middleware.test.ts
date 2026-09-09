@@ -168,6 +168,20 @@ describe("refreshMiddleware", () => {
     expect(next).toHaveBeenCalled();
   });
 
+  it("signs out when the refresh throws and the access token has already expired", async () => {
+    // The cutover made the token load-bearing: every case page presents it to api, which answers 401,
+    // which reaches the 500 page with no route back to /login. Continuing is only defensible while the
+    // token still works, so an expired one ends the session rather than looping through a 500 per page.
+    vi.mocked(refreshTokens).mockRejectedValue(new Error("getaddrinfo EAI_AGAIN"));
+    const req = request([], { tokenExpiresAt: expiringIn(-30) });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(req.session.destroy).toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2Fdeed-polls");
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it("keeps the user signed in across a refresh", async () => {
     // The session is not regenerated on refresh — the user was already authenticated — so a refresh
     // that dropped the user would log them out by accident.

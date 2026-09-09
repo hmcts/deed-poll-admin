@@ -78,12 +78,21 @@ function containedDisposition(disposition: string | null, contentSecurityPolicy:
  * `default-src 'self'` with something weaker. `sandbox` is the directive doing the work: it drops the
  * response into a unique origin with scripting off, which is what makes rendering a member of the public's
  * PDF in place defensible. `allow-scripts` gives that back, so a sandbox carrying it is not one.
+ *
+ * **Every `sandbox` in the policy has to be inert, not merely one of them.** A browser resolves a repeated
+ * directive to its FIRST occurrence and ignores the rest, so `sandbox allow-scripts; sandbox` renders with
+ * scripting ON — while a check asking whether *some* sandbox is inert finds the trailing bare one and
+ * passes. Line 41 then forwards that same policy as this response's own, so such a header would defeat the
+ * guard and replace helmet's `default-src 'self'` in one move. Requiring all of them closes that gap
+ * without this function having to reimplement the precedence rule it would otherwise depend on.
  */
 function isInertPolicy(contentSecurityPolicy: string | null): boolean {
   if (!contentSecurityPolicy) return false;
 
-  return contentSecurityPolicy.split(";").some((directive) => {
-    const [name, ...tokens] = directive.trim().toLowerCase().split(/\s+/);
-    return name === "sandbox" && !tokens.includes("allow-scripts");
-  });
+  const sandboxes = contentSecurityPolicy
+    .split(";")
+    .map((directive) => directive.trim().toLowerCase().split(/\s+/))
+    .filter(([name]) => name === "sandbox");
+
+  return sandboxes.length > 0 && sandboxes.every(([, ...tokens]) => !tokens.includes("allow-scripts"));
 }

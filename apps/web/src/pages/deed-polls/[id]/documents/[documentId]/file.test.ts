@@ -150,6 +150,18 @@ describe("document download route", () => {
     expect(res.headers["Content-Disposition"]).toBe('attachment; filename="deed poll.pdf"');
   });
 
+  it("should download rather than render in place when a later bare sandbox follows one allowing scripts", async () => {
+    // A browser resolves a repeated directive to its first occurrence, so this policy renders with
+    // scripting ON. Asking whether *some* sandbox is inert would find the trailing bare one and pass —
+    // then forward the script-allowing policy as this origin's own.
+    vi.mocked(downloadDocument).mockResolvedValue(apiDownload({ contentSecurityPolicy: "default-src 'none'; sandbox allow-scripts; sandbox" }) as never);
+    const res = streamResponse();
+
+    await GET(pageRequest({ params: PARAMS }), res, vi.fn());
+
+    expect(res.headers["Content-Disposition"]).toBe('attachment; filename="deed poll.pdf"');
+  });
+
   it("should relay an attachment disposition unchanged even when api names no policy", async () => {
     // Nothing renders an attachment, so there is nothing for a policy to contain.
     vi.mocked(downloadDocument).mockResolvedValue(
