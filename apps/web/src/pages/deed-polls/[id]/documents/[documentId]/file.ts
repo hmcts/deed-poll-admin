@@ -55,15 +55,35 @@ export const GET = async (req: Request, res: Response, next: NextFunction) => {
  * api's disposition, but never `inline` without the policy that makes an inline render safe.
  *
  * The two headers are one decision — see the note at the top of this file. api pairs them today, so this
- * only bites if that stops being true: a proxy stripping response headers, or an api build that serves
- * `inline` and no policy. Downgrading to a download is the containment that survives either, and the
- * filename is kept because that part of api's answer was never the hazard.
+ * only bites if that stops being true: a proxy stripping or replacing response headers, or an api build
+ * that serves `inline` under a policy that no longer contains anything. Downgrading to a download is the
+ * containment that survives either, and the filename is kept because that part of api's answer was never
+ * the hazard.
  */
 function containedDisposition(disposition: string | null, contentSecurityPolicy: string | null): string {
   if (!disposition) return FALLBACK_DISPOSITION;
 
   const [type, ...params] = disposition.split(";");
-  if (contentSecurityPolicy || type.trim().toLowerCase() === "attachment") return disposition;
+  if (type.trim().toLowerCase() === "attachment" || isInertPolicy(contentSecurityPolicy)) return disposition;
 
   return ["attachment", ...params].join(";");
+}
+
+/**
+ * Whether the forwarded policy actually neuters an inline render, rather than merely being present.
+ *
+ * The presence of *a* `Content-Security-Policy` is not the same fact as the presence of an inert one, and
+ * line 41 forwards whatever arrives as this origin's policy for the response — so a header a proxy or a
+ * loosened api build supplied would otherwise both satisfy the check and replace helmet's own
+ * `default-src 'self'` with something weaker. `sandbox` is the directive doing the work: it drops the
+ * response into a unique origin with scripting off, which is what makes rendering a member of the public's
+ * PDF in place defensible. `allow-scripts` gives that back, so a sandbox carrying it is not one.
+ */
+function isInertPolicy(contentSecurityPolicy: string | null): boolean {
+  if (!contentSecurityPolicy) return false;
+
+  return contentSecurityPolicy.split(";").some((directive) => {
+    const [name, ...tokens] = directive.trim().toLowerCase().split(/\s+/);
+    return name === "sandbox" && !tokens.includes("allow-scripts");
+  });
 }
