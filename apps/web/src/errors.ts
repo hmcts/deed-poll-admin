@@ -1,9 +1,9 @@
 /**
  * Maps domain errors thrown out of page handlers onto rendered pages.
  *
- * `apps/api` has an equivalent (`apps/api/src/errors.ts`) that answers JSON. This one answers HTML,
- * because the caller is a browser: a caseworker following a stale link to a deleted case should get
- * the service's own "Page not found" page, not a JSON body and not a 500.
+ * The only such mapping left in the repo, now that the JSON-answering one in the deleted `apps/api` has
+ * gone. This one answers HTML, because the caller is a browser: a caseworker following a stale link to a
+ * deleted case should get the service's own "Page not found" page, not a JSON body and not a 500.
  *
  * **Without this the pages returned 500 for a missing case.** `apps/web` mounts the starter's
  * `errorHandler`, which logs and renders `errors/500` for anything at all — it has no knowledge of

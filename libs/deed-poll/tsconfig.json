@@ -5,8 +5,19 @@
     "rootDir": "./src",
     "declaration": true,
     "declarationMap": true,
-    "composite": true
+    "composite": true,
+    // Stated rather than inherited, as `libs/deed-poll-api-client` also states it. Node's globals used
+    // to arrive here transitively from the data access layer's own `@types/node`; that dependency went
+    // with the layer, and `process` and `Buffer` are still used — by the api base URL and the document
+    // upload respectively. `node:fs` was a third reason until the conformance harness's fixture loader
+    // moved to api (libs/deed-poll/src/conformance/README.md); nothing here reads the filesystem now.
+    "types": ["node"]
   },
   "include": ["src/**/*"],
-  "exclude": ["**/*.test.ts", "dist", "node_modules"]
+  "exclude": ["**/*.test.ts", "dist", "node_modules"],
+  // Every service here imports `@hmcts/deed-poll-api-client`, which resolves through that package's built
+  // `dist`. Turbo orders the two by the workspace dependency, but a `tsc -b` of this project alone did not
+  // know about it and failed with eleven TS2307s on a clean checkout — the same declaration apps/web makes
+  // for each of its own dependencies.
+  "references": [{ "path": "../deed-poll-api-client" }]
 }

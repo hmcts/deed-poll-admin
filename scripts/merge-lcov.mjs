@@ -10,8 +10,8 @@
  *
  * The rewrite is the whole reason this is not a plain `cat` of the per-package files. Vitest writes `SF:` paths relative
  * to each package (`SF:src/app.ts`), and Sonar resolves them from the project root — so concatenating as-is
- * would produce a report naming files that do not exist, and `apps/web/src/app.ts` and `apps/api/src/app.ts`
- * would collide on one entry. Each record is prefixed with the package directory instead.
+ * would produce a report naming files that do not exist, and two packages' `src/index.ts` would collide on
+ * one entry. Each record is prefixed with the package directory instead.
  */
 import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";

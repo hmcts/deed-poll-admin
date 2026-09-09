@@ -18,19 +18,19 @@ cutover, and it blocks deployment:
 
 - **`helmInstall` builds one image per component.** `az acr build … .` builds a root `Dockerfile` into a
   single `deed-poll/admin` image and exposes it to the values templates as `${IMAGE_NAME}`. This repo has no
-  root `Dockerfile` — it has four — and `helm/deed-poll-admin/values*.template.yaml` reference
-  `${WEB_IMAGE}`, `${API_IMAGE}`, `${CRONS_IMAGE}` and `${POSTGRES_IMAGE}`, which the deleted GitHub Actions
-  build job used to set and nothing sets now. `envsubst` would emit untagged image references.
-- The alternative — **four `product`/`component` pairs, four charts, four `Jenkinsfile_CNP`s, four
-  `cnp-jenkins-config` onboarding requests** — is four times the external lead time, to independently scale
-  components that plan 02 deletes.
+  root `Dockerfile` — it has two, since plan 02 deleted `apps/api` and `apps/postgres` — and
+  `helm/deed-poll-admin/values*.template.yaml` reference `${WEB_IMAGE}` and `${CRONS_IMAGE}`, which the
+  deleted GitHub Actions build job used to set and nothing sets now. `envsubst` would emit untagged image references.
+- The alternative — **a `product`/`component` pair, a chart, a `Jenkinsfile_CNP` and a `cnp-jenkins-config`
+  onboarding request per component** — multiplies the external lead time, to independently scale components
+  plan 02 has already reduced to two.
 - **The chart is also in the wrong directory.** `Helm.HELM_RESOURCES_DIR` is the literal `charts`, and
   `helmInstall.groovy` throws `No Helm charts directory found at charts` before doing anything else, then
   requires `charts/deed-poll-admin/values.yaml`. This repo has `helm/deed-poll-admin/` and no `values.yaml`.
 
 Collapsing to one app makes the first two questions disappear rather than answering them, and reduces the
 third to a directory move. Both blockers recorded in
-[`../PIPELINES.md`](../PIPELINES.md) — "one image vs four" and "preview environments have no session store" —
+[`../PIPELINES.md`](../PIPELINES.md) — "one image vs two" and "preview environments have no session store" —
 were only hard because of the umbrella chart. See that file's "What still has to happen before this pipeline
 can deploy".
 
@@ -41,6 +41,10 @@ can deploy".
 surgery twice and resolving the same deletions in two places.
 
 ### A defect in plan 02 that this plan must not inherit
+
+**Resolved, 2026-09-09.** Plan 02 task 5 deleted onboarding rather than papering over it, exactly as this
+section asks, so task 1 below is a verification. The account is kept because it is the reasoning for the
+deletion, and because plan 02 records the same thing from its own side.
 
 **Plan 02 misses `libs/onboarding`.** Grep it: onboarding is not mentioned once, yet
 `libs/onboarding/src/onboarding/queries.ts` imports `{ prisma } from "@hmcts/postgres-prisma"` and calls
@@ -55,7 +59,7 @@ endpoint, so the right answer is deletion, not migration.
 | What | Where |
 |---|---|
 | What the DAL cutover already deletes | [`02-dal-cutover-to-api.md`](02-dal-cutover-to-api.md), tasks 5 and 8 |
-| The five things blocking a green deploy, verified against `cnp-jenkins-library` | [`../PIPELINES.md`](../PIPELINES.md) |
+| The six things blocking a green deploy, verified against `cnp-jenkins-library` | [`../PIPELINES.md`](../PIPELINES.md) |
 | Why the chart must be at `charts/` and what `helmInstall` requires | same file, items 1–3 |
 | The shared root that owns the vault, Redis and App Insights | `../../deed-poll-infra/` |
 | A single-component `withPipeline` for a Node frontend | `../../apps/pt/pt-frontend/`, `../../apps/pcs/pcs-frontend/` — neither is cloned; fetch from GitHub |
@@ -90,10 +94,14 @@ endpoint, so the right answer is deletion, not migration.
 - **No behaviour changes.** This is deletion and relocation. A diff that changes a view model, a validation
   rule or a route's behaviour is out of scope and should be a separate commit with its own reasoning.
 - **Do not run `yarn dev:up`.** It runs `docker compose up -d`, which collides with `deed-poll-web` on the
-  shared Redis container name. Start dependencies with `docker start` or `docker compose up -d postgres idam`.
-- **Test counts must not drop except where tests are deliberately deleted.** Onboarding removal takes 72 unit
-  tests and 5 e2e tests with it. Record the arithmetic in the completion note so a future reader can tell a
-  deliberate deletion from a regression: **1,608 unit → ~1,536**, **21 e2e → 16**.
+  shared Redis container name. Start dependencies with `docker start` or `docker compose up -d redis idam` —
+  there is no `postgres` service in `docker-compose.yml` any more.
+- **Test counts must not drop except where tests are deliberately deleted.** The onboarding removal this plan
+  was written to do has already happened, in plan 02 task 5, so its 72 unit and 5 e2e tests are already out of
+  the baseline. Record the arithmetic in each completion note so a future reader can tell a deliberate
+  deletion from a regression. The baseline this plan starts from is **1,229 unit and 16 e2e**, and task 1
+  changes neither — every remaining task should be arithmetically neutral, since deleting `apps/crons` and
+  collapsing the chart takes no page or service with it.
 - `REDIS_URL=redis://127.0.0.1:6379` and `yarn idam:users` are needed for `test:e2e` in the devcontainer.
   See the README.
 
@@ -109,20 +117,33 @@ endpoint, so the right answer is deletion, not migration.
 
 ### Task 1: Delete the onboarding demo
 
-- [ ] Delete `libs/onboarding/` entirely, and remove `@hmcts/onboarding` from every `package.json` naming it
-- [ ] Delete `apps/web/src/pages/onboarding/` — `(start)`, `(name)`, `(role)`, `(date-of-birth)`, `(address)`,
+**Already done, 2026-09-09, by plan 02 task 5, and verified and ticked the same day.** It could not be
+deferred: `libs/onboarding` was the only thing still importing `@hmcts/postgres-prisma`, which task 5
+deletes, and task 5's own constraint is to leave `yarn build` green. Decision 3 above is what was carried
+out, unchanged. The test-count arithmetic in Constraints has been revised accordingly: the 72 unit and 5
+e2e tests were charged to plan 02, so **this task's own delta is zero**.
+
+- [x] Delete `libs/onboarding/` entirely, and remove `@hmcts/onboarding` from every `package.json` naming it
+- [x] Delete `apps/web/src/pages/onboarding/` — `(start)`, `(name)`, `(role)`, `(date-of-birth)`, `(address)`,
       `(summary)`, `confirmation` and `index.ts`
-- [ ] Delete `e2e-tests/tests/onboarding-happy-path.spec.ts` (5 tests)
-- [ ] Remove the `onboarding_submission` table's migration only if plan 02 has not already deleted the
+- [x] Delete `e2e-tests/tests/onboarding-happy-path.spec.ts` (5 tests)
+- [x] Remove the `onboarding_submission` table's migration only if plan 02 has not already deleted the
       migrations wholesale. **Do not** hand-edit a committed Flyway or Prisma migration that has been applied
       anywhere
-- [ ] Check `e2e-tests/tests/idam-session.ts` and `deed-polls.spec.ts`, both of which mention onboarding, and
+- [x] Check `e2e-tests/tests/idam-session.ts` and `deed-polls.spec.ts`, both of which mention onboarding, and
       remove only the onboarding references — not the sign-in helper they share
-- [ ] The Welsh-language e2e test is **safe** — checked while writing this plan: it targets
+- [x] The Welsh-language e2e test is **safe** — checked while writing this plan: it targets
       `/accessibility-statement`, not an onboarding page. Do not delete it. Its own comment explains why it
       cannot use a deed-poll page (those need a session and their `cy` still holds English), so if onboarding
       removal ever appears to break it, the cause is elsewhere
-- [ ] Mark completed, recording the unit and e2e test-count delta
+- [x] Mark completed, recording the unit and e2e test-count delta
+
+**Verified and ticked, 2026-09-09.** Every box was satisfied by plan 02 task 5, checked rather than assumed:
+`libs/onboarding/`, the eight pages, their two asset entries and
+`e2e-tests/tests/onboarding-happy-path.spec.ts` are gone, the migrations went wholesale so there was no
+`onboarding_submission` migration left to hand-edit, and `idam-session.ts` / `deed-polls.spec.ts` kept the
+shared sign-in helper. The Welsh test still targets `/accessibility-statement`. **Test-count delta for this
+task: zero** — the 72 unit and 5 e2e tests were already charged to plan 02.
 
 ### Task 2: Delete apps/crons
 
@@ -156,7 +177,7 @@ endpoint, so the right answer is deletion, not migration.
 - [ ] Collapse the umbrella chart into a single `nodejs` chart — no `dependencies:`, no subcharts, no
       `*.enabled` conditions. Model on `pt-frontend`/`pcs-frontend`, not on `pcs-api`
 - [ ] Replace `${WEB_IMAGE}` with `${IMAGE_NAME}`, which is what `helmInstall` actually exports. Delete the
-      `${API_IMAGE}`, `${CRONS_IMAGE}` and `${POSTGRES_IMAGE}` blocks
+      `${CRONS_IMAGE}` block — `${API_IMAGE}` and `${POSTGRES_IMAGE}` went with plan 02
 - [ ] Carry these forward verbatim rather than re-deriving them — each was established at cost:
   - `keyVaults:` reads `app-insights-connection-string`, `redis-url`, `admin-session-secret` and
     `admin-idam-client-secret`. **No `postgres-url`** — plan 02 removed the database
@@ -205,15 +226,16 @@ endpoint, so the right answer is deletion, not migration.
 ## Success criteria
 
 - `yarn lint`, `yarn build`, `yarn test` and `yarn test:e2e` all pass.
-- **Unit tests ~1,536 and e2e 16**, the drop being exactly the deleted onboarding tests and nothing else. A
-  larger drop is a regression.
+- **Unit tests 1,229 and e2e 16**, unchanged: the onboarding tests this plan was written to remove were
+  already deleted by plan 02, and nothing else here deletes a test. Any drop is a regression.
 - No `apps/` directory. No `helm/` directory. No `libs/onboarding`. No `@hmcts/crons`.
 - `charts/deed-poll-admin/values.yaml` exists, and `charts/deed-poll-admin/` contains no `dependencies:`.
 - A root `Dockerfile` exists and is the one the pipeline would build.
-- Grepping the repo for `WEB_IMAGE`, `API_IMAGE`, `CRONS_IMAGE`, `POSTGRES_IMAGE` and `postgres-url` returns
-  nothing.
+- Grepping the repo for `WEB_IMAGE`, `CRONS_IMAGE` and `postgres-url` returns nothing. `API_IMAGE` and
+  `POSTGRES_IMAGE` already do.
 - `yarn test:smoke` exists and passes against a running app.
-- `libs/` still contains the six surviving packages, `express-session-postgres` among them.
+- `libs/` still contains the seven surviving packages — `express-session-postgres` among them, and
+  `deed-poll-api-client`, which plan 02 added.
 
 ## Out of scope for this plan
 

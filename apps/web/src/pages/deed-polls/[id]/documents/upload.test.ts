@@ -1,6 +1,7 @@
 import { findDeedPoll, findDocumentTypes, InvalidInputError, NotFoundError, uploadDocument } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { pageRequest } from "../../../../express-doubles.js";
 import { GET, POST } from "./upload.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -17,8 +18,13 @@ const types = [{ id: TYPE_ID, name: "Birth certificate", applicableMaritalStatus
 /** POST is exported as [parser, handler]; the parser needs a real request, so tests drive handler. */
 const handler = (POST as ((req: Request, res: Response) => Promise<void>)[])[1];
 
+/**
+ * Built through `pageRequest`, not by hand: the page reads the session for the token it calls api with,
+ * so a double without one throws before the handler does anything. `file` is what the multipart parser
+ * would have left behind, which no shared double models.
+ */
 function request(body: Record<string, unknown> = {}, file?: unknown): Request {
-  return { params: { id: "case-1" }, body, file } as unknown as Request;
+  return Object.assign(pageRequest({ params: { id: "case-1" }, body, accessToken: "session-token" }), { file }) as unknown as Request;
 }
 
 function response() {
@@ -33,6 +39,9 @@ function response() {
 
 const aFile = { buffer: Buffer.from("%PDF-1.4"), originalname: "birth.pdf", mimetype: "application/pdf", size: 8 };
 
+/** The session's access token, which is the whole of what this page passes to the domain. */
+const CALLER = { accessToken: "session-token" };
+
 describe("document upload page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -43,7 +52,13 @@ describe("document upload page", () => {
   });
 
   describe("GET", () => {
-    it("renders the form with the document types from the reference table", async () => {
+    it("asks api for the document types, presenting the session's token", async () => {
+      await GET(request(), response());
+
+      expect(findDocumentTypes).toHaveBeenCalledWith(CALLER);
+    });
+
+    it("renders the form with the document types api published", async () => {
       const res = response();
 
       await GET(request(), res);
@@ -51,6 +66,17 @@ describe("document upload page", () => {
       expect(res.render.mock.calls[0][0]).toBe("deed-polls/document-upload");
       expect(res.render.mock.calls[0][1].hasTypes).toBe(true);
       expect(res.render.mock.calls[0][1].documentTypes).toContainEqual({ value: TYPE_ID, text: "Birth certificate" });
+    });
+
+    it("labels a type api published without a name with its id, so the option is never blank", async () => {
+      // `name` is nullable on the wire. An option with no text is selectable, invisible on the page and
+      // unreadable to a screen reader, so the id stands in — the same treatment documents-view.ts gives it.
+      vi.mocked(findDocumentTypes).mockResolvedValue([{ id: "type-nameless", name: null }] as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].documentTypes).toContainEqual({ value: "type-nameless", text: "type-nameless" });
     });
 
     it("offers an empty first option so no type is preselected", async () => {
@@ -61,7 +87,7 @@ describe("document upload page", () => {
       expect(res.render.mock.calls[0][1].documentTypes[0].value).toBe("");
     });
 
-    it("flags an empty reference table, so the page shows a message rather than an unusable form", async () => {
+    it("flags an empty type list, so the page shows a message rather than an unusable form", async () => {
       vi.mocked(findDocumentTypes).mockResolvedValue([] as never);
       const res = response();
 
@@ -83,17 +109,17 @@ describe("document upload page", () => {
 
       await handler(request({ documentTypeId: TYPE_ID, name: "Birth certificate", direction: "Incoming" }, aFile), res);
 
-      expect(uploadDocument).toHaveBeenCalledWith("case-1", TYPE_ID, aFile, { name: "Birth certificate", direction: "Incoming" });
+      expect(uploadDocument).toHaveBeenCalledWith("case-1", TYPE_ID, aFile, { name: "Birth certificate", direction: "Incoming" }, CALLER);
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1#documents");
     });
 
     it("passes the case id from the path, not from a form field", async () => {
       await handler(request({ documentTypeId: TYPE_ID, deedPollId: "attacker-supplied" }, aFile), response());
 
-      expect(uploadDocument).toHaveBeenCalledWith("case-1", TYPE_ID, aFile, expect.anything());
+      expect(uploadDocument).toHaveBeenCalledWith("case-1", TYPE_ID, aFile, expect.anything(), CALLER);
     });
 
-    it("treats a blank optional name as absent, so the file's own name is used", async () => {
+    it("treats a blank optional name as absent, so api's own fallback to the file name applies", async () => {
       await handler(request({ documentTypeId: TYPE_ID, name: "" }, aFile), response());
 
       expect(vi.mocked(uploadDocument).mock.calls[0][3]).toEqual({ name: undefined, direction: undefined });
@@ -129,7 +155,7 @@ describe("document upload page", () => {
     });
 
     it("shows the domain's own message, against the file field, when no file was sent", async () => {
-      vi.mocked(uploadDocument).mockRejectedValue(new InvalidInputError("Select a file to upload"));
+      vi.mocked(uploadDocument).mockRejectedValue(new InvalidInputError("Select a file to upload", [{ field: "file", message: "Select a file to upload" }]));
       const res = response();
 
       await handler(request({ documentTypeId: TYPE_ID }), res);
@@ -137,6 +163,21 @@ describe("document upload page", () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.render.mock.calls[0][1].errorMessage).toBe("Select a file to upload");
       expect(res.render.mock.calls[0][1].errorField).toBe("file");
+    });
+
+    it("shows this page's own copy, not api's wording, when api refuses the file without naming a field", async () => {
+      // How a 413 arrives: api's size limit is below this app's, and `failureFromResponse` classifies it
+      // as validation so it lands here rather than on the 500 page. The message is developer-facing —
+      // "deed-poll-api answered 413" when the body is not api's JSON — so it must not be rendered.
+      vi.mocked(uploadDocument).mockRejectedValue(new InvalidInputError("deed-poll-api answered 413"));
+      const res = response();
+
+      await handler(request({ documentTypeId: TYPE_ID }, aFile), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errorField).toBe("file");
+      expect(res.render.mock.calls[0][1].errorMessage).not.toContain("deed-poll-api");
+      expect(res.render.mock.calls[0][1].errorMessage).toContain("could not be uploaded");
     });
 
     it("shows an unknown document type against the type field rather than 404ing the page", async () => {

@@ -4,13 +4,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET } from "./[id].js";
 
-// Only the query is replaced. The tabs, header, notes and documents view models are the domain's and
-// tested there, so this exercises the page against the real ones — which is the point: the page's job
-// is to assemble them, and a wrong argument order would not show up against mocks.
-vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
-  findDeedPoll: vi.fn()
-}));
+// Only the two api calls are replaced. The tabs, header, notes and documents view models are the
+// domain's and tested there, so this exercises the page against the real ones — which is the point: the
+// page's job is to assemble them, and a wrong argument order would not show up against mocks.
+vi.mock("@hmcts/deed-poll", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@hmcts/deed-poll")>();
+
+  return {
+    ...actual,
+    findDeedPoll: vi.fn(),
+    // The rules come over HTTP now, so the call is stubbed — but stubbed with the local matrix, which
+    // is the same one api's port answers from. A stub map would make the type-awareness assertions
+    // below assertions about the stub.
+    getCaseFieldRules: vi.fn(async (query: { type?: string | null; migrated?: boolean; publishToGazette?: boolean }) =>
+      actual.getFieldRules(query.type as never, query.migrated, query.publishToGazette)
+    )
+  };
+});
 
 const found = {
   id: "case-1",
@@ -69,7 +79,16 @@ describe("case detail page", () => {
   it("looks the case up by the id in the path", async () => {
     await GET(request(), response());
 
-    expect(findDeedPoll).toHaveBeenCalledWith("case-1");
+    expect(findDeedPoll).toHaveBeenCalledWith("case-1", expect.anything());
+  });
+
+  it("makes both api calls as the signed-in caseworker", async () => {
+    const { getCaseFieldRules } = await import("@hmcts/deed-poll");
+
+    await GET(pageRequest({ params: { id: "case-1" }, accessToken: "caseworker-token" }), response());
+
+    expect(findDeedPoll).toHaveBeenCalledWith("case-1", { accessToken: "caseworker-token" });
+    expect(getCaseFieldRules).toHaveBeenCalledWith(expect.anything(), { accessToken: "caseworker-token" });
   });
 
   it("uses the reference as the page heading, since that is data rather than content", async () => {

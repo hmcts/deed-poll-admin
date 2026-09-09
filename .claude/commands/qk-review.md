@@ -51,7 +51,7 @@ Perform a comprehensive review covering:
 - Input validation and sanitization
 - Authentication and authorization
 - Data protection (no sensitive data in logs)
-- SQL injection prevention (Prisma usage)
+- No `ApiResult` failure rendered as the caseworker's own mistake, and no token or case body logged
 - XSS prevention (proper escaping)
 
 **Accessibility Review:**

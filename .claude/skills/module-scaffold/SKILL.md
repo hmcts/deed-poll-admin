@@ -15,7 +15,11 @@ This skill automates creation of new feature modules in the `libs/` directory, f
 
 ## What a Module Is
 
-Modules in `libs/` contain reusable business logic — services, validation, navigation, queries — consumed by `apps/web` and `apps/api` via direct imports. Pages, routes, and templates live in the apps, not in libs.
+Modules in `libs/` contain reusable business logic — services, validation, view models — consumed by `apps/web` via direct imports. Pages, routes, and templates live in the app, not in libs.
+
+**A module cannot store anything.** This repo has no database: every read and write of case data is an HTTP
+call to [`hmcts/deed-poll-api`](https://github.com/hmcts/deed-poll-api) through `libs/deed-poll-api-client`.
+See `.claude/rules/backend.md` and `docs/plans/02-dal-cutover-to-api.md`.
 
 ## Step-by-Step Instructions
 
@@ -54,7 +58,25 @@ Add to `compilerOptions.paths`:
 "@hmcts/{name}": ["libs/{name}/src"]
 ```
 
-### Step 5: Verify Setup
+#### 4b. apps/web/package.json
+
+Add the lib as a workspace dependency, or nothing can import it:
+
+```json
+"@hmcts/{name}": "workspace:*"
+```
+
+### Step 5: If the module needs to persist anything
+
+**It cannot persist it here.** The operation goes into `deed-poll-api` first, then:
+
+1. api's `openapi.json` (refresh it per `libs/deed-poll-api-client/SPEC-PROVENANCE.md`)
+2. `libs/deed-poll-api-client/src/api/client.ts` — a plain function returning `ApiResult<T>`, never throwing
+3. `libs/deed-poll-api-client/src/mock/server.ts` — the mock is what the tests and `yarn dev` run against
+4. `contract.test.ts` pins (1) against (2) in both directions
+5. A one-line service function in the new module, going through `callApi`
+
+### Step 6: Verify Setup
 
 ```bash
 yarn                    # Install dependencies

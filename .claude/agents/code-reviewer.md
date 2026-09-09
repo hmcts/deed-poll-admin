@@ -47,7 +47,9 @@ git log --oneline -5
 - **Controllers** (`*.controller.ts`): Route handling, validation, error management
 - **Templates** (`*.njk`): Accessibility, GOV.UK component usage, progressive enhancement
 - **Styles** (`*.scss`): Mobile-first responsive, BEM methodology, performance
-- **Database** (`schema.prisma`, migrations): Data integrity, performance, security
+- **Adapter** (`libs/deed-poll-api-client/src/api/`): must return `ApiResult` and never throw; must match
+  `openapi.json`; must not leak wire types past the package index
+- **Domain** (`libs/deed-poll/src/`): reaches api only through `callApi`; takes a `Caller` and nothing else
 - **Tests** (`*.test.ts`): Coverage, realistic scenarios, accessibility testing
 
 ### 3. Review Output Format
@@ -107,24 +109,18 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
 };
 ```
 
-### Database Review
+### Service Review
 ```typescript
-// ❌ HIGH PRIORITY: Potential SQL injection and no error handling  
-const user = await prisma.$queryRaw`SELECT * FROM users WHERE id = ${userId}`;
+// ❌ HIGH PRIORITY: asserts an identity api never verified, and pre-reads for scoping api enforces
+export async function findNote(deedPollId: string, id: string, userName: string) {
+  await findDeedPoll(deedPollId, { accessToken });  // a second round trip to learn nothing
+  return callApi({ accessToken, userName }, (config) => getNote(deedPollId, id, config));
+}
 
-// ✅ GOOD: Type-safe query with proper error handling
-const user = await prisma.user.findUnique({
-  where: { id: userId },
-  select: {
-    id: true,
-    email: true,
-    name: true,
-    // Don't select sensitive fields
-  }
-});
-
-if (!user) {
-  throw new NotFoundError('User not found');
+// ✅ GOOD: the ids, an already-validated DTO, and the token. api's nested route 404s a note that
+// belongs elsewhere, and stamps the audit author from the token itself.
+export function findNote(deedPollId: string, id: string, caller: Caller): Promise<Note> {
+  return callApi(caller, (config) => getNote(deedPollId, id, config));
 }
 ```
 
@@ -305,29 +301,19 @@ app.post('/search', validateSchema(SearchSchema), (req, res) => {
 
 ## Performance Review Criteria
 
-### Database Queries
+### api Round Trips
 ```typescript
-// ❌ HIGH PRIORITY: N+1 query problem
-const users = await prisma.user.findMany();
-for (const user of users) {
-  const posts = await prisma.post.findMany({ where: { userId: user.id } });
-  // Process posts...
-}
+// ❌ HIGH PRIORITY: three calls for one page, two of them for data the first already carried
+const found = await findDeedPoll(id, caller);
+const notes = await findNotes(id, caller);
+const documents = await findDocuments(id, caller);
 
-// ✅ GOOD: Efficient query with includes
-const usersWithPosts = await prisma.user.findMany({
-  include: {
-    posts: {
-      select: {
-        id: true,
-        title: true,
-        createdAt: true
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 10
-    }
-  }
-});
+// ✅ GOOD: one call. api nests the notes, witnesses and documents inside the case.
+const found = await findDeedPoll(id, caller);
+const { notes, witnesses, documents } = found;
+
+// ✅ ALSO GOOD: genuinely independent reads, in parallel
+const [found, types] = await Promise.all([findDeedPoll(id, caller), findDocumentTypes(caller)]);
 ```
 
 ### Asset Optimization

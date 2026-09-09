@@ -1,5 +1,5 @@
-import { DeedPollState } from "@hmcts/postgres-prisma";
 import { describe, expect, it } from "vitest";
+import { DeedPollState } from "./enums/option-sets.js";
 import { filterFor, filterTabs, LIST_FILTERS } from "./list-filters.js";
 
 describe("deed-poll/list-filters", () => {

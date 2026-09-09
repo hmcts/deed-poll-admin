@@ -11,9 +11,10 @@
  * gap #1 — getFieldRules() currently ignores migratedRecord — so the migrated
  * cases below fail until the service is extended to take it.
  */
-import { DeedPollType } from "@hmcts/postgres-prisma";
+
 import { describe, expect, it } from "vitest";
 import { getFieldRules } from "../deed-poll/deed-poll-validation.js";
+import { DeedPollType } from "../deed-poll/enums/option-sets.js";
 
 describe("Field-rules conformance (deedpoll business_rules.md)", () => {
   describe("new (non-migrated) records — per-type required set", () => {

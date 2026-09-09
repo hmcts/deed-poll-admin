@@ -1,5 +1,5 @@
-import { DeedPollState, DeedPollType, Privacy, ReferToMaster } from "@hmcts/postgres-prisma";
 import { describe, expect, it } from "vitest";
+import { DeedPollState, DeedPollType, Privacy, ReferToMaster } from "./enums/option-sets.js";
 import { build, defaultPrivacy, type PresentationContext, privacyEditable, tabVisibility } from "./form-presentation.js";
 
 const ADMIN_NEW: PresentationContext = { isAdmin: true, isNew: true };

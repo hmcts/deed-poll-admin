@@ -40,19 +40,22 @@ const START_MARKER = "<!-- BEGIN GENERATED DASHBOARD -->";
 const END_MARKER = "<!-- END GENERATED DASHBOARD -->";
 
 /**
- * Phase 3's scope. Hardcoded rather than derived so the dashboard still works after
- * `power_app_nest/` is deleted at the end of Phase 4 — but cross-checked against the prototype
- * while it is still there, so a wrong number here is reported rather than trusted.
+ * The api client's spec and adapter, which replaced Phase 3's route-file count.
+ *
+ * **Phase 3's model died with `apps/api`.** It counted `export const GET` in
+ * `apps/api/src/routes/**` against a hardcoded 29-operation scope taken from the prototype's Nest
+ * controllers — so once plan 02 deleted that app, the dashboard reported 0/29 and read as a total
+ * regression rather than as a layer that had moved. What replaced it is the pair below: the caseworker
+ * operations `deed-poll-api` publishes, and the adapter functions this repo exports for them. Both are
+ * counted, neither is hardcoded, and `libs/deed-poll-api-client/src/api/contract.test.ts` is what proves
+ * they correspond operation for operation — a dashboard cannot, and should not try.
  */
-const PHASE_3_RESOURCES = [
-  { name: "deed-polls", total: 7, controller: "deed-poll/deed-poll.controller.ts", note: "incl. field-rules, validate" },
-  { name: "notes", total: 5, controller: "notes/notes.controller.ts", note: "" },
-  { name: "witnesses", total: 5, controller: "witnesses/witnesses.controller.ts", note: "" },
-  { name: "document-types", total: 5, controller: "documents/document-types.controller.ts", note: "global reference data" },
-  { name: "documents", total: 7, controller: "documents/documents.controller.ts", note: "incl. multipart upload, download" }
-];
+const SPEC_PATH = join(ROOT, "libs/deed-poll-api-client/openapi.json");
+const ADAPTER_PATH = join(ROOT, "libs/deed-poll-api-client/src/api/client.ts");
 
+const ADAPTER_EXPORT = /^export (?:async )?function (\w+)/gm;
 const METHOD_EXPORT = /^export const (GET|POST|PUT|PATCH|DELETE)\b/gm;
+/** Phase 4 still compares against the prototype's page controller, which plan 02 did not touch. */
 const NEST_ROUTE_DECORATOR = /@(Get|Post|Put|Patch|Delete)\(/g;
 
 /**
@@ -91,52 +94,49 @@ function main() {
 
 function collect(withTests) {
   return {
-    phase3: collectPhase3(),
+    api: collectApi(),
     phase4: collectPhase4(),
     tests: withTests ? runTests() : null,
     git: collectGit()
   };
 }
 
-/** Ported handlers, counted from the route files that actually exist. */
-function collectPhase3() {
-  const ported = countPortedByResource();
+/**
+ * The api surface: what the spec publishes for caseworkers, grouped the way the adapter is, and how
+ * many adapter functions exist.
+ *
+ * Grouped by the first path segment after `/caseworker` so the table survives api adding an operation:
+ * a new `/caseworker/cases/{id}/x` shows up under a new group rather than needing a line here.
+ */
+function collectApi() {
+  if (!existsSync(SPEC_PATH) || !existsSync(ADAPTER_PATH)) return null;
 
-  return PHASE_3_RESOURCES.map((resource) => ({
-    ...resource,
-    done: ported.get(resource.name) ?? 0,
-    // Only meaningful while the prototype is still in the tree.
-    declared: countNestHandlers(resource.controller)
-  }));
-}
+  const spec = JSON.parse(readFileSync(SPEC_PATH, "utf8"));
+  const groups = new Map();
 
-function countPortedByResource() {
-  const counts = new Map();
+  for (const [path, operations] of Object.entries(spec.paths ?? {})) {
+    if (!path.startsWith("/caseworker/")) continue;
 
-  for (const file of routeFiles(join(ROOT, "apps/api/src/routes"))) {
-    const methods = (readFileSync(file, "utf8").match(METHOD_EXPORT) ?? []).length;
-    if (methods === 0) continue;
-
-    const resource = resourceFor(file);
-    if (resource) {
-      counts.set(resource, (counts.get(resource) ?? 0) + methods);
-    }
+    const group = groupFor(path);
+    const methods = Object.keys(operations).filter((key) => HTTP_METHODS.has(key));
+    groups.set(group, (groups.get(group) ?? 0) + methods.length);
   }
 
-  return counts;
+  const adapter = readFileSync(ADAPTER_PATH, "utf8");
+
+  return {
+    groups: [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)),
+    adapterFunctions: (adapter.match(ADAPTER_EXPORT) ?? []).length
+  };
 }
 
-/**
- * Which resource a route file belongs to. Nested children are checked before the parent, since
- * every nested path also contains `/deed-polls/`.
- */
-function resourceFor(file) {
-  if (file.includes("/notes/")) return "notes";
-  if (file.includes("/witnesses/")) return "witnesses";
-  if (file.includes("/documents/")) return "documents";
-  if (file.includes("/document-types")) return "document-types";
-  if (file.includes("/deed-polls")) return "deed-polls";
-  return null; // template-provided routes (users, onboarding) are not Phase 3 scope
+const HTTP_METHODS = new Set(["get", "post", "put", "patch", "delete"]);
+
+/** `/caseworker/cases/{id}/notes/{noteId}` → `cases/notes`; `/caseworker/document-types` → `document-types`. */
+function groupFor(path) {
+  const segments = path.split("/").filter((segment) => segment && segment !== "caseworker" && !segment.startsWith("{"));
+
+  return segments.slice(0, 2).join("/");
 }
 
 function routeFiles(dir) {
@@ -175,7 +175,7 @@ function collectPhase4() {
 /**
  * End-to-end tests, counted from source rather than by running Playwright.
  *
- * Counted statically on purpose: a run needs Postgres, the IDAM simulator and both apps up, and a
+ * Counted statically on purpose: a run needs the IDAM simulator, the api mock and the web app up, and a
  * dashboard refresh must not depend on that. So this reports how many journeys are *written*, which is
  * the number that answers "is Phase 4 covered", while whether they pass is what `yarn test:e2e` is for.
  */
@@ -207,9 +207,10 @@ function countTemplates(dir) {
 }
 
 /**
- * Real test counts, by running the suite. Opt-in because it is slow, and because `apps/postgres`
- * skips its 11 `ccd` tests unless Postgres is up — so the number legitimately differs between a
- * machine with `docker compose up -d` and CI.
+ * Real test counts, by running the suite. Opt-in because it is slow — but no longer environment
+ * dependent: every suite runs against the api mock in process, so the count is the same on a machine
+ * with Docker up and in CI. It used to differ by the 11 `ccd` tests `apps/postgres` skipped without a
+ * database.
  *
  * Runs `vitest` directly rather than going through `yarn test` or `turbo test`. Both of those invoke
  * `yarn` per workspace, and in this devcontainer Corepack cannot reach `repo.yarnpkg.com`, so the run
@@ -302,26 +303,13 @@ function collectGit() {
   };
 }
 
-function renderDashboard({ phase3, phase4, tests, git }) {
-  const done = phase3.reduce((sum, r) => sum + r.done, 0);
-  const total = phase3.reduce((sum, r) => sum + r.total, 0);
-
+function renderDashboard({ api, phase4, tests, git }) {
   const lines = [
     START_MARKER,
     "",
     "_Generated by `yarn progress:write`. Do not hand-edit inside the markers — the next run overwrites it._",
     "",
-    "### Phase 3 — JSON API handlers",
-    "",
-    "```",
-    `${"resource".padEnd(18)}${"progress".padEnd(10)}${"ported".padEnd(7)}${"".padEnd(6)}notes`,
-    `${"─".repeat(72)}`,
-    ...phase3.map(renderResource),
-    `${" ".repeat(28)}${"─".repeat(14)}`,
-    `${" ".repeat(28)}${`${done}/${total}`.padEnd(7)}${percent(done, total)}`,
-    "```",
-    "",
-    ...renderMismatches(phase3),
+    ...renderApi(api),
     "### Phase 4 — SSR pages",
     "",
     ...renderPhase4(phase4),
@@ -366,27 +354,33 @@ function renderPhase4(phase4) {
   return lines;
 }
 
-function renderResource(resource) {
-  const bar = `${"█".repeat(resource.done)}${"░".repeat(Math.max(0, resource.total - resource.done))}`;
-  const tally = `${resource.done}/${resource.total}`;
-  const mark = resource.done === resource.total ? "done" : resource.done === 0 ? "" : "part";
-
-  return `${resource.name.padEnd(18)}${bar.padEnd(10)}${tally.padEnd(7)}${mark.padEnd(6)}${resource.note}`.trimEnd();
-}
-
 /**
- * The hardcoded totals are the thing most likely to go quietly wrong, so they are checked against
- * the prototype for as long as it is in the tree, and a mismatch is surfaced rather than silently
- * preferred either way.
+ * The api surface. No progress bar and no percentage, deliberately: there is no denominator to be a
+ * fraction of — api publishes what it publishes, and an operation this app does not need is not a gap.
+ * The nine writes api has no endpoint for (witness writes, document patch and delete, document-type
+ * writes) are recorded as out of scope in `DEED_POLL_API_PLAN.md`, not as work outstanding.
  */
-function renderMismatches(phase3) {
-  const wrong = phase3.filter((r) => r.declared !== null && r.declared !== r.total);
-  if (wrong.length === 0) return [];
+function renderApi(api) {
+  if (!api) {
+    return ["### deed-poll-api", "", "- **Could not count.** `libs/deed-poll-api-client/openapi.json` or `src/api/client.ts` is missing.", ""];
+  }
+
+  const total = api.groups.reduce((sum, [, count]) => sum + count, 0);
 
   return [
-    "> **Scope mismatch.** These totals disagree with the prototype's controllers, so one of the two",
-    "> is wrong and this dashboard cannot be trusted until it is resolved:",
-    ...wrong.map((r) => `> - \`${r.name}\`: this script says ${r.total}, \`${r.controller}\` has ${r.declared}`),
+    "### deed-poll-api — the surface this app consumes",
+    "",
+    "```",
+    `${"caseworker path".padEnd(24)}operations`,
+    `${"─".repeat(36)}`,
+    ...api.groups.map(([group, count]) => `${group.padEnd(24)}${count}`),
+    `${"─".repeat(36)}`,
+    `${"published in the spec".padEnd(24)}${total}`,
+    `${"adapter functions".padEnd(24)}${api.adapterFunctions}`,
+    "```",
+    "",
+    "- The adapter's extra function is `checkApiReachable`, which the readiness probe uses against api's unauthenticated `/health/liveness` — not a caseworker operation. The path is the liveness group and not the ungrouped `/health` on purpose: see the docblock at the function.",
+    "- `src/api/contract.test.ts` is what proves the two lines correspond; this table only counts them.",
     ""
   ];
 }
@@ -419,12 +413,8 @@ function renderTests(tests) {
     `${"total".padEnd(38)}${tally({ passed, skipped, failed })}`,
     "```",
     "",
-    ...(skipped > 0 ? ["- Skips are `apps/postgres`' `ccd` tests: they need `docker compose up -d`, and CI has no database.", ""] : [])
+    ...(skipped > 0 ? [`- **${skipped} skipped.** Nothing in this repo skips on a missing dependency any more — the \`apps/postgres\` \`ccd\` tests that needed \`docker compose up -d\` went with the data access layer — so a skip here is a \`.skip\` someone left in.`, ""] : [])
   ];
-}
-
-function percent(done, total) {
-  return total === 0 ? "" : `${Math.round((done / total) * 100)}%`;
 }
 
 function spliceIntoProgress(dashboard) {

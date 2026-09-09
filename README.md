@@ -8,8 +8,15 @@ This monorepo contains the apps, libraries, and infrastructure for the Deed Poll
 [hmcts/expressjs-monorepo-template](https://github.com/hmcts/expressjs-monorepo-template); the `libs/` packages are
 vendored copies of that template's shared libraries, kept private to this repo.
 
-Sessions are stored in Redis (`@hmcts-cft/express-session-redis`). PostgreSQL is still used for case data, read through
-Prisma, until the `deed-poll-api` cutover — so this service depends on both, and its readiness check names both.
+**This service owns no data access layer.** Every read and write of case data goes to
+[`hmcts/deed-poll-api`](https://github.com/hmcts/deed-poll-api) over HTTP, through the single adapter in
+`libs/deed-poll-api-client`. Prisma, the pg pool, the migrations, `apps/api` and `apps/postgres` are gone — see
+[`docs/plans/02-dal-cutover-to-api.md`](docs/plans/02-dal-cutover-to-api.md). Sessions are the one piece of state
+still held locally, in Redis (`@hmcts-cft/express-session-redis`), for the reasons recorded at the call site in
+`apps/web/src/app.ts`. So this service depends on api and on Redis, and its readiness check names both.
+
+api is not deployed yet, and nothing here waits for it: `libs/deed-poll-api-client/src/mock` implements the
+contract in memory, `yarn dev` starts it alongside the app, and the unit suite drives it in process.
 
 ## Deployment
 
@@ -17,9 +24,10 @@ This repo deploys through the **Jenkins CNP pipeline**: `Jenkinsfile_CNP` at the
 "deed-poll", "admin")`. There is no GitHub Actions pipeline — `.github/workflows/` was deleted in full, and
 `.github/renovate.json` is the only thing left under `.github/` that the platform reads.
 
-This repo also owns **no Terraform**. The resource group, Key Vault, App Insights, Redis and Postgres are all
+This repo also owns **no Terraform**. The resource group, Key Vault, App Insights and Redis are all
 provisioned by [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra), the product's shared root, which
-`deed-poll-web` and `deed-poll-api` read from too. Do not add an `infrastructure/` directory here.
+`deed-poll-web` and `deed-poll-api` read from too. Do not add an `infrastructure/` directory here. The Postgres that
+root also provisions belongs to `deed-poll-api`; this app holds no database credential.
 
 - The reasoning behind both decisions, and the four others taken with them:
   [`.business_context/DEED_POLL_INFRA_PLAN.md`](.business_context/DEED_POLL_INFRA_PLAN.md)
@@ -67,20 +75,17 @@ A lightweight file-system router for Express applications, inspired by Next.js r
 ```
 deed-poll-admin/
 ├── apps/                       # Deployable applications
-│   ├── api/                    # REST API server (Express 5.x)
 │   ├── crons/                  # Cron jobs
-│   ├── postgres/               # Migration runner + Prisma S
 │   └── web/                    # Web frontend (Express 5.x + Nunjucks)
-├── libs/                       # Modular packages (explicitly registered)
+├── libs/                       # Modular packages
 │   ├── cloud-native-platform/  # Cloud Native Platform features
-│   ├── express-gov-uk-starter/ # GOV.UK Frontend integration
-│   ├── postgres-prisma/        # Database client (Prisma)
+│   ├── deed-poll/              # The case domain — services, validation, view models
+│   ├── deed-poll-api-client/   # The single adapter onto deed-poll-api, plus its in-memory mock
+│   ├── express-govuk-starter/  # GOV.UK Frontend integration
 │   ├── simple-router/          # Simple Router features
 │   └── [your-module]/          # Your feature modules
 │       └── src/
-│           ├── pages/          # Page routes (imported in web app)
-│           ├── routes/         # API routes (imported in API app)
-│           ├── prisma/         # Prisma schema
+│           ├── [domain]/       # Domain functions consumed by the apps
 │           ├── locales/        # Translations (loaded by govuk-starter)
 │           └── assets/         # Module assets (compiled by vite)
 ├── e2e-tests/                  # End-to-end tests (Playwright)
@@ -95,9 +100,10 @@ deed-poll-admin/
 
 - Node.js 22+
 - Yarn 4+
-- Docker — **required**, not optional. `yarn dev` runs `docker compose up -d` first, which serves PostgreSQL,
-  Redis and the IDAM simulator. The web app connects to Redis during startup and refuses to start on a
-  missing IDAM issuer, so it does not come up without them
+- Docker — **required**, not optional. `yarn dev` runs `docker compose up -d` first, which serves Redis and
+  the IDAM simulator. The web app connects to Redis during startup and refuses to start on a missing IDAM
+  issuer, so it does not come up without them. There is no Postgres service: `yarn dev` also starts the api
+  mock, which keeps its fixtures in process
 
 ### Quick Setup
 
@@ -114,9 +120,7 @@ yarn dev
 | Service | URL | Description |
 |---------|-----|-------------|
 | Web Application | http://localhost:3000 | Main web interface with GOV.UK styling |
-| API Server | http://localhost:3001 | REST API backend |
-| Prisma Studio | http://localhost:5555 | Database management UI |
-| PostgreSQL | localhost:5432 | Case data, from `docker compose` |
+| deed-poll-api mock | http://localhost:3200 | The in-memory api the pages develop against (`yarn mock:api`). Overridden by `DEED_POLL_API_URL` |
 | Redis | localhost:6379 | Session store, from `docker compose`. Overridden by `REDIS_URL`; the default is `redis://localhost:6379` |
 | IDAM simulator | http://localhost:5556 | Local OIDC issuer for the login flow. Build the image first with `yarn idam:build`, then seed users with `yarn idam:users` |
 
@@ -138,14 +142,11 @@ yarn test:coverage              # Generate coverage report
 yarn lint:fix                    # Run Biome linter
 yarn format                     # Format code with Biome
 
-# Database Operations
-yarn db:migrate                 # Apply migrations  
-yarn db:migrate:dev             # Auto apply migrations, add new migrations if necessary
-yarn db:generate                # Generate the Prisma client
-yarn db:studio                  # Open Prisma Studio
-yarn db:drop                    # Drop all tables and reset the database
-
+# deed-poll-api
+yarn mock:api                   # The in-memory api, on port 3200 (yarn dev starts it too)
 ```
+
+There are no database commands: this repo has no database.
 
 ### Shared libraries
 
@@ -158,7 +159,7 @@ To pick up an upstream fix, port the change from the template repo rather than e
 
 ### Creating a New Feature Module
 
-Feature libs under `libs/` hold **pure domain logic** — services, queries, validation, navigation. Pages, route handlers, and assets live in the consuming apps (`apps/web/src/pages/`, `apps/api/src/routes/`, `apps/web/src/assets/`). Prisma schemas live in `libs/postgres-prisma/prisma/schema/`. There is no per-module registration metadata; apps import named functions directly.
+Feature libs under `libs/` hold **pure domain logic** — services, validation, view models, navigation. Pages and assets live in the consuming app (`apps/web/src/pages/`, `apps/web/src/assets/`). Anything that reads or writes case data goes through `libs/deed-poll-api-client`; there is no query layer to write. There is no per-module registration metadata; apps import named functions directly.
 
 1. **Create the lib**:
 ```bash
@@ -219,48 +220,47 @@ cd libs/my-feature
 }
 ```
 
-5. **Write the domain code** under `src/my-feature/` — typically `service.ts`, `queries.ts`, `validation.ts`, with co-located `*.test.ts` files. Re-export from `src/index.ts`:
+5. **Write the domain code** under `src/my-feature/` — typically `service.ts`, `schemas.ts`, `validation.ts`, with co-located `*.test.ts` files. Re-export from `src/index.ts`:
 ```typescript
 export * from "./my-feature/service.js";
-export * from "./my-feature/queries.js";
+export * from "./my-feature/schemas.js";
 export * from "./my-feature/validation.js";
 ```
 
-6. **Add the lib as a dependency** of each consuming app:
+6. **Add the lib as a dependency** of the consuming app:
 ```jsonc
-// apps/web/package.json (or apps/api/package.json)
+// apps/web/package.json
 "dependencies": {
   "@hmcts/my-feature": "workspace:*"
 }
 ```
 Then run `yarn install` from the repo root.
 
-7. **Use it from the apps** with named imports:
+7. **Use it from the app** with named imports:
 ```typescript
-// apps/api/src/routes/my-feature/index.ts
+// apps/web/src/pages/my-feature/new.ts
 import { createMyFeature } from "@hmcts/my-feature";
+import { callerFromRequest } from "../../auth/current-user.js";
 
 export const POST = async (req, res) => {
-  const result = await createMyFeature(req.body);
-  res.status(201).json(result);
+  const created = await createMyFeature(req.body, callerFromRequest(req));
+  res.redirect(`/my-feature/${created.id}`);
 };
 ```
 
 That's it — no further wiring. `turbo run dev` picks the new lib up automatically and runs its `tsc --watch`; the apps' nodemon watches `../../libs/*/dist` so they restart whenever the lib emits.
 
-#### If the feature needs database tables
+#### If the feature needs to store something
 
-Add a Prisma model file under `libs/postgres-prisma/prisma/schema/`:
-```
-libs/postgres-prisma/prisma/schema/my-feature.prisma
-```
-Prisma's multi-file schema picks it up automatically. While `yarn dev` is running, saving a `.prisma` file regenerates the Prisma client and triggers an app restart — no manual step needed for the client side. When you're ready to land the schema change, run `yarn db:migrate:dev` to create + apply the migration (this stays a deliberate step so you control the migration name).
+**It cannot store it here.** There is no database in this repo, so a feature that persists anything needs the
+operation in [`hmcts/deed-poll-api`](https://github.com/hmcts/deed-poll-api) first — then in
+`libs/deed-poll-api-client/openapi.json`, `client.ts` and the mock, in that order, with `contract.test.ts`
+pinning the three together. See [`.claude/rules/backend.md`](.claude/rules/backend.md).
 
 #### If the feature needs pages or static assets
 
 Pages, templates, and assets are **app-scoped**, not lib-scoped:
 - **Web pages** — `apps/web/src/pages/my-feature/(group)/page.{ts,njk}`. `simple-router` discovers them; `(group)` segments don't appear in the URL.
-- **API routes** — `apps/api/src/routes/my-feature/[id].ts` (dynamic) or `apps/api/src/routes/my-feature/index.ts`.
 - **SCSS/JS bundles** — `apps/web/src/assets/css/my-feature.scss`, `apps/web/src/assets/js/my-feature.ts`. Vite picks them up from `apps/web/src/assets/`.
 
 Each handler imports its lib's domain functions directly (`import { … } from "@hmcts/my-feature"`).
@@ -282,8 +282,11 @@ yarn test:coverage          # Coverage report
 
 ### Running `yarn test:e2e` locally
 
-Needs `docker compose up -d`, plus two things that are easy to lose an hour to:
+Needs `docker compose up -d`, plus three things that are easy to lose an hour to:
 
+- **The journeys run against the api mock, not a database.** Playwright's `webServer` is `yarn dev:nowatch`,
+  which starts it — so state resets whenever the mock restarts, and a journey that assumes a case another
+  spec created will pass alone and fail in parallel.
 - **`yarn idam:users` must have been run** against the running simulator. Without the seeded users the
   login page loads and simply never proceeds, which reads as a broken sign-in rather than an unseeded one.
 - **Set `REDIS_URL=redis://127.0.0.1:6379` in the devcontainer.** `config/default.json` says

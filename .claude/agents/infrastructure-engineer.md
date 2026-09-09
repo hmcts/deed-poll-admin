@@ -119,7 +119,9 @@ module "application_insights" {
   common_tags         = var.common_tags
 }
 
-# PostgreSQL Flexible Server
+# PostgreSQL Flexible Server.
+# The one `deed-poll-infra` provisions is `deed-poll-api`'s, not this app's — see the Chart.yaml note
+# below. Do not wire this app to a connection string.
 module "postgresql" {
   providers = {
     azurerm.postgres_network = azurerm.postgres_network
@@ -195,24 +197,18 @@ dependencies:
     version: 0.0.1
     repository: "file://../../apps/web/helm"
     condition: web.enabled
-  - name: deed-poll-admin-api
-    version: 0.0.1
-    repository: "file://../../apps/api/helm"
-    condition: api.enabled
   - name: deed-poll-admin-crons
     version: 0.0.1
     repository: "file://../../apps/crons/helm"
     condition: crons.enabled
-  # Preview environment dependencies
-  - name: postgresql
-    version: 1.1.0
-    repository: oci://hmctsprod.azurecr.io/helm
-    condition: postgresql.enabled
-  - name: redis
-    version: 24.1.2
-    repository: https://charts.bitnami.com/bitnami
-    condition: redis.enabled
 ```
+
+**Two subcharts, and the three that went are not coming back by editing this file.**
+`deed-poll-admin-api` and `deed-poll-admin-postgres` pointed at `apps/api/helm` and `apps/postgres/helm`,
+both deleted with the data access layer — and a `file://` dependency on a missing directory fails
+`helm dependency build`, so the chart could not resolve at all until they were removed rather than
+commented out. `postgresql` provisioned a per-PR database this app has nothing to put in. Restoring any of
+them starts in `hmcts/deed-poll-api`.
 
 ### HMCTS Base Charts
 App subcharts depend on HMCTS base charts from the OCI registry:
@@ -224,7 +220,7 @@ dependencies:
     version: 3.2.0
     repository: 'oci://hmctsprod.azurecr.io/helm'
 
-# apps/crons/helm/Chart.yaml - Cron jobs and migrations
+# apps/crons/helm/Chart.yaml - Cron jobs (there are no migrations in this repo)
 dependencies:
   - name: job
     version: 2.2.0
@@ -240,13 +236,14 @@ nodejs:
   aadIdentityName: deed-poll
   ingressHost: deed-poll-admin-web.{{ .Values.global.environment }}.platform.hmcts.net
   image: 'hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:latest'
+  environment:
+    # api's CNP internal host, not an ingress. Resolved per environment from global.environment.
+    DEED_POLL_API_URL: http://deed-poll-api-{{ .Values.global.environment }}.service.core-compute-{{ .Values.global.environment }}.internal
   keyVaults:
     deed-poll:
       secrets:
         - name: app-insights-connection-string
           alias: APPLICATION_INSIGHTS_CONNECTION_STRING
-        - name: postgres-url
-          alias: DATABASE_URL
         - name: redis-url
           alias: REDIS_URL
         - name: admin-session-secret
@@ -259,9 +256,16 @@ Note the shape of that block, because getting it wrong is silent:
 
 - **Secret names are per component** where sharing would be unsafe — `admin-session-secret`,
   `admin-idam-client-secret`. `deed-poll-web` reads the same vault, and one session signing key across a
-  caseworker service and a public one makes a forged cookie portable between them. `app-insights-connection-string`
-  and `postgres-url` are deliberately shared. The old `ExpressJsAppInsightsConnectionString` and `db-url` names
-  came from the expressjs template and no longer exist.
+  caseworker service and a public one makes a forged cookie portable between them.
+  `app-insights-connection-string` is deliberately shared. The old
+  `ExpressJsAppInsightsConnectionString` and `db-url` names came from the expressjs template and no longer
+  exist.
+- **`postgres-url` is deliberately not in that list, and neither is an S2S credential.** This app owns no
+  database — every read and write goes to `deed-poll-api` over HTTP — and api authenticates a **forwarded
+  IDAM access token and nothing else**: no `ServiceAuthorization` filter, `bearerAuth` the only scheme in
+  its spec. So the caseworker's own token out of the session is the whole credential and there is no vault
+  entry for this chart to name. See `docs/DEPLOYMENT.md`, which also argues that if api ever gains S2S the
+  answer is a token provider minting one per call, not a static token in an environment variable.
 - **`REDIS_URL` comes from the vault, not from an `environment:` literal.** The shared root writes a
   `rediss://` URL against the TLS port; a hardcoded `redis://...:6379` would be both the wrong port and
   cleartext, and sessions here carry IDAM access and refresh tokens. `assertRedisUrl` in
@@ -277,27 +281,28 @@ The umbrella chart uses environment-specific templates with variable substitutio
 global:
   environment: ${ENVIRONMENT:-aat}
 
-# Subcharts enabled
+# Subcharts enabled — two, and kept in step with the preview template deliberately
 web:
   enabled: true
-api:
+crons:
   enabled: true
 
 deed-poll-admin-web:
   nodejs:
     image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:${WEB_IMAGE}"
-    ingressHost: "${TEAM_NAME}-deed-poll-admin-web.${ENVIRONMENT}.platform.hmcts.net"
-    secrets:
-      POSTGRES_HOST:
-        secretRef: postgres
-        key: HOST
-
-# Infrastructure managed by Terraform
-postgresql:
-  enabled: false
-redis:
-  enabled: false
+    ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}.platform.hmcts.net"
+    environment:
+      # MUST equal the ingressHost above with /oauth2/callback appended, and MUST be registered with
+      # IDAM verbatim. Set here rather than in the subchart because this file overrides that
+      # ingressHost, so the two have to be decided in one place.
+      IDAM_REDIRECT_URI: "https://${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}.platform.hmcts.net/oauth2/callback"
+      # DEED_POLL_API_URL is deliberately NOT restated here: the subchart's default already resolves
+      # per environment, and a second spelling of api's host is drift with nothing forcing it.
 ```
+
+The `${API_IMAGE}` and `${POSTGRES_IMAGE}` substitutions are gone with those two apps; `${WEB_IMAGE}` and
+`${CRONS_IMAGE}` are the only two the Jenkins pipeline supplies. There are no `postgresql:` or `redis:`
+toggles either — the Key Vault, Redis and App Insights are all Terraform in `hmcts/deed-poll-infra`.
 
 **Preview Template** (`values.preview.template.yaml`):
 ```yaml
@@ -309,22 +314,22 @@ deed-poll-admin-web:
     image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:${WEB_IMAGE}"
     ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-web.preview.platform.hmcts.net"
     environment:
-      REDIS_URL: "redis://{{ .Release.Name }}-redis-master:6379"
-
-# Preview-only dependencies (ephemeral)
-postgresql:
-  enabled: true
-  flexibleserver: deed-poll-preview
-redis:
-  enabled: true
-  architecture: standalone
+      IDAM_REDIRECT_URI: "https://${TEAM_NAME}-{{ .Release.Name }}-web.preview.platform.hmcts.net/oauth2/callback"
+      # AAT's api, overridden rather than inherited: `global.environment` is `preview` and there is no
+      # `deed-poll-api-preview.…internal` — api's preview deploys are per-PR hosts with no stable name.
+      # The usual CFT arrangement, with the usual consequence: preview writes land in AAT's data.
+      DEED_POLL_API_URL: "http://deed-poll-api-aat.service.core-compute-aat.internal"
 ```
 
-**The `redis:` half of that preview block is not in the real file yet** — it is what a per-PR session store
-would look like, not what is there. `values.preview.template.yaml` currently provisions the database and
-nothing for Redis, and `deed-poll-infra` does not apply in `preview`, so a preview deploy has no `redis-url`.
-Whether preview gets an ephemeral subchart or points at the AAT cache is undecided — gap 4 in
-`docs/PIPELINES.md`. Do not present it as existing.
+Two things about preview that are easy to get wrong:
+
+- **There are no `postgresql:` or `redis:` subchart toggles**, and the database one is not coming back —
+  there is nothing in this repo to put in a per-PR database. A `redis:` block is what a per-PR session store
+  *would* look like, not what is there; `deed-poll-infra` does not apply in `preview`, so a preview deploy
+  has no `redis-url`. Whether preview gets an ephemeral subchart or points at the AAT cache is undecided —
+  see `docs/PIPELINES.md`. Do not present it as existing.
+- **Preview enables the same two subcharts as AAT**, deliberately: a preview that deploys a component AAT
+  does not is a preview of something else.
 
 ## Jenkins CNP CI/CD Pipeline
 

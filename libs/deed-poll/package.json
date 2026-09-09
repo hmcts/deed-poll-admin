@@ -22,7 +22,7 @@
     "vitest": "*"
   },
   "dependencies": {
-    "@hmcts/postgres-prisma": "workspace:*",
+    "@hmcts/deed-poll-api-client": "workspace:*",
     "zod": "4.4.3"
   }
 }

@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 /**
  * Layer 3 — enum-value conformance.
  *
- * The migration's promise (schema.prisma header, enums/dynamics-values.ts) is
- * that every option-set member keeps its exact Dynamics integer, so data stays
- * interoperable with a future Dataverse re-import. This pins those integers: the
- * expected values are transcribed from the schema.prisma enum comments (the
- * documented source values). A drift in either the value map or the schema
- * comment trips this.
+ * The migration's promise (`enums/dynamics-values.ts`) is that every option-set
+ * member keeps its exact Dynamics integer, so data stays interoperable with a
+ * future Dataverse re-import. This pins those integers: the expected values are
+ * transcribed from the enum comments of the ported schema — which api vendors at
+ * `src/test/resources/reference/deed-poll.prisma` now that the schema itself has
+ * left this repo, and pins with its own `EnumValuesConformanceTest`. A drift in
+ * the value map trips this; a drift between the two repos' transcriptions trips
+ * one of the two. See README.md for why this layer stayed and the structural one
+ * did not.
  */
 import {
   DEED_POLL_STATE_VALUE,

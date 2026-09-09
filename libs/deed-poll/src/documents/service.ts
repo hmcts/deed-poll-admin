@@ -1,143 +1,115 @@
-import type { ReadStream } from "node:fs";
-import { type DeedPollSupportingDocument, DocumentDirection, prisma } from "@hmcts/postgres-prisma";
+/**
+ * Supporting documents, read and uploaded through `deed-poll-api`.
+ *
+ * **`file-storage.ts` is gone, and that is the substance of this change.** Local disk was always a
+ * development story: pods are ephemeral, replicas share no volume, so a document uploaded to one pod
+ * was invisible to the next request and lost on the next deploy. api owns the bytes now, and this file
+ * no longer knows where they are — `hasFile` is all it is told, which is all the subgrid ever asked.
+ *
+ * **Four operations went with the storage**, all of them because api has no endpoint and none of this
+ * app's pages offer one: the metadata-only create (a document logged as expected-but-not-yet-received),
+ * the metadata patch, the document delete, and the document-type writes in `document-types.ts`.
+ * `DEED_POLL_API_PLAN.md` records them as not rebuilt until something asks. `createDocumentSchema` and
+ * `updateDocumentSchema` went too; `uploadFormSchema` is what the upload form still validates against.
+ *
+ * The reads come out of the case rather than a documents endpoint — one `GET /caseworker/cases/{id}`
+ * carries the children — which is also what keeps the parent scoping the Prisma version enforced by
+ * hand: a document belonging to another case is not in this case's list.
+ */
+import {
+  downloadDocument as apiDownloadDocument,
+  uploadDocument as apiUploadDocument,
+  type Document,
+  type DocumentDirection,
+  type DocumentDownload,
+  getCase
+} from "@hmcts/deed-poll-api-client";
+import { type Caller, callApi } from "../api/deed-poll-api.js";
 import { InvalidInputError, NotFoundError } from "../errors.js";
-import { createFileReadStream, deleteFile, saveFile } from "./file-storage.js";
-import type { CreateDocumentInput, UpdateDocumentInput } from "./schemas.js";
+import { UPLOAD_FILE_FIELD } from "./upload-policy.js";
+
+/** Documents for a case. A missing case is api's 404, so this never answers `[]` for one. */
+export async function findDocuments(deedPollId: string, caller: Caller): Promise<Document[]> {
+  const found = await callApi(caller, (config) => getCase(deedPollId, config));
+
+  return found.documents;
+}
+
+export async function findDocument(deedPollId: string, id: string, caller: Caller): Promise<Document> {
+  const documents = await findDocuments(deedPollId, caller);
+  const document = documents.find((candidate) => candidate.id === id);
+  if (!document) throw new NotFoundError(`Document ${id} not found`);
+
+  return document;
+}
 
 /**
- * Nested CRUD for supporting-document metadata, scoped to a parent DeedPoll.
- * The actual file blob is attached in Phase 10; here we manage the row and its
- * document-type reference. Both the parent case and the referenced type are
- * checked so a bad FK yields a 404 rather than a Prisma 500.
+ * Upload a file and create its document row, in one call to api's multipart endpoint.
  *
- * The write paths carry `deedPollId` in their own `where` as well as behind the
- * `findDocument` guard — see the notes service for why.
+ * The local defaults are gone with the local write: api names the row from the file when no name is
+ * given and defaults the direction to Incoming, so both are forwarded only when the form supplied them
+ * — sending an empty string instead would name the row "". `uploadFormSchema` still caps the name at
+ * 100 characters, which is why nothing is truncated here.
+ *
+ * The missing-file rejection stays local, because it is the one check that cannot usefully be api's:
+ * a body with no file part is a form the caseworker has not finished, and `upload-policy.ts` already
+ * establishes that rejecting early beats a 400 from api. It owns the message so this page and any
+ * other caller give the same one.
  */
+export async function uploadDocument(
+  deedPollId: string,
+  documentTypeId: string,
+  file: UploadedFile | undefined,
+  opts: { name?: string; direction?: DocumentDirection },
+  caller: Caller
+): Promise<Document> {
+  // Attributed to the file input, the way `uploadTypeRejection` and `uploadLimitRejection` are: a
+  // rejection that names its field is one a form can render against the control, and it leaves "no field
+  // named" meaning "this came from api", which is what lets a page tell its own copy from api's.
+  if (!file) throw new InvalidInputError("Select a file to upload", [{ field: UPLOAD_FILE_FIELD, message: "Select a file to upload" }]);
 
-async function assertCaseExists(deedPollId: string): Promise<void> {
-  const exists = await prisma.deedPoll.findUnique({
-    where: { id: deedPollId },
-    select: { id: true }
-  });
-  if (!exists) throw new NotFoundError(`DeedPoll ${deedPollId} not found`);
+  return callApi(caller, (config) =>
+    apiUploadDocument(
+      deedPollId,
+      {
+        documentTypeId,
+        name: file.originalname,
+        mimeType: file.mimetype,
+        bytes: file.buffer,
+        documentName: opts.name,
+        direction: opts.direction
+      },
+      config
+    )
+  );
 }
 
-async function assertType(documentTypeId: string): Promise<void> {
-  const exists = await prisma.deedPollSupportingDocumentType.findUnique({
-    where: { id: documentTypeId },
-    select: { id: true }
-  });
-  if (!exists) {
-    throw new NotFoundError(`Document type ${documentTypeId} not found`);
-  }
-}
-
-export async function createDocument(deedPollId: string, dto: CreateDocumentInput): Promise<DeedPollSupportingDocument> {
-  await assertCaseExists(deedPollId);
-  await assertType(dto.documentTypeId);
-  return prisma.deedPollSupportingDocument.create({
-    data: { ...dto, deedPollId }
-  });
-}
-
-/** Documents for a case. The parent is checked so a missing case 404s rather than answering `[]`. */
-export async function findDocuments(deedPollId: string): Promise<DeedPollSupportingDocument[]> {
-  await assertCaseExists(deedPollId);
-  return prisma.deedPollSupportingDocument.findMany({
-    where: { deedPollId },
-    orderBy: { createdOn: "asc" },
-    include: { documentType: true }
-  });
-}
-
-export async function findDocument(deedPollId: string, id: string): Promise<DeedPollSupportingDocument> {
-  const doc = await prisma.deedPollSupportingDocument.findFirst({
-    where: { id, deedPollId },
-    include: { documentType: true }
-  });
-  if (!doc) throw new NotFoundError(`Document ${id} not found`);
-  return doc;
-}
-
-export async function updateDocument(deedPollId: string, id: string, dto: UpdateDocumentInput): Promise<DeedPollSupportingDocument> {
-  await findDocument(deedPollId, id);
-  if (dto.documentTypeId) await assertType(dto.documentTypeId);
-  return prisma.deedPollSupportingDocument.update({
-    where: { id, deedPollId },
-    data: dto
-  });
-}
-
-export async function removeDocument(deedPollId: string, id: string): Promise<void> {
-  const doc = await findDocument(deedPollId, id);
-  await prisma.deedPollSupportingDocument.delete({ where: { id, deedPollId } });
-
-  // Blob cleanup, and now genuinely best-effort — the comment here used to claim that while an
-  // unawaited-failure propagated. The row is already gone at this point, so a failed unlink turned
-  // a completed delete into a 500: the caller retries, gets a 404, and has no way to tell the
-  // delete had in fact worked. An orphaned blob is recoverable and cheap; a status code that
-  // contradicts what happened is neither. `deleteFile` already no-ops on a missing file, so this
-  // only swallows real I/O failures, and it says so in the log rather than silently.
-  try {
-    await deleteFile(doc.storageKey);
-  } catch (error) {
-    console.error(`Deleted document ${id} but could not remove its stored file (key ${doc.storageKey}):`, error);
-  }
+/**
+ * A document's bytes, still streaming, plus the headers api put on them.
+ *
+ * Not buffered: a scanned deed poll is megabytes and a caller's job is to forward them. api decides
+ * the filename and the disposition, so neither is re-derived — which also retires the `safeFilename`
+ * sanitising both download routes did, because the header is api's output rather than the uploading
+ * client's text.
+ *
+ * A row with no attached file is api's 404, so the local `"This document has no attached file"` check
+ * went with `storageKey`.
+ */
+export function downloadDocument(deedPollId: string, id: string, caller: Caller): Promise<DocumentDownload> {
+  return callApi(caller, (config) => apiDownloadDocument(deedPollId, id, config));
 }
 
 /**
  * The parts of an uploaded file this domain needs.
  *
- * The prototype typed this as `Express.Multer.File`, which put a transport type in the
- * domain layer. These four fields are all it ever read, so the app maps whatever its
- * upload middleware produces onto this.
+ * The prototype typed this as `Express.Multer.File`, which put a transport type in the domain layer.
+ * These four fields are all it ever read, so the app maps whatever its upload middleware produces onto
+ * this. `size` is here for `upload-policy.ts`'s benefit rather than api's — the multipart body carries
+ * its own length.
  */
 export interface UploadedFile {
   buffer: Buffer;
   originalname: string;
   mimetype: string;
   size: number;
-}
-
-/**
- * Upload a file and create its document row in one step. The blob is written
- * to storage first, then the metadata row records the returned storageKey plus
- * the original filename, MIME type and size. Direction defaults to Incoming
- * (an applicant-supplied document) unless overridden.
- */
-export async function uploadDocument(
-  deedPollId: string,
-  documentTypeId: string,
-  file: UploadedFile | undefined,
-  opts: { name?: string; direction?: DocumentDirection } = {}
-): Promise<DeedPollSupportingDocument> {
-  if (!file) throw new InvalidInputError("Select a file to upload");
-  await assertCaseExists(deedPollId);
-  await assertType(documentTypeId);
-
-  const storageKey = await saveFile(file.buffer);
-  return prisma.deedPollSupportingDocument.create({
-    data: {
-      deedPollId,
-      documentTypeId,
-      direction: opts.direction ?? DocumentDirection.Incoming,
-      name: opts.name?.slice(0, 100) || file.originalname.slice(0, 100),
-      storageKey,
-      originalName: file.originalname,
-      mimeType: file.mimetype,
-      sizeBytes: file.size
-    }
-  });
-}
-
-/**
- * Resolve a document's stored blob for download: the metadata row (scoped to
- * its parent) plus a read stream. 404 if the row has no attached file.
- */
-export async function downloadDocument(deedPollId: string, id: string): Promise<{ doc: DeedPollSupportingDocument; stream: ReadStream }> {
-  const doc = await findDocument(deedPollId, id);
-  if (!doc.storageKey) {
-    throw new NotFoundError("This document has no attached file");
-  }
-  return { doc, stream: createFileReadStream(doc.storageKey) };
 }

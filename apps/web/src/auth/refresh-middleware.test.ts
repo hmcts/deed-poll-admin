@@ -129,6 +129,20 @@ describe("refreshMiddleware", () => {
     expect(next).toHaveBeenCalled();
   });
 
+  it("signs out when the token has expired and there is no refresh token to recover it with", async () => {
+    // The pass-through above is right only while the token still works. Once it has expired there is
+    // nothing left to expire naturally: every case page presents it to api, which answers 401, which
+    // `errors.ts` renders as a 500 with no route back to /login — for the cookie's full maxAge.
+    const req = request(["refreshToken"], { tokenExpiresAt: expiringIn(-30) });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(req.session.destroy).toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2Fdeed-polls");
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it("signs out a session with no recorded subject, rather than refreshing unchecked", async () => {
     // Only reachable for a session created before the subject was stored. What cannot be verified is
     // refused, which is the same polarity as every other auth decision in this app.
@@ -166,6 +180,20 @@ describe("refreshMiddleware", () => {
     expect(req.session.destroy).not.toHaveBeenCalled();
     expect(res.redirect).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalled();
+  });
+
+  it("signs out when the refresh throws and the access token has already expired", async () => {
+    // The cutover made the token load-bearing: every case page presents it to api, which answers 401,
+    // which reaches the 500 page with no route back to /login. Continuing is only defensible while the
+    // token still works, so an expired one ends the session rather than looping through a 500 per page.
+    vi.mocked(refreshTokens).mockRejectedValue(new Error("getaddrinfo EAI_AGAIN"));
+    const req = request([], { tokenExpiresAt: expiringIn(-30) });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(req.session.destroy).toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2Fdeed-polls");
+    expect(next).not.toHaveBeenCalled();
   });
 
   it("keeps the user signed in across a refresh", async () => {

@@ -1,109 +1,64 @@
-import { prisma as prismaClient } from "@hmcts/postgres-prisma";
+import { getCase } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NotFoundError } from "../errors.js";
-import { createWitness, findWitness, findWitnesses, removeWitness, updateWitness } from "./service.js";
+import { findWitness, findWitnesses } from "./service.js";
 
-// Partial mock: only the client is replaced. The Prisma enums (DocumentDirection,
-// DeedPollType, …) are real values the source modules import, so they must pass through.
-vi.mock("@hmcts/postgres-prisma", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@hmcts/postgres-prisma")>()),
-  prisma: {
-    deedPoll: { findUnique: vi.fn() },
-    deedPollWitness: {
-      create: vi.fn(),
-      findMany: vi.fn(),
-      findFirst: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn()
-    }
-  }
+// Only `getCase` is replaced, because that is the only call witnesses make: api publishes no witness
+// endpoint, so they arrive inside the case. What these tests pin is that the scoping survived losing the
+// `{ id, deedPollId }` where clause — a witness of another case is simply not in this case's list.
+vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts/deed-poll-api-client")>()),
+  getCase: vi.fn()
 }));
 
-// Aliased back to `prisma` so the assertions below read exactly as they did under Nest DI;
-// `deep: true` keeps the mock methods typed so .mockResolvedValue is available on them.
-const prisma = vi.mocked(prismaClient, { deep: true });
+const CALLER = { accessToken: "caseworker-token" };
+
+const ok = <T>(data: T) => ({ ok: true as const, data });
+
+const caseWith = (witnesses: { id: string; witnessName?: string }[]) => ok({ id: "case-1", notes: [], witnesses, documents: [] });
 
 describe("witnesses/service", () => {
-  const witness = {
-    witnessName: "Sam Doe",
-    witnessAddress: "1 High St",
-    witnessOccupation: "Teacher",
-    declarant: false
-  };
-
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.DEED_POLL_API_URL = "http://api.test";
   });
 
-  it("creates a witness scoped to its parent", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
-    prisma.deedPollWitness.create.mockResolvedValue({ id: "w1" });
-    await createWitness("case1", witness);
-    expect(prisma.deedPollWitness.create).toHaveBeenCalledWith({
-      data: { ...witness, deedPollId: "case1" }
+  describe("findWitnesses", () => {
+    it("should return the witnesses api sent inside the case", async () => {
+      vi.mocked(getCase).mockResolvedValue(caseWith([{ id: "witness-1", witnessName: "A Neighbour" }]) as never);
+
+      const witnesses = await findWitnesses("case-1", CALLER);
+
+      expect(witnesses).toEqual([{ id: "witness-1", witnessName: "A Neighbour" }]);
+      expect(getCase).toHaveBeenCalledWith("case-1", expect.objectContaining({ baseUrl: "http://api.test" }));
+    });
+
+    it("should answer an empty list for a real case with no witnesses", async () => {
+      vi.mocked(getCase).mockResolvedValue(caseWith([]) as never);
+
+      expect(await findWitnesses("case-1", CALLER)).toEqual([]);
+    });
+
+    it("should throw NotFoundError for a case that does not exist, rather than an empty list", async () => {
+      vi.mocked(getCase).mockResolvedValue({ ok: false, error: { kind: "not-found", status: 404, message: "DeedPoll nope not found" } } as never);
+
+      await expect(findWitnesses("nope", CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 
-  it("404s creating a witness on a missing case", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue(null);
-    await expect(createWitness("nope", witness)).rejects.toBeInstanceOf(NotFoundError);
-    expect(prisma.deedPollWitness.create).not.toHaveBeenCalled();
-  });
+  describe("findWitness", () => {
+    it("should return the witness with the matching id", async () => {
+      vi.mocked(getCase).mockResolvedValue(caseWith([{ id: "witness-1" }, { id: "witness-2" }]) as never);
 
-  it("lists witnesses for a case that exists", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
-    prisma.deedPollWitness.findMany.mockResolvedValue([{ id: "w1" }]);
-
-    await expect(findWitnesses("case1")).resolves.toEqual([{ id: "w1" }]);
-
-    expect(prisma.deedPollWitness.findMany).toHaveBeenCalledWith({
-      where: { deedPollId: "case1" },
-      orderBy: { createdOn: "asc" }
+      expect(await findWitness("case-1", "witness-2", CALLER)).toEqual({ id: "witness-2" });
     });
-  });
 
-  it("404s listing witnesses for a case that does not exist, rather than answering an empty list", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue(null);
+    it("should throw NotFoundError for a witness that belongs to a different case", async () => {
+      // The cross-case guarantee, and it needs no `where` clause now: this case's own list is the only
+      // place looked, so another case's witness is unreachable through this URL by construction.
+      vi.mocked(getCase).mockResolvedValue(caseWith([{ id: "witness-1" }]) as never);
 
-    await expect(findWitnesses("nope")).rejects.toBeInstanceOf(NotFoundError);
-
-    expect(prisma.deedPollWitness.findMany).not.toHaveBeenCalled();
-  });
-
-  it("returns an empty list for a real case with no witnesses", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
-    prisma.deedPollWitness.findMany.mockResolvedValue([]);
-
-    await expect(findWitnesses("case1")).resolves.toEqual([]);
-  });
-
-  it("findOne 404s across parents", async () => {
-    prisma.deedPollWitness.findFirst.mockResolvedValue(null);
-    await expect(findWitness("case1", "w1")).rejects.toBeInstanceOf(NotFoundError);
-  });
-
-  it("removes after an existence check, scoped to the parent case", async () => {
-    prisma.deedPollWitness.findFirst.mockResolvedValue({ id: "w1" });
-    prisma.deedPollWitness.delete.mockResolvedValue({ id: "w1" });
-    await removeWitness("case1", "w1");
-    expect(prisma.deedPollWitness.delete).toHaveBeenCalledWith({
-      where: { id: "w1", deedPollId: "case1" }
-    });
-  });
-
-  it("404s updating a witness that belongs to another case, before writing", async () => {
-    prisma.deedPollWitness.findFirst.mockResolvedValue(null);
-    await expect(updateWitness("case1", "w1", { declarant: true })).rejects.toBeInstanceOf(NotFoundError);
-    expect(prisma.deedPollWitness.update).not.toHaveBeenCalled();
-  });
-
-  it("scopes the update to the parent case, so the write does not rely on the guard above it", async () => {
-    prisma.deedPollWitness.findFirst.mockResolvedValue({ id: "w1" });
-    prisma.deedPollWitness.update.mockResolvedValue({ id: "w1" });
-    await updateWitness("case1", "w1", { declarant: true });
-    expect(prisma.deedPollWitness.update).toHaveBeenCalledWith({
-      where: { id: "w1", deedPollId: "case1" },
-      data: { declarant: true }
+      await expect(findWitness("case-1", "witness-of-another-case", CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 });

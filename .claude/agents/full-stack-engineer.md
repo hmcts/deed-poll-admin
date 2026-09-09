@@ -78,12 +78,17 @@ tools: Read, Write, Edit, Bash, Grep, Glob
 - **Event-Driven Architecture**: Non-blocking I/O operations
 - **Stream Processing**: Efficient handling of large data
 
-#### Database Architecture
-- **Prisma ORM**: Type-safe database operations
-- **Migration Strategy**: Version-controlled schema changes
-- **Query Optimization**: Efficient access patterns with indexes
-- **Transaction Management**: ACID compliance for critical operations
-- **Connection Pooling**: Optimized database connections
+#### Data Architecture — there is no database here
+- **`deed-poll-api` owns the data.** Every read and write is an HTTP call; Prisma, the pg pool, the
+  migrations, `apps/api`, `apps/postgres` and `libs/postgres-prisma` were all deleted. See
+  `docs/plans/02-dal-cutover-to-api.md`
+- **One adapter**: `libs/deed-poll-api-client` is the only thing that speaks HTTP to api, and it never
+  throws — it returns `ApiResult<T>`, so an unreachable api is a page state and not a 500
+- **One door**: `libs/deed-poll/src/api/deed-poll-api.ts`'s `callApi` is the only place that builds an
+  `ApiConfig` or branches on an `ApiResult`, and the only place that reads `DEED_POLL_API_URL`
+- **Ask api to filter, sort and page.** It resolves a filter key; do not fetch a list and narrow it here
+- **One call per thing a page needs.** A case's notes, witnesses and documents arrive inside
+  `GET /caseworker/cases/{id}`
 
 ## Library and Framework Research
 
@@ -120,21 +125,23 @@ libs/
     └── src/
         ├── index.ts           # Public exports (services, validation, types)
         └── [domain]/          # Domain-driven structure
-            ├── service.ts     # Business logic
+            ├── service.ts     # Adapter calls through callApi — usually one line each
             ├── service.test.ts
             ├── validation.ts
-            └── queries.ts     # Database queries (imports from @hmcts/postgres-prisma)
+            └── schemas.ts     # Zod schemas the page handler parses with
 ```
 
-Prisma schemas live in `libs/postgres-prisma/prisma/` — not in individual feature libs.
+**A lib cannot store anything.** If the feature needs to persist data, the operation goes in
+`deed-poll-api` first: its `openapi.json`, then `libs/deed-poll-api-client/src/api/client.ts`, then the
+mock, pinned by `contract.test.ts` — then a service function that calls it.
 
 ### Using a Lib from an App
 
 Import directly from the lib package — no registration step required:
 
 ```typescript
-// apps/web/src/pages/onboarding/(name)/name.ts
-import { processNameSubmission, getSessionDataForPage } from "@hmcts/onboarding";
+// apps/web/src/pages/deed-polls/[id]/notes/new.ts
+import { createNote, createNoteSchema, findDeedPoll } from "@hmcts/deed-poll";
 ```
 
 ```typescript
@@ -309,45 +316,38 @@ interface UserSession extends Session {
 {% endblock %}
 ```
 
-#### Data Access Pattern
+#### Service Pattern — a service function is an adapter call and a `Caller`
 ```typescript
-// libs/user-management/src/user/user-queries.ts
-import { prisma } from "@hmcts/postgres";
+// libs/deed-poll/src/notes/service.ts
+import { getNote, type Note, patchNote } from "@hmcts/deed-poll-api-client";
+import { type Caller, callApi } from "../api/deed-poll-api.js";
+import type { UpdateNoteInput } from "./schemas.js";
 
-export async function findUserById(id: string) {
-  return prisma.user.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      createdAt: true
-    }
-  });
+export function findNote(deedPollId: string, id: string, caller: Caller): Promise<Note> {
+  return callApi(caller, (config) => getNote(deedPollId, id, config));
 }
 
-export async function createUser(data: CreateUserData) {
-  return prisma.user.create({
-    data: {
-      name: data.name,
-      email: data.email,
-      createdAt: new Date()
-    }
-  });
+export function updateNote(deedPollId: string, id: string, dto: UpdateNoteInput, caller: Caller): Promise<Note> {
+  return callApi(caller, (config) => patchNote(deedPollId, id, dto.note, config));
 }
-
-type CreateUserData = {
-  name: string;
-  email: string;
-};
 ```
+
+Three rules, and each has cost something to learn:
+
+- **`Caller` is `{ accessToken }` and nothing else.** api derives both the audit author and the admin
+  status from the token, so sending a user name or an `isAdmin` flag would assert an identity api never
+  verified. Pages read it with `callerFromRequest(req)`
+- **The DTO is already validated.** The page handler parses with `schema.safeParse` so it has errors to
+  render against its fields; the service's parameter type is the schema's inferred type
+- **Never re-check what api has answered.** A note that is not under the case in the path is api's 404,
+  and a scoping pre-read is a second round trip for a fact the first call already carried
 
 ### Production Readiness Checklist
 
 #### Module Setup ✅
 - [ ] Module registered in root `tsconfig.json` paths
 - [ ] `tsconfig.json` configured with proper includes/excludes
-- [ ] Lib exports business logic only — no pages, no routes, no Prisma schemas
+- [ ] Lib exports business logic only — no pages, no routes, no data access layer of any kind
 
 #### Frontend ✅
 - [ ] WCAG 2.2 AA compliance tested
@@ -422,7 +422,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 ### Main Application Structure
 ```typescript
-// apps/api/src/app.ts
+// apps/web/src/app.ts
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
@@ -491,70 +491,37 @@ export function validateRequest(schema: ValidationSchema) {
 }
 ```
 
-## Database Best Practices
+## Reaching deed-poll-api
 
-### Prisma Schema Design
-```prisma
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  
-  posts     Post[]
-  
-  @@map("user")
-}
+**There is no schema to design and no transaction to manage here.** Both are api's, and the way to add an
+operation is not to work around its absence: `apps/api`'s routes for the nine writes api does not publish
+were deleted, because a route that can only fail is worse than a 404.
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  userId    String   @map("user_id")
-  createdAt DateTime @default(now()) @map("created_at")
-  
-  user      User     @relation(fields: [userId], references: [id])
-  
-  @@index([userId])
-  @@map("post")
-}
-```
+### Adding an operation
 
-### Transaction Management
-```typescript
-// libs/payment/src/payment-service.ts
-import { prisma } from "@hmcts/postgres";
+1. It must exist in api's `openapi.json` first. If it does not, that is a change in
+   [`hmcts/deed-poll-api`](https://github.com/hmcts/deed-poll-api), not a workaround here
+2. Add it to `libs/deed-poll-api-client/src/api/client.ts` — a plain function over `fetch` returning
+   `ApiResult<T>`, never throwing
+3. `contract.test.ts` pins it against the spec in both directions; a call the spec does not describe fails
+4. Add it to the in-memory mock (`src/mock/server.ts`) — the mock is the contract the unit suite and
+   `yarn dev` run against, so an operation missing there is an operation nothing can exercise
+5. Then a one-line service function in `libs/deed-poll`, and only then a page that calls it
 
-export async function processPayment(userId: string, amount: number) {
-  return prisma.$transaction(async (tx) => {
-    const user = await tx.user.findUnique({
-      where: { id: userId },
-      select: { balance: true }
-    });
+### How a failure becomes a page
 
-    if (!user || user.balance < amount) {
-      throw new Error("Insufficient funds");
-    }
+`callApi` turns the adapter's classified failure into the domain errors `apps/web/src/errors.ts` renders:
+`not-found` → 404 page, `validation` → `InvalidInputError` the **page handler must catch** and re-render
+its form with, `forbidden` → 403, and `unavailable`/`timeout`/`invalid-response` → the 500 page. An
+`InvalidInputError` reaching the error handler is a bug in the handler, not a user error.
 
-    await tx.user.update({
-      where: { id: userId },
-      data: { balance: { decrement: amount } }
-    });
-    
-    const transaction = await tx.paymentTransaction.create({
-      data: {
-        userId,
-        amount,
-        type: "DEBIT",
-        status: "COMPLETED"
-      }
-    });
+### What not to do
 
-    return transaction;
-  });
-}
-```
+- ❌ A `prisma.*` call, a migration, a connection string, or a second data access layer of any kind
+- ❌ Importing `wire.ts` or the mock outside `libs/deed-poll-api-client`
+- ❌ Reading `DEED_POLL_API_URL` anywhere but `libs/deed-poll/src/api/deed-poll-api.ts`
+- ❌ Recomputing a value api publishes — the reference number, `daysReceivedToEnroled`
+- ❌ Fetching a list and filtering it here; api resolves a filter key
 
 ## Performance Optimization
 
@@ -630,7 +597,8 @@ export function createCacheHelpers(redis: Redis) {
 
 ## Security Requirements
 
-- Input validation on all endpoints
-- Parameterized database queries (Prisma)
-- No sensitive data in logs
+- Input validation on every form post
+- Never assert an identity api has not verified: `{ accessToken }` and nothing else
+- No sensitive data in logs — no tokens, and no case body, which is an applicant's name, address and
+  date of birth
 - Proper authentication and authorization

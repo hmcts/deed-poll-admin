@@ -140,11 +140,11 @@
           {% set docRows = [] %}
           {% for d in documents %}
             {#
-              Links to this app's own download route, not the API's. The prototype could use
-              /api/... because one Nest app served both; apps/api and apps/web are now separate
-              origins, so a cross-app link would need an API base URL in config and would leave the
-              browser's session behind. Both apps share the domain, so serving the stream here is
-              simpler and same-origin. A document with no file attached is not linked.
+              Links to this app's own download route, not deed-poll-api's. The prototype could use
+              /api/... because one Nest app served both; api is a separate service on a separate
+              origin, so a direct link would need its base URL on the page and would leave the
+              browser's session behind. The route forwards api's stream instead, same-origin and
+              with the caseworker's token. A document with no file attached is not linked.
             #}
             {% set nameCell %}
               {% if d.downloadable %}

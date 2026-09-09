@@ -75,7 +75,7 @@ export function formatValue(field: FieldDef, raw: unknown): string {
     }
 
     case "number":
-      // A Prisma Decimal (refundAmount) stringifies correctly; 0 must survive.
+      // `String()` rather than a truthiness check: refundAmount of 0 must survive.
       return String(raw);
 
     default:

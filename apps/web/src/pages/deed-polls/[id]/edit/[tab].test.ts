@@ -31,7 +31,7 @@ const found = {
 };
 
 function request(tab: string, body: Record<string, unknown> = {}, admin = false): Request {
-  return pageRequest({ params: { id: "case-1", tab }, body, admin, name: "A Caseworker" });
+  return pageRequest({ params: { id: "case-1", tab }, body, admin, name: "A Caseworker", accessToken: "caseworker-token" });
 }
 
 const response = pageResponse;
@@ -146,10 +146,10 @@ describe("case edit tab page", () => {
       expect(Object.keys(patch).sort()).toEqual([...(refundFields ?? [])].sort());
     });
 
-    it("passes the caller's name and admin status to the domain", async () => {
+    it("passes the caller's own token, since api derives the author and the privacy entitlement from it", async () => {
       await POST(request(APPLICATION, bodyFor(APPLICATION), true), response());
 
-      expect(updateDeedPoll).toHaveBeenCalledWith("case-1", expect.anything(), { isAdmin: true, userName: expect.any(String) });
+      expect(updateDeedPoll).toHaveBeenCalledWith("case-1", expect.anything(), { accessToken: "caseworker-token" });
     });
 
     it("re-renders with a 400 when a date part is not a real date, before reaching the domain", async () => {
@@ -200,6 +200,22 @@ describe("case edit tab page", () => {
         .flatMap((s: { fields: { name: string; value: unknown }[] }) => s.fields)
         .find((f: { name: string }) => f.name === "newSurname");
       expect(field.value).toBe("Typed");
+    });
+
+    it("shows this page's own copy when api's rejection names no field, and does not leak api's wording", async () => {
+      // The template hides an empty summary, so a 400 with no field errors would re-render the tab looking
+      // as though nothing had happened. It must not be api's message that fills it: that is developer-facing
+      // text, which `.claude/rules/backend.md` keeps away from caseworkers — so it is logged instead.
+      vi.mocked(updateDeedPoll).mockRejectedValue(new InvalidInputError("deed-poll-api answered 400"));
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = response();
+
+      await POST(request(APPLICATION, bodyFor(APPLICATION)), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "The case could not be saved. Check the details and try again.", href: undefined }]);
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("deed-poll-api answered 400"));
+      logged.mockRestore();
     });
 
     it("rethrows anything that is not a validation failure, so a real fault is not hidden", async () => {

@@ -4,16 +4,12 @@ global:
   security:
     allowInsecureImages: true
 
-# Enable/disable subcharts
-postgres:
-  enabled: true
+# Enable/disable subcharts. Kept in step with values.template.yaml deliberately: a preview environment
+# that deploys a component AAT does not is a preview of something else. The `postgres`, `api` and
+# `postgresql` toggles went with the charts they switched — there is no per-PR database any more, because
+# there is nothing in this repo to put in one.
 web:
   enabled: true
-# Off for the same reasons as in values.template.yaml — no consumer, and slated for replacement. Kept in
-# step with AAT deliberately: a preview environment that deploys a component AAT does not is a preview of
-# something else.
-api:
-  enabled: false
 crons:
   enabled: true
 
@@ -23,47 +19,20 @@ deed-poll-admin-web:
     image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:${WEB_IMAGE}"
     ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-web.preview.platform.hmcts.net"
     environment:
-      POSTGRES_DATABASE: "{{ .Release.Name }}"
       # Must match the ingressHost above and be registered with IDAM. `.Release.Name` here is
       # `deed-poll-admin-pr-<n>`, so **every PR has a different hostname** — which is why the
       # registration request asks IDAM for a wildcard covering
       # `deed-poll-deed-poll-admin-pr-*-web.preview.platform.hmcts.net`. Without one, preview
       # environments cannot log in at all and each PR would need its own registration.
       IDAM_REDIRECT_URI: "https://${TEAM_NAME}-{{ .Release.Name }}-web.preview.platform.hmcts.net/oauth2/callback"
-    secrets:
-      POSTGRES_HOST:
-        secretRef: postgres
-        key: HOST
-      POSTGRES_USER:
-        secretRef: postgres
-        key: USER
-      POSTGRES_PASSWORD:
-        secretRef: postgres
-        key: PASSWORD
-      POSTGRES_PORT:
-        secretRef: postgres
-        key: PORT
-
-# API application configuration
-deed-poll-admin-api:
-  nodejs:
-    image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-api:${API_IMAGE}"
-    ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-api.preview.platform.hmcts.net"
-    environment:
-      POSTGRES_DATABASE: "{{ .Release.Name }}"
-    secrets:
-      POSTGRES_HOST:
-        secretRef: postgres
-        key: HOST
-      POSTGRES_USER:
-        secretRef: postgres
-        key: USER
-      POSTGRES_PASSWORD:
-        secretRef: postgres
-        key: PASSWORD
-      POSTGRES_PORT:
-        secretRef: postgres
-        key: PORT
+      # AAT's api, not a preview one, and overridden here rather than inherited: the subchart's default
+      # resolves from `global.environment`, which is `preview`, and there is no
+      # `deed-poll-api-preview.service.core-compute-preview.internal` — api's preview deploys are per-PR
+      # hosts under `preview.platform.hmcts.net`, one per api PR, so no stable name exists for this app
+      # to point at. Pointing a preview at AAT's api is the usual CFT arrangement and has the usual
+      # consequence: **preview writes land in AAT's data.** Fine for a caseworker service with no live
+      # data yet; revisit before this app carries any.
+      DEED_POLL_API_URL: "http://deed-poll-api-aat.service.core-compute-aat.internal"
 
 # Crons application configuration
 deed-poll-admin-crons:
@@ -74,46 +43,3 @@ deed-poll-admin-crons:
     kind: CronJob
     environment:
       SCRIPT_NAME: 'example'
-      POSTGRES_DATABASE: "{{ .Release.Name }}"
-    secrets:
-      POSTGRES_HOST:
-        secretRef: postgres
-        key: HOST
-      POSTGRES_USER:
-        secretRef: postgres
-        key: USER
-      POSTGRES_PASSWORD:
-        secretRef: postgres
-        key: PASSWORD
-      POSTGRES_PORT:
-        secretRef: postgres
-        key: PORT
-
-# Postgres Prisma Studio service configuration
-deed-poll-admin-postgres:
-  nodejs:
-    image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-postgres:${POSTGRES_IMAGE}"
-    ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-postgres.preview.platform.hmcts.net"
-    environment:
-      POSTGRES_DATABASE: "{{ .Release.Name }}"
-    secrets:
-      POSTGRES_HOST:
-        secretRef: postgres
-        key: HOST
-      POSTGRES_USER:
-        secretRef: postgres
-        key: USER
-      POSTGRES_PASSWORD:
-        secretRef: postgres
-        key: PASSWORD
-      POSTGRES_PORT:
-        secretRef: postgres
-        key: PORT
-
-# PostgreSQL database configuration
-postgresql:
-  enabled: true
-  flexibleserver: deed-poll-preview
-  setup:
-    databases:
-      - name: "{{ .Release.Name }}"

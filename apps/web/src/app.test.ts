@@ -7,16 +7,31 @@
  * is a long way from the symptom. Hence asserting on the store the app constructs rather than on
  * behaviour that both stores satisfy.
  *
- * The readiness probe is here for the same reason: it has to name **both** Redis and the database while
- * this app still reads case data through Prisma, and a probe missing one of them is green while half the
- * app 500s. Nothing about running the app would reveal it.
+ * The readiness probe is here for the same reason: it has to name **both** Redis and `deed-poll-api`,
+ * and a probe missing one of them is green while half the app 500s. Nothing about running the app would
+ * reveal it. It must also name **no** database — this app has none since the cutover, and a check
+ * against one could only ever be DOWN.
  *
- * Everything `createApp` mounts that touches the filesystem, a network or a database is doubled — this
- * is a test of the wiring, not of Nunjucks, Vite or Postgres.
+ * Everything `createApp` mounts that touches the filesystem or a network is doubled — this is a test of
+ * the wiring, not of Nunjucks, Vite or api.
  */
-import { deedPollDatabaseChecks } from "@hmcts/deed-poll";
+import { deedPollApiStatus } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
+
+/**
+ * The URL the assertion below expects to reach `createClient`, set rather than assumed.
+ *
+ * `config/custom-environment-variables.json` maps `REDIS_URL` over `config/default.json`, so a machine that
+ * exports one — the devcontainer does, pointing at `127.0.0.1` — failed a test about the wiring for a reason
+ * that has nothing to do with the wiring.
+ *
+ * `vi.hoisted` because this has to happen before the imports above run: `auth/settings.ts` imports `config`
+ * at module scope, and `config` reads the environment once, when it is first imported.
+ */
+vi.hoisted(() => {
+  process.env.REDIS_URL = "redis://localhost:6379";
+});
 
 const mocks = vi.hoisted(() => {
   const passthrough = (_req: unknown, _res: unknown, next: () => void) => next();
@@ -61,10 +76,10 @@ vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
   monitoringMiddleware: vi.fn(() => mocks.passthrough),
   healthcheck: mocks.healthcheck
 }));
-// `@hmcts/deed-poll` is deliberately **not** mocked. `deedPollDatabaseChecks` only builds functions —
-// nothing touches the database until one is called — so the real one can run, and the readiness assertion
-// below can compare against the names it really produces. Mocking it was how that assertion came to check a
-// hardcoded list against a hardcoded list.
+// `@hmcts/deed-poll` is deliberately **not** mocked. Nothing reaches api until a check is called, and the
+// readiness assertion below compares the mounted check against the real `deedPollApiStatus` by identity —
+// mocking it was how the earlier version of that assertion came to check a hardcoded list against a
+// hardcoded list, so a rename in the domain passed. `deed-poll-api.test.ts` covers what the check does.
 
 type HealthcheckOptions = {
   checks: Record<string, () => Promise<"UP" | "DOWN">>;
@@ -135,14 +150,12 @@ describe("createApp", () => {
     expect(mocks.redisClient.on).toHaveBeenCalledWith("error", expect.any(Function));
   });
 
-  it("should put Redis and the deed-poll database on readiness together, since this app depends on both", async () => {
-    // Names taken from `deedPollDatabaseChecks` itself rather than restated. Restating them while also
-    // mocking the function that produces them is how the earlier version of this test came to compare a
-    // hardcoded list against a hardcoded list — a rename in the domain passed.
-    const databaseChecks = Object.keys(deedPollDatabaseChecks());
-
-    expect(databaseChecks.length).toBeGreaterThan(0);
-    expect(Object.keys(healthcheckOptions().readinessChecks)).toEqual([...databaseChecks, "redis"]);
+  it("should put Redis and deed-poll-api on readiness together, since this app depends on both", async () => {
+    // Exactly these two, and no database entry: this app has none, and a probe that named one would be
+    // permanently DOWN. The api check is compared by identity rather than by name so the domain's real
+    // function is what got mounted — a stub of it would let a rename here pass.
+    expect(Object.keys(healthcheckOptions().readinessChecks)).toEqual(["deedPollApi", "redis"]);
+    expect(healthcheckOptions().readinessChecks.deedPollApi).toBe(deedPollApiStatus);
   });
 
   it("should leave liveness empty, so a dependency outage does not restart every pod", async () => {
@@ -170,7 +183,7 @@ describe("createApp", () => {
    * A reconnecting client has `isOpen` true and `isReady` false, so a ping tells the probe nothing it did
    * not already know while costing a round trip on a socket that is being re-established. The healthcheck
    * middleware awaits its checks with a bare `Promise.all`, so any check that stalls hangs readiness for the
-   * whole outage rather than answering 503, taking the database results down with it.
+   * whole outage rather than answering 503, taking the api result down with it.
    */
   it("should report readiness DOWN from Redis while the client is reconnecting, without issuing a command", async () => {
     mocks.redisClient.isReady = false;

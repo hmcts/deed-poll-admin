@@ -1,14 +1,15 @@
 /**
  * Dynamics option-set value maps.
  *
- * Prisma enums use readable names; Dynamics stores integers. These maps are the
- * single source of truth linking the two, so:
+ * The option sets use readable member names; Dynamics stores integers. These maps
+ * are the single source of truth linking the two, so:
  *   - UI can render the human label,
  *   - a future Dataverse import/export can round-trip the exact integer,
  *   - business logic that mirrors the original (e.g. "type === 5") stays legible.
  *
- * Each map is keyed by the Prisma enum member -> Dynamics integer. Reverse maps
- * are derived for import.
+ * Each map is keyed by the option-set member -> Dynamics integer. Reverse maps
+ * are derived for import. Keying by `Record<DeedPollType, number>` is what makes a
+ * member added to api's option set a compile error here rather than a missing label.
  */
 import type {
   DeedPollState,
@@ -22,7 +23,7 @@ import type {
   Privacy,
   ReferToMaster,
   Urgency
-} from "@hmcts/postgres-prisma";
+} from "./option-sets.js";
 
 export const DEED_POLL_TYPE_VALUE: Record<DeedPollType, number> = {
   Adult: 1,

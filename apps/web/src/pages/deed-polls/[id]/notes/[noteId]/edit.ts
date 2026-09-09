@@ -1,20 +1,34 @@
 /**
  * Amend-a-note form, ported from the prototype's `@Get(':id/notes/:noteId/edit')` / `@Post(...)`.
  *
- * `findNote` is scoped to the parent, so a note id belonging to another case 404s rather than
- * rendering someone else's note under this case's reference.
+ * `findNote` is scoped to the parent — the operation is nested under the case in `deed-poll-api` too —
+ * so a note id belonging to another case 404s rather than rendering someone else's note under this
+ * case's reference.
  *
  * **Delete is a second submit button on the same form**, not its own route: two forms would mean two
- * routes free to drift. The handler branches on `action`, and **delete is checked first** so a blank
- * or over-long textarea cannot block a deletion — the text is irrelevant to a row about to disappear.
+ * routes free to drift. The handler branches on `action`, and **delete is checked first** so a blank or
+ * over-long textarea cannot block a deletion — the text is irrelevant to a row about to disappear.
+ * Only the literal `"delete"` takes that path, so a missing `action` falls through to save and is never
+ * destructive; both halves of that rule are pinned by tests, because a control that deletes when the
+ * caseworker asked to save and one that saves when they asked to delete are the same defect.
  *
- * There is no confirmation step. The note is one field of text, recreating it costs a sentence, and
- * an interstitial on every deletion is friction paid on the safe path. The button is styled as a
- * warning so it cannot be mistaken for the primary action.
+ * There is no confirmation step. The note is one field of text, recreating it costs a sentence, and an
+ * interstitial on every deletion is friction paid on the safe path. The button is styled as a warning
+ * so it cannot be mistaken for the primary action.
  */
-import { buildNoteDetail, createNoteSchema, findDeedPoll, findNote, MAX_NOTE_LENGTH, removeNote, updateNote, zodErrorToFieldErrors } from "@hmcts/deed-poll";
+import {
+  buildNoteDetail,
+  createNoteSchema,
+  findDeedPoll,
+  findNote,
+  InvalidInputError,
+  MAX_NOTE_LENGTH,
+  removeNote,
+  updateNote,
+  zodErrorToFieldErrors
+} from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { userFromRequest } from "../../../../../auth/current-user.js";
+import { callerFromRequest } from "../../../../../auth/current-user.js";
 
 const en = {
   titlePrefix: "Amend note",
@@ -27,6 +41,7 @@ const en = {
   delete: "Delete note",
   cancel: "Cancel",
   errorSummaryTitle: "There is a problem",
+  noteRefused: "The note could not be saved. Check the note and try again.",
   maxLength: MAX_NOTE_LENGTH
 };
 
@@ -34,40 +49,65 @@ const en = {
 const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
-  const [found, note] = await Promise.all([findDeedPoll(req.params.id), findNote(req.params.id, req.params.noteId)]);
+  const caller = callerFromRequest(req);
+  const [found, note] = await Promise.all([findDeedPoll(req.params.id, caller), findNote(req.params.id, req.params.noteId, caller)]);
 
   res.render("deed-polls/note-edit", { case: found, note: buildNoteDetail(note), value: note.note, error: null, en, cy });
 };
 
 export const POST = async (req: Request, res: Response) => {
   const body = req.body as { note?: unknown; action?: unknown };
+  const caller = callerFromRequest(req);
 
   // First, so a note whose text would fail validation can still be deleted.
   if (body.action === "delete") {
-    await removeNote(req.params.id, req.params.noteId);
+    await removeNote(req.params.id, req.params.noteId, caller);
     return res.redirect(`/deed-polls/${req.params.id}#notes`);
   }
 
   const parsed = createNoteSchema.safeParse({ note: body.note });
 
   if (!parsed.success) {
-    const [found, note] = await Promise.all([findDeedPoll(req.params.id), findNote(req.params.id, req.params.noteId)]);
     const [first] = zodErrorToFieldErrors(parsed.error);
 
-    return res.status(400).render("deed-polls/note-edit", {
-      case: found,
-      note: buildNoteDetail(note),
-      // The submitted text, not the stored note: the point of re-rendering is that what was typed is
-      // still there to be corrected.
-      value: typeof body.note === "string" ? body.note : "",
-      error: first?.message ?? null,
-      en,
-      cy
-    });
+    return rerender(req, res, first?.message ?? null);
   }
 
-  const { name } = userFromRequest(req);
-  await updateNote(req.params.id, req.params.noteId, parsed.data, { userName: name });
+  try {
+    // The caller's token and nothing else: api re-stamps `modifiedBy` from it, so the session's name is
+    // not sent alongside.
+    await updateNote(req.params.id, req.params.noteId, parsed.data, caller);
+  } catch (error) {
+    // api applies its own note rules and this form does not mirror all of them, so a rejection it has no
+    // local equivalent for still belongs against the textarea — see the same catch on `../new.ts`.
+    if (error instanceof InvalidInputError) {
+      // A rejection naming no field carries api's own wording rather than anything a caseworker can act
+      // on, so it is logged and this page's copy is shown — see the same split on `../new.ts`.
+      if (error.errors.length === 0) {
+        console.error(`note save refused with no field named: ${error.message}`);
+        return rerender(req, res, en.noteRefused);
+      }
+      return rerender(req, res, error.errors[0].message);
+    }
+    throw error;
+  }
 
   res.redirect(`/deed-polls/${req.params.id}#notes`);
 };
+
+async function rerender(req: Request, res: Response, error: string | null) {
+  const caller = callerFromRequest(req);
+  const [found, note] = await Promise.all([findDeedPoll(req.params.id, caller), findNote(req.params.id, req.params.noteId, caller)]);
+  const body = req.body as { note?: unknown };
+
+  res.status(400).render("deed-polls/note-edit", {
+    case: found,
+    note: buildNoteDetail(note),
+    // The submitted text, not the stored note: the point of re-rendering is that what was typed is still
+    // there to be corrected.
+    value: typeof body.note === "string" ? body.note : "",
+    error,
+    en,
+    cy
+  });
+}

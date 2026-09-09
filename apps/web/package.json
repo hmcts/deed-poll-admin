@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NODE_ENV=development DATA_DIR=../../data tsx src/server.ts",
-    "dev:nowatch": "yarn build:dev && NODE_ENV=development DATA_DIR=../../data VITE_MIDDLEWARE=false tsx src/server.ts",
+    "dev": "NODE_ENV=development tsx src/server.ts",
+    "dev:nowatch": "yarn build:dev && NODE_ENV=development VITE_MIDDLEWARE=false tsx src/server.ts",
     "build:dev": "vite build --config vite.build.ts --configLoader runner",
     "build": "tsc && vite build --config vite.build.ts --configLoader runner",
     "clean": "rm -rf dist",
@@ -24,8 +24,6 @@
     "@hmcts-cft/simple-router": "workspace:*",
     "@hmcts/cookie-manager": "1.1.0",
     "@hmcts/deed-poll": "workspace:*",
-    "@hmcts/onboarding": "workspace:*",
-    "@hmcts/postgres-prisma": "workspace:*",
     "config": "4.4.2",
     "connect-redis": "9.0.0",
     "cookie-parser": "1.4.7",
@@ -34,6 +32,7 @@
     "glob": "13.0.6",
     "govuk-frontend": "6.5.0",
     "helmet": "8.3.0",
+    "multer": "2.3.0",
     "nunjucks": "3.2.4",
     "openid-client": "6.8.7",
     "redis": "6.0.0"
@@ -44,8 +43,11 @@
     "@types/express": "5.0.6",
     "@types/express-session": "1.19.0",
     "@types/govuk-frontend": "5.11.0",
+    "@types/multer": "2.2.0",
     "@types/nunjucks": "3.2.6",
+    "@types/supertest": "7.2.1",
     "sass": "1.103.1",
+    "supertest": "7.2.2",
     "vite": "8.0.16",
     "vite-plugin-static-copy": "4.1.1"
   }

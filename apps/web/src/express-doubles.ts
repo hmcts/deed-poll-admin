@@ -1,8 +1,8 @@
 /**
  * Request/response doubles for page tests.
  *
- * Shared rather than inlined per file, for the reason `apps/api/src/express-doubles.ts` gives — and
- * this app has a sharper version of it. Phase 5 moved identity from a request header to a session, and
+ * Shared rather than inlined per file, and the reason is a change this app has already lived through.
+ * Phase 5 moved identity from a request header to a session, and
  * every page test that had built its own double with a `header()` function broke at once, because the
  * doubles had no `session` for the namespace helper to write to. One place to change would have been
  * one edit.
@@ -30,10 +30,29 @@ export interface PageRequestOptions {
   flow?: unknown;
   /** The stored id token, which logout needs to end the IDAM session. */
   idToken?: string;
+  /**
+   * The stored access token, which every `deed-poll-api` call is made with.
+   *
+   * Defaults to undefined rather than to a value, because a page that reads it and a page that does
+   * not are both ordinary — and a default would make "the token reaches api" untestable by making it
+   * true whether or not the page passed one on.
+   */
+  accessToken?: string;
   originalUrl?: string;
 }
 
-export function pageRequest({ params, query, body, signedIn = true, admin = false, name, flow, idToken, originalUrl }: PageRequestOptions = {}): RequestDouble {
+export function pageRequest({
+  params,
+  query,
+  body,
+  signedIn = true,
+  admin = false,
+  name,
+  flow,
+  idToken,
+  accessToken,
+  originalUrl
+}: PageRequestOptions = {}): RequestDouble {
   const user = signedIn ? currentUser(admin ? [DEEDPOLL_ADMIN] : [], name) : undefined;
 
   const req = {
@@ -41,7 +60,12 @@ export function pageRequest({ params, query, body, signedIn = true, admin = fals
     query: query ?? {},
     body,
     originalUrl: originalUrl ?? "/",
-    session: sessionDouble({ ...(user ? { user } : {}), ...(flow ? { flow } : {}), ...(idToken ? { idToken } : {}) })
+    session: sessionDouble({
+      ...(user ? { user } : {}),
+      ...(flow ? { flow } : {}),
+      ...(idToken ? { idToken } : {}),
+      ...(accessToken ? { accessToken } : {})
+    })
   } as unknown as RequestDouble;
 
   return req;

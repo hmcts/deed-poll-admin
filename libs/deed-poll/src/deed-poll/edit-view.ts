@@ -7,10 +7,10 @@
  * because every decision it makes (is this field required, may this caller edit privacy, which
  * options does this enum have) is a business rule, and none of it is HTTP.
  */
-import type { DeedPollType } from "@hmcts/postgres-prisma";
 import type { DateParts } from "./date-parts.js";
 import { splitDateParts, submittedDateParts } from "./date-parts.js";
 import { getFieldRules } from "./deed-poll-validation.js";
+import type { DeedPollType } from "./enums/option-sets.js";
 import { enumOptions, type FieldDef, FORM_TABS, type TabDef } from "./form-fields.js";
 import { privacyEditable } from "./form-presentation.js";
 import type { FormError } from "./form-validation.js";

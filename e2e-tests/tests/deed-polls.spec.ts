@@ -11,7 +11,7 @@
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
-import { ADMIN_STORAGE_STATE, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsAdmin } from "./idam-session.js";
+import { ADMIN_EMAIL, ADMIN_STORAGE_STATE, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsAdmin } from "./idam-session.js";
 
 /** The reference number's year comes from Date Received, so a fixed date keeps the shape assertable. */
 const DATE_RECEIVED = { day: "10", month: "3", year: "2026" };
@@ -50,9 +50,14 @@ test("caseworker creates a case and edits one of its tabs", async ({ page, brows
   // No date beyond Date Received, so the derived state is the default. Both this and the author come
   // from the header rather than the Application tab — see caseHeader().
   await expect(caseHeader(page)).toContainText("Received");
-  // The IDAM name, not the service account. The new-case page hardcoded `userName: undefined` until
-  // Phase 5 made identity real, and nothing but a real login could have caught it.
-  await expect(caseHeader(page)).toContainText("An Admin");
+  // The signed-in caseworker, not the service account. The new-case page hardcoded `userName: undefined`
+  // until Phase 5 made identity real, and nothing but a real login could have caught it — the author is
+  // api's now, derived from the token the page forwards, so a page that stopped forwarding it fails here.
+  //
+  // The subject rather than "An Admin" because the mock has no IDAM to resolve the display name from: it
+  // stamps the token's `sub`, which `rse-idam-simulator` sets to the email. Against api this reads "An
+  // Admin". See `auditName` in the mock.
+  await expect(caseHeader(page)).toContainText(ADMIN_EMAIL);
   await expectNoAccessibilityViolations(page);
 
   await expectWelshKeysResolve(browser, caseUrl);
@@ -87,6 +92,8 @@ test("caseworker creates a case and edits one of its tabs", async ({ page, brows
   await expect(page.locator("#signature")).toContainText("25 March 2026");
 });
 
+// `deed-poll-api` holds the notes now instead of Postgres; the journey is otherwise the one the
+// prototype had, deletion included.
 test("caseworker adds, amends and deletes a note", async ({ page }) => {
   // Arrange: a case to hang notes off. The create journey is asserted in the test above; here it is
   // only setup, so it is driven and not checked.
@@ -133,7 +140,6 @@ test("caseworker adds, amends and deletes a note", async ({ page }) => {
   await page.getByRole("link", { name: /amend this note/ }).click();
   await expect(page).toHaveURL(/\/notes\/[0-9a-f-]{36}\/edit$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^[0-9A-F]{4}-[0-9A-F]{4}$/);
-  const amendUrl = page.url();
 
   await page.getByLabel("Note").fill("Applicant called to chase the enrolment date. Advised of the Gazette step.");
   await page.getByRole("button", { name: "Save note" }).click();
@@ -142,9 +148,10 @@ test("caseworker adds, amends and deletes a note", async ({ page }) => {
   await expect(page.locator("#notes")).toContainText("Advised of the Gazette step.");
   await expect(page.locator("#notes")).not.toContainText("Not edited");
 
-  // Delete is the second submit button on the amend form, not its own route, and there is no
-  // confirmation step — the note is one field of text.
-  await page.goto(amendUrl);
+  // Delete, which is a second submit on the amend form rather than its own page — no confirmation
+  // interstitial, so the redirect back to the tab is the whole of it. Asserted through the UI because
+  // the button and the handler's `action` branch are only correct together.
+  await page.getByRole("link", { name: /amend this note/ }).click();
   await page.getByRole("button", { name: "Delete note" }).click();
 
   await expect(page).toHaveURL(`${caseUrl}#notes`);
@@ -171,9 +178,9 @@ async function fillNewCaseForm(page: Page, name: { forename: string; surname: st
  * **In a context and session of its own, which is the whole point of the function.** `localeMiddleware`
  * persists the chosen language to `req.session.locale`, so requesting `?lng=cy` is a *write* to the
  * session — and the session behind `ADMIN_STORAGE_STATE` is shared with every other test that restores
- * it. Done on the shared session, this line switched the onboarding spec into Welsh mid-run, and its
- * English locators stopped matching. The symptom was a 30-second timeout waiting for a button whose
- * name had changed, in a different file, which reads as anything but a language leak.
+ * it. Done on the shared session, this line switched another spec into Welsh mid-run and its English
+ * locators stopped matching. The symptom was a 30-second timeout waiting for a button whose name had
+ * changed, in a different file, which reads as anything but a language leak.
  *
  * So: any authenticated check that writes to the session needs its own session, exactly as
  * `idam-session.ts` says. One extra login is cheaper than an interference bug.
@@ -232,11 +239,10 @@ function caseHeader(page: Page): Locator {
  * Checked inline at each point of a journey rather than in a test of its own, per
  * `.claude/rules/e2e-testing.md`.
  *
- * **No exclusions, deliberately.** `homepage.spec.ts` and `onboarding-happy-path.spec.ts` both
- * exclude `.govuk-footer__link` and `.language` as known template issues, and both are in the shared
- * layout these pages also render — but every deed-poll page passes without them, so adding them here
- * would suppress findings that do not exist and hide any that appear later. Reinstate one only with
- * evidence.
+ * **No exclusions, deliberately.** The template's own specs excluded `.govuk-footer__link` and
+ * `.language` as known issues, and both are in the shared layout these pages also render — but every
+ * deed-poll page passes without them, so adding them here would suppress findings that do not exist and
+ * hide any that appear later. Reinstate one only with evidence.
  *
  * Reported as `id: selector` strings rather than raw violation objects so a failure names the rule and
  * the element instead of printing an unreadable object graph.

@@ -6,7 +6,12 @@ import { EDITABLE_FIELDS, type FieldDef } from "./form-fields.js";
  * metadata so the accepted payload can't drift from the rendered form. Read-only
  * (computed/state/referencenumber) fields are never in the list, so are ignored.
  * Date fields arrive as GOV.UK date-input parts (`<name>-day/-month/-year`) and
- * are composed into ISO strings the service's coerceDates() then turns into Dates.
+ * are composed into full UTC ISO strings, which is what goes on the wire — nothing
+ * converts them afterwards. api would take a bare `YYYY-MM-DD` too (its
+ * `DeedPollSchemas.isoDateString` accepts a bare date, an offset date-time and a
+ * zoneless local date-time alike), so the explicit `T00:00:00.000Z` is here to make
+ * the midnight-UTC instant this app means the one it states, rather than leaving api's
+ * `coerceDates` to supply it.
  *
  * Each field in `fields` is written (empty inputs → null), matching the Dynamics
  * form where saving persists the whole form, clearing blanked fields — so state

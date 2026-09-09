@@ -1,4 +1,4 @@
-import { DeedPollState, DeedPollType, Privacy, ReferToMaster } from "@hmcts/postgres-prisma";
+import { DeedPollState, DeedPollType, Privacy, ReferToMaster } from "./enums/option-sets.js";
 
 /** Context for building the presentation model: who is viewing and record age. */
 export interface PresentationContext {

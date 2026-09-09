@@ -34,7 +34,7 @@ import {
   updateDeedPoll
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { userFromRequest } from "../../../../auth/current-user.js";
+import { callerFromRequest, userFromRequest } from "../../../../auth/current-user.js";
 
 const en = {
   titlePrefix: "Edit",
@@ -43,6 +43,11 @@ const en = {
   subgridLinkPrefix: "View",
   save: "Save",
   cancel: "Cancel",
+  // Shown when api refuses the save without naming a field. Its own wording is developer-facing — the
+  // fallback in `failureFromResponse` is literally "deed-poll-api answered 400" — and
+  // `.claude/rules/backend.md` forbids putting api's internal error text in front of a caseworker, so
+  // this page's copy is rendered and api's is logged. Same treatment as the upload page.
+  saveRefused: "The case could not be saved. Check the details and try again.",
   noteMaxLength: 2000
 };
 
@@ -50,7 +55,7 @@ const en = {
 const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
-  const found = await findDeedPoll(req.params.id);
+  const found = await findDeedPoll(req.params.id, callerFromRequest(req));
   const { isAdmin } = userFromRequest(req);
 
   // Lenient on read: the tab id comes from a URL that may have been edited or bookmarked against an
@@ -59,7 +64,6 @@ export const GET = async (req: Request, res: Response) => {
 };
 
 export const POST = async (req: Request, res: Response) => {
-  const { isAdmin, name } = userFromRequest(req);
   const body = req.body as Record<string, unknown>;
 
   // **Strict on write, deliberately unlike GET.** `tabFor` falls back to the first tab, which is
@@ -79,9 +83,20 @@ export const POST = async (req: Request, res: Response) => {
   }
 
   try {
-    await updateDeedPoll(req.params.id, buildUpdatePatch(body, fields), { isAdmin, userName: name });
+    await updateDeedPoll(req.params.id, buildUpdatePatch(body, fields), callerFromRequest(req));
   } catch (error) {
     if (error instanceof InvalidInputError) {
+      // A rejection that names no field still has to say something: `buildErrorSummary([])` is empty and
+      // the template hides an empty summary, so the caseworker would get their tab back with no
+      // indication the save failed. The field is deliberately blank — no input is implicated, and
+      // `buildErrorSummary` then renders the message without a link.
+      //
+      // Naming no field also means the refusal is api's alone, since every local rejection attributes
+      // itself. So api's wording is logged and this page's own copy is shown — see `en.saveRefused`.
+      if (error.errors.length === 0) {
+        console.error(`case save refused with no field named: ${error.message}`);
+        return rerenderWithErrors(req, res, tab, [{ field: "", message: en.saveRefused }]);
+      }
       return rerenderWithErrors(req, res, tab, error.errors);
     }
     // Not a validation failure, so let it surface honestly rather than as an empty error summary
@@ -101,7 +116,7 @@ export const POST = async (req: Request, res: Response) => {
  * over the record for exactly that reason.
  */
 async function rerenderWithErrors(req: Request, res: Response, tab: TabDef, errors: FormError[]) {
-  const found = await findDeedPoll(req.params.id);
+  const found = await findDeedPoll(req.params.id, callerFromRequest(req));
   const { isAdmin } = userFromRequest(req);
 
   res.status(400);

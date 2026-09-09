@@ -1,4 +1,4 @@
-import { DeedPollState } from "@hmcts/postgres-prisma";
+import { DeedPollState } from "./enums/option-sets.js";
 
 /** The subset of date fields the state cascade reads. */
 export interface CaseStateInput {

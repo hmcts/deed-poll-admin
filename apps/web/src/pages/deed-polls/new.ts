@@ -6,13 +6,21 @@
  * `field-rules` in the API, and pinned by a wiring test for the same reason.
  *
  * The form asks for four things, not the whole case: a case is logged incrementally, and the rest
- * is filled in through the edit tabs. `dateReceived` is the one that cannot be deferred, because
- * `allocateForCreate` derives the reference number's year from it — a create without it is a 400,
- * which is why the field is on this form at all rather than left to the Application tab.
+ * is filled in through the edit tabs. `dateReceived` is the one that cannot be deferred, because api
+ * derives the reference number's year from it — a create without it comes back as a 400 attributed to
+ * that field, which is why the field is on this form at all rather than left to the Application tab.
  */
-import { composeDateParts, createDeedPoll, createDeedPollSchema, DEED_POLL_TYPE_LABEL, InvalidInputError } from "@hmcts/deed-poll";
+import {
+  collectDateErrors,
+  composeDateParts,
+  createDeedPoll,
+  createDeedPollSchema,
+  DEED_POLL_TYPE_LABEL,
+  FIELD_BY_NAME,
+  InvalidInputError
+} from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { userFromRequest } from "../../auth/current-user.js";
+import { callerFromRequest } from "../../auth/current-user.js";
 
 const en = {
   title: "New deed poll case",
@@ -24,7 +32,10 @@ const en = {
   dateReceivedLabel: "Date received",
   dateReceivedHint: "For example, 27 3 2026",
   submit: "Create case",
-  errorSummaryTitle: "There is a problem"
+  errorSummaryTitle: "There is a problem",
+  // Shown when api refuses the create without naming a field — see the same constant on the edit tab.
+  // api's own wording is developer-facing and `.claude/rules/backend.md` keeps it away from caseworkers.
+  createRefused: "The case could not be created. Check the details and try again."
 };
 
 // English content in the cy shape — see the note in index.ts.
@@ -38,6 +49,20 @@ export const GET = async (_req: Request, res: Response) => {
 
 export const POST = async (req: Request, res: Response) => {
   const body = req.body as Record<string, string>;
+
+  // Before composing, because `composeDateParts` rolls an impossible date over rather than refusing it:
+  // `31/2/2026` becomes 3 March and a two-digit `26` becomes 1926. Neither reaches api as a rejection —
+  // both are dates — and api derives the reference number's year from this field and never re-derives it,
+  // so a typo waved through here is stamped on the case as `KBDP1926-…` permanently. The edit tabs run the
+  // same check for the same reason; this form had been composing unguarded.
+  const dateErrors = collectDateErrors(body, [FIELD_BY_NAME.dateReceived]);
+  if (dateErrors.length > 0) {
+    return rerender(
+      req,
+      res,
+      dateErrors.map((dateError) => ({ text: dateError.message, href: `#${dateError.field}` }))
+    );
+  }
 
   // Only the four fields the form offers are read. Building from the body wholesale would let a
   // hand-crafted POST set anything on the schema, including `state`, which is derived not supplied.
@@ -59,23 +84,22 @@ export const POST = async (req: Request, res: Response) => {
   }
 
   try {
-    // Read from the request, not hardcoded. This page carried `{ isAdmin: false, userName: undefined }`
-    // until Phase 5 made identity real, which meant two things: every case created through the form
-    // was attributed to the service account, and an admin creating a Private case silently got Normal,
-    // because `defaultPrivacy` is told nobody is an admin.
-    const { isAdmin, name } = userFromRequest(req);
-    const created = await createDeedPoll(parsed.data, { isAdmin, userName: name });
+    // The caller's own token, not this app's. api attributes the case and decides the create-time
+    // privacy default from it, so a page that sent a service credential would create every case as the
+    // service account — which is what this page did until Phase 5 made identity real.
+    const created = await createDeedPoll(parsed.data, callerFromRequest(req));
     return res.redirect(`/deed-polls/${created.id}`);
   } catch (error) {
     // A missing or unusable Date Received surfaces here rather than from the schema, because the
-    // schema accepts a case with no dates at all — it is the reference-number allocation that
+    // schema accepts a case with no dates at all — it is api's reference-number allocation that
     // cannot proceed. Re-rendered with the error rather than 500ing at a browser.
     if (error instanceof InvalidInputError) {
-      return rerender(
-        req,
-        res,
-        error.errors.map((fieldError) => ({ text: fieldError.message, href: `#${fieldError.field}` }))
-      );
+      // A rejection that names no field still has to say something. `fieldErrors` is legitimately empty
+      // when api answers 400 without an `errors` array, or when the failure body was not api's at all —
+      // a proxy's HTML — and the template hides an empty summary, so the caseworker would get their form
+      // back with no indication anything failed. The message stands in for the missing field errors, with
+      // no `href` because there is no input to link to.
+      return rerender(req, res, summaryFor(error));
     }
     throw error;
   }
@@ -88,6 +112,17 @@ export const POST = async (req: Request, res: Response) => {
  * these errors are per-field so they need to render against their inputs — which a query string
  * cannot express. The same reasoning the prototype applied to its edit form, applied here too.
  */
-function rerender(req: Request, res: Response, errorSummary: { text: string; href: string }[]) {
+function rerender(req: Request, res: Response, errorSummary: { text: string; href?: string }[]) {
   res.status(400).render("deed-polls/new", { values: req.body, typeOptions, errorSummary, en, cy });
+}
+
+function summaryFor(error: InvalidInputError): { text: string; href?: string }[] {
+  // No field named means the refusal came from api rather than from this form's own schema, so its
+  // developer-facing wording is logged and the page's copy is rendered without a link to any input.
+  if (error.errors.length === 0) {
+    console.error(`case create refused with no field named: ${error.message}`);
+    return [{ text: en.createRefused }];
+  }
+
+  return error.errors.map((fieldError) => ({ text: fieldError.message, href: `#${fieldError.field}` }));
 }

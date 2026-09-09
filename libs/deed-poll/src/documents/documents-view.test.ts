@@ -1,21 +1,20 @@
+import type { Document } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
 import { NOT_PROVIDED } from "../deed-poll/detail-view.js";
 import { buildDocumentsView, DOCUMENT_COLUMNS } from "./documents-view.js";
 
-const document = {
+const document: Document = {
   id: "doc-1",
-  deedPollId: "case-1",
   name: "Birth certificate",
   direction: "Incoming",
-  documentTypeId: "type-1",
   documentType: { id: "type-1", name: "Birth certificate", applicableMaritalStatuses: [], applicableTypes: [] },
-  storageKey: "blob-1",
+  hasFile: true,
   originalName: "birth.pdf",
   mimeType: "application/pdf",
   sizeBytes: 41,
   createdOn: new Date("2026-03-01T00:00:00.000Z"),
   modifiedOn: new Date("2026-03-01T00:00:00.000Z")
-} as never;
+};
 
 describe("documents/documents-view", () => {
   it("labels the direction rather than showing the enum member", () => {
@@ -33,7 +32,7 @@ describe("documents/documents-view", () => {
   it("says the type is not provided when the relation was not loaded", () => {
     // The FK is required, so an absent relation means "not included in the query" rather than "no
     // type" — the placeholder is a claim about the query, not about the data.
-    const row = buildDocumentsView([{ ...(document as object), documentType: null } as never])[0];
+    const row = buildDocumentsView([{ ...document, documentType: null }])[0];
 
     expect(row.type).toBe(NOT_PROVIDED);
   });
@@ -43,9 +42,9 @@ describe("documents/documents-view", () => {
   });
 
   it("does not mark a metadata-only document as downloadable", () => {
-    // createDocument makes a row with no storageKey, so a link would 404 for a document that is
-    // legitimately still pending.
-    const row = buildDocumentsView([{ ...(document as object), storageKey: null } as never])[0];
+    // A metadata row can exist before its file arrives, so a link would 404 for a document that is
+    // legitimately still pending. api answers that question with `hasFile`.
+    const row = buildDocumentsView([{ ...document, hasFile: false }])[0];
 
     expect(row.downloadable).toBe(false);
   });
@@ -66,7 +65,7 @@ describe("documents/documents-view", () => {
   });
 
   it("preserves the order it was given, since the domain decides the sort", () => {
-    const rows = buildDocumentsView([document, { ...(document as object), id: "doc-2" } as never]);
+    const rows = buildDocumentsView([document, { ...document, id: "doc-2" }]);
 
     expect(rows.map((r) => r.id)).toEqual(["doc-1", "doc-2"]);
   });

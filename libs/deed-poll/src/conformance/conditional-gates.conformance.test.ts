@@ -9,9 +9,10 @@
  *      applied this to every type; the port only handled it inside the
  *      relinquishment branch. These cases fail until the general gate is added.
  */
-import { DeedPollType, PostCounter, Urgency } from "@hmcts/postgres-prisma";
+
 import { describe, expect, it } from "vitest";
 import { applyGazetteGate, applyMinorGate, getFieldRules, type ValidationInput, validate } from "../deed-poll/deed-poll-validation.js";
+import { DeedPollType, PostCounter, Urgency } from "../deed-poll/enums/option-sets.js";
 
 describe("Conditional-gate conformance (deedpoll business_rules.md)", () => {
   const hasError = (errors: { field: string }[], field: string) => errors.some((e) => e.field === field);

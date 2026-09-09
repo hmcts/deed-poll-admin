@@ -19,7 +19,7 @@ const validBody = {
 };
 
 function request(body: Record<string, string> = {}): Request {
-  return pageRequest({ body, name: "A Caseworker" });
+  return pageRequest({ body, name: "A Caseworker", accessToken: "caseworker-token" });
 }
 
 const response = pageResponse;
@@ -109,8 +109,58 @@ describe("new deed poll page", () => {
       expect(res.render.mock.calls[0][1].values["dateReceived-day"]).toBe("99");
     });
 
+    it("rejects a date that does not exist rather than letting it roll over to the next month", async () => {
+      // 31 February composes to 3 March, which api would accept as a date. Since the reference number's
+      // year is derived from this field once and never again, a rolled-over date is stamped on the case.
+      const res = response();
+
+      await POST(request({ ...validBody, "dateReceived-day": "31", "dateReceived-month": "2" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "Date received must be a real date", href: "#dateReceived" }]);
+      expect(createDeedPoll).not.toHaveBeenCalled();
+    });
+
+    it("rejects a two-digit year, which Date.UTC would read as the 1900s", async () => {
+      const res = response();
+
+      await POST(request({ ...validBody, "dateReceived-year": "26" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(createDeedPoll).not.toHaveBeenCalled();
+    });
+
+    it("names the missing parts when a date is only partly filled in", async () => {
+      const res = response();
+
+      await POST(request({ ...validBody, "dateReceived-month": "" }), res);
+
+      expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "Date received must include a month", href: "#dateReceived" }]);
+      expect(createDeedPoll).not.toHaveBeenCalled();
+    });
+
+    it("leaves a wholly blank date to api, which rejects it as the field it cannot allocate a reference without", async () => {
+      // All three parts blank is not a typo, so the date check passes it through — the create then fails
+      // at api with an error attributed to `dateReceived`, which is the message the caseworker needs.
+      vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
+
+      await POST(request({ type: "Adult" }), response());
+
+      expect(createDeedPoll).toHaveBeenCalledWith(expect.objectContaining({ dateReceived: undefined }), expect.anything());
+    });
+
+    it("creates as the signed-in caseworker, so api attributes the case to them", async () => {
+      // Not `{ isAdmin, userName }` any more: api reads both off the token, and a page that sent its
+      // own opinion of them would be asserting an identity api never verified.
+      vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
+
+      await POST(request(validBody), response());
+
+      expect(createDeedPoll).toHaveBeenCalledWith(expect.anything(), { accessToken: "caseworker-token" });
+    });
+
     it("surfaces a missing Date Received as a form error, not a 500", async () => {
-      // The schema accepts a case with no dates; it is reference-number allocation that cannot
+      // The schema accepts a case with no dates; it is api's reference-number allocation that cannot
       // proceed, so the failure arrives from the domain rather than from safeParse.
       vi.mocked(createDeedPoll).mockRejectedValue(
         new InvalidInputError("Cannot allocate a reference number without a Date Received to derive the year", [
@@ -123,6 +173,23 @@ describe("new deed poll page", () => {
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "Enter the date the application was received", href: "#dateReceived" }]);
+    });
+
+    it("shows this page's own copy when api's rejection names no field, and does not leak api's wording", async () => {
+      // api omits `errors` when it has none, and an unparseable failure body — a proxy's HTML 400 — leaves
+      // none either. The template hides an empty summary, so the summary must say something; but api's
+      // message is developer-facing ("deed-poll-api answered 400"), and `.claude/rules/backend.md` keeps
+      // api's internal error text away from caseworkers. So it is logged and the page's copy is rendered.
+      vi.mocked(createDeedPoll).mockRejectedValue(new InvalidInputError("deed-poll-api answered 400"));
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = response();
+
+      await POST(request(validBody), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "The case could not be created. Check the details and try again." }]);
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("deed-poll-api answered 400"));
+      logged.mockRestore();
     });
 
     it("rethrows anything that is not a validation failure, so a real fault is not hidden", async () => {

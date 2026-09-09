@@ -1,139 +1,111 @@
-import { prisma as prismaClient } from "@hmcts/postgres-prisma";
+import { createNote as apiCreateNote, deleteNote, getNote, listNotes, patchNote } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NotFoundError } from "../errors.js";
 import { createNote, findNote, findNotes, removeNote, updateNote } from "./service.js";
 
-// Partial mock: only the client is replaced. The Prisma enums (DocumentDirection,
-// DeedPollType, …) are real values the source modules import, so they must pass through.
-vi.mock("@hmcts/postgres-prisma", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@hmcts/postgres-prisma")>()),
-  prisma: {
-    deedPoll: { findUnique: vi.fn() },
-    deedPollNote: {
-      create: vi.fn(),
-      findMany: vi.fn(),
-      findFirst: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn()
-    }
-  }
+// The adapter is mocked and nothing else. What is worth pinning at this seam is that each function
+// reaches the right nested operation with the case id first, that the caller's token travels, and that
+// nothing about authorship is sent — api derives `createdBy` and `modifiedBy` from the token, so a name
+// on the wire would be this app asserting an identity api never verified.
+vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts/deed-poll-api-client")>()),
+  listNotes: vi.fn(),
+  getNote: vi.fn(),
+  createNote: vi.fn(),
+  patchNote: vi.fn(),
+  deleteNote: vi.fn()
 }));
 
-const prisma = vi.mocked(prismaClient, { deep: true });
+const CALLER = { accessToken: "caseworker-token" };
+
+const ok = <T>(data: T) => ({ ok: true as const, data });
 
 describe("notes/service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.DEED_POLL_API_URL = "http://api.test";
   });
 
-  it("creates a note scoped to its parent", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
-    prisma.deedPollNote.create.mockResolvedValue({ id: "n1" });
-    await createNote("case1", { note: "hello" }, { userName: "Steve Newman" });
-    // Both audit columns are stamped on create (added 2026-08-10): the source shows a
-    // Modified By on a note that has only ever been created, so "modified" means
-    // "last written", not "edited since".
-    expect(prisma.deedPollNote.create).toHaveBeenCalledWith({
-      data: {
-        note: "hello",
-        deedPollId: "case1",
-        createdBy: "Steve Newman",
-        modifiedBy: "Steve Newman"
-      }
+  describe("findNotes", () => {
+    it("should return the notes in api's order, which is newest first", async () => {
+      const notes = [{ id: "note-2" }, { id: "note-1" }];
+      vi.mocked(listNotes).mockResolvedValue(ok(notes) as never);
+
+      expect(await findNotes("case-1", CALLER)).toEqual(notes);
+      expect(listNotes).toHaveBeenCalledWith("case-1", expect.objectContaining({ baseUrl: "http://api.test" }));
+    });
+
+    it("should throw NotFoundError for a case that does not exist, rather than answering an empty list", async () => {
+      // The distinction the Prisma version had to arrange with `assertCaseExists`: a mistyped case id
+      // and a real case with no notes are different facts, and only one of them is true.
+      vi.mocked(listNotes).mockResolvedValue({ ok: false, error: { kind: "not-found", status: 404, message: "DeedPoll nope not found" } } as never);
+
+      await expect(findNotes("nope", CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 
-  it("attributes a create with no caller name to the service account", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
-    prisma.deedPollNote.create.mockResolvedValue({ id: "n1" });
-    await createNote("case1", { note: "hello" });
-    expect(prisma.deedPollNote.create).toHaveBeenCalledWith({
-      data: {
-        note: "hello",
-        deedPollId: "case1",
-        createdBy: "# svc_HMCTS_LCPT_Dev",
-        modifiedBy: "# svc_HMCTS_LCPT_Dev"
-      }
+  describe("findNote", () => {
+    it("should ask for the note under its own case, so a note of another case is api's 404", async () => {
+      vi.mocked(getNote).mockResolvedValue(ok({ id: "note-9" }) as never);
+
+      expect(await findNote("case-1", "note-9", CALLER)).toEqual({ id: "note-9" });
+      expect(getNote).toHaveBeenCalledWith("case-1", "note-9", expect.anything());
+    });
+
+    it("should throw NotFoundError when the note belongs to a different case", async () => {
+      vi.mocked(getNote).mockResolvedValue({ ok: false, error: { kind: "not-found", status: 404, message: "Note note-9 not found" } } as never);
+
+      await expect(findNote("other-case", "note-9", CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 
-  it("moves modifiedBy on update without touching createdBy", async () => {
-    // An edit must never rewrite who created a note — the same rule the case's own
-    // update() enforces by deleting createdBy from the patch. Here it is structural:
-    // UpdateNoteInput cannot carry createdBy, so the patch has no way to express it.
-    prisma.deedPollNote.findFirst.mockResolvedValue({ id: "n1" });
-    prisma.deedPollNote.update.mockResolvedValue({ id: "n1" });
+  describe("createNote", () => {
+    it("should send the note text and no author, because api stamps both audit names from the token", async () => {
+      vi.mocked(apiCreateNote).mockResolvedValue(ok({ id: "note-1", note: "Called the applicant" }) as never);
 
-    await updateNote("case1", "n1", { note: "amended" }, { userName: "Jordan Blake" });
+      const created = await createNote("case-1", { note: "Called the applicant" }, CALLER);
 
-    // The where carries deedPollId as well as the unique id, so the write is scoped in its
-    // own right rather than relying on the findFirst guard above it having been written.
-    expect(prisma.deedPollNote.update).toHaveBeenCalledWith({
-      where: { id: "n1", deedPollId: "case1" },
-      data: { note: "amended", modifiedBy: "Jordan Blake" }
-    });
-    const { data } = prisma.deedPollNote.update.mock.calls[0][0] as {
-      data: Record<string, unknown>;
-    };
-    expect(data).not.toHaveProperty("createdBy");
-  });
-
-  it("404s updating a note that belongs to another case, before writing", async () => {
-    prisma.deedPollNote.findFirst.mockResolvedValue(null);
-    await expect(updateNote("case1", "n1", { note: "x" })).rejects.toBeInstanceOf(NotFoundError);
-    expect(prisma.deedPollNote.update).not.toHaveBeenCalled();
-  });
-
-  it("404s creating a note on a missing case", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue(null);
-    await expect(createNote("nope", { note: "x" })).rejects.toBeInstanceOf(NotFoundError);
-    expect(prisma.deedPollNote.create).not.toHaveBeenCalled();
-  });
-
-  it("lists notes newest first for a case that exists", async () => {
-    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
-    prisma.deedPollNote.findMany.mockResolvedValue([{ id: "n1" }]);
-
-    await expect(findNotes("case1")).resolves.toEqual([{ id: "n1" }]);
-
-    expect(prisma.deedPollNote.findMany).toHaveBeenCalledWith({
-      where: { deedPollId: "case1" },
-      orderBy: { createdOn: "desc" }
+      expect(created.id).toBe("note-1");
+      expect(apiCreateNote).toHaveBeenCalledWith("case-1", "Called the applicant", expect.anything());
+      expect(vi.mocked(apiCreateNote).mock.calls[0][2].accessToken).toBe("caseworker-token");
     });
   });
 
-  it("404s listing notes for a case that does not exist, rather than answering an empty list", async () => {
-    // An empty list would say "this case has no notes", which is a different fact from "there is
-    // no such case" — and the wrong one for a mistyped id.
-    prisma.deedPoll.findUnique.mockResolvedValue(null);
+  describe("updateNote", () => {
+    it("should patch the note text", async () => {
+      vi.mocked(patchNote).mockResolvedValue(ok({ id: "note-1", note: "Called twice" }) as never);
 
-    await expect(findNotes("nope")).rejects.toBeInstanceOf(NotFoundError);
+      const updated = await updateNote("case-1", "note-1", { note: "Called twice" }, CALLER);
 
-    expect(prisma.deedPollNote.findMany).not.toHaveBeenCalled();
-  });
+      expect(updated.note).toBe("Called twice");
+      expect(patchNote).toHaveBeenCalledWith("case-1", "note-1", "Called twice", expect.anything());
+    });
 
-  it("returns an empty list for a real case with no notes", async () => {
-    // The other half of the pair: the 404 above must not swallow the legitimately-empty case.
-    prisma.deedPoll.findUnique.mockResolvedValue({ id: "case1" });
-    prisma.deedPollNote.findMany.mockResolvedValue([]);
+    it("should pass an absent note through, because api accepts an empty patch and re-stamps modifiedBy", async () => {
+      vi.mocked(patchNote).mockResolvedValue(ok({ id: "note-1" }) as never);
 
-    await expect(findNotes("case1")).resolves.toEqual([]);
-  });
+      await updateNote("case-1", "note-1", {}, CALLER);
 
-  it("findOne 404s when the note belongs to another case", async () => {
-    prisma.deedPollNote.findFirst.mockResolvedValue(null);
-    await expect(findNote("case1", "n1")).rejects.toBeInstanceOf(NotFoundError);
-    expect(prisma.deedPollNote.findFirst).toHaveBeenCalledWith({
-      where: { id: "n1", deedPollId: "case1" }
+      expect(patchNote).toHaveBeenCalledWith("case-1", "note-1", undefined, expect.anything());
     });
   });
 
-  it("removes after an existence check, scoped to the parent case", async () => {
-    prisma.deedPollNote.findFirst.mockResolvedValue({ id: "n1" });
-    prisma.deedPollNote.delete.mockResolvedValue({ id: "n1" });
-    await removeNote("case1", "n1");
-    expect(prisma.deedPollNote.delete).toHaveBeenCalledWith({
-      where: { id: "n1", deedPollId: "case1" }
+  describe("removeNote", () => {
+    it("should delete the note under its own case and resolve with nothing", async () => {
+      vi.mocked(deleteNote).mockResolvedValue(ok(undefined) as never);
+
+      await expect(removeNote("case-1", "note-1", CALLER)).resolves.toBeUndefined();
+      expect(deleteNote).toHaveBeenCalledWith("case-1", "note-1", expect.objectContaining({ baseUrl: "http://api.test" }));
+      expect(vi.mocked(deleteNote).mock.calls[0][2].accessToken).toBe("caseworker-token");
+    });
+
+    it("should throw NotFoundError for a note that is not under this case, which is what the extra read used to catch", async () => {
+      // The Prisma version read the note first so that a wrong parent was a `NotFoundError` and not a
+      // delete that silently affected no rows. api's nested route answers 404 for the same case, so the
+      // read is gone and the outcome is not.
+      vi.mocked(deleteNote).mockResolvedValue({ ok: false, error: { kind: "not-found", status: 404, message: "Note note-1 not found" } } as never);
+
+      await expect(removeNote("other-case", "note-1", CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 });

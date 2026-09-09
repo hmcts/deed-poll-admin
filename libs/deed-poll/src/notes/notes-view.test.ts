@@ -1,4 +1,4 @@
-import type { DeedPollNote } from "@hmcts/postgres-prisma";
+import type { Note } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
 import { NOT_RECORDED } from "../deed-poll/case-header.js";
 import { buildNotesView, shortCode } from "./notes-view.js";
@@ -7,18 +7,17 @@ import { buildNotesView, shortCode } from "./notes-view.js";
  * A stored note, with the fields under test overridable. `id` is a real-shaped uuid
  * because the view model derives the displayed code from it.
  */
-function note(over: Partial<DeedPollNote> = {}): DeedPollNote {
+function note(over: Partial<Note> = {}): Note {
   const at = new Date("2026-08-10T09:05:00Z");
   return {
     id: "67ec4d74-2aa4-4c64-8793-1defd5773a87",
-    deedPollId: "case-1",
     note: "This is a note",
     createdBy: "Steve Newman",
     modifiedBy: "Steve Newman",
     createdOn: at,
     modifiedOn: at,
     ...over
-  } as DeedPollNote;
+  };
 }
 
 describe("shortCode", () => {

@@ -5,7 +5,19 @@ nodejs:
   ingressHost: deed-poll-admin-web.{{ .Values.global.environment }}.platform.hmcts.net
   image: 'hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:latest'
   environment:
-    POSTGRES_DATABASE: deed-poll-admin
+    # Where `deed-poll-api` is. Every case, note, witness and document this app renders comes from it —
+    # `libs/deed-poll/src/api/deed-poll-api.ts` reads this variable and falls back to
+    # `http://localhost:3200`, which is the in-repo mock. That default is right for `yarn dev` and wrong
+    # for every deployed environment, so this must be set wherever the app is deployed rather than left
+    # to the adapter.
+    #
+    # The CNP internal hostname, not an ingress: api is `charts/deed-poll-api` in `hmcts/deed-poll-api`
+    # on the standard `java` base chart, so it answers on
+    # `deed-poll-api-{env}.service.core-compute-{env}.internal`, cluster-internal and cleartext. **api
+    # is not deployed yet** — its own `docs/plans/jenkins-pipeline-cutover.md` is what makes this host
+    # exist — so until it is, a deployed pod's readiness probe reports DOWN. That is the intended
+    # failure: see `docs/DEPLOYMENT.md`, "deed-poll-api".
+    DEED_POLL_API_URL: http://deed-poll-api-{{ .Values.global.environment }}.service.core-compute-{{ .Values.global.environment }}.internal
     IDAM_ISSUER_URL: https://hmcts-access.{{ .Values.global.environment }}.platform.hmcts.net
     IDAM_CLIENT_ID: deed-poll-admin
     IDAM_SCOPE: openid profile roles offline_access
@@ -20,10 +32,13 @@ nodejs:
       secrets:
         - name: app-insights-connection-string
           alias: APPLICATION_INSIGHTS_CONNECTION_STRING
-        # `postgres-url` stays until the `deed-poll-api` cutover: this app still reads case data through
-        # Prisma, so removing the database credential would break every case page.
-        - name: postgres-url
-          alias: DATABASE_URL
+        # No `postgres-url` and no database credential of any kind. The data access layer went to
+        # `deed-poll-api` — plan 02 of `docs/plans/` — so there is no database for this app to hold a
+        # connection string to, and no S2S credential either: api authenticates a **forwarded IDAM
+        # access token** and nothing else, so the caseworker's own token in the session is the whole
+        # credential. `docs/DEPLOYMENT.md` records why, and why a static service token would be the
+        # wrong way to close it if api ever gains a `ServiceAuthorization` filter.
+        #
         # Where the session store lives. Written by the shared root in `hmcts/deed-poll-infra`, which
         # provisions one Redis for the product.
         - name: redis-url

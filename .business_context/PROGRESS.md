@@ -1,12 +1,78 @@
 # Migration progress — handover
 
-Last updated: 2026-09-07. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md). Backend:
+Last updated: 2026-09-09. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md). Backend:
 [`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md). **Infrastructure and pipeline:
 [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md).**
 
 **Track A's application code is complete.** Phases 0–4 are done and Phase 5's login flow is built and
 working. **Phase 6 has been redefined** — an earlier version of this file said nothing in it was code any
 more, and as of 2026-09-06 that is no longer true. See below.
+
+**Read the 2026-09-09 section first.** The data access layer is gone, so every passage below that describes
+this repo reading Postgres through Prisma — including all of "Phase 3 — the JSON API" and most of "Loose
+ends" — is history. It is kept because the reasoning is still worth having, not because it is current.
+
+## Pick up here (end of 2026-09-09 session)
+
+### The data access layer is gone
+
+[`docs/plans/02-dal-cutover-to-api.md`](../docs/plans/02-dal-cutover-to-api.md) landed, eight tasks on
+`dal-cutover-to-api`. It is authoritative for this repo over everything below it. **This repo is now a
+presentation layer with no data access layer at all.**
+
+1. **Every read and write of case data goes to `deed-poll-api` over HTTP.** One adapter,
+   `libs/deed-poll-api-client`, generated from api's published document (api commit `847933a`, recorded in
+   `SPEC-PROVENANCE.md`). It returns `ApiResult<T>` and never throws; `libs/deed-poll/src/api/deed-poll-api.ts`
+   is the only place that knows where api is, and it turns a classified failure into the domain errors
+   `apps/web/src/errors.ts` already rendered. 13 caseworker operations, 14 adapter functions — the extra is
+   the readiness probe's.
+2. **Deleted: `apps/api` (261 route tests), `apps/postgres`, `libs/postgres-prisma`, the migrations, the pg
+   pool, `reference-number.ts`, `file-storage.ts`, `computed.ts`, `health.ts` — and `libs/onboarding` with
+   its eight pages**, which plan 03 asked for and plan 02 had to do first because its `queries.ts` was the
+   last thing holding Prisma in the tree. **Plan 03's task 1 is therefore already done.**
+3. **api owns reference numbers, the audit author and the admin flag.** Every service function takes a
+   `Caller` — `{ accessToken }` and nothing else — because api derives the last two from the token, and a
+   second allocator against the same counter is a correctness bug rather than duplication.
+4. **Sessions stayed in Redis, locally, deliberately.** The reasoning is at the call site in
+   `apps/web/src/app.ts` and must not be re-litigated as a consistency argument: a session is transport
+   state, and serving it from api would invert authorisation.
+5. **The readiness check names Redis and api, and no database.** `deedPollApiStatus()` replaced
+   `deedPollDatabaseChecks()` with a fixed 2s timeout — deliberately not `DEED_POLL_API_TIMEOUT_MS`, because
+   `runChecks` is a bare `Promise.all` and a probe that waited the application's patience out would report
+   nothing at all and take the Redis result with it.
+6. **The conformance harness split**: the structural layer is api's (`9db5fe3`), the four rule layers stayed
+   here. `libs/deed-poll/src/conformance/README.md` is the record, and the A–R truncation caveat travelled
+   with the half that moved.
+7. **Charts and config, task 8.** `postgres-url`/`DATABASE_URL` is out of all four `values.yaml`;
+   `DEED_POLL_API_URL` is in, resolving per environment to
+   `deed-poll-api-{env}.service.core-compute-{env}.internal`, with preview pointed at AAT's api because api's
+   preview deploys are per-PR hosts with no stable name — **so preview writes land in AAT's data.** The
+   umbrella `Chart.yaml` lost three dependencies (`deed-poll-admin-postgres`, `deed-poll-admin-api`,
+   `postgresql`): two pointed at deleted directories, and a `file://` dependency on a missing chart fails
+   `helm dependency build`.
+
+**There is no S2S credential to add, and adding one would be wrong.** api authenticates a *forwarded IDAM
+access token* and nothing else — an OAuth2 resource server with no `ServiceAuthorization` filter, and
+`bearerAuth` as the only security scheme in its spec. The caseworker's own token, from the session, is the
+whole credential. If api ever gains S2S, the answer is a token provider minting one per call plus a
+microservice name registered for *this app*, not a static secret in the vault.
+`deed-poll-web/docs/external-dependencies.md` tracks the same requirement for the other frontend.
+
+**Test arithmetic across the whole plan, so deliberate deletions are not read as regressions:** 1,608 unit
+tests → **1,188**, and 21 e2e → **16**. The drops are `apps/api` (211 declarations), `apps/postgres` (15),
+`libs/onboarding` (72), the onboarding pages (32), `health.test.ts` (14) and the conformance harness's
+structural layer (78), less 7 added for `deedPollApiStatus` and 5 for note deletion.
+
+The code review that followed took it to **1,229**, all additions and each one closing a gap the deletions
+opened: the download route had no test at all (10), the multipart parser lost its twin's coverage when
+`apps/api` went (13), the zoneless date-time conversion the deployed app depends on was exercised by nothing
+(8), the note forms gained the api-rejection path they were missing (4), and the adapter gained the two
+download-timeout rules and the forwarded security headers (6). e2e stays at **16**.
+
+**What is outstanding, and none of it is code in this repo:** api is not deployed, so a deployed pod reports
+readiness DOWN until api's own pipeline cutover lands — [`docs/PIPELINES.md`](../docs/PIPELINES.md) now lists
+six blockers rather than four, and [`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md#deed-poll-api) records what a
+deploy needs from api. `yarn test:e2e` passes by hand against the mock and still runs in no pipeline.
 
 ## Pick up here (end of 2026-09-07 session)
 
@@ -28,7 +94,8 @@ notes below say about admin's pipeline and sessions.
    against the library source in [`docs/PIPELINES.md`](../docs/PIPELINES.md): the chart is at `helm/` where
    `helmInstall` reads `charts/`; the pipeline builds one image where the umbrella chart wants four; there is
    no `yarn test:smoke`; and preview has no Redis. **None of these is tracked in the tables below** — read
-   `PIPELINES.md` for them.
+   `PIPELINES.md` for them. *(Updated 2026-09-09: the umbrella chart wants **two** images, not four, and the
+   list is six items — platform onboarding and api not being deployed joined it. `PIPELINES.md` is current.)*
 5. **The Playwright suite now runs in no pipeline.** `job.e2e-test.yml` went with `.github/workflows/` and
    `Jenkinsfile_CNP`'s body is empty. It is also the only thing that exercises a real `RedisStore` round trip,
    so wiring it into a stage is outstanding work rather than a nicety.
@@ -213,7 +280,7 @@ ours.
 | Migrate all four repos to the Jenkins CNP pipeline | ✅ **for `deed-poll-admin`** (2026-09-07): `.github/workflows/` deleted, `Jenkinsfile_CNP` added. Still to do for `deed-poll-web` and `deed-poll-api`, each of which has its own plan |
 | ~~Move the session table to its own `session` schema~~ | ❌ **Reversed, not done.** Sessions moved to Redis on 2026-09-07 — no table, no schema, no migration. `public` is api's alone |
 | Rename the per-component vault secrets | ✅ **for `deed-poll-admin`** (2026-09-07), in all four charts, plus a new `redis-url` entry on `apps/web`. Still to do for web and api |
-| Four blockers on a green admin deploy | **New.** Chart at `helm/` vs `charts/`; one image vs four; no `yarn test:smoke`; preview has no Redis. Two are design decisions. Detail in [`../docs/PIPELINES.md`](../docs/PIPELINES.md) |
+| Six blockers on a green admin deploy | **New.** Chart at `helm/` vs `charts/`; one image vs two; no `yarn test:smoke`; preview has no Redis; `cnp-jenkins-config` onboarding; `deed-poll-api` not deployed. Two are design decisions. Detail in [`../docs/PIPELINES.md`](../docs/PIPELINES.md) |
 | Wire the Playwright suite into a pipeline stage | **New.** `job.e2e-test.yml` went with `.github/workflows/` and nothing replaced it. It is also the only test anywhere that exercises a real `RedisStore` round trip |
 | `cnp-jenkins-config` onboarding, four entries | **New, and now the critical path.** External |
 | `session-secret` in the vault | ✅ Still generated rather than manual — `random_password` in the shared repo's `key-vault.tf`, on the first successful apply. Renamed per component |
@@ -603,24 +670,28 @@ is CodeQL.
 
 _Generated by `yarn progress:write`. Do not hand-edit inside the markers — the next run overwrites it._
 
-### Phase 3 — JSON API handlers
+### deed-poll-api — the surface this app consumes
 
 ```
-resource          progress  ported       notes
-────────────────────────────────────────────────────────────────────────
-deed-polls        ███████   7/7    done  incl. field-rules, validate
-notes             █████     5/5    done
-witnesses         █████     5/5    done
-document-types    █████     5/5    done  global reference data
-documents         ███████   7/7    done  incl. multipart upload, download
-                            ──────────────
-                            29/29  100%
+caseworker path         operations
+────────────────────────────────────
+cases                   4
+cases/documents         2
+cases/field-rules       1
+cases/notes             5
+document-types          1
+────────────────────────────────────
+published in the spec   13
+adapter functions       14
 ```
+
+- The adapter's extra function is `checkApiReachable`, which the readiness probe uses against api's unauthenticated `/health/liveness` — not a caseworker operation. The path is the liveness group and not the ungrouped `/health` on purpose: see the docblock at the function.
+- `src/api/contract.test.ts` is what proves the two lines correspond; this table only counts them.
 
 ### Phase 4 — SSR pages
 
 - **13 page handlers** ported in `apps/web/src/pages/deed-polls/`, against **12** in the prototype's `deed-poll-pages.controller.ts` and **9** Nunjucks templates.
-- **20 end-to-end tests** written in `e2e-tests/tests/`, **2** of them deed-poll journeys. Accessibility and validation are checked inside the journeys, so they add no test count of their own.
+- **16 end-to-end tests** written in `e2e-tests/tests/`, **2** of them deed-poll journeys. Accessibility and validation are checked inside the journeys, so they add no test count of their own.
 
 ### Tests
 
@@ -630,22 +701,20 @@ documents         ███████   7/7    done  incl. multipart upload, d
 @hmcts-cft/express-session-postgres      23 passed
 @hmcts-cft/express-session-redis          7 passed
 @hmcts-cft/simple-router                 41 passed
-@hmcts/api                              265 passed
 @hmcts/crons                             10 passed
-@hmcts/deed-poll                        590 passed
-@hmcts/onboarding                        72 passed
-@hmcts/postgres                          11 passed
-@hmcts/web                              305 passed
+@hmcts/deed-poll                        443 passed
+@hmcts/deed-poll-api-client             136 passed
+@hmcts/web                              323 passed
 ─────────────────────────────────────────────────────
-total                                  1591 passed
+total                                  1250 passed
 ```
 
 ### Branch
 
 ```
-jenkins-and-session-schema
-8 commits ahead of master
-HEAD  d9d2cda  fix: address code review findings
+dal-cutover-to-api
+15 commits ahead of master
+HEAD  b01cc3a  fix: address code review findings
 ```
 
 <!-- END GENERATED DASHBOARD -->
@@ -811,12 +880,16 @@ What changed in the move:
 - **The `ccd` schema tests skip when no database is reachable** — CI has no Postgres. Run
   `docker compose up -d` locally to exercise them.
 
-## Phase 3 — the JSON API (done, and transitional)
+## Phase 3 — the JSON API (deleted 2026-09-09; kept as history)
 
-**`apps/api` is slated for replacement** by a Spring Boot `deed-poll-api` — see
-[`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md). Nothing consumes `apps/api` today, so its
-surface is being rebuilt as the 11 operations `apps/web` actually needs rather than ported. The detail
-below stays accurate and is still the reference for anything touching these handlers meanwhile.
+> **`apps/api` no longer exists.** It was replaced, not migrated: `deed-poll-api` now serves the 13
+> caseworker operations `apps/web` needs, and plan 02 deleted this app and its 261 route tests in full.
+> Everything in this section is therefore **history** — accurate about what was built, wrong about what is
+> in the tree. Nothing below is the reference for current code; `libs/deed-poll-api-client` is.
+>
+> It is worth keeping for two reasons: the three defects the slice sections record were found by running the
+> app rather than by testing it, and the operations api deliberately does **not** publish (witness writes,
+> document patch and delete, document-type writes) are the ones enumerated here.
 
 **Phase 3 is complete — 29 of 29 handlers.** Foundations (`caf4e03`) plus four slices: `deed-polls`
 (7), notes + witnesses (10), `document-types` (5) and `documents` (7). See the slice sections below;
@@ -1628,8 +1701,12 @@ the two the plan named:
 
 Two assertions are worth keeping for what they prove rather than what they check:
 
-- **`Created By` is "An Admin", the IDAM name.** The new-case page hardcoded `userName: undefined`
-  until Phase 5, and nothing but a real login could have caught it. Now a test would.
+- **`Created By` is the signed-in caseworker, not the service account.** The new-case page hardcoded
+  `userName: undefined` until Phase 5, and nothing but a real login could have caught it. Now a test
+  would. The author is api's since the DAL cutover — derived from the token the page forwards, never
+  sent as a parameter — so the assertion also proves the token travels. Against the mock it reads the
+  token's `sub`, an email, because the mock has no IDAM to resolve "An Admin" from; against api it
+  reads the IDAM display name.
 - **The state after saving both signature dates is Awaiting *Enrolment*, not Awaiting Signature.** The
   cascade tests received before requested — the source workflow's ordering, preserved deliberately —
   so this pins the precedence where a caseworker would actually see it. It also proves the save reached

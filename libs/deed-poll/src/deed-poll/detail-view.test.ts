@@ -1,7 +1,7 @@
-import { DeedPollState, DeedPollType, Privacy, ReferToMaster } from "@hmcts/postgres-prisma";
 import { describe, expect, it } from "vitest";
 import { getFieldRules } from "./deed-poll-validation.js";
 import { buildDetailTabs, type DetailSection, formatValue, NOT_PROVIDED } from "./detail-view.js";
+import { DeedPollState, DeedPollType, Privacy, ReferToMaster } from "./enums/option-sets.js";
 import { type FieldDef, FORM_TABS } from "./form-fields.js";
 import { build } from "./form-presentation.js";
 

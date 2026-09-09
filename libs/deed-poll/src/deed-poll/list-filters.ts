@@ -6,15 +6,32 @@
  * prototype had them as a module-level constant in its pages controller, which meant the API could
  * not offer the same filters without restating them.
  *
- * `all` deliberately has no `where`: `findDeedPolls(undefined)` returns everything, and an empty
+ * `all` deliberately has no `where`: `findDeedPolls(undefined, …)` returns everything, and an empty
  * object would be an equivalent but noisier way of saying so.
+ *
+ * **`where` is no longer read by anything.** Since the cutover the service sends api the filter's KEY
+ * and api resolves it — its `ListFilters` is the port of this file, the same five keys in the same
+ * order. What is left here is the tab bar and the record of what each key stands for, kept because it
+ * is the business rule this app's list page is expressing and a key on its own says nothing about it.
  */
-import { DeedPollState, type Prisma } from "@hmcts/postgres-prisma";
+import { DeedPollState } from "./enums/option-sets.js";
 
 export interface ListFilter {
   key: string;
   label: string;
-  where?: Prisma.DeedPollWhereInput;
+  where?: ListFilterWhere;
+}
+
+/**
+ * The state predicate a filter stands for.
+ *
+ * Structurally what the deleted data access layer's generated `where` type supplied for the
+ * `state` column, restated when that layer went because no filter here ever constrained any of
+ * the other 70. It stays a predicate rather than
+ * becoming a bare list of states so the "Open" rule below can still be written by exclusion.
+ */
+export interface ListFilterWhere {
+  state: DeedPollState | { notIn: DeedPollState[] };
 }
 
 /**

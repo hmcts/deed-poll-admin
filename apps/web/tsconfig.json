@@ -22,9 +22,6 @@
     },
     {
       "path": "../../libs/express-session-redis"
-    },
-    {
-      "path": "../../libs/postgres-prisma"
     }
   ]
 }

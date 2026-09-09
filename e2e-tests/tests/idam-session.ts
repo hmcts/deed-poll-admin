@@ -19,7 +19,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page } from "@playwright/test";
 
-const ADMIN_EMAIL = "admin@example.com";
+/**
+ * Exported because it is also the audit author a write is attributed to under the mock, which stamps the
+ * token's `sub` — see `auditName` in `libs/deed-poll-api-client/src/mock/server.ts`.
+ */
+export const ADMIN_EMAIL = "admin@example.com";
 
 /** Whatever `scripts/seed-idam-users.mjs` set. The simulator does not check it — see below. */
 const PASSWORD = "Pa55word11";
@@ -36,12 +40,14 @@ const PASSWORD = "Pa55word11";
  * **One cookie means one server-side session, shared by every test that restores this state.** That is
  * safe for a journey that only reads the signed-in user, which is all the deed-poll pages do. A journey
  * that stores anything in the session must not run in parallel with another that does, or it will
- * overwrite the other's data — see `onboarding-happy-path.spec.ts`, where exactly that happened, and
- * which is sequential within its own file for that reason.
+ * overwrite the other's data — the template's onboarding journey did exactly that, and had to be
+ * sequential within its own file. That spec is gone, but the rule it earned is not: it applies to the
+ * next journey that writes to the session, and `deed-polls.spec.ts` follows it for `?lng=cy`.
  *
- * **Prefer that to signing in per test.** It was tried, and five concurrent logins were enough to
- * exhaust the shared pg pool and hang the OIDC callback for 30 seconds — see loose end 16 in
- * PROGRESS.md. Each login is several database round trips on a pool that Prisma is also using.
+ * **Prefer that to signing in per test.** Five concurrent logins were once enough to exhaust the shared
+ * pg pool and hang the OIDC callback for 30 seconds — loose end 16 in PROGRESS.md. That pool went with
+ * the data access layer, so the failure mode has too; what remains is the plainer argument that a login
+ * is a full OIDC round trip and there is no reason to pay for it per test.
  */
 export const ADMIN_STORAGE_STATE = path.join(path.dirname(fileURLToPath(import.meta.url)), "../.auth/admin.json");
 

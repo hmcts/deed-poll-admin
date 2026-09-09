@@ -11,17 +11,17 @@ import { z } from "zod";
  *   omits and a field the caller explicitly clears were both accepted. `.nullish()` keeps that,
  *   which matters for PATCH: sending `null` is how a caseworker empties a date.
  *
- * Where the underlying column is NOT nullable (it has a Prisma default — the two enum
+ * Where the underlying column is NOT nullable (it has a stored default — the two enum
  * defaults, the three int[] multiselects and the three booleans) the schema uses `.optional()`
- * instead, so `null` is rejected by validation rather than reaching Prisma and failing there
- * with a less useful error.
+ * instead, so `null` is rejected here rather than coming back as a 400 from api with a less
+ * useful error.
  */
 
 /**
  * An ISO 8601 date or date-time string, matching what `@IsDateString()` accepted.
  *
  * Dates stay strings through validation on purpose: the domain layer coerces them to `Date`
- * immediately before handing them to Prisma, and the SSR forms submit `YYYY-MM-DD`. The union
+ * immediately before sending them to api, and the SSR forms submit `YYYY-MM-DD`. The union
  * accepts a bare date, a UTC or offset date-time, and a local date-time without a zone.
  */
 export const isoDateString = z.union([z.iso.date(), z.iso.datetime({ offset: true, local: true })]);

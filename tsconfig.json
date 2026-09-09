@@ -3,17 +3,8 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "paths": {
-      "@hmcts/api": [
-        "./apps/api/src"
-      ],
       "@hmcts/crons": [
         "./apps/crons/src"
-      ],
-      "@hmcts/postgres": [
-        "./apps/postgres/src"
-      ],
-      "@hmcts/postgres-prisma": [
-        "./libs/postgres-prisma/src"
       ],
       "@hmcts/web": [
         "./apps/web/src"
@@ -33,11 +24,11 @@
       "@hmcts-cft/simple-router": [
         "./libs/simple-router/src"
       ],
-      "@hmcts/onboarding": [
-        "./libs/onboarding/src"
-      ],
       "@hmcts/deed-poll": [
         "./libs/deed-poll/src"
+      ],
+      "@hmcts/deed-poll-api-client": [
+        "./libs/deed-poll-api-client/src"
       ]
     },
     "esModuleInterop": true,

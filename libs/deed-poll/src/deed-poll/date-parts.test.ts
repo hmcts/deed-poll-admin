@@ -36,7 +36,7 @@ describe("deed-poll/date-parts", () => {
       expect(splitDateParts(new Date("2026-03-01T00:00:00.000Z"))).toEqual({ day: "1", month: "3", year: "2026" });
     });
 
-    it("splits an ISO string as well as a Date, because Prisma returns one and forms post the other", () => {
+    it("splits an ISO string as well as a Date, because the adapter returns one and forms post the other", () => {
       expect(splitDateParts("2026-12-31T00:00:00.000Z")).toEqual({ day: "31", month: "12", year: "2026" });
     });
 

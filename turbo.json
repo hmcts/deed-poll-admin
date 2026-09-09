@@ -10,7 +10,7 @@
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "build/**"],
-      "inputs": ["**/*.ts", "**/*.njk", "**/*.prisma", "package.json"]
+      "inputs": ["**/*.ts", "**/*.njk", "package.json"]
     },
     "dev": {
       "cache": false,
@@ -21,7 +21,7 @@
     },
     "test": {
       "outputs": ["coverage/**"],
-      "inputs": ["package.json", "**/*.ts", "**/*.prisma"],
+      "inputs": ["package.json", "**/*.ts"],
       "cache": false
     },
     "lint": {
@@ -36,14 +36,6 @@
     "type-check": {
       "dependsOn": ["^build"],
       "outputs": []
-    },
-    "db:generate": {
-      "outputs": ["node_modules/.prisma/**"],
-      "cache": false
-    },
-    "db:migrate": {
-      "dependsOn": ["db:generate"],
-      "cache": false
     }
   }
 }

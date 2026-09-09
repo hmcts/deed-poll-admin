@@ -1,10 +1,11 @@
 /**
  * Whether this process may talk to an IDAM issuer over plain HTTP.
  *
- * Both apps need the answer and must not be able to disagree about it. `apps/web` uses it to grant
- * `openid-client` permission to use a cleartext issuer, which it refuses by default; `apps/api` uses
- * it to reject a cleartext issuer URL outright, since `fetch` will happily use one. Different
- * mechanisms, one decision — and the decision is what matters, so it lives here rather than twice.
+ * `apps/web` uses it to grant `openid-client` permission to use a cleartext issuer, which it refuses by
+ * default. It is in the domain library rather than in that app because two apps once needed the answer and
+ * read it opposite ways — the deleted `apps/api` used it to reject a cleartext issuer URL outright, since
+ * `fetch` will happily use one. Different mechanisms, one decision, and the decision is what matters, so
+ * it stays here rather than moving into the one surviving caller.
  *
  * Cleartext matters because of what crosses the connection: the code exchange carries the client
  * secret, the token response carries the tokens themselves, and `/o/userinfo` carries the roles

@@ -16,8 +16,6 @@ const chartPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "../he
  * `config/default.json`. A deployed pod therefore saw `redis.url` as `redis://localhost:6379` and
  * `session.secret` as the checked-in placeholder however correct its vault was, and `assertRedisUrl`
  * crashlooped it with an error blaming a `redis-url` entry that was there all along.
- * `@hmcts/postgres-prisma` is the same shape one layer down: it builds its pool from `DATABASE_URL` at
- * module scope.
  *
  * So the ordering *is* the mechanism, and it has to live in the entrypoint rather than in `createApp`:
  * `server.ts` awaits this and only then imports `./app.js`, dynamically. `apps/crons/src/index.ts` has
@@ -25,8 +23,9 @@ const chartPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "../he
  *
  * `omit` applies only on the non-production Azure-vault path — see `properties.ts`, which returns from it
  * early when `NODE_ENV` is production. It exists so a developer running against a real vault does not
- * have the deployed database and session store quietly replace their local ones.
+ * have the deployed session store quietly replace their local one. `DATABASE_URL` was the other entry
+ * and is gone with the data access layer: this app has no database.
  */
 export function loadSecrets(): Promise<Secrets> {
-  return getPropertiesVolumeSecrets({ chartPath, omit: ["DATABASE_URL", "REDIS_URL"] });
+  return getPropertiesVolumeSecrets({ chartPath, omit: ["REDIS_URL"] });
 }

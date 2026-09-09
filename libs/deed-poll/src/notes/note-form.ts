@@ -12,7 +12,7 @@
  */
 
 /**
- * Matches the `@MaxLength` on `CreateNoteDto` and the column width in schema.prisma.
+ * Matches the `maxLength: 2000` api publishes for the note body and the column width behind it.
  * Exported so the form's character-count hint cannot drift from the limit that rejects.
  */
 export const MAX_NOTE_LENGTH = 2000;

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { deedPollDatabaseChecks, plainHttpPermitted } from "@hmcts/deed-poll";
+import { deedPollApiStatus, plainHttpPermitted } from "@hmcts/deed-poll";
 import { type HealthStatus, healthcheck, monitoringMiddleware } from "@hmcts-cft/cloud-native-platform";
 import { configureCookieManager, configureGovuk, configureHelmet, configureNonce, errorHandler, notFoundHandler } from "@hmcts-cft/express-govuk-starter";
 import { expressSessionRedis } from "@hmcts-cft/express-session-redis";
@@ -108,23 +108,23 @@ export async function createApp(): Promise<Express> {
       storeOptions: { prefix: SESSION_KEY_PREFIX }
     })
   );
-  // Readiness only, never liveness. `healthcheck()` defaults `readinessChecks` to `checks`, so this
-  // previously put Postgres on **both** — meaning a database blip failed liveness and Kubernetes
-  // restarted every web pod. Restarting cannot fix someone else's database, and a rolling restart of
-  // the deployment turns a recoverable dependency outage into a self-inflicted one. Liveness is empty
-  // on purpose: the process answering at all is the signal.
+  // Readiness only, never liveness. `healthcheck()` defaults `readinessChecks` to `checks`, so naming a
+  // dependency here without the split would put it on **both** — which is what happened with Postgres:
+  // a database blip failed liveness and Kubernetes restarted every web pod. Restarting cannot fix
+  // someone else's outage, and a rolling restart turns a recoverable dependency failure into a
+  // self-inflicted one. Liveness is empty on purpose: the process answering at all is the signal.
   //
-  // The checks also cover the deed-poll tables, not just the connection: an unmigrated pod passes
-  // `select 1` while every request 500s, and a green probe means nothing escalates.
-  //
-  // Both Redis and the database, because this app depends on both until the api cutover — Redis holds
-  // the session that every request is authenticated from, and case data is still read through Prisma
-  // here. A probe that stopped naming the database would go green while every case page 500s.
+  // **Redis and api, and no database — this app no longer has one.** Both are named because both are
+  // load-bearing for every request: Redis holds the session each one is authenticated from, and api
+  // holds the case data every page renders. A probe that named only Redis would go green on a pod that
+  // 500s every case page, which is worse than no probe at all — Kubernetes would keep sending it
+  // traffic and nothing would escalate. That is the failure task 5 of
+  // `docs/plans/02-dal-cutover-to-api.md` calls out, and `deedPollApiStatus` is what answers it.
   app.use(
     healthcheck({
       checks: {},
       readinessChecks: {
-        ...deedPollDatabaseChecks(),
+        deedPollApi: deedPollApiStatus,
         redis: () => redisStatus(redisConnection)
       }
     })
@@ -136,9 +136,7 @@ export async function createApp(): Promise<Express> {
           index_js: "/src/assets/js/index.ts",
           index_css: "/src/assets/css/index.scss",
           footer_js: "/src/assets/js/footer.ts",
-          footer_css: "/src/assets/css/footer.scss",
-          onboarding_js: "/src/assets/js/onboarding.ts",
-          onboarding_css: "/src/assets/css/onboarding.scss"
+          footer_css: "/src/assets/css/footer.scss"
         },
         viteConfigFile: path.join(__dirname, "../vite.build.ts")
       }
@@ -231,8 +229,8 @@ async function getRedisClient(url: string) {
  * Readiness from Redis, and deliberately not a bare `ping()`.
  *
  * `runChecks` in the healthcheck middleware is a bare `Promise.all` with no timeout of its own, so any check
- * that does not settle hangs `/health/readiness` for the whole outage — never a 503, and the database
- * results never reported either, since they are awaited alongside. Kubernetes would still take the pod out
+ * that does not settle hangs `/health/readiness` for the whole outage — never a 503, and the api result
+ * never reported either, since it is awaited alongside. Kubernetes would still take the pod out
  * of service on its own probe timeout, so the symptom is an endpoint that is useless to whoever is
  * diagnosing the outage rather than a pod serving traffic it cannot handle. A probe must therefore answer
  * on its own terms and never inherit the client's patience.

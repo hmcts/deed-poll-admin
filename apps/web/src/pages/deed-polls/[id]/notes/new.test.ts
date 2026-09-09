@@ -1,4 +1,4 @@
-import { createNote, findDeedPoll, MAX_NOTE_LENGTH, NotFoundError, SERVICE_ACCOUNT_NAME } from "@hmcts/deed-poll";
+import { createNote, findDeedPoll, InvalidInputError, MAX_NOTE_LENGTH, NotFoundError } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../express-doubles.js";
@@ -16,8 +16,11 @@ const found = { id: "case-1", displayReference: "KBDP2026-00001", notes: [], wit
 
 const PARAMS = { id: "case-1" };
 
-function request(body: Record<string, unknown> = {}, userName?: string): Request {
-  return pageRequest({ params: PARAMS, body, name: userName });
+/** The session's access token, which is the whole of what this page passes to the domain. */
+const CALLER = { accessToken: "session-token" };
+
+function request(body: Record<string, unknown> = {}): Request {
+  return pageRequest({ params: PARAMS, body, accessToken: "session-token" });
 }
 
 const response = pageResponse;
@@ -62,14 +65,16 @@ describe("add a note page", () => {
 
       await POST(request({ note: "  Called the applicant  " }), res);
 
-      expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called the applicant" }, { userName: SERVICE_ACCOUNT_NAME });
+      expect(createNote).toHaveBeenCalledWith("case-1", { note: "Called the applicant" }, CALLER);
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1#notes");
     });
 
-    it("attributes the note to the caller", async () => {
-      await POST(request({ note: "Called" }, "A Caseworker"), response());
+    it("sends the session's token and no author name, because api stamps the author from the token", async () => {
+      // This used to assert the session's display name reached the domain. Sending it now would let
+      // this app attribute a note to whoever it liked, so what is pinned is the inverse.
+      await POST(pageRequest({ params: PARAMS, body: { note: "Called" }, name: "A Caseworker", accessToken: "session-token" }), response());
 
-      expect(createNote).toHaveBeenCalledWith("case-1", expect.anything(), { userName: "A Caseworker" });
+      expect(createNote).toHaveBeenCalledWith("case-1", expect.anything(), CALLER);
     });
 
     it("re-renders with a 400 for a blank note rather than storing whitespace", async () => {
@@ -108,6 +113,44 @@ describe("add a note page", () => {
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(createNote).not.toHaveBeenCalled();
+    });
+
+    it("keeps the typed note on screen when api rejects it for a rule this form does not mirror", async () => {
+      // Uncaught, this reached the 500 page: `domainErrorHandler` passes InvalidInputError on, because a
+      // page that validates is expected to have caught it. api applies rules this form has no local copy
+      // of, so its rejections have to land against the textarea like any other.
+      vi.mocked(createNote).mockRejectedValue(
+        new InvalidInputError("Request body is not valid", [{ field: "note", message: "Notes are closed on an enroled case" }])
+      );
+      const res = response();
+
+      await POST(request({ note: "Called the applicant" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].error).toBe("Notes are closed on an enroled case");
+      expect(res.render.mock.calls[0][1].value).toBe("Called the applicant");
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+
+    it("shows the page's own copy, not api's wording, when its rejection names no field", async () => {
+      // A rejection naming no field can be a gateway's 400 with an HTML body, which leaves the adapter
+      // with nothing but `deed-poll-api answered 400`. Putting that against the textarea tells the
+      // caseworker about api's transport rather than about their note.
+      vi.mocked(createNote).mockRejectedValue(new InvalidInputError("deed-poll-api answered 400"));
+      const res = response();
+
+      await POST(request({ note: "Called" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].error).toBe("The note could not be saved. Check the note and try again.");
+      expect(res.render.mock.calls[0][1].error).not.toContain("deed-poll-api");
+      expect(res.render.mock.calls[0][1].value).toBe("Called");
+    });
+
+    it("lets an unreachable api reach the error handler rather than blaming the caseworker for it", async () => {
+      vi.mocked(createNote).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): deed-poll-api could not be reached"));
+
+      await expect(POST(request({ note: "Called" }), response())).rejects.toThrow(/unavailable/);
     });
   });
 });

@@ -3,7 +3,7 @@ import { validateNoteText } from "./note-form.js";
 
 /**
  * Create payload for a case note (deedpoll_notes). `note` is the only field a caller supplies:
- * authorship comes from the request context and both timestamps are set by the database.
+ * `deed-poll-api` stamps both audit names from the caller's token and both timestamps itself.
  *
  * Two behaviours carried over from the DTO this replaces, both load-bearing:
  *
@@ -15,8 +15,8 @@ import { validateNoteText } from "./note-form.js";
  *    API and the browser cannot disagree about what counts as a note. That function also
  *    supplies the message, so the wording stays in one place.
  *
- * There is no `noteId`: the source's autonumber display code is deliberately not ported (see
- * the note above `DeedPollNote` in the Prisma schema).
+ * There is no `noteId`: the source's autonumber display code is deliberately not ported, and api
+ * publishes no such field either.
  */
 export const createNoteSchema = z.object({
   note: z

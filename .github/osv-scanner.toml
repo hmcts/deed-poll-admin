@@ -5,44 +5,14 @@
 # fixable by a version bump has to be either fixed upstream or ignored here with a reason. Every entry
 # below states why the code path is unreachable in this service, not merely that it is inconvenient.
 #
-# All three of the additions dated 2026-09-03 are **pinned exactly by the Prisma toolchain at 7.10.0,
-# the latest stable release**, so no bump on our side can move them; they need Prisma to relax its own
-# pins. Everything that *could* be fixed by a bump was, in the same change — @hono/node-server, fflate,
-# valibot and @opentelemetry/core all moved rather than being ignored.
+# Three entries were removed on 2026-09-09 rather than left to expire: two `mysql2` advisories and one
+# `deepmerge-ts` advisory, all three ignored only because the Prisma toolchain pinned them exactly. Task 5
+# of `docs/plans/02-dal-cutover-to-api.md` deleted the data access layer, so `prisma`, `@prisma/config`
+# and every driver the CLI bundled are gone from `yarn.lock` and neither package is in the tree at all.
+# An ignore for a package that is no longer a dependency is worse than no ignore: it would silently
+# suppress the same advisory if the package ever came back for an unrelated reason.
 
 [[IgnoredVulns]]
 id = "GHSA-g9mf-h72j-4rw9"
 reason = "This vulnerability doesn't affect our usage because we don't use the affected feature"
-ignoreUntil = "2026-12-31T00:00:00Z"
-
-# MySQL2: Auth Plugin Downgrade to mysql_clear_password Leaks Plaintext Credentials.
-#
-# Unreachable: this service is PostgreSQL-only. `libs/postgres-prisma/prisma/schema/base.prisma:7`
-# declares `provider = "postgresql"`, and `mysql2` is present solely because the `prisma` CLI bundles
-# drivers for every datasource it can support. Exploiting this needs a connection to a MySQL server,
-# which nothing here ever opens. Pinned exactly by `prisma@7.10.0` (`via npm:3.15.3`), so it cannot be
-# bumped independently.
-[[IgnoredVulns]]
-id = "GHSA-3f6p-5ww8-9rcr"
-reason = "mysql2 is unused: the datasource provider is postgresql. It is bundled by the prisma CLI, which pins it exactly, and exploiting it requires a MySQL connection this service never makes."
-ignoreUntil = "2026-12-31T00:00:00Z"
-
-# MySQL2: Unbounded zlib inflate in the compressed MySQL protocol handler allows a decompression-bomb
-# DoS. Same reasoning as above — it is in the MySQL wire protocol handler, and no MySQL connection is
-# ever made.
-[[IgnoredVulns]]
-id = "GHSA-rgwj-5xj2-c3m3"
-reason = "mysql2 is unused: the datasource provider is postgresql. The affected code is the MySQL protocol handler, which is never loaded."
-ignoreUntil = "2026-12-31T00:00:00Z"
-
-# DeepmergeTS: stack exhaustion when merging recursive object graphs.
-#
-# Availability-only (CVSS 4.0 gives VA:H with no confidentiality or integrity impact), and it is reached
-# only through `@prisma/config`, which merges `libs/postgres-prisma/prisma.config.ts` when a `prisma` CLI
-# command runs. The input is a file committed to this repository, not anything a request can influence,
-# and it runs on developer machines and CI rather than in the deployed service. Pinned exactly by
-# `@prisma/config@7.10.0` (`via npm:7.1.5`).
-[[IgnoredVulns]]
-id = "GHSA-ggr8-5vv4-36mx"
-reason = "deepmerge-ts is reached only by @prisma/config merging our own committed prisma.config.ts at CLI time, never at runtime and never on request-controlled input. Impact is availability-only, and @prisma/config pins the version exactly."
 ignoreUntil = "2026-12-31T00:00:00Z"

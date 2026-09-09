@@ -1,118 +1,55 @@
-import { prisma as prismaClient } from "@hmcts/postgres-prisma";
+import { listDocumentTypes } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ConflictError, NotFoundError } from "../errors.js";
-import { createDocumentType, findDocumentType, findDocumentTypes, removeDocumentType, updateDocumentType } from "./document-types.js";
+import { NotFoundError } from "../errors.js";
+import { findDocumentTypes } from "./document-types.js";
 
-// This module had no unit tests before Phase 3 — only its Zod schemas were covered. Added with the
-// route port, because the delete path gained a refusal that needs pinning.
-vi.mock("@hmcts/postgres-prisma", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@hmcts/postgres-prisma")>()),
-  prisma: {
-    deedPollSupportingDocumentType: {
-      create: vi.fn(),
-      findMany: vi.fn(),
-      findUnique: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn()
-    },
-    deedPollSupportingDocument: { count: vi.fn() }
-  }
+// One operation, because api publishes one: `GET /caseworker/document-types`. The create, patch and
+// delete this file used to hold — including the in-use check that made the delete a 409 rather than a
+// foreign-key 500 — went with the cutover, because api has no endpoint for any of them and nothing in
+// this app asks. See the note at the head of `document-types.ts`.
+vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts/deed-poll-api-client")>()),
+  listDocumentTypes: vi.fn()
 }));
 
-const prisma = vi.mocked(prismaClient, { deep: true });
+const CALLER = { accessToken: "caseworker-token" };
 
-describe("documents/document-types", () => {
-  const dto = { name: "Birth certificate", applicableMaritalStatuses: [1], applicableTypes: [3] };
+const ok = <T>(data: T) => ({ ok: true as const, data });
 
+describe("findDocumentTypes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.DEED_POLL_API_URL = "http://api.test";
   });
 
-  it("creates a type from the payload as given, with no parent to scope to", async () => {
-    prisma.deedPollSupportingDocumentType.create.mockResolvedValue({ id: "t1" });
+  it("should return the types in api's order, so the dropdown is not re-sorted here", async () => {
+    const types = [
+      { id: "type-1", name: "Birth certificate" },
+      { id: "type-2", name: "Passport" }
+    ];
+    vi.mocked(listDocumentTypes).mockResolvedValue(ok(types) as never);
 
-    await createDocumentType(dto);
-
-    expect(prisma.deedPollSupportingDocumentType.create).toHaveBeenCalledWith({ data: dto });
+    expect(await findDocumentTypes(CALLER)).toEqual(types);
+    expect(listDocumentTypes).toHaveBeenCalledWith(expect.objectContaining({ baseUrl: "http://api.test" }));
   });
 
-  it("lists types alphabetically, since they populate a form's options", async () => {
-    prisma.deedPollSupportingDocumentType.findMany.mockResolvedValue([]);
+  it("should answer an empty list when no types have been set up, which the upload form renders as a message", async () => {
+    vi.mocked(listDocumentTypes).mockResolvedValue(ok([]) as never);
 
-    await findDocumentTypes();
-
-    expect(prisma.deedPollSupportingDocumentType.findMany).toHaveBeenCalledWith({ orderBy: { name: "asc" } });
+    expect(await findDocumentTypes(CALLER)).toEqual([]);
   });
 
-  it("404s for a type that does not exist", async () => {
-    prisma.deedPollSupportingDocumentType.findUnique.mockResolvedValue(null);
+  it("should present the caller's token, because api authenticates the read", async () => {
+    vi.mocked(listDocumentTypes).mockResolvedValue(ok([]) as never);
 
-    await expect(findDocumentType("t1")).rejects.toBeInstanceOf(NotFoundError);
+    await findDocumentTypes({ accessToken: "a-token" });
+
+    expect(vi.mocked(listDocumentTypes).mock.calls[0][0].accessToken).toBe("a-token");
   });
 
-  it("404s updating a type that does not exist, before writing", async () => {
-    prisma.deedPollSupportingDocumentType.findUnique.mockResolvedValue(null);
+  it("should let a classified failure arrive as the domain error the pages already render", async () => {
+    vi.mocked(listDocumentTypes).mockResolvedValue({ ok: false, error: { kind: "not-found", status: 404, message: "no types" } } as never);
 
-    await expect(updateDocumentType("t1", { name: "Renamed" })).rejects.toBeInstanceOf(NotFoundError);
-
-    expect(prisma.deedPollSupportingDocumentType.update).not.toHaveBeenCalled();
-  });
-
-  it("updates an existing type", async () => {
-    prisma.deedPollSupportingDocumentType.findUnique.mockResolvedValue({ id: "t1" });
-    prisma.deedPollSupportingDocumentType.update.mockResolvedValue({ id: "t1" });
-
-    await updateDocumentType("t1", { name: "Renamed" });
-
-    expect(prisma.deedPollSupportingDocumentType.update).toHaveBeenCalledWith({
-      where: { id: "t1" },
-      data: { name: "Renamed" }
-    });
-  });
-
-  it("deletes a type nothing references", async () => {
-    prisma.deedPollSupportingDocumentType.findUnique.mockResolvedValue({ id: "t1" });
-    prisma.deedPollSupportingDocument.count.mockResolvedValue(0);
-
-    await removeDocumentType("t1");
-
-    expect(prisma.deedPollSupportingDocumentType.delete).toHaveBeenCalledWith({ where: { id: "t1" } });
-  });
-
-  it("refuses to delete a type documents still reference, with a ConflictError not a 500", async () => {
-    // The FK already refuses, but via the PrismaPg adapter that arrives as a DriverAdapterError
-    // carrying SQLSTATE 23001 — not a domain error, so apps/api answered a generic 500 for what is
-    // an ordinary caseworker action.
-    prisma.deedPollSupportingDocumentType.findUnique.mockResolvedValue({ id: "t1" });
-    prisma.deedPollSupportingDocument.count.mockResolvedValue(2);
-
-    await expect(removeDocumentType("t1")).rejects.toBeInstanceOf(ConflictError);
-
-    expect(prisma.deedPollSupportingDocumentType.delete).not.toHaveBeenCalled();
-  });
-
-  it("names the number of referencing documents, so the message is actionable", async () => {
-    prisma.deedPollSupportingDocumentType.findUnique.mockResolvedValue({ id: "t1" });
-    prisma.deedPollSupportingDocument.count.mockResolvedValue(3);
-
-    await expect(removeDocumentType("t1")).rejects.toThrow(/3 document\(s\)/);
-  });
-
-  it("counts only documents of the type being deleted", async () => {
-    prisma.deedPollSupportingDocumentType.findUnique.mockResolvedValue({ id: "t1" });
-    prisma.deedPollSupportingDocument.count.mockResolvedValue(0);
-
-    await removeDocumentType("t1");
-
-    expect(prisma.deedPollSupportingDocument.count).toHaveBeenCalledWith({ where: { documentTypeId: "t1" } });
-  });
-
-  it("404s deleting a type that does not exist, without counting references", async () => {
-    prisma.deedPollSupportingDocumentType.findUnique.mockResolvedValue(null);
-
-    await expect(removeDocumentType("t1")).rejects.toBeInstanceOf(NotFoundError);
-
-    expect(prisma.deedPollSupportingDocument.count).not.toHaveBeenCalled();
-    expect(prisma.deedPollSupportingDocumentType.delete).not.toHaveBeenCalled();
+    await expect(findDocumentTypes(CALLER)).rejects.toBeInstanceOf(NotFoundError);
   });
 });
