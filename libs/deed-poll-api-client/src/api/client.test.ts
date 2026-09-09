@@ -6,6 +6,7 @@
  * really refused, and a 2xx whose body does not match the contract.
  */
 import { createServer, type Server } from "node:http";
+import type { Readable } from "node:stream";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { type RunningMockApi, startMockApi } from "../mock/server.js";
 import {
@@ -491,12 +492,18 @@ describe("the download's timeout, which covers the answer and not the body", () 
   it("should deliver a body that takes longer than the timeout to arrive, rather than truncating it", async () => {
     // The regression this guards: an `AbortSignal` is not scoped to the headers, so a single whole-exchange
     // timeout fires mid-body on a large download. The response has already gone out as a 200, so nothing
-    // can be rendered about it — the caseworker just saves a corrupt file. 25 MB is an ordinary scan.
+    // can be rendered about it — the caseworker just saves a corrupt file. 25 MB is an ordinary scan, and a
+    // slow link delivers it as a trickle that outlasts any answer timeout.
     const dripping = await listen(
       createServer((_req, res) => {
         res.writeHead(200, { "content-type": "application/pdf" });
-        res.write("first");
-        setTimeout(() => res.end("second"), 120);
+        let sent = 0;
+        const timer = setInterval(() => {
+          sent += 1;
+          if (sent < 8) return res.write("chunk");
+          clearInterval(timer);
+          res.end("chunk");
+        }, 20);
       })
     );
 
@@ -505,9 +512,34 @@ describe("the download's timeout, which covers the answer and not the body", () 
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;
-      await expect(new Response(result.data.body as unknown as ReadableStream).text()).resolves.toBe("firstsecond");
+      await expect(collect(result.data.body)).resolves.toBe("chunk".repeat(8));
     } finally {
       await dripping.close();
+    }
+  });
+
+  it("should fail a body api stops sending, rather than holding the connection open or ending it short", async () => {
+    // The other half of the same rule. Without a per-read bound the transfer is unbounded — api's socket and
+    // the caseworker's response both stay open on Node's five-minute default — and cancelling the read
+    // instead of erroring would end the stream cleanly, which serves a truncated document under the 200
+    // that has already gone out.
+    const stalling = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/pdf" });
+        res.write("first");
+        // Never finished, so the read is what has to be bounded.
+      })
+    );
+
+    try {
+      const result = await downloadDocument("case-1", "doc-1", { baseUrl: stalling.url, timeoutMs: 60 });
+
+      // The headers arrived, so the call itself succeeded — the failure belongs to the stream.
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      await expect(collect(result.data.body)).rejects.toMatchObject({ name: "TimeoutError" });
+    } finally {
+      await stalling.close();
     }
   });
 });
@@ -652,6 +684,20 @@ async function caseId(patch: Parameters<typeof createCase>[0] = {}): Promise<str
   if (!created.ok) throw new Error(`case was not created: ${created.error.message}`);
 
   return created.data.id;
+}
+
+/**
+ * A download body as text.
+ *
+ * Read chunk by chunk rather than through `new Response(...)`, so a stream that ERRORS mid-transfer rejects
+ * here as itself: the point of the stall test is which failure arrives, and wrapping the body in a
+ * `Response` classifies it as undici's own.
+ */
+async function collect(body: Readable): Promise<string> {
+  let text = "";
+  for await (const chunk of body) text += String(chunk);
+
+  return text;
 }
 
 async function listen(server: Server): Promise<{ url: string; close: () => Promise<void> }> {

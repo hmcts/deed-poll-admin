@@ -173,9 +173,10 @@ export function uploadDocument(caseId: string, upload: DocumentUpload, config: A
  * scanned deed poll is megabytes, and the page's job is to forward them. api decides the filename and
  * the disposition, so neither is re-derived here.
  *
- * `streaming`, so the timeout bounds how long api takes to ANSWER rather than how long the body takes
- * to arrive. A 25 MB scan on a slow link legitimately outlives `DEFAULT_TIMEOUT_MS`, and an abort after
- * the headers are sent does not fail the download — it truncates it, which no error page can undo.
+ * `streaming`, so the timeout bounds how long api takes to ANSWER rather than how long the whole body
+ * takes to arrive. A 25 MB scan on a slow link legitimately outlives `DEFAULT_TIMEOUT_MS`, and an abort
+ * after the headers are sent does not fail the download — it truncates it, which no error page can undo.
+ * What replaces the whole-exchange bound is a per-read one: see `bounded`.
  */
 export async function downloadDocument(caseId: string, documentId: string, config: ApiConfig): Promise<ApiResult<DocumentDownload>> {
   const path = `/caseworker/cases/${encodeURIComponent(caseId)}/documents/${encodeURIComponent(documentId)}/file`;
@@ -196,7 +197,7 @@ export async function downloadDocument(caseId: string, documentId: string, confi
       // `lib.dom`'s `ReadableStream` and `node:stream/web`'s are structurally different types for the
       // same runtime object. Doing it at the only module that knows a response is HTTP keeps the cast
       // out of the pages entirely, which is what decision 1 of the plan asks for.
-      body: Readable.fromWeb(response.body as NodeReadableStream<Uint8Array>),
+      body: Readable.fromWeb(bounded(response.body, config.timeoutMs ?? DEFAULT_TIMEOUT_MS) as NodeReadableStream<Uint8Array>),
       contentType: response.headers.get("content-type") ?? "application/octet-stream",
       contentDisposition: response.headers.get("content-disposition"),
       contentSecurityPolicy: response.headers.get("content-security-policy"),
@@ -223,6 +224,49 @@ export async function checkApiReachable(config: ApiConfig): Promise<ApiResult<vo
 
 function notePath(caseId: string, noteId: string): string {
   return `/caseworker/cases/${encodeURIComponent(caseId)}/notes/${encodeURIComponent(noteId)}`;
+}
+
+/**
+ * A download body that fails if api stops sending it, without failing one that is merely slow.
+ *
+ * The whole-exchange timeout is cleared once the headers are in hand — see `send` — so this is what
+ * bounds the transfer itself: every read of api's stream gets the same patience, so bytes that keep
+ * arriving keep a 25 MB scan alive while a silence longer than the timeout ends it. Left unbounded, a
+ * body api never finishes holds an `undici` socket and the caseworker's own response open for as long as
+ * api chooses to say nothing, and Node's default is five minutes of that per stalled download.
+ *
+ * The timer covers only an OUTSTANDING read, which is why this wraps the reader instead of watching
+ * chunks go past: `pull` runs when the consumer asks for more, so a caseworker on a slow connection
+ * back-pressuring the stream is not mistaken for api going quiet.
+ *
+ * **A stall is an error and not an end-of-stream**, deliberately. Cancelling resolves the pending read as
+ * `done`, and a body that merely ends leaves the route sending a short file under a 200 it has already
+ * committed to — the silent truncation this whole arrangement exists to avoid. Erroring destroys the
+ * response instead, so the browser sees an aborted transfer rather than a corrupt document.
+ */
+function bounded(body: ReadableStream<Uint8Array>, timeoutMs: number): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      let stalled = false;
+      const timer = setTimeout(() => {
+        stalled = true;
+        // Releases the socket rather than leaving it waiting on bytes nobody is going to read.
+        void reader.cancel(new DOMException("timeout", "TimeoutError"));
+      }, timeoutMs);
+
+      try {
+        const { done, value } = await reader.read();
+        if (stalled) throw new DOMException("deed-poll-api stopped sending the document", "TimeoutError");
+        if (done) controller.close();
+        else controller.enqueue(value);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    cancel: (reason) => reader.cancel(reason)
+  });
 }
 
 /**
@@ -283,9 +327,10 @@ async function requestNoContent(config: ApiConfig, method: string, path: string)
  * `streaming` chooses what the timeout covers, and the two answers are genuinely different rules rather
  * than a knob. A JSON call is bounded end to end, because its body is small and read here: an api that
  * sends headers and then stalls must still fail. A download's body is the CALLER's to read and is
- * megabytes, so the clock stops once the response is in hand — an `AbortSignal` is not scoped to the
+ * megabytes, so this clock stops once the response is in hand — an `AbortSignal` is not scoped to the
  * headers, and firing it mid-body truncates the file the caseworker is saving while the response has
- * already gone out as a 200.
+ * already gone out as a 200. That does not leave the transfer unbounded: `bounded` re-applies the same
+ * patience to each read of the body, which fails a stalled download without failing a slow one.
  */
 async function send(config: ApiConfig, method: string, path: string, body: unknown, accept: string, streaming = false): Promise<SendResult> {
   const url = `${config.baseUrl.replace(/\/+$/, "")}${path}`;

@@ -19,6 +19,20 @@ import { deedPollApiStatus } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 
+/**
+ * The URL the assertion below expects to reach `createClient`, set rather than assumed.
+ *
+ * `config/custom-environment-variables.json` maps `REDIS_URL` over `config/default.json`, so a machine that
+ * exports one — the devcontainer does, pointing at `127.0.0.1` — failed a test about the wiring for a reason
+ * that has nothing to do with the wiring.
+ *
+ * `vi.hoisted` because this has to happen before the imports above run: `auth/settings.ts` imports `config`
+ * at module scope, and `config` reads the environment once, when it is first imported.
+ */
+vi.hoisted(() => {
+  process.env.REDIS_URL = "redis://localhost:6379";
+});
+
 const mocks = vi.hoisted(() => {
   const passthrough = (_req: unknown, _res: unknown, next: () => void) => next();
   const redisClient = {

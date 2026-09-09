@@ -402,12 +402,13 @@ only — deliberate differences from the Prisma version, worth keeping, as task 
 `PROGRESS.md` rather than a stale one. This task changed configuration and prose, not behaviour — the one
 code change, dropping crons' `omit`, is covered by the existing `objectContaining` assertion.
 
-**One trap for whoever runs the suite by hand:** an exported `REDIS_URL` in your shell fails
+**A trap for whoever ran the suite by hand, since fixed:** an exported `REDIS_URL` in your shell failed
 `app.test.ts`'s "connects a Redis client at the configured URL", which asserts `config/default.json`'s
-default. `yarn test` passes because turbo does not pass the variable through; a bare `vitest run` in
-`apps/web` inherits it. The README recommends exporting it for `yarn test:e2e` in the devcontainer, so the
-two instructions genuinely conflict — run the dashboard with `env -u REDIS_URL` if the suite is otherwise
-green.
+default. `yarn test` passed because turbo does not pass the variable through; a bare `vitest run` in
+`apps/web` inherited it, and the README recommends exporting it for `yarn test:e2e` in the devcontainer, so
+the two instructions conflicted. The test now sets `REDIS_URL` itself in a `vi.hoisted` block — before the
+imports, because `auth/settings.ts` imports `config` at module scope and `config` reads the environment
+once — so it pins the mapping instead of depending on the absence of a variable.
 
 ### Post-review corrections
 
@@ -429,6 +430,13 @@ boxes. Five were behaviour, and the first is the one that mattered:
   file. `send` now takes a `streaming` flag: the timer is cancellable and is cleared once the response is in
   hand, while a JSON call stays bounded end to end because its body is small and read there. Both rules are
   pinned against a real dripping server.
+  **Clearing that timer does not leave the body unbounded, which a later review read it as.** `bounded`
+  re-applies the same patience to each READ of the download: bytes that keep arriving keep a slow transfer
+  alive, and a silence longer than the timeout ends it. The timer covers only an outstanding read, so a
+  caseworker on a slow connection back-pressuring the stream is not mistaken for api going quiet, and a
+  stall errors rather than closing the stream — cancelling would end it cleanly and serve a short file under
+  the 200 already sent. Without it the floor was Node's own `bodyTimeout`, five minutes of a held `undici`
+  socket and a held response per stalled download, which the second dripping-server test now pins.
 - **A body read the timeout cut short was classified `invalid-response`.** That kind means "a bug at one end
   or the other" and is the one an operator is meant to investigate, so reporting a stall as one sent them
   hunting a contract defect. It is a `timeout` now.
