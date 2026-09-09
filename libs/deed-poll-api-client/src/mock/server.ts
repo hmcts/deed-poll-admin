@@ -12,8 +12,9 @@
  *   POST /__mock/reset      forget every case
  *   POST /__mock/cases      seed a case without going through a create
  *
- * `GET /health` is outside the contract too, so `yarn dev` and Playwright's `webServer` have something to
- * wait for — and so the readiness check task 5 adds has something to probe.
+ * `GET /health` and `GET /health/liveness` are outside the contract too, so `yarn dev` and Playwright's
+ * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
+ * Both, because api's actuator serves both and `checkApiReachable` deliberately probes the liveness group.
  *
  * **Five of api's rules are restated here, and only five.** A mock that applied none of them would let a
  * page ship having never seen a real reference number or a derived state:
@@ -120,7 +121,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     const method = req.method ?? "GET";
     const { pathname, searchParams } = new URL(req.url ?? "/", "http://localhost");
 
-    if (method === "GET" && pathname === "/health") return send(res, 200, { status: "UP" });
+    // Both, because api serves both and they answer different questions — see `checkApiReachable`, which
+    // probes the liveness group precisely so api's database cannot take this app's readiness down.
+    if (method === "GET" && (pathname === "/health" || pathname === "/health/liveness")) {
+      return send(res, 200, { status: "UP" });
+    }
 
     if (method === "POST" && pathname === "/__mock/scenario") {
       const requested = ((await readJsonBody(req)) as { scenario?: unknown } | null)?.scenario;

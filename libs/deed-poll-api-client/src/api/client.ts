@@ -214,12 +214,21 @@ export function listDocumentTypes(config: ApiConfig): Promise<ApiResult<Document
 /**
  * Whether api is answering.
  *
- * Its `/health` is unauthenticated, so this says nothing about whether this app's credentials work — but
- * a readiness probe that goes green while api is unreachable is the failure task 5 of the plan calls out,
- * and this is what stops it.
+ * `/health/liveness` and not the ungrouped `/health`, deliberately. api's `application.yaml` restricts
+ * that group to `livenessState` — "should this process be killed", nothing but the process itself —
+ * whereas `/health` aggregates *every* registered contributor, including api's own `db` and
+ * `deedPollSchema` checks and Boot's auto-configured `diskSpace`. A DOWN contributor answers 503, which
+ * classifies as `unavailable`, which would take this app's readiness down with it: a blip in api's
+ * database would drop every web pod out of its Service at once and return 503 for `/login`, `/cookies`
+ * and the accessibility statement, none of which touch api. Cascading a dependency's data-plane verdict
+ * into our own readiness turns a degraded service into an unreachable one.
+ *
+ * Both paths are on api's `SecurityConfiguration.PUBLIC_PATHS` allowlist, so this presents no token and
+ * says nothing about whether this app's credentials work — but a readiness probe that goes green while
+ * api is unreachable is the failure task 5 of the plan calls out, and this is what stops it.
  */
 export async function checkApiReachable(config: ApiConfig): Promise<ApiResult<void>> {
-  return requestNoContent(config, "GET", "/health");
+  return requestNoContent(config, "GET", "/health/liveness");
 }
 
 function notePath(caseId: string, noteId: string): string {
@@ -310,7 +319,7 @@ async function requestNoContent(config: ApiConfig, method: string, path: string)
   const sent = await send(config, method, path, undefined, "application/json");
   if (!sent.ok) return sent;
 
-  // Discarded rather than ignored: `/health` answers 200 with a body, and `undici` holds the connection
+  // Discarded rather than ignored: `/health/liveness` answers 200 with a body, and `undici` holds the connection
   // out of its pool until an unread body is garbage-collected. The readiness probe runs for the life of
   // the pod, so that is socket churn on a timer.
   await sent.response.body?.cancel();
@@ -443,7 +452,7 @@ export interface ApiConfig {
   /**
    * The caller's IDAM access token. api authenticates every caseworker route and derives the audit name
    * and admin status from the token, so a call without one is a 401 — which is why this is not optional
-   * in practice even though `/health` needs none.
+   * in practice even though `/health/liveness` needs none.
    */
   accessToken?: string;
 }

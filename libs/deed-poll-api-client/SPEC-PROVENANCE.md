@@ -18,10 +18,10 @@ the `publish-openapi` workflow's job — which writes `/tmp/openapi-specs.json`.
 `openapi.json`, update the commit above, and run `yarn test` here: `src/api/contract.test.ts` compares the
 document against the wire schemas, so anything api added or renamed fails rather than going unnoticed.
 
-## Two things the document does not say
+## Three things the document does not say
 
-Both are recorded in `src/api/wire.ts` at the code that compensates, and both are pinned by the contract
-test so they cannot be quietly forgotten:
+The first two are recorded in `src/api/wire.ts` at the code that compensates, and both are pinned by the
+contract test so they cannot be quietly forgotten:
 
 1. **Nullability of responses.** springdoc emits none for a response body, so `type: string` there means
    "a string when present" rather than "never null". The schemas treat every response property as nullable
@@ -29,3 +29,10 @@ test so they cannot be quietly forgotten:
 2. **The error body.** api's failures come from a `@RestControllerAdvice`, and springdoc only publishes
    schemas a declared response references — so `ApiError` is absent from the document even though every
    4xx carries it. It lives in `UNSPECIFIED_SCHEMAS`.
+3. **The actuator.** springdoc does not document management endpoints, so `GET /health/liveness` — the one
+   path `checkApiReachable` and the readiness probe depend on — is absent, and `contract.test.ts` therefore
+   cannot pin it. Its authority is api's `application.yaml` (`management.endpoints.web.base-path: /`, plus
+   `management.endpoint.health.probes.enabled: true` and the `liveness` group's `include: livenessState`)
+   and `SecurityConfiguration.PUBLIC_PATHS`, which allowlists `/health` and `/health/**` unauthenticated.
+   **Re-check those two files when refreshing this document**: a change to the base path or to the probe
+   group would take this app's readiness down permanently with nothing here failing to warn about it.

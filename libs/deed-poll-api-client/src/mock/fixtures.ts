@@ -23,7 +23,7 @@ export const MOCK_SCENARIOS = {
    * pages put api's complaint onto the right input's error summary rather than showing a banner.
    */
   "write-rejection": { caseWrite: "reject", reachable: true },
-  /** Every contract route answers 503, leaving only the `__mock` control routes and `/health`. */
+  /** Every contract route answers 503, leaving only the `__mock` control routes and the health paths. */
   "api-unavailable": { caseWrite: "accept", reachable: false }
 } as const satisfies Record<string, MockFixture>;
 

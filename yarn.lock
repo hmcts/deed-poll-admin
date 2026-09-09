@@ -864,7 +864,9 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@hmcts/deed-poll-api-client@workspace:libs/deed-poll-api-client"
   dependencies:
+    tsx: "npm:*"
     typescript: "npm:6.0.3"
+    vitest: "npm:*"
     zod: "npm:4.4.3"
   languageName: unknown
   linkType: soft
@@ -6081,7 +6083,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tsx@npm:4.23.13":
+"tsx@npm:*, tsx@npm:4.23.13":
   version: 4.23.13
   resolution: "tsx@npm:4.23.13"
   dependencies:

@@ -26,7 +26,7 @@ import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, Unauth
 const DEFAULT_BASE_URL = "http://localhost:3200";
 
 /**
- * How long a readiness probe waits for api's `/health` before calling it down.
+ * How long a readiness probe waits for api's `/health/liveness` before calling it down.
  *
  * Deliberately shorter than the application timeout `apiConfig` resolves, and deliberately **not**
  * overridable by `DEED_POLL_API_TIMEOUT_MS`: a probe must answer on its own terms and never inherit a
@@ -75,7 +75,11 @@ export async function callApi<T>(caller: Caller, call: (config: ApiConfig) => Pr
  * without api, so a probe that went green while api was unreachable would have Kubernetes send traffic
  * to a pod that 500s every request.
  *
- * No `Caller`, because api's `/health` is unauthenticated. So this proves reachability and says nothing
+ * **Reachability, and deliberately not api's own health verdict** — `checkApiReachable` probes api's
+ * liveness group, not its aggregate `/health`, so a blip in api's database does not drop every web pod
+ * out of its Service and 503 the pages that never touch api. See that function for the argument.
+ *
+ * No `Caller`, because api's health paths are unauthenticated. So this proves reachability and says nothing
  * about whether this app's credentials work — and it cannot do better: the only token this app holds is
  * a caseworker's, in a session, and no session exists at probe time.
  *

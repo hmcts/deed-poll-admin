@@ -26,6 +26,11 @@ const spec = JSON.parse(readFileSync(SPEC_PATH, "utf8")) as OpenApiSpec;
  *
  * `GET /` is Spring Boot's welcome route — api's template ships it and it returns a string. Listed because
  * the comparison is exhaustive, not because anything calls it.
+ *
+ * **`GET /health/liveness` is the one call this cannot cover.** springdoc does not document management
+ * endpoints, so the actuator path `checkApiReachable` probes is absent from the document and listing it
+ * here would fail the comparison rather than pin it. It is recorded in `SPEC-PROVENANCE.md` with the api
+ * config that is its authority — check that when refreshing the document.
  */
 const IMPLEMENTED_OPERATIONS = [
   "GET /",

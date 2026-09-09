@@ -20,7 +20,9 @@
     "format": "biome format --write ."
   },
   "devDependencies": {
-    "typescript": "6.0.3"
+    "tsx": "*",
+    "typescript": "6.0.3",
+    "vitest": "*"
   },
   "dependencies": {
     "zod": "4.4.3"

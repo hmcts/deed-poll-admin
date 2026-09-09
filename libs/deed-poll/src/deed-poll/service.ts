@@ -32,7 +32,6 @@ import {
 } from "@hmcts/deed-poll-api-client";
 import { type Caller, callApi } from "../api/deed-poll-api.js";
 import { InvalidInputError } from "../errors.js";
-import type { ValidationInput } from "./deed-poll-validation.js";
 import * as validation from "./deed-poll-validation.js";
 import type { CreateDeedPollInput, UpdateDeedPollInput } from "./schemas.js";
 
@@ -95,10 +94,15 @@ export function getCaseFieldRules(query: FieldRulesQuery, caller: Caller): Promi
  *
  * Still local, because api has no `validate` endpoint: the plan records it among the operations not
  * rebuilt until something asks. The record it checks comes from api, so this reads no database either.
+ *
+ * api's `CaseDetail` is passed to `validate` **unasserted**, deliberately. It satisfies `ValidationInput`
+ * structurally, so this is the one place the local rule matrix's field names and types are checked against
+ * the shape api actually publishes — a cast here would let a renamed or retyped field drift past the
+ * compiler, which is the divergence the matrix's whole both-ends arrangement exists to catch.
  */
 export async function validateCaseForSubmit(id: string, caller: Caller): Promise<CaseDetail> {
   const record = await findDeedPoll(id, caller);
-  const errors = validation.validate(record as unknown as ValidationInput);
+  const errors = validation.validate(record);
   if (errors.length > 0) {
     throw new InvalidInputError("Case is not valid for submission", errors);
   }

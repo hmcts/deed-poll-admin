@@ -40,8 +40,10 @@ describe("deedPollApiStatus", () => {
     expect(await deedPollApiStatus()).toBe("UP");
   });
 
-  it("probes /health and presents no bearer token, which api does not require there", async () => {
+  it("probes the liveness group rather than the aggregate health, and presents no bearer token", async () => {
     // A probe has no session to read a token from, so a check that needed one could only ever be DOWN.
+    // The path is pinned because the ungrouped `/health` aggregates api's `db` and `deedPollSchema`
+    // contributors: probing it would let a blip in api's database drop every web pod out of its Service.
     const seen: { url?: string; authorization?: string }[] = [];
     await serve((request, response) => {
       seen.push({ url: request.url, authorization: request.headers.authorization });
@@ -50,7 +52,7 @@ describe("deedPollApiStatus", () => {
 
     await deedPollApiStatus();
 
-    expect(seen).toEqual([{ url: "/health", authorization: undefined }]);
+    expect(seen).toEqual([{ url: "/health/liveness", authorization: undefined }]);
   });
 
   it("reports DOWN when api answers that it is unhealthy", async () => {

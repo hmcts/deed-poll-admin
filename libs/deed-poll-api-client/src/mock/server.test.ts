@@ -25,14 +25,19 @@ beforeEach(async () => {
 });
 
 describe("GET /health", () => {
-  it("should answer even when the scenario says api is unavailable, so dev and Playwright can wait on it", async () => {
-    mock.setScenario("api-unavailable");
+  // Both paths, because the adapter's readiness probe uses the liveness group and `yarn dev`/Playwright
+  // wait on the aggregate — a mock serving only one of them breaks whichever it is not.
+  it.each(["/health", "/health/liveness"])(
+    "should answer %s even when the scenario says api is unavailable, so dev and Playwright can wait on it",
+    async (path) => {
+      mock.setScenario("api-unavailable");
 
-    const response = await fetch(`${mock.url}/health`);
+      const response = await fetch(`${mock.url}${path}`);
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ status: "UP" });
-  });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ status: "UP" });
+    }
+  );
 });
 
 describe("POST /__mock/scenario", () => {
