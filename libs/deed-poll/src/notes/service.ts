@@ -14,12 +14,12 @@
  * alongside it would let this app attribute a note to whoever it liked. See `../api/deed-poll-api.ts`
  * for why the `Caller` carries only the token.
  *
- * **There is no `removeNote` yet.** api has the endpoint — it is its thirteenth caseworker operation,
- * added for this app — and the adapter already wires it, but porting it is task 6 of
- * `docs/plans/02-dal-cutover-to-api.md` along with the note form's delete branch, so the two arrive
- * together rather than leaving a service function nothing calls.
+ * **`removeNote` is api's thirteenth caseworker operation**, added for this app because its note form
+ * has always had a delete button. It arrived here with the form's delete branch in task 6 of
+ * `docs/plans/02-dal-cutover-to-api.md`, deliberately together: a service function nothing calls and a
+ * button posting to a branch that does not exist are both worse than neither.
  */
-import { createNote as apiCreateNote, getNote, listNotes, type Note, patchNote } from "@hmcts/deed-poll-api-client";
+import { createNote as apiCreateNote, deleteNote, getNote, listNotes, type Note, patchNote } from "@hmcts/deed-poll-api-client";
 import { type Caller, callApi } from "../api/deed-poll-api.js";
 import type { CreateNoteInput, UpdateNoteInput } from "./schemas.js";
 
@@ -52,4 +52,17 @@ export function createNote(deedPollId: string, dto: CreateNoteInput, caller: Cal
  */
 export function updateNote(deedPollId: string, id: string, dto: UpdateNoteInput, caller: Caller): Promise<Note> {
   return callApi(caller, (config) => patchNote(deedPollId, id, dto.note, config));
+}
+
+/**
+ * Delete a note.
+ *
+ * The Prisma version read the note first and then deleted on `{ id, deedPollId }` — the read to turn a
+ * missing row into a `NotFoundError` rather than Prisma's own, the compound `where` so the delete could
+ * not reach another case's note. api's nested route does both in one call: it answers 404 for a note id
+ * that is not under this case, which `callApi` turns into the same `NotFoundError` the page already
+ * renders. So the extra read is gone and nothing it guaranteed is.
+ */
+export function removeNote(deedPollId: string, id: string, caller: Caller): Promise<void> {
+  return callApi(caller, (config) => deleteNote(deedPollId, id, config));
 }

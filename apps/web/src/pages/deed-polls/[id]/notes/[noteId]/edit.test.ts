@@ -1,4 +1,4 @@
-import { findDeedPoll, findNote, MAX_NOTE_LENGTH, NotFoundError, updateNote } from "@hmcts/deed-poll";
+import { findDeedPoll, findNote, MAX_NOTE_LENGTH, NotFoundError, removeNote, updateNote } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../../express-doubles.js";
@@ -8,7 +8,8 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
   findDeedPoll: vi.fn(),
   findNote: vi.fn(),
-  updateNote: vi.fn()
+  updateNote: vi.fn(),
+  removeNote: vi.fn()
 }));
 
 const found = { id: "case-1", displayReference: "KBDP2026-00001", notes: [], witnesses: [], documents: [] };
@@ -39,6 +40,7 @@ describe("amend a note page", () => {
     vi.mocked(findDeedPoll).mockResolvedValue(found as never);
     vi.mocked(findNote).mockResolvedValue(note as never);
     vi.mocked(updateNote).mockResolvedValue(note as never);
+    vi.mocked(removeNote).mockResolvedValue(undefined);
   });
 
   describe("GET", () => {
@@ -109,19 +111,46 @@ describe("amend a note page", () => {
     });
 
     it("saves when no action was submitted, so a missing value is never destructive", async () => {
-      // Pinned through the delete's absence and worth keeping through it: task 6 restores the branch,
-      // and only the literal "delete" may ever take the destructive path.
+      // Only the literal "delete" may ever take the destructive path. This half of the rule was pinned
+      // through the delete's absence in task 4 and still holds now the branch is back.
       await POST(request({ note: "Called twice" }), response());
 
       expect(updateNote).toHaveBeenCalled();
+      expect(removeNote).not.toHaveBeenCalled();
     });
 
-    it("saves rather than silently doing nothing when the delete button is posted, since the branch is not wired yet", async () => {
-      // Task 4 leaves the delete unported and task 6 completes it. Until then `action` is not read at
-      // all, and this says so plainly: the assertion inverts in task 6, which is the point of having it.
-      await POST(request({ note: "Called twice", action: "delete" }), response());
+    it("does not delete for an action other than the literal delete", async () => {
+      await POST(request({ note: "Called twice", action: "Delete" }), response());
 
-      expect(updateNote).toHaveBeenCalledWith("case-1", note.id, { note: "Called twice" }, CALLER);
+      expect(removeNote).not.toHaveBeenCalled();
+      expect(updateNote).toHaveBeenCalled();
+    });
+
+    it("deletes the note and redirects to the notes tab", async () => {
+      const res = response();
+
+      await POST(request({ note: "Called twice", action: "delete" }), res);
+
+      expect(removeNote).toHaveBeenCalledWith("case-1", note.id, CALLER);
+      expect(updateNote).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1#notes");
+    });
+
+    it("deletes a note whose text would fail validation, because delete is checked before it", async () => {
+      // The reason the branch is first: the text is irrelevant to a row about to disappear, so a blank
+      // or over-long textarea must not be able to block the deletion.
+      const res = response();
+
+      await POST(request({ note: "x".repeat(MAX_NOTE_LENGTH + 1), action: "delete" }), res);
+
+      expect(removeNote).toHaveBeenCalledWith("case-1", note.id, CALLER);
+      expect(res.status).not.toHaveBeenCalledWith(400);
+    });
+
+    it("404s a delete of a note belonging to another case rather than reporting success", async () => {
+      vi.mocked(removeNote).mockRejectedValue(new NotFoundError("Note not found"));
+
+      await expect(POST(request({ action: "delete" }), response())).rejects.toThrow(NotFoundError);
     });
   });
 });

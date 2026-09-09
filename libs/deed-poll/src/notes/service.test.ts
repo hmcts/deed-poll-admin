@@ -1,7 +1,7 @@
-import { createNote as apiCreateNote, getNote, listNotes, patchNote } from "@hmcts/deed-poll-api-client";
+import { createNote as apiCreateNote, deleteNote, getNote, listNotes, patchNote } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NotFoundError } from "../errors.js";
-import { createNote, findNote, findNotes, updateNote } from "./service.js";
+import { createNote, findNote, findNotes, removeNote, updateNote } from "./service.js";
 
 // The adapter is mocked and nothing else. What is worth pinning at this seam is that each function
 // reaches the right nested operation with the case id first, that the caller's token travels, and that
@@ -12,7 +12,8 @@ vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
   listNotes: vi.fn(),
   getNote: vi.fn(),
   createNote: vi.fn(),
-  patchNote: vi.fn()
+  patchNote: vi.fn(),
+  deleteNote: vi.fn()
 }));
 
 const CALLER = { accessToken: "caseworker-token" };
@@ -86,6 +87,25 @@ describe("notes/service", () => {
       await updateNote("case-1", "note-1", {}, CALLER);
 
       expect(patchNote).toHaveBeenCalledWith("case-1", "note-1", undefined, expect.anything());
+    });
+  });
+
+  describe("removeNote", () => {
+    it("should delete the note under its own case and resolve with nothing", async () => {
+      vi.mocked(deleteNote).mockResolvedValue(ok(undefined) as never);
+
+      await expect(removeNote("case-1", "note-1", CALLER)).resolves.toBeUndefined();
+      expect(deleteNote).toHaveBeenCalledWith("case-1", "note-1", expect.objectContaining({ baseUrl: "http://api.test" }));
+      expect(vi.mocked(deleteNote).mock.calls[0][2].accessToken).toBe("caseworker-token");
+    });
+
+    it("should throw NotFoundError for a note that is not under this case, which is what the extra read used to catch", async () => {
+      // The Prisma version read the note first so that a wrong parent was a `NotFoundError` and not a
+      // delete that silently affected no rows. api's nested route answers 404 for the same case, so the
+      // read is gone and the outcome is not.
+      vi.mocked(deleteNote).mockResolvedValue({ ok: false, error: { kind: "not-found", status: 404, message: "Note note-1 not found" } } as never);
+
+      await expect(removeNote("other-case", "note-1", CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 });

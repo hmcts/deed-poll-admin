@@ -87,10 +87,9 @@ test("caseworker creates a case and edits one of its tabs", async ({ page, brows
   await expect(page.locator("#signature")).toContainText("25 March 2026");
 });
 
-// The deletion leg is temporarily absent, and returns in task 6 of
-// docs/plans/02-dal-cutover-to-api.md with the button and the handler branch it drives. Nothing about
-// the journey changed otherwise — `deed-poll-api` holds the notes now instead of Postgres.
-test("caseworker adds and amends a note", async ({ page }) => {
+// `deed-poll-api` holds the notes now instead of Postgres; the journey is otherwise the one the
+// prototype had, deletion included.
+test("caseworker adds, amends and deletes a note", async ({ page }) => {
   // Arrange: a case to hang notes off. The create journey is asserted in the test above; here it is
   // only setup, so it is driven and not checked.
   await page.goto("/deed-polls/new");
@@ -143,6 +142,16 @@ test("caseworker adds and amends a note", async ({ page }) => {
   await expect(page).toHaveURL(`${caseUrl}#notes`);
   await expect(page.locator("#notes")).toContainText("Advised of the Gazette step.");
   await expect(page.locator("#notes")).not.toContainText("Not edited");
+
+  // Delete, which is a second submit on the amend form rather than its own page — no confirmation
+  // interstitial, so the redirect back to the tab is the whole of it. Asserted through the UI because
+  // the button and the handler's `action` branch are only correct together.
+  await page.getByRole("link", { name: /amend this note/ }).click();
+  await page.getByRole("button", { name: "Delete note" }).click();
+
+  await expect(page).toHaveURL(`${caseUrl}#notes`);
+  await expect(page.locator("#notes")).toContainText("None recorded.");
+  await expect(page.locator("#notes")).not.toContainText("Advised of the Gazette step.");
 });
 
 /**

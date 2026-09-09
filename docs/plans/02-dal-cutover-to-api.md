@@ -270,10 +270,32 @@ the 7 added for `deedPollApiStatus`. No other suite lost a test.
 
 ### Task 6: Note deletion, once api has the endpoint
 
-- [ ] Confirm `DELETE /caseworker/cases/{id}/notes/{noteId}` exists in api and is in its published spec
-- [ ] Wire it through the adapter and restore the note form's delete branch
-- [ ] Keep the existing behaviour exactly: delete is checked **before** validation, so a note whose text would fail validation can still be deleted, and only the literal `"delete"` deletes — a missing `action` falls through to save and is never destructive. All three are pinned by tests today; they must still be
-- [ ] Mark completed
+- [x] Confirm `DELETE /caseworker/cases/{id}/notes/{noteId}` exists in api and is in its published spec
+- [x] Wire it through the adapter and restore the note form's delete branch
+- [x] Keep the existing behaviour exactly: delete is checked **before** validation, so a note whose text would fail validation can still be deleted, and only the literal `"delete"` deletes — a missing `action` falls through to save and is never destructive. All three are pinned by tests today; they must still be
+- [x] Mark completed
+
+Three things worth recording:
+
+- **The adapter needed nothing.** Task 1 took the spec from api `847933a`, which is the commit that added
+  the endpoint, so `deleteNote` and the mock's `DELETE` branch have been there since — pinned by
+  `contract.test.ts`'s route list and by two `client.test.ts` cases against the mock. The first box was a
+  confirmation, not work. What task 6 actually restored is the three things above the adapter that task 4
+  removed together: `removeNote`, the handler branch, and the button.
+- **`removeNote` lost its pre-read and kept its guarantee.** The Prisma version read the note before
+  deleting on `{ id, deedPollId }` — the read so a wrong parent was a `NotFoundError` rather than a delete
+  that quietly matched no rows. api's nested route answers 404 for a note that is not under this case, and
+  `callApi` maps that to the same `NotFoundError`, so the second round trip went and the outcome did not.
+  This is the same argument task 4 made for the other child entities, applied to the operation it deferred.
+- **The behaviour is pinned from both sides now.** The task 4 test asserting that a missing `action` saves
+  is unchanged — it is the half of the rule that holds either way — and it gained `removeNote` not being
+  called. Three joined it: `"Delete"` is not `"delete"`, a delete of an over-long note succeeds without a
+  400, and a delete of another case's note throws rather than reporting success. The e2e journey is
+  `"caseworker adds, amends and deletes a note"` again, driving the button rather than the service, because
+  the button and the branch are only correct together.
+
+**Test arithmetic:** 1,261 → **1,266**, and e2e stays at **16** — the delete leg rejoined the existing note
+journey rather than becoming a test of its own.
 
 ### Task 7: Decide the conformance harness's home
 
