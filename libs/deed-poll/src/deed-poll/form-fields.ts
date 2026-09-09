@@ -19,7 +19,7 @@ import { LABELS } from "./enums/dynamics-values.js";
 export type FieldKind = "text" | "textarea" | "date" | "number" | "boolean" | "enum" | "multiselect";
 
 export interface FieldDef {
-  /** Prisma field name (also the form input name). */
+  /** The case field name api publishes (also the form input name). */
   name: string;
   label: string;
   kind: FieldKind;
@@ -29,8 +29,8 @@ export interface FieldDef {
   readOnly?: boolean;
   /**
    * The column is NOT NULL with a database default, so an absent input must be
-   * omitted from a patch rather than nulled. Set this on any field whose Prisma
-   * type has no `?` — `privacy` did not have it, and because privacy renders
+   * omitted from a patch rather than nulled. Set this on any field the api client
+   * types as non-nullable — `privacy` did not have it, and because privacy renders
    * `disabled` for a non-admin (and browsers do not submit disabled controls) a
    * non-admin saving the Application tab wrote null to a NOT NULL column and 500'd.
    */

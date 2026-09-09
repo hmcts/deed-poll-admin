@@ -7,9 +7,10 @@
     "declarationMap": true,
     "composite": true,
     // Stated rather than inherited, as `libs/deed-poll-api-client` also states it. Node's globals used
-    // to arrive here transitively through `@hmcts/postgres-prisma`'s own `@types/node`; that dependency
-    // went with the data access layer, and `process`, `Buffer` and `node:fs` are still used — by the
-    // api base URL, the document upload and the conformance artifact loader respectively.
+    // to arrive here transitively from the data access layer's own `@types/node`; that dependency went
+    // with the layer, and `process` and `Buffer` are still used — by the api base URL and the document
+    // upload respectively. `node:fs` was a third reason until the conformance harness's fixture loader
+    // moved to api (libs/deed-poll/src/conformance/README.md); nothing here reads the filesystem now.
     "types": ["node"]
   },
   "include": ["src/**/*"],

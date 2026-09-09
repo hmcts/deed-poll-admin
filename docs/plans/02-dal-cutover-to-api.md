@@ -299,11 +299,54 @@ journey rather than becoming a test of its own.
 
 ### Task 7: Decide the conformance harness's home
 
-- [ ] `libs/deed-poll/src/conformance` proves the Dataverse columns were not silently dropped, and it reads the Prisma schema — which task 5 deleted. It cannot stay as it is
-- [ ] Two options, and this is a decision to record rather than guess: **re-point it at api's schema** (it belongs with the thing that owns the columns, and api already has its own conformance suite it could join), or **retire it here** and rely on api's
-- [ ] Whichever is chosen, carry its caveat: the Dataverse exports are **alphabetically truncated (A–R)**, so it asserts forward coverage only and must never be read as a complete column set
-- [ ] Do not silently delete it. It is the correctness argument for the whole migration
-- [ ] Mark completed
+- [x] `libs/deed-poll/src/conformance` proves the Dataverse columns were not silently dropped, and it reads the Prisma schema — which task 5 deleted. It cannot stay as it is
+- [x] Two options, and this is a decision to record rather than guess: **re-point it at api's schema** (it belongs with the thing that owns the columns, and api already has its own conformance suite it could join), or **retire it here** and rely on api's
+- [x] Whichever is chosen, carry its caveat: the Dataverse exports are **alphabetically truncated (A–R)**, so it asserts forward coverage only and must never be read as a complete column set
+- [x] Do not silently delete it. It is the correctness argument for the whole migration
+- [x] Mark completed
+
+**The decision: one layer of five moves, four stay.** Recorded in full at
+`libs/deed-poll/src/conformance/README.md` — the record the third and fourth boxes asked for, and the
+thing to read before touching either half. In short:
+
+- **The structural layer is retired here because it is already re-pointed, in api.** `schema.conformance.test.ts`
+  and `artifacts.ts` (the fixture loader, which only that layer used) went. api commit `9db5fe3` ported
+  them, vendoring the Dataverse exports at `src/test/resources/reference/dataverse_tables/` and this
+  directory's originals alongside them, so "re-point at api's schema" and "retire it here" turned out to be
+  the same option with the work already done. api's version is also strictly stronger, in a way worth
+  knowing: the TypeScript layer only asserted its map *had a key* for each source column and never checked
+  the field name it claimed existed, so a rename left a column looking accounted for while nothing carried
+  it. `everyMappedFieldExistsInTheReferenceModel()` closes that, and `db.SchemaConformanceTest` continues
+  the chain to the live Flyway schema — source → schema → database, which this repo could not complete.
+- **The local alternative was considered and rejected on the merits, not on effort.** Asserting the columns
+  against `libs/deed-poll-api-client/openapi.json` is right here and looks equivalent. It is not: api
+  deliberately does not publish everything it stores — the document storage key is the worked example, the
+  wire carrying `hasFile` instead — so absence from the wire is not absence from the store, and such a
+  harness would have had to encode api's *publication* policy to stop failing on columns that are in fact
+  carried. That is a test of the wrong thing.
+- **The four rule layers stay, and this is not sentiment.** `state-cascade`, `field-rules`,
+  `conditional-gates` and `enum-values` assert against `case-state.ts`, `deed-poll-validation.ts` and
+  `enums/dynamics-values.ts`, all still here and all still applied — `edit-view.ts` reads the field-rule
+  matrix directly, exactly as task 3 recorded. api enforcing the same rules is the `upload-policy.ts`
+  arrangement again: a rule applied at both ends needs pinning at both ends. Retire them here when the local
+  matrix goes, not before.
+- **The A–R caveat, and a thing it turns out to imply.** api carries it in
+  `DataverseSchemaConformanceTest`'s docblock and asserts the truncation directly, so a fuller export trips
+  a test instead of passing unnoticed. What is worth stating and was not obvious: the columns the truncation
+  hides are `Type`, `State` and `Urgency` — precisely the ones the four remaining layers drive their rules
+  from. The structural half never covered them, so the two halves were always complementary rather than
+  overlapping, and keeping the rule layers here is not a duplicate of what api now runs.
+- **Four stale comments went with it, and the grep is not silent yet.** `prisma` in `apps/` and `libs/`
+  now returns historical prose only — "the Prisma version read the note first, api's nested route answers
+  404" and similar, which is rationale for a deliberate difference and is worth keeping — plus one live
+  item that is **task 8's**: `apps/web/helm/values.yaml` still comments that removing the database
+  credential would break every case page. What was corrected here is the four comments that described
+  *current* code in Prisma's terms and were therefore false: `refundAmount` is a number not a `Decimal`
+  (`detail-view.ts`), `FieldDef.name` is api's field name (`form-fields.ts`, twice), and
+  `schema-primitives.ts` rejects `null` to pre-empt a 400 from api rather than a database error.
+
+**Test arithmetic:** 1,266 → **1,188**; the conformance directory 141 → **63**. All 78 are layer 1, 72 of
+them one `it()` per artifact column. e2e stays at **16** — the harness has no e2e leg.
 
 ### Task 8: Charts, config and the record
 

@@ -25,9 +25,9 @@ export interface ListFilter {
 /**
  * The state predicate a filter stands for.
  *
- * Structurally what Prisma's generated `DeedPollWhereInput` supplied for the `state` column,
- * restated because `libs/postgres-prisma` goes in task 5 of `docs/plans/02-dal-cutover-to-api.md`
- * and no filter here ever constrained any of the other 70. It stays a predicate rather than
+ * Structurally what the deleted data access layer's generated `where` type supplied for the
+ * `state` column, restated when that layer went because no filter here ever constrained any of
+ * the other 70. It stays a predicate rather than
  * becoming a bare list of states so the "Open" rule below can still be written by exclusion.
  */
 export interface ListFilterWhere {

@@ -3,7 +3,7 @@
  *
  * Encodes the "Set States based on Dates completed" rule from
  * `.business_context/dataverse_tables/deedpoll/business_rules.md` as a truth
- * table over . The rule is a top-down IF/ELSE-IF cascade; the
+ * table over `deriveState()`. The rule is a top-down IF/ELSE-IF cascade; the
  * FIRST satisfied branch wins, so the cases assert ORDER, not just membership —
  * including the documented quirk that Awaiting Enrolment (signature received)
  * outranks the referral check.
