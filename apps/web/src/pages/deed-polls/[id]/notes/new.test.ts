@@ -132,13 +132,19 @@ describe("add a note page", () => {
       expect(res.redirect).not.toHaveBeenCalled();
     });
 
-    it("falls back to api's message when its rejection names no field", async () => {
-      vi.mocked(createNote).mockRejectedValue(new InvalidInputError("Notes are closed on an enroled case"));
+    it("shows the page's own copy, not api's wording, when its rejection names no field", async () => {
+      // A rejection naming no field can be a gateway's 400 with an HTML body, which leaves the adapter
+      // with nothing but `deed-poll-api answered 400`. Putting that against the textarea tells the
+      // caseworker about api's transport rather than about their note.
+      vi.mocked(createNote).mockRejectedValue(new InvalidInputError("deed-poll-api answered 400"));
       const res = response();
 
       await POST(request({ note: "Called" }), res);
 
-      expect(res.render.mock.calls[0][1].error).toBe("Notes are closed on an enroled case");
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].error).toBe("The note could not be saved. Check the note and try again.");
+      expect(res.render.mock.calls[0][1].error).not.toContain("deed-poll-api");
+      expect(res.render.mock.calls[0][1].value).toBe("Called");
     });
 
     it("lets an unreachable api reach the error handler rather than blaming the caseworker for it", async () => {

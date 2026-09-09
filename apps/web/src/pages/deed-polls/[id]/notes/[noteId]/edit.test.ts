@@ -169,6 +169,18 @@ describe("amend a note page", () => {
       expect(res.redirect).not.toHaveBeenCalled();
     });
 
+    it("shows the page's own copy, not api's wording, when its rejection names no field", async () => {
+      vi.mocked(updateNote).mockRejectedValue(new InvalidInputError("deed-poll-api answered 400"));
+      const res = response();
+
+      await POST(request({ note: "Called twice", action: "save" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].error).toBe("The note could not be saved. Check the note and try again.");
+      expect(res.render.mock.calls[0][1].error).not.toContain("deed-poll-api");
+      expect(res.render.mock.calls[0][1].value).toBe("Called twice");
+    });
+
     it("lets an unreachable api reach the error handler rather than blaming the caseworker for it", async () => {
       vi.mocked(updateNote).mockRejectedValue(new Error("deed-poll-api call failed (timeout): deed-poll-api did not respond in time"));
 

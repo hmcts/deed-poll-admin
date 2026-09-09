@@ -14,5 +14,10 @@
     "types": ["node"]
   },
   "include": ["src/**/*"],
-  "exclude": ["**/*.test.ts", "dist", "node_modules"]
+  "exclude": ["**/*.test.ts", "dist", "node_modules"],
+  // Every service here imports `@hmcts/deed-poll-api-client`, which resolves through that package's built
+  // `dist`. Turbo orders the two by the workspace dependency, but a `tsc -b` of this project alone did not
+  // know about it and failed with eleven TS2307s on a clean checkout — the same declaration apps/web makes
+  // for each of its own dependencies.
+  "references": [{ "path": "../deed-poll-api-client" }]
 }

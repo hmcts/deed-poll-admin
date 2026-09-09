@@ -29,6 +29,7 @@ const en = {
   submit: "Add note",
   cancel: "Cancel",
   errorSummaryTitle: "There is a problem",
+  noteRefused: "The note could not be saved. Check the note and try again.",
   maxLength: MAX_NOTE_LENGTH
 };
 
@@ -63,7 +64,16 @@ export const POST = async (req: Request, res: Response) => {
     // validates has caught it, and a caseworker losing what they typed to a rule they cannot see is the
     // failure this catch exists for.
     if (error instanceof InvalidInputError) {
-      return rerender(req, res, error.errors[0]?.message ?? error.message);
+      // A rejection that names no field is api's alone — every local rejection attributes itself — and its
+      // message is written for whoever reads api's logs, not for a caseworker: a gateway in front of api
+      // answering 400 with an HTML body leaves `failureFromResponse` with nothing but
+      // `deed-poll-api answered 400`. So api's wording is logged and this page's own copy is shown, the
+      // same split as the edit tab and the new-case form.
+      if (error.errors.length === 0) {
+        console.error(`note create refused with no field named: ${error.message}`);
+        return rerender(req, res, en.noteRefused);
+      }
+      return rerender(req, res, error.errors[0].message);
     }
     throw error;
   }

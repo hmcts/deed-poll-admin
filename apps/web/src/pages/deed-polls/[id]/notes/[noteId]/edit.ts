@@ -41,6 +41,7 @@ const en = {
   delete: "Delete note",
   cancel: "Cancel",
   errorSummaryTitle: "There is a problem",
+  noteRefused: "The note could not be saved. Check the note and try again.",
   maxLength: MAX_NOTE_LENGTH
 };
 
@@ -80,7 +81,13 @@ export const POST = async (req: Request, res: Response) => {
     // api applies its own note rules and this form does not mirror all of them, so a rejection it has no
     // local equivalent for still belongs against the textarea — see the same catch on `../new.ts`.
     if (error instanceof InvalidInputError) {
-      return rerender(req, res, error.errors[0]?.message ?? error.message);
+      // A rejection naming no field carries api's own wording rather than anything a caseworker can act
+      // on, so it is logged and this page's copy is shown — see the same split on `../new.ts`.
+      if (error.errors.length === 0) {
+        console.error(`note save refused with no field named: ${error.message}`);
+        return rerender(req, res, en.noteRefused);
+      }
+      return rerender(req, res, error.errors[0].message);
     }
     throw error;
   }

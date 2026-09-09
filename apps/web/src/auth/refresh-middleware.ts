@@ -26,13 +26,26 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
 
   const expiresAt = sessionTokenExpiry(req);
   const refreshToken = sessionRefreshToken(req);
+  const now = Math.floor(Date.now() / 1000);
+
+  // **An already-expired access token with nothing to refresh it is not a session that expires
+  // naturally.** `refreshToken` is optional — IDAM only issues one for `offline_access` — and after the
+  // cutover every case page presents the access token to `deed-poll-api`, which answers 401, which
+  // `errors.ts` deliberately renders as a 500 with no route back to `/login`. So the session would keep
+  // its cookie's full `maxAge` while every page faulted. Ending it here hands the next request to
+  // `requireAuth`, which cannot loop because the session is destroyed first. Same decision as the
+  // expired-token branch in the refresh failure below.
+  if (expiresAt && expiresAt - now <= 0 && !refreshToken) {
+    console.warn("Access token has expired and the session holds no refresh token — signing out");
+    await signOut(req);
+    return res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
+  }
 
   // No expiry time or no refresh token — can't refresh. Session will expire naturally.
   if (!expiresAt || !refreshToken) {
     return next();
   }
 
-  const now = Math.floor(Date.now() / 1000);
   const timeUntilExpiry = expiresAt - now;
 
   // Token still has time — no refresh needed yet.

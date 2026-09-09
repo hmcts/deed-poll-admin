@@ -129,6 +129,20 @@ describe("refreshMiddleware", () => {
     expect(next).toHaveBeenCalled();
   });
 
+  it("signs out when the token has expired and there is no refresh token to recover it with", async () => {
+    // The pass-through above is right only while the token still works. Once it has expired there is
+    // nothing left to expire naturally: every case page presents it to api, which answers 401, which
+    // `errors.ts` renders as a 500 with no route back to /login — for the cookie's full maxAge.
+    const req = request(["refreshToken"], { tokenExpiresAt: expiringIn(-30) });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(req.session.destroy).toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2Fdeed-polls");
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it("signs out a session with no recorded subject, rather than refreshing unchecked", async () => {
     // Only reachable for a session created before the subject was stored. What cannot be verified is
     // refused, which is the same polarity as every other auth decision in this app.
