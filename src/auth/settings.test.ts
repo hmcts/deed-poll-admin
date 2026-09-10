@@ -6,7 +6,11 @@ const DEPLOYED: IdamConfig = {
   issuerUrl: "https://hmcts-access.aat.platform.hmcts.net",
   clientId: "deed-poll-admin",
   clientSecret: "a-secret-from-the-key-vault",
-  redirectUri: "https://deed-poll-deed-poll-admin-staging-web.aat.platform.hmcts.net/oauth2/callback",
+  // What `${SERVICE_FQDN}` renders to in AAT — `${product}-${component}-${imageTag}` under
+  // `azPrivateDns.getHostName`. The doubled `deed-poll-deed-poll-admin…-web` host this fixture carried until
+  // plan 03 task 4 came from a hand-rolled `${TEAM_NAME}`/`${ENVIRONMENT}` template that never expanded to
+  // it; see `charts/deed-poll-admin/values.yaml`.
+  redirectUri: "https://deed-poll-admin-staging.aat.platform.hmcts.net/oauth2/callback",
   scope: "openid profile roles offline_access"
 };
 
@@ -36,9 +40,10 @@ describe("assertIdamSettings", () => {
     expect(() => assertIdamSettings(DEPLOYED)).not.toThrow();
   });
 
-  // This is the accident the check exists for: it is what happened when IDAM_REDIRECT_URI was set in
-  // apps/web/helm/values.yaml, whose ingressHost the root chart overrides — so the value applied
-  // nowhere it was deployed and the app inherited default.json's localhost instead.
+  // This is the accident the check exists for: it is what happened when IDAM_REDIRECT_URI was set in the
+  // `web` subchart's values, whose ingressHost the umbrella chart overrode — so the value applied nowhere it
+  // was deployed and the app inherited default.json's localhost instead. Both now live in
+  // `charts/deed-poll-admin/values.yaml`, next to the host they have to equal.
   it.each(["production", "aat", "preview", "demo", "ithc", ""])("refuses a localhost redirect URI under NODE_ENV=%o", (env) => {
     process.env.NODE_ENV = env;
 
@@ -55,7 +60,7 @@ describe("assertIdamSettings", () => {
     // The code and the session cookie both cross this URL.
     process.env.NODE_ENV = "aat";
 
-    expect(() => assertIdamSettings({ ...DEPLOYED, redirectUri: "http://deed-poll-admin-web.aat.platform.hmcts.net/oauth2/callback" })).toThrow(
+    expect(() => assertIdamSettings({ ...DEPLOYED, redirectUri: "http://deed-poll-admin-staging.aat.platform.hmcts.net/oauth2/callback" })).toThrow(
       /IDAM_REDIRECT_URI/
     );
   });

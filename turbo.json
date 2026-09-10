@@ -1,6 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalDependencies": ["**/.env", "**/.env.*", "**/helm/**", "**/Dockerfile"],
+  "globalDependencies": ["**/.env", "**/.env.*", "charts/**", "**/Dockerfile"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

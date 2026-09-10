@@ -2385,7 +2385,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/js-yaml@npm:^4.0.9":
+"@types/js-yaml@npm:4.0.9, @types/js-yaml@npm:^4.0.9":
   version: 4.0.9
   resolution: "@types/js-yaml@npm:4.0.9"
   checksum: 10c0/24de857aa8d61526bbfbbaa383aa538283ad17363fcd5bb5148e2c7f604547db36646440e739d78241ed008702a8920665d1add5618687b6743858fae00da211
@@ -3279,6 +3279,7 @@ __metadata:
     "@types/express": "npm:5.0.6"
     "@types/express-session": "npm:1.19.0"
     "@types/govuk-frontend": "npm:5.11.0"
+    "@types/js-yaml": "npm:4.0.9"
     "@types/multer": "npm:2.2.0"
     "@types/node": "npm:24.13.3"
     "@types/nunjucks": "npm:3.2.6"
@@ -3293,6 +3294,7 @@ __metadata:
     glob: "npm:13.0.6"
     govuk-frontend: "npm:6.5.0"
     helmet: "npm:8.3.0"
+    js-yaml: "npm:4.3.2"
     multer: "npm:2.3.0"
     nunjucks: "npm:3.2.4"
     openid-client: "npm:6.8.7"
@@ -4266,7 +4268,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"js-yaml@npm:^4.1.0":
+"js-yaml@npm:4.3.2, js-yaml@npm:^4.1.0":
   version: 4.3.2
   resolution: "js-yaml@npm:4.3.2"
   dependencies:

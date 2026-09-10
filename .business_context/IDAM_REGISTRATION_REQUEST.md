@@ -3,6 +3,55 @@
 Updated 2026-09-03. Registration is via PR to `hmcts/idam-access-config`, not an email request. The
 configuration below follows the standard OIDC pattern from the CFT IDAM developer guide.
 
+> **The hostnames in this document are wrong, and the PR carrying them has to be corrected before it
+> merges. Corrected 2026-09-10 by plan 03 task 4.**
+>
+> Every `deed-poll-deed-poll-admin-staging-web.aat.platform.hmcts.net` below — and the "the doubled segment
+> is deliberate — per platform pattern" note near the end — came from reading
+> `helm/deed-poll-admin/values.template.yaml`'s
+> `${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}.platform.hmcts.net` as if both variables expanded to
+> the product name and the environment. Neither does. `helmInstall` exports exactly `NAMESPACE`,
+> `SERVICE_NAME`, `IMAGE_NAME`, `SERVICE_FQDN` and `INGRESS_IP`, so `ENVIRONMENT` was unset and `envsubst`
+> replaced it with an empty string — a doubled dot, not an environment. `TEAM_NAME` is
+> `TeamConfig.getName(product)`, a team *display* name looked up in `cnp-jenkins-config/team-config.yml`
+> (pcs's is `"Possession Claim Service"`, spaces included) that falls back to the constant `pleaseTagMe` for
+> a product the file does not list — and `deed-poll` is not listed. So the host that template actually
+> rendered was nearer `pleaseTagMe-deed-poll-admin-staging-web..platform.hmcts.net`. It was never a pattern;
+> it was two undefined variables.
+>
+> **The chart now uses `${SERVICE_FQDN}` in AAT and preview and a stable service host elsewhere, so the
+> hosts to register are:**
+>
+> | Where | Host |
+> |---|---|
+> | `base/services.yaml` | `https://deed-poll-admin.<<ENV>>.platform.hmcts.net/oauth2/callback` |
+> | `aat/services.yaml` | that, **plus** `https://deed-poll-admin-staging.aat.platform.hmcts.net/oauth2/callback` and `http://localhost:3000/oauth2/callback` |
+>
+> `SERVICE_FQDN` is `azPrivateDns.getHostName(aksServiceName)` where `aksServiceName` is
+> `${product}-${component}-${imageTag}`, which is why AAT's is `deed-poll-admin-staging`. The `aat` file
+> must restate the base entry rather than rely on it: an environment overlay appears to *replace*
+> `redirect_uris` rather than append to it (inferred from `apps/pcs`'s shape, not verified in that repo's
+> tooling), so dropping it is a silent way to break login in one environment. `post_logout_redirect_uris`
+> take the same hosts without the `/oauth2/callback`.
+>
+> **`hmcts/idam-access-config#993` is open and unmerged as of 2026-09-10 and still states the old host** —
+> checked, not assumed. Correct it *there*, before it merges: once merged, changing it takes a second PR, and
+> a mismatched `redirect_uri` fails on IDAM's own page after a successful login, where nothing in this repo
+> logs anything. The chart side is `charts/deed-poll-admin/values.yaml` and
+> `values.aat.template.yaml`, and `src/deployment-chart.test.ts` pins it; nothing mechanically checks the two
+> against each other.
+>
+> **One thing this uncovered that is not the hostname.** `base/services.yaml` on the PR branch has
+> `client_secret: <<vault.idam-client-secret>>`, so IDAM writes the secret to `deed-poll-<<ENV>>` under
+> `idam-client-secret` — but this app's chart reads **`admin-idam-client-secret`**, per-component because the
+> vault is shared with `deed-poll-web`. One of the two has to move, and the chart's name is the one
+> `hmcts/deed-poll-infra` provisions. Raise it with IDAM alongside the hostname correction.
+>
+> **Preview is still an open question, not a solved one.** The "AAT auto-adds `https://allow-pr-redirects`
+> and IDAM rewrites `pr-[0-9]+` hostnames" claim below is unverified, and `idam-access-config` registers
+> nothing for `pcs-frontend`'s preview environments at all — so either IDAM permits a pattern that repo does
+> not show, or pcs preview sign-in does not work. Ask; do not invent a wildcard.
+
 **The PR is raised — 2026-09-03**, by Steve, outside the devcontainer (pushing to `hmcts` needs SAML SSO
 authorization that is not available here). **The six files it carries are committed verbatim at
 [`idam-pr/`](idam-pr/)** — `base/services.yaml`, `base/roles.yaml` and the aat/demo/ithc/perftest
@@ -123,13 +172,19 @@ These are set via `IDAM_ISSUER_URL` environment variable, wired through Helm val
 ---
 
 **Client ID and vault path**: Following the standard pattern. The client secret will be stored at
-`deed-poll-{env}/idam-client-secret` (already wired in `apps/web/helm/values.yaml`).
+`deed-poll-{env}/idam-client-secret` — **and that is not the name the chart reads**, which is
+`admin-idam-client-secret` in `charts/deed-poll-admin/values.yaml`, per-component because the vault is shared
+with `deed-poll-web`. See the banner at the top of this file.
 
 **Product code**: `deed-poll-admin` per `{product}-{component}` naming. Product is `deed-poll`,
 component is `admin` — used consistently in Helm annotations, vault names, and image paths.
 
-**Hostnames**: `deed-poll-deed-poll-admin-{release}-web.{env}.platform.hmcts.net`. The doubled segment
-is deliberate — product `deed-poll` then component `admin` per platform pattern, not a typo.
+**Hostnames**: ~~`deed-poll-deed-poll-admin-{release}-web.{env}.platform.hmcts.net`. The doubled segment
+is deliberate — product `deed-poll` then component `admin` per platform pattern, not a typo.~~
+**Wrong, and superseded 2026-09-10 — see the banner at the top of this file.** The doubled segment was an
+unset `${ENVIRONMENT}` expanding to nothing, and the leading segment was `${TEAM_NAME}`, which is a team
+display name and not the product. The hosts to register are
+`deed-poll-admin.<<ENV>>.platform.hmcts.net` and, for AAT, `deed-poll-admin-staging.aat.platform.hmcts.net`.
 
 **Why `refresh_token` grant and `offline_access` scope**: Allows the service to refresh access tokens
 before they expire, keeping users logged in without re-authentication. More importantly, gives IDAM

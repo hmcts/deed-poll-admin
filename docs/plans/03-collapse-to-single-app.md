@@ -342,41 +342,114 @@ exits 0, which looks like a green whole-repo suite and is not one. Check the pac
 
 ### Task 4: One chart at charts/deed-poll-admin
 
-- [ ] Create `charts/deed-poll-admin/` and delete `helm/`. The directory name is not a preference:
+- [x] Create `charts/deed-poll-admin/` and delete `helm/`. The directory name is not a preference:
       `Helm.HELM_RESOURCES_DIR` is the literal `charts` and `helmInstall` throws without it
-- [ ] Write `charts/deed-poll-admin/values.yaml`. `helmInstall` requires this file to exist before it applies
+- [x] Write `charts/deed-poll-admin/values.yaml`. `helmInstall` requires this file to exist before it applies
       `values.template.yaml`; its absence is blocker 1 in `PIPELINES.md`
-- [ ] **Rename `values.template.yaml` to `values.aat.template.yaml`, and put the real configuration in
+- [x] **Rename `values.template.yaml` to `values.aat.template.yaml`, and put the real configuration in
       `values.yaml`.** This is the mechanism, not a tidy-up: `helmInstall` renders `values.template.yaml`
       *over* `values.yaml` and passes the result in its place, so anything in `values.yaml` that the template
       does not restate is silently lost. `values.${environment}.template.yaml` is instead **appended** to
       helm's `-f` list, so it layers. `pcs-frontend` and `deed-poll-web` both have only the environment-scoped
       form and no bare `values.template.yaml` — match them. Keep `values.preview.template.yaml`
-- [ ] Collapse the umbrella chart into a single `nodejs` chart — no `dependencies:`, no subcharts, no
+- [x] Collapse the umbrella chart into a single `nodejs` chart — no `dependencies:`, no subcharts, no
       `*.enabled` conditions. Model on `pt-frontend`/`pcs-frontend`, not on `pcs-api`
-- [ ] Replace `${WEB_IMAGE}` with `${IMAGE_NAME}`, which is what `helmInstall` actually exports. Delete the
+      — **done with two deliberate exceptions, both forced; see the note below**
+- [x] Replace `${WEB_IMAGE}` with `${IMAGE_NAME}`, which is what `helmInstall` actually exports. Delete the
       `${CRONS_IMAGE}` block — `${API_IMAGE}` and `${POSTGRES_IMAGE}` went with plan 02
-- [ ] **Use `${SERVICE_FQDN}` for the ingress host, and stop hand-rolling it.** Read "The hostname" above
+- [x] **Use `${SERVICE_FQDN}` for the ingress host, and stop hand-rolling it.** Read "The hostname" above
       first — this is a decision, not a rename. `values.aat.template.yaml` sets `ingressHost: ${SERVICE_FQDN}`
       and derives `IDAM_REDIRECT_URI` from the same variable; `values.yaml` carries
       `deed-poll-admin.{{ .Values.global.environment }}.platform.hmcts.net`, matching `deed-poll-web`'s shape.
       **`${TEAM_NAME}` and `${ENVIRONMENT}` must not appear anywhere in the chart** — neither is exported to
       the template, and `TEAM_NAME` is a team display name, not a slug
-- [ ] **Check `idam-access-config#993` states the same hosts before ticking the box above.** At the time of
+- [x] **Check `idam-access-config#993` states the same hosts before ticking the box above.** At the time of
       writing it is open and states the old hand-rolled host; the agreed correction is in "The hostname"
       above. If it has since merged, **stop and read what it actually says** rather than assuming. A
       mismatch is not caught by any test here — it fails at login, in one environment only
-- [ ] Carry these forward verbatim rather than re-deriving them — each was established at cost:
+      — **checked against the PR branch, still open, still the old host; recorded, not silently accepted**
+- [x] Carry these forward verbatim rather than re-deriving them — each was established at cost:
   - `keyVaults:` reads `app-insights-connection-string`, `redis-url`, `admin-session-secret` and
     `admin-idam-client-secret`. **No `postgres-url`** — plan 02 removed the database
   - `IDAM_REDIRECT_URI` **must** equal the chart's own `ingressHost` with `/oauth2/callback` appended, and
     must be registered with IDAM verbatim. A mismatch breaks login in that environment and nowhere else
   - Probes point at `/health/readiness` and `/health/liveness`
-- [ ] **Resolve preview environments' session store** — blocker 4 in `PIPELINES.md`, and a decision, not a
+- [x] **Resolve preview environments' session store** — blocker 4 in `PIPELINES.md`, and a decision, not a
       rename. `assertRedisUrl` refuses `config/default.json`'s loopback default outside development, so a
       preview pod fails fast rather than coming up sessionless. Either enable a `redis` subchart per PR, or
       point preview at the AAT cache's `redis-url`. **Record which and why in the chart**
-- [ ] Mark completed
+      — **decided: an ephemeral `redis` subchart per PR**
+- [x] Mark completed
+
+**Completed 2026-09-10.** `charts/deed-poll-admin/` holds `Chart.yaml`, `values.yaml`,
+`values.aat.template.yaml`, `values.preview.template.yaml` and `.helmignore`; `helm/` is gone, taking
+`helm/web/` — the subchart task 3 parked there — with it. `src/deployment-chart.test.ts` pins the chart
+against the sixteen things the pipeline requires of it, because every one of them fails only on a real
+Jenkins run. Six things the checkboxes did not name.
+
+- **"No `dependencies:`" cannot be met literally, and the success criterion that repeats it is wrong.** A
+  `nodejs` chart *is* a dependency on the `nodejs` base chart at `oci://hmctsprod.azurecr.io/helm` — that is
+  what makes it a CNP chart rather than a bare set of templates — and `deed-poll-web` and `pcs-frontend` both
+  declare it. What the bullet means, and what was done, is **no `file://` dependency on a directory in this
+  repo and no `*.enabled` condition gating one of our own components**: the four
+  `deed-poll-admin-{web,api,crons,postgres}` subcharts and their `web.enabled` / `crons.enabled` toggles are
+  gone. Two dependencies remain: `nodejs`, and `redis`.
+- **`redis` is the second exception, and the two bullets conflict.** "No subcharts, no `*.enabled`
+  conditions" and "resolve preview's session store — either enable a `redis` subchart per PR, or point
+  preview at the AAT cache" cannot both be honoured. The subchart wins: pointing every open PR at AAT's cache
+  shares one keyspace across all of them, so a flush or a key collision in one PR is felt in the rest, and
+  preview sessions outlive the PR inside a store nothing here can clear. So `redis.enabled` is `false` in
+  `values.yaml` and `true` in `values.preview.template.yaml` only — the one `*.enabled` condition left, and it
+  switches an upstream chart rather than one of ours. `deed-poll-web` settled the same question the same way,
+  and its preview block is copied wholesale including the HDPI-8155 probe budget.
+- **The preview failure mode here is not `deed-poll-web`'s, and the comment says so.** A never-Ready redis
+  master crashloops that app, because it awaits its client. This one does not: `getRedisClient` races
+  `connect()` against `REDIS_CONNECT_TIMEOUT_MS` and serves anyway, so the pod comes up and `redisStatus`
+  reports `redis: DOWN` for ever — which keeps it out of its own Service. Same cause, same fix, different
+  symptom, and a copied comment claiming a crashloop would send someone looking at the wrong logs.
+- **`src/secrets.ts` pointed into `helm/`, so deleting it would have silently unaliased every secret.** It
+  reads the chart out of the image to build the Key Vault alias map, and
+  `getPropertiesVolumeSecrets` swallows a missing or unparseable chart — returning an empty map rather than
+  throwing — so every secret would have arrived under its vault name and nothing would have failed until the
+  first `config.get` in a deployed pod. It now reads `../charts/deed-poll-admin/values.yaml`, and the test
+  asserts the path out of the source rather than recomputing it. `charts/` is not in `.dockerignore`, and the
+  runtime stage is `FROM base`, so the file is in the image.
+- **`js-yaml` is a new root devDependency**, pinned at `4.3.2` with `@types/js-yaml` at `4.0.9` — the
+  versions already in the lockfile via `libs/cloud-native-platform`, which parses the same chart in
+  production code. The chart test needs structural reads (`redis.master.readinessProbe.timeoutSeconds`,
+  the vault list) that string matching cannot do honestly. So `yarn install --immutable` fails on this task's
+  own change, as it did in tasks 2 and 3: run plain `yarn install` first.
+- **`WEB_IMAGE`, `CRONS_IMAGE` and `postgres-url` do not grep clean, and should not.** The success criterion
+  asks for zero hits; there are four, all of them the deliberate record of an absence — the test that asserts
+  no database secret has to name `postgres-url` to forbid it, and the comment explaining why the image
+  variable is `${IMAGE_NAME}` has to name what it replaced. No chart value or code path references any of
+  them.
+
+**The hostname, and what is now out of step with it.** The chart states
+`deed-poll-admin-staging.aat.platform.hmcts.net` in AAT (`${SERVICE_FQDN}`) and
+`deed-poll-admin.{{ .Values.global.environment }}.platform.hmcts.net` elsewhere.
+[`idam-access-config#993`](https://github.com/hmcts/idam-access-config/pull/993) was read on its own branch
+rather than assumed: **still open, still registering the old
+`deed-poll-deed-poll-admin-staging-web.{env}.platform.hmcts.net`**, so it must be corrected before it merges
+or login fails on IDAM's page after a successful sign-in, where nothing here logs. Correcting an external PR
+is not this repo's to do, so the record was corrected instead —
+`.business_context/IDAM_REGISTRATION_REQUEST.md` no longer defends the doubled segment as "per platform
+pattern" and states the two hosts to register, and `.business_context/idam-pr/README.md` says the same
+without editing the submitted YAML, which is a record of what *was* sent. Reading #993 also turned up
+something the plan did not anticipate: it has IDAM write the client secret to `deed-poll-<<ENV>>` as
+`idam-client-secret`, while this chart reads `admin-idam-client-secret` — per-component because the vault is
+shared with `deed-poll-web`. One of the two has to move, and the chart's is the name
+`hmcts/deed-poll-infra` provisions. Raised in that document, not fixed here.
+
+**Test-count delta: +17 unit, 0 e2e — 1,246 → 1,263, all seventeen in `src/deployment-chart.test.ts`.**
+Deliberate, not a regression in the other direction: every assertion in it fails only on a real Jenkins
+deploy otherwise. Per-package totals from `yarn test:force`: app-at-root 344, deed-poll 443,
+cloud-native-platform 140, deed-poll-api-client 138, express-govuk-starter 127, simple-router 41,
+express-session-postgres 23, express-session-redis 7 — every package but the app unchanged to the test. Two
+existing fixtures moved with the hostname decision and neither changes behaviour: `src/auth/settings.test.ts`
+asserted against the old doubled host, and its comment cited `apps/web/helm/values.yaml`.
+`yarn install --immutable`, `yarn lint` (261 files, 0 errors, the same 2 pre-existing `noUndeclaredEnvVars`
+warnings), `yarn build` (8/8) and `yarn test` (8/8) are green.
 
 ### Task 5: Root Dockerfile and the pipeline
 
@@ -414,15 +487,22 @@ exits 0, which looks like a green whole-repo suite and is not one. Check the pac
 ## Success criteria
 
 - `yarn lint`, `yarn build`, `yarn test` and `yarn test:e2e` all pass.
-- **Unit tests 1,246 and e2e 17.** From a 1,256 baseline, the only drop is `apps/crons`'s 10 tests, deleted
-  with it in task 2. The onboarding tests this plan was originally written to remove were already deleted by
+- **Unit tests 1,263 and e2e 17.** From a 1,256 baseline, the only drop is `apps/crons`'s 10 tests, deleted
+  with it in task 2 (1,256 → 1,246), and the only addition is task 4's 17 in `src/deployment-chart.test.ts`
+  (1,246 → 1,263) — revised there from the 1,246 this line first quoted, which assumed the plan added no
+  tests of its own. The onboarding tests this plan was originally written to remove were already deleted by
   plan 02. Any other drop is a regression — say so in the completion note either way, rather than leaving a
   reader to work out whether tests vanished on purpose.
 - No `apps/` directory. No `helm/` directory. No `libs/onboarding`. No `@hmcts/crons`.
-- `charts/deed-poll-admin/values.yaml` exists, and `charts/deed-poll-admin/` contains no `dependencies:`.
+- `charts/deed-poll-admin/values.yaml` exists, and `charts/deed-poll-admin/Chart.yaml` declares no `file://`
+  dependency and no condition gating one of this repo's own components. Revised in task 4 from "contains no
+  `dependencies:`", which is not satisfiable: a `nodejs` chart depends on the `nodejs` base chart by
+  definition. It declares two — `nodejs`, and the `redis` that task 4 turned on for preview only.
 - A root `Dockerfile` exists and is the one the pipeline would build.
-- Grepping the repo for `WEB_IMAGE`, `CRONS_IMAGE` and `postgres-url` returns nothing. `API_IMAGE` and
-  `POSTGRES_IMAGE` already do.
+- Grepping the repo for `WEB_IMAGE`, `CRONS_IMAGE` and `postgres-url` returns **no chart value and no code
+  path** — revised in task 4 from "returns nothing", which the assertion forbidding a database secret has to
+  break by naming it. Four hits remain, all of them a deliberate record of an absence. `API_IMAGE` and
+  `POSTGRES_IMAGE` return nothing at all.
 - `charts/deed-poll-admin/values.aat.template.yaml` derives both the ingress host and `IDAM_REDIRECT_URI`
   from `${SERVICE_FQDN}`, `values.yaml` carries the `{{ .Values.global.environment }}` service host, and
   **`TEAM_NAME` appears in no hostname anywhere**. The chart and `idam-access-config#993` state the same
