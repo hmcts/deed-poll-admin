@@ -280,18 +280,65 @@ simple-router 41, express-session-postgres 23, express-session-redis 7. `yarn li
 
 ### Task 3: Flatten apps/web to the root
 
-- [ ] Move `apps/web/src/` → `src/`, `apps/web/config/` → `config/`, `apps/web/Dockerfile` → `Dockerfile`,
+- [x] Move `apps/web/src/` → `src/`, `apps/web/config/` → `config/`, `apps/web/Dockerfile` → `Dockerfile`,
       `apps/web/vite.build.ts` → `vite.build.ts`
-- [ ] Merge `apps/web/package.json`'s dependencies and scripts into the root `package.json`. Remove the
+- [x] Merge `apps/web/package.json`'s dependencies and scripts into the root `package.json`. Remove the
       `apps/*` workspace glob; keep `libs/*` and `e2e-tests`
-- [ ] Merge `apps/web/tsconfig.json` into the root `tsconfig.json`, keeping the `libs/*` path mappings
-- [ ] Update every relative path that crossed the old boundary. Known ones, all currently
+- [x] Merge `apps/web/tsconfig.json` into the root `tsconfig.json`, keeping the `libs/*` path mappings
+      — done as a **split**, not a merge, for a reason the note below records: the app's project settings
+      are in a new `tsconfig.app.json` and only the `paths` stayed at the root
+- [x] Update every relative path that crossed the old boundary. Known ones, all currently
       `../helm/values.yaml` from `src/`: `src/secrets.ts` and its test's `toMatch(/apps\/web\/helm\/…/)`
       assertion. Grep for `apps/web`, `../../`, and `DATA_DIR` before declaring this done
-- [ ] Update `vitest.config.ts`, `turbo.json`, `sonar-project.properties` and `scripts/merge-lcov.mjs` — all
+- [x] Update `vitest.config.ts`, `turbo.json`, `sonar-project.properties` and `scripts/merge-lcov.mjs` — all
       four encode the workspace layout
-- [ ] `yarn install --immutable`, then all four validation commands
-- [ ] Mark completed
+- [x] `yarn install --immutable`, then all four validation commands
+- [x] Mark completed
+
+**Completed 2026-09-10.** `apps/` is gone: the application is the root package, `src/` and `config/` sit at
+the root, and `workspaces` is `["e2e-tests", "libs/*"]`. Six things the checkboxes did not name.
+
+- **Turbo will not run a root-package script unless the task is named `//#<task>`,** and a root task called
+  `//#build` makes `yarn build` — which *is* `turbo build` — invoke itself. So the app's tasks are
+  `//#build:app`, `//#test:app`, `//#dev:app`, and each orchestrating script runs `turbo <x> <x>:app`. The
+  `:app` suffix is load-bearing, not decoration. Libraries still build first via `^build`.
+- **`apps/web/tsconfig.json` could not simply be merged up, and merging it up costs 44 tests.** Giving the
+  root `tsconfig.json` an `include` of `src/**/*` broke `libs/deed-poll`, every failure of the shape
+  `deed-poll-api call failed (unavailable)` or `expected Error … to be an instance of NotFoundError`.
+  `vite-tsconfig-paths` matches each source file against the tsconfig *projects* it discovers — files
+  literally named `tsconfig.json` — to decide whether the `paths` aliases apply, and the root file was the
+  only project covering a library's *test* files, because every `libs/*/tsconfig.json` excludes
+  `**/*.test.ts`. Once it had an `include`, those tests matched no project: `service.ts` resolved
+  `@hmcts/deed-poll-api-client` to the library source while its test resolved the built `dist`, so the two
+  held different module instances and every `vi.mock` of the adapter silently stopped applying. The fix is
+  `tsconfig.app.json`, which tsconfck does not discover as a project. `build:app` is therefore
+  `tsc -p tsconfig.app.json && vite build …`.
+- **`references` is one of the few fields `extends` does not inherit** (checked with `tsc --showConfig`, not
+  assumed), which is why they are restated in `tsconfig.app.json`. They are what stops the source-resolving
+  `paths` from dragging `libs/**` into the app's `rootDir`. It lists the same five libraries `apps/web` did
+  and no more: `simple-router` is not `composite`, so referencing it is a hard `TS6306`.
+- **`yarn lint` is now `biome check .` at the root, and that sweeps wider than the old `turbo lint` did.**
+  Two consequences. `biome.json` needed `vcs.enabled` + `useIgnoreFile` or the gitignored `power_app_nest/`
+  prototype contributed 98 errors from 16 files. And `.devcontainer/devcontainer.json`,
+  `e2e-tests/playwright.config.ts` and `templates/tech-spec-references/welsh-translations.json` are
+  reformatted in this commit — verified by reverting them, which reintroduces 3 errors. `lint:changed` and
+  `lint:fix:changed` are gone rather than re-pathed: as `turbo lint --filter=…` they would have skipped the
+  application entirely, since the root package has no `lint` task.
+- **`apps/web/helm/` is at `helm/web/` for now.** Task 3's checkboxes never mention it, but leaving it put
+  would have kept `apps/` alive; task 4 deletes `helm/` wholesale. `helm/deed-poll-admin/Chart.yaml` points
+  at `file://../web` in the interim.
+- **`dist/pages` output is wrong, and was wrong before this task.** It nests as
+  `dist/pages/src/pages/deed-polls/deed-polls/note-edit.njk`. Confirmed pre-existing by building master in a
+  throwaway worktree, which produced the identically broken `apps/web/dist/pages/src/pages/errors/errors/403.njk`.
+  Out of scope for a relocation; task 5 owns "confirm it builds from the flattened layout" and should decide.
+
+**Test-count delta: 0 unit, 0 e2e.** 1,246 before and after, summed from the per-package totals in
+`yarn test`: app-at-root 327 (29 files), deed-poll 443, cloud-native-platform 140, deed-poll-api-client 138,
+express-govuk-starter 127, simple-router 41, express-session-postgres 23, express-session-redis 7. The 327
+that were `@hmcts/web`'s now report under `//:test:app`. `yarn install --immutable`, `yarn lint` (260 files,
+0 errors, 2 pre-existing `noUndeclaredEnvVars` warnings), `yarn build` (8/8) and `yarn test` are all green.
+One measurement trap worth recording: a `yarn test` run from inside `libs/deed-poll` reports 443 passing and
+exits 0, which looks like a green whole-repo suite and is not one. Check the package list turbo prints.
 
 ### Task 4: One chart at charts/deed-poll-admin
 

@@ -19,5 +19,5 @@ home: https://github.com/hmcts/deed-poll-admin
 dependencies:
   - name: deed-poll-admin-web
     version: 0.0.1
-    repository: "file://../../apps/web/helm"
+    repository: "file://../web"
     condition: web.enabled

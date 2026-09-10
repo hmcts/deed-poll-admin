@@ -1,0 +1,33 @@
+{
+  // The application's project settings, which plan 03 task 3 moved up from `apps/web/tsconfig.json`.
+  //
+  // They are in their own file rather than merged into `tsconfig.json` because `tsconfig.json` is what
+  // `vite-tsconfig-paths` matches every file against when deciding whether the `paths` aliases apply, and
+  // it is the only such file that covers a *library's* test files: each `libs/*/tsconfig.json` excludes
+  // `**/*.test.ts`. Give `tsconfig.json` an `include` of `src/**/*` and those tests fall through to no
+  // project at all, so `service.ts` resolves `@hmcts/deed-poll-api-client` to the library source while its
+  // test resolves the built `dist` — two module instances, and every `vi.mock` of the adapter silently
+  // stops applying. That was 44 failures in `libs/deed-poll` before this file existed. Only `tsconfig.json`
+  // is discovered as a project, so nothing here reaches a library.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "src/assets/**/*", "src/express-doubles.ts"],
+  // The `paths` above resolve each library to its source, which would otherwise drag `libs/**` into this
+  // project's output and break `rootDir`. These references are what stop that: TypeScript redirects a
+  // `paths` hit landing inside a referenced project to that project's declaration output instead.
+  // These are the five `apps/web/tsconfig.json` declared, re-pathed and nothing more: `simple-router` is
+  // not composite so referencing it is an error, and neither it nor `deed-poll-api-client` needs a
+  // reference because the application reaches them only through the libraries it does reference.
+  "references": [
+    { "path": "./libs/cloud-native-platform" },
+    { "path": "./libs/deed-poll" },
+    { "path": "./libs/express-govuk-starter" },
+    { "path": "./libs/express-session-postgres" },
+    { "path": "./libs/express-session-redis" }
+  ]
+}

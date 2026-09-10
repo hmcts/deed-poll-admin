@@ -1,32 +1,18 @@
 {
+  // The shared base: compiler options plus the `paths` that resolve each library to its *source*. It
+  // deliberately declares no `include`, and the application's own project settings live in
+  // `tsconfig.app.json` rather than here — see that file for why moving them up breaks the test suite.
   "compilerOptions": {
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "paths": {
-      "@hmcts/web": [
-        "./apps/web/src"
-      ],
-      "@hmcts-cft/express-govuk-starter": [
-        "./libs/express-govuk-starter/src"
-      ],
-      "@hmcts-cft/express-session-postgres": [
-        "./libs/express-session-postgres/src"
-      ],
-      "@hmcts-cft/express-session-redis": [
-        "./libs/express-session-redis/src"
-      ],
-      "@hmcts-cft/cloud-native-platform": [
-        "./libs/cloud-native-platform/src"
-      ],
-      "@hmcts-cft/simple-router": [
-        "./libs/simple-router/src"
-      ],
-      "@hmcts/deed-poll": [
-        "./libs/deed-poll/src"
-      ],
-      "@hmcts/deed-poll-api-client": [
-        "./libs/deed-poll-api-client/src"
-      ]
+      "@hmcts-cft/express-govuk-starter": ["./libs/express-govuk-starter/src"],
+      "@hmcts-cft/express-session-postgres": ["./libs/express-session-postgres/src"],
+      "@hmcts-cft/express-session-redis": ["./libs/express-session-redis/src"],
+      "@hmcts-cft/cloud-native-platform": ["./libs/cloud-native-platform/src"],
+      "@hmcts-cft/simple-router": ["./libs/simple-router/src"],
+      "@hmcts/deed-poll": ["./libs/deed-poll/src"],
+      "@hmcts/deed-poll-api-client": ["./libs/deed-poll-api-client/src"]
     },
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,

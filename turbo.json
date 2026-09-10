@@ -1,11 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalDependencies": [
-    "**/.env",
-    "**/.env.*",
-    "**/helm/**",
-    "**/Dockerfile"
-  ],
+  "globalDependencies": ["**/.env", "**/.env.*", "**/helm/**", "**/Dockerfile"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -36,6 +31,28 @@
     "type-check": {
       "dependsOn": ["^build"],
       "outputs": []
+    },
+    // The application is the root package since plan 03 task 3 flattened `apps/web` into it, and turbo only
+    // runs a root-package script when the task is named `//#<task>`. The `:app` suffix is not decoration: a
+    // root task called `//#build` would make `yarn build` — which is `turbo build` — invoke itself, so the
+    // orchestrating script and the task it schedules must have different names. Each `yarn <x>` therefore
+    // runs `turbo <x> <x>:app`, and the libraries still build before the app because of `^build`.
+    "//#build:app": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "inputs": ["src/**", "config/**", "vite.build.ts", "tsconfig.json", "tsconfig.app.json", "package.json"]
+    },
+    "//#test:app": {
+      "outputs": ["coverage/**"],
+      "inputs": ["src/**", "config/**", "vitest.config.ts", "tsconfig.json", "tsconfig.app.json", "package.json"],
+      "cache": false
+    },
+    "//#dev:app": {
+      "cache": false,
+      "persistent": true,
+      "interruptible": true,
+      "dependsOn": ["^build"],
+      "inputs": ["src/**/*.ts", "config/**", "package.json"]
     }
   }
 }

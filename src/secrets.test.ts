@@ -52,6 +52,6 @@ describe("loadSecrets", () => {
   it("should read the vault names from this app's helm chart", async () => {
     await loadSecrets();
 
-    expect(vi.mocked(getPropertiesVolumeSecrets).mock.calls[0][0]?.chartPath).toMatch(/apps\/web\/helm\/values\.yaml$/);
+    expect(vi.mocked(getPropertiesVolumeSecrets).mock.calls[0][0]?.chartPath).toMatch(/helm\/web\/values\.yaml$/);
   });
 });

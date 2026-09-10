@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getPropertiesVolumeSecrets, type Secrets } from "@hmcts-cft/cloud-native-platform";
 
-const chartPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "../helm/values.yaml");
+const chartPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "../helm/web/values.yaml");
 
 /**
  * Put the key vault secrets in `process.env`, from the entrypoint and **before** the application graph

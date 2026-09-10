@@ -1,13 +1,24 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.1.4/schema.json",
   "vcs": {
-    "enabled": false,
+    "enabled": true,
     "clientKind": "git",
-    "useIgnoreFile": false
+    "useIgnoreFile": true
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!**/*.js", ".claude/hooks/**/*.js", "scripts/**/*.js", "!**/coverage/**", "!**/dist/**", "!**/build/**", "!**/node_modules/**", "!**/.turbo/**", "!**/generated/**"]
+    "includes": [
+      "**",
+      "!**/*.js",
+      ".claude/hooks/**/*.js",
+      "scripts/**/*.js",
+      "!**/coverage",
+      "!**/dist",
+      "!**/build",
+      "!**/node_modules",
+      "!**/.turbo",
+      "!**/generated"
+    ]
   },
   "formatter": {
     "enabled": true,

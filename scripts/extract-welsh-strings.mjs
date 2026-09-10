@@ -46,7 +46,7 @@ const DRAFTS = path.join(ROOT, ".business_context", "welsh-draft.csv");
  */
 const NOT_PROSE = /^(https?:\/\/|\/|mailto:)|^[\w.-]+@[\w.-]+$|^[\d\s+()]{7,}$|^(GOV\.UK|beta)$/;
 
-const INCLUDE = [path.join(ROOT, "apps/web/src/pages/deed-polls"), path.join(ROOT, "apps/web/src/locales")];
+const INCLUDE = [path.join(ROOT, "src/pages/deed-polls"), path.join(ROOT, "src/locales")];
 
 const checkOnly = process.argv.includes("--check");
 

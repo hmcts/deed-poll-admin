@@ -71,15 +71,15 @@ const baseConfig: UserConfig = {
     viteStaticCopy({
       targets: [
         {
-          src: "../../node_modules/govuk-frontend/dist/govuk/assets/fonts/*",
+          src: "node_modules/govuk-frontend/dist/govuk/assets/fonts/*",
           dest: "fonts"
         },
         {
-          src: "../../node_modules/govuk-frontend/dist/govuk/assets/images/*",
+          src: "node_modules/govuk-frontend/dist/govuk/assets/images/*",
           dest: "images"
         },
         {
-          src: "../../node_modules/govuk-frontend/dist/govuk/assets/manifest.json",
+          src: "node_modules/govuk-frontend/dist/govuk/assets/manifest.json",
           dest: "."
         },
         {

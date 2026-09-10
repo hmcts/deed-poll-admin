@@ -13,12 +13,14 @@ RUN yarn build
 
 # ---- Runtime image ----
 FROM base AS runtime
-COPY --from=build /opt/app/apps/web/dist ./apps/web/dist
+COPY --from=build /opt/app/dist ./dist
 COPY --from=build /opt/app/libs ./libs
 
-RUN yarn workspaces focus @hmcts/web --production
+# No workspace name: the application is the root workspace since plan 03 task 3 flattened `apps/web` into
+# it, and `yarn workspaces focus` with no argument focuses the current one — pulling in `libs/*` through the
+# `workspace:*` dependencies and nothing else.
+RUN yarn workspaces focus --production
 ENV NODE_ENV=production
 
-WORKDIR /opt/app/apps/web
 EXPOSE 3000
 CMD ["node", "dist/server.js"]
