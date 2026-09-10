@@ -22,9 +22,9 @@
  * Printing is the default deliberately: a generator that writes on sight is one typo away from
  * mangling the handover document, so the safe mode is the one you get by accident.
  *
- * `.mjs` rather than `.js` because the root `package.json` does not set `"type": "module"` — only
- * the workspaces do. Setting it at the root would also change how `vitest.config.ts` is loaded,
- * which is not a change worth making for a dev script.
+ * `.mjs` rather than `.js` is now belt and braces rather than a requirement: the root `package.json`
+ * does set `"type": "module"` since the application became the root package. The extension is kept
+ * because it states the module system at the call site and costs nothing.
  */
 
 import { execFileSync } from "node:child_process";
@@ -157,9 +157,9 @@ function countNestHandlers(relativePath) {
 }
 
 /**
- * Phase 4: the prototype's scope, and what `apps/web` has ported against it.
+ * Phase 4: the prototype's scope, and what the application has ported against it.
  *
- * `ported` can legitimately exceed `scope`. `apps/web` has one handler the prototype did not need —
+ * `ported` can legitimately exceed `scope`. The application has one handler the prototype did not need —
  * a document download route — because the prototype served its API and its pages from one Nest app
  * and could link at `/api/...`, whereas these are separate origins.
  */
@@ -167,7 +167,7 @@ function collectPhase4() {
   return {
     scope: countNestHandlers("deed-poll/deed-poll-pages.controller.ts"),
     templates: countTemplates(join(ROOT, "power_app_nest/src/views")),
-    ported: countPageHandlers(join(ROOT, "apps/web/src/pages/deed-polls")),
+    ported: countPageHandlers(join(ROOT, "src/pages/deed-polls")),
     e2e: countPlaywrightTests()
   };
 }
@@ -215,8 +215,8 @@ function countTemplates(dir) {
  * Runs `vitest` directly rather than going through `yarn test` or `turbo test`. Both of those invoke
  * `yarn` per workspace, and in this devcontainer Corepack cannot reach `repo.yarnpkg.com`, so the run
  * dies before a single test executes — a tool for keeping the handover honest should not be defeated
- * by a problem the handover itself documents. Every workspace's `test` script is exactly `vitest run`,
- * so this is equivalent while taking the package manager out of the path.
+ * by a problem the handover itself documents. Every package's test script is exactly `vitest run`, so this
+ * is equivalent while taking the package manager out of the path.
  */
 function runTests() {
   const counts = new Map();
@@ -234,25 +234,29 @@ function runTests() {
   return { counts, unmeasured };
 }
 
-/** Workspaces declaring a vitest `test` script, discovered rather than listed. */
+/**
+ * Packages declaring a vitest test script, discovered rather than listed.
+ *
+ * The root package is one of them since plan 03 task 3 flattened `apps/web` into it. Its script is
+ * `test:app` rather than `test`, because turbo only runs a root-package script under a `//#<task>` name and
+ * `yarn test` — which is `turbo test test:app` — would otherwise call itself.
+ */
 function testableWorkspaces() {
-  const found = [];
+  const rootManifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+  const found = rootManifest.scripts?.["test:app"]?.includes("vitest") ? [{ name: rootManifest.name, dir: ROOT }] : [];
 
-  for (const parent of ["apps", "libs"]) {
-    const dir = join(ROOT, parent);
-    if (!existsSync(dir)) continue;
+  const libs = join(ROOT, "libs");
 
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
+  for (const entry of existsSync(libs) ? readdirSync(libs, { withFileTypes: true }) : []) {
+    if (!entry.isDirectory()) continue;
 
-      const manifestPath = join(dir, entry.name, "package.json");
-      if (!existsSync(manifestPath)) continue;
+    const manifestPath = join(libs, entry.name, "package.json");
+    if (!existsSync(manifestPath)) continue;
 
-      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-      if (!manifest.scripts?.test?.includes("vitest")) continue;
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    if (!manifest.scripts?.test?.includes("vitest")) continue;
 
-      found.push({ name: manifest.name, dir: join(dir, entry.name) });
-    }
+    found.push({ name: manifest.name, dir: join(libs, entry.name) });
   }
 
   return found.sort((a, b) => a.name.localeCompare(b.name));
@@ -330,11 +334,11 @@ function renderDashboard({ api, phase4, tests, git }) {
 }
 
 /**
- * Phase 4's line. `ported` is counted from `apps/web`, which survives the prototype's deletion; the
+ * Phase 4's line. `ported` is counted from `src/pages/`, which survives the prototype's deletion; the
  * prototype's own scope is reported only while it is still there to count.
  */
 function renderPhase4(phase4) {
-  const ported = `**${phase4.ported} page handlers** ported in \`apps/web/src/pages/deed-polls/\``;
+  const ported = `**${phase4.ported} page handlers** ported in \`src/pages/deed-polls/\``;
   const lines = [];
 
   if (phase4.scope === null) {
@@ -413,7 +417,12 @@ function renderTests(tests) {
     `${"total".padEnd(38)}${tally({ passed, skipped, failed })}`,
     "```",
     "",
-    ...(skipped > 0 ? [`- **${skipped} skipped.** Nothing in this repo skips on a missing dependency any more — the \`apps/postgres\` \`ccd\` tests that needed \`docker compose up -d\` went with the data access layer — so a skip here is a \`.skip\` someone left in.`, ""] : [])
+    ...(skipped > 0
+      ? [
+          `- **${skipped} skipped.** Nothing in this repo skips on a missing dependency any more — the \`apps/postgres\` \`ccd\` tests that needed \`docker compose up -d\` went with the data access layer — so a skip here is a \`.skip\` someone left in.`,
+          ""
+        ]
+      : [])
   ];
 }
 

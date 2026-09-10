@@ -4,16 +4,18 @@ Admin service for HMCTS deed poll applications, built with Express.js, TypeScrip
 
 ## 🚀 Overview
 
-This monorepo contains the apps, libraries, and infrastructure for the Deed Poll Admin service. It was scaffolded from
+This repo is **one deployable**: the application is the root package, in `src/`. It was scaffolded from
 [hmcts/expressjs-monorepo-template](https://github.com/hmcts/expressjs-monorepo-template); the `libs/` packages are
-vendored copies of that template's shared libraries, kept private to this repo.
+vendored copies of that template's shared libraries, kept private to this repo, and are still a Yarn workspace so
+that a future re-scaffold stays tractable. The four-app layout that came with the template is gone — see
+[`docs/plans/03-collapse-to-single-app.md`](docs/plans/03-collapse-to-single-app.md).
 
 **This service owns no data access layer.** Every read and write of case data goes to
 [`hmcts/deed-poll-api`](https://github.com/hmcts/deed-poll-api) over HTTP, through the single adapter in
 `libs/deed-poll-api-client`. Prisma, the pg pool, the migrations, `apps/api` and `apps/postgres` are gone — see
-[`docs/plans/02-dal-cutover-to-api.md`](docs/plans/02-dal-cutover-to-api.md). Sessions are the one piece of state
-still held locally, in Redis (`@hmcts-cft/express-session-redis`), for the reasons recorded at the call site in
-`apps/web/src/app.ts`. So this service depends on api and on Redis, and its readiness check names both.
+[`docs/plans/completed/02-dal-cutover-to-api.md`](docs/plans/completed/02-dal-cutover-to-api.md). Sessions are the
+one piece of state still held locally, in Redis (`@hmcts-cft/express-session-redis`), for the reasons recorded at
+the call site in `src/app.ts`. So this service depends on api and on Redis, and its readiness check names both.
 
 api is not deployed yet, and nothing here waits for it: `libs/deed-poll-api-client/src/mock` implements the
 contract in memory, `yarn dev` starts it alongside the app, and the unit suite drives it in process.
@@ -61,12 +63,10 @@ A lightweight file-system router for Express applications, inspired by Next.js r
 - **Multiple Mount Points**: Mount different directories with different URL prefixes
 - **Zero Dependencies**: Lightweight implementation with no external dependencies
 
-### Monorepo Architecture
-- Single repository for multiple applications (e.g. multiple frontends sharing common code, APIs or libraries)
-- Workspace-based structure with Yarn workspaces
-- Shared libraries for common functionality
-- Testing with Vitest and Playwright
-- Helm charts for Kubernetes deployment
+### One application, with libraries
+- One deployable, one image, one Helm chart, one Jenkins component
+- `libs/*` are Yarn workspaces holding domain logic the application imports
+- Testing with Vitest (co-located) and Playwright (`e2e-tests/`)
 - Jenkins CNP CI/CD pipeline (`Jenkinsfile_CNP`)
 - Biome for fast linting and formatting
 
@@ -74,25 +74,36 @@ A lightweight file-system router for Express applications, inspired by Next.js r
 
 ```
 deed-poll-admin/
-├── apps/                       # Deployable applications
-│   ├── crons/                  # Cron jobs
-│   └── web/                    # Web frontend (Express 5.x + Nunjucks)
+├── src/                        # THE application — Express 5.x + Nunjucks
+│   ├── pages/                  # File-based page routes (auto-discovered)
+│   ├── assets/                 # SCSS/TS bundles, compiled by vite
+│   ├── auth/                   # IDAM OIDC: login, session, require-auth
+│   ├── locales/                # App-level translations
+│   └── app.ts, server.ts       # createApp(), and the entrypoint that loads secrets first
+├── config/                     # `config` defaults + custom-environment-variables
 ├── libs/                       # Modular packages
 │   ├── cloud-native-platform/  # Cloud Native Platform features
 │   ├── deed-poll/              # The case domain — services, validation, view models
 │   ├── deed-poll-api-client/   # The single adapter onto deed-poll-api, plus its in-memory mock
 │   ├── express-govuk-starter/  # GOV.UK Frontend integration
+│   ├── express-session-redis/  # The session store the app wires up
 │   ├── simple-router/          # Simple Router features
 │   └── [your-module]/          # Your feature modules
 │       └── src/
-│           ├── [domain]/       # Domain functions consumed by the apps
+│           ├── [domain]/       # Domain functions consumed by the app
 │           ├── locales/        # Translations (loaded by govuk-starter)
 │           └── assets/         # Module assets (compiled by vite)
+├── charts/deed-poll-admin/     # The one Helm chart, where the CNP pipeline reads it
 ├── e2e-tests/                  # End-to-end tests (Playwright)
 ├── docs/                       # Documentation and ADRs
-├── helm/                       # Helm charts for Kubernetes deployment
-└── package.json                # Root configuration
+├── Dockerfile                  # The one image the pipeline builds
+└── package.json                # The application's manifest AND the workspace root
 ```
+
+Because the application is the root package, Turbo cannot run its scripts under an ordinary task name — a root
+task has to be called `//#<task>`. Hence `//#build:app`, `//#test:app` and `//#dev:app`, with `yarn build`,
+`yarn test` and `yarn dev` orchestrating both halves (`turbo build build:app`). The app's own compiler settings
+are in `tsconfig.app.json`, not the root `tsconfig.json`.
 
 ## 🏁 Getting Started
 
@@ -134,7 +145,7 @@ yarn dev
 yarn dev                        # Start all services concurrently
 
 # Testing
-yarn test                       # Run all tests across workspaces
+yarn test                       # The app's tests and every lib's (turbo test test:app)
 yarn test:e2e                   # Playwright E2E tests
 yarn test:coverage              # Generate coverage report
 
@@ -159,7 +170,7 @@ To pick up an upstream fix, port the change from the template repo rather than e
 
 ### Creating a New Feature Module
 
-Feature libs under `libs/` hold **pure domain logic** — services, validation, view models, navigation. Pages and assets live in the consuming app (`apps/web/src/pages/`, `apps/web/src/assets/`). Anything that reads or writes case data goes through `libs/deed-poll-api-client`; there is no query layer to write. There is no per-module registration metadata; apps import named functions directly.
+Feature libs under `libs/` hold **pure domain logic** — services, validation, view models, navigation. Pages and assets live in the application at the repository root (`src/pages/`, `src/assets/`). Anything that reads or writes case data goes through `libs/deed-poll-api-client`; there is no query layer to write. There is no per-module registration metadata; the app imports named functions directly.
 
 1. **Create the lib**:
 ```bash
@@ -229,7 +240,7 @@ export * from "./my-feature/validation.js";
 
 6. **Add the lib as a dependency** of the consuming app:
 ```jsonc
-// apps/web/package.json
+// package.json — the root one; the application IS the root package
 "dependencies": {
   "@hmcts/my-feature": "workspace:*"
 }
@@ -238,7 +249,7 @@ Then run `yarn install` from the repo root.
 
 7. **Use it from the app** with named imports:
 ```typescript
-// apps/web/src/pages/my-feature/new.ts
+// src/pages/my-feature/new.ts
 import { createMyFeature } from "@hmcts/my-feature";
 import { callerFromRequest } from "../../auth/current-user.js";
 
@@ -248,7 +259,7 @@ export const POST = async (req, res) => {
 };
 ```
 
-That's it — no further wiring. `turbo run dev` picks the new lib up automatically and runs its `tsc --watch`; the apps' nodemon watches `../../libs/*/dist` so they restart whenever the lib emits.
+That's it — no further wiring. `yarn dev` is `turbo watch dev dev:app`, so the new lib's `tsc --watch` starts automatically and `tsx` restarts the app whenever the lib emits.
 
 #### If the feature needs to store something
 
@@ -259,9 +270,9 @@ pinning the three together. See [`.claude/rules/backend.md`](.claude/rules/backe
 
 #### If the feature needs pages or static assets
 
-Pages, templates, and assets are **app-scoped**, not lib-scoped:
-- **Web pages** — `apps/web/src/pages/my-feature/(group)/page.{ts,njk}`. `simple-router` discovers them; `(group)` segments don't appear in the URL.
-- **SCSS/JS bundles** — `apps/web/src/assets/css/my-feature.scss`, `apps/web/src/assets/js/my-feature.ts`. Vite picks them up from `apps/web/src/assets/`.
+Pages, templates, and assets belong to the application at the root, not to a lib:
+- **Web pages** — `src/pages/my-feature/(group)/page.{ts,njk}`. `simple-router` discovers them; `(group)` segments don't appear in the URL.
+- **SCSS/JS bundles** — `src/assets/css/my-feature.scss`, `src/assets/js/my-feature.ts`. Vite picks them up from `src/assets/`.
 
 Each handler imports its lib's domain functions directly (`import { … } from "@hmcts/my-feature"`).
 

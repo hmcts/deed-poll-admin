@@ -6,16 +6,16 @@
  * an `ApiResult`.
  *
  * **The adapter does not throw and this does.** That is not a contradiction of decision 2 in
- * `docs/plans/02-dal-cutover-to-api.md`: the adapter classifies, and something above it has to decide
+ * `docs/plans/completed/02-dal-cutover-to-api.md`: the adapter classifies, and something above it has to decide
  * what the classification means. The decision taken is to keep the vocabulary the pages, the routes
- * and `apps/web/src/errors.ts` already map — `NotFoundError` renders the 404 page, `InvalidInputError`
+ * and `src/errors.ts` already map — `NotFoundError` renders the 404 page, `InvalidInputError`
  * re-renders a form with its errors against the fields — so a refusal that used to originate from a
  * Prisma-backed throw reaches exactly the same handler now that it originates from api. Task 3 of the
  * plan asks for that explicitly.
  *
  * Read from `process.env` rather than through the `config` package, matching
  * `deed-poll-web/apps/web/src/api/deed-poll-api.ts`: `config` resolves its files against the working
- * directory at IMPORT time, and `apps/web/src/app.ts` deliberately imports it only after the key
+ * directory at IMPORT time, and `src/app.ts` deliberately imports it only after the key
  * vault secrets have been mounted into the environment. Reading the environment lazily, per call, is
  * correct at any point in the startup sequence.
  */
@@ -32,7 +32,7 @@ const DEFAULT_BASE_URL = "http://localhost:3200";
  * overridable by `DEED_POLL_API_TIMEOUT_MS`: a probe must answer on its own terms and never inherit a
  * caller's patience. `runChecks` in `@hmcts-cft/cloud-native-platform` is a bare `Promise.all`, so a
  * probe slower than Kubernetes' own timeout reports nothing at all — and takes the sibling Redis result
- * in `apps/web/src/app.ts` down with it.
+ * in `src/app.ts` down with it.
  */
 const HEALTH_PROBE_TIMEOUT_MS = 2_000;
 
@@ -70,7 +70,7 @@ export async function callApi<T>(caller: Caller, call: (config: ApiConfig) => Pr
  * Whether api is answering, as a readiness check.
  *
  * This is what replaced `deedPollDatabaseChecks()` when the data access layer went — task 5 of
- * `docs/plans/02-dal-cutover-to-api.md`, which asks for it in those terms. It is the same argument the
+ * `docs/plans/completed/02-dal-cutover-to-api.md`, which asks for it in those terms. It is the same argument the
  * Postgres check made, pointed at the dependency that took its place: this app can serve no case page
  * without api, so a probe that went green while api was unreachable would have Kubernetes send traffic
  * to a pod that 500s every request.
@@ -93,7 +93,7 @@ export async function callApi<T>(caller: Caller, call: (config: ApiConfig) => Pr
  *
  * Plain `Promise<"UP" | "DOWN">`, which is what `@hmcts-cft/cloud-native-platform`'s `HealthCheck`
  * returns, so the domain needs no dependency on the app framework to supply it. **Whether it is
- * readiness or liveness is the app's call, not this file's** — see `apps/web/src/app.ts`, which puts it
+ * readiness or liveness is the app's call, not this file's** — see `src/app.ts`, which puts it
  * on readiness only, for why.
  */
 export async function deedPollApiStatus(): Promise<"UP" | "DOWN"> {

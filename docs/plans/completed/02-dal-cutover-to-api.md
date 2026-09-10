@@ -44,7 +44,7 @@ plan is blocked on another repo any more, and task 6 can be done whenever its tu
 | Why this cutover exists, what moves and what stays | `.business_context/DEED_POLL_API_PLAN.md` — especially "What moves, what stays, what goes" |
 | The working example of a frontend consuming api | `../deed-poll-web/libs/deed-poll-api-client/` — `openapi.yaml`, one adapter, an in-memory mock |
 | api's actual caseworker surface | `../deed-poll-api/src/main/java/uk/gov/hmcts/reform/deedpoll/api/caseworker/` and its published `/v3/api-docs` |
-| Why sessions are excluded | `docs/plans/01-jenkins-and-session-schema.md`, task 2 |
+| Why sessions are excluded | `docs/plans/completed/01-jenkins-and-session-schema.md`, task 2 |
 
 ### Architecture decisions already taken — implement these, do not revisit
 

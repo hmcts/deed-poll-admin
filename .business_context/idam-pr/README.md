@@ -32,19 +32,38 @@ another PR to `idam-access-config`.
   successful login — so no request reaches our logs and nothing in this repo fails. It has to be added
   before a production deploy, and nothing will remind you.
 
-- **The doubled segment in the hostnames is correct.**
-  `deed-poll-deed-poll-admin-staging-web.aat.platform.hmcts.net` reads like a mistake and is not:
-  `helm/deed-poll-admin/values.template.yaml` builds the host as
-  `${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}…`, where `TEAM_NAME` is `deed-poll` from
-  `annotations.team` and the release is `deed-poll-admin-staging`. See "The deployed redirect URI was
-  wrong" in [`../PROGRESS.md`](../PROGRESS.md) — the subchart's own `ingressHost` is the value you read
-  first and the one that never applies.
+- **The doubled segment in the hostnames is wrong, and these files still carry it.** They are left as
+  submitted, because this directory is the record of what was submitted — but
+  `deed-poll-deed-poll-admin-staging-web.aat.platform.hmcts.net` does read like a mistake and is one. It came
+  from `helm/deed-poll-admin/values.template.yaml`'s
+  `${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}…` on the assumption that `TEAM_NAME` was `deed-poll`
+  from `annotations.team` and `ENVIRONMENT` was `aat`. Neither holds: `helmInstall` exports neither variable
+  to a values template, so `envsubst` emptied `${ENVIRONMENT}` and left a doubled dot, and `TEAM_NAME` is
+  `TeamConfig.getName(product)` — a team display name from `cnp-jenkins-config/team-config.yml` that falls
+  back to the literal `pleaseTagMe` for a product it does not list, which `deed-poll` is.
+
+  **The hosts to register instead**, settled 2026-09-10 by plan 03 task 4, which rewrote the chart to use
+  `${SERVICE_FQDN}`:
+
+  | File | Host |
+  |---|---|
+  | `base/services.yaml` | `https://deed-poll-admin.<<ENV>>.platform.hmcts.net/oauth2/callback` |
+  | `aat/services.yaml` | that, plus `https://deed-poll-admin-staging.aat.platform.hmcts.net/oauth2/callback` and `http://localhost:3000/oauth2/callback` |
+
+  [`hmcts/idam-access-config#993`](https://github.com/hmcts/idam-access-config/pull/993) is **open and
+  unmerged**, so the correction goes into that PR rather than into a second one. Do not amend the YAML here
+  expecting anything to happen — and if you amend it to keep the two in step, say so, because this directory
+  stops being a record of the original request the moment you do. Full reasoning, including the separate
+  `idam-client-secret` / `admin-idam-client-secret` mismatch, is in
+  [`../IDAM_REGISTRATION_REQUEST.md`](../IDAM_REGISTRATION_REQUEST.md).
 
 - **`demo`, `ithc` and `perftest` are speculative.** The GitHub Actions pipeline deploys to preview (per
   PR) and AAT (on main) only, so those three hostnames follow the same pattern but have never been
   rendered from a real chart, let alone deployed. Registering them costs nothing and saves a second PR
   if those environments are ever used; do not read their presence as evidence anything deploys there.
 
-**Preview environments need no entry here** — AAT adds a `https://allow-pr-redirects` wildcard covering
-the per-PR hostnames, which is why `deed-poll-deed-poll-admin-pr-<n>-web.preview…` appears in none of
-these files.
+**Preview environments have no entry here, and that is a gap rather than a settled answer.** The claim that
+AAT adds a `https://allow-pr-redirects` wildcard covering per-PR hostnames is unverified, and
+`idam-access-config` registers nothing for `apps/pcs`'s preview environments either — so either IDAM permits
+a pattern that repo does not show, or pcs preview sign-in does not work. `${SERVICE_FQDN}` differs per pull
+request, so this needs an answer from IDAM; do not invent a wildcard.

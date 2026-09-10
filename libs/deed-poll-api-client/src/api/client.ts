@@ -1,7 +1,7 @@
 /**
  * The only module in this repo that knows `deed-poll-api` exists.
  *
- * Plain functions over `fetch`, per decision 1 of `docs/plans/02-dal-cutover-to-api.md`. Everything
+ * Plain functions over `fetch`, per decision 1 of `docs/plans/completed/02-dal-cutover-to-api.md`. Everything
  * above this line deals in cases, notes, witnesses and documents; nothing above it sees a URL, an HTTP
  * status or a multipart boundary. When api's shape changes, this file changes.
  *
@@ -163,7 +163,7 @@ export function patchNote(caseId: string, noteId: string, note: string | undefin
  * Delete a note. 204, so there is no body and nothing to parse.
  *
  * api's thirteenth caseworker operation, added for this app — its note form has always had a delete
- * button. See the prerequisite section of `docs/plans/02-dal-cutover-to-api.md`.
+ * button. See the prerequisite section of `docs/plans/completed/02-dal-cutover-to-api.md`.
  */
 export function deleteNote(caseId: string, noteId: string, config: ApiConfig): Promise<ApiResult<void>> {
   return requestNoContent(config, "DELETE", notePath(caseId, noteId));
@@ -436,7 +436,7 @@ function isAborted(error: unknown): boolean {
 /**
  * Classify a non-2xx by status, picking up api's field errors when the body carries them.
  *
- * The mapping is deliberately the inverse of what `apps/web/src/errors.ts` already does with thrown
+ * The mapping is deliberately the inverse of what `src/errors.ts` already does with thrown
  * domain errors: `not-found` becomes its 404 page and `forbidden` its 403, so a refusal that used to
  * originate from a Prisma-backed throw renders identically now that it originates from api.
  */

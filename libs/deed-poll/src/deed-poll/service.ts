@@ -6,7 +6,7 @@
  * privacy lock, the cross-field date rules and state derivation on every write. api does all of it now
  * — `DeedPollService` there is the port of exactly this file, rule for rule and comment for comment —
  * so keeping any of it here would be a second opinion about a case, which is the failure mode task 3 of
- * `docs/plans/02-dal-cutover-to-api.md` exists to remove. The rules are not lost; they moved.
+ * `docs/plans/completed/02-dal-cutover-to-api.md` exists to remove. The rules are not lost; they moved.
  *
  * What is left is the functions the pages and routes already call, so nothing above changed shape beyond
  * gaining a `Caller`. Absence still arrives as `NotFoundError` and a rejected write as

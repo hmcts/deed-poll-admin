@@ -1,7 +1,7 @@
-## HMCTS Monorepo Agentic Capabilities
+## HMCTS Agentic Capabilities
 
 ### Code base
-- Monorepo structure
+- One deployable: the application is the root package in `src/`, with domain logic in `libs/*`
 - Key directories and files
 
 ### CLAUDE\.md

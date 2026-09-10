@@ -4,7 +4,7 @@ Written 2026-09-04. Supersedes Phase 10 of [`MIGRATION_PLAN.md`](MIGRATION_PLAN.
 
 > **The admin-side cutover is DONE, 2026-09-09.** This plan described the cutover as a later stage; it was
 > brought forward on Steve's call of 2026-09-07 and carried out in
-> [`docs/plans/02-dal-cutover-to-api.md`](../docs/plans/02-dal-cutover-to-api.md), eight tasks on
+> [`docs/plans/completed/02-dal-cutover-to-api.md`](../docs/plans/completed/02-dal-cutover-to-api.md), eight tasks on
 > `dal-cutover-to-api`. **`deed-poll-admin` now owns no data access layer at all**: no Prisma, no pg pool,
 > no migrations, no `apps/api`, no `apps/postgres`, no `libs/postgres-prisma`, no `DATABASE_URL` and no
 > database credential in any chart. Every case, note, witness and document operation goes through one
@@ -199,7 +199,7 @@ reversed on 2026-09-07 because `PostgresStore` accepts a `schemaName` it cannot 
 value" was a config value plus a migration plus a Prisma drift question — and Redis was already provisioned
 for `deed-poll-web`, so using it added no infrastructure. `public` now has exactly one owner with no second
 connection in the database at all. See [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md) Decision 3 and
-`docs/plans/01-jenkins-and-session-schema.md`.
+`docs/plans/completed/01-jenkins-and-session-schema.md`.
 
 **The Postgres server itself is provisioned by `hmcts/deed-poll-infra`**, not by this repo — so "one
 server, one database" is now a shared-infrastructure fact rather than something this service creates.

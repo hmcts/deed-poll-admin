@@ -1,6 +1,6 @@
 // Deed-poll domain logic, ported from the power_app_nest prototype.
 //
-// Framework-agnostic by design: no Express, no HTTP concerns, no Nest DI. `apps/web`'s pages
+// Framework-agnostic by design: no Express, no HTTP concerns, no Nest DI. The app's pages
 // import named functions from here.
 //
 // The prototype expressed these as Nest @Injectable() classes. They held no state, so
@@ -10,7 +10,7 @@
 // caller an `ApiConfig` and lets it invoke any adapter function directly, which is the seam
 // `.claude/rules/backend.md` states nothing outside `api/deed-poll-api.ts` crosses. A page that reached
 // api through it would bypass the domain layer and its error mapping. `Caller` is public because
-// `apps/web`'s `callerFromRequest` returns one, and `deedPollApiStatus` because `app.ts` mounts it as a
+// the app's `callerFromRequest` returns one, and `deedPollApiStatus` because `app.ts` mounts it as a
 // readiness check.
 export { type Caller, deedPollApiStatus } from "./api/deed-poll-api.js";
 export * from "./auth/current-user.js";

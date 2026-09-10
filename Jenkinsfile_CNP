@@ -12,7 +12,9 @@ def component = "admin"
 // never been configured. See `.business_context/DEED_POLL_INFRA_PLAN.md`.
 //
 // The library is pinned to the same version as `hmcts/deed-poll-infra`'s `withInfraPipeline`, so the
-// product's two pipelines move together. Pinning is the estate norm — pcs and pt both pin.
+// product's two pipelines move together. Pinning is the estate norm — pcs and pt both pin. Reconfirmed
+// against that repo's own `Jenkinsfile_CNP` on 2026-09-10: both are `Infrastructure@2.4.4`. Bump both or
+// neither.
 //
 // Empty body deliberately:
 //   - secrets reach this app through the Helm chart's `keyVaults:` block (a properties volume), not
@@ -20,6 +22,12 @@ def component = "admin"
 //   - `yarn build` is not called here because the Dockerfile runs it, so a type error fails the image
 //     build rather than passing unnoticed (`yarn test` transpiles without type-checking);
 //   - there is no `Jenkinsfile_nightly` — see `docs/PIPELINES.md` for that and for the onboarding work
-//     this pipeline still needs before it can deploy.
+//     this pipeline still needs before it can deploy;
+//   - **no `enableE2eTest()`, and that is a decision rather than an omission.** `AppPipelineConfig.e2eTest`
+//     defaults false, so `yarn test:e2e` runs in no pipeline at all. It cannot: the journeys need a
+//     caseworker signed in through `rse-idam-simulator` and fixtures from the in-memory api mock on :3200,
+//     and a deployed environment has neither. The post-deploy gate is `yarn test:smoke` instead. Note that
+//     `sectionDeployToAKS` also runs the e2e suite for any PR carrying the GitHub label `enable_e2e_test` —
+//     so it is one label away from running against a deployment it cannot pass. Don't add that label.
 withPipeline(type, product, component) {
 }

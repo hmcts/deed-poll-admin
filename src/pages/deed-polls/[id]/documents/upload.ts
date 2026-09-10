@@ -1,0 +1,148 @@
+/**
+ * SSR document-upload form, ported from the prototype's `@Get(':id/documents/upload')` /
+ * `@Post(...)`.
+ *
+ * Static, so it resolves before `[documentId]/file.ts` — `sortRoutes` orders by parameter count and
+ * this has one fewer.
+ *
+ * The POST exports an **array** so the multipart parser runs before the handler — a shape
+ * `simple-router` supports for exactly this. See `src/documents/upload.ts`.
+ *
+ * **The file cannot be preserved across a re-render**, because browsers do not repopulate a file
+ * input — so unlike the note forms, a rejected upload always costs the caseworker the file selection.
+ * The other three fields can be kept, and are: re-rendering still beats the prototype's `?error=`
+ * redirect, which discarded the type and direction choices as well.
+ *
+ * Document types come from the reference table, so an empty table shows a message rather than an
+ * unusable form with no options.
+ */
+import {
+  findDeedPoll,
+  findDocumentTypes,
+  InvalidInputError,
+  MAX_UPLOAD_BYTES,
+  NotFoundError,
+  uploadDocument,
+  uploadFormSchema,
+  zodErrorToFieldErrors
+} from "@hmcts/deed-poll";
+import type { Request, Response } from "express";
+import { callerFromRequest } from "../../../../auth/current-user.js";
+import { uploadRejection, uploadSingleFile } from "../../../../documents/upload.js";
+
+const en = {
+  title: "Upload a document",
+  heading: "Upload a document",
+  fileLabel: "Choose a file",
+  // Derived from the policy rather than restated, because a hint that disagrees with the limit is worse
+  // than no hint: it told the caseworker 10MB while the limit was raised to 25MB, so the number they
+  // were shown and the number enforced would have drifted apart the moment either changed.
+  fileHint: `PDF, JPG, PNG, TIFF or Word, up to ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))}MB.`,
+  typeLabel: "Document type",
+  typeEmpty: "Choose a type",
+  nameLabel: "Name (optional)",
+  nameHint: "Leave blank to use the file's own name.",
+  directionLabel: "Direction",
+  directionHint: "Incoming for documents received from the applicant, outgoing for documents we send.",
+  submit: "Upload",
+  cancel: "Cancel",
+  errorSummaryTitle: "There is a problem",
+  noTypes: "No document types have been set up, so a document cannot be filed yet.",
+  // What a refusal from api that names no field says. api's own wording is developer-facing — and when
+  // the body is not its JSON at all the message is the literal "deed-poll-api answered 413" — so it is
+  // logged rather than rendered. A 413 reaches here whenever api's size limit is below this app's.
+  uploadRefused: "The file could not be uploaded. Check the file is not too large and try again."
+};
+
+// English content in the cy shape — see the note in ../../index.ts.
+const cy = { ...en };
+
+const directionOptions = [
+  { value: "Incoming", text: "Incoming" },
+  { value: "Outgoing", text: "Outgoing" }
+];
+
+export const GET = async (req: Request, res: Response) => {
+  await render(req, res, {});
+};
+
+const handler = async (req: Request, res: Response) => {
+  // The parser records its own rejections rather than throwing them, because re-rendering this form
+  // is this handler's job and an error handler could not know which form to re-render. See
+  // ../../../../documents/upload.ts.
+  const rejected = uploadRejection(res);
+  if (rejected) {
+    const first = rejected.errors[0];
+    return rerender(req, res, first?.field ?? "file", first?.message ?? rejected.message);
+  }
+
+  const body = req.body as Record<string, string>;
+  const parsed = uploadFormSchema.safeParse({
+    documentTypeId: body.documentTypeId || undefined,
+    name: body.name || undefined,
+    direction: body.direction || undefined
+  });
+
+  if (!parsed.success) {
+    const [first] = zodErrorToFieldErrors(parsed.error);
+    return rerender(req, res, first?.field ?? "documentTypeId", first?.message ?? "Check the form");
+  }
+
+  try {
+    await uploadDocument(
+      req.params.id,
+      parsed.data.documentTypeId,
+      req.file,
+      { name: parsed.data.name, direction: parsed.data.direction },
+      callerFromRequest(req)
+    );
+  } catch (error) {
+    // A missing file arrives as an InvalidInputError against `file` from the domain, which owns that
+    // message so this page and any other caller give the same one. api's own rejections arrive the same
+    // way, carrying its field names — which are this form's field names, so an error against
+    // `documentTypeId` still lands on the control the caseworker used. An unknown document type
+    // arrives as NotFoundError: a 404 would be wrong here, because they picked from a list this page
+    // rendered, so it belongs against the field they chose from.
+    //
+    // A refusal naming NO field is api's alone — every local rejection attributes itself — so its
+    // developer-facing wording is logged and this page's own copy is rendered.
+    if (error instanceof InvalidInputError) {
+      const first = error.errors[0];
+      if (!first) console.error(`document upload refused with no field named: ${error.message}`);
+      return rerender(req, res, first?.field ?? "file", first?.message ?? en.uploadRefused);
+    }
+    if (error instanceof NotFoundError) {
+      return rerender(req, res, "documentTypeId", error.message);
+    }
+    throw error;
+  }
+
+  res.redirect(`/deed-polls/${req.params.id}#documents`);
+};
+
+export const POST = [uploadSingleFile(), handler];
+
+async function rerender(req: Request, res: Response, field: string, message: string) {
+  res.status(400);
+  await render(req, res, { field, message });
+}
+
+async function render(req: Request, res: Response, error: { field?: string; message?: string }) {
+  const caller = callerFromRequest(req);
+  const [found, types] = await Promise.all([findDeedPoll(req.params.id, caller), findDocumentTypes(caller)]);
+
+  res.render("deed-polls/document-upload", {
+    case: found,
+    // The file input is never repopulated, so only the choices are replayed.
+    values: (req.body ?? {}) as Record<string, string>,
+    // `name` is nullable on the wire, so the id is the fallback: an option with no text is selectable,
+    // invisible and unreadable to a screen reader. `documents-view.ts` handles the same nullability.
+    documentTypes: [{ value: "", text: en.typeEmpty }, ...types.map((type) => ({ value: type.id, text: type.name ?? type.id }))],
+    hasTypes: types.length > 0,
+    directionOptions,
+    errorField: error.field ?? null,
+    errorMessage: error.message ?? null,
+    en,
+    cy
+  });
+}

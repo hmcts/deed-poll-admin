@@ -1,6 +1,0 @@
-{
-  "serviceName": "SERVICE_NAME",
-  "applicationInsights": {
-    "connectionString": "APPLICATION_INSIGHTS_CONNECTION_STRING"
-  }
-}

@@ -1,7 +1,7 @@
 # Where `openapi.json` came from
 
 Taken from `deed-poll-api`'s own published document, not hand-written. Task 1 of
-`docs/plans/02-dal-cutover-to-api.md`: api exists, so a divergence between this file and api is a bug in
+`docs/plans/completed/02-dal-cutover-to-api.md`: api exists, so a divergence between this file and api is a bug in
 one of them rather than licence to invent.
 
 | | |

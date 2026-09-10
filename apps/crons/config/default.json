@@ -1,6 +1,0 @@
-{
-  "serviceName": "deed-poll-admin-crons",
-  "applicationInsights": {
-    "enabled": false
-  }
-}

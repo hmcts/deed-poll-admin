@@ -81,7 +81,7 @@ tools: Read, Write, Edit, Bash, Grep, Glob
 #### Data Architecture — there is no database here
 - **`deed-poll-api` owns the data.** Every read and write is an HTTP call; Prisma, the pg pool, the
   migrations, `apps/api`, `apps/postgres` and `libs/postgres-prisma` were all deleted. See
-  `docs/plans/02-dal-cutover-to-api.md`
+  `docs/plans/completed/02-dal-cutover-to-api.md`
 - **One adapter**: `libs/deed-poll-api-client` is the only thing that speaks HTTP to api, and it never
   throws — it returns `ApiResult<T>`, so an unreachable api is a page state and not a 500
 - **One door**: `libs/deed-poll/src/api/deed-poll-api.ts`'s `callApi` is the only place that builds an
@@ -140,7 +140,7 @@ mock, pinned by `contract.test.ts` — then a service function that calls it.
 Import directly from the lib package — no registration step required:
 
 ```typescript
-// apps/web/src/pages/deed-polls/[id]/notes/new.ts
+// src/pages/deed-polls/[id]/notes/new.ts
 import { createNote, createNoteSchema, findDeedPoll } from "@hmcts/deed-poll";
 ```
 
@@ -173,7 +173,7 @@ export async function createUser(request: CreateUserRequest) {
   });
 }
 
-// apps/web/src/pages/user-management/create-user.ts
+// src/pages/user-management/create-user.ts
 import type { Request, Response } from "express";
 import { createUser } from "@hmcts/user-management";
 
@@ -207,7 +207,7 @@ export const POST = async (req: Request, res: Response) => {
 
 #### Session Storage Pattern
 
-Sessions are already set up in `apps/web/src/app.ts` using secure, HTTP-only cookies. Use the session object to store temporary data.
+Sessions are already set up in `src/app.ts` using secure, HTTP-only cookies. Use the session object to store temporary data.
 
 Each module should namespace its session keys to avoid collisions.
 
@@ -276,7 +276,7 @@ interface UserSession extends Session {
 
 #### Accessible Form Pattern
 ```html
-<!-- apps/web/src/pages/user-management/create-user.njk -->
+<!-- src/pages/user-management/create-user.njk -->
 {% extends "layouts/default.njk" %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
 {% from "govuk/components/input/macro.njk" import govukInput %}
@@ -422,7 +422,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 ### Main Application Structure
 ```typescript
-// apps/web/src/app.ts
+// src/app.ts
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
@@ -510,7 +510,7 @@ were deleted, because a route that can only fail is worse than a 404.
 
 ### How a failure becomes a page
 
-`callApi` turns the adapter's classified failure into the domain errors `apps/web/src/errors.ts` renders:
+`callApi` turns the adapter's classified failure into the domain errors `src/errors.ts` renders:
 `not-found` → 404 page, `validation` → `InvalidInputError` the **page handler must catch** and re-render
 its form with, `forbidden` → 403, and `unavailable`/`timeout`/`invalid-response` → the 500 page. An
 `InvalidInputError` reaching the error handler is a bug in the handler, not a user error.

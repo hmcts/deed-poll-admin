@@ -12,17 +12,20 @@
  * to each package (`SF:src/app.ts`), and Sonar resolves them from the project root — so concatenating as-is
  * would produce a report naming files that do not exist, and two packages' `src/index.ts` would collide on
  * one entry. Each record is prefixed with the package directory instead.
+ *
+ * The application's own report needs no prefix, because since plan 03 task 3 the application *is* the root
+ * package: its `SF:src/app.ts` is already root-relative.
  */
 import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const WORKSPACE_DIRS = ["apps", "libs"];
+const WORKSPACE_DIRS = ["libs"];
 const OUTPUT = path.join(ROOT, "lcov.info");
 
 function main() {
-  const reports = WORKSPACE_DIRS.flatMap(findReports);
+  const reports = [...findRootReport(), ...WORKSPACE_DIRS.flatMap(findReports)];
 
   // Removed before anything else, because Jenkins reuses a workspace: a run that merges nothing would
   // otherwise leave the previous build's report in place, and Sonar would attribute the earlier commit's
@@ -33,13 +36,18 @@ function main() {
   if (reports.length === 0) {
     // Not a failure: `yarn test` without `--coverage` legitimately produces none, and failing here would
     // fail the pipeline's test stage over a missing side effect rather than a failing test.
-    console.warn("merge-lcov: no coverage/lcov.info found under apps/ or libs/ — nothing to merge.");
+    console.warn("merge-lcov: no coverage/lcov.info found at the root or under libs/ — nothing to merge.");
     return;
   }
 
   const merged = reports.map(({ packageDir, file }) => prefixSourcePaths(readFileSync(file, "utf8"), packageDir));
   writeFileSync(OUTPUT, merged.join(""));
   console.log(`merge-lcov: wrote ${path.relative(ROOT, OUTPUT)} from ${reports.length} report(s).`);
+}
+
+function findRootReport() {
+  const file = path.join(ROOT, "coverage", "lcov.info");
+  return existsAndNotEmpty(file) ? [{ packageDir: ".", file }] : [];
 }
 
 function findReports(workspaceDir) {
@@ -71,7 +79,7 @@ function existsAndNotEmpty(file) {
  * about which prefix to strip.
  */
 function prefixSourcePaths(report, packageDir) {
-  const prefixed = report.replace(/^SF:(.+)$/gm, (line, sourcePath) => (path.isAbsolute(sourcePath) ? line : `SF:${packageDir}/${sourcePath}`));
+  const prefixed = report.replace(/^SF:(.+)$/gm, (line, sourcePath) => (path.isAbsolute(sourcePath) ? line : `SF:${path.posix.join(packageDir, sourcePath)}`));
   return prefixed.endsWith("\n") ? prefixed : `${prefixed}\n`;
 }
 

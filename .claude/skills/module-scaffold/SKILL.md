@@ -15,11 +15,11 @@ This skill automates creation of new feature modules in the `libs/` directory, f
 
 ## What a Module Is
 
-Modules in `libs/` contain reusable business logic — services, validation, view models — consumed by `apps/web` via direct imports. Pages, routes, and templates live in the app, not in libs.
+Modules in `libs/` contain reusable business logic — services, validation, view models — consumed by the application at the repository root via direct imports. Pages, routes, and templates live in the app (`src/`), not in libs.
 
 **A module cannot store anything.** This repo has no database: every read and write of case data is an HTTP
 call to [`hmcts/deed-poll-api`](https://github.com/hmcts/deed-poll-api) through `libs/deed-poll-api-client`.
-See `.claude/rules/backend.md` and `docs/plans/02-dal-cutover-to-api.md`.
+See `.claude/rules/backend.md` and `docs/plans/completed/02-dal-cutover-to-api.md`.
 
 ## Step-by-Step Instructions
 
@@ -58,7 +58,7 @@ Add to `compilerOptions.paths`:
 "@hmcts/{name}": ["libs/{name}/src"]
 ```
 
-#### 4b. apps/web/package.json
+#### 4b. package.json (the root one — the application IS the root package)
 
 Add the lib as a workspace dependency, or nothing can import it:
 
@@ -129,7 +129,7 @@ Templates are located in `.claude/skills/module-scaffold/assets/`:
 
 8. **Use from an app:**
    ```typescript
-   // apps/web/src/pages/payment/confirm.ts
+   // src/pages/payment/confirm.ts
    import { processPayment } from "@hmcts/payment";
    ```
 

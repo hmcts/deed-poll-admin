@@ -7,7 +7,7 @@
 #
 # Three entries were removed on 2026-09-09 rather than left to expire: two `mysql2` advisories and one
 # `deepmerge-ts` advisory, all three ignored only because the Prisma toolchain pinned them exactly. Task 5
-# of `docs/plans/02-dal-cutover-to-api.md` deleted the data access layer, so `prisma`, `@prisma/config`
+# of `docs/plans/completed/02-dal-cutover-to-api.md` deleted the data access layer, so `prisma`, `@prisma/config`
 # and every driver the CLI bundled are gone from `yarn.lock` and neither package is in the tree at all.
 # An ignore for a package that is no longer a dependency is worse than no ignore: it would silently
 # suppress the same advisory if the package ever came back for an unrelated reason.

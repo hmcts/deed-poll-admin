@@ -850,16 +850,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@hmcts/crons@workspace:apps/crons":
-  version: 0.0.0-use.local
-  resolution: "@hmcts/crons@workspace:apps/crons"
-  dependencies:
-    "@hmcts-cft/cloud-native-platform": "workspace:*"
-    "@types/config": "npm:4.4.0"
-    config: "npm:4.4.2"
-  languageName: unknown
-  linkType: soft
-
 "@hmcts/deed-poll-api-client@workspace:*, @hmcts/deed-poll-api-client@workspace:libs/deed-poll-api-client":
   version: 0.0.0-use.local
   resolution: "@hmcts/deed-poll-api-client@workspace:libs/deed-poll-api-client"
@@ -879,44 +869,6 @@ __metadata:
     typescript: "npm:6.0.3"
     vitest: "npm:*"
     zod: "npm:4.4.3"
-  languageName: unknown
-  linkType: soft
-
-"@hmcts/web@workspace:apps/web":
-  version: 0.0.0-use.local
-  resolution: "@hmcts/web@workspace:apps/web"
-  dependencies:
-    "@hmcts-cft/cloud-native-platform": "workspace:*"
-    "@hmcts-cft/express-govuk-starter": "workspace:*"
-    "@hmcts-cft/express-session-postgres": "workspace:*"
-    "@hmcts-cft/express-session-redis": "workspace:*"
-    "@hmcts-cft/simple-router": "workspace:*"
-    "@hmcts/cookie-manager": "npm:1.1.0"
-    "@hmcts/deed-poll": "workspace:*"
-    "@types/config": "npm:4.4.0"
-    "@types/cookie-parser": "npm:1.4.10"
-    "@types/express": "npm:5.0.6"
-    "@types/express-session": "npm:1.19.0"
-    "@types/govuk-frontend": "npm:5.11.0"
-    "@types/multer": "npm:2.2.0"
-    "@types/nunjucks": "npm:3.2.6"
-    "@types/supertest": "npm:7.2.1"
-    config: "npm:4.4.2"
-    connect-redis: "npm:9.0.0"
-    cookie-parser: "npm:1.4.7"
-    express: "npm:5.2.1"
-    express-session: "npm:1.19.0"
-    glob: "npm:13.0.6"
-    govuk-frontend: "npm:6.5.0"
-    helmet: "npm:8.3.0"
-    multer: "npm:2.3.0"
-    nunjucks: "npm:3.2.4"
-    openid-client: "npm:6.8.7"
-    redis: "npm:6.0.0"
-    sass: "npm:1.103.1"
-    supertest: "npm:7.2.2"
-    vite: "npm:8.0.16"
-    vite-plugin-static-copy: "npm:4.1.1"
   languageName: unknown
   linkType: soft
 
@@ -2433,7 +2385,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/js-yaml@npm:^4.0.9":
+"@types/js-yaml@npm:4.0.9, @types/js-yaml@npm:^4.0.9":
   version: 4.0.9
   resolution: "@types/js-yaml@npm:4.0.9"
   checksum: 10c0/24de857aa8d61526bbfbbaa383aa538283ad17363fcd5bb5148e2c7f604547db36646440e739d78241ed008702a8920665d1add5618687b6743858fae00da211
@@ -3315,14 +3267,45 @@ __metadata:
   resolution: "deed-poll-admin@workspace:."
   dependencies:
     "@biomejs/biome": "npm:2.5.8"
+    "@hmcts-cft/cloud-native-platform": "workspace:*"
+    "@hmcts-cft/express-govuk-starter": "workspace:*"
+    "@hmcts-cft/express-session-postgres": "workspace:*"
+    "@hmcts-cft/express-session-redis": "workspace:*"
+    "@hmcts-cft/simple-router": "workspace:*"
+    "@hmcts/cookie-manager": "npm:1.1.0"
+    "@hmcts/deed-poll": "workspace:*"
+    "@types/config": "npm:4.4.0"
+    "@types/cookie-parser": "npm:1.4.10"
+    "@types/express": "npm:5.0.6"
+    "@types/express-session": "npm:1.19.0"
+    "@types/govuk-frontend": "npm:5.11.0"
+    "@types/js-yaml": "npm:4.0.9"
+    "@types/multer": "npm:2.2.0"
     "@types/node": "npm:24.13.3"
+    "@types/nunjucks": "npm:3.2.6"
     "@types/supertest": "npm:7.2.1"
     "@vitest/coverage-v8": "npm:4.1.11"
     "@vitest/ui": "npm:4.1.11"
+    config: "npm:4.4.2"
+    connect-redis: "npm:9.0.0"
+    cookie-parser: "npm:1.4.7"
+    express: "npm:5.2.1"
+    express-session: "npm:1.19.0"
+    glob: "npm:13.0.6"
+    govuk-frontend: "npm:6.5.0"
+    helmet: "npm:8.3.0"
+    js-yaml: "npm:4.3.2"
+    multer: "npm:2.3.0"
+    nunjucks: "npm:3.2.4"
+    openid-client: "npm:6.8.7"
+    redis: "npm:6.0.0"
+    sass: "npm:1.103.1"
     supertest: "npm:7.2.2"
     tsx: "npm:4.23.13"
     turbo: "npm:2.10.12"
     typescript: "npm:6.0.3"
+    vite: "npm:8.0.16"
+    vite-plugin-static-copy: "npm:4.1.1"
     vite-tsconfig-paths: "npm:6.1.1"
     vitest: "npm:4.1.11"
   languageName: unknown
@@ -4285,7 +4268,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"js-yaml@npm:^4.1.0":
+"js-yaml@npm:4.3.2, js-yaml@npm:^4.1.0":
   version: 4.3.2
   resolution: "js-yaml@npm:4.3.2"
   dependencies:

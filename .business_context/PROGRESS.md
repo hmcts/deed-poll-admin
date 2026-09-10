@@ -1,6 +1,6 @@
 # Migration progress — handover
 
-Last updated: 2026-09-09. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md). Backend:
+Last updated: 2026-09-10. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md). Backend:
 [`DEED_POLL_API_PLAN.md`](DEED_POLL_API_PLAN.md). **Infrastructure and pipeline:
 [`DEED_POLL_INFRA_PLAN.md`](DEED_POLL_INFRA_PLAN.md).**
 
@@ -8,15 +8,92 @@ Last updated: 2026-09-09. Plan: [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md). Backen
 working. **Phase 6 has been redefined** — an earlier version of this file said nothing in it was code any
 more, and as of 2026-09-06 that is no longer true. See below.
 
-**Read the 2026-09-09 section first.** The data access layer is gone, so every passage below that describes
-this repo reading Postgres through Prisma — including all of "Phase 3 — the JSON API" and most of "Loose
+**Read newest-first, and read the two 2026-09-10 and 2026-09-09 sections before anything below them.** This
+repo is now one deployable with no data access layer, so every passage further down that describes four apps,
+an umbrella chart, or Postgres through Prisma — including all of "Phase 3 — the JSON API" and most of "Loose
 ends" — is history. It is kept because the reasoning is still worth having, not because it is current.
 
-## Pick up here (end of 2026-09-09 session)
+## Pick up here (end of 2026-09-10 session)
+
+### Four deployables collapsed to one
+
+[`docs/plans/03-collapse-to-single-app.md`](../docs/plans/03-collapse-to-single-app.md) landed, six tasks on
+`collapse-to-single-app`. It is authoritative over everything below it, including the 2026-09-09 section.
+
+1. **The application is the root package.** `apps/web` was flattened to `src/` at the repository root, with
+   one `Dockerfile`, one chart, one `Jenkinsfile_CNP` component. `apps/` is gone. `libs/` is still a Yarn
+   workspace of seven packages, deliberately: four are template-provided and keeping them as packages is what
+   makes a future re-scaffold tractable. `libs/express-session-postgres` stays on disk and stays a dependency
+   for the same reason, and nothing imports it.
+2. **Two mechanical consequences that cost time to rediscover.** Turbo will not run a root-package script
+   unless the task is named `//#<task>`, and a root `//#build` would make `yarn build` invoke itself — hence
+   `//#build:app`, `//#test:app`, `//#dev:app` and the orchestrating `turbo <x> <x>:app` scripts. And the
+   app's tsconfig is `tsconfig.app.json`, because the root `tsconfig.json` is the only project covering the
+   libraries' `*.test.ts` files: giving it an `include` made library tests resolve `@hmcts/*` to `dist` while
+   their sources resolved to `src`, so `vi.mock` silently stopped applying. 44 failures, no error message.
+3. **`apps/crons` is deleted**, not deferred. It was a component holding one `console.log` — no job was ever
+   written, and a second Jenkins component that deploys nothing is a second thing to onboard.
+   `libs/onboarding` went with plan 02.
+4. **One chart at `charts/deed-poll-admin/`**, a single `nodejs` chart plus a `redis` subchart enabled in
+   preview only. The umbrella chart and its `deed-poll-admin-{web,api,crons,postgres}` subcharts are gone,
+   for a mechanical reason rather than a stylistic one: `az acr build … .` builds one image and `helmInstall`
+   exposes exactly that one as `${IMAGE_NAME}`, where an umbrella needs one `${*_IMAGE}` per subchart and
+   nothing sets those. `${WEB_IMAGE}` and friends do not exist.
+5. **`${SERVICE_FQDN}` is the ingress host in AAT and preview, and `${TEAM_NAME}`/`${ENVIRONMENT}` must
+   appear nowhere.** `helmInstall` exports exactly `NAMESPACE`, `SERVICE_NAME`, `IMAGE_NAME`, `SERVICE_FQDN`
+   and `INGRESS_IP`. The hand-rolled host this replaced expanded `ENVIRONMENT` to the empty string and left a
+   doubled dot, and `TEAM_NAME` is `TeamConfig.getName(product)` — a team *display* name, returning the
+   constant `pleaseTagMe` for a product `team-config.yml` does not list. `deed-poll` is not listed.
+6. **Preview gets an ephemeral `redis` subchart per pull request. This is decided, not pending.** It was the
+   last of the four in-repo blockers. `hmcts/deed-poll-infra` applies on the `aat`, `demo`, `ithc`,
+   `perftest` and `prod` branches and never in `preview`, so there is no `redis-url` to read, and
+   `assertRedisUrl` refuses the loopback default outside development. **Pointing preview at AAT's
+   `redis-url` was the alternative and was rejected**: every open PR would share one keyspace, so a
+   collision or a flush in one is felt in the rest, and preview sessions would outlive the PR inside a store
+   nothing here can clear. `deed-poll-web` settled it the same way, and HDPI-8155's 10s probe budget is
+   copied with it — under Dynatrace instrumentation the chart-default 2s exec-probe budget leaves redis
+   permanently Running-but-not-Ready. The symptom here is not `deed-poll-web`'s crashloop but `redis: DOWN`
+   on readiness for ever, which keeps the pod out of its own Service.
+   The vault list is re-declared in the preview template *minus* `redis-url`, because
+   `getPropertiesVolumeSecrets` writes every mounted secret to `process.env` unconditionally on the
+   mount-point path — a mounted `redis-url` would overwrite the subchart URL and point a PR at AAT's cache.
+7. **`yarn test:smoke` and `yarn test:functional` now exist**, and the pipeline invokes six `yarn` scripts,
+   failing the stage on any missing one. `test:functional` was the more urgent: `functionalTestEnvironments`
+   includes `preview`, so it runs on every pull request. `src/pipeline.test.ts` and
+   `src/deployment-chart.test.ts` pin the pipeline- and chart-shaped rules that otherwise fail only on a real
+   Jenkins run.
+
+**Test arithmetic, 2026-09-10.** 1,256 → **1,273** unit tests across 8 packages, and 17 → **18** e2e as
+`yarn test:e2e` counts them. The path: −10 for `apps/crons`, +17 in task 4
+(`src/deployment-chart.test.ts`), +10 in task 5 (`src/pipeline.test.ts`), +1 e2e for the `@smoke` spec. No
+test was lost to the flattening itself. Note the generated dashboard below says **17** e2e, and both are
+right: it counts `test(` in `*.spec.ts` statically, where Playwright also runs the `auth.setup.ts`
+project. The
+per-package split is 354 app, 443 `deed-poll`, 140 cloud-native-platform, 138 api-client, 127 govuk-starter,
+41 simple-router, 23 express-session-postgres, 7 express-session-redis.
+
+**What is left before a green deploy is entirely external**, and `docs/PIPELINES.md` enumerates each against
+the library source. The one that bites first: `TeamConfig.setTeamConfigEnv` calls three getters that
+`steps.error` outright when the product is missing from `cnp-jenkins-config/team-config.yml`, so **the
+pipeline hard-fails before it builds anything** and no chart value is reached at all. Then the IDAM client
+registration — `idam-access-config#993` was still open on 2026-09-10, still registering the old hand-rolled
+host, and still writing the secret as `idam-client-secret` where this chart reads
+`admin-idam-client-secret`. Preview sign-in is an open question for IDAM, not something a values file can
+settle. And `deed-poll-api` is not deployed, which keeps the post-deploy smoke gate red on purpose, since
+`test:smoke` asserts readiness and readiness names api.
+
+**One stray was deliberately kept**: `power_app_nest/` is still on disk, gitignored, and plan 03 task 6's
+checkbox to delete it was not followed. It is the 501M Nest prototype these domain functions were ported
+from, it has no git repository of its own so nothing could restore it, `libs/deed-poll/src/index.ts` and
+several documents here cite it, and `scripts/progress-dashboard.mjs` reads it to count the prototype's scope.
+Deleting it would permanently degrade that figure to buy back disk. `lcov.info` (a `yarn test:coverage`
+artefact, now gitignored) and an empty `data/` were deleted.
+
+## Previous session (end of 2026-09-09 session)
 
 ### The data access layer is gone
 
-[`docs/plans/02-dal-cutover-to-api.md`](../docs/plans/02-dal-cutover-to-api.md) landed, eight tasks on
+[`docs/plans/completed/02-dal-cutover-to-api.md`](../docs/plans/completed/02-dal-cutover-to-api.md) landed, eight tasks on
 `dal-cutover-to-api`. It is authoritative for this repo over everything below it. **This repo is now a
 presentation layer with no data access layer at all.**
 
@@ -78,7 +155,7 @@ deploy needs from api. `yarn test:e2e` passes by hand against the mock and still
 
 ### What changed on 2026-09-07 — `deed-poll-admin` only
 
-[`docs/plans/01-jenkins-and-session-schema.md`](../docs/plans/01-jenkins-and-session-schema.md) landed, five
+[`docs/plans/completed/01-jenkins-and-session-schema.md`](../docs/plans/completed/01-jenkins-and-session-schema.md) landed, five
 commits on `jenkins-and-session-schema`. It is authoritative for this repo over everything the 2026-09-06
 notes below say about admin's pipeline and sessions.
 
@@ -280,7 +357,7 @@ ours.
 | Migrate all four repos to the Jenkins CNP pipeline | ✅ **for `deed-poll-admin`** (2026-09-07): `.github/workflows/` deleted, `Jenkinsfile_CNP` added. Still to do for `deed-poll-web` and `deed-poll-api`, each of which has its own plan |
 | ~~Move the session table to its own `session` schema~~ | ❌ **Reversed, not done.** Sessions moved to Redis on 2026-09-07 — no table, no schema, no migration. `public` is api's alone |
 | Rename the per-component vault secrets | ✅ **for `deed-poll-admin`** (2026-09-07), in all four charts, plus a new `redis-url` entry on `apps/web`. Still to do for web and api |
-| Six blockers on a green admin deploy | **New.** Chart at `helm/` vs `charts/`; one image vs two; no `yarn test:smoke`; preview has no Redis; `cnp-jenkins-config` onboarding; `deed-poll-api` not deployed. Two are design decisions. Detail in [`../docs/PIPELINES.md`](../docs/PIPELINES.md) |
+| Six blockers on a green admin deploy | ✅ **The four in-repo ones are resolved** (2026-09-10, plan 03): chart at `charts/`, one image and one component, `yarn test:smoke` and `yarn test:functional` present, preview gets an ephemeral `redis` subchart. Both design decisions were taken. What remains is external — `cnp-jenkins-config` onboarding and `deed-poll-api` not being deployed. Detail in [`../docs/PIPELINES.md`](../docs/PIPELINES.md) |
 | Wire the Playwright suite into a pipeline stage | **New.** `job.e2e-test.yml` went with `.github/workflows/` and nothing replaced it. It is also the only test anywhere that exercises a real `RedisStore` round trip |
 | `cnp-jenkins-config` onboarding, four entries | **New, and now the critical path.** External |
 | `session-secret` in the vault | ✅ Still generated rather than manual — `random_password` in the shared repo's `key-vault.tf`, on the first successful apply. Renamed per component |
@@ -354,9 +431,9 @@ have failed at a different stage:
 
 **The vault is `deed-poll-{env}`, not `{product}-{component}-{env}`.** An earlier version of this file
 said the latter and worried about the 24-character Azure limit; that was wrong. `cnp-module-key-vault`
-defaults the name to `{product}-{env}`, and `keyVaults: deed-poll:` in all four `values.yaml` files is
+defaults the name to `{product}-{env}`, and `keyVaults: deed-poll:` in the chart's `values.yaml` is
 what has to resolve, so `name` is deliberately left unset. `product` itself comes from
-`annotations.team` in `helm/deed-poll-admin/Chart.yaml` — confirmed by running the action's own
+`annotations.team` in `charts/deed-poll-admin/Chart.yaml` — confirmed by running the action's own
 extraction over the real file — so it is `deed-poll` and not the repo name.
 
 ### Renovate's config was wrong in three ways
@@ -690,8 +767,8 @@ adapter functions       14
 
 ### Phase 4 — SSR pages
 
-- **13 page handlers** ported in `apps/web/src/pages/deed-polls/`, against **12** in the prototype's `deed-poll-pages.controller.ts` and **9** Nunjucks templates.
-- **16 end-to-end tests** written in `e2e-tests/tests/`, **2** of them deed-poll journeys. Accessibility and validation are checked inside the journeys, so they add no test count of their own.
+- **13 page handlers** ported in `src/pages/deed-polls/`, against **12** in the prototype's `deed-poll-pages.controller.ts` and **9** Nunjucks templates.
+- **17 end-to-end tests** written in `e2e-tests/tests/`, **2** of them deed-poll journeys. Accessibility and validation are checked inside the journeys, so they add no test count of their own.
 
 ### Tests
 
@@ -701,20 +778,19 @@ adapter functions       14
 @hmcts-cft/express-session-postgres      23 passed
 @hmcts-cft/express-session-redis          7 passed
 @hmcts-cft/simple-router                 41 passed
-@hmcts/crons                             10 passed
 @hmcts/deed-poll                        443 passed
-@hmcts/deed-poll-api-client             136 passed
-@hmcts/web                              323 passed
+@hmcts/deed-poll-api-client             138 passed
+deed-poll-admin                         354 passed
 ─────────────────────────────────────────────────────
-total                                  1250 passed
+total                                  1273 passed
 ```
 
 ### Branch
 
 ```
-dal-cutover-to-api
-15 commits ahead of master
-HEAD  b01cc3a  fix: address code review findings
+collapse-to-single-app
+4 commits ahead of master
+HEAD  17f3bc5  feat: root Dockerfile confirmed, and the pipeline's post-deploy gate
 ```
 
 <!-- END GENERATED DASHBOARD -->

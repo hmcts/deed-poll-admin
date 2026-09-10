@@ -16,7 +16,7 @@
  *
  * **`removeNote` is api's thirteenth caseworker operation**, added for this app because its note form
  * has always had a delete button. It arrived here with the form's delete branch in task 6 of
- * `docs/plans/02-dal-cutover-to-api.md`, deliberately together: a service function nothing calls and a
+ * `docs/plans/completed/02-dal-cutover-to-api.md`, deliberately together: a service function nothing calls and a
  * button posting to a branch that does not exist are both worse than neither.
  */
 import { createNote as apiCreateNote, deleteNote, getNote, listNotes, type Note, patchNote } from "@hmcts/deed-poll-api-client";

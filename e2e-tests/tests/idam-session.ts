@@ -1,7 +1,7 @@
 /**
  * Signing the browser in, for the journeys that need a caseworker.
  *
- * `requireAuth` is mounted globally in `apps/web`, so an anonymous GET of any deed-poll page is
+ * `requireAuth` is mounted globally in the app, so an anonymous GET of any deed-poll page is
  * redirected to `/login`. The journeys therefore need a real session, and they get one the way a
  * caseworker does: through `hmcts/rse-idam-simulator`, the local IDAM that `docker compose` starts.
  *
@@ -54,12 +54,13 @@ export const ADMIN_STORAGE_STATE = path.join(path.dirname(fileURLToPath(import.m
 /**
  * True when the suite is pointed at a deployed environment instead of the local stack.
  *
- * The same two variables `playwright.config.ts` reads to decide whether to start a `webServer`. CI
- * runs the suite against a deployed preview or AAT URL (`job.e2e-test.yml`), where the issuer is real
- * CFT IDAM rather than the simulator — and there is no registered client or test account to sign in
- * with yet. See `.business_context/IDAM_REGISTRATION_REQUEST.md`.
+ * The same variable `playwright.config.ts` reads to decide whether to start a `webServer`, and the one
+ * `sectionDeployToAKS` sets before it runs `yarn test:smoke` — so the smoke spec is the only thing here
+ * that is meant to run with it set. Against a deployed environment the issuer is real CFT IDAM rather
+ * than the simulator, and there is no registered client or test account to sign in with yet. See
+ * `.business_context/IDAM_REGISTRATION_REQUEST.md`.
  */
-export const RUNS_AGAINST_DEPLOYED_STACK = Boolean(process.env.EXPRESSJS_MONOREPO_TEMPLATE_WEB_URL ?? process.env.TEST_URL);
+export const RUNS_AGAINST_DEPLOYED_STACK = Boolean(process.env.TEST_URL);
 
 export const DEPLOYED_STACK_SKIP_REASON =
   "Needs a signed-in caseworker. Against a deployed environment that means real CFT IDAM, which has no registered client or test account for this service yet — see .business_context/IDAM_REGISTRATION_REQUEST.md. Runs against the local stack, where docker compose provides rse-idam-simulator.";

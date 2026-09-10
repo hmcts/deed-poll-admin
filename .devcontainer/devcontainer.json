@@ -48,11 +48,7 @@
           "**/.git/subtree-cache/**": true
         }
       },
-      "extensions": [
-        "ms-azuretools.vscode-docker",
-        "ms-playwright.playwright",
-        "CodeRabbit.coderabbit-vscode"
-      ]
+      "extensions": ["ms-azuretools.vscode-docker", "ms-playwright.playwright", "CodeRabbit.coderabbit-vscode"]
     }
   }
 }

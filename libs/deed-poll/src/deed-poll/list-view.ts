@@ -4,7 +4,7 @@
  * Built here rather than formatted in the template, which is how the prototype did it via two
  * custom Nunjucks filters (`govdate` and `label`) registered in `nunjucks.setup.ts`. Those filters
  * were the only reason that file existed beyond view-engine setup, and `configureGovuk` — which
- * `apps/web` already uses — does not register them. Reproducing them would mean either patching a
+ * the app already uses — does not register them. Reproducing them would mean either patching a
  * template-provided starter or carrying a bespoke Nunjucks environment; formatting in the view model
  * needs neither, and unlike a filter it can be tested directly.
  *

@@ -1,5 +1,5 @@
 ---
-paths: [libs/**/src/**/*.ts, apps/web/src/pages/**/*.ts]
+paths: [libs/**/src/**/*.ts, src/pages/**/*.ts]
 ---
 
 # Domain Layer Rules
@@ -7,7 +7,7 @@ paths: [libs/**/src/**/*.ts, apps/web/src/pages/**/*.ts]
 **There is no database and no JSON API in this repo.** Case data lives in
 [`hmcts/deed-poll-api`](https://github.com/hmcts/deed-poll-api); this app renders pages against it.
 `apps/api`, `apps/postgres`, `libs/postgres-prisma` and the Prisma schema were deleted — see
-`docs/plans/02-dal-cutover-to-api.md`. If you are about to write a query, a migration, a `prisma.*` call
+`docs/plans/completed/02-dal-cutover-to-api.md`. If you are about to write a query, a migration, a `prisma.*` call
 or an Express JSON route, stop: the operation either exists in `libs/deed-poll-api-client` or it is a
 change in api's repo first.
 
@@ -17,7 +17,7 @@ change in api's repo first.
 |---|---|---|
 | Adapter | `libs/deed-poll-api-client/src/api/` | HTTP, the wire shape, `openapi.json`. Returns `ApiResult<T>` and **never throws** |
 | Domain | `libs/deed-poll/src/` | Cases, notes, witnesses, documents, the field rules, the view models. Reaches api only through `callApi` |
-| Pages | `apps/web/src/pages/` | Requests, sessions, Nunjucks. Calls domain functions, renders their errors |
+| Pages | `src/pages/` | Requests, sessions, Nunjucks. Calls domain functions, renders their errors |
 
 Nothing above the adapter imports the wire types or the mock — they are deliberately not exported from
 the package index. Nothing outside `libs/deed-poll/src/api/deed-poll-api.ts` builds an `ApiConfig` or
@@ -49,7 +49,7 @@ export function updateNote(deedPollId: string, id: string, dto: UpdateNoteInput,
 
 - **`Caller` is `{ accessToken }` and nothing else.** api authenticates every call and derives both the
   audit author and the admin status from the token. Sending a user name or an `isAdmin` flag alongside it
-  would assert an identity api never verified. `apps/web` reads the token from the session
+  would assert an identity api never verified. The app reads the token from the session
   (`callerFromRequest`)
 - **Never re-check what api has already answered.** A child entity is nested under its case — api answers
   404 for a note that is not under the case in the path, and witnesses and documents arrive *inside*
@@ -107,7 +107,7 @@ Zod schemas, colocated with the domain they validate (`deed-poll/schemas.ts`, `n
 ## Error Handling
 
 Throw the domain errors in `libs/deed-poll/src/errors.ts`; never throw an HTTP concern from a library.
-`apps/web/src/errors.ts` maps them to status codes and pages — that mapping is the only place that knows
+`src/errors.ts` maps them to status codes and pages — that mapping is the only place that knows
 about transport.
 
 ```typescript
@@ -122,7 +122,7 @@ export class NotFoundError extends Error {
 
 ## Middleware Pattern
 
-Factory functions returning a `RequestHandler`, mounted once in `apps/web/src/app.ts`:
+Factory functions returning a `RequestHandler`, mounted once in `src/app.ts`:
 
 ```typescript
 export function requireAuth(): RequestHandler {
@@ -132,7 +132,7 @@ export function requireAuth(): RequestHandler {
 
 `requireAuth` is the pattern to copy and the rule not to invert: it is mounted **globally with an
 allowlist**, so a new page is protected unless it asks to be public. A denylist makes a forgotten page
-silently anonymous. Read the docblock in `apps/web/src/auth/require-auth.ts` before changing either it or
+silently anonymous. Read the docblock in `src/auth/require-auth.ts` before changing either it or
 `plain-http.ts`.
 
 ## File Organization
@@ -147,7 +147,7 @@ libs/deed-poll/src/
     ├── service.test.ts
     └── schemas.ts
 
-apps/web/src/pages/deed-polls/  # Page handlers — GET/POST exports, discovered by simple-router
+src/pages/deed-polls/          # Page handlers — GET/POST exports, discovered by simple-router
 ```
 
 Group by feature, never by type. No `utils/`, no `models/`, no `types.ts`.
