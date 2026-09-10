@@ -453,18 +453,76 @@ warnings), `yarn build` (8/8) and `yarn test` (8/8) are green.
 
 ### Task 5: Root Dockerfile and the pipeline
 
-- [ ] The moved `Dockerfile` is now the root one `az acr build … .` expects. Confirm it builds from the
+- [x] The moved `Dockerfile` is now the root one `az acr build … .` expects. Confirm it builds from the
       flattened layout and still runs `yarn build`, which is the **only** type-check in the pipeline —
       `YarnBuilder.build()` is `yarn lint` and nothing else
-- [ ] `Jenkinsfile_CNP` keeps `withPipeline("nodejs", "deed-poll", "admin")` and its empty body. Confirm the
+- [x] `Jenkinsfile_CNP` keeps `withPipeline("nodejs", "deed-poll", "admin")` and its empty body. Confirm the
       library pin still matches `deed-poll-infra`'s (`2.4.4` at time of writing), so the product's two
       pipelines move together
-- [ ] Add `yarn test:smoke` — blocker 3. `sectionDeployToAKS` calls `builder.smokeTest()` after **every**
+- [x] Add `yarn test:smoke` — blocker 3. `sectionDeployToAKS` calls `builder.smokeTest()` after **every**
       deploy, unconditionally, so its absence fails the run the first time a deploy succeeds. A single
       request asserting `/health/readiness` is `UP` is enough; do not build a second e2e suite
-- [ ] Wire `yarn test:e2e` into a stage, or record explicitly that it still runs nowhere. It is the only
+      — **and `yarn test:functional` with it; see the note on why that half was the more urgent one**
+- [x] Wire `yarn test:e2e` into a stage, or record explicitly that it still runs nowhere. It is the only
       thing that exercises a real `RedisStore` round trip and it currently runs in no pipeline at all
-- [ ] Mark completed
+      — **recorded, not wired**
+- [x] Mark completed
+
+**Completed 2026-09-10.** `yarn test:smoke` runs `e2e-tests/tests/smoke.spec.ts` — one request, asserting
+`/health/readiness` answers 200 with `{ status: "UP", services: { deedPollApi: "UP", redis: "UP" } }` — and
+`src/pipeline.test.ts` pins the six scripts the pipeline invokes, the `product`/`component`/`type` triple and
+the library pin's shape. Six things the checkboxes did not name.
+
+- **The Dockerfile was built, not read.** `hmctsprod.azurecr.io/base/node:22-alpine` needs ACR credentials
+  this environment has none of, so the check was run against a shim base (`node:22-alpine`, an `hmcts` user,
+  `WORKDIR /opt/app`) with every other line of the real file verbatim. It builds: `yarn install` resolves the
+  flattened workspaces, `yarn build` runs 8/8 inside the image, `yarn workspaces focus --production` with no
+  workspace name pulls `libs/*` through the `workspace:*` links, and the runtime stage holds `dist/server.js`
+  **and `charts/deed-poll-admin/values.yaml`** — the file `src/secrets.ts` reads to build the Key Vault alias
+  map, which `.dockerignore` does not exclude.
+- **Task 3's open question about `dist/pages` is answered, and the answer is "leave it".** The doubled nesting
+  (`dist/pages/src/pages/deed-polls/deed-polls/index.njk`) is not merely harmless, it is load-bearing:
+  `collectViewPaths` in `configureGovuk` adds *every* directory under `dist/pages` as a nunjucks search path,
+  so `res.render("deed-polls/index")` resolves against the `…/src/pages/deed-polls` one. Flattening the copy
+  would change template resolution for every page, which is not a relocation. Confirmed rather than reasoned:
+  the whole Playwright suite passes against `node dist/server.js` with `VITE_MIDDLEWARE=false`, so every page
+  and every built asset serves from the flattened output. The reasoning is now a comment on the
+  `viteStaticCopy` target that produces it.
+- **`yarn test:functional` was the more urgent half of blocker 3, and the plan did not say so.**
+  `Environment.functionalTestEnvironments` is `[aat, preview, idam-aat, idam-preview]`, so
+  `onFunctionalTestEnvironment` fires on **every pull request** — the missing script would have failed the
+  first successful preview deploy, before any release to AAT. It is an echo explaining itself, the same shape
+  as `test:a11y` and the same shape `deed-poll-web` settled on: there is no deployed environment with an IDAM
+  client, a test account or an api to run journeys against.
+- **The smoke gate is deliberately coupled to `deed-poll-api`, so it stays red until api deploys.** Readiness
+  names api and Redis and liveness is empty, which is the whole design in `src/app.ts` — so asserting
+  liveness instead would buy a green stage that says only "the process is answering". Gap 6 in
+  `PIPELINES.md` is the reason it will fail first, and that is the right failure: a pod that 500s every case
+  page has not deployed successfully.
+- **Two reporter traps, both silent, and `YarnBuilder` swallows each.** `smokeTest()` collects
+  `smoke-output/**/*result.xml` with `allowEmptyResults: true`, and `playwright.config.ts` gates its junit
+  reporter on `CI`, which Jenkins does not set — so a smoke run would have reported to the console only and
+  published nothing while still looking green. `test:smoke` therefore sets the reporters on the command line
+  (`--reporter=list,junit`, `PLAYWRIGHT_JUNIT_OUTPUT_NAME=../smoke-output/smoke-result.xml`) rather than
+  changing the config, which would have re-pointed the e2e run's output too. `smoke-output/` is now
+  gitignored and dockerignored.
+- **`EXPRESSJS_MONOREPO_TEMPLATE_WEB_URL` is gone from the e2e config**, and that is a fix rather than a
+  tidy-up now that something depends on `TEST_URL`. It was read *first* for `baseURL` and for the `webServer`
+  decision, and nothing in this repo or the pipeline sets it — so set on an agent it would have outranked
+  `TEST_URL` and pointed the post-deploy gate at the wrong host while reporting green. `deed-poll-web`
+  removed it for the same reason. `.business_context/PROGRESS.md` still mentions it as history; task 6 owns
+  that file.
+
+**Test-count delta: +10 unit, +1 e2e — 1,263 → 1,273 and 17 → 18.** Both deliberate: the ten are
+`src/pipeline.test.ts`, and the one is the smoke spec, which the default `yarn test:e2e` run also picks up
+because it is a spec in the suite rather than a separate one. Per-package totals from `yarn test:force`:
+app-at-root 354, deed-poll 443, cloud-native-platform 140, deed-poll-api-client 138, express-govuk-starter
+127, simple-router 41, express-session-postgres 23, express-session-redis 7 — every package but the app
+unchanged to the test. `yarn install --immutable`, `yarn lint` (263 files, 0 errors, the same 2 pre-existing
+`noUndeclaredEnvVars` warnings), `yarn build` (8/8) and `yarn test` (8/8) are green. `yarn test:smoke` was run
+against a real app on :3200 + :3000 and passes, writing `smoke-output/smoke-result.xml` where `smokeTest()`
+looks for it; `yarn test:e2e` passes 18/18 twice — once against `tsx src/server.ts` and once against
+`node dist/server.js`.
 
 ### Task 6: Documentation and the record
 
@@ -487,18 +545,20 @@ warnings), `yarn build` (8/8) and `yarn test` (8/8) are green.
 ## Success criteria
 
 - `yarn lint`, `yarn build`, `yarn test` and `yarn test:e2e` all pass.
-- **Unit tests 1,263 and e2e 17.** From a 1,256 baseline, the only drop is `apps/crons`'s 10 tests, deleted
-  with it in task 2 (1,256 → 1,246), and the only addition is task 4's 17 in `src/deployment-chart.test.ts`
-  (1,246 → 1,263) — revised there from the 1,246 this line first quoted, which assumed the plan added no
-  tests of its own. The onboarding tests this plan was originally written to remove were already deleted by
-  plan 02. Any other drop is a regression — say so in the completion note either way, rather than leaving a
-  reader to work out whether tests vanished on purpose.
+- **Unit tests 1,273 and e2e 18.** From a 1,256 baseline, the only drop is `apps/crons`'s 10 tests, deleted
+  with it in task 2 (1,256 → 1,246). Two additions, both revised in the task that made them, from the 1,246
+  and 17 this line first quoted — which assumed the plan added no tests of its own: task 4's 17 in
+  `src/deployment-chart.test.ts` (1,246 → 1,263) and task 5's 10 in `src/pipeline.test.ts` (1,263 → 1,273),
+  plus task 5's one e2e spec, the `@smoke` one (17 → 18). The onboarding tests this plan was originally
+  written to remove were already deleted by plan 02. Any other drop is a regression — say so in the
+  completion note either way, rather than leaving a reader to work out whether tests vanished on purpose.
 - No `apps/` directory. No `helm/` directory. No `libs/onboarding`. No `@hmcts/crons`.
 - `charts/deed-poll-admin/values.yaml` exists, and `charts/deed-poll-admin/Chart.yaml` declares no `file://`
   dependency and no condition gating one of this repo's own components. Revised in task 4 from "contains no
   `dependencies:`", which is not satisfiable: a `nodejs` chart depends on the `nodejs` base chart by
   definition. It declares two — `nodejs`, and the `redis` that task 4 turned on for preview only.
-- A root `Dockerfile` exists and is the one the pipeline would build.
+- A root `Dockerfile` exists and is the one the pipeline would build — moved in task 3, and built in task 5
+  against a shim base image, since the real one needs ACR credentials.
 - Grepping the repo for `WEB_IMAGE`, `CRONS_IMAGE` and `postgres-url` returns **no chart value and no code
   path** — revised in task 4 from "returns nothing", which the assertion forbidding a database secret has to
   break by naming it. Four hits remain, all of them a deliberate record of an absence. `API_IMAGE` and
@@ -508,7 +568,8 @@ warnings), `yarn build` (8/8) and `yarn test` (8/8) are green.
   **`TEAM_NAME` appears in no hostname anywhere**. The chart and `idam-access-config#993` state the same
   hosts, and `IDAM_REGISTRATION_REQUEST.md` has been corrected, since it currently defends the doubled
   segment as deliberate.
-- `yarn test:smoke` exists and passes against a running app.
+- `yarn test:smoke` exists and passes against a running app. So does `yarn test:functional`, added with it in
+  task 5: `functionalTestEnvironments` includes `preview`, so the pipeline invokes it on every pull request.
 - `libs/` still contains the seven surviving packages — `express-session-postgres` among them, and
   `deed-poll-api-client`, which plan 02 added.
 

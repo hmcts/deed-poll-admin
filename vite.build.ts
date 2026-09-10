@@ -82,6 +82,19 @@ const baseConfig: UserConfig = {
           src: "node_modules/govuk-frontend/dist/govuk/assets/manifest.json",
           dest: "."
         },
+        // **The output path this produces is not what the `rename` below reads as, and it works anyway.**
+        // Every template lands doubly nested — `dist/pages/src/pages/deed-polls/deed-polls/index.njk` —
+        // because vite-plugin-static-copy preserves the matched directory structure under `dest` *and then*
+        // appends whatever `rename` returns, so a `rename` that returns a path rather than a file name
+        // repeats it. Pre-existing, and confirmed on `master` before plan 03 flattened `apps/web`.
+        //
+        // It resolves because `configureGovuk`'s `collectViewPaths` recurses into every directory under
+        // `dist/pages` and adds each as a nunjucks search path: `res.render("deed-polls/index")` then finds
+        // `deed-polls/index.njk` under the `dist/pages/src/pages/deed-polls` path. The doubled segment is
+        // load-bearing given that, so plan 03 task 5 left it alone rather than "fixing" the rename:
+        // flattening the output changes template resolution for every page and belongs in its own commit,
+        // not in a relocation. What it did instead was check the claim — the whole Playwright suite passes
+        // against `node dist/server.js` with `VITE_MIDDLEWARE=false`, so every page renders from here.
         {
           src: "src/pages/**/*.{njk,html}",
           dest: "../pages",

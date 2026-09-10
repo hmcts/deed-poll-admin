@@ -33,6 +33,7 @@ lcov.info
 # Testing
 test-results/
 playwright-report/
+smoke-output/
 e2e-tests/
 *.test.ts
 *.spec.ts

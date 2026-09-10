@@ -40,10 +40,11 @@ The `yarn` scripts each stage invokes, and whether this repo has them:
 | Test | `yarn test:a11y` | yes — a documented no-op, see below |
 | Security | `yarn-audit-with-suppressions.sh`, written into the workspace by the library | n/a |
 | Sonar | `sonar-scanner`, configured by `sonar-project.properties` | yes — coverage via the merge below |
-| Smoke (after each deploy) | `yarn test:smoke` | **no — see the gaps below** |
-| Functional (functional-test environments) | `yarn test:functional` | **no — see the gaps below** |
+| Smoke (after each deploy) | `yarn test:smoke` | yes — the `@smoke`-tagged spec, see below |
+| Functional (`aat` and every preview) | `yarn test:functional` | yes — a documented no-op, see below |
+| E2E | `yarn test:e2e` | yes, but the stage is **off** — see below |
 
-Four things worth knowing:
+Six things worth knowing:
 
 - **The Sonar stage needs a root `lcov.info`, and nothing in the pipeline produces one.** Vitest writes
   coverage per workspace (`apps/web/coverage/lcov.info`, and eight more), with `SF:` paths relative to each
@@ -62,6 +63,35 @@ Four things worth knowing:
   live in the Playwright suite, which needs browsers and a running app and so cannot run on the bare test
   agent, but the script has to exist for the stage to go green.
 
+- **`yarn test:smoke` is one request, and it is deliberately coupled to `deed-poll-api`.**
+  `sectionDeployToAKS` calls `builder.smokeTest()` after **every** deploy with `TEST_URL` set to the
+  environment it has just deployed, so `e2e-tests/tests/smoke.spec.ts` is the only thing in this repo that
+  runs against a real deployment. It asserts `/health/readiness` answers 200 with
+  `{ status: "UP", services: { deedPollApi: "UP", redis: "UP" } }` — and `src/app.ts` puts both dependencies
+  on readiness on purpose, so **this gate stays red until `deed-poll-api` deploys** (gap 6 below). That is
+  the intended reading, not something to route around by asserting liveness: liveness is empty here, so it
+  only says the process is answering, and a pod that 500s every case page has not deployed successfully.
+  The rest of the Playwright suite is not tagged `@smoke` because the journeys need a caseworker signed in
+  through the local `rse-idam-simulator` and fixtures from the in-memory api mock on :3200 — a deployed
+  environment has neither. `src/pipeline.test.ts` pins all of this, including that exactly one spec carries
+  the tag, because every one of these mistakes surfaces only on a real Jenkins run.
+
+- **`yarn test:functional` is a no-op that has to exist, and it runs far more often than its name suggests.**
+  `Environment.functionalTestEnvironments` is `[aat, preview, idam-aat, idam-preview]`, so
+  `onFunctionalTestEnvironment` fires on **every pull request**, not only on a release to AAT. The script
+  prints why there is no suite behind it; deleting it fails the first successful preview deploy.
+
+- **`yarn test:e2e` runs in no pipeline, and that is a decision.** `AppPipelineConfig.e2eTest` defaults
+  false and `Jenkinsfile_CNP` does not call `enableE2eTest()`, so the E2E stage never runs. It cannot, for
+  the same reason the journeys are not tagged `@smoke`. Two consequences worth holding: the only thing that
+  exercises a real `RedisStore` round trip runs on developer machines and nowhere else, and
+  `sectionDeployToAKS` will run the suite for any PR carrying the GitHub label `enable_e2e_test` — one label
+  away from a red stage that means nothing. The reporters are also worth knowing about:
+  `playwright.config.ts` gates its junit reporter on `CI`, which Jenkins does not set, so `test:smoke`
+  overrides the reporters on the command line to put its report at `smoke-output/smoke-result.xml` — where
+  `smokeTest()` collects it with `allowEmptyResults: true`, meaning a report written anywhere else is
+  silently not published rather than a failure.
+
 - **The build stage does not run `yarn build`.** `YarnBuilder.build()` is `yarn lint` plus version info,
   nothing more. Type errors are caught instead by the image build, because each `Dockerfile` runs
   `yarn install && yarn build` itself. This matters because `yarn test` runs vitest, which transpiles
@@ -78,12 +108,18 @@ yarn test       # the test stage runs all three of these, and fails on any of th
 yarn test:coverage
 yarn test:a11y
 yarn build      # not run by the build stage, but run inside every image build
+
+# what the post-deploy gate runs. TEST_URL is how the pipeline points it at the environment it just
+# deployed; without it Playwright starts the local stack instead.
+TEST_URL=http://localhost:3000 yarn test:smoke
 ```
 
 ## What still has to happen before this pipeline can deploy
 
-The `Jenkinsfile_CNP` is correct and minimal, but a green deploy needs more than the Jenkinsfile. All six
-of these are outstanding, and the first four are **inside this repo**:
+The `Jenkinsfile_CNP` is correct and minimal, but a green deploy needs more than the Jenkinsfile. Numbered
+as they were found, and the first four were **inside this repo** — they are being struck through as
+[`plans/03-collapse-to-single-app.md`](plans/03-collapse-to-single-app.md) lands, each with the task that
+retired it. Its task 6 rewrites this section once the last one goes.
 
 1. **The chart directory is in the wrong place.** `helmInstall` reads `Helm.HELM_RESOURCES_DIR`, which is the
    literal `charts`, and throws `No Helm charts directory found at charts` if it is missing. It then looks for
@@ -100,9 +136,11 @@ of these are outstanding, and the first four are **inside this repo**:
    either one Jenkinsfile per deployable (two `product`/`component` pairs, two charts), or one image with a
    root `Dockerfile` selecting an entrypoint. Not decided — but it is a smaller decision than it was, since
    `${API_IMAGE}` and `${POSTGRES_IMAGE}` went with the data access layer.
-3. **No `yarn test:smoke`.** `sectionDeployToAKS` calls `builder.smokeTest()` after every deploy,
-   unconditionally, and `yarn test:functional` on functional-test environments. Both are missing, so both
-   would fail the run once a deploy succeeds.
+3. ~~**No `yarn test:smoke`.**~~ **Resolved 2026-09-10**, plan 03 task 5. Both scripts now exist —
+   `test:smoke` runs the `@smoke`-tagged spec against `TEST_URL`, `test:functional` is a documented no-op —
+   and `src/pipeline.test.ts` fails if either goes missing again. See "What the pipeline runs" above. Note
+   that `test:functional` was the more urgent of the two: `functionalTestEnvironments` includes `preview`,
+   so it runs on every pull request and not only on a release to AAT.
 4. **Preview environments have no session store.** `helm/deed-poll-admin/values.preview.template.yaml`
    sets nothing at all for Redis — no `redis:` subchart and no `REDIS_URL` — and `hmcts/deed-poll-infra`
    applies per environment on the `aat`,

@@ -22,6 +22,9 @@ npm-debug.log*
 # Testing
 test-results/
 playwright-report/
+# What `yarn test:smoke` writes, at the root because `YarnBuilder.smokeTest()` archives
+# `smoke-output/**` relative to the repo root and not to the workspace that produced it.
+smoke-output/
 coverage/
 .nyc_output/
 lcov.info
