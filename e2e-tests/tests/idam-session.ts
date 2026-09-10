@@ -1,7 +1,7 @@
 /**
  * Signing the browser in, for the journeys that need a caseworker.
  *
- * `requireAuth` is mounted globally in `apps/web`, so an anonymous GET of any deed-poll page is
+ * `requireAuth` is mounted globally in the app, so an anonymous GET of any deed-poll page is
  * redirected to `/login`. The journeys therefore need a real session, and they get one the way a
  * caseworker does: through `hmcts/rse-idam-simulator`, the local IDAM that `docker compose` starts.
  *

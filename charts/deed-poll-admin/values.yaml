@@ -70,7 +70,7 @@ nodejs:
   # product and not a component.
   #
   # **No `postgres-url` and no database credential of any kind.** The data access layer went to
-  # `deed-poll-api` (`docs/plans/02-dal-cutover-to-api.md`), so there is no database for this app to hold a
+  # `deed-poll-api` (`docs/plans/completed/02-dal-cutover-to-api.md`), so there is no database for this app to hold a
   # connection string to — and the chart fails on a missing secret, so naming one would make deployment
   # depend on a resource this app must not open. There is no S2S credential either: api authenticates a
   # forwarded IDAM access token and nothing else, so the caseworker's own token in the session is the whole

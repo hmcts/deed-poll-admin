@@ -526,21 +526,74 @@ looks for it; `yarn test:e2e` passes 18/18 twice — once against `tsx src/serve
 
 ### Task 6: Documentation and the record
 
-- [ ] `CLAUDE.md` — the Project Structure tree is now wrong in every line. Rewrite for the flat layout, and
+- [x] `CLAUDE.md` — the Project Structure tree is now wrong in every line. Rewrite for the flat layout, and
       remove the four-app description. Its "Deployment and sessions" section survives
-- [ ] `docs/PIPELINES.md` — blockers 1–4 are resolved or resolved-by-deletion. Rewrite that section to say
+- [x] `docs/PIPELINES.md` — blockers 1–4 are resolved or resolved-by-deletion. Rewrite that section to say
       what is actually left, which should be only external onboarding
-- [ ] `docs/ARCHITECTURE.md`, `docs/DEPLOYMENT.md`, `docs/DEMO.md`, `README.md` — all describe four apps,
+- [x] `docs/ARCHITECTURE.md`, `docs/DEPLOYMENT.md`, `docs/DEMO.md`, `README.md` — all describe four apps,
       `helm/`, and in places a database. Check each; several were corrected during plan 01 and will be wrong
       again
-- [ ] `.claude/agents/infrastructure-engineer.md` — it is instructions rather than prose, so a stale layout
+- [x] `.claude/agents/infrastructure-engineer.md` — it is instructions rather than prose, so a stale layout
       there actively misleads a future session. Highest-value fix in this task
-- [ ] `.business_context/PROGRESS.md` — record the collapse, the test-count arithmetic, and the preview-Redis
+- [x] `.business_context/PROGRESS.md` — record the collapse, the test-count arithmetic, and the preview-Redis
       decision from task 4
-- [ ] Delete the untracked strays if still present: `lcov.info`, `power_app_nest/` and `data/` are all
+- [x] Delete the untracked strays if still present: `lcov.info`, `power_app_nest/` and `data/` are all
       untracked and empty or generated. `steves_notes.md` is Steve's and is gitignored — **leave it**
-- [ ] `yarn progress:write`
-- [ ] Mark completed
+      — **`power_app_nest/` deliberately kept, see the note below**
+- [x] `yarn progress:write`
+- [x] Mark completed
+
+**Completed 2026-09-10.** Six documentation surfaces rewritten, plus four the checkboxes did not name and one
+deviation.
+
+- **`CLAUDE.md`** — the flat tree, and the two mechanical consequences a future session would otherwise
+  rediscover: the `//#<task>` root-task rule, and `tsconfig.app.json` (44 silent failures if the app's
+  settings are merged into the root project). The pipeline bullet now names all six `yarn` scripts, not
+  three, and the paths `apps/web/src/{app,errors}.ts` and `apps/web/helm/values.yaml` are corrected.
+- **`docs/PIPELINES.md`** — the blocker section now opens "**Nothing left in this repo.**" Items 1–4 are
+  struck through with what resolved each, and the numbering is kept so anything citing "blocker 4" still
+  resolves. Item 5 gained the two things that bite first: the `team-config.yml` hard-fail, which happens
+  *before* any build so the cause is not in this repo, and the IDAM host mismatch — `idam-access-config#993`
+  open and still registering the old hand-rolled host, plus `idam-client-secret` against this chart's
+  `admin-idam-client-secret`. Also corrected: coverage is now one root report plus seven `libs/*`, and the
+  root `lcov.info` is a gitignored artefact.
+- **`docs/DEPLOYMENT.md` and `docs/ARCHITECTURE.md`** — "Umbrella Chart Structure" replaced by "one chart,
+  one component", with the mechanical reason (`${IMAGE_NAME}` is the only image variable) rather than a
+  preference. Preview's ephemeral Redis is documented as decided, including the rejected shared-cache
+  alternative, the HDPI-8155 probe budget, and why the vault list is re-declared minus `redis-url`
+  (`getPropertiesVolumeSecrets` writes every mounted secret unconditionally on the mount-point path).
+- **`README.md`** and **`docs/DEMO.md`** — the "Monorepo Architecture" framing and the four-app tree are
+  gone; the new-module recipe now points at the root `package.json` and `src/pages/`.
+- **`.claude/agents/infrastructure-engineer.md`** was the largest rewrite, and worth the space: it carried a
+  complete umbrella-chart recipe with `file://../../apps/{web,crons}/helm` dependencies and hostnames built
+  from `${TEAM_NAME}`/`${ENVIRONMENT}`. An agent following it would have rebuilt exactly what task 4
+  removed. Now: the single chart, the five variables `helmInstall` actually exports, the three rules that
+  fail only on a real Jenkins run, and preview's Redis with its reasons.
+- **Four surfaces the checkboxes did not name, found by grepping for `apps/web`.** The `paths:` frontmatter
+  in `.claude/rules/backend.md` and `.claude/rules/frontend.md` still globbed `apps/web/src/pages/**`, so
+  **both rule files had silently stopped matching anything** since task 3 — a functional break, not stale
+  prose. Fixed, along with `.claude/agents/full-stack-engineer.md` and
+  `.claude/skills/module-scaffold/SKILL.md`. Ten in-repo `apps/web/src/…` paths in source docblocks were
+  re-pointed too; the one in `libs/deed-poll/src/api/deed-poll-api.ts` naming
+  `deed-poll-web/apps/web/…` is another repo's path and correct.
+- **Every reference to `docs/plans/02-dal-cutover-to-api.md` was broken**, in 33 files: plans 01 and 02 moved
+  into `docs/plans/completed/` and nothing followed them. Repointed repo-wide.
+- **`.business_context/PROGRESS.md`** has a new newest-first section recording the collapse in seven points,
+  the arithmetic, and the preview-Redis decision with its rejected alternative. Two stale rows corrected: the
+  "six blockers" row and a `helm/deed-poll-admin/Chart.yaml` citation.
+
+**Deviation: `power_app_nest/` was not deleted, and the checkbox's premise about it is wrong.** It is not
+empty or generated — it is the 501M Nest prototype this repo's domain functions were ported from. It has no
+git repository of its own and is gitignored, so nothing could restore it; `libs/deed-poll/src/index.ts` and
+several `.business_context/` documents cite it; and `scripts/progress-dashboard.mjs` reads it to count the
+prototype's scope, degrading that figure permanently if it goes. Deleting it buys back disk at the cost of
+the only copy. Recorded in PROGRESS.md so the decision is not rediscovered as an oversight. `lcov.info` (a
+`yarn test:coverage` artefact) and an empty `data/` were deleted, as was the empty leftover `apps/`.
+`steves_notes.md` untouched.
+
+**Test-count delta: 0 unit, 0 e2e.** 1,273 unit across 8 packages and 18 e2e, both unchanged — this task
+touched no test. `yarn lint`, `yarn build`, `yarn test` green, and `yarn test:e2e` passes 18/18, which is the
+one hand-run this plan's Validation section defers to the end.
 
 ## Success criteria
 

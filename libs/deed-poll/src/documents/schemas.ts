@@ -7,7 +7,7 @@ import { DocumentDirection } from "../deed-poll/enums/option-sets.js";
  * **The only document schema left.** `createDocumentSchema` and `updateDocumentSchema` described a
  * metadata-only create and a metadata patch, and `createDocumentTypeSchema`/`updateDocumentTypeSchema`
  * described document-type writes — api has none of the four, deliberately, so they went with the
- * services in task 4 of `docs/plans/02-dal-cutover-to-api.md` rather than being kept as validation for
+ * services in task 4 of `docs/plans/completed/02-dal-cutover-to-api.md` rather than being kept as validation for
  * operations nothing can perform.
  *
  * An upload supplies less than a create did: `direction` and `name` are optional, because api defaults

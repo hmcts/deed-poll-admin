@@ -25,7 +25,7 @@
  * Memory storage rather than disk, because `uploadDocument` puts the bytes straight into the multipart
  * body it sends `deed-poll-api`. Multer's disk storage would write a temp file for us to read back and
  * forward, and would leave the temp file behind on a failure path — and this app now has no local file
- * storage at all, which is what task 4 of `docs/plans/02-dal-cutover-to-api.md` removed.
+ * storage at all, which is what task 4 of `docs/plans/completed/02-dal-cutover-to-api.md` removed.
  */
 import { type InvalidInputError, isAllowedUploadType, MAX_UPLOAD_BYTES, UPLOAD_FILE_FIELD, uploadLimitRejection, uploadTypeRejection } from "@hmcts/deed-poll";
 import type { NextFunction, Request, RequestHandler, Response } from "express";

@@ -487,7 +487,7 @@ mechanically.**
 | Order | Repo | Plan |
 |---|---|---|
 | 1 | `deed-poll-infra` | `docs/plans/01-jenkins-and-shared-split.md` |
-| 2 | `deed-poll-admin` | `docs/plans/01-jenkins-and-session-schema.md` |
+| 2 | `deed-poll-admin` | `docs/plans/completed/01-jenkins-and-session-schema.md` |
 | 3 | `deed-poll-web` | `docs/plans/jenkins-pipeline-cutover.md` |
 | 4 | `deed-poll-api` | `docs/plans/jenkins-pipeline-cutover.md` |
 
@@ -553,7 +553,7 @@ carries the full reasoning. Do not build a `session` schema.
    `expressSessionRedis` in `apps/web/src/app.ts`, add `redis.url` to `config/` and `redis-url`/`REDIS_URL` to
    the chart, add Redis to readiness, and add a `redis` service to `docker-compose.yml`
 2. ~~Add a Prisma migration creating the schema~~ → **no migration and no schema.** The Redis store needs no
-   DDL. Done: see `docs/plans/01-jenkins-and-session-schema.md`, task 2
+   DDL. Done: see `docs/plans/completed/01-jenkins-and-session-schema.md`, task 2
 3. All four `values.yaml`: `ExpressJsAppInsightsConnectionString` → `app-insights-connection-string`, `session-secret` → `admin-session-secret`, `idam-client-secret` → `admin-idam-client-secret`
 4. **One commit:** delete `infrastructure/` *and* `.github/workflows/` together — see the note under admin's file table for why splitting them turns CI red
 5. `Jenkinsfile_CNP` — new

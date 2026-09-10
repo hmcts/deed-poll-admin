@@ -1,5 +1,5 @@
 ---
-paths: [apps/web/src/pages/**/*.ts, apps/web/src/pages/**/*.njk, apps/web/**/*.ts]
+paths: [src/pages/**/*.ts, src/pages/**/*.njk, src/**/*.ts]
 ---
 
 # Frontend Development Rules
@@ -97,12 +97,12 @@ Components are reusable parts of the user interface.
 
 ## Page Controller Pattern
 
-Controllers live in `apps/web/src/pages/` with `GET` and `POST` exports. Routes are auto-generated from file names.
+Controllers live in `src/pages/` with `GET` and `POST` exports. Routes are auto-generated from file names.
 
 ### Controller Structure
 
 ```typescript
-// apps/web/src/pages/[feature]/[page-name].ts
+// src/pages/[feature]/[page-name].ts
 import type { Request, Response } from "express";
 
 const en = {
@@ -411,7 +411,7 @@ const sessionData = (req.session as MyModuleSession).myModule;
 ## File Organization
 
 ```
-apps/web/src/pages/[feature]/
+src/pages/[feature]/
 ├── form-step-one.ts       # Controller
 ├── form-step-one.njk      # Template
 ├── form-step-one.test.ts  # Tests

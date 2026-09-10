@@ -1,4 +1,9 @@
-# HMCTS Monorepo AI Development Guide
+# deed-poll-admin AI Development Guide
+
+**One application, at the repository root.** `src/` *is* the app — there is no `apps/` directory and no
+application workspace. `libs/` is still a Yarn workspace of seven packages, so this is a monorepo in the
+library sense only. See "Project Structure" below, and `docs/plans/03-collapse-to-single-app.md` for why the
+four-app shape went.
 
 ## Core Development Commands
 
@@ -26,64 +31,100 @@ than renamed. See "No data access layer" below.
 
 ```
 deed-poll-admin/
-├── apps/                       # Deployable applications
-│   ├── crons/                  # Cron jobs
-│   └── web/                    # Web frontend (Express 5.x + Nunjucks)
-├── libs/                       # Modular packages
+├── src/                        # THE application (Express 5.x + Nunjucks) — the root package
+│   ├── pages/                  # File-based routes, discovered by simple-router
+│   ├── assets/                 # SCSS/TS bundles, compiled by vite
+│   ├── auth/                   # IDAM OIDC: login, session, require-auth
+│   ├── locales/                # App-level translations
+│   ├── app.ts, server.ts       # createApp(), and the entrypoint that loads secrets first
+│   └── secrets.ts              # Reads charts/deed-poll-admin/values.yaml for the vault alias map
+├── config/                     # `config` package defaults + custom-environment-variables
+├── libs/                       # The one remaining Yarn workspace — seven packages
 │   ├── cloud-native-platform/  # Cloud Native Platform features
 │   ├── deed-poll/              # The case domain — services, validation, view models
 │   ├── deed-poll-api-client/   # The single adapter onto deed-poll-api, plus its in-memory mock
 │   ├── express-govuk-starter/  # GOV.UK Frontend integration
+│   ├── express-session-postgres/ # Template-provided, unused, deliberately kept — see below
+│   ├── express-session-redis/  # The session store actually wired up
 │   ├── simple-router/          # Simple Router features
 │   └── [your-module]/          # Your feature modules
 │       └── src/
-│           └── [domain]/       # Reusable functions consumed by apps
-├── e2e-tests/                  # End-to-end tests (Playwright)
+│           └── [domain]/       # Reusable functions consumed by the app
+├── e2e-tests/                  # End-to-end tests (Playwright), including the @smoke spec
+├── charts/deed-poll-admin/     # The one Helm chart, where helmInstall requires it
 ├── docs/                       # Documentation and ADRs
-├── helm/                       # Helm charts for Kubernetes deployment
-└── package.json                # Root configuration
+├── Dockerfile                  # The root image `az acr build … .` builds
+├── Jenkinsfile_CNP             # withPipeline("nodejs", "deed-poll", "admin")
+└── package.json                # The application's manifest AND the workspace root
 ```
+
+Two consequences of the application being the root package, both easy to trip over:
+
+- **Turbo will not run a root-package script unless the task is named `//#<task>`**, and a root `//#build`
+  would make `yarn build` invoke itself. So the app's tasks are `//#build:app`, `//#test:app` and
+  `//#dev:app`, and `yarn build` / `yarn test` / `yarn dev` each run `turbo <x> <x>:app`. The `:app` suffix
+  is load-bearing.
+- **The app's TypeScript project settings are in `tsconfig.app.json`, not `tsconfig.json`.** The root
+  `tsconfig.json` holds the `libs/*` `paths` and deliberately no `include`: `vite-tsconfig-paths` matches
+  each source file against the tsconfig *projects* it discovers, and the root file is the only project
+  covering the libraries' `*.test.ts` files. Giving it an `include` made every library test resolve
+  `@hmcts/*` to `dist` while its source resolved to `src`, so `vi.mock` silently stopped applying — 44
+  failures. Do not merge `tsconfig.app.json` up.
 
 ## No data access layer
 
 **This repo is a presentation layer and owns no database.** Every read and write of case data goes to
 [`hmcts/deed-poll-api`](https://github.com/hmcts/deed-poll-api) over HTTP. Prisma, the pg pool, the
 migrations, `apps/postgres`, `apps/api` and `libs/postgres-prisma` were all deleted — see
-`docs/plans/02-dal-cutover-to-api.md` for what moved and why. Consequences worth knowing before writing
-any query-shaped code:
+`docs/plans/completed/02-dal-cutover-to-api.md` for what moved and why. Consequences worth knowing before
+writing any query-shaped code:
 
 - **`libs/deed-poll-api-client` is the only thing that speaks HTTP to api**, and it never throws: it
   returns `ApiResult<T>`, a discriminated union, so an unreachable api is a state a page renders rather
   than a 500. Its wire types and its mock are deliberately not exported from the package index.
 - **`libs/deed-poll/src/api/deed-poll-api.ts` is the only place that knows where api is.** `callApi` turns
-  a failed `ApiResult` into the domain errors `apps/web/src/errors.ts` already renders. No page sees a base
+  a failed `ApiResult` into the domain errors `src/errors.ts` already renders. No page sees a base
   URL, and every service function takes a `Caller` — `{ accessToken }` — because api derives both the audit
   author and the admin status from the token.
 - **api must be reachable to run anything.** `yarn dev` starts the in-memory mock alongside the app; the
   unit suite drives the same mock in process. Nothing depends on a running Java service, and nothing
   should.
 - **`DEED_POLL_API_URL`** is the base URL, defaulting to the mock at `http://localhost:3200`. Deployed
-  environments set it in `apps/web/helm/values.yaml`.
+  environments set it in `charts/deed-poll-admin/values.yaml`, resolved per environment from
+  `global.environment`; preview overrides it to AAT's api, so **preview writes land in AAT's data**.
 
 ## Deployment and sessions
 
-Three facts that are easy to get wrong from the code alone, and expensive to get wrong:
+Facts that are easy to get wrong from the code alone, and expensive to get wrong:
 
 - **CI/CD is the Jenkins CNP pipeline**, `Jenkinsfile_CNP` at the root — `withPipeline("nodejs", "deed-poll",
   "admin")`. There are **no GitHub Actions workflows and none should be added**: `.github/workflows/` was
   deleted in full and `.github/renovate.json` is all that is left under `.github/` that the platform reads.
-  The pipeline's test stage runs `yarn test`, `yarn test:coverage` **and** `yarn test:a11y`, and fails on a
-  missing script — so do not delete any of the three. See `docs/PIPELINES.md`, which also lists the six
-  things still blocking a green deploy.
+  The pipeline invokes six `yarn` scripts and **fails the stage on a missing one** — `lint`, `test`,
+  `test:coverage`, `test:a11y`, `test:smoke` and `test:functional`. Do not delete any of the six;
+  `src/pipeline.test.ts` fails if one goes. See `docs/PIPELINES.md`.
+- **One image, one chart, one component.** `charts/deed-poll-admin/` is a single `nodejs` chart, and the
+  directory name is not a preference: `Helm.HELM_RESOURCES_DIR` is the literal `charts` and `helmInstall`
+  throws without it, then requires `charts/deed-poll-admin/values.yaml`. `values.yaml` holds the real
+  configuration; the per-environment files are `values.aat.template.yaml` and
+  `values.preview.template.yaml`. **Do not add a bare `values.template.yaml`** — `helmInstall` renders that
+  name *over* `values.yaml` instead of layering, so everything `values.yaml` holds and the template does not
+  restate is silently lost. `src/deployment-chart.test.ts` pins all of this.
+- **The chart ships inside the image.** `src/secrets.ts` reads `../charts/deed-poll-admin/values.yaml` to
+  build the Key Vault alias map, and `getPropertiesVolumeSecrets` swallows a missing chart by returning an
+  empty map — so moving or excluding that file un-aliases every secret with nothing failing until the first
+  `config.get` in a deployed pod.
 - **This repo owns no Terraform.** The resource group, Key Vault, App Insights and Redis are all in
   [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra). **Do not create an `infrastructure/`
   directory here.** The Postgres that root also provisions is `deed-poll-api`'s now, not this app's.
 - **Sessions are in Redis**, via `@hmcts-cft/express-session-redis` and `REDIS_URL` — and they are the one
   piece of state this app still holds locally, deliberately. The reasoning is at the call site in
-  `apps/web/src/app.ts`: a session is transport state, and putting it behind api would invert
-  authorisation. Local Redis comes from `docker compose`, so `yarn dev` needs Docker running.
-  `libs/express-session-postgres` is still on disk and still a dependency of `apps/web` deliberately — it
-  is template-provided and unwiring it invites a re-scaffold conflict — but nothing imports it, and a
+  `src/app.ts`: a session is transport state, and putting it behind api would invert
+  authorisation. Local Redis comes from `docker compose`, so `yarn dev` needs Docker running. Preview gets an
+  ephemeral `redis` subchart per pull request rather than AAT's cache, because one cache shared across every
+  open PR means a collision or a flush in one is felt in the rest — the reasoning is in `charts/…/Chart.yaml`.
+  `libs/express-session-postgres` is still on disk and still a dependency of the root package deliberately —
+  it is template-provided and unwiring it invites a re-scaffold conflict — but nothing imports it, and a
   change that puts sessions back on Postgres is a regression, not a refactor.
 - **The readiness probe names Redis and api, and no database.** `deedPollApiStatus()` in
   `libs/deed-poll/src/api/deed-poll-api.ts` is what replaced the Postgres table check: a probe that went
@@ -157,7 +198,7 @@ Follow these strict naming conventions throughout the project:
 - Use kebab-case: `user-service.ts`, `case-management/`
 
 ### 6. API Endpoints
-- This app exposes **no JSON API** — `apps/api` was deleted with the data access layer, and `apps/web`
+- This app exposes **no JSON API** — `apps/api` was deleted with the data access layer, and what is left
   serves pages. The endpoints it *calls* are api's, and their shape is api's decision: read
   `libs/deed-poll-api-client/openapi.json`, do not invent a path
 
@@ -197,7 +238,7 @@ Follow these strict naming conventions throughout the project:
 
 ## Debugging Tips
 
-1. **Module Loading**: Check imports in apps/web/src/app.ts
+1. **Module Loading**: Check imports in src/app.ts
 2. **api Issues**: check `yarn mock:api` is up on 3200, or `DEED_POLL_API_URL` if it is not the mock. A
    `deed-poll-api call failed (unavailable)` on the 500 page means the adapter could not reach it
 3. **Run commands from the root directory**: Run yarn test etc from the root directory

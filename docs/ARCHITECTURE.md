@@ -1,10 +1,18 @@
 # Architecture Overview
 
-Note that this is an example architecture document for the deed-poll-admin. It should be adapted to fit the specific architecture of your project.
-
 ## Executive Summary
 
-The HMCTS Express Monorepo Template is a production-ready, cloud-native application platform designed to deliver accessible, secure, and scalable UK government digital services. Built on Express.js 5.x with TypeScript, it implements the GOV.UK Design System and provides comprehensive tooling for building HMCTS (HM Courts & Tribunals Service) applications.
+`deed-poll-admin` is the caseworker application for HMCTS deed poll applications: a server-rendered
+Express 5.x / TypeScript app on the GOV.UK Design System, scaffolded from
+[hmcts/expressjs-monorepo-template](https://github.com/hmcts/expressjs-monorepo-template).
+
+**It is one deployable, and the repository's shape says so.** The application is the root package — `src/`
+at the root, one `Dockerfile`, one chart at `charts/deed-poll-admin/`, one `Jenkinsfile_CNP` component. The
+four-app monorepo it was scaffolded as is gone: `apps/api` and `apps/postgres` with the data access layer,
+`apps/crons` as a component that held one `console.log`, and `apps/web` flattened into the root. See
+[`plans/03-collapse-to-single-app.md`](plans/03-collapse-to-single-app.md). `libs/` is still a Yarn
+workspace of seven packages, deliberately: four are template-provided, and keeping them as packages is what
+makes a future template re-scaffold tractable.
 
 ## System Architecture
 
@@ -19,7 +27,7 @@ The HMCTS Express Monorepo Template is a production-ready, cloud-native applicat
 ┌─────────────────────────────┴────────────────────────────────────┐
 │                      Application Layer                           │
 │  ┌─────────────────────────────────────────────────────────┐     │
-│  │         Web Frontend (@hmcts/web)                       │     │
+│  │         deed-poll-admin (the root package, src/)        │     │
 │  │  - Express 5.x + Nunjucks                               │     │
 │  │  - GOV.UK Design System                                 │     │
 │  │  - Port: 3000                                           │     │
@@ -38,39 +46,53 @@ The HMCTS Express Monorepo Template is a production-ready, cloud-native applicat
 
 **There is no data layer in this repo.** The database, the migrations and the ORM all moved to
 [`hmcts/deed-poll-api`](https://github.com/hmcts/deed-poll-api) — see
-[`../docs/plans/02-dal-cutover-to-api.md`](plans/02-dal-cutover-to-api.md). What is left here is a
+[`plans/completed/02-dal-cutover-to-api.md`](plans/completed/02-dal-cutover-to-api.md). What is left here is a
 presentation layer plus one session store, and the only state this app owns is the session.
 
-## Monorepo Structure
+## Repository Structure
 
-The project uses Yarn Workspaces with Turborepo for efficient monorepo management:
+The application is the root package. Yarn Workspaces and Turborepo remain, for `libs/*` and `e2e-tests`:
 
 ```
 deed-poll-admin/
-├── apps/                       # Deployable applications
-│   ├── crons/                  # Scheduled jobs (CronJob)
-│   └── web/                    # Web frontend application
-│       └── src/
-│           ├── pages/          # File-based page routes (auto-discovered)
-│           └── locales/        # App-level translations
-├── libs/                       # Reusable packages
+├── src/                        # THE application — no apps/ directory
+│   ├── pages/                  # File-based page routes (auto-discovered)
+│   ├── assets/                 # SCSS/TS bundles, compiled by vite
+│   ├── auth/                   # IDAM OIDC: login, session, require-auth
+│   ├── locales/                # App-level translations
+│   └── app.ts, server.ts       # createApp(), and the entrypoint that loads secrets first
+├── config/                     # `config` defaults + custom-environment-variables
+├── libs/                       # Reusable packages — the one remaining workspace
 │   ├── cloud-native-platform/  # Azure integration & monitoring
 │   ├── deed-poll/              # The case domain: services, validation, view models
 │   ├── deed-poll-api-client/   # The adapter onto deed-poll-api, and its in-memory mock
 │   ├── express-govuk-starter/  # GOV.UK Design System integration
+│   ├── express-session-postgres/ # Template-provided, unused, deliberately retained
+│   ├── express-session-redis/  # The session store actually wired up
 │   ├── simple-router/          # File-based routing system
 │   └── [feature-module]/       # Feature modules
 │       └── src/
-│           └── [domain]/       # Reusable functions consumed by apps
-├── helm/                       # Helm charts
-│   └── deed-poll-admin/  # Umbrella chart
-├── e2e-tests/                  # Playwright E2E tests
+│           └── [domain]/       # Reusable functions consumed by the app
+├── charts/deed-poll-admin/     # The one Helm chart, where helmInstall requires it
+├── e2e-tests/                  # Playwright E2E tests, including the @smoke spec
+├── Dockerfile                  # The one image the pipeline builds
 └── docs/                       # Documentation
 ```
 
+Two mechanical consequences of the app being the root package:
+
+- **Turbo will not run a root-package script unless the task is named `//#<task>`**, and a root `//#build`
+  would make `yarn build` invoke itself. Hence `//#build:app`, `//#test:app`, `//#dev:app`, each wrapped by
+  an orchestrating `turbo <x> <x>:app`. Libraries still build first via `^build`.
+- **The app's tsconfig is `tsconfig.app.json`**, not the root `tsconfig.json`, which holds the `libs/*`
+  `paths` and no `include`. `vite-tsconfig-paths` matches source files against discovered tsconfig
+  *projects*, and the root file is the only project covering the libraries' test files; giving it an
+  `include` made library tests resolve `@hmcts/*` to `dist` while their sources resolved to `src`, so
+  `vi.mock` silently stopped applying.
+
 ### File-Based Routing
 
-The web application uses Simple Router for automatic route discovery from the `apps/web/src/pages/` directory:
+The application uses Simple Router for automatic route discovery from the `src/pages/` directory:
 
 1. **Route Discovery**: All `.ts`/`.js` files under `pages/` are scanned recursively
 2. **URL Mapping**:
@@ -82,9 +104,9 @@ The web application uses Simple Router for automatic route discovery from the `a
 
 ## Core Components
 
-### 1. Web Frontend (`apps/web`)
+### 1. The application (`src/`, the root package)
 
-**Purpose**: User-facing web application with GOV.UK Design System
+**Purpose**: caseworker-facing web application with GOV.UK Design System
 
 **Key Technologies**:
 - Express 5.x server
@@ -159,14 +181,14 @@ yet and nothing here waits for it.
   `sess:`, because the shared root provisions one Redis for the product and `deed-poll-web` reads the same
   `redis-url` — a caseworker service's IDAM tokens and a public service's sessions should not share a keyspace
 - Cookie: 24 hours, `httpOnly`, `sameSite=lax`, and `Secure` outside development and test. All four stated at
-  the call site in `apps/web/src/app.ts`, not inherited — the library spreads caller options over its
+  the call site in `src/app.ts`, not inherited — the library spreads caller options over its
   defaults, so a partial `cookie` silently replaces the whole default object
 - Fails fast during an outage rather than queueing: the client sets `disableOfflineQueue`, so a store read
   while Redis is away returns a 500 instead of hanging until it comes back. See
   [`DEPLOYMENT.md`](DEPLOYMENT.md#what-a-redis-outage-looks-like)
 
 Sessions are held here rather than behind `deed-poll-api` deliberately — see the comment at the store call
-site in `apps/web/src/app.ts` for the reasoning. `libs/express-session-postgres` is still vendored but no
+site in `src/app.ts` for the reasoning. `libs/express-session-postgres` is still vendored but no
 longer wired up.
 
 ## Shared Libraries
@@ -185,7 +207,7 @@ longer wired up.
 ```typescript
 // Automatic configuration loading
 await configurePropertiesVolume(config, { 
-  chartPath: path.join(__dirname, "../helm/values.yaml") 
+  chartPath: path.join(__dirname, "../charts/deed-poll-admin/values.yaml")
 });
 
 // Health check endpoints
@@ -219,7 +241,7 @@ app.use(healthcheck()); // /health, /health/readiness, /health/liveness
 
 **Example**:
 ```typescript
-// apps/web/src/pages/deed-polls/[id]/index.ts
+// src/pages/deed-polls/[id]/index.ts
 export const GET = async (req, res) => {
   const deedPoll = await findDeedPoll(req.params.id, callerFromRequest(req));
   res.render("deed-polls/[id]/index", detailView(deedPoll));
@@ -228,47 +250,44 @@ export const GET = async (req, res) => {
 
 **Usage**:
 ```typescript
-// apps/web/src/app.ts
+// src/app.ts
 app.use(await createSimpleRouter({ path: `${__dirname}/pages` }));
 ```
 
 ## Helm Chart Structure
 
-The project uses an umbrella Helm chart pattern for coordinated deployment of all services.
+**One chart, one component, no umbrella.** `charts/deed-poll-admin/` is a single `nodejs` chart, and the
+directory name is the pipeline's requirement rather than a preference — `Helm.HELM_RESOURCES_DIR` is the
+literal `charts`, and `helmInstall` throws without it, then requires `charts/deed-poll-admin/values.yaml`.
 
-### Umbrella Chart (`helm/deed-poll-admin/`)
-
-**Purpose**: Coordinates deployment of all applications and dependencies
-
-**Structure**:
 ```
-helm/deed-poll-admin/
-├── Chart.yaml                      # Parent chart with dependencies
-├── values.yaml                     # Default values
-└── values.preview.template.yaml    # Preview environment values
+charts/deed-poll-admin/
+├── Chart.yaml                      # nodejs base chart; redis for preview only
+├── values.yaml                     # The real configuration — every environment's defaults
+├── values.aat.template.yaml        # AAT overrides, appended after values.yaml
+├── values.preview.template.yaml    # Preview overrides, one per pull request
+└── .helmignore
 ```
 
-**Dependencies**:
-- `deed-poll-admin-web`: Web frontend application
-- `deed-poll-admin-crons`: Scheduled jobs
+**Dependencies**: `nodejs` (the HMCTS base chart — a CNP chart depends on it by definition) and `redis`,
+which is enabled in preview only. There is **no `file://` dependency and no condition gating one of this
+repo's own components**: the four `deed-poll-admin-{web,api,crons,postgres}` subcharts and the `postgresql`
+one are all gone. The reason is mechanical rather than aesthetic — `az acr build … .` builds a single root
+`Dockerfile` into a single image and `helmInstall` exposes exactly that one as `${IMAGE_NAME}`, where an
+umbrella chart needs one `${*_IMAGE}` per subchart and nothing sets those.
 
-Three dependencies went with the data access layer — `deed-poll-admin-postgres` and `deed-poll-admin-api`
-pointed at deleted directories, and `postgresql` provisioned a per-PR database with nothing to put in it.
-A `file://` dependency on a missing chart fails `helm dependency build`, so they were removed rather than
-disabled.
-
-**Key Features**:
-- Each app can be enabled/disabled via conditions
-- Dynamic image tag substitution for preview deployments
-- Team metadata in annotations for multi-team monorepos
-- Environment-specific value overrides
-
-### Per-App Charts (`apps/*/helm/`)
-
-Each deployable application has its own Helm chart:
-- Uses HMCTS standard charts (`nodejs`, `job`)
-- Contains app-specific configuration
-- Referenced as file-based dependency in umbrella chart
+**Key points**, each of which fails only on a real Jenkins run and so is pinned by
+`src/deployment-chart.test.ts`:
+- `values.yaml` holds the real configuration, and **there is deliberately no bare `values.template.yaml`**:
+  `helmInstall` renders that name *over* `values.yaml` rather than appending it, so anything `values.yaml`
+  holds that such a template did not restate would be silently lost
+- The ingress host is `${SERVICE_FQDN}` in AAT and preview, and
+  `deed-poll-admin.{{ .Values.global.environment }}.platform.hmcts.net` elsewhere. **No hostname is built
+  out of `${TEAM_NAME}` or `${ENVIRONMENT}`** — neither is exported to a values template, and `TEAM_NAME` is
+  a team display name, not a slug
+- `IDAM_REDIRECT_URI` is derived from the same variable as the host it must match, in the same file, so the
+  two cannot drift
+- Team metadata stays in `annotations.team`, which the platform reads for namespace and Slack routing
 
 ## Preview Deployment Architecture
 
@@ -281,30 +300,35 @@ Automated preview environments are created for each pull request, allowing teams
 **Trigger**: pull requests, and merges to `master`
 
 The pipeline is `Jenkinsfile_CNP` — `withPipeline("nodejs", "deed-poll", "admin")` with an empty body. What it
-is *for*: build the image, run `yarn lint` and the test stage, deploy the umbrella chart to the `deed-poll`
-namespace on `cft-preview-01-aks`, then smoke-test the deployed URL and post the environment back to the PR.
+is *for*: build the one image, run `yarn lint` and the test stage, deploy `charts/deed-poll-admin/` to the
+`deed-poll` namespace on `cft-preview-01-aks`, then smoke-test the deployed URL and post the environment back
+to the PR.
 
-**It cannot do the deploy half of that yet.** The chart is at `helm/` where the library reads `charts/`, the
-pipeline builds one image where the umbrella chart wants two, there is no `yarn test:smoke`, and preview has
-no Redis — four blockers inside this repo, plus platform onboarding and the fact that `deed-poll-api` is not
-deployed either. All six are enumerated with the library source that proves each in
-[`PIPELINES.md`](PIPELINES.md); two of them are design decisions rather than renames. Read that before
-assuming a red build is a regression.
+**Nothing in this repo blocks that any longer.** The four blockers that were — the chart's directory, one
+image against an umbrella chart wanting two, the missing `yarn test:smoke`, and preview having no session
+store — are all resolved, and the two that were design decisions were decided: one component, and an
+ephemeral `redis` subchart per PR. What is left is external: `cnp-jenkins-config` onboarding, which
+**hard-fails the pipeline before it builds anything** while `deed-poll` is absent from `team-config.yml`, the
+IDAM client registration, and `deed-poll-api` not being deployed — which keeps the smoke gate red on purpose.
+All of it is enumerated with the library source that proves each in [`PIPELINES.md`](PIPELINES.md). Read that
+before assuming a red build is a regression.
 
 The previous GitHub Actions pipeline and the five bash scripts it composed (`detect-affected-apps.sh`,
 `generate-build-metadata.sh`, `set-image-variables.sh`, `deploy-preview.sh`, `get-deployment-urls.sh`) were
 deleted with `.github/workflows/`. Their per-app selective-build behaviour has **no equivalent** in the CNP
-pipeline, which builds one image per component — see [`PIPELINES.md`](PIPELINES.md), which records that
-mismatch and the rest of the work outstanding before a deploy can go green.
+pipeline, which builds one image per component — and no longer needs one, since there is one component.
 
 ### Infrastructure Components
 
 **Per-Preview Resources**:
 - Kubernetes namespace: `{team-name}`
-- Ingress hosts: `{team}-{release}-{app}.preview.platform.hmcts.net`
+- Ingress host: `${SERVICE_FQDN}`, computed by the pipeline. Different for every pull request, which is why
+  preview sign-in is an open question with IDAM rather than something this chart can settle
+- **A `redis` subchart**, standalone, no auth, no persistence, nothing outliving the PR. Enabled here and
+  nowhere else
 - **No database.** The per-PR Postgres went with the data access layer. A preview instead points
   `DEED_POLL_API_URL` at AAT's api, which means preview writes land in AAT's data — stated at the value in
-  `helm/deed-poll-admin/values.preview.template.yaml`
+  `charts/deed-poll-admin/values.preview.template.yaml`
 
 **Shared Resources**, all provisioned by [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra)
 rather than by anything in this repo:
@@ -314,8 +338,9 @@ rather than by anything in this repo:
 
 Redis is provisioned there too — one instance per environment, shared with `deed-poll-web` — but **only from
 `aat` upwards**: the shared root applies per environment on the `aat`, `demo`, `ithc`, `perftest` and `prod`
-branches, not in `preview`. Preview therefore has no session store, which is gap 4 in
-[`PIPELINES.md`](PIPELINES.md).
+branches, not in `preview`. That is why preview brings its own, rather than reading `redis-url` from the
+vault; sharing AAT's cache across every open PR was the alternative and was rejected. See
+[`DEPLOYMENT.md`](DEPLOYMENT.md#preview-environment).
 
 ### Cleanup
 

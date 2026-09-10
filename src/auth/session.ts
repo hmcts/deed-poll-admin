@@ -1,7 +1,7 @@
 /**
  * Where the signed-in user lives between requests, and how the pages read it.
  *
- * This **replaces** `userFromHeaders` as the identity source for `apps/web`. The header scheme was
+ * This **replaces** `userFromHeaders` as the identity source for this app. The header scheme was
  * always a stand-in — anyone who could reach the service could send `x-user-roles: deedpoll-admin`
  * and become an admin — and Phase 5 is where it goes. It is not merely disabled: reading it is gone
  * from this app entirely, so there is no configuration under which it comes back.

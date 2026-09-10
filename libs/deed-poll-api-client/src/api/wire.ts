@@ -20,7 +20,7 @@
  *     exactly. Recorded as a difference rather than cast, per task 2 of the plan.
  *
  * NOT exported from the package index: the wire shape is the adapter's own business, per decision 1 of
- * `docs/plans/02-dal-cutover-to-api.md`.
+ * `docs/plans/completed/02-dal-cutover-to-api.md`.
  */
 import { z } from "zod";
 

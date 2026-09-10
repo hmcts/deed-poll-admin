@@ -30,7 +30,7 @@ import { createClient } from "redis";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
-/** The prefix `apps/web/src/app.ts` passes. Restated here so this asserts against a real keyspace. */
+/** The prefix `src/app.ts` passes. Restated here so this asserts against a real keyspace. */
 const PREFIX = "admin-sess:";
 
 const redisReachable = await canConnect();
@@ -116,7 +116,7 @@ describe.skipIf(!redisReachable)("a session through a real Redis", () => {
  * This is the half of the store's behaviour that `app.test.ts` can only assert as a constructor argument.
  * With node-redis's default offline queue a store read during an outage is buffered and never settles, so
  * `express-session` never calls back and the request hangs for as long as Redis is away — the failure mode
- * with no error page, no log line and no bound. `disableOfflineQueue` in `apps/web/src/app.ts` is what makes
+ * with no error page, no log line and no bound. `disableOfflineQueue` in `src/app.ts` is what makes
  * it a rejection instead, and this asserts the consequence rather than the flag: a response arrives.
  */
 describe("a session request while Redis is unreachable", () => {

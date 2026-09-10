@@ -32,10 +32,10 @@ tools: Read, Write, Edit, Bash, Grep, Glob
 - Configure horizontal pod autoscaling (HPA) via Helm charts
 
 ### 4. Helm Chart Management
-- Create and maintain Helm charts using HMCTS base charts
-- Implement umbrella chart pattern for monorepo deployments
-- Manage chart dependencies with file-based references
-- Configure environment-specific values templates
+- Maintain the single chart at `charts/deed-poll-admin/`, on the HMCTS `nodejs` base chart
+- Keep the chart directory and the required `values.yaml` where `helmInstall` reads them
+- Configure environment-specific values templates (`values.<env>.template.yaml`, never a bare
+  `values.template.yaml`)
 - Integrate Key Vault secrets via HMCTS chart conventions
 
 ### 5. Jenkins CNP CI/CD
@@ -180,65 +180,61 @@ resource "azurerm_key_vault_secret" "app_insights_connection_string" {
 
 ## Helm Chart Patterns
 
-### Umbrella Chart Structure
-This repo uses an umbrella chart pattern where the root chart (`helm/deed-poll-admin/`) references subchart dependencies in `apps/*/helm/`:
+### One chart, one component, no umbrella
+There is a single chart at `charts/deed-poll-admin/`, on the HMCTS `nodejs` base chart. The directory name is
+the pipeline's requirement rather than a preference: `Helm.HELM_RESOURCES_DIR` is the literal `charts`, and
+`helmInstall` throws `No Helm charts directory found at charts` before doing anything else, then requires
+`charts/${product}-${component}/values.yaml`.
 
 ```yaml
-# helm/deed-poll-admin/Chart.yaml
+# charts/deed-poll-admin/Chart.yaml
 apiVersion: v2
 name: deed-poll-admin
-description: Umbrella chart for deploying all services
 type: application
 version: 0.0.1
 annotations:
-  team: deed-poll  # Used for namespace and release naming
-dependencies:
-  - name: deed-poll-admin-web
-    version: 0.0.1
-    repository: "file://../../apps/web/helm"
-    condition: web.enabled
-  - name: deed-poll-admin-crons
-    version: 0.0.1
-    repository: "file://../../apps/crons/helm"
-    condition: crons.enabled
-```
-
-**Two subcharts, and the three that went are not coming back by editing this file.**
-`deed-poll-admin-api` and `deed-poll-admin-postgres` pointed at `apps/api/helm` and `apps/postgres/helm`,
-both deleted with the data access layer — and a `file://` dependency on a missing directory fails
-`helm dependency build`, so the chart could not resolve at all until they were removed rather than
-commented out. `postgresql` provisioned a per-PR database this app has nothing to put in. Restoring any of
-them starts in `hmcts/deed-poll-api`.
-
-### HMCTS Base Charts
-App subcharts depend on HMCTS base charts from the OCI registry:
-
-```yaml
-# apps/web/helm/Chart.yaml - Web/API applications
+  team: deed-poll  # Read by the platform for namespace and Slack routing
 dependencies:
   - name: nodejs
-    version: 3.2.0
+    version: 3.2.1
     repository: 'oci://hmctsprod.azurecr.io/helm'
-
-# apps/crons/helm/Chart.yaml - Cron jobs (there are no migrations in this repo)
-dependencies:
-  - name: job
-    version: 2.2.0
-    repository: 'oci://hmctsprod.azurecr.io/helm'
+  # Preview only — see below.
+  - name: redis
+    version: 27.0.18
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
 ```
 
-### Subchart Values Configuration
+**Do not reintroduce an umbrella chart or a `file://` dependency.** `helm/deed-poll-admin/` was one, with
+subcharts `deed-poll-admin-{web,api,crons,postgres}` plus `postgresql`. `api` and `postgres` went with the
+data access layer, `crons` was deleted as a component holding one `console.log`, and `web` is inlined here.
+The reason is mechanical: `az acr build … .` builds the single root `Dockerfile` into one
+`deed-poll/admin` image and `helmInstall` exposes exactly that one to values templates as `${IMAGE_NAME}`,
+where an umbrella chart needs one `${*_IMAGE}` per subchart and nothing sets those. `${WEB_IMAGE}`,
+`${CRONS_IMAGE}`, `${API_IMAGE}` and `${POSTGRES_IMAGE}` do not exist. Restoring a component starts with a
+second `Jenkinsfile_CNP` component, not with this file.
+
+`postgresql` is removed rather than left `enabled: false`: this app has no database, so a per-PR one has
+nothing to put in it. Restoring it starts in `hmcts/deed-poll-api`.
+
+### Values configuration
 ```yaml
-# apps/web/helm/values.yaml
+# charts/deed-poll-admin/values.yaml — the real configuration, not a thin default
+redis:
+  enabled: false            # true in values.preview.template.yaml and nowhere else
 nodejs:
-  releaseNameOverride: "{{ .Release.Name }}-web"
   applicationPort: 3000
   aadIdentityName: deed-poll
-  ingressHost: deed-poll-admin-web.{{ .Values.global.environment }}.platform.hmcts.net
-  image: 'hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:latest'
+  ingressHost: deed-poll-admin.{{ .Values.global.environment }}.platform.hmcts.net
+  image: 'hmctsprod.azurecr.io/deed-poll/admin:latest'
+  readinessPath: /health/readiness
+  livenessPath: /health/liveness
   environment:
     # api's CNP internal host, not an ingress. Resolved per environment from global.environment.
     DEED_POLL_API_URL: http://deed-poll-api-{{ .Values.global.environment }}.service.core-compute-{{ .Values.global.environment }}.internal
+    IDAM_ISSUER_URL: https://hmcts-access.{{ .Values.global.environment }}.platform.hmcts.net
+    IDAM_CLIENT_ID: deed-poll-admin
+    IDAM_REDIRECT_URI: https://deed-poll-admin.{{ .Values.global.environment }}.platform.hmcts.net/oauth2/callback
   keyVaults:
     deed-poll:
       secrets:
@@ -251,6 +247,11 @@ nodejs:
         - name: admin-idam-client-secret
           alias: IDAM_CLIENT_SECRET
 ```
+
+`values.yaml` holds the real configuration, and **`src/secrets.ts` reads this same file out of the image** to
+build its alias map — `getPropertiesVolumeSecrets` returns an empty map rather than throwing on a chart it
+cannot find or parse, so the path `charts/deed-poll-admin/values.yaml` is load-bearing in the application as
+well as in the pipeline.
 
 Note the shape of that block, because getting it wrong is silent:
 
@@ -266,70 +267,91 @@ Note the shape of that block, because getting it wrong is silent:
   its spec. So the caseworker's own token out of the session is the whole credential and there is no vault
   entry for this chart to name. See `docs/DEPLOYMENT.md`, which also argues that if api ever gains S2S the
   answer is a token provider minting one per call, not a static token in an environment variable.
-- **`REDIS_URL` comes from the vault, not from an `environment:` literal.** The shared root writes a
-  `rediss://` URL against the TLS port; a hardcoded `redis://...:6379` would be both the wrong port and
-  cleartext, and sessions here carry IDAM access and refresh tokens. `assertRedisUrl` in
-  `apps/web/src/auth/session.ts` refuses to start on either mistake outside development.
+- **`REDIS_URL` comes from the vault everywhere except preview**, and never from an `environment:` literal in
+  `values.yaml`. The shared root writes a `rediss://` URL against the TLS port; a hardcoded
+  `redis://...:6379` would be both the wrong port and cleartext, and sessions here carry IDAM access and
+  refresh tokens. `assertRedisUrl` in `src/auth/session.ts` refuses to start on either mistake outside
+  development. Preview is the one exception, and it drops the vault entry to make the override stick — below.
 - The chart **fails to start a pod when a named secret is absent**, which is the right way round for the two
   `admin-` entries.
 
 ### Values Templates
-The umbrella chart uses environment-specific templates with variable substitution:
+Environment-specific templates, run through `envsubst` and *appended* to `values.yaml`:
 
-**AAT/Prod Template** (`values.template.yaml`):
+**AAT** (`charts/deed-poll-admin/values.aat.template.yaml`):
 ```yaml
-global:
-  environment: ${ENVIRONMENT:-aat}
-
-# Subcharts enabled — two, and kept in step with the preview template deliberately
-web:
-  enabled: true
-crons:
-  enabled: true
-
-deed-poll-admin-web:
-  nodejs:
-    image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:${WEB_IMAGE}"
-    ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}.platform.hmcts.net"
-    environment:
-      # MUST equal the ingressHost above with /oauth2/callback appended, and MUST be registered with
-      # IDAM verbatim. Set here rather than in the subchart because this file overrides that
-      # ingressHost, so the two have to be decided in one place.
-      IDAM_REDIRECT_URI: "https://${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}.platform.hmcts.net/oauth2/callback"
-      # DEED_POLL_API_URL is deliberately NOT restated here: the subchart's default already resolves
-      # per environment, and a second spelling of api's host is drift with nothing forcing it.
+nodejs:
+  image: ${IMAGE_NAME}
+  ingressHost: ${SERVICE_FQDN}
+  environment:
+    # The same variable as the host above, in the same file, so the two cannot drift. IDAM refuses a
+    # redirect_uri it does not hold exactly, and refuses it on its own page after a successful login.
+    IDAM_REDIRECT_URI: https://${SERVICE_FQDN}/oauth2/callback
+    # DEED_POLL_API_URL is deliberately NOT restated: values.yaml already resolves it per environment.
 ```
 
-The `${API_IMAGE}` and `${POSTGRES_IMAGE}` substitutions are gone with those two apps; `${WEB_IMAGE}` and
-`${CRONS_IMAGE}` are the only two the Jenkins pipeline supplies. There are no `postgresql:` or `redis:`
-toggles either — the Key Vault, Redis and App Insights are all Terraform in `hmcts/deed-poll-infra`.
+Four rules this file exists to enforce, each of which fails only on a real Jenkins run:
 
-**Preview Template** (`values.preview.template.yaml`):
+- **`${IMAGE_NAME}` and `${SERVICE_FQDN}` are the variables to use.** `helmInstall` exports exactly
+  `NAMESPACE`, `SERVICE_NAME`, `IMAGE_NAME`, `SERVICE_FQDN` and `INGRESS_IP`. **`${TEAM_NAME}` and
+  `${ENVIRONMENT}` must appear nowhere**: neither is exported to a values template, `ENVIRONMENT` expanded to
+  the empty string and left a doubled dot in the host this replaced, and `TEAM_NAME` is
+  `TeamConfig.getName(product)` — a team *display* name, which returns the constant `pleaseTagMe` for a
+  product `team-config.yml` does not list. `deed-poll` is not listed.
+- **Never create a bare `values.template.yaml`.** `helmInstall` does
+  `envsubst < values.template.yaml > values.yaml`, rendering it *over* `values.yaml` rather than appending, so
+  everything `values.yaml` holds that the template did not restate is silently lost.
+  `src/deployment-chart.test.ts` asserts no such file comes back.
+- **Do not set `global.environment` in a values file.** `helmInstall` passes it with `--set`, which beats any
+  `-f`, and `envsubst` expands only `$VAR` and `${VAR}` — a `${ENVIRONMENT:-aat}` reaches Helm as that literal
+  string, so the vault name becomes `deed-poll-${ENVIRONMENT:-aat}`.
+- **`IDAM_REDIRECT_URI` is derived from the same variable as the host it must match.**
+
+**Preview** (`charts/deed-poll-admin/values.preview.template.yaml`) adds an ephemeral cache:
 ```yaml
 global:
-  environment: preview
-
-deed-poll-admin-web:
-  nodejs:
-    image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-web:${WEB_IMAGE}"
-    ingressHost: "${TEAM_NAME}-{{ .Release.Name }}-web.preview.platform.hmcts.net"
-    environment:
-      IDAM_REDIRECT_URI: "https://${TEAM_NAME}-{{ .Release.Name }}-web.preview.platform.hmcts.net/oauth2/callback"
-      # AAT's api, overridden rather than inherited: `global.environment` is `preview` and there is no
-      # `deed-poll-api-preview.…internal` — api's preview deploys are per-PR hosts with no stable name.
-      # The usual CFT arrangement, with the usual consequence: preview writes land in AAT's data.
-      DEED_POLL_API_URL: "http://deed-poll-api-aat.service.core-compute-aat.internal"
+  security:
+    allowInsecureImages: true   # the mirrored bitnami image comes from hmctsprod.azurecr.io
+nodejs:
+  image: ${IMAGE_NAME}
+  ingressHost: ${SERVICE_FQDN}
+  environment:
+    REDIS_URL: "redis://{{ .Release.Name }}-redis-master:6379"
+    IDAM_REDIRECT_URI: https://${SERVICE_FQDN}/oauth2/callback
+    DEED_POLL_API_URL: "http://deed-poll-api-aat.service.core-compute-aat.internal"
+  keyVaults:
+    deed-poll:
+      secrets: [...]          # the same list as values.yaml MINUS redis-url — see below
+redis:
+  enabled: true
+  architecture: standalone
+  auth: { enabled: false }
+  master:
+    persistence: { enabled: false }
+    readinessProbe: { timeoutSeconds: 10, periodSeconds: 10 }
+    livenessProbe: { timeoutSeconds: 10 }
+  replica: { replicaCount: 0 }
 ```
 
-Two things about preview that are easy to get wrong:
+Four things about preview that are easy to get wrong:
 
-- **There are no `postgresql:` or `redis:` subchart toggles**, and the database one is not coming back —
-  there is nothing in this repo to put in a per-PR database. A `redis:` block is what a per-PR session store
-  *would* look like, not what is there; `deed-poll-infra` does not apply in `preview`, so a preview deploy
-  has no `redis-url`. Whether preview gets an ephemeral subchart or points at the AAT cache is undecided —
-  see `docs/PIPELINES.md`. Do not present it as existing.
-- **Preview enables the same two subcharts as AAT**, deliberately: a preview that deploys a component AAT
-  does not is a preview of something else.
+- **Preview gets its own Redis, and this is decided rather than pending.** `hmcts/deed-poll-infra` applies on
+  the `aat`, `demo`, `ithc`, `perftest` and `prod` branches and never in `preview`, so there is no
+  `redis-url` to read. Pointing preview at AAT's cache was the alternative and was rejected: every open PR
+  would share one keyspace, and preview sessions would outlive the PR in a store nothing here can clear.
+  `deed-poll-web` settled it the same way.
+- **The vault list is re-declared minus `redis-url`, and that is what makes the `REDIS_URL` override work.**
+  `getPropertiesVolumeSecrets` writes every mounted secret to `process.env` under its chart alias
+  unconditionally on the mount-point path — its `omit` list applies only to the local Azure-vault path — so a
+  mounted `redis-url` would overwrite the value above and point a PR at AAT's cache. Helm replaces a list
+  rather than merging it, so keep the other three in step with `values.yaml`;
+  `src/deployment-chart.test.ts` asserts that.
+- **The 10s probe timeouts are HDPI-8155, not padding.** Dynatrace node instrumentation adds ~1s per spawned
+  process, so the chart-default 2s exec-probe budget leaves redis permanently Running-but-not-Ready and out
+  of its own Service endpoints. The symptom here is not a crashloop — `getRedisClient` races `connect()`
+  against a bound and serves anyway — it is `redisStatus` reporting `redis: DOWN` for ever.
+- **There is no `postgresql:` toggle and it is not coming back.** There is nothing in this repo to put in a
+  per-PR database. Preview points at AAT's api instead, which means **preview writes land in AAT's data**.
 
 ## Jenkins CNP CI/CD Pipeline
 
@@ -355,8 +377,10 @@ The body is empty deliberately: secrets arrive through the chart's `keyVaults:` 
 
 ### What the library expects from the repo
 
-Read these four files in `hmcts/cnp-jenkins-library` before changing anything pipeline-shaped. They answer most
-questions, and this repo does **not** currently satisfy all of them:
+Read these four files in `hmcts/cnp-jenkins-library` before changing anything pipeline-shaped. They answer
+most questions, and this repo now satisfies all of them — what is left before a green deploy is external
+(`cnp-jenkins-config` onboarding, the IDAM client registration, and api not being deployed). See
+`docs/PIPELINES.md`, which enumerates each against the library source.
 
 | File | What it decides |
 |---|---|
@@ -412,12 +436,12 @@ kubectl exec <pod-name> -n <namespace> -- curl <service-url>
    - Debug networking and connectivity issues
    - Examine liveness and readiness probe failures
 
-2. **Create Helm charts for applications**
-   - Create new subchart using nodejs/job base chart
-   - Configure environment-specific values templates
+2. **Change the Helm chart**
+   - Edit `charts/deed-poll-admin/`, on the `nodejs` base chart — there is one chart and one component
+   - Configure environment-specific values templates (`values.<env>.template.yaml`)
    - Set up Key Vault integration for secrets
    - Define resource limits and autoscaling
-   - Add to umbrella chart dependencies
+   - Run `src/deployment-chart.test.ts`, which pins the rules that otherwise fail only on Jenkins
 
 3. **Troubleshoot deployment failures**
    - Check the Jenkins build console output for the failing stage
@@ -453,11 +477,12 @@ kubectl get events -n <namespace> --sort-by='.lastTimestamp'
 kubectl rollout status deployment/<app-name> -n <namespace>
 kubectl rollout restart deployment/<app-name> -n <namespace>
 
-# Helm Commands (monorepo pattern)
-helm dependency update helm/deed-poll-admin
-helm dependency build helm/deed-poll-admin
-helm template helm/deed-poll-admin -f helm/deed-poll-admin/values.template.yaml
-helm lint helm/deed-poll-admin
+# Helm Commands. `values.aat.template.yaml` needs envsubst first — it is not valid until IMAGE_NAME and
+# SERVICE_FQDN are expanded.
+helm dependency update charts/deed-poll-admin
+helm dependency build charts/deed-poll-admin
+helm template charts/deed-poll-admin -f charts/deed-poll-admin/values.yaml --set global.environment=aat
+helm lint charts/deed-poll-admin
 helm list -n <namespace>
 helm history <release-name> -n <namespace>
 helm rollback <release-name> <revision> -n <namespace>
@@ -499,11 +524,12 @@ az keyvault secret show --vault-name <vault> --name <secret>
 - Enable audit logging for all resources
 
 ### Helm Charts
-- Use umbrella chart pattern for monorepo deployments
-- Use file-based dependencies for local subcharts
-- Create environment-specific values templates
-- Use variable substitution for images and hosts
-- Enable/disable dependencies via conditions
+- One chart per component, at `charts/<product>-<component>/` — no umbrella, no `file://` dependencies
+- Create environment-specific values templates, `values.<env>.template.yaml`, never a bare
+  `values.template.yaml`
+- Substitute only variables `helmInstall` exports: `${IMAGE_NAME}`, `${SERVICE_FQDN}`, `${NAMESPACE}`,
+  `${SERVICE_NAME}`, `${INGRESS_IP}`
+- Gate an optional third-party subchart with a `condition:`, defaulting off in `values.yaml`
 
 ### CI/CD Pipelines
 - Pin the shared library version, and keep it in step with `hmcts/deed-poll-infra`

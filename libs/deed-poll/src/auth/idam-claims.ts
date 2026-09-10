@@ -8,7 +8,7 @@
  * recognises. Every authorization decision downstream is made against that, unchanged from the
  * header-based days.
  *
- * In the domain rather than in `apps/web` because it is the same reduction wherever it happens: the
+ * In the domain rather than in the app because it is the same reduction wherever it happens: the
  * SSR pages resolve it from a session and the API would resolve it from a bearer token, and both must
  * agree on which asserted roles count. It takes a plain claims object, so the domain needs no OIDC
  * library.

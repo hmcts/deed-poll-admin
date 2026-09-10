@@ -1,7 +1,7 @@
 # No Postgres service, deliberately. This app owns no data access layer: case data is `deed-poll-api`'s
 # and sessions are Redis's, so there is nothing left for a local database to hold. `yarn mock:api` — the
 # in-memory api the pages develop against — keeps its fixtures in process. See task 5 of
-# `docs/plans/02-dal-cutover-to-api.md`.
+# `docs/plans/completed/02-dal-cutover-to-api.md`.
 services:
   # The session store. Named and configured identically to `deed-poll-web`'s service, on the same port,
   # so the two repos share one local Redis rather than racing for 6379 — whichever compose file is up,

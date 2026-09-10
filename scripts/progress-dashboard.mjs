@@ -22,9 +22,9 @@
  * Printing is the default deliberately: a generator that writes on sight is one typo away from
  * mangling the handover document, so the safe mode is the one you get by accident.
  *
- * `.mjs` rather than `.js` because the root `package.json` does not set `"type": "module"` — only
- * the workspaces do. Setting it at the root would also change how `vitest.config.ts` is loaded,
- * which is not a change worth making for a dev script.
+ * `.mjs` rather than `.js` is now belt and braces rather than a requirement: the root `package.json`
+ * does set `"type": "module"` since the application became the root package. The extension is kept
+ * because it states the module system at the call site and costs nothing.
  */
 
 import { execFileSync } from "node:child_process";

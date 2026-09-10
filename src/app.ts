@@ -119,7 +119,7 @@ export async function createApp(): Promise<Express> {
   // holds the case data every page renders. A probe that named only Redis would go green on a pod that
   // 500s every case page, which is worse than no probe at all — Kubernetes would keep sending it
   // traffic and nothing would escalate. That is the failure task 5 of
-  // `docs/plans/02-dal-cutover-to-api.md` calls out, and `deedPollApiStatus` is what answers it.
+  // `docs/plans/completed/02-dal-cutover-to-api.md` calls out, and `deedPollApiStatus` is what answers it.
   app.use(
     healthcheck({
       checks: {},

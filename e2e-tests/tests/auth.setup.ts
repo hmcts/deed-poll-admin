@@ -3,7 +3,7 @@
  *
  * Its own Playwright project rather than a `beforeEach`: the login flow is three redirects across two
  * origins, and repeating it per test would make the journeys slower without testing anything they do
- * not already cover. The flow itself is verified in `apps/web/src/auth/idam.test.ts` and against the
+ * not already cover. The flow itself is verified in `src/auth/idam.test.ts` and against the
  * running simulator; here it is arrangement.
  *
  * See ./idam-session.ts for why this drives the real issuer rather than forging a cookie.

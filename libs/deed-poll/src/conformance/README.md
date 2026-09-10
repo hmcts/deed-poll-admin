@@ -5,7 +5,7 @@ source-of-truth Dataverse exports in `.business_context/dataverse_tables/` into 
 assertions, so a rule that was ported cannot silently drift and a column that was dropped cannot
 be dropped quietly. `.business_context/CONFORMANCE_HARNESS_PLAN.md` is its design record.
 
-## The decision — task 7 of `docs/plans/02-dal-cutover-to-api.md`, 2026-09-09
+## The decision — task 7 of `docs/plans/completed/02-dal-cutover-to-api.md`, 2026-09-09
 
 The harness had five layers. The cutover to `deed-poll-api` left this repo storing nothing, so
 one of the five lost its subject and four did not. **The structural layer is retired here and

@@ -61,7 +61,7 @@ To quickly analyze code for performance issues, provide the specific file or mod
 
 **There is no database and no ORM in this repo.** Prisma, the pg pool and the migrations were deleted; every
 read and write of case data is an HTTP call to `deed-poll-api` through `libs/deed-poll-api-client`. See
-`docs/plans/02-dal-cutover-to-api.md`. So the questions worth asking are about round trips, not queries.
+`docs/plans/completed/02-dal-cutover-to-api.md`. So the questions worth asking are about round trips, not queries.
 
 ### Round trips
 - [ ] **One call per thing a page needs, and no more.** A case's notes, witnesses and documents all arrive

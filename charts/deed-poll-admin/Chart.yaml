@@ -14,7 +14,7 @@ home: https://github.com/hmcts/deed-poll-admin
 #
 # This replaced `helm/deed-poll-admin/`, an umbrella chart with `file://` dependencies on
 # `deed-poll-admin-{web,api,crons,postgres}` plus a `postgresql` subchart. `api` and `postgres` went with
-# the data access layer (`docs/plans/02-dal-cutover-to-api.md`), `crons` in plan 03 task 2 as a component
+# the data access layer (`docs/plans/completed/02-dal-cutover-to-api.md`), `crons` in plan 03 task 2 as a component
 # that held one `console.log` and was never written, and `web` is inlined here — because `az acr build … .`
 # builds a single root `Dockerfile` into a single `deed-poll/admin` image and `helmInstall` exposes exactly
 # that one image to the values templates as `${IMAGE_NAME}`. An umbrella chart needs one `${*_IMAGE}` per

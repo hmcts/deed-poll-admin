@@ -1,7 +1,7 @@
 /**
  * Witnesses, read through `deed-poll-api`. **Read-only, and deliberately so.**
  *
- * api has no witness write endpoints — task 4 of `docs/plans/02-dal-cutover-to-api.md` records that as
+ * api has no witness write endpoints — task 4 of `docs/plans/completed/02-dal-cutover-to-api.md` records that as
  * a decision rather than a gap, and `DEED_POLL_API_PLAN.md` lists witness writes among the operations
  * not rebuilt until something asks. Nothing asks: this app's edit form renders witnesses as a managed
  * list with zero editable fields, and its detail page reads them off the case. So `createWitness`,

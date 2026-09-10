@@ -1,8 +1,8 @@
 /**
  * Whether this process may talk to an IDAM issuer over plain HTTP.
  *
- * `apps/web` uses it to grant `openid-client` permission to use a cleartext issuer, which it refuses by
- * default. It is in the domain library rather than in that app because two apps once needed the answer and
+ * `deed-poll-admin` uses it to grant `openid-client` permission to use a cleartext issuer, which it refuses by
+ * default. It is in the domain library rather than in the app because two apps once needed the answer and
  * read it opposite ways — the deleted `apps/api` used it to reject a cleartext issuer URL outright, since
  * `fetch` will happily use one. Different mechanisms, one decision, and the decision is what matters, so
  * it stays here rather than moving into the one surviving caller.

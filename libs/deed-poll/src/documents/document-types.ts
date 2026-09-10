@@ -3,7 +3,7 @@
  * types each applies to. Global reference data, not case data, which is why this is not nested.
  *
  * **Read-only, and one function.** api publishes `GET /caseworker/document-types` and nothing else:
- * task 4 of `docs/plans/02-dal-cutover-to-api.md` records the absence of document-type writes as
+ * task 4 of `docs/plans/completed/02-dal-cutover-to-api.md` records the absence of document-type writes as
  * deliberate, and `DEED_POLL_API_PLAN.md` lists them among the operations not rebuilt until something
  * asks. Nothing in this app asks — the only reader is the upload form's type dropdown — so the create,
  * patch and delete went rather than being left as routes that could only fail, and

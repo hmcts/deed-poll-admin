@@ -5,7 +5,7 @@
  * gone. This one answers HTML, because the caller is a browser: a caseworker following a stale link to a
  * deleted case should get the service's own "Page not found" page, not a JSON body and not a 500.
  *
- * **Without this the pages returned 500 for a missing case.** `apps/web` mounts the starter's
+ * **Without this the pages returned 500 for a missing case.** The app mounts the starter's
  * `errorHandler`, which logs and renders `errors/500` for anything at all — it has no knowledge of
  * `NotFoundError`. That is the same gap that produced three defects in Phase 3, on the API side:
  * an expected, caller-caused condition reaching an error handler that does not recognise it.

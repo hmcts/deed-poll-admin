@@ -6,7 +6,7 @@
  * this has one fewer.
  *
  * The POST exports an **array** so the multipart parser runs before the handler — a shape
- * `simple-router` supports for exactly this. See `apps/web/src/documents/upload.ts`.
+ * `simple-router` supports for exactly this. See `src/documents/upload.ts`.
  *
  * **The file cannot be preserved across a re-render**, because browsers do not repopulate a file
  * input — so unlike the note forms, a rejected upload always costs the caseworker the file selection.
