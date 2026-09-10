@@ -850,16 +850,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@hmcts/crons@workspace:apps/crons":
-  version: 0.0.0-use.local
-  resolution: "@hmcts/crons@workspace:apps/crons"
-  dependencies:
-    "@hmcts-cft/cloud-native-platform": "workspace:*"
-    "@types/config": "npm:4.4.0"
-    config: "npm:4.4.2"
-  languageName: unknown
-  linkType: soft
-
 "@hmcts/deed-poll-api-client@workspace:*, @hmcts/deed-poll-api-client@workspace:libs/deed-poll-api-client":
   version: 0.0.0-use.local
   resolution: "@hmcts/deed-poll-api-client@workspace:libs/deed-poll-api-client"

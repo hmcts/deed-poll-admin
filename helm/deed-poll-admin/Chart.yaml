@@ -6,18 +6,18 @@ version: 0.0.1
 annotations:
   team: deed-poll
 home: https://github.com/hmcts/deed-poll-admin
-# Two subcharts, and the three that went are not coming back by editing this file.
+# One subchart, and the four that went are not coming back by editing this file.
 # `deed-poll-admin-postgres` and `deed-poll-admin-api` pointed at `apps/postgres/helm` and
 # `apps/api/helm`, both deleted with the data access layer (plan 02, task 5) — a `file://` dependency on
 # a missing directory fails `helm dependency build`, so leaving them commented out would have been a
 # chart that cannot resolve. `postgresql` provisioned a per-PR database this app has nothing to put in.
+# `deed-poll-admin-crons` went the same way in plan 03 task 2: the workspace it charted held one
+# `console.log` and no cron was ever written, so it was a permanently empty component costing a second
+# image, a second `product`/`component` onboarding request and a subchart here. A scheduled job, if one is
+# ever needed, is a `Jenkinsfile_nightly` or a CronJob in this chart.
 # Restoring any of them starts in `hmcts/deed-poll-api`, not here.
 dependencies:
   - name: deed-poll-admin-web
     version: 0.0.1
     repository: "file://../../apps/web/helm"
     condition: web.enabled
-  - name: deed-poll-admin-crons
-    version: 0.0.1
-    repository: "file://../../apps/crons/helm"
-    condition: crons.enabled

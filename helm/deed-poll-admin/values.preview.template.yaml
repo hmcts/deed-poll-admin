@@ -5,12 +5,10 @@ global:
     allowInsecureImages: true
 
 # Enable/disable subcharts. Kept in step with values.template.yaml deliberately: a preview environment
-# that deploys a component AAT does not is a preview of something else. The `postgres`, `api` and
-# `postgresql` toggles went with the charts they switched — there is no per-PR database any more, because
-# there is nothing in this repo to put in one.
+# that deploys a component AAT does not is a preview of something else. The `postgres`, `api`,
+# `postgresql` and `crons` toggles went with the charts they switched — there is no per-PR database any
+# more, because there is nothing in this repo to put in one, and no crons component to switch.
 web:
-  enabled: true
-crons:
   enabled: true
 
 # Web application configuration
@@ -33,13 +31,3 @@ deed-poll-admin-web:
       # consequence: **preview writes land in AAT's data.** Fine for a caseworker service with no live
       # data yet; revisit before this app carries any.
       DEED_POLL_API_URL: "http://deed-poll-api-aat.service.core-compute-aat.internal"
-
-# Crons application configuration
-deed-poll-admin-crons:
-  job:
-    image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-crons:${CRONS_IMAGE}"
-    schedule: "*/5 * * * *"  # Every 5 minutes
-    suspend: false
-    kind: CronJob
-    environment:
-      SCRIPT_NAME: 'example'

@@ -3,9 +3,6 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "paths": {
-      "@hmcts/crons": [
-        "./apps/crons/src"
-      ],
       "@hmcts/web": [
         "./apps/web/src"
       ],

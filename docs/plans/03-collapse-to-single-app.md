@@ -250,11 +250,33 @@ task: zero** — the 72 unit and 5 e2e tests were already charged to plan 02.
 
 ### Task 2: Delete apps/crons
 
-- [ ] Delete `apps/crons/`, including its `helm/` subchart
-- [ ] Remove the `deed-poll-admin-crons` dependency and its `crons.enabled` condition from
+- [x] Delete `apps/crons/`, including its `helm/` subchart
+- [x] Remove the `deed-poll-admin-crons` dependency and its `crons.enabled` condition from
       `helm/deed-poll-admin/Chart.yaml` and both values templates
-- [ ] Remove `@hmcts/crons` from the workspace and any `turbo.json` reference
-- [ ] Mark completed
+- [x] Remove `@hmcts/crons` from the workspace and any `turbo.json` reference
+- [x] Mark completed
+
+**Completed 2026-09-10.** `apps/` now holds `web` alone, and `helm/deed-poll-admin/Chart.yaml` has one
+dependency. Three things the checkboxes did not name and a future reader should not have to re-find:
+
+- **`turbo.json` never referenced `crons`** — its task graph is entirely glob-driven, so there was nothing
+  to remove. The `@hmcts/crons` workspace membership came from the `apps/*` glob plus a `tsconfig.json`
+  `paths` entry pointing at `./apps/crons/src`; the glob stays for `apps/web` until task 3, and the path
+  mapping is gone.
+- **`yarn install --immutable` fails on this task's own deletion and that is correct.** Removing a
+  workspace member necessarily changes `yarn.lock`, and `--immutable` forbids exactly that. Run a plain
+  `yarn install` to drop the `@hmcts/crons@workspace:apps/crons` entry, then `--immutable` passes. The same
+  will be true of task 3.
+- **One stale comment went with it.** `apps/web/src/secrets.ts` cited `apps/crons/src/index.ts` as
+  precedent for awaiting secrets in the entrypoint. The reasoning above it stands on its own; the citation
+  now points at nothing.
+
+**Test-count delta: −10 unit, 0 e2e — exactly the deliberate drop Constraints predicts.** Measured
+`1,256 → 1,246` by summing the per-package totals from `yarn test:force` before and after: crons' 10 tests
+(`src/example.test.ts`, `src/index.test.ts`) and no others. Every other package is unchanged to the test —
+web 327, deed-poll 443, cloud-native-platform 140, deed-poll-api-client 138, express-govuk-starter 127,
+simple-router 41, express-session-postgres 23, express-session-redis 7. `yarn lint`, `yarn build` and
+`yarn test` are green.
 
 ### Task 3: Flatten apps/web to the root
 

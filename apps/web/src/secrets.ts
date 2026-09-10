@@ -18,8 +18,7 @@ const chartPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "../he
  * crashlooped it with an error blaming a `redis-url` entry that was there all along.
  *
  * So the ordering *is* the mechanism, and it has to live in the entrypoint rather than in `createApp`:
- * `server.ts` awaits this and only then imports `./app.js`, dynamically. `apps/crons/src/index.ts` has
- * always done it this way round.
+ * `server.ts` awaits this and only then imports `./app.js`, dynamically.
  *
  * `omit` applies only on the non-production Azure-vault path — see `properties.ts`, which returns from it
  * early when `NODE_ENV` is production. It exists so a developer running against a real vault does not

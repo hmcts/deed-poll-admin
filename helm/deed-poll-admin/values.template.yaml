@@ -4,12 +4,11 @@
 global:
   environment: ${ENVIRONMENT:-aat}
 
-# Enable/disable subcharts. Two components deploy, and the `postgres`, `api` and `postgresql` toggles that
-# used to sit here went with the charts they switched — `apps/postgres` and `apps/api` were deleted with
-# the data access layer, and the per-environment database with them.
+# Enable/disable subcharts. One component deploys, and the `postgres`, `api`, `postgresql` and `crons`
+# toggles that used to sit here went with the charts they switched — `apps/postgres` and `apps/api` were
+# deleted with the data access layer, the per-environment database with them, and `apps/crons` in plan 03
+# task 2 as a component that was never written.
 web:
-  enabled: true
-crons:
   enabled: true
 
 # Web application configuration
@@ -29,11 +28,3 @@ deed-poll-admin-web:
       # subchart's default already resolves per environment from `global.environment`, and api's host is
       # api's to decide — a second spelling of it in this file is the drift the redirect URI comment
       # describes, without the constraint that forces it.
-
-# Crons application configuration
-deed-poll-admin-crons:
-  job:
-    image: "hmctsprod.azurecr.io/deed-poll/deed-poll-admin-crons:${CRONS_IMAGE}"
-    schedule: "*/5 * * * *"
-    suspend: false
-    kind: CronJob
