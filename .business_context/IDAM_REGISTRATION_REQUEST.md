@@ -25,27 +25,43 @@ configuration below follows the standard OIDC pattern from the CFT IDAM develope
 > | Where | Host |
 > |---|---|
 > | `base/services.yaml` | `https://deed-poll-admin.<<ENV>>.platform.hmcts.net/oauth2/callback` |
-> | `aat/services.yaml` | that, **plus** `https://deed-poll-admin-staging.aat.platform.hmcts.net/oauth2/callback` and `http://localhost:3000/oauth2/callback` |
+> | `aat/services.yaml` | `https://deed-poll-admin-staging.aat.platform.hmcts.net/oauth2/callback` and `http://localhost:3000/oauth2/callback` — **not** the base entry as well |
 >
 > `SERVICE_FQDN` is `azPrivateDns.getHostName(aksServiceName)` where `aksServiceName` is
-> `${product}-${component}-${imageTag}`, which is why AAT's is `deed-poll-admin-staging`. The `aat` file
-> must restate the base entry rather than rely on it: an environment overlay appears to *replace*
-> `redirect_uris` rather than append to it (inferred from `apps/pcs`'s shape, not verified in that repo's
-> tooling), so dropping it is a silent way to break login in one environment. `post_logout_redirect_uris`
-> take the same hosts without the `/oauth2/callback`.
+> `${product}-${component}-${imageTag}`, which is why AAT's is `deed-poll-admin-staging`. An environment
+> overlay *replaces* `redirect_uris` rather than appending to them — `apps/pcs/aat` restating
+> `pcs.aat.platform.hmcts.net`, which its own `base` already produces from `<<ENV>>`, is what shows this,
+> and it is not verified in that repo's tooling. Normally that means an overlay has to restate the base
+> entry or it silently drops it; here it deliberately does not, because **in AAT this app serves only on
+> `${SERVICE_FQDN}`**, so `deed-poll-admin.aat…` would be registered surface nothing uses.
+> `post_logout_redirect_uris` take the same hosts without the `/oauth2/callback`.
 >
-> **`hmcts/idam-access-config#993` is open and unmerged as of 2026-09-10 and still states the old host** —
-> checked, not assumed. Correct it *there*, before it merges: once merged, changing it takes a second PR, and
-> a mismatched `redirect_uri` fails on IDAM's own page after a successful login, where nothing in this repo
-> logs anything. The chart side is `charts/deed-poll-admin/values.yaml` and
-> `values.aat.template.yaml`, and `src/deployment-chart.test.ts` pins it; nothing mechanically checks the two
-> against each other.
+> **#993 was corrected on its own branch on 2026-09-10 and now states all of this. It is still open and
+> unmerged**, so nothing is registered yet. Three corrections went in, all of which fail the same silent way
+> — on IDAM's own page after a successful login, where nothing in this repo logs anything:
 >
-> **One thing this uncovered that is not the hostname.** `base/services.yaml` on the PR branch has
-> `client_secret: <<vault.idam-client-secret>>`, so IDAM writes the secret to `deed-poll-<<ENV>>` under
-> `idam-client-secret` — but this app's chart reads **`admin-idam-client-secret`**, per-component because the
-> vault is shared with `deed-poll-web`. One of the two has to move, and the chart's name is the one
-> `hmcts/deed-poll-infra` provisions. Raise it with IDAM alongside the hostname correction.
+> 1. **AAT's host** → `deed-poll-admin-staging.aat.platform.hmcts.net`, replacing the hand-rolled host.
+> 2. **Everything else** → one templated `https://deed-poll-admin.<<ENV>>.platform.hmcts.net/oauth2/callback`
+>    in `base/services.yaml`. `<<ENV>>` substitutes inside a redirect URI — `apps/pt`, `apps/pcs`, `apps/fis`,
+>    `apps/disposer`, `apps/sptribs` and `apps/financial-remedy` all rely on it — and that repo's README says
+>    `base/` reaches **every** environment including production. So the four near-identical env folders
+>    collapsed to `base` plus an `aat` overlay, and `base`'s `redirect_uris: []  # Production TBD` was wrong
+>    rather than pending: the chart does state a production host, and it is that expression. `localhost` stays
+>    in the `aat` overlay only, because a loopback redirect on the production client would let anyone holding
+>    an authorization code redirect it to a listener on their own machine.
+> 3. **The vault secret name** → `<<vault.admin-idam-client-secret>>`. The PR had
+>    `<<vault.idam-client-secret>>`, which is not what this chart reads. The component-prefixed name is the
+>    one to keep — three components share the one `deed-poll-<<ENV>>` vault, `deed-poll-web` will need its
+>    own client, and `apps/pcs` names its two `pcs-api-idam-secret` / `pcs-frontend-idam-secret` for exactly
+>    that reason. It is also the name `hmcts/deed-poll-infra` documents.
+>
+> The `aat` overlay deliberately does *not* restate `base`'s entry, unlike `apps/pcs/aat`: an overlay replaces
+> the list rather than appending to it, and in AAT the app serves only on `${SERVICE_FQDN}`. #993's description
+> asks IDAM to correct that reading if it is wrong.
+>
+> **Once #993 merges, changing a host takes a second PR.** The chart side is
+> `charts/deed-poll-admin/values.yaml` and `values.aat.template.yaml`, and `src/deployment-chart.test.ts` pins
+> it; nothing mechanically checks the two against each other, so treat a change to either as a change to both.
 >
 > **Preview is still an open question, not a solved one.** The "AAT auto-adds `https://allow-pr-redirects`
 > and IDAM rewrites `pr-[0-9]+` hostnames" claim below is unverified, and `idam-access-config` registers
@@ -84,14 +100,18 @@ a design question.
 
 ## The configuration for idam-access-config
 
-Add this to the appropriate services file in `hmcts/idam-access-config`:
+**This is what `hmcts/idam-access-config#993` carries as of 2026-09-10, not a proposal.** Two files, plus
+`base/roles.yaml`. The original submission is snapshotted at [`idam-pr/`](idam-pr/) and now differs from
+this — see the banner above for the three corrections and the folder collapse.
+
+`apps/deed-poll/base/services.yaml`:
 
 ```yaml
 services:
   deed-poll-admin:
     client_id: deed-poll-admin
     vault: deed-poll-<<ENV>>
-    client_secret: <<vault.idam-client-secret>>
+    client_secret: <<vault.admin-idam-client-secret>>   # component-prefixed; the vault is shared
     hmcts_access:
       idam_frontend: HMCTS_ACCESS      # Professional-facing service
       mfa_required: false               # Existing caseworker accounts
@@ -108,25 +128,40 @@ services:
         - profile
         - roles
         - offline_access                # Required for refresh_token grant
+      # What the chart renders from `global.environment` in every environment this folder reaches,
+      # production included. No localhost here — see the banner. Preview is unresolved, not covered.
       redirect_uris:
-        - http://localhost:3000/oauth2/callback  # Local development
-        - https://deed-poll-deed-poll-admin-staging-web.aat.platform.hmcts.net/oauth2/callback
-        # Preview: AAT auto-adds https://allow-pr-redirects which IDAM rewrites for pr-* hostnames
-        # Production TBD
+        - https://deed-poll-admin.<<ENV>>.platform.hmcts.net/oauth2/callback
     oidc:
       post_logout_redirect_uris:
-        - http://localhost:3000/             # Local development
-        - https://deed-poll-deed-poll-admin-staging-web.aat.platform.hmcts.net/
-        # Preview: AAT auto-adds https://allow-pr-redirects (same as redirect_uris)
-        # Production TBD
+        - https://deed-poll-admin.<<ENV>>.platform.hmcts.net/
+```
+
+`apps/deed-poll/aat/services.yaml` — AAT alone, because it is the only environment where the chart uses the
+`${SERVICE_FQDN}` the pipeline computes. It replaces the list above rather than adding to it:
+
+```yaml
+services:
+  deed-poll-admin:
+    client_id: deed-poll-admin
+    oauth2:
+      redirect_uris:
+        - http://localhost:3000/oauth2/callback
+        - https://deed-poll-admin-staging.aat.platform.hmcts.net/oauth2/callback
+    oidc:
+      post_logout_redirect_uris:
+        - http://localhost:3000/
+        - https://deed-poll-admin-staging.aat.platform.hmcts.net/
 ```
 
 ## Answered questions (from idam-access-config repo patterns):
 
-**Preview environment redirect URIs**: AAT automatically adds `https://allow-pr-redirects` to all
+**Preview environment redirect URIs**: ~~AAT automatically adds `https://allow-pr-redirects` to all
 services' `redirect_uris`. IDAM internally rewrites URLs containing `pr-[0-9]+`, so PR-specific
-redirects (`deed-poll-deed-poll-admin-pr-123-web.preview.platform.hmcts.net/oauth2/callback`) work
-without manual registration. No action needed.
+redirects work without manual registration. No action needed.~~ **This was never verified and does not
+belong under "answered".** `idam-access-config` registers nothing for `pcs-frontend`'s previews either, so
+either IDAM permits a pattern that repo does not show or preview sign-in does not work there. #993's
+description asks IDAM directly. The hostname in the struck-through claim was also the hand-rolled one.
 
 **Role naming**: Based on `hmcts/idam-access-config` patterns (adoption, CCD, XUI), recommend
 `caseworker-deedpoll-admin` following the `caseworker-{product}-{subrole}` convention. This is the name
@@ -171,10 +206,10 @@ These are set via `IDAM_ISSUER_URL` environment variable, wired through Helm val
 
 ---
 
-**Client ID and vault path**: Following the standard pattern. The client secret will be stored at
-`deed-poll-{env}/idam-client-secret` — **and that is not the name the chart reads**, which is
-`admin-idam-client-secret` in `charts/deed-poll-admin/values.yaml`, per-component because the vault is shared
-with `deed-poll-web`. See the banner at the top of this file.
+**Client ID and vault path**: The client secret goes to `deed-poll-{env}/admin-idam-client-secret`, which is
+the name `charts/deed-poll-admin/values.yaml` reads and the one `hmcts/deed-poll-infra` documents. It is
+component-prefixed because the vault is shared with `deed-poll-web` and `deed-poll-api`; `apps/pcs` prefixes
+its two the same way. #993 originally said `idam-client-secret` and was corrected — see the banner.
 
 **Product code**: `deed-poll-admin` per `{product}-{component}` naming. Product is `deed-poll`,
 component is `admin` — used consistently in Helm annotations, vault names, and image paths.

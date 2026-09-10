@@ -166,17 +166,27 @@ resolves.
      mechanically. `charts/deed-poll-admin/` uses `${SERVICE_FQDN}` in AAT and preview —
      `deed-poll-admin-staging.aat.platform.hmcts.net` in AAT — and
      `deed-poll-admin.{{ .Values.global.environment }}.platform.hmcts.net` elsewhere.
-     [`hmcts/idam-access-config#993`](https://github.com/hmcts/idam-access-config/pull/993) was open and
-     unmerged as of 2026-09-10 and still registered the old hand-rolled
-     `deed-poll-deed-poll-admin-staging-web.{env}.platform.hmcts.net`, so it must be corrected before it
-     merges; after that, changing it needs a second PR. A mismatch fails on IDAM's own page *after* a
-     successful login, where no request reaches this app and nothing here logs. #993 also has IDAM write the
-     client secret as `idam-client-secret` where this chart reads `admin-idam-client-secret`, which is the
-     name `hmcts/deed-poll-infra` provisions — one of the two has to move. Both are recorded in
+     [`hmcts/idam-access-config#993`](https://github.com/hmcts/idam-access-config/pull/993) now states
+     exactly that, but **it is still open and unmerged**, so nothing is registered yet: a deploy that
+     otherwise succeeded fails at sign-in, on IDAM's own page *after* a successful login, where no request
+     reaches this app and nothing here logs. Once it merges, changing either host needs a second PR there,
+     so a change to the two chart files above is a change to `apps/deed-poll/{base,aat}/services.yaml` in
+     the same breath.
+
+     Three things on #993 were corrected on its branch on 2026-09-10 rather than left for review to catch,
+     because all three fail the same silent way: the AAT host, which was the old hand-rolled
+     `deed-poll-deed-poll-admin-staging-web.aat…`; the other environments, now one templated
+     `deed-poll-admin.<<ENV>>.platform.hmcts.net` entry in `base` covering demo, ithc, perftest and
+     production, which also replaced three redundant overlays; and the vault secret, which the PR wrote as
+     `idam-client-secret` where this chart reads **`admin-idam-client-secret`** — the component-prefixed
+     name `hmcts/deed-poll-infra` documents, kept because three components share one vault and `deed-poll-web`
+     will need its own client. `apps/pcs` names its two the same way. The reasoning is in
      [`.business_context/IDAM_REGISTRATION_REQUEST.md`](../.business_context/IDAM_REGISTRATION_REQUEST.md).
+
      **Preview sign-in is an open question, not an oversight**: `${SERVICE_FQDN}` differs per pull request
-     and `idam-access-config` registers nothing for `pcs-frontend`'s previews either. Ask IDAM; do not
-     invent a wildcard in a values file, which cannot register anything in any case.
+     and `idam-access-config` registers nothing for `pcs-frontend`'s previews either. #993's description
+     asks IDAM directly; do not invent a wildcard in a values file, which cannot register anything in any
+     case.
 6. **`deed-poll-api` is not deployed.** Not a defect in this repo and not fixable here: every case page
    needs it, so a deploy that otherwise succeeded would come up with readiness DOWN until api's own
    pipeline cutover lands — and `yarn test:smoke` asserts readiness, so **the post-deploy gate stays red

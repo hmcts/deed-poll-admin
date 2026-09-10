@@ -76,10 +76,11 @@ per-package split is 354 app, 443 `deed-poll`, 140 cloud-native-platform, 138 ap
 the library source. The one that bites first: `TeamConfig.setTeamConfigEnv` calls three getters that
 `steps.error` outright when the product is missing from `cnp-jenkins-config/team-config.yml`, so **the
 pipeline hard-fails before it builds anything** and no chart value is reached at all. Then the IDAM client
-registration — `idam-access-config#993` was still open on 2026-09-10, still registering the old hand-rolled
-host, and still writing the secret as `idam-client-secret` where this chart reads
-`admin-idam-client-secret`. Preview sign-in is an open question for IDAM, not something a values file can
-settle. And `deed-poll-api` is not deployed, which keeps the post-deploy smoke gate red on purpose, since
+registration — `idam-access-config#993` states the right hosts and the right secret name as of 2026-09-10,
+after three corrections were pushed to its branch (the AAT host, one templated `<<ENV>>` entry in `base`
+replacing three redundant env folders, and `admin-idam-client-secret` for the vault key), **but it is still
+open and unmerged**, so nothing is registered and sign-in fails on a deploy that otherwise worked. Preview
+sign-in is an open question for IDAM, not something a values file can settle. And `deed-poll-api` is not deployed, which keeps the post-deploy smoke gate red on purpose, since
 `test:smoke` asserts readiness and readiness names api.
 
 **One stray was deliberately kept**: `power_app_nest/` is still on disk, gitignored, and plan 03 task 6's
@@ -1581,6 +1582,14 @@ authoritative. `helm/deed-poll-admin/values.template.yaml` **overrides** it with
 AAT      deed-poll-deed-poll-admin-staging-web.aat.platform.hmcts.net
 preview  deed-poll-deed-poll-admin-pr-<n>-web.preview.platform.hmcts.net
 ```
+
+> **Both hostnames above are wrong, and were corrected on 2026-09-10.** `helmInstall` exports neither
+> `TEAM_NAME` nor `ENVIRONMENT` to a values template, so `envsubst` emptied `${ENVIRONMENT}` and
+> `TeamConfig.getName("deed-poll")` fell back to the literal `pleaseTagMe` — the render was nearer
+> `pleaseTagMe-deed-poll-admin-staging-web..platform.hmcts.net`. The chart now uses the `${SERVICE_FQDN}`
+> the pipeline computes, which is `deed-poll-admin-staging.aat.platform.hmcts.net` in AAT. The diagnosis in
+> this entry — that the parent template overrides the subchart and that the redirect URI has to sit beside
+> the `ingressHost` it must match — was right; only the resulting strings were not.
 
 The subchart value is the one you read first and the one that never applies. An `IDAM_REDIRECT_URI`
 written there — which is what the last commit did — is silently wrong in every deployed environment, and
