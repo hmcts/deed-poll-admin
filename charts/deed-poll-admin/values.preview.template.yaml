@@ -23,7 +23,8 @@ nodejs:
     # Must match the `ingressHost` above and be registered with IDAM. `SERVICE_FQDN` differs per pull
     # request, so **every PR has a different hostname** — and `idam-access-config` registers nothing for
     # `pcs-frontend`'s preview environments either, so either IDAM permits a pattern that repo does not
-    # show or preview sign-in does not work there. That is an open question for the IDAM team, recorded in
+    # show or preview sign-in does not work there. That is an open question for the IDAM team — now asked
+    # of them directly in the description of `hmcts/idam-access-config#993`, and recorded in
     # `.business_context/IDAM_REGISTRATION_REQUEST.md`; the earlier claim that AAT auto-adds an
     # `allow-pr-redirects` wildcard covering `pr-[0-9]+` hostnames is unverified. Do not invent a wildcard
     # here — a values file cannot register anything.

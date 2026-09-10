@@ -16,6 +16,22 @@ there, this copy becomes a snapshot of the original request rather than current 
 is for. Do not edit these files expecting anything to happen; a change to the real registration is
 another PR to `idam-access-config`.
 
+> **That has now happened: #993 has moved on and this directory has not.** On **2026-09-10** three
+> corrections were pushed to the PR branch, and the six files here are no longer what it carries:
+>
+> | | Here (as submitted 2026-09-03) | On #993 now |
+> |---|---|---|
+> | AAT host | `deed-poll-deed-poll-admin-staging-web.aat…` | `deed-poll-admin-staging.aat.platform.hmcts.net` |
+> | Other environments | four folders, one per env | one `<<ENV>>` entry in `base`; `demo/`, `ithc/`, `perftest/` deleted |
+> | `base` redirect URIs | `[]`, "production TBD" | `https://deed-poll-admin.<<ENV>>.platform.hmcts.net/oauth2/callback` |
+> | Vault secret | `<<vault.idam-client-secret>>` | `<<vault.admin-idam-client-secret>>` |
+>
+> These files are **left as submitted on purpose** — that is what makes them a record. Read the current
+> state from #993 itself, or from the YAML quoted in
+> [`../IDAM_REGISTRATION_REQUEST.md`](../IDAM_REGISTRATION_REQUEST.md), which is kept in step with the PR.
+> The rest of this README describes the snapshot, and the two "worth knowing" notes below are the reasoning
+> that produced the corrections.
+
 ## What is in each file
 
 | File | What |
@@ -26,11 +42,13 @@ another PR to `idam-access-config`.
 
 ## Three things about the contents worth knowing before reading them
 
-- **`redirect_uris` and `post_logout_redirect_uris` are empty in `base/`, on purpose.** They are
-  production's, and the production hostname is not settled. **This is the gap that bites silently:**
-  IDAM refuses a `redirect_uri` it does not hold, and the refusal renders on IDAM's own page *after* a
-  successful login — so no request reaches our logs and nothing in this repo fails. It has to be added
-  before a production deploy, and nothing will remind you.
+- **`redirect_uris` and `post_logout_redirect_uris` are empty in `base/` here, and that was wrong rather
+  than pending.** The reasoning at the time was that they are production's and the production hostname was
+  not settled. But `base/` reaches every environment, and the chart *does* state a host for all of them —
+  `deed-poll-admin.{{ .Values.global.environment }}.platform.hmcts.net` — so the templated `<<ENV>>` form
+  was available all along. **The gap it left bites silently:** IDAM refuses a `redirect_uri` it does not
+  hold, and the refusal renders on IDAM's own page *after* a successful login, so no request reaches our
+  logs and nothing in this repo fails. Filled in on #993 on 2026-09-10.
 
 - **The doubled segment in the hostnames is wrong, and these files still carry it.** They are left as
   submitted, because this directory is the record of what was submitted — but
@@ -48,19 +66,22 @@ another PR to `idam-access-config`.
   | File | Host |
   |---|---|
   | `base/services.yaml` | `https://deed-poll-admin.<<ENV>>.platform.hmcts.net/oauth2/callback` |
-  | `aat/services.yaml` | that, plus `https://deed-poll-admin-staging.aat.platform.hmcts.net/oauth2/callback` and `http://localhost:3000/oauth2/callback` |
+  | `aat/services.yaml` | `https://deed-poll-admin-staging.aat.platform.hmcts.net/oauth2/callback` and `http://localhost:3000/oauth2/callback` — **not** the base entry as well, because in AAT the chart serves only on `${SERVICE_FQDN}` |
 
-  [`hmcts/idam-access-config#993`](https://github.com/hmcts/idam-access-config/pull/993) is **open and
-  unmerged**, so the correction goes into that PR rather than into a second one. Do not amend the YAML here
-  expecting anything to happen — and if you amend it to keep the two in step, say so, because this directory
-  stops being a record of the original request the moment you do. Full reasoning, including the separate
-  `idam-client-secret` / `admin-idam-client-secret` mismatch, is in
+  [`hmcts/idam-access-config#993`](https://github.com/hmcts/idam-access-config/pull/993) was still **open and
+  unmerged**, so the correction went into that PR rather than into a second one — pushed to its branch on
+  2026-09-10. Do not amend the YAML here to match: this directory stops being a record of the original
+  request the moment you do, which is why the divergence is tabulated at the top instead. Full reasoning,
+  including the separate `idam-client-secret` / `admin-idam-client-secret` mismatch, is in
   [`../IDAM_REGISTRATION_REQUEST.md`](../IDAM_REGISTRATION_REQUEST.md).
 
-- **`demo`, `ithc` and `perftest` are speculative.** The GitHub Actions pipeline deploys to preview (per
-  PR) and AAT (on main) only, so those three hostnames follow the same pattern but have never been
-  rendered from a real chart, let alone deployed. Registering them costs nothing and saves a second PR
-  if those environments are ever used; do not read their presence as evidence anything deploys there.
+- **`demo`, `ithc` and `perftest` were speculative, and are now gone from the PR.** `Jenkinsfile_CNP`
+  enables preview (per PR) and AAT only — it calls no `enableDemoDeployment()`, `enableITHCDeployment()` or
+  `enablePerformanceDeployment()` — so those three hostnames had never been rendered from a real chart, let
+  alone deployed. They were not deleted for being speculative, though: `<<ENV>>` substitutes inside a
+  redirect URI, as `apps/pt` and `apps/pcs` show, and `base/` reaches every environment, so one templated
+  entry in `base` covers all three and production too. Three near-identical folders were redundant, not
+  wrong.
 
 **Preview environments have no entry here, and that is a gap rather than a settled answer.** The claim that
 AAT adds a `https://allow-pr-redirects` wildcard covering per-PR hostnames is unverified, and

@@ -55,9 +55,11 @@ No manual test user setup needed — all done via API after client registration.
 
 ## Vault Configuration
 
-Client secret stored at: `deed-poll-{env}/idam-client-secret`
+Client secret stored at: `deed-poll-{env}/admin-idam-client-secret`
 
-Where `{env}` is `aat`, `perftest`, `prod`, etc. Already wired in `apps/web/helm/values.yaml`.
+Where `{env}` is `aat`, `perftest`, `prod`, etc. Wired in `charts/deed-poll-admin/values.yaml`, aliased to
+`IDAM_CLIENT_SECRET`. The name is component-prefixed because the vault is shared with `deed-poll-web` and
+`deed-poll-api`; `hmcts/deed-poll-infra` deliberately does not provision the value, which comes from IDAM.
 
 ## Open Questions
 
