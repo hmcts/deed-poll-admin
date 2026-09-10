@@ -88,6 +88,101 @@ endpoint, so the right answer is deletion, not migration.
    `CLAUDE.md`. It is template-provided; unwiring it invites a re-scaffold conflict. Do not "tidy" it as part
    of this plan.
 
+### The hostname, and why it is in this plan
+
+Added 2026-09-08 after reading `cnp-jenkins-library` and `hmcts/idam-access-config` rather than inferring
+from either. This plan rewrites the values templates, so it is the moment this gets fixed or gets locked in.
+
+**Today's host is hand-rolled, and neither variable in it means what the template assumes.**
+`values.template.yaml` builds it from parts:
+
+```
+${TEAM_NAME}-{{ .Release.Name }}-web.${ENVIRONMENT}.platform.hmcts.net
+```
+
+Both `${TEAM_NAME}` and `${ENVIRONMENT}` are wrong, and an earlier revision of this section — and
+`IDAM_REGISTRATION_REQUEST.md` — got the expansion wrong in the same way. Corrected 2026-09-10 by reading
+`vars/helmInstall.groovy` and `src/uk/gov/hmcts/pipeline/TeamConfig.groovy`:
+
+- **`TEAM_NAME` is not the product name.** `TeamConfig.getName(product)` looks `team:` up in
+  [`cnp-jenkins-config/team-config.yml`](https://github.com/hmcts/cnp-jenkins-config/blob/master/team-config.yml)
+  and returns the constant `'pleaseTagMe'` when the product is absent. It is a **team display name**, not a
+  slug: `pcs`'s is `"Possession Claim Service"`, spaces included. `deed-poll` is absent from that file
+  entirely, so today it would expand to `pleaseTagMe`. Nothing about it was ever safe in a hostname.
+- **`ENVIRONMENT` is not exported to the template at all.** `helmInstall` sets exactly five variables —
+  `NAMESPACE`, `SERVICE_NAME`, `IMAGE_NAME`, `SERVICE_FQDN`, `INGRESS_IP`. `envsubst` replaces an unset
+  variable with the empty string, so the host renders with a doubled dot. No other chart in the workspace
+  uses `${ENVIRONMENT}` — checked across all 95 CNP repos, zero hits.
+
+So the real expansion is nearer `pleaseTagMe-deed-poll-admin-staging-web..platform.hmcts.net` than the
+`deed-poll-deed-poll-admin-staging-web.aat…` previously recorded here. `Release.Name` is the only part that
+was right: `helmInstall` sets it to `"${product}-${component}-${imageTag}"` = `deed-poll-admin-staging`. The
+trailing `-web` is umbrella-chart residue naming a subchart this plan deletes.
+
+**`IDAM_REGISTRATION_REQUEST.md` calls the doubled segment "deliberate — per platform pattern". It is not a
+pattern, it is two undefined variables, and this plan supersedes it.**
+
+**A prerequisite this uncovered, and it is not this plan's to fix.** `TeamConfig.setTeamConfigEnv` calls
+three getters that `steps.error` outright when the product is missing from `team-config.yml` — namespace,
+Slack channels and the `tags.application` value. `deed-poll` is missing. **So the pipeline hard-fails before
+it builds anything, for all four repos, and no hostname is reached at all.** That is Jenkins onboarding's
+job, not task 4's — recorded here only so nobody debugging a red first build looks for it in this chart.
+
+**There are two hostnames, not one, and that is the part easy to get wrong.** Corrected 2026-09-10 after
+reading `pcs-frontend`'s charts and `hmcts/idam-access-config` `master`. An earlier draft of this section
+claimed `pcs-frontend` uses `${SERVICE_FQDN}` "and nothing more". It does not — it layers a stable service
+host underneath a pipeline-computed one:
+
+| Where | `ingressHost` | Applies to |
+|---|---|---|
+| `charts/pcs-frontend/values.yaml` | `pcs.{{ .Values.global.environment }}.platform.hmcts.net` | demo, ithc, perftest, prod |
+| `charts/pcs-frontend/values.aat.template.yaml` | `${SERVICE_FQDN}` | aat only |
+| `charts/pcs-frontend/values.preview.template.yaml` | `${SERVICE_FQDN}` | preview only |
+
+`helmInstall` exports `SERVICE_FQDN` from `azPrivateDns.getHostName(aksServiceName)`, where `aksServiceName`
+is `product-component-imageTag` — so in aat it resolves to `product-component-staging.aat.platform.hmcts.net`.
+That is not inferred: `idam-access-config`'s `apps/pcs/aat/services.yaml` registers
+`https://pcs-frontend-staging.aat.platform.hmcts.net/oauth2/callback` verbatim, which is the same expansion
+for pcs. **For this app it is `deed-poll-admin-staging.aat.platform.hmcts.net`** — no doubling, no `-web`.
+
+**`pcs` registers both forms with IDAM, and so must we:**
+
+- `apps/pcs/base/services.yaml` — `https://pcs.<<ENV>>.platform.hmcts.net/oauth2/callback`, one `<<ENV>>`
+  entry covering every environment, plus the prod apex `https://pcs.platform.hmcts.net/oauth2/callback`.
+- `apps/pcs/aat/services.yaml` — adds `https://pcs-frontend-staging.aat.platform.hmcts.net/oauth2/callback`
+  **and restates** the `pcs.aat…` one, plus `localhost:3209` for local development. It restates it because
+  the environment overlay appears to *replace* `redirect_uris` rather than append to it. That is an inference
+  from pcs's shape, not something verified in `idam-access-config`'s tooling — but it means an overlay file
+  must be self-contained, and dropping the base entry from it is a silent way to break login in that
+  environment only.
+
+**`deed-poll-web` already does exactly this**, settled when it moved to the pipeline on 2026-09-09:
+`charts/deed-poll-web/values.yaml` carries
+`ingressHost: deed-poll-web.{{ .Values.global.environment }}.platform.hmcts.net` and
+`values.aat.template.yaml` overrides to `${SERVICE_FQDN}`. **So there is no pattern to invent here — copy the
+sibling repo.** This app is the outlier in the product: it has no `values.yaml` at all, only a
+`values.template.yaml`, which `helmInstall` renders *over* `values.yaml` rather than layering after it.
+
+**Nothing is registered yet, so this is free — but only until it is not.**
+[`hmcts/idam-access-config#993`](https://github.com/hmcts/idam-access-config/pull/993) is **open and
+unmerged**; `apps/deed-poll/base/services.yaml` 404s on that repo's `master`, so the files exist only on the
+PR branch, and it is blocked on questions of ours in any case. **Once #993 merges, changing it needs a second
+IDAM PR** — and a mismatched `redirect_uri` fails on IDAM's own page *after* a successful login, where no
+request reaches this app, which is a genuinely confusing failure to debug.
+
+Three things that follow, stated as context rather than as checkboxes — the actionable one is in task 4:
+
+- **The chart and #993 must agree, and nothing enforces it mechanically.** The decision taken 2026-09-10 is
+  to correct #993 **before** it merges rather than register the wrong host and raise a follow-up: `base` gets
+  `https://deed-poll-admin.<<ENV>>.platform.hmcts.net/oauth2/callback`, and `aat` gets that plus
+  `https://deed-poll-admin-staging.aat.platform.hmcts.net/oauth2/callback` and `localhost:3000`.
+- **Production redirect URIs are deliberately empty** in #993 and must be added before any production deploy.
+  Nothing enforces that either, and there is no production hostname yet.
+- **Preview environments are an unresolved gap, not an oversight of ours.** `${SERVICE_FQDN}` differs per pull
+  request, and `idam-access-config` registers nothing for pcs preview at all — so either IDAM permits a
+  pattern not visible in that repo, or pcs preview sign-in does not work. Do not invent a wildcard; record
+  the gap and ask IDAM.
+
 ### Constraints
 
 - **Every task must leave `yarn lint`, `yarn build` and `yarn test` green.** Order the file moves so nothing
@@ -114,7 +209,12 @@ endpoint, so the right answer is deletion, not migration.
 - `yarn lint`
 - `yarn build`
 - `yarn test`
-- `yarn test:e2e` — by hand, with dependencies up and users seeded
+
+**`yarn test:e2e` is deliberately not in that list.** Every command above runs after *every* task, and the
+e2e suite needs a built app, `docker compose up -d redis idam` and `yarn idam:users` seeded first — so as a
+validation command it goes red on the first task and stays red, failing tasks that are themselves fine. It
+was in this list until 2026-09-10 with a "— by hand" annotation, which a human reads and the runner does
+not. Run it **once, by hand, at the end of the plan**, and check it against the 17-test baseline above.
 
 ## Tasks
 
@@ -177,10 +277,26 @@ task: zero** — the 72 unit and 5 e2e tests were already charged to plan 02.
       `Helm.HELM_RESOURCES_DIR` is the literal `charts` and `helmInstall` throws without it
 - [ ] Write `charts/deed-poll-admin/values.yaml`. `helmInstall` requires this file to exist before it applies
       `values.template.yaml`; its absence is blocker 1 in `PIPELINES.md`
+- [ ] **Rename `values.template.yaml` to `values.aat.template.yaml`, and put the real configuration in
+      `values.yaml`.** This is the mechanism, not a tidy-up: `helmInstall` renders `values.template.yaml`
+      *over* `values.yaml` and passes the result in its place, so anything in `values.yaml` that the template
+      does not restate is silently lost. `values.${environment}.template.yaml` is instead **appended** to
+      helm's `-f` list, so it layers. `pcs-frontend` and `deed-poll-web` both have only the environment-scoped
+      form and no bare `values.template.yaml` — match them. Keep `values.preview.template.yaml`
 - [ ] Collapse the umbrella chart into a single `nodejs` chart — no `dependencies:`, no subcharts, no
       `*.enabled` conditions. Model on `pt-frontend`/`pcs-frontend`, not on `pcs-api`
 - [ ] Replace `${WEB_IMAGE}` with `${IMAGE_NAME}`, which is what `helmInstall` actually exports. Delete the
       `${CRONS_IMAGE}` block — `${API_IMAGE}` and `${POSTGRES_IMAGE}` went with plan 02
+- [ ] **Use `${SERVICE_FQDN}` for the ingress host, and stop hand-rolling it.** Read "The hostname" above
+      first — this is a decision, not a rename. `values.aat.template.yaml` sets `ingressHost: ${SERVICE_FQDN}`
+      and derives `IDAM_REDIRECT_URI` from the same variable; `values.yaml` carries
+      `deed-poll-admin.{{ .Values.global.environment }}.platform.hmcts.net`, matching `deed-poll-web`'s shape.
+      **`${TEAM_NAME}` and `${ENVIRONMENT}` must not appear anywhere in the chart** — neither is exported to
+      the template, and `TEAM_NAME` is a team display name, not a slug
+- [ ] **Check `idam-access-config#993` states the same hosts before ticking the box above.** At the time of
+      writing it is open and states the old hand-rolled host; the agreed correction is in "The hostname"
+      above. If it has since merged, **stop and read what it actually says** rather than assuming. A
+      mismatch is not caught by any test here — it fails at login, in one environment only
 - [ ] Carry these forward verbatim rather than re-deriving them — each was established at cost:
   - `keyVaults:` reads `app-insights-connection-string`, `redis-url`, `admin-session-secret` and
     `admin-idam-client-secret`. **No `postgres-url`** — plan 02 removed the database
@@ -238,6 +354,11 @@ task: zero** — the 72 unit and 5 e2e tests were already charged to plan 02.
 - A root `Dockerfile` exists and is the one the pipeline would build.
 - Grepping the repo for `WEB_IMAGE`, `CRONS_IMAGE` and `postgres-url` returns nothing. `API_IMAGE` and
   `POSTGRES_IMAGE` already do.
+- `charts/deed-poll-admin/values.aat.template.yaml` derives both the ingress host and `IDAM_REDIRECT_URI`
+  from `${SERVICE_FQDN}`, `values.yaml` carries the `{{ .Values.global.environment }}` service host, and
+  **`TEAM_NAME` appears in no hostname anywhere**. The chart and `idam-access-config#993` state the same
+  hosts, and `IDAM_REGISTRATION_REQUEST.md` has been corrected, since it currently defends the doubled
+  segment as deliberate.
 - `yarn test:smoke` exists and passes against a running app.
 - `libs/` still contains the seven surviving packages — `express-session-postgres` among them, and
   `deed-poll-api-client`, which plan 02 added.
