@@ -19,6 +19,10 @@
   routes that could drift. The handler branches on `action`, checking delete first. No confirmation
   step — the note is one field of text, and an interstitial on every deletion is friction paid on the
   safe path. Styled as a warning so it cannot be mistaken for the primary action.
+
+  It is shown only when `canDelete` — hidden rather than disabled, because a button has no value to read
+  and a permanently disabled destructive control is noise on every note a caseworker opens. Amending is
+  open to both roles, so only this button is conditional: the form, the textarea and Save are not.
 #}
 {% block content %}
 <div class="govuk-grid-row">
@@ -57,7 +61,9 @@
 
       <div class="govuk-button-group">
         {{ govukButton({ text: save, name: "action", value: "save" }) }}
-        {{ govukButton({ text: delete, name: "action", value: "delete", classes: "govuk-button--warning" }) }}
+        {% if canDelete %}
+          {{ govukButton({ text: delete, name: "action", value: "delete", classes: "govuk-button--warning" }) }}
+        {% endif %}
         <a class="govuk-link" href="/deed-polls/{{ case.id }}#notes">{{ cancel }}</a>
       </div>
     </form>

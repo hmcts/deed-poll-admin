@@ -135,12 +135,19 @@ side can land first; the reference resolves when api's plan is written.
 
 ### Task 2: Thread it into the note edit page and hide the button
 
-- [ ] `src/pages/deed-polls/[id]/notes/[noteId]/edit.ts`: read `userFromRequest(req)` in `GET` **and** in `rerender`, and pass the flag to `res.render`
-- [ ] **Both call sites, or the button reappears whenever a validation error re-renders the form** — which is exactly the path a caseworker hits by submitting an over-long note
-- [ ] `note-edit.njk`: wrap the second `govukButton` (`name: "action", value: "delete"`) in the condition. Leave the save button and the form action alone
-- [ ] Update the docblock at the top of `edit.ts`, which explains the two-button design and says nothing about who may use the second one
-- [ ] Validate: `yarn turbo test test:app --concurrency=1 && yarn lint`
-- [ ] Mark completed
+- [x] `src/pages/deed-polls/[id]/notes/[noteId]/edit.ts`: read `userFromRequest(req)` in `GET` **and** in `rerender`, and pass the flag to `res.render`
+- [x] **Both call sites, or the button reappears whenever a validation error re-renders the form** — which is exactly the path a caseworker hits by submitting an over-long note
+- [x] `note-edit.njk`: wrap the second `govukButton` (`name: "action", value: "delete"`) in the condition. Leave the save button and the form action alone
+- [x] Update the docblock at the top of `edit.ts`, which explains the two-button design and says nothing about who may use the second one
+- [x] Validate: `yarn turbo test test:app --concurrency=1 && yarn lint`
+- [x] Mark completed
+
+The view flag is `canDelete`, set from `canDeleteNote(userFromRequest(req))` at both render sites, and the
+template wraps only the `action=delete` button — the form, the textarea and **Save note** are untouched. The
+`action === "delete"` POST branch stays ungated per decision 5, and `edit.ts`'s docblock now says so, so the
+absence of a local guard reads as a decision rather than an omission. **1,275 tests — 1,272 passed, 3 skipped,
+8 of 8 tasks successful**, unchanged from task 1 because the assertions are task 3. `yarn lint` exits 0 with
+the same two pre-existing warnings.
 
 ### Task 3: Unit tests, including the re-render path
 

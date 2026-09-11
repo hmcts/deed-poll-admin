@@ -15,9 +15,19 @@
  * There is no confirmation step. The note is one field of text, recreating it costs a sentence, and an
  * interstitial on every deletion is friction paid on the safe path. The button is styled as a warning
  * so it cannot be mistaken for the primary action.
+ *
+ * **Only an Administrator is offered the delete button** — `canDeleteNote`, whose docblock holds the
+ * reasoning. Amending stays open to both roles, because the business splits edit from delete, so the
+ * flag gates that one button and not the form. It is read in `GET` **and** in `rerender`: a flag set
+ * only on the first render reappears as a button the moment a validation error re-renders the form,
+ * which is the path a caseworker reaches by submitting an over-long note.
+ *
+ * The `action === "delete"` branch below is deliberately ungated. api enforces the rule and refuses a
+ * forged POST; a local refusal as well would put the authority in two places.
  */
 import {
   buildNoteDetail,
+  canDeleteNote,
   createNoteSchema,
   findDeedPoll,
   findNote,
@@ -28,7 +38,7 @@ import {
   zodErrorToFieldErrors
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { callerFromRequest } from "../../../../../auth/current-user.js";
+import { callerFromRequest, userFromRequest } from "../../../../../auth/current-user.js";
 
 const en = {
   titlePrefix: "Amend note",
@@ -52,7 +62,15 @@ export const GET = async (req: Request, res: Response) => {
   const caller = callerFromRequest(req);
   const [found, note] = await Promise.all([findDeedPoll(req.params.id, caller), findNote(req.params.id, req.params.noteId, caller)]);
 
-  res.render("deed-polls/note-edit", { case: found, note: buildNoteDetail(note), value: note.note, error: null, en, cy });
+  res.render("deed-polls/note-edit", {
+    case: found,
+    note: buildNoteDetail(note),
+    value: note.note,
+    error: null,
+    canDelete: canDeleteNote(userFromRequest(req)),
+    en,
+    cy
+  });
 };
 
 export const POST = async (req: Request, res: Response) => {
@@ -107,6 +125,9 @@ async function rerender(req: Request, res: Response, error: string | null) {
     // there to be corrected.
     value: typeof body.note === "string" ? body.note : "",
     error,
+    // Re-read here, not carried from `GET`: a re-render is its own request, and omitting it would put the
+    // button back on the failed-validation path.
+    canDelete: canDeleteNote(userFromRequest(req)),
     en,
     cy
   });
