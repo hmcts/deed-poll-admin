@@ -1,17 +1,28 @@
 /**
- * The two deed-poll caseworker journeys, end to end in a browser.
+ * The deed-poll journeys, end to end in a browser.
  *
- * Two tests, not twelve: accessibility, validation and the Welsh shape are checked at the points the
- * journey already passes through, per `.claude/rules/e2e-testing.md`. Each test creates its own case,
+ * A handful of tests, not twelve: accessibility, validation and the Welsh shape are checked at the points
+ * the journey already passes through, per `.claude/rules/e2e-testing.md`. Each test creates its own case,
  * so they are independent under `fullyParallel`.
  *
- * These journeys need a signed-in caseworker — `requireAuth` is global — which the `setup` project
- * provides. See ./idam-session.ts for why the session is obtained from the real local IDAM rather
- * than fabricated.
+ * **Where a rule differs by role, the test name says which role it signs in as.** The notes journey runs as
+ * `admin@example.com`, the only fixture holding `caseworker-deedpoll-admin`, and says so — deleting a note
+ * is an administrator's to do. The last test runs as the roleless fixture, because a rule that hides a
+ * control has no negative case without one. The create-and-edit journey is role-agnostic and says nothing.
+ *
+ * These journeys need a signed-in user — `requireAuth` is global — which the `setup` project provides.
+ * See ./idam-session.ts for why the session is obtained from the real local IDAM rather than fabricated.
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
-import { ADMIN_EMAIL, ADMIN_STORAGE_STATE, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsAdmin } from "./idam-session.js";
+import {
+  ADMIN_EMAIL,
+  ADMIN_STORAGE_STATE,
+  CASEWORKER_STORAGE_STATE,
+  DEPLOYED_STACK_SKIP_REASON,
+  RUNS_AGAINST_DEPLOYED_STACK,
+  signInAsAdmin
+} from "./idam-session.js";
 
 /** The reference number's year comes from Date Received, so a fixed date keeps the shape assertable. */
 const DATE_RECEIVED = { day: "10", month: "3", year: "2026" };
@@ -94,7 +105,12 @@ test("caseworker creates a case and edits one of its tabs", async ({ page, brows
 
 // `deed-poll-api` holds the notes now instead of Postgres; the journey is otherwise the one the
 // prototype had, deletion included.
-test("caseworker adds, amends and deletes a note", async ({ page }) => {
+//
+// **Administrator, not caseworker** — this file signs in as `admin@example.com` throughout, and once api
+// gates deletion to Administrators (`../../deed-poll-api/docs/plans/gate-note-deletion.md`) the old name
+// asserted a caseworker can do what a caseworker cannot. It kept passing either way, so the name was the
+// only thing that would have carried the false claim. The caseworker's half of the rule is the test below.
+test("administrator adds, amends and deletes a note", async ({ page }) => {
   // Arrange: a case to hang notes off. The create journey is asserted in the test above; here it is
   // only setup, so it is driven and not checked.
   await page.goto("/deed-polls/new");
@@ -157,6 +173,42 @@ test("caseworker adds, amends and deletes a note", async ({ page }) => {
   await expect(page).toHaveURL(`${caseUrl}#notes`);
   await expect(page.locator("#notes")).toContainText("None recorded.");
   await expect(page.locator("#notes")).not.toContainText("Advised of the Gazette step.");
+});
+
+/**
+ * Its own session, so `storageState` can be the roleless fixture rather than this file's administrator.
+ * A `describe` is the only place Playwright honours a second `test.use` in one file.
+ */
+test.describe("without the admin role", () => {
+  test.use({ storageState: CASEWORKER_STORAGE_STATE });
+
+  // The other half of `canDeleteNote`. Amending is deliberately still a caseworker's to do, so the
+  // presence of **Save note** matters as much as the absence of **Delete note** — it is what stops a
+  // later change gating the whole form, which is the tidy-minded mistake the rule invites.
+  test("caseworker may amend a note but is not offered the delete button", async ({ page }) => {
+    // Arrange: a case and a note of its own, both of which a caseworker may create. Driven, not asserted
+    // — the journey through these pages is the administrator test above.
+    await page.goto("/deed-polls/new");
+    await fillNewCaseForm(page, { forename: "Alex", surname: "Morgan" });
+    await page.getByRole("button", { name: "Create case" }).click();
+    await expect(page).toHaveURL(CASE_URL);
+    const caseUrl = page.url();
+
+    await page.goto(`${caseUrl}/notes/new`);
+    await page.getByLabel("Note").fill("Applicant asked when the Gazette entry appears.");
+    await page.getByRole("button", { name: "Add note" }).click();
+    await expect(page).toHaveURL(`${caseUrl}#notes`);
+
+    await page.getByRole("link", { name: /amend this note/ }).click();
+    await expect(page).toHaveURL(/\/notes\/[0-9a-f-]{36}\/edit$/);
+
+    // Absent from the markup rather than merely invisible: the template omits the button, and a
+    // `not.toBeVisible()` would also pass against one hidden with CSS, which is not what was asked for.
+    await expect(page.getByRole("button", { name: "Delete note" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Save note" })).toBeVisible();
+    await expect(page.getByLabel("Note")).toHaveValue("Applicant asked when the Gazette entry appears.");
+    await expectNoAccessibilityViolations(page);
+  });
 });
 
 /**

@@ -27,9 +27,10 @@ export default defineConfig({
     video: process.env.CI ? "retain-on-failure" : "off"
   },
   projects: [
-    // Signs in once through the real local IDAM and saves the session, so the journeys that need a
-    // caseworker do not each pay for the OIDC round trip. `requireAuth` in apps/web is global, so
-    // every page but the public allowlist needs one. See ./tests/idam-session.ts.
+    // Signs in through the real local IDAM once per fixture — the administrator and the roleless
+    // caseworker — and saves each session, so the journeys do not each pay for the OIDC round trip.
+    // `requireAuth` is global, so every page but the public allowlist needs one.
+    // See ./tests/idam-session.ts.
     {
       name: "setup",
       testMatch: /auth\.setup\.ts/

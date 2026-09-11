@@ -9,11 +9,27 @@
  * See ./idam-session.ts for why this drives the real issuer rather than forging a cookie.
  */
 import { test as setup } from "@playwright/test";
-import { ADMIN_STORAGE_STATE, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsAdmin } from "./idam-session.js";
+import {
+  ADMIN_STORAGE_STATE,
+  CASEWORKER_STORAGE_STATE,
+  DEPLOYED_STACK_SKIP_REASON,
+  RUNS_AGAINST_DEPLOYED_STACK,
+  signInAsAdmin,
+  signInAsCaseworker
+} from "./idam-session.js";
 
 setup("sign in as a caseworker holding the admin role", async ({ page }) => {
   setup.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
 
   await signInAsAdmin(page);
   await page.context().storageState({ path: ADMIN_STORAGE_STATE });
+});
+
+// A second session rather than a second login inside the test that needs it, for the same reason as the
+// first — and it is what the role rules are asserted against, so it is not optional arrangement.
+setup("sign in as a caseworker holding no roles", async ({ page }) => {
+  setup.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
+
+  await signInAsCaseworker(page);
+  await page.context().storageState({ path: CASEWORKER_STORAGE_STATE });
 });
