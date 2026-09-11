@@ -184,12 +184,34 @@ users and roughly two minutes of boot, and it is invoked by no pipeline stage �
 `test:functional`. Running it is a separate manual step after this plan, so validate by lint and
 typecheck only and do not spend iterations trying to boot the app.
 
-- [ ] **Rename** `"caseworker adds, amends and deletes a note"` (`e2e-tests/tests/deed-polls.spec.ts:97`) to say administrator, since `admin@example.com` is who it signs in as. It will keep passing after api's gate either way, so the name is the only thing that makes it a false claim
-- [ ] Add a caseworker session to `e2e-tests/tests/idam-session.ts`: `CASEWORKER_EMAIL`, `signInAsCaseworker`, and a storage state alongside `ADMIN_STORAGE_STATE`. Follow the admin helper exactly; the simulator accepts any password. `caseworker@example.com` is already seeded by `yarn idam:users` and holds no roles at all
-- [ ] Add one test: as a caseworker, open a note's amend page and assert **Delete note** is absent while **Save note** is present. The second assertion is what stops a future change hiding the whole form
-- [ ] Keep it out of `@smoke`. Smoke runs against deployed environments where no caseworker fixture exists — use the existing `RUNS_AGAINST_DEPLOYED_STACK` and `DEPLOYED_STACK_SKIP_REASON` rather than inventing a mechanism
-- [ ] Validate: `yarn lint` clean, and the spec typechecks. Do **not** run `yarn test:e2e`
-- [ ] Mark completed
+- [x] **Rename** `"caseworker adds, amends and deletes a note"` (`e2e-tests/tests/deed-polls.spec.ts:97`) to say administrator, since `admin@example.com` is who it signs in as. It will keep passing after api's gate either way, so the name is the only thing that makes it a false claim
+- [x] Add a caseworker session to `e2e-tests/tests/idam-session.ts`: `CASEWORKER_EMAIL`, `signInAsCaseworker`, and a storage state alongside `ADMIN_STORAGE_STATE`. Follow the admin helper exactly; the simulator accepts any password. `caseworker@example.com` is already seeded by `yarn idam:users` and holds no roles at all
+- [x] Add one test: as a caseworker, open a note's amend page and assert **Delete note** is absent while **Save note** is present. The second assertion is what stops a future change hiding the whole form
+- [x] Keep it out of `@smoke`. Smoke runs against deployed environments where no caseworker fixture exists — use the existing `RUNS_AGAINST_DEPLOYED_STACK` and `DEPLOYED_STACK_SKIP_REASON` rather than inventing a mechanism
+- [x] Validate: `yarn lint` clean, and the spec typechecks. Do **not** run `yarn test:e2e`
+- [x] Mark completed
+
+The notes journey is now `"administrator adds, amends and deletes a note"`, with a comment naming api's gate
+as the reason, so the rename does not read as cosmetic. The caseworker test lives in a
+`test.describe("without the admin role")` carrying its own `test.use({ storageState:
+CASEWORKER_STORAGE_STATE })` — a second `test.use` at file level would replace the first rather than sit
+beside it, so the block is structural and not grouping. **The file-level
+`test.skip(RUNS_AGAINST_DEPLOYED_STACK, …)` already covers it**, so nothing new was needed to keep it out of
+`@smoke` — that skip applies to tests inside a `describe` as well.
+
+Three things worth knowing about the shape:
+
+- **Delete is asserted absent from the DOM (`toHaveCount(0)`), not merely invisible.** The template omits the
+  button, so `not.toBeVisible()` would also pass against one hidden in CSS — a weaker claim than the one the
+  plan asks for.
+- **`signInAsAdmin` and `signInAsCaseworker` share one internal `signIn(page, email)`.** The account is the
+  only thing that differs, and duplicating the flow would let the two drift; the flow's docblock moved down
+  to `signIn` with it.
+- **`auth.setup.ts` gained a second setup test**, because a `storageState` path Playwright never writes is a
+  test that fails at fixture setup rather than at an assertion.
+
+Validated by `yarn lint` (exit 0, the two pre-existing `PORT`/`REDIS_URL` warnings) and
+`tsc --noEmit --strict --types node e2e-tests/tests/*.ts` (exit 0). `yarn test:e2e` deliberately not run.
 
 ### Task 5: Full validation
 

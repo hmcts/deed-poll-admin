@@ -25,6 +25,13 @@ import { expect, type Page } from "@playwright/test";
  */
 export const ADMIN_EMAIL = "admin@example.com";
 
+/**
+ * The other fixture `yarn idam:users` seeds, holding **no roles at all** — which is what makes it a
+ * caseworker rather than an administrator: `currentUser` derives `isAdmin` from
+ * `roles.includes(DEEDPOLL_ADMIN)`, so an account with none is the negative case.
+ */
+export const CASEWORKER_EMAIL = "caseworker@example.com";
+
 /** Whatever `scripts/seed-idam-users.mjs` set. The simulator does not check it — see below. */
 const PASSWORD = "Pa55word11";
 
@@ -52,6 +59,13 @@ const PASSWORD = "Pa55word11";
 export const ADMIN_STORAGE_STATE = path.join(path.dirname(fileURLToPath(import.meta.url)), "../.auth/admin.json");
 
 /**
+ * The same, for the roleless fixture. A second file rather than a second sign-in per test, for the
+ * reasons above — and a *separate* file because the two sessions must not be the same one: restoring the
+ * admin cookie would make the caseworker assertions pass or fail for the wrong reason.
+ */
+export const CASEWORKER_STORAGE_STATE = path.join(path.dirname(fileURLToPath(import.meta.url)), "../.auth/caseworker.json");
+
+/**
  * True when the suite is pointed at a deployed environment instead of the local stack.
  *
  * The same variable `playwright.config.ts` reads to decide whether to start a `webServer`, and the one
@@ -65,21 +79,36 @@ export const RUNS_AGAINST_DEPLOYED_STACK = Boolean(process.env.TEST_URL);
 export const DEPLOYED_STACK_SKIP_REASON =
   "Needs a signed-in caseworker. Against a deployed environment that means real CFT IDAM, which has no registered client or test account for this service yet — see .business_context/IDAM_REGISTRATION_REQUEST.md. Runs against the local stack, where docker compose provides rse-idam-simulator.";
 
+/** Sign in as the caseworker holding the privileged role, through the whole authorization-code flow. */
+export async function signInAsAdmin(page: Page): Promise<void> {
+  await signIn(page, ADMIN_EMAIL);
+}
+
 /**
- * Sign in as the caseworker holding the privileged role, through the whole authorization-code flow.
- *
+ * The same, as the account holding no roles — which is how a role rule in the UI gets its negative case
+ * in a browser rather than only in a unit test.
+ */
+export async function signInAsCaseworker(page: Page): Promise<void> {
+  await signIn(page, CASEWORKER_EMAIL);
+}
+
+/**
  * `/login` builds the authorization URL and redirects to the simulator, which — given no
  * `login_hint` — redirects again to its own login form. Submitting that comes back to
  * `/oauth2/callback` with a code, which the app exchanges before landing on `/deed-polls`
  * (`safeReturnTo`'s default).
+ *
+ * One flow for both fixtures, because the account is the only thing that differs: the simulator asks for
+ * a username on the same form either way, and it is the roles behind that username — not anything here —
+ * that decide what the app then shows.
  */
-export async function signInAsAdmin(page: Page): Promise<void> {
+async function signIn(page: Page, email: string): Promise<void> {
   await page.goto("/login");
 
   // The simulator's own form, so its markup is not ours to fix: its `<label>Username :</label>` has
   // no `for`, which is why this reaches for the id rather than `getByLabel`. Do not "correct" it to a
   // role- or label-based locator — there is nothing for one to bind to.
-  await page.locator("#username").fill(ADMIN_EMAIL);
+  await page.locator("#username").fill(email);
   // Sent for the sake of driving the real form. The simulator's `postLogin` takes the password and
   // never reads it, so this proves nothing about credentials — see the note on what local runs cannot
   // verify in .business_context/PROGRESS.md.
