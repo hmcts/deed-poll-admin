@@ -91,7 +91,7 @@
     "vite-tsconfig-paths": "6.1.1",
     "vitest": "4.1.11"
   },
-  "packageManager": "yarn@4.17.0",
+  "packageManager": "yarn@4.18.0",
   "resolutions": {
     "glob": "13.0.6",
     "lodash": "4.18.1",
