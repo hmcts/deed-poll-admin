@@ -151,13 +151,30 @@ the same two pre-existing warnings.
 
 ### Task 3: Unit tests, including the re-render path
 
-- [ ] An admin's `GET` renders the delete button
-- [ ] A caseworker's `GET` does not
-- [ ] **A caseworker's failed save re-render does not** — the `rerender` path, the one easily missed
-- [ ] An admin's `POST action=delete` still deletes and still redirects to `#notes`
-- [ ] A caseworker's `POST action=delete` is left to api: assert this page does not itself refuse, so the test documents decision 5 rather than leaving it implied
-- [ ] Validate: `yarn turbo test test:app --concurrency=1` — 8 of 8 successful
-- [ ] Mark completed
+- [x] An admin's `GET` renders the delete button
+- [x] A caseworker's `GET` does not
+- [x] **A caseworker's failed save re-render does not** — the `rerender` path, the one easily missed
+- [x] An admin's `POST action=delete` still deletes and still redirects to `#notes`
+- [x] A caseworker's `POST action=delete` is left to api: assert this page does not itself refuse, so the test documents decision 5 rather than leaving it implied
+- [x] Validate: `yarn turbo test test:app --concurrency=1` — 8 of 8 successful
+- [x] Mark completed
+
+Six cases in `src/pages/deed-polls/[id]/notes/[noteId]/edit.test.ts`, which reaches them through
+`pageRequest`'s existing `admin` option — the local helper now takes `{ admin }` as a second argument, so no
+existing call site moved. **1,281 tests — 1,278 passed, 3 skipped, 8 of 8 tasks successful** (2026-09-11);
+`yarn lint` exits 0 with the two pre-existing warnings.
+
+Two notes on what the cases are shaped to catch:
+
+- **The re-render guard is now pinned, not just commented.** Deleting `canDelete` from `rerender` was
+  verified to fail two of the new cases; before this task it failed nothing. The pair is deliberate — the
+  caseworker case would also pass against a hard-coded `false`, so the administrator's rejected save asserts
+  `canDelete` is still read from the session on that path.
+- **The pre-existing "deletes the note and redirects to the notes tab" case now signs in as an
+  administrator**, since they are the only role offered the button, and the caseworker's forged delete is its
+  own case asserting `removeNote` is still called and nothing here answers 403. The branch-ordering cases
+  (delete-before-validation, and the 404 on another case's note) stay role-agnostic, because the role is not
+  what they are about.
 
 ### Task 4: Fix the lying e2e test, and cover the caseworker
 

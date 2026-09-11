@@ -27,8 +27,8 @@ const PARAMS = { id: "case-1", noteId: note.id };
 /** The session's access token, which is the whole of what this page passes to the domain. */
 const CALLER = { accessToken: "session-token" };
 
-function request(body: Record<string, unknown> = {}): Request {
-  return pageRequest({ params: PARAMS, body, accessToken: "session-token" });
+function request(body: Record<string, unknown> = {}, { admin = false } = {}): Request {
+  return pageRequest({ params: PARAMS, body, admin, accessToken: "session-token" });
 }
 
 const response = pageResponse;
@@ -69,6 +69,32 @@ describe("amend a note page", () => {
       vi.mocked(findNote).mockRejectedValue(new NotFoundError("Note not found"));
 
       await expect(GET(request(), response())).rejects.toThrow(NotFoundError);
+    });
+
+    it("offers the delete button to an administrator", async () => {
+      const res = response();
+
+      await GET(request({}, { admin: true }), res);
+
+      expect(res.render.mock.calls[0][1].canDelete).toBe(true);
+    });
+
+    it("does not offer the delete button to a caseworker", async () => {
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].canDelete).toBe(false);
+    });
+
+    it("still offers a caseworker the amend form, because the business splits edit from delete", async () => {
+      // The tidy-minded mistake is to gate the whole form on the same flag. The textarea's value is what
+      // would go with it.
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].value).toBe("Called the applicant");
     });
   });
 
@@ -127,9 +153,10 @@ describe("amend a note page", () => {
     });
 
     it("deletes the note and redirects to the notes tab", async () => {
+      // As an administrator, since they are the only role offered the button.
       const res = response();
 
-      await POST(request({ note: "Called twice", action: "delete" }), res);
+      await POST(request({ note: "Called twice", action: "delete" }, { admin: true }), res);
 
       expect(removeNote).toHaveBeenCalledWith("case-1", note.id, CALLER);
       expect(updateNote).not.toHaveBeenCalled();
@@ -185,6 +212,36 @@ describe("amend a note page", () => {
       vi.mocked(updateNote).mockRejectedValue(new Error("deed-poll-api call failed (timeout): deed-poll-api did not respond in time"));
 
       await expect(POST(request({ note: "Called twice", action: "save" }), response())).rejects.toThrow(/timeout/);
+    });
+
+    it("keeps the delete button hidden from a caseworker when a rejected save re-renders the form", async () => {
+      // The path a caseworker reaches by submitting an over-long note. A flag read only in `GET` puts the
+      // button back here, and nothing else in this suite would notice.
+      const res = response();
+
+      await POST(request({ note: "x".repeat(MAX_NOTE_LENGTH + 1), action: "save" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].canDelete).toBe(false);
+    });
+
+    it("keeps the delete button on an administrator's rejected save, so the re-render reads the session and does not hard-code false", async () => {
+      const res = response();
+
+      await POST(request({ note: "x".repeat(MAX_NOTE_LENGTH + 1), action: "save" }, { admin: true }), res);
+
+      expect(res.render.mock.calls[0][1].canDelete).toBe(true);
+    });
+
+    it("leaves a caseworker's forged delete to api rather than refusing it here", async () => {
+      // Deliberate: with the button hidden, reaching this branch takes a hand-crafted request, and api
+      // enforces the rule. A local refusal as well would put the authority in two places.
+      const res = response();
+
+      await POST(request({ note: "Called twice", action: "delete" }), res);
+
+      expect(removeNote).toHaveBeenCalledWith("case-1", note.id, CALLER);
+      expect(res.status).not.toHaveBeenCalledWith(403);
     });
   });
 });
