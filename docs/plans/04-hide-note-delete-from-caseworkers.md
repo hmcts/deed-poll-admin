@@ -215,11 +215,39 @@ Validated by `yarn lint` (exit 0, the two pre-existing `PORT`/`REDIS_URL` warnin
 
 ### Task 5: Full validation
 
-- [ ] `yarn lint` — 8 of 8 successful
-- [ ] `yarn turbo test test:app --concurrency=1` — 8 of 8 successful, count above the 1,273 baseline
-- [ ] `grep -rn "caseworker adds, amends and deletes" e2e-tests/` returns nothing, so no stale claim survives
-- [ ] `git grep -n "isAdmin" -- 'src/pages/deed-polls/\[id\]/notes'` shows the flag reaching both `GET` and `rerender`
-- [ ] Mark completed
+- [x] `yarn lint` — 8 of 8 successful
+- [x] `yarn turbo test test:app --concurrency=1` — 8 of 8 successful, count above the 1,273 baseline
+- [x] `grep -rn "caseworker adds, amends and deletes" e2e-tests/` returns nothing, so no stale claim survives
+- [x] `git grep -n "isAdmin" -- 'src/pages/deed-polls/\[id\]/notes'` shows the flag reaching both `GET` and `rerender`
+- [x] Mark completed
+
+All four green as of 2026-09-11, with two corrections to what the checkboxes above claim:
+
+- **`yarn lint` is not a turbo fan-out.** The root script is a single `biome check .` over 265 files, so
+  "8 of 8 successful" describes the test command and never described this one. It **exits 0**, with the two
+  pre-existing `noUndeclaredEnvVars` warnings on `src/server.ts:3` (`PORT`) and
+  `src/session-store.test.ts:32` (`REDIS_URL`) and nothing from any file this plan touched.
+- **The `isAdmin` grep returns nothing, and that is the rule working rather than a gap.** Decision 4 said to
+  name the rule instead of inlining `if (isAdmin)`, so the page never spells `isAdmin` — it reads
+  `canDeleteNote(userFromRequest(req))` and the flag is read inside the rule, whose parameter type
+  `NoteDeletePermission` is what names `isAdmin`. The check the plan meant is
+  `git grep -n "canDelete" -- src/pages/`, which shows the two render sites it was asking for:
+  `edit.ts:70` in `GET` and `edit.ts:130` in `rerender`, plus `note-edit.njk:64` wrapping only the
+  `action=delete` button. Anyone re-running task 5 later should use the `canDelete` form; the `isAdmin` form
+  was written before the rule had a name and would now read as a regression when it is the opposite.
+
+**1,281 tests — 1,278 passed, 3 skipped, 8 of 8 tasks successful**, against the 1,273 baseline: the eight
+packages are `@hmcts/deed-poll` 445, `//:test:app` 360 (357 passed, the 3 skipped), `@hmcts/deed-poll-api-client`
+138, `@hmcts-cft/cloud-native-platform` 140, `@hmcts-cft/express-govuk-starter` 127, `@hmcts-cft/simple-router`
+41, `@hmcts-cft/express-session-postgres` 23, `@hmcts-cft/express-session-redis` 7. The eight new tests are
+task 1's two rule cases and task 3's six page cases. The serial run took 39s cold, so the plan's "several
+minutes" is pessimistic — but the constraint still holds, because it is bare `yarn test`'s parallel fan-out
+that fails, not the duration.
+
+`yarn test:e2e` remains deliberately unrun, per task 4: it needs Docker, a built app and seeded IDAM users, and
+no pipeline stage invokes it. **The caseworker assertion added in task 4 has therefore never executed** — it is
+written and typechecked only, and running it is the manual step this plan hands over. Task 4's rename is
+verified by the grep above; the new test's assertions are not.
 
 ## Deliberately not in this plan
 
