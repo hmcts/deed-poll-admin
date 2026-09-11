@@ -119,10 +119,19 @@ rule and one that contradicts it.
 
 ### Task 1: Name the rule
 
-- [ ] Add an exported rule to `libs/deed-poll/src/notes/` — e.g. `canDeleteNote({ isAdmin })` — colocated with the notes domain, with a comment naming api's `gate-note-deletion.md` as the enforcing side and this as the presentation mirror
-- [ ] Colocated test: an admin may, a non-admin may not
-- [ ] Validate: `yarn turbo test test:app --concurrency=1` — 8 of 8 successful, count above 1,273. **Not bare `yarn test`**, which reports a false failure here
-- [ ] Mark completed
+- [x] Add an exported rule to `libs/deed-poll/src/notes/` — e.g. `canDeleteNote({ isAdmin })` — colocated with the notes domain, with a comment naming api's `gate-note-deletion.md` as the enforcing side and this as the presentation mirror
+- [x] Colocated test: an admin may, a non-admin may not
+- [x] Validate: `yarn turbo test test:app --concurrency=1` — 8 of 8 successful, count above 1,273. **Not bare `yarn test`**, which reports a false failure here
+- [x] Mark completed
+
+`libs/deed-poll/src/notes/delete-policy.ts` holds `canDeleteNote`, exported from the package index next to
+`note-form.js`. **1,275 tests — 1,272 passed, 3 skipped, 8 of 8 tasks successful** (2026-09-11), the baseline
+plus the two new cases. `yarn lint` exits 0 with the two pre-existing warnings and nothing from the new files.
+
+Note for task 2's comment references: api's `docs/plans/gate-note-deletion.md` **does not exist on disk yet** —
+`../../deed-poll-api/docs/plans/` holds `role-model-generalisation.md` and `scope-gap-questions.md` but not the
+gate plan. The docblock names it as the enforcing side regardless, per the plan's Sequencing note that this
+side can land first; the reference resolves when api's plan is written.
 
 ### Task 2: Thread it into the note edit page and hide the button
 
