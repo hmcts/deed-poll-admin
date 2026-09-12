@@ -53,7 +53,7 @@
     "@hmcts-cft/simple-router": "workspace:*",
     "@hmcts/cookie-manager": "1.1.0",
     "@hmcts/deed-poll": "workspace:*",
-    "config": "4.4.2",
+    "config": "5.0.1",
     "connect-redis": "9.0.0",
     "cookie-parser": "1.4.7",
     "express": "5.2.1",
@@ -67,26 +67,25 @@
     "redis": "6.0.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.8",
+    "@biomejs/biome": "2.5.13",
     "@types/config": "4.4.0",
     "@types/cookie-parser": "1.4.10",
     "@types/express": "5.0.6",
     "@types/express-session": "1.19.0",
     "@types/govuk-frontend": "5.11.0",
-    "@types/js-yaml": "4.0.9",
     "@types/multer": "2.2.0",
     "@types/node": "24.13.3",
     "@types/nunjucks": "3.2.6",
     "@types/supertest": "7.2.1",
     "@vitest/coverage-v8": "4.1.11",
     "@vitest/ui": "4.1.11",
-    "js-yaml": "4.3.2",
-    "sass": "1.103.1",
+    "js-yaml": "5.4.1",
+    "sass": "1.104.0",
     "supertest": "7.2.2",
     "tsx": "4.23.13",
     "turbo": "2.10.12",
     "typescript": "6.0.3",
-    "vite": "8.0.16",
+    "vite": "8.3.0",
     "vite-plugin-static-copy": "4.1.1",
     "vite-tsconfig-paths": "6.1.1",
     "vitest": "4.1.11"
@@ -95,6 +94,6 @@
   "resolutions": {
     "glob": "13.0.6",
     "lodash": "4.18.1",
-    "pg": "8.21.0"
+    "pg": "8.23.0"
   }
 }

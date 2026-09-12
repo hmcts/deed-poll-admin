@@ -31,18 +31,17 @@
     "lint:fix": "biome check --write ."
   },
   "peerDependencies": {
-    "config": "^3.3.12 || ^4.0.0",
+    "config": "^3.3.12 || ^4.0.0 || ^5.0.0",
     "express": "^5.1.0"
   },
   "dependencies": {
     "@azure/identity": "^4.2.1",
     "@azure/keyvault-secrets": "^4.7.0",
     "applicationinsights": "3.16.0",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^5.0.0"
   },
   "devDependencies": {
     "@types/express": "5.0.6",
-    "@types/js-yaml": "^4.0.9",
     "@types/supertest": "7.2.1",
     "supertest": "7.2.2"
   }
