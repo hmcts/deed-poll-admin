@@ -256,6 +256,32 @@ describe("the cross-field date rules", () => {
   });
 });
 
+describe("the witness routes", () => {
+  const WITNESS = { witnessName: "Alex Witness", witnessAddress: "1 Test Road", witnessOccupation: "Baker", declarant: false };
+
+  it("should refuse a declarant sent as a string rather than coercing it", async () => {
+    // Here rather than in `client.test.ts` because the adapter's types make it unreachable through
+    // `createWitness`: `"false"` is truthy in JavaScript, so a coerced declarant would silently be stored
+    // as an ordinary witness, and api refuses the string for exactly that reason.
+    const seeded = mock.seed(null);
+
+    const response = await post(`/caseworker/cases/${seeded.id}/witnesses`, { ...WITNESS, declarant: "true" });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].field).toBe("declarant");
+  });
+
+  it("should not delete a witness, because api has no delete until the Administrator gate lands", async () => {
+    const seeded = mock.seed(null);
+    const created = await (await post(`/caseworker/cases/${seeded.id}/witnesses`, WITNESS)).json();
+
+    const response = await fetch(`${mock.url}/caseworker/cases/${seeded.id}/witnesses/${created.id}`, { method: "DELETE" });
+
+    expect(response.status).toBe(405);
+    expect((await get(`/caseworker/cases/${seeded.id}/witnesses`)).length).toBe(1);
+  });
+});
+
 describe("route ordering", () => {
   it("should resolve field-rules before the case-id route, not read it as an id", async () => {
     // The trap api relies on Spring's pattern ordering to avoid: matched the other way round, this

@@ -172,8 +172,18 @@ Refreshing the whole spec also picks up the **`DELETE` on notes** and anything e
 snapshot was taken — that is intended, not scope creep. If `contract.test.ts` then complains about an operation
 this plan did not add, that is a pre-existing drift it has just surfaced: **report it, do not paper over it.**
 
-- [ ] `openapi.json` refreshed **from api's generated spec**, both operations in `client.ts` and the mock,
-      `contract.test.ts` green
+- [x] `openapi.json` refreshed **from api's generated spec**, both operations in `client.ts` and the mock,
+      `contract.test.ts` green. Taken from `/tmp/openapi-specs.json` after checking it carries
+      `/caseworker/cases/{id}/witnesses` and that its witness descriptions match `OpenAPIWriteBodies.java`
+      at api's clean `ee5cc86` — not hand-edited. Against the old snapshot the only differences are the 71
+      witness keys and springdoc renumbering two note `operationId`s (`create_1`→`create_2`,
+      `update_1`→`update_2`), so **there was no pre-existing drift to report**.
+      **Four client functions, not two.** `contract.test.ts` compares operations in both directions, so the
+      two witness GETs api now serves need adapter functions too — `listWitnesses` and `getWitness` beside
+      `createWitness` and `updateWitness`, with `CreateWitnessRequest` / `UpdateWitnessRequest` in
+      `WIRE_SCHEMAS` and the caps, the required set and "declarant is a boolean, not a truthy string" pinned
+      against the spec. The mock serves all four (no `DELETE`, and a test asserts it answers 405), and
+      `SPEC-PROVENANCE.md` records the new commit and the 17 caseworker operations
 
 ### Task 3: Service writes, and the docblock
 

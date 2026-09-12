@@ -14,16 +14,20 @@ import {
   checkApiReachable,
   createCase,
   createNote,
+  createWitness,
   deleteNote,
   downloadDocument,
   getCase,
   getFieldRules,
   getNote,
+  getWitness,
   listCases,
   listDocumentTypes,
   listNotes,
+  listWitnesses,
   patchCase,
   patchNote,
+  updateWitness,
   uploadDocument
 } from "./client.js";
 
@@ -32,6 +36,9 @@ const DATE_RECEIVED = new Date("2026-03-10T00:00:00Z");
 
 /** A document type the mock serves, so an upload can name one. */
 const DOCUMENT_TYPE_ID = "11111111-1111-4111-8111-111111111111";
+
+/** All four witness fields, because api requires all four on a create. */
+const WITNESS = { witnessName: "Alex Witness", witnessAddress: "1 Test Road, Testville", witnessOccupation: "Baker", declarant: false };
 
 let mock: RunningMockApi;
 let config: ApiConfig;
@@ -279,6 +286,78 @@ describe("notes", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.kind).toBe("not-found");
+  });
+});
+
+describe("witnesses", () => {
+  it("should create, read back and patch a witness", async () => {
+    const id = await caseId();
+
+    const created = await createWitness(id, WITNESS, config);
+    if (!created.ok) throw new Error("witness was not created");
+    expect(created.data).toMatchObject(WITNESS);
+
+    const read = await getWitness(id, created.data.id, config);
+    expect(read.ok && read.data.witnessName).toBe("Alex Witness");
+
+    const patched = await updateWitness(id, created.data.id, { witnessOccupation: "Retired baker" }, config);
+    expect(patched.ok && patched.data).toMatchObject({ witnessName: "Alex Witness", witnessOccupation: "Retired baker" });
+  });
+
+  it("should store a witness untrimmed, unlike a note, because api does not trim one", async () => {
+    const id = await caseId();
+
+    const created = await createWitness(id, { ...WITNESS, witnessName: "  Alex Witness  " }, config);
+
+    expect(created.ok && created.data.witnessName).toBe("  Alex Witness  ");
+  });
+
+  it("should leave a field the patch does not mention alone", async () => {
+    const id = await caseId();
+    const created = await createWitness(id, { ...WITNESS, declarant: true }, config);
+    if (!created.ok) throw new Error("witness was not created");
+
+    const patched = await updateWitness(id, created.data.id, {}, config);
+
+    expect(patched.ok && patched.data).toMatchObject({ witnessName: "Alex Witness", declarant: true });
+  });
+
+  it("should list a case's witnesses, and carry them on the case as well", async () => {
+    const id = await caseId();
+    await createWitness(id, WITNESS, config);
+    await createWitness(id, { ...WITNESS, witnessName: "Sam Declarant", declarant: true }, config);
+
+    const listed = await listWitnesses(id, config);
+
+    // Oldest first, which is the order the detail page's subgrid renders them in.
+    expect(listed.ok && listed.data.map((witness) => witness.witnessName)).toEqual(["Alex Witness", "Sam Declarant"]);
+    const found = await getCase(id, config);
+    expect(found.ok && found.data.witnesses.map((witness) => witness.witnessName)).toEqual(["Alex Witness", "Sam Declarant"]);
+  });
+
+  it("should refuse a name over its cap as a validation failure attributed to the field", async () => {
+    const id = await caseId();
+
+    const result = await createWitness(id, { ...WITNESS, witnessName: "x".repeat(101) }, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("validation");
+    expect(result.error.fieldErrors?.map((error) => error.field)).toEqual(["witnessName"]);
+  });
+
+  it("should report not-found for a witness id belonging to another case", async () => {
+    const owning = await caseId();
+    const other = await caseId();
+    const created = await createWitness(owning, WITNESS, config);
+    if (!created.ok) throw new Error("witness was not created");
+
+    const read = await getWitness(other, created.data.id, config);
+    const patched = await updateWitness(other, created.data.id, { witnessOccupation: "Baker" }, config);
+
+    expect(read.ok).toBe(false);
+    expect(!read.ok && read.error.kind).toBe("not-found");
+    expect(!patched.ok && patched.error.kind).toBe("not-found");
   });
 });
 

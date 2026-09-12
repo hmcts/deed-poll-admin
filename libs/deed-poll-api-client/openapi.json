@@ -344,7 +344,7 @@
         "tags": ["caseworker-note-controller"]
       },
       "post": {
-        "operationId": "create_1",
+        "operationId": "create_2",
         "parameters": [
           {
             "in": "path",
@@ -443,7 +443,7 @@
         "tags": ["caseworker-note-controller"]
       },
       "patch": {
-        "operationId": "update_1",
+        "operationId": "update_2",
         "parameters": [
           {
             "in": "path",
@@ -485,6 +485,153 @@
           }
         },
         "tags": ["caseworker-note-controller"]
+      }
+    },
+    "/caseworker/cases/{id}/witnesses": {
+      "get": {
+        "operationId": "witnesses",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WitnessResponse"
+                  }
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-witness-controller"]
+      },
+      "post": {
+        "operationId": "create_1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWitnessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/WitnessResponse"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "tags": ["caseworker-witness-controller"]
+      }
+    },
+    "/caseworker/cases/{id}/witnesses/{witnessId}": {
+      "get": {
+        "operationId": "witness",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "witnessId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/WitnessResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-witness-controller"]
+      },
+      "patch": {
+        "operationId": "update_1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "witnessId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWitnessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/WitnessResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-witness-controller"]
       }
     },
     "/caseworker/document-types": {
@@ -1123,6 +1270,30 @@
           }
         },
         "required": ["note"]
+      },
+      "CreateWitnessRequest": {
+        "additionalProperties": true,
+        "description": "A witness or declarant. All four fields are required: every column is NOT NULL. declarant must be a JSON boolean -- the string \"true\" is refused rather than coerced. Values are stored as submitted and not trimmed. The case comes from the path and no author is recorded, so neither can be set here. Unknown keys are ignored.",
+        "properties": {
+          "declarant": {
+            "type": "boolean",
+            "description": "Whether this witness is the declarant. One row type covers both."
+          },
+          "witnessAddress": {
+            "type": "string",
+            "description": "The whole address as one free-text field, exactly as the source form holds it.",
+            "maxLength": 250
+          },
+          "witnessName": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "witnessOccupation": {
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "required": ["declarant", "witnessAddress", "witnessName", "witnessOccupation"]
       },
       "DocumentResponse": {
         "type": "object",
@@ -1782,6 +1953,29 @@
             "type": "string",
             "maxLength": 2000,
             "minLength": 1
+          }
+        }
+      },
+      "UpdateWitnessRequest": {
+        "additionalProperties": true,
+        "description": "A patch. An omitted field is left as stored; a field that is present gets the create rule. An empty patch is accepted and re-stamps modifiedOn. An explicit null is a 400, not a clear: every column is NOT NULL. Unknown keys are ignored.",
+        "properties": {
+          "declarant": {
+            "type": "boolean",
+            "description": "Whether this witness is the declarant. One row type covers both."
+          },
+          "witnessAddress": {
+            "type": "string",
+            "description": "The whole address as one free-text field, exactly as the source form holds it.",
+            "maxLength": 250
+          },
+          "witnessName": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "witnessOccupation": {
+            "type": "string",
+            "maxLength": 100
           }
         }
       },

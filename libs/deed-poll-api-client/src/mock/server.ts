@@ -175,7 +175,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, 405, { error: `no such route: ${method} ${pathname}` });
     }
 
-    const scoped = /^\/caseworker\/cases\/([^/]+)(?:\/(notes|documents)(?:\/([^/]+))?)?(?:\/file)?$/.exec(pathname);
+    const scoped = /^\/caseworker\/cases\/([^/]+)(?:\/(notes|witnesses|documents)(?:\/([^/]+))?)?(?:\/file)?$/.exec(pathname);
     if (!scoped) return send(res, 404, { error: `no such route: ${method} ${pathname}` });
 
     const [, rawId, collection, childId] = scoped;
@@ -189,6 +189,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     }
 
     if (collection === "notes") return notes(req, res, method, found, childId);
+    if (collection === "witnesses") return witnesses(req, res, method, found, childId);
     if (collection === "documents") return documents(req, res, method, found, childId, pathname.endsWith("/file"));
 
     return send(res, 404, { error: `no such route: ${method} ${pathname}` });
@@ -331,6 +332,49 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     }
 
     return send(res, 405, { error: `no such route: ${method} on a note` });
+  }
+
+  /**
+   * A case's witnesses: list, add, read and amend. No delete, because api has none.
+   *
+   * No author is stamped and none is accepted — `deedpoll_witness` holds the two timestamps and no author
+   * columns, so `auditName` has nothing to attribute here. Values go in untrimmed, unlike a note's text:
+   * api's `WitnessSchemas` stores what it was given and says so.
+   */
+  async function witnesses(req: IncomingMessage, res: ServerResponse, method: string, record: MockCase, witnessId: string | undefined): Promise<void> {
+    if (witnessId === undefined) {
+      if (method === "GET") return send(res, 200, record.witnesses.map(toWireWitness));
+      if (method === "POST") {
+        const parsed = WIRE_SCHEMAS.CreateWitnessRequest.safeParse(await readJsonBody(req));
+        if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+
+        const now = new Date();
+        const created: WireWitness = { id: randomUUID(), ...parsed.data, createdOn: now, modifiedOn: now };
+        record.witnesses.push(created);
+        return send(res, 201, toWireWitness(created));
+      }
+      return send(res, 405, { error: `no such route: ${method} on witnesses` });
+    }
+
+    const id = decodeURIComponent(witnessId);
+    const witness = record.witnesses.find((candidate) => candidate.id === id);
+    // Only this case's list is searched, which is api's scoping rule: a witness of another case is a 404
+    // here rather than a row read through the wrong parent.
+    if (!witness) return send(res, 404, { error: `Witness ${id} not found` });
+
+    if (method === "GET") return send(res, 200, toWireWitness(witness));
+
+    if (method === "PATCH") {
+      const parsed = WIRE_SCHEMAS.UpdateWitnessRequest.safeParse(await readJsonBody(req));
+      if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+
+      // An omitted field is absent from the parsed patch rather than present as undefined, so an empty
+      // patch re-stamps `modifiedOn` and changes nothing else — api's documented behaviour.
+      Object.assign(witness, parsed.data, { modifiedOn: new Date() });
+      return send(res, 200, toWireWitness(witness));
+    }
+
+    return send(res, 405, { error: `no such route: ${method} on a witness` });
   }
 
   async function documents(
@@ -656,13 +700,17 @@ function toDetail(record: MockCase): unknown {
   return {
     ...(toSaved(record) as object),
     notes: record.notes.map(toWireNote),
-    witnesses: record.witnesses.map((witness) => isoDates(witness)),
+    witnesses: record.witnesses.map(toWireWitness),
     documents: record.documents.map(toWireDocument)
   };
 }
 
 function toWireNote(note: MockNote): unknown {
   return isoDates(note);
+}
+
+function toWireWitness(witness: WireWitness): unknown {
+  return isoDates(witness);
 }
 
 function toWireDocument(document: MockDocument): unknown {
