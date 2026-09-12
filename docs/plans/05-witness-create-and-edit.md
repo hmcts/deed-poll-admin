@@ -136,7 +136,12 @@ plan is finished. All of them live in the final task.
 `git show 5dc0d08^:libs/deed-poll/src/witnesses/schemas.ts > libs/deed-poll/src/witnesses/schemas.ts`, then check
 the limits still match api (100 / 250 / 100) rather than assuming.
 
-- [ ] `schemas.ts` restored from `5dc0d08^` and its caps re-checked against api
+- [x] `schemas.ts` restored from `5dc0d08^` and its caps re-checked against api — verbatim, and byte-identical to
+      api's own `src/test/resources/reference/ts/witnesses/schemas.ts`. `WitnessSchemas.java` confirms the caps
+      (`MAX_WITNESS_NAME_LENGTH` 100, `MAX_WITNESS_ADDRESS_LENGTH` 250, `MAX_WITNESS_OCCUPATION_LENGTH` 100), all
+      four fields required on create, `partial()` on patch, `declarant` a boolean and not a truthy string, and no
+      trim. `schemas.test.ts` restored from the same commit, and the `witnesses/schemas.js` export restored to
+      `libs/deed-poll/src/index.ts` where it sat at `5dc0d08^`
 
 ### Task 2: Client operations
 
