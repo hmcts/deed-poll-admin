@@ -265,7 +265,34 @@ witness" button **outside** the length check. Add the labels to `[id].ts` per de
   task 3 had to close
 - e2e: one happy-path journey in `e2e-tests/tests/` — add a witness, amend it, see it on the detail page
 
-- [ ] Unit, service, page (`GET` *and* rerender) and one e2e journey
+- [x] Unit, service, page (`GET` *and* rerender) and one e2e journey. Three of the four layers were written
+      alongside the code in tasks 1–5 — 7 schema tests, 11 service tests, 29 page tests covering `GET`,
+      the redirect, api's rejections and the rerender path on both pages — so this task closed the gaps in
+      them and added the journey:
+      **The schema tests only asserted one *over* each cap.** Each field now asserts at its limit as well,
+      because either assertion alone passes against an off-by-one in the direction it does not test. Added
+      with them: `declarant` optional on patch but required on create as one paired test (api leaves an
+      omitted field as stored, so a patch that had to carry it would make every occupation change restate
+      the declarant answer), that the patch still refuses the truthy string, and that a blank field is
+      accepted — pinned so a well-meant `.min(1)` cannot be added here without a change at api's end first.
+      **One e2e journey, added to `deed-polls.spec.ts` rather than a witness spec of its own**, per
+      `.claude/rules/e2e-testing.md`: validation, accessibility and the empty state are checked at the
+      points the journey already passes through. It creates a case, finds the Add button on an empty tab
+      (which is the whole reason it sits outside the length check), is refused for an unanswered `declarant`
+      and again for a 251-character address — asserting the address *and the chosen radio* survive the
+      re-render — then adds the witness, sees name, address, occupation, the tag and the Declarant row on
+      the case, amends occupation and `declarant` to No, and sees the tag gone and the row reading No. Three
+      axe checks inline, no exclusions. It also asserts **no delete control exists** on the amend form, by
+      `toHaveCount(0)` rather than invisibility. Named role-agnostically because both roles may add and
+      amend and there is no negative case to pair it with; no Welsh check, because that gap is the detail
+      page's and is page-wide. **`declarantRow()` is scoped by row, not by value** — "Yes" and "No" appear
+      all over a case page, so an unscoped text match would pass against any of them.
+      **A stale comment in `mock/server.test.ts` was falsified by task 2** and is rewritten: it claimed
+      witnesses are read-only through the contract and that seeding is the only way a page gets one. Nothing
+      failed while it was wrong, which is what made it worth catching here.
+      Verified: 1,339 unit tests (8 of 8 tasks, above the 1,281 baseline — the 3 skips ran, Redis being up
+      locally), `yarn lint` at exactly the two pre-existing warnings, `yarn build` 8 of 8, and the **full
+      e2e suite 21 passed** against the real IDAM simulator — the 20-test baseline plus this journey
 
 ### Task 7: Full validation
 

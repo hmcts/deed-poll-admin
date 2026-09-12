@@ -115,8 +115,8 @@ describe("POST /__mock/cases", () => {
 
     expect(read.notes).toHaveLength(1);
     expect(read.witnesses[0].witnessName).toBe("Ada Lovelace");
-    // Witnesses are read-only through the contract — api has no witness writes — so seeding is the only
-    // way a page under test gets one.
+    // Seeded rather than posted, which is the point of `seed`: a page that renders a witness gets one
+    // without driving the create route first. The route exists now — see "the witness routes" below.
     expect(read.witnesses[0].declarant).toBe(true);
   });
 
