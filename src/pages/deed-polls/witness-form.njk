@@ -1,0 +1,80 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/input/macro.njk" import govukInput %}
+{% from "govuk/components/textarea/macro.njk" import govukTextarea %}
+{% from "govuk/components/radios/macro.njk" import govukRadios %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{#
+  Add-a-witness form. Four controls, one per `deedpoll_witness` column the business asks for.
+
+  Address is a textarea rather than the address pattern's several inputs: there is one column behind it,
+  so splitting it across building/street/town controls would need a join on the way out and would invent
+  a structure the stored data does not have.
+
+  `declarant` is radios rather than a checkbox. An unchecked checkbox posts nothing, which is
+  indistinguishable from a question left alone, so it would answer "ordinary witness" on the
+  caseworker's behalf. Two radios make no-selection visible, and the handler leaves it unanswered so the
+  error lands here.
+
+  No maxlength attributes: the limits are enforced on submit and stated in the messages. A browser that
+  silently stops accepting characters gives no reason for having done so.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if errorList.length %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+    {% endif %}
+
+    <span class="govuk-caption-l">{{ case.displayReference }}</span>
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+    <form method="post" action="/deed-polls/{{ case.id }}/witnesses/new" novalidate>
+      {{ govukInput({
+        id: "witnessName",
+        name: "witnessName",
+        autocomplete: "off",
+        label: { text: nameLabel, classes: "govuk-label--m" },
+        value: values.witnessName,
+        errorMessage: { text: errors.witnessName } if errors.witnessName
+      }) }}
+
+      {{ govukTextarea({
+        id: "witnessAddress",
+        name: "witnessAddress",
+        rows: 4,
+        autocomplete: "off",
+        label: { text: addressLabel, classes: "govuk-label--m" },
+        value: values.witnessAddress,
+        errorMessage: { text: errors.witnessAddress } if errors.witnessAddress
+      }) }}
+
+      {{ govukInput({
+        id: "witnessOccupation",
+        name: "witnessOccupation",
+        autocomplete: "off",
+        label: { text: occupationLabel, classes: "govuk-label--m" },
+        value: values.witnessOccupation,
+        errorMessage: { text: errors.witnessOccupation } if errors.witnessOccupation
+      }) }}
+
+      {{ govukRadios({
+        idPrefix: "declarant",
+        name: "declarant",
+        classes: "govuk-radios--inline",
+        fieldset: { legend: { text: declarantLabel, classes: "govuk-fieldset__legend--m" } },
+        items: [
+          { value: "true", text: yes, checked: values.declarant == "true" },
+          { value: "false", text: no, checked: values.declarant == "false" }
+        ],
+        errorMessage: { text: errors.declarant } if errors.declarant
+      }) }}
+
+      {{ govukButton({ text: submit }) }}
+      <a class="govuk-link govuk-!-margin-left-3" href="/deed-polls/{{ case.id }}#witnesses">{{ cancel }}</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

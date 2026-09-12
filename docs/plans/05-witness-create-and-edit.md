@@ -209,7 +209,30 @@ untrue".
 `witnesses/new.ts` and `witnesses/[witnessId]/edit.ts`, plus `witness-form.njk` and `witness-edit.njk`. `GET`
 renders, `POST` validates with `safeParse` and re-renders with field errors on failure.
 
-- [ ] Both pages and both templates, validating with `safeParse`
+- [x] Both pages and both templates, validating with `safeParse`. `witnesses/new.ts` and
+      `witnesses/[witnessId]/edit.ts` beside the note pages, rendering `deed-polls/witness-form` and
+      `deed-polls/witness-edit`, each `GET` / `POST` / `rerender` as the note pages are. Four decisions
+      worth knowing, all recorded at their call sites:
+      **`declarant` is radios, not a checkbox.** An unchecked checkbox posts nothing, which is
+      indistinguishable from a question nobody answered, so it would record "ordinary witness" on the
+      caseworker's behalf. The handler compares the body to the two literals rather than coercing —
+      `Boolean("false")` is true, so a coercion would make every witness a declarant, which is api's own
+      emphasis in `wire.ts` — and anything else stays `undefined` so the schema rejects it and the error
+      lands on the radios.
+      **A blank field is accepted**, because `createWitnessSchema` has caps and no minimum and api stores
+      `""`. A local required rule would refuse a body api accepts and would put a business rule in a page
+      handler; if witnesses need mandatory fields it is `WitnessSchemas` that says so first.
+      **The caps in the messages are read off the schema** (`shape.witnessName.maxLength`), not restated,
+      so a message and the rule it explains cannot drift. Zod's own wording is developer-facing, so a
+      schema rejection is rendered in the page's copy while api's is rendered in api's — the same split
+      the note forms make.
+      **The edit page validates with `createWitnessSchema`, not the partial**: the form posts all four
+      controls every time, so the partial would accept a body missing a field the form always sends. It
+      re-reads the witness on the rerender path too, so the 404 for another case's witness holds there and
+      not only on `GET`. No delete button and no permission check anywhere — there is no `DELETE` to call,
+      and both roles may amend. 29 colocated page tests, and both templates smoke-rendered against the
+      real GOV.UK macros to confirm every error-summary `href` resolves to a control id
+      (`#declarant` is the first radio)
 
 ### Task 5: Wire up the subgrid
 
