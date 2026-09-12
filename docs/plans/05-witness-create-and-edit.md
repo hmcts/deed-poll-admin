@@ -239,7 +239,20 @@ renders, `POST` validates with `safeParse` and re-renders with field errors on f
 In `detail.njk:122-131`: link each row to its edit page, add `declarant` to the summary list, and add the "Add a
 witness" button **outside** the length check. Add the labels to `[id].ts` per decision 5.
 
-- [ ] Row links, `declarant` shown, and the Add button outside the length check
+- [x] Row links, `declarant` shown, and the Add button outside the length check. The witness **name** is the
+      row's handle and so carries the link, the same shape as a note's code cell — href on the uuid, a
+      `govuk-visually-hidden` suffix (`amendWitnessHint`) so the link text survives out of context. A witness
+      name is nullable on the wire and `createWitnessSchema` sets no minimum, so a nameless witness falls back
+      to `unnamedWitness` rather than rendering an anchor with nothing in it to click — that is the one label
+      the plan did not anticipate. `declarant` is a **row as well as the existing tag**: the tag only appears
+      when true, so its absence could not say whether the answer was no, and `declarant` is a non-null boolean
+      on the wire so there is always one of the two to state. The Add button sits after `{% endif %}`, with the
+      same comment the notes button carries. Six labels added inline in `[id].ts` per decision 5 — `addWitness`,
+      `amendWitnessHint`, `witnessDeclarant`, `unnamedWitness`, `yes`, `no` — English-only like the rest of that
+      page. **No template-rendering test exists in this repo**, so the subgrid was smoke-rendered against the
+      real GOV.UK macros with a declarant, a nameless non-declarant and an empty list (the Add button survives
+      all three), and `[id].test.ts` gained a test pinning the six labels non-empty, because a deleted label
+      renders a blank button and an unreadable link with nothing failing. The journey itself is task 6's e2e
 
 ### Task 6: Tests
 

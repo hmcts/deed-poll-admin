@@ -31,6 +31,7 @@ const en = {
   noneRecorded: "None recorded.",
   notEdited: "Not edited",
   addNote: "Add a note",
+  addWitness: "Add a witness",
   uploadDocument: "Upload a document",
   changeLink: "Change",
   backToCases: "Back to cases",
@@ -38,8 +39,15 @@ const en = {
   noteColumns: ["NoteID", "Note", "Created", "Modified"],
   amendNoteHint: "amend this note",
   documentColumns: DOCUMENT_COLUMNS,
+  amendWitnessHint: "amend this witness",
   witnessAddress: "Address",
-  witnessOccupation: "Occupation"
+  witnessOccupation: "Occupation",
+  witnessDeclarant: "Declarant",
+  // A witness name is nullable on the wire and the schema sets no minimum, so it can be absent — and the
+  // name is the link into the amend page, which an empty anchor would leave nothing to click.
+  unnamedWitness: "Unnamed witness",
+  yes: "Yes",
+  no: "No"
 };
 
 // English content in the cy shape — see the note in index.ts.

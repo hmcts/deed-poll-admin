@@ -169,6 +169,20 @@ describe("case detail page", () => {
     expect(res.render).not.toHaveBeenCalled();
   });
 
+  it("carries the labels the witnesses subgrid renders, since a missing one is an empty link or button", async () => {
+    // The subgrid's entry points are label-driven: the amend link's text is the witness name plus
+    // `amendWitnessHint`, and the Add button is `addWitness`. Nothing fails if either goes — the page
+    // renders an unreadable link and a blank button.
+    const res = response();
+
+    await GET(request(), res);
+
+    const { en } = res.render.mock.calls[0][1];
+    for (const key of ["addWitness", "amendWitnessHint", "witnessDeclarant", "unnamedWitness", "yes", "no"]) {
+      expect(en[key], key).toBeTruthy();
+    }
+  });
+
   it("provides both en and cy content objects with matching keys", async () => {
     const res = response();
 
