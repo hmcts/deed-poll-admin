@@ -296,12 +296,18 @@ witness" button **outside** the length check. Add the labels to `[id].ts` per de
 
 ### Task 7: Full validation
 
-- [ ] `yarn lint` — exits 0, still exactly the two pre-existing warnings and the schema notice, none from new files
-- [ ] `yarn turbo test test:app --concurrency=1` — **8 of 8 tasks**, count above the **1,281 baseline**
+- [x] `yarn lint` — exits 0, still exactly the two pre-existing warnings and the schema notice, none from new files.
+      `Checked 271 files`, `Found 2 warnings` (`src/server.ts:3` `PORT`, `src/session-store.test.ts:32` `REDIS_URL`),
+      `Found 2 infos` (the `biome.json` schema notice). Neither warning is in a file this plan added
+- [x] `yarn turbo test test:app --concurrency=1` — **8 of 8 tasks**, count above the **1,281 baseline**
       (1,278 passed + 3 skipped, verified 2026-09-12 at `c0c4c1c`). The 3 skips are the Redis session round trip
-      and are skipped on master too
-- [ ] `yarn build` — 8 of 8
-- [ ] **e2e, which needs setting up from cold and is easy to misread as a code failure:**
+      and are skipped on master too. **1,339 passed, 0 skipped**: `@hmcts/deed-poll` 459,
+      `//:test:app` 390, `@hmcts-cft/cloud-native-platform` 140, `@hmcts/deed-poll-api-client` 152,
+      `@hmcts-cft/express-govuk-starter` 127, `@hmcts-cft/simple-router` 41, `@hmcts-cft/express-session-postgres` 23,
+      `@hmcts-cft/express-session-redis` 7. The 3 baseline skips ran rather than being skipped — Redis was up
+      locally — so 1,339 against 1,281 is +58 new tests, not +58 minus the skips
+- [x] `yarn build` — 8 of 8 (`FULL TURBO`, all 8 cached against the task 6 run, working tree unchanged since)
+- [x] **e2e, which needs setting up from cold and is easy to misread as a code failure:**
       1. `docker compose up -d` — redis on 6379, IDAM simulator on 5556 (a JVM; `curl 127.0.0.1:5556/health` → 200 when ready)
       2. **`yarn idam:users`** — a fresh simulator has an empty user store, and the failure mode is that the
          journey parks on the login page and Playwright reports `toHaveURL` timing out against `/deed-polls`,
@@ -311,9 +317,27 @@ witness" button **outside** the length check. Add the labels to `[id].ts` per de
       4. `REDIS_URL=redis://127.0.0.1:6379 yarn test:e2e` — `127.0.0.1`, never `localhost`, which resolves to
          `::1` first while Docker publishes IPv4 only
       Baseline **20 passed**. The two Azure warnings on startup (`ENOTFOUND deed-poll-aat.vault.azure.net`,
-      `/mnt/secrets does not exist`) are expected locally
-- [ ] `git grep -n 'Read-only, and deliberately so' -- libs/deed-poll/src/witnesses/` returns **nothing**
-- [ ] Mark completed
+      `/mnt/secrets does not exist`) are expected locally.
+      **21 passed** — the 20-test baseline plus the witness journey (`deed-polls.spec.ts:191`, 7.2s), health 200
+      and chromium_headless_shell-1243 already present. Two environment traps cost most of this task, and
+      **both present as code failures while nothing is wrong with the code**:
+      **`webServer`'s 120s timeout is not enough on a cold container.** `dev:nowatch:web` takes **63–75s to
+      bind port 3000**, nearly all of it `loadSecrets` waiting on `getaddrinfo ENOTFOUND
+      deed-poll-aat.vault.azure.net` before it gives up — the very warning the checklist calls expected. Add
+      `docker compose up -d` and a 9s vite build and the budget is gone, so Playwright reports
+      `Timed out waiting 120000ms from config.webServer` **after logging a successful build**, which reads as
+      a broken app. Nothing was listening on 3000 and no test had run. Worked around by starting
+      `REDIS_URL=… NODE_ENV=development VITE_MIDDLEWARE=false tsx src/server.ts` first, waiting for a 302, and
+      letting `reuseExistingServer` (true off CI) adopt it. Raising that timeout is a change to
+      `playwright.config.ts` and out of this plan's scope, but it is the fix.
+      **The default worker count starves this container.** `workers` is `undefined` off CI, so Playwright
+      chose **7** for 14 cores and **7 of 21 failed** — every one a `page.goto` timeout or a cascade from one,
+      and four of them in `cookie-management.spec.ts`, which this plan never touched. Even the passing tests
+      took 13–20s for a plain page load. At `--workers=1` the same 21 pass and those loads drop to 2–8s. So a
+      failure list that includes specs the branch does not touch is the signal to re-run serially before
+      reading it as a regression; the witness journey never failed for a reason of its own.
+- [x] `git grep -n 'Read-only, and deliberately so' -- libs/deed-poll/src/witnesses/` returns **nothing** (exit 1)
+- [x] Mark completed
 
 ## Deliberately not in this plan
 
