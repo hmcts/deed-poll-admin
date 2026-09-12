@@ -191,7 +191,18 @@ Add `createWitness` and `updateWitness` to `libs/deed-poll/src/witnesses/service
 `callApi`, mirroring `notes/service.ts:42,53`. **Rewrite the docblock** per "The thing that will quietly become
 untrue".
 
-- [ ] Both writes added, and the docblock no longer claims witnesses are read-only
+- [x] Both writes added, and the docblock no longer claims witnesses are read-only. `createWitness` and
+      `updateWitness` are one `callApi` line each, aliasing the client operations as `notes/service.ts`
+      does (`apiCreateWitness` / `apiUpdateWitness`), and the DTO goes on the wire unchanged — the patch
+      partial is passed through rather than defaulted, because api leaves an omitted field as stored.
+      **`removeWitness` is deliberately still absent**: there is no `DELETE` to call, so it would be a
+      function that could only fail. The docblock now records that the writes are api's (`ee5cc86`), that
+      neither is role-gated at either end, that the *reads* still come off the case on purpose even though
+      api publishes the two witness GETs (one case call already carries them, and it is what keeps the
+      cross-case scoping), and that the absent author parameter is because `deedpoll_witness` has no author
+      columns at all — a different reason from notes. Service tests for both writes added while the docblock
+      was being rewritten, including `declarant: false` surviving as a patch field rather than being dropped
+      as falsy, and `getCase` asserted un-called on the update path so no scoping pre-read creeps back
 
 ### Task 4: The pages and templates
 
