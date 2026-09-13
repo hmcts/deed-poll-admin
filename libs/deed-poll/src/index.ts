@@ -46,5 +46,6 @@ export * from "./notes/notes-view.js";
 export * from "./notes/schemas.js";
 export * from "./notes/service.js";
 export * from "./schema-primitives.js";
+export * from "./witnesses/delete-policy.js";
 export * from "./witnesses/schemas.js";
 export * from "./witnesses/service.js";

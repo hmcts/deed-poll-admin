@@ -382,7 +382,7 @@
     },
     "/caseworker/cases/{id}/notes/{noteId}": {
       "delete": {
-        "operationId": "delete",
+        "operationId": "delete_1",
         "parameters": [
           {
             "in": "path",
@@ -555,6 +555,33 @@
       }
     },
     "/caseworker/cases/{id}/witnesses/{witnessId}": {
+      "delete": {
+        "operationId": "delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "witnessId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": ["caseworker-witness-controller"]
+      },
       "get": {
         "operationId": "witness",
         "parameters": [

@@ -335,11 +335,16 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   }
 
   /**
-   * A case's witnesses: list, add, read and amend. No delete, because api has none.
+   * A case's witnesses: list, add, read, amend and delete.
    *
    * No author is stamped and none is accepted — `deedpoll_witness` holds the two timestamps and no author
    * columns, so `auditName` has nothing to attribute here. Values go in untrimmed, unlike a note's text:
    * api's `WitnessSchemas` stores what it was given and says so.
+   *
+   * **The delete's Administrator gate is not modelled**, exactly as the note delete's is not: this mock
+   * takes a token to name an audit author and reads no roles out of one, so a 403 is not a state it can
+   * produce. What decides who is offered the control is `canDeleteWitness`, tested against the user rather
+   * than against api, and api's own gate is tested in api's repo.
    */
   async function witnesses(req: IncomingMessage, res: ServerResponse, method: string, record: MockCase, witnessId: string | undefined): Promise<void> {
     if (witnessId === undefined) {
@@ -357,10 +362,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     }
 
     const id = decodeURIComponent(witnessId);
-    const witness = record.witnesses.find((candidate) => candidate.id === id);
+    const index = record.witnesses.findIndex((candidate) => candidate.id === id);
     // Only this case's list is searched, which is api's scoping rule: a witness of another case is a 404
     // here rather than a row read through the wrong parent.
-    if (!witness) return send(res, 404, { error: `Witness ${id} not found` });
+    if (index === -1) return send(res, 404, { error: `Witness ${id} not found` });
+    const witness = record.witnesses[index];
 
     if (method === "GET") return send(res, 200, toWireWitness(witness));
 
@@ -372,6 +378,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       // patch re-stamps `modifiedOn` and changes nothing else — api's documented behaviour.
       Object.assign(witness, parsed.data, { modifiedOn: new Date() });
       return send(res, 200, toWireWitness(witness));
+    }
+
+    if (method === "DELETE") {
+      record.witnesses.splice(index, 1);
+      return sendNoContent(res);
     }
 
     return send(res, 405, { error: `no such route: ${method} on a witness` });

@@ -209,6 +209,19 @@ export function updateWitness(caseId: string, witnessId: string, patch: WitnessP
 }
 
 /**
+ * Delete a witness. 204, so there is no body — the deleted witness is not one.
+ *
+ * **The only witness operation api gates on a role.** `WitnessService.removeWitness` requires
+ * `caseworker-deedpoll-admin` before it resolves the witness, so a caller without it gets `forbidden`
+ * whether or not the witness exists — and gets it here too, since the gate is api's and no copy of it is
+ * made in this adapter. Both ids go on the wire for the reason the note delete's do: a witness addressed
+ * through the wrong case is api's 404 rather than a row deleted through the wrong parent.
+ */
+export function deleteWitness(caseId: string, witnessId: string, config: ApiConfig): Promise<ApiResult<void>> {
+  return requestNoContent(config, "DELETE", witnessPath(caseId, witnessId));
+}
+
+/**
  * Upload one supporting document.
  *
  * Multipart, because that is what api's endpoint consumes. The bytes are not stored here — this app has

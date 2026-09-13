@@ -271,14 +271,36 @@ describe("the witness routes", () => {
     expect((await response.json()).errors[0].field).toBe("declarant");
   });
 
-  it("should not delete a witness, because api has no delete until the Administrator gate lands", async () => {
+  it("should delete a witness with 204 and no body, as api's delete answers", async () => {
     const seeded = mock.seed(null);
     const created = await (await post(`/caseworker/cases/${seeded.id}/witnesses`, WITNESS)).json();
 
     const response = await fetch(`${mock.url}/caseworker/cases/${seeded.id}/witnesses/${created.id}`, { method: "DELETE" });
 
+    expect(response.status).toBe(204);
+    expect(await response.text()).toBe("");
+    expect((await get(`/caseworker/cases/${seeded.id}/witnesses`)).length).toBe(0);
+  });
+
+  it("should delete without asking for a role, because a 403 is not a state this mock models", async () => {
+    // api gates `removeWitness` on `caseworker-deedpoll-admin`; this mock reads no roles out of a token, so
+    // an anonymous DELETE succeeds here. What that leaves untested locally is api's gate, which is api's own
+    // test — and `canDeleteWitness` is what decides whether the control is offered at all.
+    const seeded = mock.seed(null);
+    const created = await (await post(`/caseworker/cases/${seeded.id}/witnesses`, WITNESS)).json();
+
+    const response = await fetch(`${mock.url}/caseworker/cases/${seeded.id}/witnesses/${created.id}`, { method: "DELETE" });
+
+    expect(response.status).toBe(204);
+  });
+
+  it("should still refuse a method it has no route for on a witness", async () => {
+    const seeded = mock.seed(null);
+    const created = await (await post(`/caseworker/cases/${seeded.id}/witnesses`, WITNESS)).json();
+
+    const response = await fetch(`${mock.url}/caseworker/cases/${seeded.id}/witnesses/${created.id}`, { method: "PUT" });
+
     expect(response.status).toBe(405);
-    expect((await get(`/caseworker/cases/${seeded.id}/witnesses`)).length).toBe(1);
   });
 });
 

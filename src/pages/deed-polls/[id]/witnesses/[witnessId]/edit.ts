@@ -7,18 +7,41 @@
  * `findWitness` is scoped to the parent — it reads the case's own witness list — so a witness id belonging
  * to another case 404s rather than rendering someone else's details under this case's reference.
  *
- * **There is no delete button.** api publishes no `DELETE` for a witness yet, and a control that could only
- * fail is worse than one that is not there. Deletion arrives with the Administrator gate that goes with it;
- * amending is open to both roles, so this form carries no permission check at all.
+ * **Delete is a second submit button on the same form**, not its own route, and the handler branches on
+ * `action` with **delete checked first** — the same shape as the note amend form, whose docblock holds the
+ * reasoning. An over-long name cannot block a deletion, and only the literal `"delete"` takes that path, so
+ * a missing `action` falls through to save and is never destructive.
+ *
+ * There is no confirmation step, following the note delete rather than inventing a second voice for the same
+ * act: the button is styled as a warning so it cannot be mistaken for the primary action, and its label says
+ * what it does. api removes the row and there is no recovery.
+ *
+ * **Only an Administrator is offered the delete button** — `canDeleteWitness`, whose docblock holds the
+ * reasoning. Amending stays open to both roles, so the flag gates that one button and not the form. It is
+ * read in `GET` **and** in `rerender`: a flag set only on the first render puts the button back the moment a
+ * validation error re-renders the form, which is the path a caseworker reaches with an over-long field.
+ *
+ * The `action === "delete"` branch is deliberately ungated. api enforces the rule and refuses a forged POST;
+ * a local refusal as well would put the authority in two places.
  *
  * **`createWitnessSchema`, not `updateWitnessSchema`.** The partial exists because api's PATCH leaves an
  * omitted field as stored, but this form posts all four controls on every submission, so validating against
  * the partial would accept a body missing a field the form always sends — the note edit page uses
  * `createNoteSchema` for the same reason.
  */
-import { createWitnessSchema, type FieldError, findDeedPoll, findWitness, InvalidInputError, updateWitness, zodErrorToFieldErrors } from "@hmcts/deed-poll";
+import {
+  canDeleteWitness,
+  createWitnessSchema,
+  type FieldError,
+  findDeedPoll,
+  findWitness,
+  InvalidInputError,
+  removeWitness,
+  updateWitness,
+  zodErrorToFieldErrors
+} from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { callerFromRequest } from "../../../../../auth/current-user.js";
+import { callerFromRequest, userFromRequest } from "../../../../../auth/current-user.js";
 
 const FIELD_ORDER = ["witnessName", "witnessAddress", "witnessOccupation", "declarant"];
 
@@ -37,6 +60,7 @@ const en = {
   yes: "Yes",
   no: "No",
   submit: "Save witness",
+  delete: "Delete witness",
   cancel: "Cancel",
   errorSummaryTitle: "There is a problem",
   fieldErrors: {
@@ -68,12 +92,19 @@ export const GET = async (req: Request, res: Response) => {
     },
     errors: {},
     errorList: [],
+    canDelete: canDeleteWitness(userFromRequest(req)),
     en,
     cy
   });
 };
 
 export const POST = async (req: Request, res: Response) => {
+  // First, so a field that would fail validation cannot block a deletion.
+  if ((req.body as { action?: unknown } | undefined)?.action === "delete") {
+    await removeWitness(req.params.id, req.params.witnessId, callerFromRequest(req));
+    return res.redirect(`/deed-polls/${req.params.id}#witnesses`);
+  }
+
   const parsed = createWitnessSchema.safeParse(submitted(req));
 
   if (!parsed.success) {
@@ -138,6 +169,9 @@ async function rerender(req: Request, res: Response, errors: Record<string, stri
     values: (req.body ?? {}) as Record<string, unknown>,
     errors,
     errorList: summaryList(errors, formError),
+    // Re-read here, not carried from `GET`: a re-render is its own request, and omitting it would put the
+    // button back on the failed-validation path.
+    canDelete: canDeleteWitness(userFromRequest(req)),
     en,
     cy
   });

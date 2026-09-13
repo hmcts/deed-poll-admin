@@ -10,12 +10,17 @@
   for each: one textarea for the one address column, radios rather than a checkbox for `declarant`, and no
   maxlength attributes.
 
-  Two differences from the note amend form, both because a witness is not a note:
+  One difference from the note amend form, because a witness is not a note: there is no audit summary list
+  above the controls. `deedpoll_witness` has no created/modified columns, so there is nothing to show — the
+  page would be stating "unknown" four times.
 
-  1. There is no audit summary list above the controls. `deedpoll_witness` has no created/modified
-     columns, so there is nothing to show — the page would be stating "unknown" four times.
-  2. There is no delete button. api publishes no DELETE for a witness, so a control here could only fail.
-     Amending is open to both roles, so nothing on this form is conditional on one.
+  Delete is a second submit button on the SAME form rather than its own route, so the two cannot drift; the
+  handler branches on `action`, checking delete first. Styled as a warning so it cannot be mistaken for the
+  primary action, and no confirmation step — the same call the note delete made, for the same act.
+
+  It is shown only when `canDelete` — hidden rather than disabled, because a button has no value to read and
+  a permanently disabled destructive control is noise on every witness a caseworker opens. Amending is open
+  to both roles, so only this button is conditional: the form, the four controls and Save are not.
 #}
 {% block content %}
 <div class="govuk-grid-row">
@@ -69,8 +74,13 @@
         errorMessage: { text: errors.declarant } if errors.declarant
       }) }}
 
-      {{ govukButton({ text: submit }) }}
-      <a class="govuk-link govuk-!-margin-left-3" href="/deed-polls/{{ case.id }}#witnesses">{{ cancel }}</a>
+      <div class="govuk-button-group">
+        {{ govukButton({ text: submit, name: "action", value: "save" }) }}
+        {% if canDelete %}
+          {{ govukButton({ text: delete, name: "action", value: "delete", classes: "govuk-button--warning" }) }}
+        {% endif %}
+        <a class="govuk-link" href="/deed-polls/{{ case.id }}#witnesses">{{ cancel }}</a>
+      </div>
     </form>
   </div>
 </div>

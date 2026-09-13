@@ -5,11 +5,11 @@
  * the journey already passes through, per `.claude/rules/e2e-testing.md`. Each test creates its own case,
  * so they are independent under `fullyParallel`.
  *
- * **Where a rule differs by role, the test name says which role it signs in as.** The notes journey runs as
- * `admin@example.com`, the only fixture holding `caseworker-deedpoll-admin`, and says so — deleting a note
- * is an administrator's to do. The last test runs as the roleless fixture, because a rule that hides a
- * control has no negative case without one. The create-and-edit and witness journeys are role-agnostic and
- * say nothing: both roles may add and amend a witness, and api gates neither write.
+ * **Where a rule differs by role, the test name says which role it signs in as.** The notes and witnesses
+ * journeys run as `admin@example.com`, the only fixture holding `caseworker-deedpoll-admin`, and say so —
+ * deleting either is an administrator's to do. The last two tests run as the roleless fixture, because a
+ * rule that hides a control has no negative case without one. Adding and amending a witness is open to both
+ * roles, and only the delete halves of those journeys need the split.
  *
  * These journeys need a signed-in user — `requireAuth` is global — which the `setup` project provides.
  * See ./idam-session.ts for why the session is obtained from the real local IDAM rather than fabricated.
@@ -177,18 +177,19 @@ test("administrator adds, amends and deletes a note", async ({ page }) => {
 });
 
 /**
- * The witnesses journey — add, then amend, then see it on the case.
+ * The witnesses journey — add, then amend, then delete.
  *
- * **Role-agnostic, so the name says nothing about one.** Both roles have "Add and edit witnesses" in the
- * business capability matrix and api gates neither write, so there is no negative case to pair this with —
- * unlike the note tests above, where the delete rule needs both halves. It runs under this file's
- * administrator only because that is the file's default fixture.
+ * **Administrator, and the name says so**, because the last step is one only an Administrator is offered:
+ * api gates `DELETE .../witnesses/{witnessId}` on `caseworker-deedpoll-admin` in its domain. Adding and
+ * amending are open to both roles — "Add and edit witnesses" is ✓ for both in the business capability
+ * matrix — so the caseworker's half of the rule is the second test in the `describe` below, exactly as the
+ * note delete needs both halves.
  *
  * No Welsh check: the detail page's labels and both witness forms are inline English, as every label on
  * that page is. That gap is page-wide and pre-existing, not this journey's — see the open questions in
  * `docs/plans/05-witness-create-and-edit.md`.
  */
-test("caseworker adds a witness, amends it, and sees it on the case", async ({ page }) => {
+test("administrator adds a witness, amends it, and deletes it", async ({ page }) => {
   // Arrange: a case to hang a witness off. Driven, not asserted — the create journey is the first test.
   await page.goto("/deed-polls/new");
   await fillNewCaseForm(page, { forename: "Rae", surname: "Okonjo" });
@@ -249,9 +250,8 @@ test("caseworker adds a witness, amends it, and sees it on the case", async ({ p
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Amend witness");
   await expect(page.getByLabel("Occupation")).toHaveValue("Mathematician");
   await expect(page.getByLabel("Yes")).toBeChecked();
-  // Absent from the markup, not merely hidden: api publishes no `DELETE` for a witness, so a delete
-  // control here could only fail. Deletion arrives with the Administrator gate that goes with it.
-  await expect(page.getByRole("button", { name: /Delete/ })).toHaveCount(0);
+  // Offered here because this session holds the admin role. The roleless half is the test below.
+  await expect(page.getByRole("button", { name: "Delete witness" })).toBeVisible();
   await expectNoAccessibilityViolations(page);
 
   await page.getByLabel("Occupation").fill("Countess");
@@ -265,6 +265,16 @@ test("caseworker adds a witness, amends it, and sees it on the case", async ({ p
   // absence alone could not distinguish an answer of no from an answer nobody gave.
   await expect(witnesses.locator(".govuk-tag")).toHaveCount(0);
   await expect(declarantRow(witnesses)).toContainText("No");
+
+  // Delete, which is a second submit on the amend form rather than its own page — no confirmation
+  // interstitial, so the redirect back to the tab is the whole of it. api removes the row, so the tab is
+  // back to the empty state it started in: this is the case's only witness and there is no minimum.
+  await page.getByRole("link", { name: /amend this witness/ }).click();
+  await page.getByRole("button", { name: "Delete witness" }).click();
+
+  await expect(page).toHaveURL(`${caseUrl}#witnesses`);
+  await expect(witnesses).toContainText("None recorded.");
+  await expect(witnesses).not.toContainText("Ada Lovelace");
 });
 
 /**
@@ -299,6 +309,37 @@ test.describe("without the admin role", () => {
     await expect(page.getByRole("button", { name: "Delete note" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Save note" })).toBeVisible();
     await expect(page.getByLabel("Note")).toHaveValue("Applicant asked when the Gazette entry appears.");
+    await expectNoAccessibilityViolations(page);
+  });
+
+  // The other half of `canDeleteWitness`, and the same shape as the note test above: adding and amending a
+  // witness are ✓ for both roles in the capability matrix, so **Save witness** being there matters as much
+  // as **Delete witness** not being — it is what stops a later change gating the whole form.
+  test("caseworker may amend a witness but is not offered the delete button", async ({ page }) => {
+    // Arrange: a case and a witness of its own, both of which a caseworker may create. Driven, not asserted
+    // — the journey through these pages is the administrator test above.
+    await page.goto("/deed-polls/new");
+    await fillNewCaseForm(page, { forename: "Jo", surname: "Ferreira" });
+    await page.getByRole("button", { name: "Create case" }).click();
+    await expect(page).toHaveURL(CASE_URL);
+    const caseUrl = page.url();
+
+    await page.goto(`${caseUrl}/witnesses/new`);
+    await page.getByLabel("Name").fill("Grace Hopper");
+    await page.getByLabel("Address").fill("2 Low Street, London");
+    await page.getByLabel("Occupation").fill("Engineer");
+    await page.getByLabel("No").check();
+    await page.getByRole("button", { name: "Add witness" }).click();
+    await expect(page).toHaveURL(`${caseUrl}#witnesses`);
+
+    await page.getByRole("link", { name: /amend this witness/ }).click();
+    await expect(page).toHaveURL(/\/witnesses\/[0-9a-f-]{36}\/edit$/);
+
+    // Absent from the markup rather than merely invisible: the template omits the button, and a
+    // `not.toBeVisible()` would also pass against one hidden with CSS, which is not what was asked for.
+    await expect(page.getByRole("button", { name: "Delete witness" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Save witness" })).toBeVisible();
+    await expect(page.getByLabel("Occupation")).toHaveValue("Engineer");
     await expectNoAccessibilityViolations(page);
   });
 });

@@ -1,7 +1,7 @@
-import { createWitness as apiCreateWitness, updateWitness as apiUpdateWitness, getCase } from "@hmcts/deed-poll-api-client";
+import { createWitness as apiCreateWitness, updateWitness as apiUpdateWitness, deleteWitness, getCase } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NotFoundError } from "../errors.js";
-import { createWitness, findWitness, findWitnesses, updateWitness } from "./service.js";
+import { ForbiddenError, NotFoundError } from "../errors.js";
+import { createWitness, findWitness, findWitnesses, removeWitness, updateWitness } from "./service.js";
 
 // `getCase` is the read seam, because the reads take witnesses off the case rather than calling api's
 // witness GETs: one case call already carries them. What that pins is that the scoping survived losing the
@@ -11,7 +11,8 @@ vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll-api-client")>()),
   getCase: vi.fn(),
   createWitness: vi.fn(),
-  updateWitness: vi.fn()
+  updateWitness: vi.fn(),
+  deleteWitness: vi.fn()
 }));
 
 const CALLER = { accessToken: "caseworker-token" };
@@ -112,6 +113,39 @@ describe("witnesses/service", () => {
 
       await expect(updateWitness("case-1", "witness-9", { witnessName: "Someone" }, CALLER)).rejects.toBeInstanceOf(NotFoundError);
       expect(getCase).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("removeWitness", () => {
+    it("should forward both ids and the caller's token unchanged, and resolve with nothing", async () => {
+      vi.mocked(deleteWitness).mockResolvedValue(ok(undefined) as never);
+
+      await expect(removeWitness("case-1", "witness-1", CALLER)).resolves.toBeUndefined();
+
+      expect(deleteWitness).toHaveBeenCalledWith("case-1", "witness-1", expect.objectContaining({ baseUrl: "http://api.test" }));
+      expect(vi.mocked(deleteWitness).mock.calls[0][2].accessToken).toBe("caseworker-token");
+    });
+
+    it("should not read the case first, because api scopes the delete to the case in the path", async () => {
+      vi.mocked(deleteWitness).mockResolvedValue(ok(undefined) as never);
+
+      await removeWitness("case-1", "witness-1", CALLER);
+
+      expect(getCase).not.toHaveBeenCalled();
+    });
+
+    it("should throw ForbiddenError when api refuses a caller without the Administrator role", async () => {
+      // api gates before it resolves the witness, so this is the answer whether or not the witness exists —
+      // and it is api's answer, not a role check repeated here.
+      vi.mocked(deleteWitness).mockResolvedValue({ ok: false, error: { kind: "forbidden", status: 403, message: "Forbidden" } } as never);
+
+      await expect(removeWitness("case-1", "witness-1", CALLER)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    it("should throw NotFoundError for a witness that is not under this case", async () => {
+      vi.mocked(deleteWitness).mockResolvedValue({ ok: false, error: { kind: "not-found", status: 404, message: "Witness witness-9 not found" } } as never);
+
+      await expect(removeWitness("other-case", "witness-9", CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 });
