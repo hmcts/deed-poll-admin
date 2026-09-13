@@ -163,7 +163,25 @@ and `rerender`. Handle the `action=delete` POST. In `witness-edit.njk`, wrap onl
 - e2e: extend the plan 05 journey — an Administrator deletes a witness and it leaves the detail page; a
   caseworker on the same page **is not offered the button**
 
-- [ ] Policy, page (both render paths), service and e2e cases present
+- [x] Policy, page (both render paths), service and e2e cases present
+
+      The policy pair landed in task 1 and the four `removeWitness` service cases in task 2, so this task
+      added the page's thirteen and the e2e pair. Both re-render assertions are there — `canDelete` false for
+      a caseworker and **true** for an administrator after a rejected save, because a `rerender` that
+      hard-coded `false` would pass the first on its own. The forged `action=delete` from a roleless session
+      asserts the service **is** called and no `403` is set: the handler is deliberately ungated and api owns
+      the refusal, so a test demanding a local refusal would pin the opposite of decision 5.
+
+      Two e2e changes, not one. The plan 05 journey asserted `Delete` was **absent** for an administrator —
+      correct while api published no `DELETE`, and a false claim now — so it now asserts the button is
+      visible, deletes through it, and finds the tab back at "None recorded.", which is also the open
+      question's answer in passing: the case's only witness may go. That made the test's name wrong too
+      (`caseworker adds a witness…` under the admin fixture, the exact mistake the notes journey's docblock
+      records), so it is now `administrator adds a witness, amends it, and deletes it`, and the file docblock
+      no longer calls the witness journey role-agnostic. The new roleless test is the 22nd, as predicted.
+
+      Totals after this task: lint exit 0 with the two known warnings, **1,361** tests across 8 of 8
+      (baseline 1,339), build 8 of 8.
 
 ### Task 5: Full validation
 

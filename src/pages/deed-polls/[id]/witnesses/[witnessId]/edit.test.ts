@@ -1,4 +1,4 @@
-import { findDeedPoll, findWitness, InvalidInputError, NotFoundError, updateWitness } from "@hmcts/deed-poll";
+import { findDeedPoll, findWitness, InvalidInputError, NotFoundError, removeWitness, updateWitness } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../../express-doubles.js";
@@ -8,7 +8,8 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
   findDeedPoll: vi.fn(),
   findWitness: vi.fn(),
-  updateWitness: vi.fn()
+  updateWitness: vi.fn(),
+  removeWitness: vi.fn()
 }));
 
 const found = { id: "case-1", displayReference: "KBDP2026-00001", notes: [], witnesses: [], documents: [] };
@@ -33,8 +34,8 @@ const SUBMITTED = {
   declarant: "false"
 };
 
-function request(body: Record<string, unknown> = {}): Request {
-  return pageRequest({ params: PARAMS, body, accessToken: "session-token" });
+function request(body: Record<string, unknown> = {}, { admin = false } = {}): Request {
+  return pageRequest({ params: PARAMS, body, admin, accessToken: "session-token" });
 }
 
 const response = pageResponse;
@@ -46,6 +47,7 @@ describe("amend a witness page", () => {
     vi.mocked(findDeedPoll).mockResolvedValue(found as never);
     vi.mocked(findWitness).mockResolvedValue(stored as never);
     vi.mocked(updateWitness).mockResolvedValue(stored as never);
+    vi.mocked(removeWitness).mockResolvedValue(undefined);
   });
 
   describe("GET", () => {
@@ -84,6 +86,32 @@ describe("amend a witness page", () => {
       vi.mocked(findWitness).mockRejectedValue(new NotFoundError("Witness witness-9 not found"));
 
       await expect(GET(request(), response())).rejects.toThrow(NotFoundError);
+    });
+
+    it("should offer the delete button to an administrator", async () => {
+      const res = response();
+
+      await GET(request({}, { admin: true }), res);
+
+      expect(res.render.mock.calls[0][1].canDelete).toBe(true);
+    });
+
+    it("should not offer the delete button to a caseworker with no admin role", async () => {
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].canDelete).toBe(false);
+    });
+
+    it("should still offer a caseworker the amend form, because the business splits amend from delete", async () => {
+      // The tidy-minded mistake is to gate the whole form on the same flag. The stored values are what
+      // would go with it.
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].values.witnessName).toBe("Sam Doe");
     });
   });
 
@@ -169,6 +197,78 @@ describe("amend a witness page", () => {
       vi.mocked(updateWitness).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): deed-poll-api could not be reached"));
 
       await expect(POST(request(SUBMITTED), response())).rejects.toThrow(/unavailable/);
+    });
+
+    it("should delete the witness and redirect to the witnesses tab", async () => {
+      // As an administrator, since they are the only role offered the button.
+      const res = response();
+
+      await POST(request({ ...SUBMITTED, action: "delete" }, { admin: true }), res);
+
+      expect(removeWitness).toHaveBeenCalledWith("case-1", "witness-1", CALLER);
+      expect(updateWitness).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1#witnesses");
+    });
+
+    it("should delete a witness whose fields would fail validation, because delete is checked before them", async () => {
+      // The reason the branch is first: the four fields are irrelevant to a row about to disappear, so an
+      // over-long name must not be able to block the deletion.
+      const res = response();
+
+      await POST(request({ ...SUBMITTED, witnessName: "n".repeat(101), action: "delete" }, { admin: true }), res);
+
+      expect(removeWitness).toHaveBeenCalledWith("case-1", "witness-1", CALLER);
+      expect(res.status).not.toHaveBeenCalledWith(400);
+    });
+
+    it("should save when no action was submitted, so a missing value is never destructive", async () => {
+      await POST(request(SUBMITTED), response());
+
+      expect(updateWitness).toHaveBeenCalled();
+      expect(removeWitness).not.toHaveBeenCalled();
+    });
+
+    it("should not delete for an action other than the literal delete", async () => {
+      await POST(request({ ...SUBMITTED, action: "Delete" }), response());
+
+      expect(removeWitness).not.toHaveBeenCalled();
+      expect(updateWitness).toHaveBeenCalled();
+    });
+
+    it("should 404 a delete of a witness belonging to another case rather than reporting success", async () => {
+      vi.mocked(removeWitness).mockRejectedValue(new NotFoundError("Witness witness-9 not found"));
+
+      await expect(POST(request({ action: "delete" }, { admin: true }), response())).rejects.toThrow(NotFoundError);
+    });
+
+    it("should leave a caseworker's forged delete to api rather than refusing it here", async () => {
+      // Deliberate: with the button hidden, reaching this branch takes a hand-crafted request, and api
+      // enforces the rule in its domain. A local refusal as well would put the authority in two places.
+      const res = response();
+
+      await POST(request({ ...SUBMITTED, action: "delete" }), res);
+
+      expect(removeWitness).toHaveBeenCalledWith("case-1", "witness-1", CALLER);
+      expect(res.status).not.toHaveBeenCalledWith(403);
+    });
+
+    it("should keep the delete button hidden from a caseworker when a rejected save re-renders the form", async () => {
+      // The path a caseworker reaches by submitting an over-long field. A flag read only in `GET` puts the
+      // button back here, and nothing else in this suite would notice.
+      const res = response();
+
+      await POST(request({ ...SUBMITTED, witnessName: "n".repeat(101) }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].canDelete).toBe(false);
+    });
+
+    it("should keep the delete button on an administrator's rejected save, so the re-render reads the session and does not hard-code false", async () => {
+      const res = response();
+
+      await POST(request({ ...SUBMITTED, witnessName: "n".repeat(101) }, { admin: true }), res);
+
+      expect(res.render.mock.calls[0][1].canDelete).toBe(true);
     });
   });
 });
