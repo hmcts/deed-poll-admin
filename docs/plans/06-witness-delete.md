@@ -185,11 +185,19 @@ and `rerender`. Handle the `action=delete` POST. In `witness-edit.njk`, wrap onl
 
 ### Task 5: Full validation
 
-- [ ] `yarn lint` — exits 0, still only the two pre-existing warnings and the schema notice
-- [ ] `yarn turbo test test:app --concurrency=1` — 8 of 8, total above **1,339** (master at `8034540`, verified
+- [x] `yarn lint` — exits 0, still only the two pre-existing warnings and the schema notice
+
+      Exit 0. The two warnings are `src/server.ts:3` (`PORT`) and `src/session-store.test.ts:32` (`REDIS_URL`),
+      both `noUndeclaredEnvVars`, plus the two `biome migrate` infos. 273 files checked, no fixes applied.
+- [x] `yarn turbo test test:app --concurrency=1` — 8 of 8, total above **1,339** (master at `8034540`, verified
       2026-09-13). Compare totals, not passed counts — see the note above about skips
-- [ ] `yarn build` — 8 of 8
-- [ ] **e2e actually run, not just written.** From cold, and steps 4 and 5 are what make the difference between a
+
+      8 of 8, **1,361 total** against the 1,339 baseline — the 22 this plan added. 0 skipped this run, because
+      Redis was reachable; per the note above that is the same health as 1,358/3. Per package: app 401,
+      deed-poll 465, api-client 157, cloud-native-platform 140, govuk-starter 127, simple-router 41,
+      session-postgres 23, session-redis 7.
+- [x] `yarn build` — 8 of 8
+- [x] **e2e actually run, not just written.** From cold, and steps 4 and 5 are what make the difference between a
       real result and an afternoon spent chasing a phantom:
       1. `docker compose up -d` (redis 6379, IDAM simulator 5556 — a JVM; `curl 127.0.0.1:5556/health` → 200)
       2. **`yarn idam:users`** — a fresh simulator has an empty user store. Miss this and the journey parks on the
@@ -208,11 +216,33 @@ and `rerender`. Handle the `action=delete` POST. In `witness-edit.njk`, wrap onl
       6. `REDIS_URL=redis://127.0.0.1:6379 yarn test:e2e --workers=1` — `127.0.0.1`, never `localhost` (`::1` vs
          Docker's IPv4)
       **Baseline 21 passed** at `8034540`. This plan should make it 22.
-- [ ] `git grep -n 'isAdmin' -- 'src/pages/deed-polls/\[id\]/witnesses'` returns **nothing** — decision 1 working.
+
+      **Run, not merely written: 22 passed in 1.2m**, up from the 21 baseline. The 22nd is
+      `without the admin role › caseworker may amend a witness but is not offered the delete button`, and the
+      renamed `administrator adds a witness, amends it, and deletes it` passed in 6.8s. The recipe held, with
+      two corrections worth having:
+
+      - **Step 4 pre-warms only the app, and the app is not ready without the mock.** `yarn dev:nowatch:web`
+        does not start `yarn mock:api` — only `dev:nowatch` does, via `&` — so after the pre-warm `/health`
+        answers **503** (`deed-poll-api readiness check failed (unavailable)`), which reads as a broken build.
+        It is not: Playwright's *first* `webServer` entry is the mock and it would have started it. Start
+        `yarn mock:api` alongside the pre-warm and `/health` goes 200. Bind took ~48s, inside the 40–75s the
+        plan predicted, and the Key Vault `ENOTFOUND deed-poll-aat.vault.azure.net` warning is that timeout.
+      - **`--workers=1` is necessary and was not sufficient on the first run.** It went `19 passed, 3 failed`:
+        the two older journeys and the witness one, on a 30s timeout, a missing `getByRole("alert")` and an
+        `AxeBuilder.analyze` that never returned. Each then passed **alone** in 6–10s, and the next full
+        serial run passed all 22 in 1.2m. So the contention the plan describes survives into the first run
+        after a pre-warm build; **a red first run is not evidence of a regression — re-run before reading
+        anything into it**, which is the same rule the plan already states for parallel runs.
+- [x] `git grep -n 'isAdmin' -- 'src/pages/deed-polls/\[id\]/witnesses'` returns **nothing** — decision 1 working.
       The check that should find something is `git grep -n 'canDelete' -- src/pages/`, which must show the two
       render sites plus the template guard. **Use the `canDelete` form**; plan 04's task 5 wrote the `isAdmin`
       form before the rule had a name, and it now reads as a regression when it is the opposite
-- [ ] Mark completed
+
+      `isAdmin` returns nothing over the witness pages. `canDelete` shows exactly the three expected sites —
+      `edit.ts:95`, `edit.ts:174` and `witness-edit.njk:79` — plus the four `edit.test.ts` assertions that
+      pin both render paths, and the notes equivalents it was modelled on.
+- [x] Mark completed
 
 ## Deliberately not in this plan
 
