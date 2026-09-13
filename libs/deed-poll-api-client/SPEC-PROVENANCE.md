@@ -6,10 +6,10 @@ one of them rather than licence to invent.
 
 | | |
 |---|---|
-| **api commit** | `847933a3709862288ed5f8c8050d5adbf0bbea0c` — "Expose the note delete as the thirteenth caseworker operation (#4)", 2026-09-08 |
-| **Taken on** | 2026-09-09 |
+| **api commit** | `ee5cc86b004dbceaa29517d5204b34119f176824` — "Expose witness create and edit on the caseworker surface (#8)", 2026-09-12 |
+| **Taken on** | 2026-09-12 |
 | **How** | `GET /v3/api-docs`, as api's `OpenAPIPublisherTest` captures it for the `hmcts/cnp-api-docs` publish workflow. Reformatted (2-space JSON) and otherwise unmodified. |
-| **Operations** | 13 caseworker operations plus Spring Boot's `GET /`. The thirteenth is `DELETE /caseworker/cases/{id}/notes/{noteId}`, the prerequisite this plan needed, which merged in the commit above. |
+| **Operations** | 17 caseworker operations plus Spring Boot's `GET /`. The four newest are the witness routes — list, add, read and amend — which merged in the commit above and are what task 2 of `docs/plans/05-witness-create-and-edit.md` needed. There is deliberately **no** `DELETE` on a witness: it carries an Administrator gate and is api's own change. |
 
 ## Refreshing it
 

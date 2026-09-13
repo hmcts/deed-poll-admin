@@ -44,6 +44,10 @@ const IMPLEMENTED_OPERATIONS = [
   "GET /caseworker/cases/{id}/notes/{noteId}",
   "PATCH /caseworker/cases/{id}/notes/{noteId}",
   "DELETE /caseworker/cases/{id}/notes/{noteId}",
+  "GET /caseworker/cases/{id}/witnesses",
+  "POST /caseworker/cases/{id}/witnesses",
+  "GET /caseworker/cases/{id}/witnesses/{witnessId}",
+  "PATCH /caseworker/cases/{id}/witnesses/{witnessId}",
   "POST /caseworker/cases/{id}/documents",
   "GET /caseworker/cases/{id}/documents/{documentId}/file",
   "GET /caseworker/document-types"
@@ -115,7 +119,7 @@ describe("openapi.json and the wire schemas", () => {
   it("should pin strictness for every response schema", () => {
     // A schema added to the registry with no strictness decision would otherwise inherit whatever its
     // author happened to write, which is the drift this list exists to stop.
-    const requests = ["CreateCaseRequest", "UpdateCaseRequest", "CreateNoteRequest", "UpdateNoteRequest"];
+    const requests = ["CreateCaseRequest", "UpdateCaseRequest", "CreateNoteRequest", "UpdateNoteRequest", "CreateWitnessRequest", "UpdateWitnessRequest"];
     const responses = Object.keys(WIRE_SCHEMAS).filter((name) => !requests.includes(name));
 
     expect(responses.sort()).toEqual(Object.keys(STRICT_RESPONSE_PROPERTIES).sort());
@@ -130,6 +134,39 @@ describe("openapi.json and the wire schemas", () => {
     expect(note?.minLength).toBe(1);
     expect(WIRE_SCHEMAS.CreateNoteRequest.safeParse({ note: "x".repeat(2001) }).success).toBe(false);
     expect(WIRE_SCHEMAS.CreateNoteRequest.safeParse({ note: "" }).success).toBe(false);
+  });
+
+  it("should agree with the spec on the witness length limits", () => {
+    // The three caps are the source columns' widths, published by api and enforced here so a caseworker
+    // gets a message against the field rather than a 400.
+    const witness = { witnessName: "A Witness", witnessAddress: "1 Road", witnessOccupation: "Baker", declarant: false };
+
+    for (const [field, maxLength] of [
+      ["witnessName", 100],
+      ["witnessAddress", 250],
+      ["witnessOccupation", 100]
+    ] as const) {
+      expect(spec.components.schemas.CreateWitnessRequest.properties?.[field]?.maxLength, field).toBe(maxLength);
+      expect(WIRE_SCHEMAS.CreateWitnessRequest.safeParse({ ...witness, [field]: "x".repeat(maxLength) }).success, field).toBe(true);
+      expect(WIRE_SCHEMAS.CreateWitnessRequest.safeParse({ ...witness, [field]: "x".repeat(maxLength + 1) }).success, field).toBe(false);
+    }
+  });
+
+  it("should require every witness field on a create and none on a patch", () => {
+    // `createWitnessSchema.partial()` at both ends: all four NOT NULL columns are required to add a
+    // witness, and an empty patch is a body api accepts.
+    expect([...(spec.components.schemas.CreateWitnessRequest.required ?? [])].sort()).toEqual([
+      "declarant",
+      "witnessAddress",
+      "witnessName",
+      "witnessOccupation"
+    ]);
+    expect(spec.components.schemas.UpdateWitnessRequest.required).toBeUndefined();
+    expect(WIRE_SCHEMAS.CreateWitnessRequest.safeParse({ witnessName: "A", witnessAddress: "1 Road", witnessOccupation: "Baker" }).success).toBe(false);
+    expect(WIRE_SCHEMAS.UpdateWitnessRequest.safeParse({}).success).toBe(true);
+    // A truthy string, refused rather than coerced: `"false"` is truthy, and a declarant recorded as an
+    // ordinary witness changes what the case means.
+    expect(WIRE_SCHEMAS.UpdateWitnessRequest.safeParse({ declarant: "false" }).success).toBe(false);
   });
 
   it("should not accept a reference number or an audit column on a write", () => {

@@ -360,6 +360,27 @@ const updateNoteSchema = z.object({
   note: z.string().min(1).max(2000).optional()
 });
 
+/**
+ * A witness write.
+ *
+ * All four fields required, and the caps are the source columns' — 100 / 250 / 100, as api's
+ * `WitnessSchemas` declares them and the spec publishes them. No minimum length and no trim, both
+ * deliberately: api accepts `""` and stores what it was given, so a schema tightening either here would
+ * refuse a body api accepts and the two ends would disagree about what a witness is.
+ *
+ * `declarant` is a boolean and not a coerced string, which is api's own emphasis — `"false"` is truthy in
+ * JavaScript, so a declarant coerced from a string can silently become an ordinary witness.
+ */
+const createWitnessSchema = z.object({
+  witnessName: z.string().max(100),
+  witnessAddress: z.string().max(250),
+  witnessOccupation: z.string().max(100),
+  declarant: z.boolean()
+});
+
+/** `createWitnessSchema.partial()`, as api's patch body is: an omitted field is left as stored. */
+const updateWitnessSchema = createWitnessSchema.partial();
+
 /** api's failure body. `errors` is omitted rather than empty when there are none (`@JsonInclude`). */
 const apiErrorSchema = z.object({
   error: z.string(),
@@ -385,6 +406,8 @@ export const WIRE_SCHEMAS = {
   CreateNoteRequest: createNoteSchema,
   UpdateNoteRequest: updateNoteSchema,
   NoteResponse: noteSchema,
+  CreateWitnessRequest: createWitnessSchema,
+  UpdateWitnessRequest: updateWitnessSchema,
   WitnessResponse: witnessSchema,
   DocumentResponse: documentSchema,
   DocumentTypeResponse: documentTypeSchema,
@@ -449,6 +472,8 @@ export type WireCaseList = z.infer<typeof caseListSchema>;
 export type WireCaseWrite = z.input<typeof caseWriteSchema>;
 export type WireNote = z.infer<typeof noteSchema>;
 export type WireWitness = z.infer<typeof witnessSchema>;
+export type WireWitnessCreate = z.infer<typeof createWitnessSchema>;
+export type WireWitnessUpdate = z.infer<typeof updateWitnessSchema>;
 export type WireDocument = z.infer<typeof documentSchema>;
 export type WireDocumentType = z.infer<typeof documentTypeSchema>;
 export type WireFieldRules = z.infer<typeof fieldRulesSchema>;

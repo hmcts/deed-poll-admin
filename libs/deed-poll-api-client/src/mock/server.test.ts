@@ -115,8 +115,8 @@ describe("POST /__mock/cases", () => {
 
     expect(read.notes).toHaveLength(1);
     expect(read.witnesses[0].witnessName).toBe("Ada Lovelace");
-    // Witnesses are read-only through the contract — api has no witness writes — so seeding is the only
-    // way a page under test gets one.
+    // Seeded rather than posted, which is the point of `seed`: a page that renders a witness gets one
+    // without driving the create route first. The route exists now — see "the witness routes" below.
     expect(read.witnesses[0].declarant).toBe(true);
   });
 
@@ -253,6 +253,32 @@ describe("the cross-field date rules", () => {
     const response = await post("/caseworker/cases", { dateReceived: "2026-03-10", signatureReceivedDate: "2026-03-01" });
 
     expect(response.status).toBe(201);
+  });
+});
+
+describe("the witness routes", () => {
+  const WITNESS = { witnessName: "Alex Witness", witnessAddress: "1 Test Road", witnessOccupation: "Baker", declarant: false };
+
+  it("should refuse a declarant sent as a string rather than coercing it", async () => {
+    // Here rather than in `client.test.ts` because the adapter's types make it unreachable through
+    // `createWitness`: `"false"` is truthy in JavaScript, so a coerced declarant would silently be stored
+    // as an ordinary witness, and api refuses the string for exactly that reason.
+    const seeded = mock.seed(null);
+
+    const response = await post(`/caseworker/cases/${seeded.id}/witnesses`, { ...WITNESS, declarant: "true" });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].field).toBe("declarant");
+  });
+
+  it("should not delete a witness, because api has no delete until the Administrator gate lands", async () => {
+    const seeded = mock.seed(null);
+    const created = await (await post(`/caseworker/cases/${seeded.id}/witnesses`, WITNESS)).json();
+
+    const response = await fetch(`${mock.url}/caseworker/cases/${seeded.id}/witnesses/${created.id}`, { method: "DELETE" });
+
+    expect(response.status).toBe(405);
+    expect((await get(`/caseworker/cases/${seeded.id}/witnesses`)).length).toBe(1);
   });
 });
 

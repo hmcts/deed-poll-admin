@@ -8,7 +8,8 @@
  * **Where a rule differs by role, the test name says which role it signs in as.** The notes journey runs as
  * `admin@example.com`, the only fixture holding `caseworker-deedpoll-admin`, and says so — deleting a note
  * is an administrator's to do. The last test runs as the roleless fixture, because a rule that hides a
- * control has no negative case without one. The create-and-edit journey is role-agnostic and says nothing.
+ * control has no negative case without one. The create-and-edit and witness journeys are role-agnostic and
+ * say nothing: both roles may add and amend a witness, and api gates neither write.
  *
  * These journeys need a signed-in user — `requireAuth` is global — which the `setup` project provides.
  * See ./idam-session.ts for why the session is obtained from the real local IDAM rather than fabricated.
@@ -176,6 +177,97 @@ test("administrator adds, amends and deletes a note", async ({ page }) => {
 });
 
 /**
+ * The witnesses journey — add, then amend, then see it on the case.
+ *
+ * **Role-agnostic, so the name says nothing about one.** Both roles have "Add and edit witnesses" in the
+ * business capability matrix and api gates neither write, so there is no negative case to pair this with —
+ * unlike the note tests above, where the delete rule needs both halves. It runs under this file's
+ * administrator only because that is the file's default fixture.
+ *
+ * No Welsh check: the detail page's labels and both witness forms are inline English, as every label on
+ * that page is. That gap is page-wide and pre-existing, not this journey's — see the open questions in
+ * `docs/plans/05-witness-create-and-edit.md`.
+ */
+test("caseworker adds a witness, amends it, and sees it on the case", async ({ page }) => {
+  // Arrange: a case to hang a witness off. Driven, not asserted — the create journey is the first test.
+  await page.goto("/deed-polls/new");
+  await fillNewCaseForm(page, { forename: "Rae", surname: "Okonjo" });
+  await page.getByRole("button", { name: "Create case" }).click();
+  await expect(page).toHaveURL(CASE_URL);
+  const caseUrl = page.url();
+  const witnesses = page.locator("#witnesses");
+
+  // The empty tab is the whole reason the Add button sits outside the `case.witnesses.length` check: a case
+  // with no witnesses is exactly when one is needed, and before this journey existed the tab rendered
+  // "None recorded." with no way out of it at all.
+  await page.getByRole("tab", { name: "Witnesses" }).click();
+  await expect(witnesses).toContainText("None recorded.");
+  await page.getByRole("button", { name: "Add a witness" }).click();
+  await expect(page).toHaveURL(`${caseUrl}/witnesses/new`);
+
+  // Declarant left alone, which is the failure a checkbox could not have produced: an unchecked box posts
+  // nothing and would have recorded "ordinary witness" silently. Two radios make the unanswered question
+  // visible, so it has to be asserted here that it *is* refused rather than defaulted.
+  await page.getByLabel("Name").fill("Ada Lovelace");
+  await page.getByLabel("Address").fill("1 High Street, London");
+  await page.getByLabel("Occupation").fill("Mathematician");
+  await page.getByRole("button", { name: "Add witness" }).click();
+  await expect(page.getByRole("alert")).toContainText("Select yes if this person is the declarant");
+  await expect(page.getByLabel("Name")).toHaveValue("Ada Lovelace");
+  await expectNoAccessibilityViolations(page);
+
+  // Over the address limit: 250 characters is the longest thing this form asks for, so it is the field
+  // where re-rendering rather than redirecting matters most. The message names the cap read off the schema.
+  const tooLong = "x".repeat(251);
+  await page.getByLabel("Address").fill(tooLong);
+  await page.getByLabel("Yes").check();
+  await page.getByRole("button", { name: "Add witness" }).click();
+  await expect(page.getByRole("alert")).toContainText("Address must be 250 characters or fewer");
+  await expect(page.getByLabel("Address")).toHaveValue(tooLong);
+  // The radio survives the re-render too — a witness whose declarant answer was silently forgotten on the
+  // way back would be answered again from scratch, and the second answer can differ from the first.
+  await expect(page.getByLabel("Yes")).toBeChecked();
+
+  await page.getByLabel("Address").fill("1 High Street, London");
+  await page.getByRole("button", { name: "Add witness" }).click();
+
+  await expect(page).toHaveURL(`${caseUrl}#witnesses`);
+  await expect(witnesses).toContainText("Ada Lovelace");
+  await expect(witnesses).toContainText("1 High Street, London");
+  await expect(witnesses).toContainText("Mathematician");
+  // The tag, which only renders for a declarant — so it is `toHaveCount(0)` after the amend below that
+  // proves it is driven by the stored answer and not by a witness merely existing.
+  await expect(witnesses.locator(".govuk-tag")).toHaveText("Declarant");
+  await expect(declarantRow(witnesses)).toContainText("Yes");
+  await expectNoAccessibilityViolations(page);
+
+  // The name is the row's handle and carries the link, with the hint as visually hidden text so the link
+  // reads meaningfully out of context. A nameless witness falls back to a placeholder, which the page tests
+  // cover — this journey has a name.
+  await page.getByRole("link", { name: /amend this witness/ }).click();
+  await expect(page).toHaveURL(/\/witnesses\/[0-9a-f-]{36}\/edit$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Amend witness");
+  await expect(page.getByLabel("Occupation")).toHaveValue("Mathematician");
+  await expect(page.getByLabel("Yes")).toBeChecked();
+  // Absent from the markup, not merely hidden: api publishes no `DELETE` for a witness, so a delete
+  // control here could only fail. Deletion arrives with the Administrator gate that goes with it.
+  await expect(page.getByRole("button", { name: /Delete/ })).toHaveCount(0);
+  await expectNoAccessibilityViolations(page);
+
+  await page.getByLabel("Occupation").fill("Countess");
+  await page.getByLabel("No").check();
+  await page.getByRole("button", { name: "Save witness" }).click();
+
+  await expect(page).toHaveURL(`${caseUrl}#witnesses`);
+  await expect(witnesses).toContainText("Countess");
+  await expect(witnesses).not.toContainText("Mathematician");
+  // Declarant is a row as well as a tag precisely so this reads "No" rather than saying nothing: the tag's
+  // absence alone could not distinguish an answer of no from an answer nobody gave.
+  await expect(witnesses.locator(".govuk-tag")).toHaveCount(0);
+  await expect(declarantRow(witnesses)).toContainText("No");
+});
+
+/**
  * Its own session, so `storageState` can be the roleless fixture rather than this file's administrator.
  * A `describe` is the only place Playwright honours a second `test.use` in one file.
  */
@@ -274,6 +366,15 @@ async function fillDate(group: Locator, date: { day: string; month: string; year
   await group.getByLabel("Day").fill(date.day);
   await group.getByLabel("Month").fill(date.month);
   await group.getByLabel("Year").fill(date.year);
+}
+
+/**
+ * A witness's Declarant row, addressed by the row rather than by the value: "Yes" and "No" appear all over
+ * a case page, so an unscoped text match would pass against any of them. Located by class because a
+ * `govukSummaryList` row has no accessible name to address it by — the same reason `caseHeader` does.
+ */
+function declarantRow(witnesses: Locator): Locator {
+  return witnesses.locator(".govuk-summary-list__row", { hasText: "Declarant" });
 }
 
 /**

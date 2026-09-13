@@ -26,7 +26,9 @@ import {
   type WireDocumentType,
   type WireFieldRules,
   type WireNote,
-  type WireSavedCase
+  type WireSavedCase,
+  type WireWitnessCreate,
+  type WireWitnessUpdate
 } from "./wire.js";
 
 /**
@@ -170,6 +172,43 @@ export function deleteNote(caseId: string, noteId: string, config: ApiConfig): P
 }
 
 /**
+ * A case's witnesses, oldest first — the order the detail page's subgrid renders them in.
+ *
+ * A witness list is also carried inside `GET /caseworker/cases/{id}`, so a page that already holds the
+ * case has no reason to call this. It exists because api serves it and the contract test is exhaustive
+ * over api's surface: an operation api publishes with no function here is drift, not economy.
+ */
+export function listWitnesses(caseId: string, config: ApiConfig): Promise<ApiResult<Witness[]>> {
+  return request(config, "GET", `/caseworker/cases/${encodeURIComponent(caseId)}/witnesses`, WIRE_SCHEMAS.WitnessResponse.array());
+}
+
+/** One witness of one case. A witness id under the wrong case is api's 404, not a check made here. */
+export function getWitness(caseId: string, witnessId: string, config: ApiConfig): Promise<ApiResult<Witness>> {
+  return request(config, "GET", witnessPath(caseId, witnessId), WIRE_SCHEMAS.WitnessResponse);
+}
+
+/**
+ * Add a witness. All four fields are required, and neither write is role-gated at api's end.
+ *
+ * No author parameter, and not for the reason a note has none: `deedpoll_witness` has no author columns at
+ * all, only the two timestamps api stamps itself.
+ */
+export function createWitness(caseId: string, witness: WitnessCreate, config: ApiConfig): Promise<ApiResult<Witness>> {
+  return request(config, "POST", `/caseworker/cases/${encodeURIComponent(caseId)}/witnesses`, WIRE_SCHEMAS.WitnessResponse, witness);
+}
+
+/**
+ * Amend a witness.
+ *
+ * Only the fields the patch names are written; an omitted one is left as stored, and an empty patch is
+ * accepted — it re-stamps `modifiedOn`. A field sent as null is api's 400 rather than a clear, because
+ * none of the four columns is nullable, which is why the patch type has no null in it to send.
+ */
+export function updateWitness(caseId: string, witnessId: string, patch: WitnessPatch, config: ApiConfig): Promise<ApiResult<Witness>> {
+  return request(config, "PATCH", witnessPath(caseId, witnessId), WIRE_SCHEMAS.WitnessResponse, patch);
+}
+
+/**
  * Upload one supporting document.
  *
  * Multipart, because that is what api's endpoint consumes. The bytes are not stored here — this app has
@@ -258,6 +297,10 @@ export async function checkApiReachable(config: ApiConfig): Promise<ApiResult<vo
 
 function notePath(caseId: string, noteId: string): string {
   return `/caseworker/cases/${encodeURIComponent(caseId)}/notes/${encodeURIComponent(noteId)}`;
+}
+
+function witnessPath(caseId: string, witnessId: string): string {
+  return `/caseworker/cases/${encodeURIComponent(caseId)}/witnesses/${encodeURIComponent(witnessId)}`;
 }
 
 /**
@@ -538,6 +581,8 @@ export type CaseSummary = WireCaseList["cases"][number];
 export type CaseList = WireCaseList;
 export type Note = WireNote;
 export type Witness = WireCaseDetail["witnesses"][number];
+export type WitnessCreate = WireWitnessCreate;
+export type WitnessPatch = WireWitnessUpdate;
 export type Document = WireDocument;
 export type DocumentType = WireDocumentType;
 export type FieldRules = WireFieldRules["rules"];

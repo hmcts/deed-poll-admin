@@ -119,21 +119,39 @@
         {# Outside the count check: a case with no notes is exactly when you need this. #}
         {{ govukButton({ text: addNote, href: "/deed-polls/" + case.id + "/notes/new", classes: "govuk-button--secondary" }) }}
 
+      {#
+        Witnesses grid. Unlike notes and documents these come off the case itself — one call to api
+        already carries them — so there is no view model, and `w` is the wire record.
+      #}
       {% elif tab.subgrid == "witnesses" %}
         {% if case.witnesses.length %}
           {% for w in case.witnesses %}
+            {#
+              The name is the row's handle, so it carries the link into the amend page, the same shape as
+              a note's code cell above: the href holds the uuid, and a hidden suffix keeps the link text
+              meaningful out of context. A nameless witness falls back to the placeholder rather than
+              rendering an anchor with nothing in it to click.
+            #}
             <h3 class="govuk-heading-s">
-              {{ w.witnessName }}
+              <a class="govuk-link" href="/deed-polls/{{ case.id }}/witnesses/{{ w.id }}/edit">{{ w.witnessName or unnamedWitness }}<span class="govuk-visually-hidden"> — {{ amendWitnessHint }}</span></a>
               {% if w.declarant %}{{ govukTag({ text: declarantTag, classes: "govuk-tag--blue" }) }}{% endif %}
             </h3>
+            {#
+              Declarant is a row as well as the tag. The tag only appears when true, so its absence cannot
+              say whether the answer is no or whether anyone recorded one — and `declarant` is a non-null
+              boolean on the wire, so there is always one of the two to state.
+            #}
             {{ govukSummaryList({ rows: [
               { key: { text: witnessAddress }, value: { text: w.witnessAddress } },
-              { key: { text: witnessOccupation }, value: { text: w.witnessOccupation } }
+              { key: { text: witnessOccupation }, value: { text: w.witnessOccupation } },
+              { key: { text: witnessDeclarant }, value: { text: yes if w.declarant else no } }
             ] }) }}
           {% endfor %}
         {% else %}
           <p class="govuk-body">{{ noneRecorded }}</p>
         {% endif %}
+        {# Outside the count check, as the notes button is: a case with no witnesses is when you need it. #}
+        {{ govukButton({ text: addWitness, href: "/deed-polls/" + case.id + "/witnesses/new", classes: "govuk-button--secondary" }) }}
 
       {% elif tab.subgrid == "documents" %}
         {% if documents.length %}
