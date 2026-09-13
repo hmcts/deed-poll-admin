@@ -6,24 +6,31 @@ Adds a delete control to the witness amend page, **shown only to Administrators*
 
 The business document puts "Delete witnesses" at **✗ for Basic User, ✓ for Administrator** — the same split as
 notes. This repo has already solved that exact problem once, so this plan is mostly "do what plan 04 did":
-[`completed/04-hide-note-delete-from-caseworkers.md`](completed/04-hide-note-delete-from-caseworkers.md).
+`docs/plans/completed/04-hide-note-delete-from-caseworkers.md`.
 
-### Sequencing — two hard dependencies
+### Sequencing — both gates are released
 
-1. **`deed-poll-api/docs/plans/witness-delete.md` merged.** That plan adds the route *and* the role gate. Until
-   then there is nothing to call.
-2. **[`05-witness-create-and-edit.md`](05-witness-create-and-edit.md) merged.** This plan adds a button to the
-   amend page that plan creates, and a service function beside the writes it adds.
+1. **`deed-poll-api#9` merged 2026-09-13** (`051f3b4`). `DELETE /caseworker/cases/{id}/witnesses/{witnessId}` now
+   exists, returns `204 No Content`, and **refuses a non-Administrator in the domain** — `WitnessService.removeWitness`
+   calls `requireAnyRole(DEEDPOLL_ADMIN)` before it resolves the witness, so a forged request gets a 403 whether or
+   not the witness exists.
+2. **`docs/plans/completed/05-witness-create-and-edit.md` merged** as `deed-poll-admin#95`
+   (`8034540`). It created `src/pages/deed-polls/[id]/witnesses/[witnessId]/edit.ts` and `witness-edit.njk`, which
+   this plan adds a control to, and the service writes this plan adds `removeWitness` beside.
 
-Running this in parallel with plan 05 means both editing the same new files.
+**This is the last of the four witness plans.** Nothing follows it.
 
 ### The order that matters
 
-**Server-side enforcement goes first, and it already will have.** Plan 04 recorded that hiding a control is a
-courtesy and the api's refusal is the rule; api's `witness-delete.md` gates
-`WitnessService.removeWitness` in the domain, so by the time this plan runs, a Basic User who forges the request
-gets a 403 regardless of what the page renders. **This plan is therefore about not offering an action that would
-be refused** — not about security.
+**Server-side enforcement is already in place, so this plan is not a security change.** Plan 04 recorded that
+hiding a control is a courtesy and api's refusal is the rule. That refusal exists: `#9` gates
+`WitnessService.removeWitness` in the *domain* rather than on the route, so a Basic User who forges the request
+gets a 403 regardless of what this page renders — and would still get one from a future caller that is not this
+app at all.
+
+**This plan is therefore about not offering an action that would be refused.** If it is skipped, nothing is
+insecure; a caseworker is just shown a button that 403s. That is the whole of the risk, and it is worth being
+clear about so the work is not justified on grounds it does not have.
 
 ## Decisions taken — implement these, do not revisit
 
@@ -74,9 +81,13 @@ yarn turbo test test:app --concurrency=1
 yarn build
 ```
 
-**Never bare `yarn test`** — it reports success having run nothing. Baseline verified green 2026-09-12 at
-`c0c4c1c` (1,281 total: 1,278 passed, 3 skipped); take a fresh count from master before starting, since plan 05
-lands first and will have raised it.
+**Never bare `yarn test`** — it reports success having run nothing. **Baseline verified green on master
+(`8034540`) immediately before hand-over, 2026-09-13: lint exit 0, `1,339` tests across 8 of 8 packages, build 8
+of 8.** That already includes the 58 plan 05 added, so 1,339 is the number to beat.
+
+**The skip count moves with the environment and is not a signal.** The three Redis session tests skip when no
+cache is reachable and pass when one is, so "1,336 passed / 3 skipped" and "1,339 passed / 0 skipped" are both
+healthy. **Compare totals, not passed counts.**
 
 Deliberately **not** here: `yarn test:e2e` and the `git grep` assertions. e2e needs Docker, a seeded IDAM
 simulator and a browser install; the greps are only true once task 1 and 3 are done. Both live in the final task —
@@ -93,10 +104,27 @@ and per the constraint above, **e2e must actually be run there**, not merely wri
 
 ### Task 2: Client and service
 
-Add `removeWitness` to `openapi.json`, `client.ts`, the mock, then a one-line `removeWitness` in
-`libs/deed-poll/src/witnesses/service.ts`.
+**The vendored `openapi.json` does not yet carry the `DELETE`** — as of `8034540` the witness item path has only
+`get` and `patch`, because api#9 landed after plan 05 refreshed it. **Get it from api rather than hand-editing:**
 
-- [ ] `removeWitness` through `openapi.json`, `client.ts`, the mock and the service
+```bash
+cd ../deed-poll-api && TESTCONTAINERS_RYUK_DISABLED=true ./gradlew integration
+cp /tmp/openapi-specs.json libs/deed-poll-api-client/openapi.json   # from this repo's root
+```
+
+`contract.test.ts` pins `client.ts` against that file, so a hand-written path that drifts from what api serves
+gives a green contract test against a fiction. Check the copied file contains `delete` on
+`/caseworker/cases/{id}/witnesses/{witnessId}` before going further, and update `SPEC-PROVENANCE.md` as plan 05
+did.
+
+**The refreshed spec will declare 19 operations, 18 of them `/caseworker/**`** — the nineteenth is `GET /`. api's
+`OpenAPIPublisherTest` asserts the caseworker count, so both numbers are right and neither is a bug.
+
+Then add `removeWitness` to `src/api/client.ts` and the mock, and a one-line `removeWitness` to
+`libs/deed-poll/src/witnesses/service.ts` mirroring `notes/service.ts:66`.
+
+- [ ] Spec refreshed **from api**, `delete` present on the witness item path, `removeWitness` in `client.ts`, the
+      mock and the service, `contract.test.ts` green
 
 ### Task 3: Thread it into the amend page and hide the button
 
@@ -121,18 +149,28 @@ and `rerender`. Handle the `action=delete` POST. In `witness-edit.njk`, wrap onl
 ### Task 5: Full validation
 
 - [ ] `yarn lint` — exits 0, still only the two pre-existing warnings and the schema notice
-- [ ] `yarn turbo test test:app --concurrency=1` — 8 of 8, count above whatever plan 05 left (plan 05 started from
-      **1,281**: 1,278 passed + 3 skipped, verified 2026-09-12 at `c0c4c1c`). **Take the baseline from master
-      immediately before starting**, not from this line
+- [ ] `yarn turbo test test:app --concurrency=1` — 8 of 8, total above **1,339** (master at `8034540`, verified
+      2026-09-13). Compare totals, not passed counts — see the note above about skips
 - [ ] `yarn build` — 8 of 8
-- [ ] **e2e actually run, not just written.** From cold:
+- [ ] **e2e actually run, not just written.** From cold, and steps 4 and 5 are what make the difference between a
+      real result and an afternoon spent chasing a phantom:
       1. `docker compose up -d` (redis 6379, IDAM simulator 5556 — a JVM; `curl 127.0.0.1:5556/health` → 200)
       2. **`yarn idam:users`** — a fresh simulator has an empty user store. Miss this and the journey parks on the
          login page and Playwright reports `toHaveURL` timing out, which reads as a broken login. It seeds
          `admin@example.com` (`caseworker-deedpoll-admin`) and `caseworker@example.com` (no roles) — **both roles
          this plan needs**
       3. `yarn playwright install chromium` if needed — 1.63.0 wants `chromium_headless_shell-1243`
-      4. `REDIS_URL=redis://127.0.0.1:6379 yarn test:e2e` — `127.0.0.1`, never `localhost` (`::1` vs Docker's IPv4)
+      4. **Pre-warm the app**, because Playwright's 120s `webServer` budget is not enough here:
+         `REDIS_URL=redis://127.0.0.1:6379 yarn dev:nowatch:web &`, wait for `:3000` to answer, then run the suite
+         — `reuseExistingServer` adopts it. **The app takes 40–75s just to bind**, nearly all of it the Azure Key
+         Vault DNS lookup timing out, and a blown budget presents as a **dead** webServer rather than a slow one
+      5. **`--workers=1`.** At the default 7 workers this suite is unreliable on this container: `page.goto`
+         timeouts scattered across specs you never touched, plain page loads taking 13–20s. Serially they pass and
+         loads drop to 2–8s. **This is the same starvation that makes bare `yarn test` false-red**, one layer up,
+         so a parallel red run is not evidence of a regression
+      6. `REDIS_URL=redis://127.0.0.1:6379 yarn test:e2e --workers=1` — `127.0.0.1`, never `localhost` (`::1` vs
+         Docker's IPv4)
+      **Baseline 21 passed** at `8034540`. This plan should make it 22.
 - [ ] `git grep -n 'isAdmin' -- 'src/pages/deed-polls/\[id\]/witnesses'` returns **nothing** — decision 1 working.
       The check that should find something is `git grep -n 'canDelete' -- src/pages/`, which must show the two
       render sites plus the template guard. **Use the `canDelete` form**; plan 04's task 5 wrote the `isAdmin`
