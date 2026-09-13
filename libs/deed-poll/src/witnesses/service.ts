@@ -5,8 +5,8 @@
  * under `/caseworker/cases/{id}/witnesses`, so `createWitness` and `updateWitness` are back — as one-line
  * `callApi` calls rather than the Prisma bodies they had before `5dc0d08`. **Neither is role-gated**, at
  * api's end or here: the business capability matrix gives both roles "Add and edit witnesses". The role
- * split is deletion only, and there is **no `DELETE` to call yet** — `removeWitness` stays absent rather
- * than becoming a function that could only fail.
+ * split is deletion only, and `deed-poll-api#9` (`051f3b4`, 2026-09-13) added that `DELETE` — so
+ * `removeWitness` exists now, and is the one witness operation with a role attached to it.
  *
  * **The reads still come off the case, and that is not an oversight.** api publishes
  * `GET …/witnesses` and `GET …/witnesses/{witnessId}`, but one `GET /caseworker/cases/{id}` already
@@ -20,7 +20,7 @@
  * columns at all, so there is nothing for api to stamp from the token — the `Caller` is carried because
  * every call is authenticated, not because a witness records who touched it.
  */
-import { createWitness as apiCreateWitness, updateWitness as apiUpdateWitness, getCase, type Witness } from "@hmcts/deed-poll-api-client";
+import { createWitness as apiCreateWitness, updateWitness as apiUpdateWitness, deleteWitness, getCase, type Witness } from "@hmcts/deed-poll-api-client";
 import { type Caller, callApi } from "../api/deed-poll-api.js";
 import { NotFoundError } from "../errors.js";
 import type { CreateWitnessInput, UpdateWitnessInput } from "./schemas.js";
@@ -53,4 +53,17 @@ export function createWitness(deedPollId: string, dto: CreateWitnessInput, calle
  */
 export function updateWitness(deedPollId: string, id: string, dto: UpdateWitnessInput, caller: Caller): Promise<Witness> {
   return callApi(caller, (config) => apiUpdateWitness(deedPollId, id, dto, config));
+}
+
+/**
+ * Delete a witness. **Administrators only, and api is what says so.**
+ *
+ * No role check here: api's `WitnessService.removeWitness` gates on `caseworker-deedpoll-admin` before it
+ * resolves the witness, and it derives the role from the token this `Caller` carries. Re-checking would
+ * assert an identity this app never verified — the flag in the session decides what the page *offers*
+ * (`canDeleteWitness`), not what is permitted. A refusal arrives as `ForbiddenError`, a witness that is not
+ * under this case as `NotFoundError`, both from `callApi`.
+ */
+export function removeWitness(deedPollId: string, id: string, caller: Caller): Promise<void> {
+  return callApi(caller, (config) => deleteWitness(deedPollId, id, config));
 }

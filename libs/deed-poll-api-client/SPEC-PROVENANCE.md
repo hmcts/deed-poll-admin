@@ -6,10 +6,18 @@ one of them rather than licence to invent.
 
 | | |
 |---|---|
-| **api commit** | `ee5cc86b004dbceaa29517d5204b34119f176824` — "Expose witness create and edit on the caseworker surface (#8)", 2026-09-12 |
-| **Taken on** | 2026-09-12 |
+| **api commit** | `051f3b49d101a4e0cefc9477de9ea4f618ad1bf9` — "Allow Administrators to delete a witness (#9)", 2026-09-13 |
+| **Taken on** | 2026-09-13 |
 | **How** | `GET /v3/api-docs`, as api's `OpenAPIPublisherTest` captures it for the `hmcts/cnp-api-docs` publish workflow. Reformatted (2-space JSON) and otherwise unmodified. |
-| **Operations** | 17 caseworker operations plus Spring Boot's `GET /`. The four newest are the witness routes — list, add, read and amend — which merged in the commit above and are what task 2 of `docs/plans/05-witness-create-and-edit.md` needed. There is deliberately **no** `DELETE` on a witness: it carries an Administrator gate and is api's own change. |
+| **Operations** | 18 caseworker operations plus Spring Boot's `GET /`. The newest is `DELETE /caseworker/cases/{id}/witnesses/{witnessId}`, which merged in the commit above and is what task 2 of `docs/plans/06-witness-delete.md` needed. It carries an **Administrator gate api enforces in the domain** — `WitnessService.removeWitness` calls `requireAnyRole` before it resolves the witness — and the document says nothing about that, because springdoc has no vocabulary for it. api's own tests are its authority; nothing here re-checks a role. |
+
+Both operation counts are right and neither is a bug: api's `OpenAPIPublisherTest` asserts the caseworker
+count of 18, and the nineteenth path is the welcome route.
+
+**The `delete` operation ids are Spring's, and they collide by shape.** springdoc names an operation after
+its handler method, so the note delete is `delete_1` and the witness delete is `delete` — the suffix moves
+between refreshes as controllers are added, which is why nothing here keys off an `operationId`.
+`contract.test.ts` compares `METHOD path`.
 
 ## Refreshing it
 

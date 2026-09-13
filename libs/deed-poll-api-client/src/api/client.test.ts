@@ -16,6 +16,7 @@ import {
   createNote,
   createWitness,
   deleteNote,
+  deleteWitness,
   downloadDocument,
   getCase,
   getFieldRules,
@@ -358,6 +359,45 @@ describe("witnesses", () => {
     expect(read.ok).toBe(false);
     expect(!read.ok && read.error.kind).toBe("not-found");
     expect(!patched.ok && patched.error.kind).toBe("not-found");
+  });
+
+  it("should delete a witness and leave the case's other witnesses in place", async () => {
+    const id = await caseId();
+    const doomed = await createWitness(id, WITNESS, config);
+    await createWitness(id, { ...WITNESS, witnessName: "Sam Declarant", declarant: true }, config);
+    if (!doomed.ok) throw new Error("witness was not created");
+
+    const deleted = await deleteWitness(id, doomed.data.id, config);
+
+    expect(deleted).toEqual({ ok: true, data: undefined });
+    const remaining = await listWitnesses(id, config);
+    expect(remaining.ok && remaining.data.map((witness) => witness.witnessName)).toEqual(["Sam Declarant"]);
+  });
+
+  it("should report not-found when deleting a witness twice, because absence is api's 404 rather than a no-op", async () => {
+    const id = await caseId();
+    const created = await createWitness(id, WITNESS, config);
+    if (!created.ok) throw new Error("witness was not created");
+    await deleteWitness(id, created.data.id, config);
+
+    const again = await deleteWitness(id, created.data.id, config);
+
+    expect(again.ok).toBe(false);
+    expect(!again.ok && again.error.kind).toBe("not-found");
+  });
+
+  it("should report not-found when deleting through the wrong case, leaving the witness where it is", async () => {
+    const owning = await caseId();
+    const other = await caseId();
+    const created = await createWitness(owning, WITNESS, config);
+    if (!created.ok) throw new Error("witness was not created");
+
+    const deleted = await deleteWitness(other, created.data.id, config);
+
+    expect(deleted.ok).toBe(false);
+    expect(!deleted.ok && deleted.error.kind).toBe("not-found");
+    const remaining = await listWitnesses(owning, config);
+    expect(remaining.ok && remaining.data).toHaveLength(1);
   });
 });
 

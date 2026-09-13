@@ -48,6 +48,7 @@ const IMPLEMENTED_OPERATIONS = [
   "POST /caseworker/cases/{id}/witnesses",
   "GET /caseworker/cases/{id}/witnesses/{witnessId}",
   "PATCH /caseworker/cases/{id}/witnesses/{witnessId}",
+  "DELETE /caseworker/cases/{id}/witnesses/{witnessId}",
   "POST /caseworker/cases/{id}/documents",
   "GET /caseworker/cases/{id}/documents/{documentId}/file",
   "GET /caseworker/document-types"

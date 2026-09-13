@@ -123,8 +123,18 @@ did.
 Then add `removeWitness` to `src/api/client.ts` and the mock, and a one-line `removeWitness` to
 `libs/deed-poll/src/witnesses/service.ts` mirroring `notes/service.ts:66`.
 
-- [ ] Spec refreshed **from api**, `delete` present on the witness item path, `removeWitness` in `client.ts`, the
+- [x] Spec refreshed **from api**, `delete` present on the witness item path, `removeWitness` in `client.ts`, the
       mock and the service, `contract.test.ts` green
+
+      Done at api `051f3b4` via `./gradlew integration --rerun-tasks`; 19 operations, 18 of them `/caseworker/**`,
+      as the plan predicted. The adapter function is `deleteWitness`, not `removeWitness`: `client.ts` names
+      adapter functions after the HTTP verb (`deleteNote`) and the service names the domain operation
+      (`removeNote`), so `removeWitness` is the service's name and mirrors `notes/service.ts` exactly. The
+      refresh also renamed the note delete's `operationId` to `delete_1` — springdoc names operations after
+      handler methods and the suffix moves as controllers are added, which is why nothing keys off one;
+      `SPEC-PROVENANCE.md` records it. The mock's `405`-on-DELETE test became a `204` test, and its Administrator
+      gate is deliberately not modelled — the mock reads no roles from a token, so a 403 is api's test, not one
+      that can be written here.
 
 ### Task 3: Thread it into the amend page and hide the button
 
