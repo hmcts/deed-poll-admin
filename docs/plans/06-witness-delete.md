@@ -141,7 +141,16 @@ Then add `removeWitness` to `src/api/client.ts` and the mock, and a one-line `re
 In `witnesses/[witnessId]/edit.ts`, pass `canDelete: canDeleteWitness(userFromRequest(req))` from **both** `GET`
 and `rerender`. Handle the `action=delete` POST. In `witness-edit.njk`, wrap only the delete button.
 
-- [ ] Flag passed from `GET` **and** rerender; template guards only the delete control
+- [x] Flag passed from `GET` **and** rerender; template guards only the delete control
+
+      `edit.ts:95` and `edit.ts:174` are the two render sites, and `witness-edit.njk:79` the one guard —
+      around the `action=delete` button alone, with the form, the four controls and Save outside it. The
+      `action === "delete"` branch is first in `POST`, before `safeParse`, so an over-long field cannot block a
+      deletion, and it is deliberately ungated: api refuses a forged POST and a second refusal here would put
+      the authority in two places. Two incidental changes the note page had already made: the Save button
+      gained `name="action" value="save"` so the branch has something to read, and the button plus cancel link
+      moved into a `govuk-button-group` — a bare link beside two buttons does not space correctly. No
+      confirmation step, following the note delete rather than giving the same act a second voice.
 
 ### Task 4: Tests
 
