@@ -100,7 +100,7 @@ and per the constraint above, **e2e must actually be run there**, not merely wri
 `libs/deed-poll/src/witnesses/delete-policy.ts` with `canDeleteWitness` and its permission interface, copying
 `notes/delete-policy.ts`. Two unit tests: an Administrator may, a roleless caseworker may not.
 
-- [ ] `canDeleteWitness` named in its own module, with its two unit tests
+- [x] `canDeleteWitness` named in its own module, with its two unit tests
 
 ### Task 2: Client and service
 
