@@ -285,6 +285,60 @@ describe("case edit tab page", () => {
       expect(res.render.mock.calls[0][1].witnessWarning).toContain("1 of 2 witnesses recorded");
     });
 
+    /**
+     * The reactive half, which this plan deliberately did not build — task 1 of
+     * `docs/plans/07-witness-count-feedback.md` proved it already worked. These are its regression guard:
+     * api's refusal is addressed to a date, and both dates are editable fields on their tabs, so the
+     * message must render against the field with a summary link that resolves.
+     */
+    it.each([
+      ["signature", "signatureReceivedDate"],
+      ["enrolment", "dateEnroled"]
+    ])("renders api's refusal against %s's own date field, with a summary link that resolves", async (tab, field) => {
+      const message = "A Deed Poll cannot be sent for enrolment until two witnesses have been recorded. This case has one; please add one more witness.";
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...found, witnesses: [{ id: "witness-1" }] } as never);
+      vi.mocked(updateDeedPoll).mockRejectedValue(new InvalidInputError("Case cannot be sent for enrolment", [{ field, message }]));
+      const res = response();
+
+      await POST(request(tab, bodyFor(tab)), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      // api's field error unchanged — not re-worded here, because the proactive banner is the only place
+      // this app states the rule and two wordings of one refusal would drift apart.
+      expect(res.render.mock.calls[0][1].errors).toEqual([{ field, message }]);
+      // The link, which is the half that breaks silently: an unmappable field name renders the message
+      // with `href: undefined` and no styling difference to give it away.
+      expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: message, href: `#${field}` }]);
+    });
+
+    it("explains an unrelated edit that api refuses, because the shortfall reaches a case that carries a date", async () => {
+      // The case everyone forgets: nothing about this submission is an enrolment — it is a surname on the
+      // Application tab — but the rule is checked against the merged record, so api refuses it and names
+      // the date the case already carries. That field has no control here, so the summary link is dead and
+      // the banner is the caseworker's only route to the witnesses.
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...found, witnesses: [{ id: "witness-1" }] } as never);
+      vi.mocked(updateDeedPoll).mockRejectedValue(
+        new InvalidInputError("Case cannot be sent for enrolment", [
+          {
+            field: "dateEnroled",
+            message: "A Deed Poll cannot be sent for enrolment until two witnesses have been recorded. This case has one; please add one more witness."
+          }
+        ])
+      );
+      const res = response();
+
+      await POST(request(APPLICATION, { ...bodyFor(APPLICATION), newSurname: "Amended" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errorSummary[0].href).toBeUndefined();
+      expect(res.render.mock.calls[0][1].witnessWarning).toContain("1 of 2 witnesses recorded");
+      // And the typed surname survives, since the caseworker's way out is to add a witness and come back.
+      const field = res.render.mock.calls[0][1].sections
+        .flatMap((s: { fields: { name: string; value: unknown }[] }) => s.fields)
+        .find((f: { name: string }) => f.name === "newSurname");
+      expect(field.value).toBe("Amended");
+    });
+
     it("carries the banner's title and its link text, since a missing one is an untitled banner or an empty link", async () => {
       const res = response();
 

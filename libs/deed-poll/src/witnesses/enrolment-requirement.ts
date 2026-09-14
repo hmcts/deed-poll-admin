@@ -37,8 +37,8 @@ export function witnessCountText(recorded: number): string {
 }
 
 /**
- * What an edit form says up front when the case is short of witnesses, or `null` when it has nothing to
- * say — the requirement is met, or this tab holds no enrolment date.
+ * What an edit form says when the case is short of witnesses, or `null` when it has nothing to say — the
+ * requirement is met, or this tab holds no enrolment date and no refusal has named one.
  *
  * **It states the case's condition, not an action the caseworker took.** api checks the rule against the
  * MERGED record, so a case that already carries an enrolment date is refused an edit to any field at all
@@ -48,15 +48,22 @@ export function witnessCountText(recorded: number): string {
  * The first clause is api's `ENROLMENT_WITNESSES_MESSAGE` so the proactive and reactive text cannot
  * contradict each other, differing only in writing the threshold as the constant rather than as the word
  * api spells out — the number must not be a literal here.
+ *
+ * `refusedFields` are the fields a rejected save's errors are addressed to, and are what makes the banner
+ * reach the merged-record case. Editing a surname on a case that already carries an enrolment date is
+ * refused, and api addresses that refusal to the date — a field with no control on the tab being edited,
+ * so `buildErrorSummary` renders its message without a link. Without the banner there the caseworker is
+ * told the count and offered no way to change it.
  */
-export function enrolmentWitnessWarning(tab: TabDef, recorded: number): string | null {
+export function enrolmentWitnessWarning(tab: TabDef, recorded: number, refusedFields: readonly string[] = []): string | null {
   if (recorded >= WITNESSES_REQUIRED_FOR_ENROLMENT) {
     return null;
   }
 
   // Not on every tab: the shortfall is not what a caseworker editing an address is being told about, and
-  // a banner that appears everywhere is read nowhere.
-  if (!carriesEnrolmentDate(tab)) {
+  // a banner that appears everywhere is read nowhere. A refusal addressed to one of the dates is the
+  // exception, because then it IS what the caseworker is being told about, whichever tab they are on.
+  if (!carriesEnrolmentDate(tab) && !refusedFields.some((field) => ENROLMENT_DATE_FIELDS.includes(field))) {
     return null;
   }
 

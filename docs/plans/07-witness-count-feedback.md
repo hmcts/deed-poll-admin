@@ -212,7 +212,32 @@ absence once met and on the four silent tabs, in `[tab].test.ts`. Still outstand
 still rendering** as a regression guard for task 1, **the edit to an unrelated field on a case carrying a date
 and one witness**, and the **e2e journey** — which needs the mock to implement the gate first, per task 1's gap.
 
-- [ ] All five, including the "not on other tabs" case and the e2e journey
+**Done 2026-09-14**, and the three outstanding items brought two changes with them rather than tests alone.
+
+**The mock now implements the gate** — task 1's recorded gap. `enrolmentWitnessError` in
+`libs/deed-poll-api-client/src/mock/server.ts` restates `requireWitnessesForEnrolment` including
+`enrolmentDateToAddress`'s precedence, runs after the date rules as api orders them, and is on update only
+because api does not gate a create. It is the sixth rule in that file's list, and the list says so. Its own
+tests are in `server.test.ts`. Two `client.test.ts` tests were passing only because the mock was permissive
+and now arrange the two witnesses first (`enrollableCaseId`); the existing e2e create journey does the same,
+since Signature Received is one of the two gated dates.
+
+**The banner now also follows a refusal onto whatever tab was submitted.** `enrolmentWitnessWarning` takes
+the refused fields as a third argument, and warns when the tab carries an enrolment date **or** the refusal
+is addressed to one. Without it the merged-record case — a surname edited on a case already carrying a date —
+renders api's count with a **dead** summary link, because `dateEnroled` has no control on the Application
+tab, and offers no route to the witnesses at all. Derived from the field names api addresses, not matched on
+its message text. Task 3's decision is untouched: on a GET the four other tabs are still silent, and their
+test pins that.
+
+- [x] Unit: the count/threshold boundaries, plus the refused-field trigger and its two negative cases
+- [x] Page: api's refusal rendered against `signatureReceivedDate` and `dateEnroled` with a resolving
+      summary link — task 1's regression guard, one case per field
+- [x] Page: the unrelated edit refused on a case carrying a date and one witness — dead summary link, banner
+      present, typed surname kept
+- [x] e2e: the journey written — count on the subgrid, banner before typing, api's refusal, the banner's link
+      taken to the witnesses, second witness added, the same date then saving. **Written, not yet run:**
+      running it from cold is task 5
 
 ### Task 5: Full validation
 

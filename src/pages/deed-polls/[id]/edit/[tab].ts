@@ -143,8 +143,14 @@ function render(
     caption: found.displayReference,
     // Driven by the case's state, not by what is being edited: a case short of witnesses is in that
     // condition on arrival, so the caseworker reads it before typing rather than after a refused save.
-    // `null` on every tab that holds no enrolment date, and once the requirement is met.
-    witnessWarning: enrolmentWitnessWarning(tab, found.witnesses.length),
+    // `null` on every tab that holds no enrolment date, and once the requirement is met — except that a
+    // refusal api addressed to one of those dates carries the banner onto whatever tab was submitted,
+    // which is how the merged-record case gets a way out. See enrolment-requirement.ts.
+    witnessWarning: enrolmentWitnessWarning(
+      tab,
+      found.witnesses.length,
+      (errors ?? []).map((error) => error.field)
+    ),
     errors: errors ?? [],
     errorSummary: errors ? buildErrorSummary(errors, tab) : [],
     en,

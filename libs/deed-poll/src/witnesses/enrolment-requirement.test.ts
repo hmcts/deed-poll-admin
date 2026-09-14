@@ -56,6 +56,22 @@ describe("witnesses/enrolment-requirement", () => {
       expect(enrolmentWitnessWarning(tab("return"), 0)).toBeNull();
     });
 
+    it("should warn on any tab once a refusal names an enrolment date, which is the merged-record case", () => {
+      // An edit to a surname on a case already carrying a date is refused, and api addresses the refusal to
+      // the date — which has no control on the Application tab, so the summary link is dead. The banner is
+      // then the only way to the witnesses.
+      expect(enrolmentWitnessWarning(tab("application"), 1, ["dateEnroled"])).toContain("1 of 2 witnesses recorded");
+      expect(enrolmentWitnessWarning(tab("refund"), 1, ["signatureReceivedDate"])).toContain("Add 1 more witness.");
+    });
+
+    it("should stay silent for a refusal about something other than the enrolment dates", () => {
+      expect(enrolmentWitnessWarning(tab("application"), 1, ["newSurname", "state"])).toBeNull();
+    });
+
+    it("should stay silent for a refusal on a met requirement, since the refusal was then not about witnesses", () => {
+      expect(enrolmentWitnessWarning(tab("application"), 2, ["dateEnroled"])).toBeNull();
+    });
+
     it("should not accuse the caseworker of attempting an enrolment, since the refusal reaches any edit", () => {
       // The rule is checked against the merged record, so a case already carrying a date is refused an
       // edit to an unrelated field. Wording addressed to an enrolment nobody attempted would misdescribe
