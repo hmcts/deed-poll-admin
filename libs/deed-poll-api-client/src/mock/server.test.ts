@@ -3,11 +3,11 @@
  *
  * `client.test.ts` covers the contract routes through the adapter, which is how they are actually reached.
  * What is left for here is everything the adapter has no function for — scenario switching, resetting,
- * seeding — plus the four api rules the mock reproduces, tested directly so a wrong restatement fails here
- * rather than as a puzzling page assertion.
+ * seeding — plus the api rules the mock reproduces (listed in `server.ts`), tested directly so a wrong
+ * restatement fails here rather than as a puzzling page assertion.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { type RunningMockApi, startMockApi } from "./server.js";
+import { type MockCase, type RunningMockApi, startMockApi } from "./server.js";
 
 let mock: RunningMockApi;
 
@@ -256,6 +256,80 @@ describe("the cross-field date rules", () => {
   });
 });
 
+/**
+ * api's `DeedPollService.requireWitnessesForEnrolment`. Restated in the mock so a page that explains the
+ * refusal can be driven against something that issues one — see `docs/plans/07-witness-count-feedback.md`.
+ */
+describe("the two-witness enrolment gate", () => {
+  it("should refuse a patch that sets Date Enroled while the case has one witness", async () => {
+    const id = await caseWithWitnesses(1);
+
+    const response = await patch(`/caseworker/cases/${id}`, { dateEnroled: "2026-04-01" });
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.errors).toEqual([
+      {
+        field: "dateEnroled",
+        message: "A Deed Poll cannot be sent for enrolment until two witnesses have been recorded. This case has one; please add one more witness."
+      }
+    ]);
+  });
+
+  it("should count the shortfall rather than only refusing, so a case with none is told to add two", async () => {
+    const id = await caseWithWitnesses(0);
+
+    const response = await patch(`/caseworker/cases/${id}`, { signatureReceivedDate: "2026-03-25" });
+
+    expect((await response.json()).errors[0].message).toContain("This case has none; please add two witnesses.");
+  });
+
+  it("should address the refusal to the date this write sets, so it lands on the box just filled in", async () => {
+    const id = await caseWithWitnesses(1);
+
+    const response = await patch(`/caseworker/cases/${id}`, { signatureReceivedDate: "2026-03-25" });
+
+    expect((await response.json()).errors[0].field).toBe("signatureReceivedDate");
+  });
+
+  it("should refuse an edit to an unrelated field on a case that already carries an enrolment date", async () => {
+    // The merged-record behaviour, and the case everyone forgets: this write mentions no date at all, but it
+    // still leaves the record enrolled. The refusal names the date the record carries, since the patch names
+    // neither.
+    const id = await caseWithWitnesses(1, { signatureReceivedDate: new Date("2026-03-25T00:00:00Z") });
+
+    const response = await patch(`/caseworker/cases/${id}`, { newSurname: "Amended" });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].field).toBe("signatureReceivedDate");
+  });
+
+  it("should accept the same patch once the second witness is recorded", async () => {
+    const id = await caseWithWitnesses(2);
+
+    const response = await patch(`/caseworker/cases/${id}`, { dateEnroled: "2026-04-01" });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).state).toBe("Enroled");
+  });
+
+  it("should report a contradictory pair of dates ahead of the shortfall, so one thing is said at a time", async () => {
+    const id = await caseWithWitnesses(0, { dateEnroled: new Date("2026-04-01T00:00:00Z") });
+
+    const response = await patch(`/caseworker/cases/${id}`, { dateReturned: "2026-04-02" });
+
+    expect((await response.json()).errors[0].field).toBe("state");
+  });
+
+  it("should not gate a create, because witnesses are children of a row that has to exist first", async () => {
+    // Gating the create would forbid the state outright rather than gate a transition into it — api does not,
+    // and the seeded fixtures a page renders against depend on it not doing so here either.
+    const response = await post("/caseworker/cases", { dateReceived: "2026-03-10", dateEnroled: "2026-04-01" });
+
+    expect(response.status).toBe(201);
+  });
+});
+
 describe("the witness routes", () => {
   const WITNESS = { witnessName: "Alex Witness", witnessAddress: "1 Test Road", witnessOccupation: "Baker", declarant: false };
 
@@ -377,7 +451,32 @@ async function post(path: string, body?: unknown, headers: Record<string, string
   });
 }
 
+async function patch(path: string, body: unknown): Promise<Response> {
+  return fetch(`${mock.url}${path}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+
 /** The mock's raw JSON. `any` because these tests assert against the wire body, not a parsed type. */
 async function get(path: string): Promise<any> {
   return (await fetch(`${mock.url}${path}`)).json();
+}
+
+/**
+ * A seeded case carrying `recorded` witnesses, for the enrolment gate.
+ *
+ * Seeded rather than created because the gate is on the update path: a create that already carries the
+ * dates under test is not what a caseworker does, and seeding keeps the arrangement out of the assertion.
+ */
+async function caseWithWitnesses(recorded: number, fields: Partial<MockCase> = {}): Promise<string> {
+  const seeded = mock.seed(fields);
+
+  for (const index of Array.from({ length: recorded }, (_, at) => at)) {
+    await post(`/caseworker/cases/${seeded.id}/witnesses`, {
+      witnessName: `Witness ${index + 1}`,
+      witnessAddress: "1 Test Road",
+      witnessOccupation: "Baker",
+      declarant: false
+    });
+  }
+
+  return seeded.id;
 }

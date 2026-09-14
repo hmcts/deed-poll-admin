@@ -16,7 +16,7 @@
  * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
  * Both, because api's actuator serves both and `checkApiReachable` deliberately probes the liveness group.
  *
- * **Five of api's rules are restated here, and only five.** A mock that applied none of them would let a
+ * **Six of api's rules are restated here, and only six.** A mock that applied none of them would let a
  * page ship having never seen a real reference number or a derived state:
  *
  *   1. Reference-number allocation — the year from Date Received, the prefix from Type, a per-year serial.
@@ -24,6 +24,7 @@
  *   3. The two cross-field date refusals.
  *   4. The per-type field-rule matrix.
  *   5. The audit author taken from the caller's token — see `auditName`.
+ *   6. The two-witness gate on enrolment — see `enrolmentWitnessError`.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
@@ -88,6 +89,12 @@ const MIGRATED_RELAXED_FIELDS = [
  * api date is read stays `wire.ts`.
  */
 const SEEDABLE_CASE = WIRE_SCHEMAS.SavedCaseResponse.partial();
+
+/** api's `DeedPollService.WITNESSES_REQUIRED_FOR_ENROLMENT`. Restated because this file plays api. */
+const WITNESSES_REQUIRED_FOR_ENROLMENT = 2;
+
+/** api's `DeedPollService.ENROLMENT_WITNESSES_MESSAGE`, verbatim — the opening sentence of the refusal. */
+const ENROLMENT_WITNESSES_MESSAGE = "A Deed Poll cannot be sent for enrolment until two witnesses have been recorded.";
 
 /** The columns whose presence decides the state, and the audit columns a write stamps. */
 const CASE_DEFAULTS = {
@@ -273,6 +280,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     const merged = { ...record, ...(parsed.data as Partial<MockCase>) };
     const dateErrors = dateRuleErrors(merged);
     if (dateErrors.length > 0) return send(res, 400, { error: "Case dates are inconsistent", errors: dateErrors });
+
+    // After the date rules, as api orders them: a patch that contradicts a pair is refused for that before
+    // the witness count is looked at, so the caseworker is told about one thing at a time.
+    const witnessError = enrolmentWitnessError(record, parsed.data as Partial<MockCase>, merged);
+    if (witnessError) return send(res, 400, { error: "Case cannot be sent for enrolment", errors: [witnessError] });
 
     Object.assign(record, merged, {
       state: deriveState(merged),
@@ -643,6 +655,39 @@ function dateRuleErrors(record: Partial<MockCase>): { field: string; message: st
   }
 
   return errors;
+}
+
+/**
+ * The two-witness gate on enrolment, restating api's `DeedPollService.requireWitnessesForEnrolment`
+ * (deed-poll-api at `62c76f4`). Modelled here because a page that explains the refusal cannot be driven
+ * against a mock that never issues one — the `yarn dev` journey and the e2e journey both provoke it.
+ *
+ * **Checked against the MERGED record, and on update only.** A patch touching only a surname on a case
+ * that already carries an enrolment date is still a write that leaves the record enrolled, so it is
+ * refused too. A create is not gated at api's end and is not gated here: witnesses are children of a row
+ * that has to exist first, so no create can carry two.
+ *
+ * The refusal names one of the two dates and never a witnesses field — there is no witness control on the
+ * case form for an error to render against. The date THIS write sets is preferred so the message lands on
+ * the box just filled in; otherwise the cascade's own precedence decides.
+ */
+function enrolmentWitnessError(record: MockCase, patch: Partial<MockCase>, merged: MockCase): { field: string; message: string } | null {
+  if (!merged.dateEnroled && !merged.signatureReceivedDate) return null;
+
+  const recorded = record.witnesses.length;
+  if (recorded >= WITNESSES_REQUIRED_FOR_ENROLMENT) return null;
+
+  // Only reached while the record is short, so `recorded` is 0 or 1.
+  const shortfall = recorded === 1 ? "This case has one; please add one more witness." : "This case has none; please add two witnesses.";
+
+  return { field: enrolmentDateToAddress(patch, merged), message: `${ENROLMENT_WITNESSES_MESSAGE} ${shortfall}` };
+}
+
+function enrolmentDateToAddress(patch: Partial<MockCase>, merged: MockCase): string {
+  if ("dateEnroled" in patch && merged.dateEnroled) return "dateEnroled";
+  if ("signatureReceivedDate" in patch && merged.signatureReceivedDate) return "signatureReceivedDate";
+
+  return merged.dateEnroled ? "dateEnroled" : "signatureReceivedDate";
 }
 
 /** The per-type show / hide / mandate matrix. */

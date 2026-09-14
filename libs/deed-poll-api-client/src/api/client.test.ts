@@ -147,7 +147,7 @@ describe("patchCase", () => {
   });
 
   it("should re-derive the state from the dates the patch sets", async () => {
-    const id = await caseId();
+    const id = await enrollableCaseId();
 
     const result = await patchCase(id, { dateEnroled: new Date("2026-04-01T00:00:00Z") }, config);
 
@@ -230,7 +230,7 @@ describe("listCases", () => {
   });
 
   it("should exclude a finished case from the open filter", async () => {
-    const id = await caseId();
+    const id = await enrollableCaseId();
     await patchCase(id, { dateEnroled: new Date("2026-04-01T00:00:00Z") }, config);
 
     const result = await listCases("open", config);
@@ -857,6 +857,21 @@ async function caseId(patch: Parameters<typeof createCase>[0] = {}): Promise<str
   if (!created.ok) throw new Error(`case was not created: ${created.error.message}`);
 
   return created.data.id;
+}
+
+/**
+ * A saved case with the two witnesses api's enrolment gate requires, so a patch that sets an enrolment date
+ * is answered on its merits rather than refused for the shortfall — see `enrolmentWitnessError` in the mock.
+ */
+async function enrollableCaseId(): Promise<string> {
+  const id = await caseId();
+
+  for (const witness of [WITNESS, WITNESS]) {
+    const created = await createWitness(id, witness, config);
+    if (!created.ok) throw new Error(`witness was not created: ${created.error.message}`);
+  }
+
+  return id;
 }
 
 /**

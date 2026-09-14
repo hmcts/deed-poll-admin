@@ -74,6 +74,13 @@ test("caseworker creates a case and edits one of its tabs", async ({ page, brows
 
   await expectWelshKeysResolve(browser, caseUrl);
 
+  // Two witnesses before any signature date, because api refuses a write that leaves a case carrying an
+  // enrolment date with fewer than two — `DeedPollService.requireWitnessesForEnrolment`, and Signature
+  // Received is one of the two dates that puts a case there. Arrangement for the save below, not the
+  // subject: the refusal and the way out of it are the enrolment-gate journey further down.
+  await addWitness(page, caseUrl, "Ada Lovelace");
+  await addWitness(page, caseUrl, "Grace Hopper");
+
   await page.getByRole("tab", { name: "Signature" }).click();
   // "Change" plus the card's title as visually hidden text, so the link is meaningful out of context.
   await page.getByRole("link", { name: "Change Signature" }).click();
@@ -278,6 +285,65 @@ test("administrator adds a witness, amends it, and deletes it", async ({ page })
 });
 
 /**
+ * The two-witness gate on enrolment, from the caseworker's side — `docs/plans/07-witness-count-feedback.md`.
+ *
+ * The one journey that proves the proactive and the reactive halves are the same story: the count on the
+ * subgrid, the banner on the enrolment tab, api's refusal when the date is saved anyway, and the same date
+ * saving once the second witness is recorded. Neither half is worth much alone — a banner nothing enforces
+ * is a suggestion, and a refusal with no count is a puzzle.
+ *
+ * Either role, so this file's administrator serves: the rule applies to every caseworker, and nothing here
+ * deletes anything.
+ */
+test("caseworker is told a case is short of witnesses, and can enrol it once it is not", async ({ page }) => {
+  // Arrange: a case with one witness — short by one. Driven, not asserted; the journeys above cover both.
+  await page.goto("/deed-polls/new");
+  await fillNewCaseForm(page, { forename: "Nia", surname: "Hughes" });
+  await page.getByRole("button", { name: "Create case" }).click();
+  await expect(page).toHaveURL(CASE_URL);
+  const caseUrl = page.url();
+  await addWitness(page, caseUrl, "Ada Lovelace");
+
+  // The count on the subgrid, which answers "is this case complete?" while the caseworker is looking at
+  // witnesses — and states the threshold rather than making them work it out.
+  await page.getByRole("tab", { name: "Witnesses" }).click();
+  await expect(page.locator("#witnesses")).toContainText("1 of 2 witnesses recorded");
+
+  // The banner on the enrolment tab, before anything has been typed: the shortfall is the case's condition
+  // on arrival, not something discovered at save time.
+  await page.goto(`${caseUrl}/edit/enrolment`);
+  const banner = page.getByRole("region", { name: "Important" });
+  await expect(banner).toContainText("1 of 2 witnesses recorded");
+  await expect(banner).toContainText("Add 1 more witness.");
+  await expectNoAccessibilityViolations(page);
+
+  // Saved anyway, because the banner explains and api enforces — a UI that refused to submit would diverge
+  // the moment api's rule changed. The message is api's own, rendered against the date it names.
+  await fillDate(page.getByRole("group", { name: "Date enroled" }), { day: "1", month: "4", year: "2026" });
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("alert")).toContainText("A Deed Poll cannot be sent for enrolment until two witnesses have been recorded.");
+  await expect(page.getByRole("alert")).toContainText("This case has one; please add one more witness.");
+  // The link resolves to the date input rather than dangling, which is the half that breaks silently.
+  await expect(page.getByRole("alert").getByRole("link")).toHaveAttribute("href", "#dateEnroled");
+  await expectNoAccessibilityViolations(page);
+
+  // The way out, taken from the banner rather than by knowing the URL.
+  await banner.getByRole("link", { name: "View the witnesses on this case" }).click();
+  await expect(page).toHaveURL(`${caseUrl}#witnesses`);
+  await addWitness(page, caseUrl, "Grace Hopper");
+  await expect(page.locator("#witnesses")).toContainText("2 of 2 witnesses recorded");
+
+  // Nothing left to say, so nothing is said — and the same date now saves.
+  await page.goto(`${caseUrl}/edit/enrolment`);
+  await expect(page.getByRole("region", { name: "Important" })).toHaveCount(0);
+  await fillDate(page.getByRole("group", { name: "Date enroled" }), { day: "1", month: "4", year: "2026" });
+  await page.getByRole("button", { name: "Save" }).click();
+
+  await expect(page).toHaveURL(`${caseUrl}#enrolment`);
+  await expect(caseHeader(page)).toContainText("Enroled");
+});
+
+/**
  * Its own session, so `storageState` can be the roleless fixture rather than this file's administrator.
  * A `describe` is the only place Playwright honours a second `test.use` in one file.
  */
@@ -353,6 +419,22 @@ async function fillNewCaseForm(page: Page, name: { forename: string; surname: st
   await page.getByLabel("New forename").fill(name.forename);
   await page.getByLabel("New surname").fill(name.surname);
   await fillDate(page.getByRole("group", { name: "Date received" }), DATE_RECEIVED);
+}
+
+/**
+ * A witness recorded through its own form, driven rather than asserted.
+ *
+ * The witness journey above is what checks this form; here it is arrangement, because api's enrolment gate
+ * counts witnesses and several journeys need a case that satisfies it.
+ */
+async function addWitness(page: Page, caseUrl: string, name: string): Promise<void> {
+  await page.goto(`${caseUrl}/witnesses/new`);
+  await page.getByLabel("Name").fill(name);
+  await page.getByLabel("Address").fill("1 High Street, London");
+  await page.getByLabel("Occupation").fill("Mathematician");
+  await page.getByLabel("No").check();
+  await page.getByRole("button", { name: "Add witness" }).click();
+  await expect(page).toHaveURL(`${caseUrl}#witnesses`);
 }
 
 /**

@@ -124,6 +124,16 @@
         already carries them — so there is no view model, and `w` is the wire record.
       #}
       {% elif tab.subgrid == "witnesses" %}
+        {#
+          How many are recorded against how many a case needs, stated whether the requirement is met or
+          not: a caseworker checking a complete case should see that it is complete, and a count that
+          only appeared when something was wrong would read as an error rather than a status. Outside the
+          count check for the same reason the Add button is — a case with none is what needs saying most.
+
+          The whole sentence comes from the view model, so the threshold is api's constant and never a
+          literal here — see witnesses/enrolment-requirement.ts.
+        #}
+        <p class="govuk-caption-m">{{ witnessCount }}</p>
         {% if case.witnesses.length %}
           {% for w in case.witnesses %}
             {#

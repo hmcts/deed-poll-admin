@@ -24,6 +24,7 @@ import {
   buildErrorSummary,
   buildUpdatePatch,
   collectDateErrors,
+  enrolmentWitnessWarning,
   FORM_TABS,
   type FormError,
   findDeedPoll,
@@ -48,6 +49,10 @@ const en = {
   // `.claude/rules/backend.md` forbids putting api's internal error text in front of a caseworker, so
   // this page's copy is rendered and api's is logged. Same treatment as the upload page.
   saveRefused: "The case could not be saved. Check the details and try again.",
+  // The witness-shortfall banner's title and its way out. The sentence itself is view-model data, not a
+  // label: it interpolates the case's count and api's threshold — see enrolment-requirement.ts.
+  bannerTitle: "Important",
+  witnessWarningLink: "View the witnesses on this case",
   noteMaxLength: 2000
 };
 
@@ -136,6 +141,16 @@ function render(
   res.render("deed-polls/edit", {
     ...view,
     caption: found.displayReference,
+    // Driven by the case's state, not by what is being edited: a case short of witnesses is in that
+    // condition on arrival, so the caseworker reads it before typing rather than after a refused save.
+    // `null` on every tab that holds no enrolment date, and once the requirement is met — except that a
+    // refusal api addressed to one of those dates carries the banner onto whatever tab was submitted,
+    // which is how the merged-record case gets a way out. See enrolment-requirement.ts.
+    witnessWarning: enrolmentWitnessWarning(
+      tab,
+      found.witnesses.length,
+      (errors ?? []).map((error) => error.field)
+    ),
     errors: errors ?? [],
     errorSummary: errors ? buildErrorSummary(errors, tab) : [],
     en,
