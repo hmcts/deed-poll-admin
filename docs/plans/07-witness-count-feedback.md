@@ -6,6 +6,22 @@ A deed poll needs **two witnesses**, and api refuses the enrolment transition wi
 `deed-poll-api/docs/plans/witness-count-gate-on-enrolment.md`. This plan is about the caseworker's side of that:
 **knowing before saving, not after.**
 
+### The refusal reaches further than "setting an enrolment date" — do not assume otherwise
+
+**Confirmed against the merged api implementation (`deed-poll-api#12`, `62c76f4`).** The rule is checked against
+the **merged** record, as every rule on that path is, so **a patch touching *any* field of a case that already
+carries an enrolment date is refused** while that case has fewer than two witnesses — not only a patch that sets
+the date. Editing a surname on an already-enrolled case will do it.
+
+That is consistent rather than a defect, and the escape is the same shape as escaping a contradictory date pair:
+clear the date, or add the missing witnesses. But it means **a caseworker can meet this refusal without trying to
+enrol anything**, so:
+
+- **Wording must not say "you cannot enrol this"** as though the caseworker had just attempted an enrolment. Say
+  what is true — the case has fewer than two witnesses recorded, and the enrolment date it carries needs them.
+- **The banner is driven by the case's state, not by what the caseworker is currently editing.** A case that
+  carries an enrolment date and one witness is in that condition on arrival, not at save time.
+
 ### Most of the reactive half already works — verify it, do not rebuild it
 
 api throws `InvalidInputError` with a `FieldError` addressed to `signatureReceivedDate` or `dateEnroled`, and this
@@ -42,8 +58,9 @@ one query — so **the count is available everywhere it is needed, with no extra
 4. **Two placements, because they answer different questions:**
    - **The witnesses subgrid** — how many are recorded against how many are needed. Answers *"is this case
      complete?"* while the caseworker is looking at witnesses.
-   - **The signature and enrolment tabs** — that enrolment is blocked until two are recorded. Answers *"why can I
-     not save this?"* at the moment they are about to try.
+   - **The signature and enrolment tabs** — that the case has fewer than two witnesses and its enrolment dates
+     need them. Answers *"why can I not save this?"* — which, per the section above, a caseworker may be asking
+     about an edit that had nothing to do with enrolment.
 5. **Wording states the shortfall, not the rule.** "1 of 2 witnesses recorded" tells a caseworker what to do;
    "a deed poll requires two witnesses" makes them work it out. Match api's message so the proactive and reactive
    text do not contradict each other — **read api's actual constant, do not paraphrase it.**
@@ -81,8 +98,7 @@ yarn turbo test test:app --concurrency=1
 yarn build
 ```
 
-**Baseline verified green on master (`f62fed7`), 2026-09-13: lint exit 0, `1,361` tests across 8 of 8 packages,
-build 8 of 8.** **The skip count moves with the environment and is not a signal** — the three Redis session tests
+**Baseline verified green on master, 2026-09-14: lint exit 0, `1,361` tests across 8 of 8 packages, build 8 of 8.** **The skip count moves with the environment and is not a signal** — the three Redis session tests
 skip when no cache is reachable and pass when one is. **Compare totals, not passed counts.**
 
 Deliberately **not** here: `yarn test:e2e` and count comparisons. e2e needs Docker, a seeded IDAM simulator and a
@@ -112,9 +128,12 @@ is wrong reads as an error rather than a status.
 
 ### Task 3: The warning on the signature and enrolment tabs
 
-A `govukNotificationBanner` on those two tabs when the case has fewer than two witnesses, saying enrolment is
-blocked until two are recorded and linking to the witnesses tab so the caseworker can act on it. Follow
-`detail.njk:34`'s pattern.
+A `govukNotificationBanner` on those two tabs when the case has fewer than two witnesses, linking to the witnesses
+tab so the caseworker can act on it. Follow `detail.njk:34`'s pattern.
+
+**Wording:** state the shortfall and what it affects, not an action the caseworker may not have attempted — see
+the section above. Read api's `ENROLMENT_WITNESSES_MESSAGE` and `WITNESSES_REQUIRED_FOR_ENROLMENT` so the
+proactive and reactive text cannot drift apart.
 
 Do not show it on the other tabs: it is not true there, and a banner that appears everywhere is ignored everywhere.
 
@@ -126,6 +145,9 @@ Do not show it on the other tabs: it is not true there, and a banner that appear
 - Page: the banner renders on `signature` and `enrolment` when short, and **not** when the requirement is met
 - Page: the banner does **not** render on the other tabs
 - Page: api's field error still renders after this plan's changes — a regression guard for task 1's finding
+- Page: **a case carrying an enrolment date and one witness is refused an edit to an unrelated field**, and the
+  banner explains why. This is the merged-record behaviour from the section above; without a test it is the case
+  everyone forgets, because it does not look like an enrolment at all
 - e2e: one journey — a case with one witness, a caseworker attempts to set the enrolment date, sees the refusal,
   adds a second witness, and the date then saves
 
