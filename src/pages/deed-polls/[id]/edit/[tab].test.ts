@@ -230,6 +230,71 @@ describe("case edit tab page", () => {
       expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toEqual({});
     });
   });
+
+  describe("witness shortfall banner", () => {
+    it("warns on the signature tab when the case is short of witnesses", async () => {
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...found, witnesses: [{ id: "witness-1" }] } as never);
+      const res = response();
+
+      await GET(request("signature"), res);
+
+      expect(res.render.mock.calls[0][1].witnessWarning).toContain("1 of 2 witnesses recorded");
+    });
+
+    it("warns on the enrolment tab when the case is short of witnesses", async () => {
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...found, witnesses: [{ id: "witness-1" }] } as never);
+      const res = response();
+
+      await GET(request("enrolment"), res);
+
+      expect(res.render.mock.calls[0][1].witnessWarning).toContain("Add 1 more witness");
+    });
+
+    it("does not warn once the requirement is met, on either tab", async () => {
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...found, witnesses: [{ id: "witness-1" }, { id: "witness-2" }] } as never);
+
+      for (const tab of ["signature", "enrolment"]) {
+        const res = response();
+        await GET(request(tab), res);
+        expect(res.render.mock.calls[0][1].witnessWarning, tab).toBeNull();
+      }
+    });
+
+    it("does not warn on the tabs that carry no enrolment date, however short the case is", async () => {
+      // A banner shown on every tab is read on none, and on the Application tab it answers a question the
+      // caseworker is not asking.
+      for (const tab of [APPLICATION, "referral", "return", "refund"]) {
+        const res = response();
+        await GET(request(tab), res);
+        expect(res.render.mock.calls[0][1].witnessWarning, tab).toBeNull();
+      }
+    });
+
+    it("keeps the banner on a rejected save, where it explains the refusal the caseworker just met", async () => {
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...found, witnesses: [{ id: "witness-1" }] } as never);
+      vi.mocked(updateDeedPoll).mockRejectedValue(
+        new InvalidInputError("Case cannot be sent for enrolment", [
+          { field: "dateEnroled", message: "A Deed Poll cannot be sent for enrolment until two witnesses have been recorded." }
+        ])
+      );
+      const res = response();
+
+      await POST(request("enrolment", bodyFor("enrolment")), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].witnessWarning).toContain("1 of 2 witnesses recorded");
+    });
+
+    it("carries the banner's title and its link text, since a missing one is an untitled banner or an empty link", async () => {
+      const res = response();
+
+      await GET(request("signature"), res);
+
+      const { en } = res.render.mock.calls[0][1];
+      expect(en.bannerTitle).toBeTruthy();
+      expect(en.witnessWarningLink).toBeTruthy();
+    });
+  });
 });
 
 function privacyField(res: { render: ReturnType<typeof vi.fn> }) {

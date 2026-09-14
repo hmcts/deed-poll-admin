@@ -6,6 +6,7 @@
 {% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
 
 {#
   Error lookup. `errors` is a flat list of {field, message} from the handler; resolving it here
@@ -115,6 +116,26 @@
     #}
     {% if errorSummary and errorSummary.length %}
       {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorSummary }) }}
+    {% endif %}
+
+    {#
+      The witness shortfall, stated before a save is attempted. `witnessWarning` is null unless this tab
+      carries an enrolment date AND the case is short, so the placement decision is the view model's — see
+      witnesses/enrolment-requirement.ts. Same component and same `type: "important"` as the privacy
+      banner on detail.njk.
+
+      `html` rather than `text` because the banner carries the way out: a link to the witnesses subgrid,
+      where the caseworker can add the missing one. The sentence is interpolated through a block set, so
+      it is escaped the same as any other `{{ }}`.
+    #}
+    {% if witnessWarning %}
+      {% set witnessWarningHtml %}
+        <p class="govuk-notification-banner__heading">{{ witnessWarning }}</p>
+        <p class="govuk-body">
+          <a class="govuk-notification-banner__link" href="/deed-polls/{{ case.id }}#witnesses">{{ witnessWarningLink }}</a>
+        </p>
+      {% endset %}
+      {{ govukNotificationBanner({ titleText: bannerTitle, html: witnessWarningHtml, type: "important" }) }}
     {% endif %}
 
     <span class="govuk-caption-l">{{ caption }}</span>

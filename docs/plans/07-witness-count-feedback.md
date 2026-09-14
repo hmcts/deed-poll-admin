@@ -173,7 +173,26 @@ proactive and reactive text cannot drift apart.
 
 Do not show it on the other tabs: it is not true there, and a banner that appears everywhere is ignored everywhere.
 
-- [ ] Banner on `signature` and `enrolment` only, shown only when short, with a link to the witnesses tab
+**Done 2026-09-14.** `enrolmentWitnessWarning(tab, recorded)` joins `witnessCountText` in
+`libs/deed-poll/src/witnesses/enrolment-requirement.ts`, returning `null` when there is nothing to say.
+`[tab].ts`'s `render` passes it as `witnessWarning` — so it is on the GET **and** on the 400 re-render, where
+it explains the refusal the caseworker has just met — and `edit.njk` renders it as a `govukNotificationBanner`
+with `type: "important"`, above the h1 and below the error summary, matching `detail.njk:34`.
+
+**Which tabs is derived, not listed.** The banner shows on a tab because that tab carries
+`signatureReceivedDate` or `dateEnroled` — the two fields api addresses the refusal to — so if a date moves
+tab the warning moves with it. That is `signature` and `enrolment` today; `application`, `referral`, `return`
+and `refund` are pinned as silent.
+
+**Wording**, at one witness: *"1 of 2 witnesses recorded. A Deed Poll cannot be sent for enrolment until 2
+witnesses have been recorded, so a case carrying an enrolment date cannot be saved while it is short. Add 1
+more witness."* The middle clause is api's `ENROLMENT_WITNESSES_MESSAGE` verbatim except for writing the
+threshold as the constant rather than as the word api spells out. It says *a case carrying an enrolment date*
+rather than *you cannot enrol this*, because the refusal reaches any edit to such a case — the merged-record
+behaviour. `html` rather than `text` so the banner carries the way out: a link to `#witnesses` on the detail
+page, labelled by `en.witnessWarningLink`.
+
+- [x] Banner on `signature` and `enrolment` only, shown only when short, with a link to the witnesses tab
 
 ### Task 4: Tests
 
@@ -186,6 +205,12 @@ Do not show it on the other tabs: it is not true there, and a banner that appear
   everyone forgets, because it does not look like an enrolment at all
 - e2e: one journey — a case with one witness, a caseworker attempts to set the enrolment date, sees the refusal,
   adds a second witness, and the date then saves
+
+**Partly covered already**, since tasks 2 and 3 landed with their own tests: the count/threshold boundaries
+(0, 1, 2, 3) in `enrolment-requirement.test.ts`, and the banner's presence on `signature`/`enrolment`, its
+absence once met and on the four silent tabs, in `[tab].test.ts`. Still outstanding here: **api's field error
+still rendering** as a regression guard for task 1, **the edit to an unrelated field on a case carrying a date
+and one witness**, and the **e2e journey** — which needs the mock to implement the gate first, per task 1's gap.
 
 - [ ] All five, including the "not on other tabs" case and the e2e journey
 
