@@ -19,6 +19,7 @@ export * from "./auth/plain-http.js";
 export * from "./auth/roles.js";
 export * from "./deed-poll/card-layout.js";
 export * from "./deed-poll/case-header.js";
+export * from "./deed-poll/case-query.js";
 export * from "./deed-poll/case-state.js";
 export * from "./deed-poll/date-parts.js";
 export * from "./deed-poll/deed-poll-validation.js";

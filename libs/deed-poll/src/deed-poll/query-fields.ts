@@ -88,6 +88,16 @@ export function valueArity(operator: QueryOperator): ValueArity {
   return ARITY_BY_OPERATOR[operator];
 }
 
+/**
+ * Whether the token names an operator at all, before any field is known.
+ *
+ * `Object.hasOwn` rather than `in` for the reason `queryableField` is a `find`: the token arrives off a
+ * URL, and `"toString" in ARITY_BY_OPERATOR` is true.
+ */
+export function isQueryOperator(token: unknown): token is QueryOperator {
+  return typeof token === "string" && Object.hasOwn(ARITY_BY_OPERATOR, token);
+}
+
 /** Whether the operator can be asked of the field's kind — the guard a condition is checked against. */
 export function isOperatorValidFor(kind: FieldKind, operator: string): operator is QueryOperator {
   return (OPERATORS_BY_KIND[kind] as string[]).includes(operator);

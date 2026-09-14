@@ -125,7 +125,43 @@ Parse repeated `where` parameters from the URL into conditions, and serialise co
 expects, splitting on the first two colons only and URL-encoding values. A round-trip must survive a value
 containing a colon and one containing a comma. Validate with Zod, per `.claude/rules/backend.md`.
 
-- [ ] Round-trips cleanly, including values containing `:` and `,`
+- [x] Round-trips cleanly, including values containing `:` and `,`
+
+`libs/deed-poll/src/deed-poll/case-query.ts`. The round trip is asserted **through a real
+`URLSearchParams`**, not by handing the serialiser's output back to the parser — a format that survives
+only when the URL is skipped is not a format that survives a URL. Four things the tasks below should not
+have to rediscover:
+
+- **Parsing is tolerant; sending is not, and that is two functions.** `parseConditions` keeps every row
+  verbatim, including `":"` — the empty row "Add condition" produces — because a row mid-edit has to
+  re-render. `caseQueryWhere` is the narrower gate that drops the incomplete ones, so adding a row does
+  not turn the whole request into a 400 and lose the results already on screen. Task 4's rows are
+  `parseConditions`' output; task 3 sends `caseQueryWhere`'s.
+- **A comma is only a separator for `between` and `isOneOf`.** api splits a list-taking operator's values
+  on commas and trims each, and leaves a single-valued operator's value alone — so
+  `contains:Flat 2, Rose Court` asks what it looks like. An **unknown** operator is treated as
+  single-valued for the same reason: splitting on an arity nobody published would lose the round trip for
+  exactly the row a caseworker needs to see and fix.
+- **A condition beyond api's cap of 20 is sent, not truncated to it.** Truncating would answer a narrower
+  question invisibly; api refuses the whole request and the page renders that. Same reasoning applies to
+  a `where` that is not a string or a list of them (`?where[a]=b`, which `qs` reads as an object): there
+  is no row to render it as, so it is dropped rather than reported.
+- **The Zod schema guards shape only** — a queryable field, an operator the kind admits, the right number
+  of values. Whether a value *means* anything (a date that parses, an enum member that exists,
+  `between` bounds the right way round) is api's answer per decision 1, and `caseConditionSchema` has a
+  test pinning that it does not judge it.
+
+`isQueryOperator` joined `query-fields.ts` rather than living here: "is this token an operator at all" is
+a question about the operator table, and it uses `Object.hasOwn` for the reason `queryableField` is a
+`find` — `"toString" in ARITY_BY_OPERATOR` is true.
+
+**One divergence from api, for task 4 to decide on:** api queries **68 of the 70** fields.
+`daysReceivedToEnroled` and `daysReceivedToReturned` are computed at read time, have no column, and are
+refused with *"is derived, not stored"* — see task 1 of api's own plan. `QUERYABLE_FIELDS` holds all 70,
+so the field chooser would offer two fields that can only 400. Not fixed here: what belongs in the
+chooser is a task 4 question, and narrowing `QUERYABLE_FIELDS` would weaken the drift guard that is task
+1's whole point. The same two are also refused as **sort** fields, which task 5 needs — though decision 8
+limits sorting to the six list columns, none of which is one of them.
 
 ### Task 3: Client and service
 

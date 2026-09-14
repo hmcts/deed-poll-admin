@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { FIELD_BY_NAME, type FieldKind, FORM_TABS } from "./form-fields.js";
-import { isOperatorValidFor, OPERATOR_LABELS, operatorsFor, QUERYABLE_FIELDS, type QueryOperator, queryableField, valueArity } from "./query-fields.js";
+import {
+  isOperatorValidFor,
+  isQueryOperator,
+  OPERATOR_LABELS,
+  operatorsFor,
+  QUERYABLE_FIELDS,
+  type QueryOperator,
+  queryableField,
+  valueArity
+} from "./query-fields.js";
 
 /** api's operator table, restated here so a drift from it fails rather than passing quietly. */
 const EXPECTED_OPERATORS: Record<FieldKind, QueryOperator[]> = {
@@ -97,6 +106,25 @@ describe("deed-poll/query-fields", () => {
 
     it("should reject an unknown operator without throwing, since it arrives from a URL", () => {
       expect(isOperatorValidFor("text", "sqlInjection")).toBe(false);
+    });
+  });
+
+  describe("isQueryOperator", () => {
+    it("should accept every operator any kind offers", () => {
+      for (const operator of new Set(Object.values(EXPECTED_OPERATORS).flat())) {
+        expect(isQueryOperator(operator)).toBe(true);
+      }
+    });
+
+    it("should reject a token that is not an operator, or is not a string at all", () => {
+      expect(isQueryOperator("nonsense")).toBe(false);
+      expect(isQueryOperator(undefined)).toBe(false);
+      expect(isQueryOperator(["is"])).toBe(false);
+    });
+
+    it("should not accept an object prototype member as an operator", () => {
+      expect(isQueryOperator("toString")).toBe(false);
+      expect(isQueryOperator("constructor")).toBe(false);
     });
   });
 
