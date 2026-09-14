@@ -202,7 +202,46 @@ Four things the tasks below should not have to rediscover:
 On `deed-polls/index`: the condition rows above the results, an "Add condition" submit, a remove per row, and the
 value control chosen by kind per decision 3. Works with JavaScript disabled.
 
-- [ ] Renders per kind, adds and removes rows without JavaScript, and the word "and" joins rows
+- [x] Renders per kind, adds and removes rows without JavaScript, and the word "and" joins rows
+
+`libs/deed-poll/src/deed-poll/query-builder.ts`, plus `caseListSearch` in `case-query.ts` and the rewritten
+`src/pages/deed-polls/index.{ts,njk}`. Reading a submission and rendering the rows are **one file** because
+they share the control names and each needs a type the other produces; splitting them made an import cycle.
+
+Six things the tasks below should not have to rediscover:
+
+- **A GET form cannot submit one parameter built from three controls, so the builder submits row-scoped
+  names — `field-0`, `op-0`, `value-0-0` — and the page redirects to the canonical `where=` URL.** Those
+  names are a transport for one round trip; the URL is still the only state. The three buttons name
+  themselves (`apply`, `add`, `remove=<row>`), which is what `builderAction` reads: a canonical URL carries
+  none of them and so is never mistaken for a submission of an empty builder that would wipe the query.
+  `removeValue` is a **string** on the row because `govukButton` drops a falsy `value` and the first row's
+  `0` would otherwise render a Remove button naming no row.
+- **`caseListSearch` is the only place a link to the list is built, and task 5 must go through it.** It
+  omits what it has nothing to say about — the default `all` filter, `page=1`, an absent sort — for the
+  reason `listCases` omits them, and it carries a blank row (`where=:`) because the row "Add condition"
+  adds has to survive the redirect. A *lone* blank row is dropped, since that is what an unfiltered list
+  renders anyway. It already takes `sort` and `page`; the builder form will want a hidden `sort` input, and
+  deliberately carries no `page`, so applying a query returns to the first page.
+- **Changing the field re-offers the operators, and that is why an invalid pairing is dropped rather than
+  kept.** Both choosers submit together, so a field changed from text to date arrives beside `contains`.
+  `readRow` clears the operator and its values; `buildRow` does the same for a hand-edited URL, so the row
+  a caseworker is shown is always one they can fix.
+- **A date is assembled as `YYYY-MM-DD`, never through `composeDateParts`,** which rolls `31 2 2026` over
+  to 3 March — a filter that quietly answers about another date is worse than one that answers about none.
+  `builderDateErrors` (the case form's own `collectDateErrors`) is what says so, and it is the **one path
+  that re-renders instead of redirecting**, replaying the submission so the offending parts stay on screen.
+  The rest of the query still runs, because the bad row is incomplete and never sent.
+- **api addresses a condition refusal to its position among the conditions it was SENT, which is not the
+  row.** `rowForSentCondition` is the translation and `queryErrors` applies it; a refusal of the query as a
+  whole (the cap, the sort, the paging) has no row and gets the page's own copy, with api's developer-facing
+  wording logged. The list page catches `InvalidInputError` for the same reason the new-case form does.
+- **Two loose ends, both deliberate.** `CHOOSABLE_FIELDS` leaves the two derived fields out of the chooser
+  while `QUERYABLE_FIELDS` keeps them, so the drift guard stands and a hand-edited URL naming one still
+  renders api's refusal — the task 2 divergence, answered. And decision 3's checkboxes for a **multiselect**
+  sit awkwardly with `contains` taking one value: ticking two leaves the row incomplete rather than
+  narrowing it. Followed as written; revisit only with a content decision, alongside the empty-result
+  wording the open questions already flag.
 
 ### Task 5: Sorting and pagination
 

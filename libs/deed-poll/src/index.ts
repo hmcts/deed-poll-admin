@@ -33,6 +33,7 @@ export * from "./deed-poll/form-presentation.js";
 export * from "./deed-poll/form-validation.js";
 export * from "./deed-poll/list-filters.js";
 export * from "./deed-poll/list-view.js";
+export * from "./deed-poll/query-builder.js";
 export * from "./deed-poll/query-fields.js";
 export * from "./deed-poll/schemas.js";
 export * from "./deed-poll/service.js";

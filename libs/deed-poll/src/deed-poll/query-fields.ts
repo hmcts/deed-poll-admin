@@ -78,6 +78,25 @@ export const OPERATOR_LABELS: Record<QueryOperator, string> = {
  */
 export const QUERYABLE_FIELDS: FieldDef[] = FORM_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields));
 
+/**
+ * The two fields api computes at read time and refuses a condition on: *"is derived, not stored"*. They
+ * have no column to compare, so no operator can be asked of them.
+ *
+ * Named here rather than removed from `QUERYABLE_FIELDS`, which stays the whole form: that list is the
+ * drift guard — a field added to a case tab becomes queryable with no second edit — and narrowing it
+ * would turn "every form field" into "every form field except the ones someone remembered".
+ */
+const DERIVED_FIELD_NAMES = ["daysReceivedToEnroled", "daysReceivedToReturned"];
+
+/**
+ * The fields the builder's chooser offers.
+ *
+ * Everything queryable except the derived pair, because an option a caseworker can only be refused for
+ * choosing is not a guide. api still answers for a condition on one — a hand-edited URL can name it, and
+ * `queryableField` resolves it so the row renders with api's refusal against it.
+ */
+export const CHOOSABLE_FIELDS: FieldDef[] = QUERYABLE_FIELDS.filter((field) => !DERIVED_FIELD_NAMES.includes(field.name));
+
 /** The operators offered for a field's kind. */
 export function operatorsFor(kind: FieldKind): QueryOperator[] {
   return OPERATORS_BY_KIND[kind];

@@ -1,4 +1,4 @@
-import { findDeedPolls } from "@hmcts/deed-poll";
+import { findDeedPolls, InvalidInputError } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET } from "./index.js";
@@ -46,13 +46,13 @@ describe("deed-polls list page", () => {
   it("asks for the default filter when none was chosen, so the default view is everything", async () => {
     await GET(pageRequest(), pageResponse());
 
-    expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all" }, expect.anything());
+    expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", conditions: [] }, expect.anything());
   });
 
   it("sends api the key of the requested filter, rather than a clause of its own", async () => {
     await GET(pageRequest({ query: { filter: "enroled" } }), pageResponse());
 
-    expect(findDeedPolls).toHaveBeenCalledWith({ filter: "enroled" }, expect.anything());
+    expect(findDeedPolls).toHaveBeenCalledWith({ filter: "enroled", conditions: [] }, expect.anything());
   });
 
   it("falls back to 'all' for an unrecognised filter rather than erroring", async () => {
@@ -60,14 +60,14 @@ describe("deed-polls list page", () => {
 
     await GET(pageRequest({ query: { filter: "nonsense" } }), res);
 
-    expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all" }, expect.anything());
+    expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", conditions: [] }, expect.anything());
     expect(res.render).toHaveBeenCalledWith("deed-polls/index", expect.objectContaining({ activeFilter: "all" }));
   });
 
   it("presents the caseworker's own token, so api authenticates and audits as them", async () => {
     await GET(pageRequest({ accessToken: "caseworker-token" }), pageResponse());
 
-    expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all" }, { accessToken: "caseworker-token" });
+    expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", conditions: [] }, { accessToken: "caseworker-token" });
   });
 
   it("marks the active filter so the tab bar can show which is current", async () => {
@@ -85,7 +85,7 @@ describe("deed-polls list page", () => {
 
     const model = res.render.mock.calls[0][1];
     for (const tab of model.filters) {
-      expect(Object.keys(tab)).toEqual(["key", "label"]);
+      expect(Object.keys(tab)).toEqual(["key", "label", "href"]);
     }
   });
 
@@ -104,5 +104,194 @@ describe("deed-polls list page", () => {
     await GET(pageRequest(), res);
 
     expect(res.render).toHaveBeenCalledWith("deed-polls/index", expect.objectContaining({ cases: [] }));
+  });
+
+  describe("the query", () => {
+    it("sends api the conditions the URL carries, so the query is the URL and not a session draft", async () => {
+      await GET(pageRequest({ query: { where: ["type:is:Adult", "dateReceived:after:2026-01-01"] } }), pageResponse());
+
+      expect(findDeedPolls).toHaveBeenCalledWith(
+        {
+          filter: "all",
+          conditions: [
+            { field: "type", operator: "is", values: ["Adult"] },
+            { field: "dateReceived", operator: "after", values: ["2026-01-01"] }
+          ]
+        },
+        expect.anything()
+      );
+    });
+
+    it("applies the tab and the query together, because a query narrows within the selected tab", async () => {
+      await GET(pageRequest({ query: { filter: "open", where: "type:is:Adult" } }), pageResponse());
+
+      expect(findDeedPolls).toHaveBeenCalledWith({ filter: "open", conditions: [{ field: "type", operator: "is", values: ["Adult"] }] }, expect.anything());
+    });
+
+    it("carries the query on every tab link, so switching tab keeps the conditions", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "open", where: "type:is:Adult" } }), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.filters.map((tab: { href: string }) => tab.href)).toEqual([
+        "/deed-polls?where=type%3Ais%3AAdult",
+        "/deed-polls?filter=open&where=type%3Ais%3AAdult",
+        "/deed-polls?filter=received&where=type%3Ais%3AAdult",
+        "/deed-polls?filter=enroled&where=type%3Ais%3AAdult",
+        "/deed-polls?filter=returned&where=type%3Ais%3AAdult"
+      ]);
+    });
+
+    it("offers a way back to the unfiltered tab, keeping the tab and dropping the conditions", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "open", where: "type:is:Adult" } }), res);
+
+      expect(res.render.mock.calls[0][1].clearHref).toBe("/deed-polls?filter=open");
+    });
+
+    it("renders one empty row for a list with no query, since an empty row is the invitation to filter", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      const rows = res.render.mock.calls[0][1].queryRows;
+      expect(rows).toHaveLength(1);
+      expect(rows[0].control).toBe("none");
+    });
+
+    it("renders no value control for isEmpty, rather than a disabled box implying a value is wanted", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: "parents:isEmpty" } }), res);
+
+      const row = res.render.mock.calls[0][1].queryRows[0];
+      expect(row.control).toBe("none");
+      expect(row.values).toEqual([]);
+    });
+
+    it("renders the value control the chosen field's kind asks for", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: ["dateReceived:is:2026-03-01", "type:is:Adult", "inPerson:is:true"] } }), res);
+
+      expect(res.render.mock.calls[0][1].queryRows.map((row: { control: string }) => row.control)).toEqual(["date", "select", "radios"]);
+    });
+  });
+
+  describe("a builder submission", () => {
+    it("redirects to the canonical URL, so the address bar holds the bookmarkable query and not the form's controls", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { apply: "true", filter: "open", "field-0": "type", "op-0": "is", "value-0-0": "Adult" } }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls?filter=open&where=type%3Ais%3AAdult");
+      expect(findDeedPolls).not.toHaveBeenCalled();
+    });
+
+    it("adds an empty row on Add condition, which is what makes the builder work without JavaScript", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { add: "condition", "field-0": "type", "op-0": "is", "value-0-0": "Adult" } }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls?where=type%3Ais%3AAdult&where=%3A");
+    });
+
+    it("drops the row Remove named and keeps the rest", async () => {
+      const res = pageResponse();
+      const query = {
+        remove: "0",
+        "field-0": "type",
+        "op-0": "is",
+        "value-0-0": "Adult",
+        "field-1": "newForename",
+        "op-1": "is",
+        "value-1-0": "Ada"
+      };
+
+      await GET(pageRequest({ query }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls?where=newForename%3Ais%3AAda");
+    });
+
+    it("redirects to the bare list when the last row is removed, rather than leaving an empty parameter behind", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { remove: "0", "field-0": "type", "op-0": "is", "value-0-0": "Adult" } }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls");
+    });
+
+    it("re-renders rather than redirecting when a date does not exist, keeping the parts on screen beside the error", async () => {
+      const res = pageResponse();
+      const query = {
+        apply: "true",
+        "field-0": "dateReceived",
+        "op-0": "is",
+        "value-0-0-day": "31",
+        "value-0-0-month": "2",
+        "value-0-0-year": "2026"
+      };
+
+      await GET(pageRequest({ query }), res);
+
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.queryRows[0].error).toBe("Date received must be a real date");
+      expect(model.queryRows[0].values[0].dateParts).toEqual({ day: "31", month: "2", year: "2026" });
+      expect(model.errorSummary).toEqual([{ text: "Condition 1: Date received must be a real date", href: "#field-0" }]);
+    });
+
+    it("does not send the row a bad date left incomplete, so the results already on screen survive", async () => {
+      const query = { apply: "true", "field-0": "dateReceived", "op-0": "is", "value-0-0-day": "31", "value-0-0-month": "2", "value-0-0-year": "2026" };
+
+      await GET(pageRequest({ query }), pageResponse());
+
+      expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", conditions: [{ field: "dateReceived", operator: "is", values: [""] }] }, expect.anything());
+    });
+  });
+
+  describe("a query api refuses", () => {
+    it("renders the refusal against the row it belongs to rather than answering 500", async () => {
+      vi.mocked(findDeedPolls).mockRejectedValue(new InvalidInputError("Case query is not valid", [{ field: "where.0", message: "is not a member of state" }]));
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: "state:is:Nonsense" } }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      const model = res.render.mock.calls[0][1];
+      expect(model.queryRows[0].error).toBe("is not a member of state");
+      expect(model.errorSummary).toEqual([{ text: "Condition 1: is not a member of state", href: "#field-0" }]);
+      expect(model.cases).toEqual([]);
+    });
+
+    it("addresses the refusal to the row rather than to its position on the wire, since incomplete rows are not sent", async () => {
+      vi.mocked(findDeedPolls).mockRejectedValue(new InvalidInputError("Case query is not valid", [{ field: "where.0", message: "is not a member of state" }]));
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: [":", "state:is:Nonsense"] } }), res);
+
+      expect(res.render.mock.calls[0][1].queryRows.map((row: { error?: string }) => row.error)).toEqual([undefined, "is not a member of state"]);
+    });
+
+    it("stands its own copy in for a refusal naming no condition, since api's wording for those is developer-facing", async () => {
+      vi.mocked(findDeedPolls).mockRejectedValue(
+        new InvalidInputError("Case list paging is not valid", [{ field: "page", message: "takes a whole number of 1 or more" }])
+      );
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: "type:is:Adult" } }), res);
+
+      expect(res.render.mock.calls[0][1].errorSummary).toEqual([{ text: "These filters could not be applied. Check them and try again." }]);
+    });
+
+    it("lets anything that is not a refused query reach the error handler, because it is not the caseworker's to correct", async () => {
+      vi.mocked(findDeedPolls).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+
+      await expect(GET(pageRequest(), pageResponse())).rejects.toThrow("unavailable");
+    });
   });
 });

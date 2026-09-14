@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FIELD_BY_NAME, type FieldKind, FORM_TABS } from "./form-fields.js";
 import {
+  CHOOSABLE_FIELDS,
   isOperatorValidFor,
   isQueryOperator,
   OPERATOR_LABELS,
@@ -50,6 +51,25 @@ describe("deed-poll/query-fields", () => {
 
       expect(subgridTabs.map((tab) => tab.id)).toEqual(["notes", "witnesses", "documents"]);
       expect(subgridTabs.every((tab) => tab.sections.length === 0)).toBe(true);
+    });
+  });
+
+  describe("CHOOSABLE_FIELDS", () => {
+    it("should leave out the two fields api computes at read time, which no condition can name", () => {
+      const names = CHOOSABLE_FIELDS.map((field) => field.name);
+
+      expect(names).not.toContain("daysReceivedToEnroled");
+      expect(names).not.toContain("daysReceivedToReturned");
+    });
+
+    it("should offer everything else queryable, in form order, so it tracks the form as the queryable list does", () => {
+      const expected = QUERYABLE_FIELDS.filter((field) => !field.name.startsWith("daysReceivedTo")).map((field) => field.name);
+
+      expect(CHOOSABLE_FIELDS.map((field) => field.name)).toEqual(expected);
+    });
+
+    it("should still keep the derived pair queryable, so a hand-edited URL naming one renders its refusal", () => {
+      expect(queryableField("daysReceivedToEnroled")).toBeDefined();
     });
   });
 

@@ -29,6 +29,7 @@
  * obviously-wrong requests off the wire and to render api's refusals against the right row.
  */
 import { z } from "zod";
+import { LIST_FILTERS } from "./list-filters.js";
 import { isOperatorValidFor, isQueryOperator, queryableField, type ValueArity, valueArity } from "./query-fields.js";
 
 /** Separates a condition's three parts, and nothing else — a field name never contains one. */
@@ -117,6 +118,54 @@ export function isCompleteCondition(condition: CaseCondition): boolean {
   return caseConditionSchema.safeParse(condition).success;
 }
 
+/**
+ * The query string a case-list URL carries, `?` included, or `""` for the unfiltered list.
+ *
+ * The only place a link to the list is built, so a tab, a sort header and a page number cannot each
+ * remember a different subset of the state. Everything is URL-encoded by `URLSearchParams`, which is what
+ * lets a condition's value hold a colon, a comma, an ampersand or a space.
+ *
+ * A part this app has nothing to say about is **omitted rather than defaulted**, for the reason
+ * `listCases` omits it: writing `size=25` or `filter=all` into a URL a caseworker bookmarks would pin
+ * api's current default into their bookmark.
+ *
+ * Blank rows are carried, because "Add condition" is a submit and the row it adds has to survive the
+ * round trip. The single exception is a builder holding **one** entirely blank row, which is what an
+ * unfiltered list renders anyway — writing `where=:` for it would put a parameter in the URL that says
+ * nothing.
+ */
+export function caseListSearch(link: CaseListLink): string {
+  const conditions = link.conditions ?? [];
+  const carried = conditions.length === 1 && isBlankCondition(conditions[0]) ? [] : conditions;
+
+  const parameters = new URLSearchParams();
+  // The first filter is the one an absent key falls back to, at both ends, so naming it says nothing.
+  if (link.filter !== undefined && link.filter !== "" && link.filter !== LIST_FILTERS[0].key) parameters.set("filter", link.filter);
+  for (const entry of serialiseConditions(carried)) parameters.append("where", entry);
+  if (link.sort !== undefined && link.sort !== "") parameters.set("sort", link.sort);
+  if (link.page !== undefined && link.page > 1) parameters.set("page", String(link.page));
+
+  const search = parameters.toString();
+
+  return search === "" ? "" : `?${search}`;
+}
+
+/** Whether the row holds nothing at all — the state "Add condition" leaves a new row in. */
+export function isBlankCondition({ field, operator, values }: CaseCondition): boolean {
+  return field === "" && operator === "" && values.every((value) => value.trim() === "");
+}
+
+/**
+ * api addresses a condition refusal to a position among the conditions it was **sent** (`where.0`,
+ * `where.1`), and the incomplete rows of a half-built query are never sent — so the two numberings
+ * differ as soon as one row is unfinished. This is the translation back to a row a caseworker can see.
+ */
+export function rowForSentCondition(conditions: CaseCondition[], sentIndex: number): number | undefined {
+  const rows = conditions.map((_, row) => row).filter((row) => isCompleteCondition(conditions[row]));
+
+  return rows[sentIndex];
+}
+
 /** One entry, split on the first two colons and no further. */
 function parseCondition(entry: string): CaseCondition {
   const firstColon = entry.indexOf(PART_SEPARATOR);
@@ -201,4 +250,12 @@ export interface CaseCondition {
   field: string;
   operator: string;
   values: string[];
+}
+
+/** Everything a link to the case list carries. The path is the page's business, not this file's. */
+export interface CaseListLink {
+  filter?: string;
+  conditions?: CaseCondition[];
+  sort?: string;
+  page?: number;
 }

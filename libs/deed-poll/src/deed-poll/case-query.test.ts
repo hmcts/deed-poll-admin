@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { type CaseCondition, caseConditionSchema, caseQueryWhere, isCompleteCondition, parseConditions, serialiseConditions } from "./case-query.js";
+import {
+  type CaseCondition,
+  caseConditionSchema,
+  caseListSearch,
+  caseQueryWhere,
+  isBlankCondition,
+  isCompleteCondition,
+  parseConditions,
+  rowForSentCondition,
+  serialiseConditions
+} from "./case-query.js";
 
 /**
  * A query string built and read exactly as the wire does it: `URLSearchParams` percent-encodes on the
@@ -227,6 +237,69 @@ describe("deed-poll/case-query", () => {
     it("should be true for a condition that can go on the wire and false for a row mid-edit", () => {
       expect(isCompleteCondition({ field: "type", operator: "is", values: ["Adult"] })).toBe(true);
       expect(isCompleteCondition({ field: "", operator: "", values: [] })).toBe(false);
+    });
+  });
+
+  describe("isBlankCondition", () => {
+    it("should be true only for a row holding nothing at all", () => {
+      expect(isBlankCondition({ field: "", operator: "", values: [] })).toBe(true);
+      expect(isBlankCondition({ field: "", operator: "", values: ["", " "] })).toBe(true);
+      expect(isBlankCondition({ field: "type", operator: "", values: [] })).toBe(false);
+    });
+  });
+
+  describe("caseListSearch", () => {
+    it("should write nothing for the unfiltered list, so a default is api's to apply and not this app's to pin", () => {
+      expect(caseListSearch({})).toBe("");
+      expect(caseListSearch({ conditions: [], page: 1 })).toBe("");
+    });
+
+    it("should carry the tab and the conditions together, because a query narrows within the selected tab", () => {
+      const search = caseListSearch({ filter: "open", conditions: parseConditions(["type:is:Adult", "state:is:Received"]) });
+
+      expect(new URLSearchParams(search).get("filter")).toBe("open");
+      expect(new URLSearchParams(search).getAll("where")).toEqual(["type:is:Adult", "state:is:Received"]);
+    });
+
+    it("should encode a value holding a colon, a comma, an ampersand or a space rather than letting it re-split the URL", () => {
+      const conditions: CaseCondition[] = [{ field: "parents", operator: "contains", values: ["Flat 2, Rose & Court: A"] }];
+
+      const read = new URLSearchParams(caseListSearch({ conditions })).getAll("where");
+
+      expect(read).toEqual(["parents:contains:Flat 2, Rose & Court: A"]);
+    });
+
+    it("should round-trip through the URL back to the conditions it was given", () => {
+      const conditions = parseConditions(["dateReceived:between:2026-03-01,2026-04-01", "parents:isEmpty"]);
+
+      expect(parseConditions(new URLSearchParams(caseListSearch({ conditions })).getAll("where"))).toEqual(conditions);
+    });
+
+    it("should carry a blank row, because the row Add condition adds has to survive the redirect", () => {
+      const search = caseListSearch({ conditions: parseConditions([":", ":"]) });
+
+      expect(new URLSearchParams(search).getAll("where")).toEqual([":", ":"]);
+    });
+
+    it("should leave out a lone blank row, which is what the unfiltered list renders anyway", () => {
+      expect(caseListSearch({ conditions: parseConditions([":"]) })).toBe("");
+    });
+
+    it("should write a page only once it is not the first, and a sort only when there is one", () => {
+      expect(caseListSearch({ page: 2, sort: "dateReceived:desc" })).toBe("?sort=dateReceived%3Adesc&page=2");
+    });
+  });
+
+  describe("rowForSentCondition", () => {
+    it("should skip the rows that were never sent, so api's where.0 is the first complete condition", () => {
+      const conditions = parseConditions([":", "type:is:Adult", "state:", "state:is:Received"]);
+
+      expect(rowForSentCondition(conditions, 0)).toBe(1);
+      expect(rowForSentCondition(conditions, 1)).toBe(3);
+    });
+
+    it("should answer undefined for a position no row holds", () => {
+      expect(rowForSentCondition(parseConditions(["type:is:Adult"]), 3)).toBeUndefined();
     });
   });
 });
