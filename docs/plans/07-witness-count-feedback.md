@@ -147,7 +147,20 @@ the threshold from api's own value rather than a literal `2`. Show it whether th
 caseworker checking a complete case should see that it is complete, and a count that only appears when something
 is wrong reads as an error rather than a status.
 
-- [ ] Count rendered from api's threshold, present whether the requirement is met or not
+**Done 2026-09-14.** `libs/deed-poll/src/witnesses/enrolment-requirement.ts` names the threshold once —
+`WITNESSES_REQUIRED_FOR_ENROLMENT`, mirroring api's constant with the citation, following
+`witnesses/delete-policy.ts`'s "api enforces this; this is the presentation mirror" shape. `witnessCountText`
+builds the sentence; `[id].ts` passes it as `witnessCount` and `detail.njk` renders it as a `govuk-caption-m`
+above the subgrid, outside the `case.witnesses.length` check so a case with none states its count too.
+
+Two forms, because api sets no maximum: `"1 of 2 witnesses recorded"` at or below the requirement, and
+`"3 witnesses recorded, 2 required"` above it — `"3 of 2"` reads as a defect rather than a count.
+
+The sentence is view-model data rather than an `en` label: it interpolates the case's count, as `notes` and
+`header` already do, and `en` on this page holds only static labels. Decision 6's placement still holds for
+the static labels task 3 adds.
+
+- [x] Count rendered from api's threshold, present whether the requirement is met or not
 
 ### Task 3: The warning on the signature and enrolment tabs
 

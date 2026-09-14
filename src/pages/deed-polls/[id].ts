@@ -18,7 +18,8 @@ import {
   build as buildPresentation,
   DOCUMENT_COLUMNS,
   findDeedPoll,
-  getCaseFieldRules
+  getCaseFieldRules,
+  witnessCountText
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
@@ -79,6 +80,9 @@ export const GET = async (req: Request, res: Response) => {
     header: buildCaseHeader(found),
     notes: buildNotesView(found.notes),
     documents: buildDocumentsView(found.documents),
+    // Data rather than a label in `en`, as every other interpolated string on this page is: it carries
+    // the case's count and api's threshold. The threshold is api's — enrolment-requirement.ts.
+    witnessCount: witnessCountText(found.witnesses.length),
     en,
     cy
   });

@@ -183,6 +183,23 @@ describe("case detail page", () => {
     }
   });
 
+  it("states the witness count against api's threshold, so the subgrid says how far off enrolment the case is", async () => {
+    vi.mocked(findDeedPoll).mockResolvedValue({ ...found, witnesses: [{ id: "witness-1" }] } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].witnessCount).toBe("1 of 2 witnesses recorded");
+  });
+
+  it("states the witness count on a case with none, which is the case that needs it most", async () => {
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].witnessCount).toBe("0 of 2 witnesses recorded");
+  });
+
   it("provides both en and cy content objects with matching keys", async () => {
     const res = response();
 
