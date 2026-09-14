@@ -110,7 +110,14 @@ browser; the rest are only true once the plan is finished. Both live in the fina
 from `FORM_FIELDS`** rather than restated. Include the 5 `readOnly` fields — `referencenumber` and `state` are
 among the most useful to query.
 
-- [ ] Operators derived from kind in one place; queryable list derived from `FORM_FIELDS`; read-only fields included
+- [x] Operators derived from kind in one place; queryable list derived from `FORM_FIELDS`; read-only fields included
+
+`libs/deed-poll/src/deed-poll/query-fields.ts`. Note for the tasks below: **there is no `FORM_FIELDS` export** —
+`form-fields.ts` publishes `FORM_TABS`, `EDITABLE_FIELDS` (non-`readOnly` only) and `FIELD_BY_NAME`, so
+`QUERYABLE_FIELDS` derives from `FORM_TABS` by flattening tabs → sections → fields. That keeps the five `readOnly`
+fields, which `EDITABLE_FIELDS` would have dropped, and the subgrid tabs contribute nothing because they carry no
+sections. `queryableField(name)` is a `find` rather than a `FIELD_BY_NAME` lookup so a name off the URL cannot
+resolve `toString`.
 
 ### Task 2: Query parsing and serialising
 
