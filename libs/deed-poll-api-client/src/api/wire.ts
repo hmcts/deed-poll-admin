@@ -246,10 +246,21 @@ const caseSummarySchema = z.object({
   newForename: z.string().nullish()
 });
 
-/** The list, plus the filter api resolved — which may not be the one that was asked for. */
+/**
+ * One page of the list, plus the filter api resolved — which may not be the one that was asked for.
+ *
+ * The four counts are api's, not this app's: `total` is a count across every page, so a caller must never
+ * infer it from `cases.length`. `size` is the page size api APPLIED rather than the one requested — it
+ * caps a `size` above 100 instead of refusing it — and `totalPages` is zero for a result set with nothing
+ * in it, so "page 1 of 0" is what an empty list says.
+ */
 const caseListSchema = z.object({
   filter: z.string(),
-  cases: z.array(caseSummarySchema)
+  cases: z.array(caseSummarySchema),
+  page: z.number(),
+  size: z.number(),
+  total: z.number(),
+  totalPages: z.number()
 });
 
 const fieldRuleSchema = z.object({
@@ -441,7 +452,8 @@ export const UNSPECIFIED_SCHEMAS = { ApiError: apiErrorSchema } as const;
  * Everything else is nullable, and a schema insisting otherwise would reject an ordinary half-logged case.
  */
 export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string[]>> = {
-  CaseListResponse: ["filter", "cases"],
+  // The four paging counts are `int`, `int`, `long` and `int` on api's record, so none can arrive null.
+  CaseListResponse: ["filter", "cases", "page", "size", "total", "totalPages"],
   CaseSummaryResponse: ["id"],
   CaseDetailResponse: [
     "id",

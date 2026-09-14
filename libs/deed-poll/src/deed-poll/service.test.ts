@@ -33,21 +33,49 @@ describe("deed-poll/service", () => {
   });
 
   describe("findDeedPolls", () => {
-    it("passes the filter key through and returns the cases", async () => {
-      vi.mocked(listCases).mockResolvedValue(ok({ filter: "open", cases: [{ id: "case-1" }] }) as never);
+    it("passes the filter key through and returns the whole page, counts included", async () => {
+      const page = { filter: "open", cases: [{ id: "case-1" }], page: 1, size: 25, total: 213, totalPages: 9 };
+      vi.mocked(listCases).mockResolvedValue(ok(page) as never);
 
-      const cases = await findDeedPolls("open", CALLER);
+      const result = await findDeedPolls({ filter: "open" }, CALLER);
 
-      expect(cases).toEqual([{ id: "case-1" }]);
-      expect(listCases).toHaveBeenCalledWith("open", expect.objectContaining({ baseUrl: "http://api.test" }));
+      expect(result).toEqual(page);
+      expect(listCases).toHaveBeenCalledWith(expect.objectContaining({ filter: "open" }), expect.objectContaining({ baseUrl: "http://api.test" }));
     });
 
-    it("sends no filter when none was chosen, so api resolves its own default", async () => {
-      vi.mocked(listCases).mockResolvedValue(ok({ filter: "all", cases: [] }) as never);
+    it("sends no filter, sort or page when none was asked for, so api resolves its own defaults", async () => {
+      vi.mocked(listCases).mockResolvedValue(ok({ filter: "all", cases: [], page: 1, size: 25, total: 0, totalPages: 0 }) as never);
 
-      await findDeedPolls(undefined, CALLER);
+      await findDeedPolls({}, CALLER);
 
-      expect(listCases).toHaveBeenCalledWith(undefined, expect.anything());
+      expect(listCases).toHaveBeenCalledWith({ filter: undefined, where: [], sort: undefined, page: undefined, size: undefined }, expect.anything());
+    });
+
+    it("serialises the conditions as api's where parameters, with the tab alongside them", async () => {
+      vi.mocked(listCases).mockResolvedValue(ok({ filter: "open", cases: [], page: 1, size: 25, total: 0, totalPages: 0 }) as never);
+
+      await findDeedPolls(
+        { filter: "open", conditions: [{ field: "type", operator: "is", values: ["Adult"] }], sort: "dateReceived:desc", page: 2, size: 10 },
+        CALLER
+      );
+
+      expect(listCases).toHaveBeenCalledWith({ filter: "open", where: ["type:is:Adult"], sort: "dateReceived:desc", page: 2, size: 10 }, expect.anything());
+    });
+
+    it("leaves an incomplete condition off the wire, so adding a row does not turn the request into a 400", async () => {
+      vi.mocked(listCases).mockResolvedValue(ok({ filter: "all", cases: [], page: 1, size: 25, total: 0, totalPages: 0 }) as never);
+
+      await findDeedPolls(
+        {
+          conditions: [
+            { field: "type", operator: "is", values: ["Adult"] },
+            { field: "", operator: "", values: [] }
+          ]
+        },
+        CALLER
+      );
+
+      expect(listCases).toHaveBeenCalledWith(expect.objectContaining({ where: ["type:is:Adult"] }), expect.anything());
     });
   });
 

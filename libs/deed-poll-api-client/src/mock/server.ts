@@ -16,7 +16,7 @@
  * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
  * Both, because api's actuator serves both and `checkApiReachable` deliberately probes the liveness group.
  *
- * **Six of api's rules are restated here, and only six.** A mock that applied none of them would let a
+ * **Seven of api's rules are restated here, and only seven.** A mock that applied none of them would let a
  * page ship having never seen a real reference number or a derived state:
  *
  *   1. Reference-number allocation — the year from Date Received, the prefix from Type, a per-year serial.
@@ -25,9 +25,12 @@
  *   4. The per-type field-rule matrix.
  *   5. The audit author taken from the caller's token — see `auditName`.
  *   6. The two-witness gate on enrolment — see `enrolmentWitnessError`.
+ *   7. The list query — the `where` conditions, the sort and the paging — see `list`. Without it a query
+ *      builder could ship having narrowed nothing: every page and every e2e journey would see the same
+ *      list whatever it asked for, which is the one thing about a query worth testing.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
- * `ReferenceNumbers` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
+ * `ReferenceNumbers`, `CaseQuery` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
  * privacy lock, the minor and Gazette write gates, create-time defaults) is deliberately NOT modelled: no
  * page's behaviour depends on it, and a half-copy would be a second opinion to keep in step. If a page
  * ever does depend on one, model it here and say so in this list.
@@ -177,7 +180,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (method === "GET" && pathname === "/caseworker/cases/field-rules") return fieldRules(res, searchParams);
 
     if (pathname === "/caseworker/cases") {
-      if (method === "GET") return send(res, 200, list(searchParams.get("filter")));
+      if (method === "GET") return list(res, searchParams);
       if (method === "POST") return createCase(req, res);
       return send(res, 405, { error: `no such route: ${method} ${pathname}` });
     }
@@ -202,25 +205,66 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     return send(res, 404, { error: `no such route: ${method} ${pathname}` });
   }
 
-  function list(filter: string | null): unknown {
-    const resolved = FILTERS.find((candidate) => candidate.key === filter) ?? FILTERS[0];
+  /**
+   * One page of the list: the saved-query filter, the field-level conditions, the order and the page.
+   *
+   * Refusals are sent in api's order — the conditions, then the sort, then the paging — each as its own
+   * 400, because that is the order `CaseworkerReadController` parses them in and a page rendering the
+   * first refusal it is given should see the same one either way. The condition errors are addressed to
+   * `where.0`, `where.1` … since the parameter is repeated and a position is the only thing that says
+   * which of three conditions was the wrong one.
+   */
+  function list(res: ServerResponse, parameters: URLSearchParams): void {
+    const where = parameters.getAll("where");
+    // The cap alone, before the conditions are read: a request over it is refused whole, as api refuses it.
+    if (where.length > MAX_CONDITIONS) {
+      const message = `takes at most ${MAX_CONDITIONS} conditions, and was given ${where.length}`;
+      send(res, 400, { error: "Case query is not valid", errors: [{ field: "where", message }] });
+      return;
+    }
+
+    const conditions: MockCondition[] = [];
+    const conditionErrors: MockFieldError[] = [];
+    where.forEach((entry, index) => {
+      const parsed = parseCondition(entry);
+      if (typeof parsed === "string") conditionErrors.push({ field: `where.${index}`, message: parsed });
+      else conditions.push(parsed);
+    });
+    if (conditionErrors.length > 0) {
+      send(res, 400, { error: "Case query is not valid", errors: conditionErrors });
+      return;
+    }
+
+    const order = parseSort(parameters.get("sort"));
+    if (typeof order === "string") {
+      send(res, 400, { error: "Case list sort is not valid", errors: [{ field: "sort", message: order }] });
+      return;
+    }
+
+    const paging = parsePaging(parameters.get("page"), parameters.get("size"));
+    if ("errors" in paging) {
+      send(res, 400, { error: "Case list paging is not valid", errors: paging.errors });
+      return;
+    }
+
+    const resolved = FILTERS.find((candidate) => candidate.key === parameters.get("filter")) ?? FILTERS[0];
     const matching = [...cases.values()]
       .filter((record) => resolved.matches(record.state))
-      // Newest first, as api orders the list.
-      .sort((left, right) => right.createdOn.getTime() - left.createdOn.getTime());
+      .filter((record) => conditions.every((condition) => matchesCondition(record, condition)))
+      .sort(comparing(order));
 
-    return {
+    const from = (paging.page - 1) * paging.size;
+
+    send(res, 200, {
       filter: resolved.key,
-      cases: matching.map((record) => ({
-        id: record.id,
-        displayReference: record.displayReference,
-        privacy: record.privacy,
-        dateReceived: iso(record.dateReceived),
-        type: record.type,
-        state: record.state,
-        newForename: record.newForename
-      }))
-    };
+      cases: matching.slice(from, from + paging.size).map(toSummary),
+      page: paging.page,
+      size: paging.size,
+      total: matching.length,
+      // Zero pages for an empty result set, as `CaseResults` derives it: "page 1 of 0" tells the truth
+      // about a list with nothing in it where "page 1 of 1" claims a page that has no rows on it.
+      totalPages: Math.ceil(matching.length / paging.size)
+    });
   }
 
   async function createCase(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -609,6 +653,223 @@ const FILTERS: readonly { key: string; matches: (state: string | null | undefine
   { key: "returned", matches: (state) => state === "Returned" }
 ];
 
+/** api's cap on conditions per request, from `CaseQuery.MAX_CONDITIONS`. */
+const MAX_CONDITIONS = 20;
+
+/** api's page size when none is asked for, and the cap it clamps a larger one to — `CasePaging`. */
+const DEFAULT_PAGE_SIZE = 25;
+const MAX_PAGE_SIZE = 100;
+
+/**
+ * The fields a condition or a sort may name.
+ *
+ * Derived from the response schema rather than listed, so a field api adds to a case becomes queryable
+ * here without a second edit. The three exclusions are the properties with no column behind them: `id` is
+ * not a form field, and the two day counts are computed at read time — api refuses both with *"is derived,
+ * not stored"*.
+ *
+ * Wider than api's set by whatever wire property is not one of its 70 `FormFields`, and that is the
+ * accepted imprecision of a mock: api is the authority on the name, and being told about a name it would
+ * refuse is a 400 in a deployed environment rather than something a page can render differently.
+ */
+const QUERYABLE_FIELDS: ReadonlySet<string> = new Set(
+  Object.keys(WIRE_SCHEMAS.SavedCaseResponse.shape).filter((name) => !["id", "daysReceivedToEnroled", "daysReceivedToReturned"].includes(name))
+);
+
+/**
+ * How many values each operator takes, and whether they are comma-separated.
+ *
+ * The arity is here because nothing can be evaluated without it — `between` needs its bounds split and
+ * `isEmpty` must refuse a value. The operator-per-KIND table deliberately is NOT: it lives in api's
+ * `QueryOperator` and in this repo in `libs/deed-poll/src/deed-poll/query-fields.ts`, and a third copy
+ * would be one more to keep in step. Nothing this app sends can reach it anyway — `caseQueryWhere` only
+ * puts a condition on the wire once its own copy has admitted the operator for the field's kind — so a
+ * kind mismatch is a hand-edited URL, and api answers that with the 400 the page already renders.
+ */
+const ARITY_BY_OPERATOR: Readonly<Record<string, 0 | 1 | 2 | "many">> = {
+  is: 1,
+  contains: 1,
+  startsWith: 1,
+  before: 1,
+  after: 1,
+  gt: 1,
+  lt: 1,
+  between: 2,
+  isOneOf: "many",
+  isEmpty: 0,
+  isNotEmpty: 0
+};
+
+/**
+ * One `where` entry as a condition, or the message saying why it is not one.
+ *
+ * Split on the first two colons only, as api splits it: everything after the second is the value, so a
+ * colon inside a value survives. An entry with no second colon is how a no-value operator is written
+ * (`parents:isEmpty`).
+ */
+function parseCondition(entry: string): MockCondition | string {
+  const firstColon = entry.indexOf(":");
+  if (firstColon < 0) return `must be field:operator:value, and was '${entry}'`;
+
+  const secondColon = entry.indexOf(":", firstColon + 1);
+  const field = entry.slice(0, firstColon).trim();
+  const operator = (secondColon < 0 ? entry.slice(firstColon + 1) : entry.slice(firstColon + 1, secondColon)).trim();
+  const valuePart = secondColon < 0 ? null : entry.slice(secondColon + 1);
+
+  if (!QUERYABLE_FIELDS.has(field)) return `names no case field: '${field}'`;
+  // `hasOwn` rather than a truthiness check, because `ARITY_BY_OPERATOR["toString"]` is a function.
+  if (!Object.hasOwn(ARITY_BY_OPERATOR, operator)) return `names no operator: '${operator}'`;
+
+  const arity = ARITY_BY_OPERATOR[operator];
+  const takesList = arity === 2 || arity === "many";
+  const values = valuePart === null || valuePart === "" ? [] : takesList ? valuePart.split(",").map((value) => value.trim()) : [valuePart];
+  if (arity === "many" ? values.length === 0 : values.length !== arity) return `${operator} takes ${wantedValues(arity)}, and was given ${values.length}`;
+  if (values.some((value) => value.trim() === "")) return `${field} was given a blank value; use isEmpty to match a blank`;
+
+  return { field, operator, values };
+}
+
+/** What an operator's arity asks for, in the words api's own refusal uses. */
+function wantedValues(arity: 0 | 1 | 2 | "many"): string {
+  if (arity === 0) return "no value";
+  if (arity === 1) return "one value";
+
+  return arity === 2 ? "two comma-separated values" : "at least one comma-separated value";
+}
+
+/** `field`, `field:asc` or `field:desc`; a bare field is ascending, as api reads it. */
+function parseSort(sort: string | null): MockSort | string {
+  if (sort === null || sort.trim() === "") return { field: "createdOn", descending: true };
+
+  const colon = sort.indexOf(":");
+  const field = (colon < 0 ? sort : sort.slice(0, colon)).trim();
+  const direction = colon < 0 ? "asc" : sort.slice(colon + 1).trim();
+
+  if (!QUERYABLE_FIELDS.has(field)) return `names no sortable case field: '${field}'`;
+  if (direction !== "asc" && direction !== "desc") return `takes a direction of asc, desc, and was given '${direction}'`;
+
+  return { field, descending: direction === "desc" };
+}
+
+/** The page asked for, clamped as api clamps it, or the parameters that were unusable. */
+function parsePaging(page: string | null, size: string | null): { page: number; size: number } | { errors: MockFieldError[] } {
+  const errors: MockFieldError[] = [];
+  const number = pageNumber("page", page, 1, errors);
+  const rows = pageNumber("size", size, DEFAULT_PAGE_SIZE, errors);
+  if (errors.length > 0) return { errors };
+
+  // Clamped rather than refused, as `CasePaging` clamps it: the cap is a property of the service and not a
+  // mistake the caller made, and the response says what size was applied.
+  return { page: number, size: Math.min(rows, MAX_PAGE_SIZE) };
+}
+
+function pageNumber(name: string, raw: string | null, whenAbsent: number, errors: MockFieldError[]): number {
+  if (raw === null || raw.trim() === "") return whenAbsent;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    errors.push({ field: name, message: `takes a whole number of 1 or more, and was given '${raw}'` });
+    return whenAbsent;
+  }
+
+  return parsed;
+}
+
+/**
+ * Whether one condition holds for one case.
+ *
+ * A blank field matches `isEmpty` and nothing else, which is SQL's own answer: a comparison against null
+ * is not false so much as unknown, and a row it is unknown for is not returned.
+ */
+function matchesCondition(record: MockCase, { field, operator, values }: MockCondition): boolean {
+  const stored = (record as unknown as Record<string, unknown>)[field];
+  if (operator === "isEmpty") return isBlank(stored);
+  if (operator === "isNotEmpty") return !isBlank(stored);
+  if (isBlank(stored)) return false;
+
+  switch (operator) {
+    case "is":
+      return rank(stored, coerce(stored, values[0])) === 0;
+    case "isOneOf":
+      return values.some((value) => rank(stored, coerce(stored, value)) === 0);
+    case "before":
+    case "lt":
+      return rank(stored, coerce(stored, values[0])) < 0;
+    case "after":
+    case "gt":
+      return rank(stored, coerce(stored, values[0])) > 0;
+    case "between":
+      return rank(stored, coerce(stored, values[0])) >= 0 && rank(stored, coerce(stored, values[1])) <= 0;
+    case "contains":
+      // A multiselect holds its Dynamics option values, so "contains" asks whether one of them is chosen.
+      // Every other kind is text, and text is matched case-insensitively — api's `lower(col) like lower(?)`.
+      return Array.isArray(stored) ? stored.some((option) => String(option) === values[0].trim()) : lower(stored).includes(values[0].toLowerCase());
+    case "startsWith":
+      return lower(stored).startsWith(values[0].toLowerCase());
+    default:
+      return false;
+  }
+}
+
+/** Whether the stored value is one `isEmpty` matches: absent, blank, or an empty multiselect. */
+function isBlank(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (Array.isArray(value)) return value.length === 0;
+
+  return typeof value === "string" && value.trim() === "";
+}
+
+/** A condition's value as the type the stored one already is, since that is what decides the comparison. */
+function coerce(stored: unknown, value: string): unknown {
+  if (stored instanceof Date) return new Date(value.trim());
+  if (typeof stored === "number") return Number(value.trim());
+  if (typeof stored === "boolean") return value.trim() === "true";
+
+  return value;
+}
+
+/** Two comparable values ordered: negative, zero or positive, as a comparator answers. */
+function rank(left: unknown, right: unknown): number {
+  if (left instanceof Date && right instanceof Date) return left.getTime() - right.getTime();
+  if (typeof left === "number" && typeof right === "number") return left - right;
+  if (typeof left === "boolean" && typeof right === "boolean") return Number(left) - Number(right);
+  const [a, b] = [String(left), String(right)];
+
+  return a === b ? 0 : a < b ? -1 : 1;
+}
+
+function lower(value: unknown): string {
+  return String(value).toLowerCase();
+}
+
+/**
+ * The list's order.
+ *
+ * A blank sorts last ascending and first descending, which is Postgres's default and therefore what api
+ * gets — not a choice this file makes.
+ */
+function comparing(order: MockSort): (left: MockCase, right: MockCase) => number {
+  return (left, right) => {
+    const a = (left as unknown as Record<string, unknown>)[order.field];
+    const b = (right as unknown as Record<string, unknown>)[order.field];
+    const ranked = isBlank(a) || isBlank(b) ? (isBlank(a) === isBlank(b) ? 0 : isBlank(a) ? 1 : -1) : rank(a, b);
+
+    return order.descending ? -ranked : ranked;
+  };
+}
+
+/** One row of the list: the six columns `CaseSummaryResponse` carries and nothing else. */
+function toSummary(record: MockCase): unknown {
+  return {
+    id: record.id,
+    displayReference: record.displayReference,
+    privacy: record.privacy,
+    dateReceived: iso(record.dateReceived),
+    type: record.type,
+    state: record.state,
+    newForename: record.newForename
+  };
+}
+
 function prefixFor(type: string | null | undefined): string {
   return type === "DeedOfRelinquishment" ? "KBDR" : "KBDP";
 }
@@ -924,6 +1185,25 @@ export type MockCase = Omit<WireSavedCase, "daysReceivedToEnroled" | "daysReceiv
 };
 
 type CaseState = NonNullable<WireSavedCase["state"]>;
+
+/** One condition of a list query, already checked as far as the mock checks one. */
+interface MockCondition {
+  field: string;
+  operator: string;
+  /** One value for most operators, two for `between`, one or more for `isOneOf`, none for the two empties. */
+  values: string[];
+}
+
+interface MockSort {
+  field: string;
+  descending: boolean;
+}
+
+/** A refusal addressed to the parameter that caused it — `where.0`, `sort`, `page`. */
+interface MockFieldError {
+  field: string;
+  message: string;
+}
 
 type MockNote = WireNote;
 

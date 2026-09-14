@@ -168,7 +168,34 @@ limits sorting to the six list columns, none of which is one of them.
 Refresh `openapi.json` from api, add the new parameters to `client.ts` and the mock, extend the service call.
 `contract.test.ts` pins it.
 
-- [ ] Spec refreshed **from api**, `where`/`sort`/`page`/`size` sent, new response fields read, contract test green
+- [x] Spec refreshed **from api**, `where`/`sort`/`page`/`size` sent, new response fields read, contract test green
+
+Refreshed from api at `fd4fe3a` ("Field-level case query, sorting and paging"), via `./gradlew integration
+--tests '*OpenAPIPublisherTest*'` → `/tmp/openapi-specs.json`, reformatted with Biome. The whole diff is **62
+added lines and nothing removed**: no operation was added, because the query surface extends
+`GET /caseworker/cases`. `SPEC-PROVENANCE.md` records the commit and a fourth thing the document does not
+say — the operator table and the sortable-field list arrive only as **prose** in the `where` and `sort`
+parameter descriptions, so `contract.test.ts` cannot pin `query-fields.ts` against them. Read those
+descriptions on the next refresh.
+
+Four things the tasks below should not have to rediscover:
+
+- **`listCases` takes a query object now, not a filter string**, built with `URLSearchParams` so a value
+  carrying a colon, comma, ampersand or space is encoded rather than re-splitting the URL at api's end.
+  Every part is optional and an omitted one is **not sent at all**, so api applies its own default — this
+  app must not write 25 or `createdOn:desc` into a URL a caseworker bookmarks.
+- **`findDeedPolls` returns the whole page, not its rows**, and takes `DeedPollQuery`
+  (`filter`, `conditions`, `sort`, `page`, `size`). Conditions rather than `where` strings: serialising is
+  `caseQueryWhere`'s job, so an incomplete row stays off the wire. `total` and `totalPages` are api's counts
+  across every page and cannot be inferred from the rows — task 5 renders them, and must not count locally.
+- **The mock now evaluates the query — a seventh api rule restated there, and its header says so.**
+  Conditions, sort and paging, with refusals in api's own order (`where` → `sort` → `page`/`size`) and
+  condition errors addressed to `where.0`, `where.1`. Deliberately NOT restated: the operator-per-kind
+  table, which lives in api's `QueryOperator` and here in `query-fields.ts`. Its queryable set is
+  **derived** from the response schema minus `id` and the two day counts.
+- **The list page shows only api's first 25 until task 5 lands**, with nothing on screen saying so. That is
+  the sequencing, not an oversight: `page`/`size` are api's defaults and the pagination that makes them
+  visible is task 5's checkbox.
 
 ### Task 4: The builder UI
 

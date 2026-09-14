@@ -10,6 +10,9 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   findDeedPolls: vi.fn()
 }));
 
+/** api's list envelope: the rows plus the counts every page of it carries. */
+const page = (cases: unknown[]) => ({ filter: "all", cases, page: 1, size: 25, total: cases.length, totalPages: cases.length === 0 ? 0 : 1 });
+
 const record = {
   id: "case-1",
   displayReference: "KBDP2026-00001",
@@ -23,11 +26,11 @@ const record = {
 describe("deed-polls list page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(findDeedPolls).mockResolvedValue([] as never);
+    vi.mocked(findDeedPolls).mockResolvedValue(page([]) as never);
   });
 
   it("renders its own template, qualified by directory so it cannot be shadowed by pages/index.njk", async () => {
-    vi.mocked(findDeedPolls).mockResolvedValue([record] as never);
+    vi.mocked(findDeedPolls).mockResolvedValue(page([record]) as never);
     const res = pageResponse();
 
     await GET(pageRequest(), res);
@@ -43,13 +46,13 @@ describe("deed-polls list page", () => {
   it("asks for the default filter when none was chosen, so the default view is everything", async () => {
     await GET(pageRequest(), pageResponse());
 
-    expect(findDeedPolls).toHaveBeenCalledWith("all", expect.anything());
+    expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all" }, expect.anything());
   });
 
   it("sends api the key of the requested filter, rather than a clause of its own", async () => {
     await GET(pageRequest({ query: { filter: "enroled" } }), pageResponse());
 
-    expect(findDeedPolls).toHaveBeenCalledWith("enroled", expect.anything());
+    expect(findDeedPolls).toHaveBeenCalledWith({ filter: "enroled" }, expect.anything());
   });
 
   it("falls back to 'all' for an unrecognised filter rather than erroring", async () => {
@@ -57,14 +60,14 @@ describe("deed-polls list page", () => {
 
     await GET(pageRequest({ query: { filter: "nonsense" } }), res);
 
-    expect(findDeedPolls).toHaveBeenCalledWith("all", expect.anything());
+    expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all" }, expect.anything());
     expect(res.render).toHaveBeenCalledWith("deed-polls/index", expect.objectContaining({ activeFilter: "all" }));
   });
 
   it("presents the caseworker's own token, so api authenticates and audits as them", async () => {
     await GET(pageRequest({ accessToken: "caseworker-token" }), pageResponse());
 
-    expect(findDeedPolls).toHaveBeenCalledWith("all", { accessToken: "caseworker-token" });
+    expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all" }, { accessToken: "caseworker-token" });
   });
 
   it("marks the active filter so the tab bar can show which is current", async () => {
