@@ -309,10 +309,10 @@ assertions on the full hrefs. Three things the e2e journey pins that nothing bel
 
 ### Task 7: Full validation
 
-- [ ] `yarn lint` — exits 0, still only the two pre-existing warnings and the schema notice
-- [ ] `yarn turbo test test:app --concurrency=1` — 8 of 8, total above the baseline taken at the start
-- [ ] `yarn build` — 8 of 8
-- [ ] **e2e actually run, not just written.** From cold:
+- [x] `yarn lint` — exits 0, still only the two pre-existing warnings and the schema notice
+- [x] `yarn turbo test test:app --concurrency=1` — 8 of 8, total above the baseline taken at the start
+- [x] `yarn build` — 8 of 8
+- [x] **e2e actually run, not just written.** From cold:
       1. `docker compose up -d` (redis 6379, IDAM simulator 5556 — a JVM; `curl 127.0.0.1:5556/health` → 200)
       2. **`yarn idam:users`** — a fresh simulator has an empty user store, and the failure looks like a broken
          login: the journey parks on the IDAM page with `toHaveURL` timing out
@@ -325,8 +325,29 @@ assertions on the full hrefs. Three things the e2e journey pins that nothing bel
       5. **`--workers=1`.** At the default 7 this suite is unreliable here — `page.goto` timeouts in specs you never
          touched. The same starvation that makes bare `yarn test` false-red, one layer up
       6. `REDIS_URL=redis://127.0.0.1:6379 yarn test:e2e --workers=1`
-- [ ] `git grep -n 'queryableFields\|QUERYABLE' -- libs/deed-poll/src` shows the list derived, not enumerated
-- [ ] Mark completed
+- [x] `git grep -n 'queryableFields\|QUERYABLE' -- libs/deed-poll/src` shows the list derived, not enumerated
+- [x] Mark completed
+
+Green on all five, run in that order on this machine. What the numbers were, so the next plan has a
+baseline rather than this one's:
+
+- **`yarn lint` exits 0** with exactly the two `noUndeclaredEnvVars` warnings the constraints predicted
+  (`src/server.ts:3` on `PORT`, `src/session-store.test.ts:32` on `REDIS_URL`) and the stale-schema info
+  pair. 286 files checked, no fixes applied. The count did not grow.
+- **1,639 unit tests, 8 of 8 tasks, 0 skipped** — 644 `@hmcts/deed-poll`, 465 `//:test:app`, 192
+  `deed-poll-api-client`, 140 cloud-native-platform, 127 express-govuk-starter, 41 simple-router, 23
+  express-session-postgres, 7 express-session-redis. Against the 1,394 at `68d6db3` that is +245, and the
+  three Redis session tests **passed rather than skipped** because `docker compose` was already up — which
+  is why the constraint says compare totals, not passed counts.
+- **`yarn build` 8 of 8**, and the second run was `FULL TURBO` off cache in 624ms.
+- **24 e2e passed in 1.4m at `--workers=1`**, 22 chromium plus the two `auth.setup.ts` sign-ins, against 23
+  at the baseline: the one added is `deed-polls.spec.ts:372`, "caseworker filters the case list on two
+  fields, sorts it and pages through it". Every step of the cold-start recipe above earned its place —
+  `yarn idam:users` seeded the two users, the mock bound in 1s but the app took **31s**, all of it the
+  `deed-poll-aat.vault.azure.net` DNS lookup failing, and readiness only reported
+  `{"redis":"UP","deedPollApi":"UP"}` once both were up. One correction for the next reader:
+  **`yarn playwright install chromium` is not a script in this repo** — there is no root `playwright`
+  binary, so the step is a no-op to skip unless a version bump makes Playwright itself ask for it.
 
 ## Deliberately not in this plan
 
