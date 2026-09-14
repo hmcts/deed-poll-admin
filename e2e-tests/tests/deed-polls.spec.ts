@@ -15,7 +15,7 @@
  * See ./idam-session.ts for why the session is obtained from the real local IDAM rather than fabricated.
  */
 import { AxeBuilder } from "@axe-core/playwright";
-import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
+import { type APIRequestContext, type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 import {
   ADMIN_EMAIL,
   ADMIN_STORAGE_STATE,
@@ -29,6 +29,21 @@ import {
 const DATE_RECEIVED = { day: "10", month: "3", year: "2026" };
 
 const CASE_URL = /\/deed-polls\/[0-9a-f-]{36}$/;
+
+/**
+ * The mock api itself, which `playwright.config.ts` starts on 3200 beside the app on 3000.
+ *
+ * Addressed directly only for seeding, and only by the query journey: `POST /__mock/cases` is outside the
+ * contract and skips the refusals a real create applies, which is what makes 29 cases cheap. Every other
+ * test drives the forms, because what a create does is the thing being tested there.
+ */
+const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
+
+/** How many Adult cases the query journey seeds: one more than a page of 25, so there is a second page. */
+const ADULT_CASES_TO_QUERY = 26;
+
+/** And the Minor ones, which share the forename and are what the second condition has to exclude. */
+const MINOR_CASES_TO_QUERY = 3;
 
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
 test.use({ storageState: ADMIN_STORAGE_STATE });
@@ -344,6 +359,78 @@ test("caseworker is told a case is short of witnesses, and can enrol it once it 
 });
 
 /**
+ * The query builder, end to end and **with no JavaScript involved anywhere**: choosing a field, then its
+ * comparison, then its value is three submits, because each control's options depend on the one before it
+ * and nothing on the page rewrites them in the browser. That is decision 7 of the plan, and this journey is
+ * what would notice it being quietly traded away — the page tests drive the handler, which would keep
+ * passing against a builder that only worked with a script running.
+ *
+ * The other half is the parameter preservation, which is the bug this class of UI always has: the two
+ * conditions survive a sort, and both survive a page. Asserted on the URL as well as on the rows, because a
+ * link that dropped a condition still renders a plausible-looking table.
+ */
+test("caseworker filters the case list on two fields, sorts it and pages through it", async ({ page, request }) => {
+  // Arrange: 29 cases sharing one forename, 26 of them Adult — enough for two pages of 25, so paging is a
+  // real second page rather than a component rendered with nothing behind it. Seeded through the mock's
+  // control route rather than driven through the new-case form, which would be 29 form journeys.
+  const forename = seedForename();
+  await seedCasesToQuery(request, forename);
+
+  await page.goto("/deed-polls");
+
+  // Condition 1, one control per round trip: the operator chooser offers a text field's comparisons only
+  // once a text field has been chosen, so the field is submitted before there is an operator to pick.
+  await page.getByLabel("Case field for condition 1", { exact: true }).selectOption("newForename");
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await page.getByLabel("Comparison for condition 1", { exact: true }).selectOption("is");
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await page.getByLabel("Value for condition 1", { exact: true }).fill(forename);
+  await page.getByRole("button", { name: "Apply filters" }).click();
+
+  // The canonical URL, which is the whole state — bookmarkable, shareable, and reachable with the back
+  // button, per decision 5.
+  await expect(page).toHaveURL(`/deed-polls?where=newForename%3Ais%3A${forename}`);
+  await expect(page.getByText("1 to 25 of 29 applications")).toBeVisible();
+
+  // Condition 2, and the joining is the word "and" rather than a chooser offering one option — decision 4,
+  // because api ANDs the conditions and supports no OR.
+  await page.getByRole("button", { name: "Add condition" }).click();
+  await expect(page.locator("form p", { hasText: /^and$/ })).toBeVisible();
+  await page.getByLabel("Case field for condition 2", { exact: true }).selectOption("type");
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await page.getByLabel("Comparison for condition 2", { exact: true }).selectOption("is");
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  // An enum field asks for its value with a select, not a text box — decision 3, and the reason the value
+  // control is rebuilt after the operator is known.
+  await page.getByLabel("Value for condition 2", { exact: true }).selectOption({ label: "Adult" });
+  await page.getByRole("button", { name: "Apply filters" }).click();
+
+  // Both conditions met, so the three Minor cases are gone. The total is api's count across every page.
+  await expect(page.getByText("1 to 25 of 26 applications")).toBeVisible();
+  await expectNoAccessibilityViolations(page);
+
+  // Sorted on a column the table shows — decision 8 — and the header is a plain link, so ordering needs no
+  // JavaScript either. `aria-sort` says which way it points, which the link text alone does not.
+  await page.getByRole("link", { name: "Sort by Received" }).click();
+  expect(conditionsOf(page)).toEqual([`newForename:is:${forename}`, "type:is:Adult"]);
+  expect(new URL(page.url()).searchParams.get("sort")).toBe("dateReceived:asc");
+  await expect(page.locator("th", { hasText: "Received" })).toHaveAttribute("aria-sort", "ascending");
+  await expect(page.locator("tbody tr").first()).toContainText("1 January 2026");
+
+  // Paged, and the page link carries the tab, both conditions and the order: page 2 of another order holds
+  // other rows, so a pagination that dropped the sort would silently answer a different question.
+  await page.getByRole("link", { name: /Next/ }).click();
+  expect(conditionsOf(page)).toEqual([`newForename:is:${forename}`, "type:is:Adult"]);
+  expect(new URL(page.url()).searchParams.get("sort")).toBe("dateReceived:asc");
+  expect(new URL(page.url()).searchParams.get("page")).toBe("2");
+
+  // The last row of 26, so the range is stated from api's counts rather than from the one row on screen.
+  await expect(page.getByText("26 to 26 of 26 applications")).toBeVisible();
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await expect(page.locator("tbody tr").first()).toContainText("26 January 2026");
+});
+
+/**
  * Its own session, so `storageState` can be the roleless fixture rather than this file's administrator.
  * A `describe` is the only place Playwright honours a second `test.use` in one file.
  */
@@ -435,6 +522,51 @@ async function addWitness(page: Page, caseUrl: string, name: string): Promise<vo
   await page.getByLabel("No").check();
   await page.getByRole("button", { name: "Add witness" }).click();
   await expect(page).toHaveURL(`${caseUrl}#witnesses`);
+}
+
+/**
+ * A forename no other run and no other test shares.
+ *
+ * Unique per run because the mock is a process that outlives one — `reuseExistingServer` keeps it between
+ * local runs — so a fixed forename would find the previous run's cases too and the totals this journey
+ * asserts would climb by 29 each time. Unique per test because the mock's case store is shared with every
+ * other spec running in parallel, and `POST /__mock/reset` would delete their cases mid-journey.
+ */
+function seedForename(): string {
+  return `Filterby${Date.now().toString(36)}`;
+}
+
+/**
+ * The cases the query journey filters: `ADULT_CASES_TO_QUERY` Adult and `MINOR_CASES_TO_QUERY` Minor, all
+ * sharing one forename, each Adult one received on a day of its own so an order by Received is assertable.
+ *
+ * Dates in January so they cannot collide with `DATE_RECEIVED`, which every case the other journeys create
+ * carries — those cases are in the list too, and only the forename condition keeps them out of this one.
+ */
+async function seedCasesToQuery(request: APIRequestContext, newForename: string): Promise<void> {
+  const seed = async (body: Record<string, unknown>): Promise<void> => {
+    const response = await request.post(`${MOCK_API_URL}/__mock/cases`, { data: { newForename, ...body } });
+    // Asserted, because a rejected seed leaves the journey filtering an emptier list than it means to and
+    // the failure would surface as a wrong total several steps later.
+    expect(response.status(), await response.text()).toBe(201);
+  };
+
+  for (let day = 1; day <= ADULT_CASES_TO_QUERY; day++) {
+    const dd = String(day).padStart(2, "0");
+    // A display reference of its own: the Reference cell is a link, and one with no text is both useless to
+    // a caseworker and an accessibility violation on every list page the rest of the run renders.
+    await seed({ type: "Adult", dateReceived: `2026-01-${dd}T00:00:00.000`, displayReference: `KBDP2026-1${dd}00` });
+  }
+
+  for (let day = 1; day <= MINOR_CASES_TO_QUERY; day++) {
+    const dd = String(day).padStart(2, "0");
+    await seed({ type: "Minor", dateReceived: `2026-02-${dd}T00:00:00.000`, displayReference: `KBDP2026-2${dd}00` });
+  }
+}
+
+/** The conditions the URL on screen holds, which is what a sort or a page link must not have dropped. */
+function conditionsOf(page: Page): string[] {
+  return new URL(page.url()).searchParams.getAll("where");
 }
 
 /**

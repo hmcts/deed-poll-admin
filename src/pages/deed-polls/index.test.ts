@@ -122,6 +122,19 @@ describe("deed-polls list page", () => {
       );
     });
 
+    it("renders the rows a query answered with, and the rows it was built from beside them", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue(page([record]) as never);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: "newForename:is:Ada" } }), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.cases).toEqual([expect.objectContaining({ reference: "KBDP2026-00001", newForename: "Ada" })]);
+      expect(model.queryRows).toHaveLength(1);
+      expect(model.queryRows[0].values[0].value).toBe("Ada");
+      expect(model.errorSummary).toEqual([]);
+    });
+
     it("applies the tab and the query together, because a query narrows within the selected tab", async () => {
       await GET(pageRequest({ query: { filter: "open", where: "type:is:Adult" } }), pageResponse());
 

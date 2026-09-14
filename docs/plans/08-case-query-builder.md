@@ -285,7 +285,27 @@ field in `list-view.ts` and the page threading a `ListView` through every link i
 - Page: sort and page links preserve every other parameter — the bug this class of UI always has
 - e2e: build a two-condition query, run it, sort it, page it
 
-- [ ] All present, including the form-fields-drift test and the parameter-preservation test
+- [x] All present, including the form-fields-drift test and the parameter-preservation test
+
+Tasks 1–5 each landed their own unit and page tests, so what task 6 added is the **e2e journey** in
+`e2e-tests/tests/deed-polls.spec.ts` and one page test that a query renders the rows api answered with
+alongside the rows it was built from. The rest was audit: the drift guard is
+`query-fields.test.ts`'s "should offer every form field", the delimiter round trips are `case-query.test.ts`'s
+`throughAUrl`, and the parameter preservation is `index.test.ts`'s sort-header, tab-link and page-link
+assertions on the full hrefs. Three things the e2e journey pins that nothing below it could:
+
+- **Choosing a field, then a comparison, then a value is three submits**, because each control's options
+  come from the one before it and nothing rewrites them in the browser. The journey walks all three per
+  condition, twice, which is the only test that fails if decision 7 is quietly traded away — the page tests
+  drive the handler and would keep passing against a builder that needed a script.
+- **The cases are seeded through `POST /__mock/cases`, not the new-case form** — 29 of them, 26 Adult, one
+  forename unique per *run* and per *test*. Unique per run because `reuseExistingServer` keeps the mock
+  alive between local runs and a fixed forename would find the previous run's cases; per test because the
+  case store is shared with every parallel spec, so `POST /__mock/reset` would delete their cases mid-journey.
+  Each seed carries a `displayReference`: the Reference cell is a link, and one with no text is an
+  accessibility violation on every list page the rest of the run renders.
+- **The sort and the page links are checked on the URL, not only on the rows.** A link that dropped a
+  condition still renders a plausible table, so `conditionsOf` reads `where` off the address bar after each.
 
 ### Task 7: Full validation
 
