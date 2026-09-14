@@ -37,6 +37,17 @@ const environment = nunjucks.configure(
   { autoescape: true }
 );
 
+/** One row, since the table — and so its sortable headers — renders only for a result set with rows in it. */
+const record = {
+  id: "case-1",
+  displayReference: "KBDP2026-00001",
+  privacy: "Normal",
+  dateReceived: new Date("2026-03-01T00:00:00.000Z"),
+  type: "Adult",
+  state: "Received",
+  newForename: "Ada"
+};
+
 /** The list page as a browser receives it, for the query the URL carries. */
 const render = async (query: Record<string, unknown> = {}): Promise<string> => {
   const res = pageResponse();
@@ -164,5 +175,71 @@ describe("deed-polls list template", () => {
 
     expect(markup).toContain('<option value="state">State</option>');
     expect(markup).not.toContain('value="daysReceivedToEnroled"');
+  });
+
+  describe("the order and the page", () => {
+    /** One page of a longer result set: the counts a caseworker pages through. */
+    const results = (page: number) => ({ filter: "all", cases: [record], page, size: 25, total: 213, totalPages: 9 });
+
+    it("makes each column heading a link, so reordering needs no JavaScript either", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue(results(1) as never);
+
+      const markup = await render();
+
+      expect(markup).toContain('<a class="govuk-link" href="/deed-polls?sort=dateReceived%3Aasc">');
+      expect(markup).toContain("Sort by </span>Received");
+    });
+
+    it("marks how the table is ordered with aria-sort, which the link text does not say", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue(results(1) as never);
+
+      const markup = await render({ sort: "state:desc" });
+
+      expect(markup).toMatch(/<th[^>]*aria-sort="descending"[^>]*>\s*<a class="govuk-link" href="\/deed-polls\?sort=state%3Aasc"/);
+      expect([...markup.matchAll(/aria-sort="none"/g)]).toHaveLength(5);
+    });
+
+    it("carries the order through the builder as a control of its own, since the form submits as a GET", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue(results(1) as never);
+
+      const markup = await render({ sort: "state:desc" });
+
+      expect(markup).toContain('<input type="hidden" name="sort" value="state:desc">');
+    });
+
+    it("carries no sort control when the table is in api's own order, rather than naming a default", async () => {
+      const markup = await render();
+
+      expect(markup).not.toContain('name="sort"');
+    });
+
+    it("states the range and the total in words, from api's counts", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue(results(4) as never);
+
+      const markup = await render({ page: "4" });
+
+      expect(markup).toContain("76 to 100 of 213 applications");
+    });
+
+    it("renders the pagination with the pages api says there are", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue(results(4) as never);
+
+      const markup = await render({ page: "4" });
+
+      expect(markup).toContain('<nav class="govuk-pagination"');
+      expect(markup).toContain('href="/deed-polls?page=3" rel="prev"');
+      expect(markup).toContain('href="/deed-polls?page=5" rel="next"');
+      expect(markup).toContain('aria-label="Page 9"');
+      expect(markup).toContain("&ctdot;");
+    });
+
+    it("renders no pagination when one page holds everything", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ filter: "all", cases: [record], page: 1, size: 25, total: 1, totalPages: 1 } as never);
+
+      const markup = await render();
+
+      expect(markup).not.toContain("govuk-pagination");
+      expect(markup).toContain("1 to 1 of 1 applications");
+    });
   });
 });

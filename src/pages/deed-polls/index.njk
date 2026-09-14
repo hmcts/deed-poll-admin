@@ -8,6 +8,7 @@
 {% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
 {% from "govuk/components/radios/macro.njk" import govukRadios %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/pagination/macro.njk" import govukPagination %}
 
 {% block content %}
   <h1 class="govuk-heading-xl">{{ heading }}</h1>
@@ -34,6 +35,8 @@
   #}
   <form method="get" action="/deed-polls" class="govuk-!-margin-bottom-6" novalidate>
     <input type="hidden" name="filter" value="{{ activeFilter }}">
+    {# The order survives applying a query; the page number deliberately does not, so a query starts at its first page. #}
+    {% if sortValue %}<input type="hidden" name="sort" value="{{ sortValue }}">{% endif %}
 
     <h2 class="govuk-heading-m">{{ builderHeading }}</h2>
     <p class="govuk-hint">{{ builderHint }}</p>
@@ -172,18 +175,35 @@
       ]), rows) %}
     {% endfor %}
 
+    {#
+      Sortable headers: a plain link per column, so reordering needs no JavaScript, and `aria-sort` on the
+      cell because the link text alone does not say which way the column points.
+    #}
+    {% set head = [] %}
+    {% for column in sortHeaders %}
+      {% set headerCell %}<a class="govuk-link" href="{{ column.href }}"><span class="govuk-visually-hidden">{{ sortHint }} </span>{{ column.label }}</a>{% endset %}
+      {% set head = (head.push({ html: headerCell, attributes: { "aria-sort": column.ariaSort } }), head) %}
+    {% endfor %}
+
     {{ govukTable({
-      head: [
-        { text: columns[0] },
-        { text: columns[1] },
-        { text: columns[2] },
-        { text: columns[3] },
-        { text: columns[4] },
-        { text: columns[5] }
-      ],
+      head: head,
       rows: rows,
       caption: heading,
       captionClasses: "govuk-visually-hidden"
+    }) }}
+  {% endif %}
+
+  {# api's counts, not a count of the rows above: `total` spans every page and this one holds at most 25. #}
+  {% if pagingSummary %}
+    <p class="govuk-body">{{ pagingSummary }}</p>
+  {% endif %}
+
+  {% if paging and paging.links %}
+    {{ govukPagination({
+      previous: paging.links.previous,
+      next: paging.links.next,
+      items: paging.links.items,
+      landmarkLabel: pagingLabel
     }) }}
   {% endif %}
 

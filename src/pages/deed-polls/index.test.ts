@@ -180,6 +180,104 @@ describe("deed-polls list page", () => {
     });
   });
 
+  describe("the order and the page", () => {
+    it("sends api the order the URL asks for", async () => {
+      await GET(pageRequest({ query: { sort: "dateReceived:desc" } }), pageResponse());
+
+      expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", conditions: [], sort: "dateReceived:desc", page: undefined }, expect.anything());
+    });
+
+    it("sends no order for one on a field the table does not show, leaving api's default", async () => {
+      // Decision 8: a reordering by a cell that is not on screen reads as a bug rather than an answer.
+      await GET(pageRequest({ query: { sort: "applicantEmail:asc" } }), pageResponse());
+
+      expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", conditions: [], sort: undefined, page: undefined }, expect.anything());
+    });
+
+    it("sends api the page the URL asks for", async () => {
+      await GET(pageRequest({ query: { page: "4" } }), pageResponse());
+
+      expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", conditions: [], sort: undefined, page: 4 }, expect.anything());
+    });
+
+    it("sends no page for one api would refuse, since its wording for that is developer-facing", async () => {
+      await GET(pageRequest({ query: { page: "nonsense" } }), pageResponse());
+
+      expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", conditions: [], sort: undefined, page: undefined }, expect.anything());
+    });
+
+    it("carries the tab and every condition on each sort link, and returns to the first page", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "open", where: ["type:is:Adult", "state:is:Received"], page: "3" } }), res);
+
+      expect(res.render.mock.calls[0][1].sortHeaders.map((header: { href: string }) => header.href)).toEqual([
+        "/deed-polls?filter=open&where=type%3Ais%3AAdult&where=state%3Ais%3AReceived&sort=displayReference%3Aasc",
+        "/deed-polls?filter=open&where=type%3Ais%3AAdult&where=state%3Ais%3AReceived&sort=privacy%3Aasc",
+        "/deed-polls?filter=open&where=type%3Ais%3AAdult&where=state%3Ais%3AReceived&sort=dateReceived%3Aasc",
+        "/deed-polls?filter=open&where=type%3Ais%3AAdult&where=state%3Ais%3AReceived&sort=type%3Aasc",
+        "/deed-polls?filter=open&where=type%3Ais%3AAdult&where=state%3Ais%3AReceived&sort=state%3Aasc",
+        "/deed-polls?filter=open&where=type%3Ais%3AAdult&where=state%3Ais%3AReceived&sort=newForename%3Aasc"
+      ]);
+    });
+
+    it("flips the column that is in force and says so with aria-sort", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { sort: "state:asc" } }), res);
+
+      const header = res.render.mock.calls[0][1].sortHeaders[4];
+      expect(header).toEqual({ label: "State", field: "state", href: "/deed-polls?sort=state%3Adesc", ariaSort: "ascending" });
+    });
+
+    it("carries the tab, the conditions and the order on every page link", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ filter: "open", cases: [], page: 2, size: 25, total: 60, totalPages: 3 } as never);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "open", where: "type:is:Adult", sort: "state:desc", page: "2" } }), res);
+
+      const { links } = res.render.mock.calls[0][1].paging;
+      expect(links.previous).toEqual({ href: "/deed-polls?filter=open&where=type%3Ais%3AAdult&sort=state%3Adesc" });
+      expect(links.next).toEqual({ href: "/deed-polls?filter=open&where=type%3Ais%3AAdult&sort=state%3Adesc&page=3" });
+      expect(links.items.map((item: { number: number }) => item.number)).toEqual([1, 2, 3]);
+    });
+
+    it("keeps the tab and the order on the tab links, and returns them to the first page", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "open", sort: "state:desc", page: "3" } }), res);
+
+      expect(res.render.mock.calls[0][1].filters[2].href).toBe("/deed-polls?filter=received&sort=state%3Adesc");
+    });
+
+    it("states the range and the total from api's counts rather than from the rows on screen", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ filter: "all", cases: [record], page: 4, size: 25, total: 213, totalPages: 9 } as never);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { page: "4" } }), res);
+
+      expect(res.render.mock.calls[0][1].pagingSummary).toBe("76 to 100 of 213 applications");
+    });
+
+    it("states no range for an empty result set, since the empty message is the answer", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].pagingSummary).toBe("");
+      expect(res.render.mock.calls[0][1].paging.links).toBeNull();
+    });
+
+    it("offers no paging for a refused query, which has no page of results to be one of", async () => {
+      vi.mocked(findDeedPolls).mockRejectedValue(new InvalidInputError("Case query is not valid", [{ field: "where.0", message: "is not a member of state" }]));
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: "state:is:Nonsense" } }), res);
+
+      expect(res.render.mock.calls[0][1].paging).toBeNull();
+    });
+  });
+
   describe("a builder submission", () => {
     it("redirects to the canonical URL, so the address bar holds the bookmarkable query and not the form's controls", async () => {
       const res = pageResponse();
@@ -188,6 +286,15 @@ describe("deed-polls list page", () => {
 
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls?filter=open&where=type%3Ais%3AAdult");
       expect(findDeedPolls).not.toHaveBeenCalled();
+    });
+
+    it("keeps the order the results were in and drops the page, because a new query has its own pages", async () => {
+      const res = pageResponse();
+      const query = { apply: "true", sort: "state:desc", page: "3", "field-0": "type", "op-0": "is", "value-0-0": "Adult" };
+
+      await GET(pageRequest({ query }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls?where=type%3Ais%3AAdult&sort=state%3Adesc");
     });
 
     it("adds an empty row on Add condition, which is what makes the builder work without JavaScript", async () => {

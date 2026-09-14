@@ -28,8 +28,24 @@ export interface CaseListRow {
   newForename: string;
 }
 
-/** The table's column headings, beside the row builder so the two cannot fall out of step. */
-export const CASE_LIST_COLUMNS = ["Reference", "Privacy", "Received", "Type", "State", "New forename"];
+/**
+ * The table's columns, beside the row builder so the two cannot fall out of step: the heading a
+ * caseworker reads and the field api orders that column by.
+ *
+ * The two travel together because a sortable header is the pair — decision 8 limits sorting to the
+ * columns the table shows, and a column whose heading and sort field were declared separately could
+ * offer an order for a cell that is not on screen. Each `sort` is one of api's sortable fields, which
+ * arrive in `openapi.json` as prose in the `sort` parameter's description rather than as an enum, so
+ * `contract.test.ts` cannot pin them: read that description on the next spec refresh.
+ */
+export const CASE_LIST_COLUMNS: CaseListColumn[] = [
+  { label: "Reference", sort: "displayReference" },
+  { label: "Privacy", sort: "privacy" },
+  { label: "Received", sort: "dateReceived" },
+  { label: "Type", sort: "type" },
+  { label: "State", sort: "state" },
+  { label: "New forename", sort: "newForename" }
+];
 
 /**
  * `CaseSummary` is exactly these seven columns — api's list response carries no more, because a
@@ -64,4 +80,10 @@ function format(name: string, raw: unknown): string {
   const field = FIELD_BY_NAME[name];
   if (!field) return raw === null || raw === undefined || raw === "" ? NOT_PROVIDED : String(raw);
   return formatValue(field, raw);
+}
+
+/** One column of the list table: its heading, and the api field a header link orders by. */
+export interface CaseListColumn {
+  label: string;
+  sort: string;
 }

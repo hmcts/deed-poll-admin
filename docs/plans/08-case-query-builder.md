@@ -248,7 +248,32 @@ Six things the tasks below should not have to rediscover:
 Sortable column headers for the six `CASE_LIST_COLUMNS`, and GOV.UK pagination driven by api's counts, with the
 "1 to 25 of 213" summary.
 
-- [ ] Sort links preserve the query and the tab; pagination uses api's `total`/`totalPages`, not a local count
+- [x] Sort links preserve the query and the tab; pagination uses api's `total`/`totalPages`, not a local count
+
+`libs/deed-poll/src/deed-poll/list-sort.ts` and `list-paging.ts`, plus the six columns gaining their sort
+field in `list-view.ts` and the page threading a `ListView` through every link it builds. Four things task
+6 should not have to rediscover:
+
+- **`CASE_LIST_COLUMNS` is now `{ label, sort }` per column, not a list of headings.** A sortable header
+  *is* that pair — decision 8 limits sorting to what the table shows — and declaring the heading and the
+  field separately is how a column comes to offer an order for a cell that is not on screen. `en.columns`
+  went with it: the template renders `sortHeaders`, which carry the label, the link and the `aria-sort`.
+  api's sortable-field list is prose in the `sort` parameter description, so nothing pins these six.
+- **An order this app cannot show is dropped, not forwarded.** `parseSort` answers `undefined` for a field
+  outside the six, a direction that is not api's two, and an absent parameter alike — api would happily
+  order by `applicantEmail`, and rows moving for a reason nothing on screen gives reads as a bug.
+  `parsePage` falls back the same way for a page that is not a whole number of 1 or more, because api's
+  refusal of one is developer-facing. A page **past the end** is sent: how many pages there are is api's
+  count, not this app's to guess before asking.
+- **Every link goes through one `listHref`, and what each drops is the point.** A header link and a tab
+  link carry the tab, the conditions and the order but **not the page** — page 3 of another order or
+  another tab holds other rows — and the builder carries the order through as a hidden `sort` control for
+  the same reason, while still returning to the first page. Only the pagination names a page.
+- **Nothing counts rows.** `buildPaging` takes api's four counts (`CaseListCounts` is the envelope minus
+  its rows) and does arithmetic on those alone, so "1 to 25 of 213" is api's total and not the 25 on
+  screen. A page holding no rows — an empty result set, or a page past the end — states **no** range
+  rather than the "76 to 73 of 73" that computing one produces; the empty message stands in. A refused
+  query renders `paging: null`, having no page of results to be one of.
 
 ### Task 6: Tests
 
