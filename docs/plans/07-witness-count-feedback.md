@@ -115,7 +115,30 @@ If it works, record that in the plan and move on — **no code changes in this t
 the finding: most likely the field name api sends does not map to a control on that tab, which would also affect
 every other cross-field error and is worth more than this plan.
 
-- [ ] Both fields verified end to end, or the mapping failure reported with the field name api actually sends
+**Verified 2026-09-14, both fields, and it works — no plumbing needed.** Read from api at `62c76f4`,
+`DeedPollService.requireWitnessesForEnrolment`: the refusal is an `InvalidInputError("Case cannot be sent for
+enrolment")` carrying **one** `FieldError`, addressed by `enrolmentDateToAddress` to `dateEnroled` when the patch
+sets it, otherwise `signatureReceivedDate`, otherwise whichever date the merged record carries. The message is
+`ENROLMENT_WITNESSES_MESSAGE` plus a shortfall clause — *"A Deed Poll cannot be sent for enrolment until two
+witnesses have been recorded. This case has one; please add one more witness."* (`…has none; please add two
+witnesses.` at zero). `WITNESSES_REQUIRED_FOR_ENROLMENT = 2`.
+
+Driven through the real `POST` handler and the real `deed-polls/edit.njk`, once per field, with a throwaway probe
+(since deleted). For both `signature`/`signatureReceivedDate` and `enrolment`/`dateEnroled`:
+
+- status 400, `errors` carrying api's field error unchanged
+- `errorSummary` is `[{ text: <api's message>, href: "#<field>" }]` — `editableFieldNames` has both fields, so
+  neither loses its link
+- the rendered HTML contains `id="<field>"` — `govukDateInput`'s wrapper takes the field name as its id, so the
+  summary link resolves to a real element, exactly as `edit.njk`'s comment claims
+- one `govuk-error-message` block, on the date group, and the **submitted** parts are still in the boxes
+
+**One gap, and it belongs to task 4's e2e journey, not here: the in-memory mock does not implement the gate.**
+`libs/deed-poll-api-client/src/mock/server.ts` applies no witness check on the case PATCH, so nothing running
+against the mock can provoke this refusal — the probe supplied api's `FieldError` directly. The e2e journey in
+task 4 needs the mock to refuse first, or it will assert against a save that succeeds.
+
+- [x] Both fields verified end to end, or the mapping failure reported with the field name api actually sends
 
 ### Task 2: The witness count on the subgrid
 
