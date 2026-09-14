@@ -241,11 +241,31 @@ test pins that.
 
 ### Task 5: Full validation
 
-- [ ] `yarn lint` — exits 0, still only the two pre-existing warnings and the schema notice
-- [ ] `yarn turbo test test:app --concurrency=1` — 8 of 8, total above **1,361** (master at `f62fed7`). Compare
+**Run 2026-09-14, all green.** Numbers as observed, so a later run has something to compare against:
+
+- lint exit 0, `Checked 275 files`, the same two `noUndeclaredEnvVars` warnings (`src/server.ts:3`,
+  `src/session-store.test.ts:32`) and the `biome migrate` notice. Count unchanged.
+- **1,394 tests**, 8 of 8 packages, none skipped — Redis was up, so `express-session-redis` ran all 7 rather
+  than skipping three. Against the 1,361 baseline that is **+33**: this plan's `enrolment-requirement.test.ts`
+  (15), the mock's gate tests, and the page tests task 4 added. Per package: deed-poll 480, app 412,
+  api-client 164, cloud-native-platform 140, govuk-starter 127, simple-router 41, session-postgres 23,
+  session-redis 7.
+- build 8 of 8.
+- **e2e 23 passed**, one worker, 1.7m — the 22 baseline plus
+  `deed-polls.spec.ts:298 caseworker is told a case is short of witnesses, and can enrol it once it is not`.
+  Nothing else moved.
+
+Two notes for the next cold run, from doing it: the app bound in **35s** here rather than 40–75s, and the
+readiness probe reported `redis` and `deedPollApi` UP together on the first 200 — the 503 window the step
+below warns about is real but only appears if the mock is not started first, which it was. The IDAM
+simulator had been up 47 hours, so `yarn idam:users` was still a re-seed rather than a first seed, and it
+reported both users; it is not skippable on a fresh container.
+
+- [x] `yarn lint` — exits 0, still only the two pre-existing warnings and the schema notice
+- [x] `yarn turbo test test:app --concurrency=1` — 8 of 8, total above **1,361** (master at `f62fed7`). Compare
       totals, not passed counts
-- [ ] `yarn build` — 8 of 8
-- [ ] **e2e actually run, not just written.** From cold, and steps 4–6 are what separate a real result from an
+- [x] `yarn build` — 8 of 8
+- [x] **e2e actually run, not just written.** From cold, and steps 4–6 are what separate a real result from an
       afternoon chasing a phantom:
       1. `docker compose up -d` (redis 6379, IDAM simulator 5556 — a JVM; `curl 127.0.0.1:5556/health` → 200)
       2. **`yarn idam:users`** — a fresh simulator has an empty user store, and the failure looks like a broken
@@ -261,10 +281,12 @@ test pins that.
          specs you never touched. **The same starvation that makes bare `yarn test` false-red**, one layer up, so
          a parallel red run is not evidence of a regression
       6. `REDIS_URL=redis://127.0.0.1:6379 yarn test:e2e --workers=1`
-      **Baseline 22 passed** at `f62fed7`. This plan should make it 23.
-- [ ] `git grep -n "'2'\|\"2\"\| 2 " -- src/pages/deed-polls/detail.njk` shows no hardcoded threshold —
-      decision 5 and the second open question
-- [ ] Mark completed
+      **Baseline 22 passed** at `f62fed7`. This plan should make it 23. **It did: 23 passed.**
+- [x] `git grep -n "'2'\|\"2\"\| 2 " -- src/pages/deed-polls/detail.njk` shows no hardcoded threshold —
+      decision 5 and the second open question. One hit, and it is not one: a prose comment at `:212` about
+      porting the source table's `colspan="2"` cells. The threshold reaches the template only as
+      `witnessCount`, built from `WITNESSES_REQUIRED_FOR_ENROLMENT`
+- [x] Mark completed
 
 ## Deliberately not in this plan
 
