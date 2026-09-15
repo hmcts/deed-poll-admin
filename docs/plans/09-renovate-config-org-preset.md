@@ -124,22 +124,36 @@ yarn build
 
 ### Task 2: Prove it passes the check the pipeline actually runs
 
-- [ ] Run the pipeline's own test verbatim — this is the whole point of the plan:
+- [x] Run the pipeline's own test verbatim — this is the whole point of the plan:
 
       ```bash
       grep -iq 'local>hmcts/.github:renovate-config' .github/renovate.json && echo PASS || echo FAIL
       ```
 
-      It must print `PASS`
-- [ ] Run the other branch of the same script, which decides *whether* the check applies:
+      It must print `PASS` — printed `PASS`
+- [x] Run the other branch of the same script, which decides *whether* the check applies:
       `grep -iq enabledManagers .github/renovate.json && echo "skipped" || echo "check applies"`.
       Expect **`check applies`** — we are passing the check, not opting out of it. If a task ever makes this
       print `skipped`, it has taken the wrong route: `enabledManagers` narrows Renovate to named managers and
       would silently stop most updates
-- [ ] Record in this plan that the fix is **unverified against a real build**, and that this is expected:
+      — printed `check applies`; there is no `enabledManagers` key in the file and none was added
+- [x] Record in this plan that the fix is **unverified against a real build**, and that this is expected:
       `build.hmcts.net` is behind Azure AD App Proxy and unreachable from the devcontainer, so triggering and
-      reading the master build is Steve's. **Do not attempt it**
-- [ ] Mark completed
+      reading the master build is Steve's. **Do not attempt it** — recorded below, and not attempted
+- [x] Mark completed
+
+**Verification status: the fix passes the check locally and is unverified against a real build.** Both
+branches of `renovate-config-check.sh` were reproduced verbatim above and behave as the pipeline needs —
+the org preset is found, and the `enabledManagers` opt-out is absent, so the check applies and passes. That
+is the whole of what can be shown from here: `build.hmcts.net` sits behind Azure AD App Proxy and is
+unreachable from the devcontainer, so triggering the master build and reading `checkoutScm`'s output is
+Steve's step, not this plan's. It was not attempted. Confirmation that build #4 gets past `checkoutScm` — and
+so becomes the first master build to publish an image and Helm chart — is the real close-out signal.
+
+The three validation commands were re-run on this task and match the `2a6b441` baseline unchanged, which is
+what should happen: `lint` exit 0 with the same two pre-existing `noUndeclaredEnvVars` warnings, 1,639 unit
+tests across 8 of 8 turbo tasks (41 + 23 + 192 + 644 + 7 + 127 + 140 + 465), `build` 8 of 8. This task read
+files and ran greps; it changed no code.
 
 ### Task 3: Check the third custom manager still makes sense
 
