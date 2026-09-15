@@ -161,14 +161,49 @@ This repo has a manager `deed-poll-web` does not: "Update Node.js version in Git
 has no `.github/workflows/`** — it was deleted when all four repos moved to the Jenkins CNP pipeline. So the
 manager may now match nothing.
 
-- [ ] Confirm whether any file it could match exists:
+- [x] Confirm whether any file it could match exists:
       `ls -la .github/workflows/ 2>/dev/null || echo "no workflows directory"`
-- [ ] If there is nothing for it to match, **leave it in place and record that** in this plan rather than
+      — printed `no workflows directory`
+- [x] If there is nothing for it to match, **leave it in place and record that** in this plan rather than
       deleting it. Two reasons: a manager matching nothing is inert, not harmful; and `docs/PIPELINES.md`
       notes the Playwright suite still wants a pipeline stage, so a workflow could return. Deleting it would
       be a silent behaviour change on a file this plan is otherwise leaving alone
-- [ ] Note the finding either way, with the manager's index, so a future tidy-up has the evidence
-- [ ] Mark completed
+      — left in place, unchanged; finding recorded below
+- [x] Note the finding either way, with the manager's index, so a future tidy-up has the evidence
+- [x] Mark completed
+
+**Finding: the GitHub Actions manager currently matches nothing, and it stays.**
+
+It is `customManagers[2]` — the third and last of the three, `description` "Update Node.js version in GitHub
+Actions", `managerFilePatterns: ["/^\\.github/workflows/.*\\.ya?ml$/"]`. Evidence gathered on 2026-09-15:
+
+- `ls -la .github/workflows/` → `no workflows directory`. `.github/` holds only
+  `copilot-instructions.md`, `osv-scanner.toml`, `renovate.json` and `scripts/`.
+- `find .github -name '*.yml' -o -name '*.yaml'` → no output. There is no YAML anywhere under `.github/`,
+  so nothing can match even if the directory reappeared under a different name.
+- `git log --diff-filter=D -- '.github/workflows/*'` → the files went in `20f08ac`, "Move deed-poll-admin to
+  the Jenkins CNP pipeline, and sessions to Redis (#75)". This is a known, deliberate deletion, not drift.
+
+So the manager is inert: Renovate will find no file to scan and will raise no dependency from it. The two
+other managers are the live ones — `customManagers[0]` reads `.nvmrc` and `customManagers[1]` reads
+`Dockerfile*`, both of which exist, and `packageRules`' "Group all Node.js version updates" keeps them in one
+branch via `matchManagers: ["custom.regex", "nvm"]`.
+
+One correction to the plan's stated second reason, recorded so a future tidy-up is not misled: the claim that
+"a workflow could return" is weaker than it reads. `docs/PIPELINES.md` does note the Playwright journeys have
+no pipeline stage — `AppPipelineConfig.e2eTest` defaults false and `Jenkinsfile_CNP` never calls
+`enableE2eTest()` — but the repo's `CLAUDE.md` states plainly that `.github/workflows/` was deleted in full
+and **none should be added**. A workflow returning would therefore be a reversal of a documented decision,
+not a routine addition. The reason to keep the manager is the first one alone, and it is sufficient: an inert
+manager costs nothing, and deleting it is a behaviour change on the one file this plan exists to make a
+single-line edit to. If a later plan tidies `renovate.json` for its own sake, `customManagers[2]` is the
+candidate and this paragraph is the evidence.
+
+This task read files and ran `ls`, `find`, `git log` and `grep`. It changed no code and no configuration, and
+the three validation commands were re-run anyway and match the `2a6b441` baseline: `lint` exit 0 with the same
+two pre-existing `noUndeclaredEnvVars` warnings (`PORT` in `src/server.ts`, `REDIS_URL` in
+`src/session-store.test.ts`), 1,639 unit tests across 8 of 8 turbo tasks (465 + 644 + 192 + 140 + 127 + 41 +
+23 + 7), `build` 8 of 8.
 
 ## Deliberately not in this plan
 
