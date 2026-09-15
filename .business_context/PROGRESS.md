@@ -365,12 +365,13 @@ ours.
 | `deed-poll` Kubernetes namespace | Platform-level, **still unconfirmed**, but no longer a bare question: under Jenkins it is a `cnp-flux-config` change per component |
 | ~~`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`~~ | ✅ **No longer needed.** GitHub Actions-specific; Jenkins authenticates as its own managed identity. PR #99 closed 2026-09-06 |
 | ~~`AZURE_CREDENTIALS_CFT_PREVIEW`~~, ~~`AZURE_CREDENTIALS_CFT_AAT`~~ | ✅ **No longer needed**, same reason. The `_PREVIEW`/`_AAT` trap goes with them |
-| `idam-client-secret` in the vault | Blocked on IDAM, **unchanged by any of this**. Added by hand once IDAM replies — the value is theirs, so there is nothing to generate. Renaming to `admin-idam-client-secret` must land first |
+| `admin-idam-client-secret` in the vault | ✅ **Not blocked on IDAM — this was recorded backwards.** Corrected 2026-09-14: **we** generate it and IDAM consumes it, so it appears on the first apply of `deed-poll-infra` like the session secrets. `idam-access-config` reads it out of our vault by name and fails when it is empty. The rename to `admin-idam-client-secret` has landed on both sides. See `deed-poll-infra/README.md` |
 | S2S microservice registration | **New.** Deliberately out of the first apply; the registration path is not yet identified |
 | Path to live | Production only, and much may not apply — internal caseworker service on `platform.hmcts.net`, not public |
 
-**Phase 5 is unchanged: wait for IDAM.** The registration PR is raised and nothing here can be verified
-against real IDAM until it is merged and deployed.
+**Phase 5: the wait is no longer purely on IDAM.** Their `idam-access-config#993` is raised and still
+unmerged, but as of 2026-09-14 it was failing on *our* missing vault — so the next move is ours: apply
+`deed-poll-infra`. Nothing here can be verified against real IDAM until #993 is merged and deployed.
 
 Verified 2026-09-04 against the live repository, not inferred: `actions/secrets` and `actions/variables`
 are both empty, `actions/organization-secrets` lists 28 and **none of them is an Azure credential**, and
