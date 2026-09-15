@@ -96,7 +96,7 @@ yarn build
 
 ### Task 1: Extend the org preset
 
-- [ ] In `.github/renovate.json`, change `"extends": ["config:recommended"]` to:
+- [x] In `.github/renovate.json`, change `"extends": ["config:recommended"]` to:
 
       ```json
       "extends": [
@@ -107,14 +107,20 @@ yarn build
 
       Preset first, per decision 2. **Change nothing else in the file** — not `automerge`, not
       `customManagers`, not `packageRules`, not `constraints`
-- [ ] Confirm the file is still valid JSON:
+- [x] Confirm the file is still valid JSON:
       `node -e "JSON.parse(require('fs').readFileSync('.github/renovate.json','utf8')); console.log('valid')"`
-- [ ] Confirm nothing else was lost:
+      — printed `valid`
+- [x] Confirm nothing else was lost:
       `node -e "const c=require('./.github/renovate.json'); console.log(c.customManagers.length, c.packageRules.length)"`
       must print `3 5` — the counts on `master` before this change. **Three custom managers, not two:**
       `.nvmrc`, Dockerfiles, and GitHub Actions
-- [ ] Run the validation commands
-- [ ] Mark completed
+      — printed `3 5`; `extends` is `["local>hmcts/.github:renovate-config","config:recommended"]`
+- [x] Run the validation commands — all three match the `2a6b441` baseline: `lint` exit 0 with the same two
+      pre-existing `noUndeclaredEnvVars` warnings (`PORT` in `src/server.ts`, `REDIS_URL` in
+      `src/session-store.test.ts`), `yarn turbo test test:app --concurrency=1` **1,639 tests, 8 of 8 tasks**
+      (41 + 23 + 192 + 644 + 7 + 127 + 140 + 465), `build` 8 of 8. The single-line `extends` edit is the only
+      change in the working tree
+- [x] Mark completed
 
 ### Task 2: Prove it passes the check the pipeline actually runs
 
