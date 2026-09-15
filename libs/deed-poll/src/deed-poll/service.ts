@@ -20,7 +20,7 @@
  */
 import {
   type CaseDetail,
-  type CaseSummary,
+  type CaseList,
   createCase,
   type FieldRules,
   type FieldRulesQuery,
@@ -32,19 +32,41 @@ import {
 } from "@hmcts/deed-poll-api-client";
 import { type Caller, callApi } from "../api/deed-poll-api.js";
 import { InvalidInputError } from "../errors.js";
+import { type CaseCondition, caseQueryWhere } from "./case-query.js";
 import * as validation from "./deed-poll-validation.js";
 import type { CreateDeedPollInput, UpdateDeedPollInput } from "./schemas.js";
 
 /**
- * The cases one saved-query filter admits.
+ * One page of the cases a saved-query filter and a set of conditions admit.
  *
  * Takes the filter's KEY, not a predicate: api owns which states each key admits (its `ListFilters` is
- * the port of `list-filters.ts`), so sending a `where` clause would be this app deciding what "Open"
- * means for a store it no longer has. An unrecognised or absent key resolves to "all" at api's end,
- * which is what `filterFor` does here, so a bookmarked URL behaves the same either way.
+ * the port of `list-filters.ts`), so resolving a tab into conditions would be this app deciding what
+ * "Open" means for a store it no longer has. An unrecognised or absent key resolves to "all" at api's
+ * end, which is what `filterFor` does here, so a bookmarked URL behaves the same either way. The tab and
+ * the query compose — both are sent, and api ANDs them.
+ *
+ * The whole page is returned rather than only its rows, because `total` and `totalPages` are api's counts
+ * across every page and a caller cannot infer either from the rows it was given. Counting locally is what
+ * `.claude/rules/backend.md` means by not recomputing what api publishes.
+ *
+ * **The conditions are serialised on the way out and never validated here as authoritative.** api
+ * re-checks every one against its own `FormFields` and wins any disagreement; `caseQueryWhere` only keeps
+ * the incomplete rows of a half-built query off the wire, so adding a condition does not turn the request
+ * into a 400 and lose the results already on screen.
  */
-export function findDeedPolls(filter: string | undefined, caller: Caller): Promise<CaseSummary[]> {
-  return callApi(caller, (config) => listCases(filter, config)).then((list) => list.cases);
+export function findDeedPolls(query: DeedPollQuery, caller: Caller): Promise<CaseList> {
+  return callApi(caller, (config) =>
+    listCases(
+      {
+        filter: query.filter,
+        where: caseQueryWhere(query.conditions ?? []),
+        sort: query.sort,
+        page: query.page,
+        size: query.size
+      },
+      config
+    )
+  );
 }
 
 /**
@@ -107,4 +129,21 @@ export async function validateCaseForSubmit(id: string, caller: Caller): Promise
     throw new InvalidInputError("Case is not valid for submission", errors);
   }
   return record;
+}
+
+/**
+ * What to ask the case list for: a tab, a query, an order and a page.
+ *
+ * Conditions rather than `where` strings, because a page holds the rows a caseworker is editing and the
+ * wire format is `case-query.ts`'s business. Everything is optional and an omitted part is not sent, so
+ * api applies its own defaults — no sort is newest first, no page is the first 25.
+ */
+export interface DeedPollQuery {
+  filter?: string;
+  conditions?: CaseCondition[];
+  /** `field` or `field:asc` or `field:desc`, as api reads it. */
+  sort?: string;
+  /** 1-based. */
+  page?: number;
+  size?: number;
 }

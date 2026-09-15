@@ -55,6 +55,52 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A condition, as `field:operator:value`. Repeat the parameter for more than one; they are ANDed, and there is no OR. Split on the first two colons only, so a colon inside a value survives. The field must be a queryable case field and the operator must apply to its kind, or the request is a 400 naming every condition it could not read rather than only the first. Operators: is (takes one value), contains (takes one value), startsWith (takes one value), before (takes one value), after (takes one value), gt (takes one value), lt (takes one value), between (takes two comma-separated values, low first), isOneOf (takes at least one comma-separated value), isEmpty (takes no value), isNotEmpty (takes no value).",
+            "explode": true,
+            "in": "query",
+            "name": "where",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "description": "An order, as `field:asc|desc`. The direction may be omitted and defaults to ascending. Sortable fields are the columns the list shows: referencenumber, displayReference, dateOfApplication, inPerson, postCounter, feeReference, dateReceived, type, maritalStatus, minorDateOfBirth, ageOfMinor, ageOfMinorMonths, parents, privacy, state, urgency, urgencyreason, onlineApplicationReference, retainPermanently, awaitingFurtherDocsInfo, newForename, newMiddleName, newSurname, oldForename, oldMiddleName, oldSurname, applicantBuildingNoName, applicantAddress1, applicantAddress2, applicantTownCity, applicantPostcode, applicantEmail, applicantTelephone, representativeName, representativeCompany, representativeEmail, representativeTelephone, representativeBuildingNoName, representativeAddress1, representativeAddress2, representativeTownCity, representativePostcode, nationality, nationalitySection, nationalitySectionOther, dateOfDeclaration, referToMasterChoice, dateReadyForMaster, dateReferred, referralNotes, masterName, masterDirections, masterDecision, masterDateOfDecision, dateDecisionDirectionsReceived, publishToLondonGazette, signatureRequestedDate, signatureReceivedDate, dateEnroled, dateNoticeSentToLondonGazette, dateReturned, returnReason, refundAmount, dateOfRefund, refundReference, createdOn, modifiedOn, createdBy, modifiedBy. Defaults to newest first.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page to return, 1-based. Defaults to 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1,
+              "minimum": 1
+            }
+          },
+          {
+            "description": "How many rows on the page. Defaults to 25 and is capped at 100: a larger value is clamped to the cap rather than refused, because an unbounded list is a denial of service against the service's own database.",
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 25,
+              "minimum": 1
+            }
           }
         ],
         "responses": {
@@ -991,6 +1037,22 @@
           },
           "filter": {
             "type": "string"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

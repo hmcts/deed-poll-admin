@@ -433,6 +433,199 @@ describe("the field-rules parameters", () => {
   });
 });
 
+describe("the list query", () => {
+  it("should AND the conditions rather than widening the result with each one", async () => {
+    mock.seed({ type: "Adult", newForename: "Ada" });
+    mock.seed({ type: "Minor", newForename: "Ada" });
+    mock.seed({ type: "Adult", newForename: "Grace" });
+
+    const list = await get("/caseworker/cases?where=type:is:Adult&where=newForename:is:Ada");
+
+    expect(list.cases.map((summary: { newForename: string }) => summary.newForename)).toEqual(["Ada"]);
+    expect(list.total).toBe(1);
+  });
+
+  it("should apply the tab and the query together, so a bookmarked filter keeps meaning what it means", async () => {
+    mock.seed({ type: "Adult", state: "Enroled" });
+    const open = mock.seed({ type: "Adult", state: "Received" });
+
+    const list = await get("/caseworker/cases?filter=open&where=type:is:Adult");
+
+    expect(list.filter).toBe("open");
+    expect(list.cases.map((summary: { id: string }) => summary.id)).toEqual([open.id]);
+  });
+
+  it("should match text case-insensitively for contains and startsWith, as api's lower() comparison does", async () => {
+    mock.seed({ newForename: "Ada" });
+
+    expect((await get("/caseworker/cases?where=newForename:contains:DA")).cases).toHaveLength(1);
+    expect((await get("/caseworker/cases?where=newForename:startsWith:ad")).cases).toHaveLength(1);
+    expect((await get("/caseworker/cases?where=newForename:is:ada")).cases).toHaveLength(0);
+  });
+
+  it("should keep a colon and a comma inside a single-valued operator's value", async () => {
+    mock.seed({ returnReason: "Returned at 10:30, unsigned" });
+
+    expect((await get(`/caseworker/cases?where=${encodeURIComponent("returnReason:contains:at 10:30, unsigned")}`)).cases).toHaveLength(1);
+  });
+
+  it("should split a list-taking operator's values on commas and trim them", async () => {
+    mock.seed({ type: "Adult" });
+    mock.seed({ type: "Minor" });
+    mock.seed({ type: "Unknown" });
+
+    const list = await get(`/caseworker/cases?where=${encodeURIComponent("type:isOneOf:Adult, Minor")}`);
+
+    expect(list.cases.map((summary: { type: string }) => summary.type).sort()).toEqual(["Adult", "Minor"]);
+  });
+
+  it("should compare a date between its bounds inclusively", async () => {
+    mock.seed({ dateReceived: new Date("2026-06-01T00:00:00Z") });
+    mock.seed({ dateReceived: new Date("2026-07-15T00:00:00Z") });
+
+    const list = await get("/caseworker/cases?where=dateReceived:between:2026-06-01,2026-06-30");
+
+    expect(list.total).toBe(1);
+  });
+
+  it("should match only a blank for isEmpty, and only a populated one for isNotEmpty", async () => {
+    mock.seed({ newForename: "Ada" });
+    mock.seed({ newForename: null });
+
+    expect((await get("/caseworker/cases?where=newForename:isEmpty")).total).toBe(1);
+    expect((await get("/caseworker/cases?where=newForename:isNotEmpty")).total).toBe(1);
+  });
+
+  it("should never match a blank field against a comparison, as SQL does not", async () => {
+    mock.seed({ dateReceived: null });
+
+    expect((await get("/caseworker/cases?where=dateReceived:before:2030-01-01")).total).toBe(0);
+  });
+
+  it("should ask a multiselect whether the option is chosen", async () => {
+    mock.seed({ iShall: [1, 2] });
+    mock.seed({ iShall: [] });
+
+    expect((await get("/caseworker/cases?where=iShall:contains:2")).total).toBe(1);
+    expect((await get("/caseworker/cases?where=iShall:contains:9")).total).toBe(0);
+  });
+
+  it("should refuse each unreadable condition at its own position, so three mistakes report three", async () => {
+    const response = await fetch(`${mock.url}/caseworker/cases?where=nonsense:is:x&where=type:is:Adult&where=type:notAnOperator:x`);
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.errors.map((error: { field: string }) => error.field)).toEqual(["where.0", "where.2"]);
+  });
+
+  it("should refuse a field that has no column, since a derived count cannot be queried", async () => {
+    const response = await fetch(`${mock.url}/caseworker/cases?where=daysReceivedToEnroled:gt:10`);
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].field).toBe("where.0");
+  });
+
+  it("should refuse a value count the operator does not take", async () => {
+    const response = await fetch(`${mock.url}/caseworker/cases?where=dateReceived:between:2026-06-01`);
+
+    expect(response.status).toBe(400);
+  });
+
+  it("should refuse the whole request beyond the cap of twenty conditions rather than truncating to it", async () => {
+    // Truncating would answer a narrower question invisibly, which is the one failure a caseworker cannot see.
+    const where = Array.from({ length: 21 }, () => "where=type:is:Adult").join("&");
+
+    const response = await fetch(`${mock.url}/caseworker/cases?${where}`);
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].field).toBe("where");
+  });
+});
+
+describe("the list sort", () => {
+  it("should default to newest first, which is what the endpoint answered before it took a sort", async () => {
+    const older = mock.seed({ createdOn: new Date("2026-01-01T00:00:00Z") });
+    const newer = mock.seed({ createdOn: new Date("2026-02-01T00:00:00Z") });
+
+    const list = await get("/caseworker/cases");
+
+    expect(list.cases.map((summary: { id: string }) => summary.id)).toEqual([newer.id, older.id]);
+  });
+
+  it("should read a bare field name as ascending", async () => {
+    mock.seed({ newForename: "Bea" });
+    mock.seed({ newForename: "Ada" });
+
+    const list = await get("/caseworker/cases?sort=newForename");
+
+    expect(list.cases.map((summary: { newForename: string }) => summary.newForename)).toEqual(["Ada", "Bea"]);
+  });
+
+  it("should sort a blank last ascending and first descending, as Postgres orders nulls", async () => {
+    mock.seed({ newForename: "Ada" });
+    mock.seed({ newForename: null });
+
+    const ascending = await get("/caseworker/cases?sort=newForename:asc");
+    const descending = await get("/caseworker/cases?sort=newForename:desc");
+
+    expect(ascending.cases.map((summary: { newForename: string | null }) => summary.newForename)).toEqual(["Ada", null]);
+    expect(descending.cases.map((summary: { newForename: string | null }) => summary.newForename)).toEqual([null, "Ada"]);
+  });
+
+  it("should refuse an unknown field and an unknown direction", async () => {
+    expect((await fetch(`${mock.url}/caseworker/cases?sort=nonsense:asc`)).status).toBe(400);
+    expect((await fetch(`${mock.url}/caseworker/cases?sort=newForename:sideways`)).status).toBe(400);
+    // A colon with nothing after it is a control nobody filled in, not an undirected sort.
+    expect((await fetch(`${mock.url}/caseworker/cases?sort=newForename:`)).status).toBe(400);
+  });
+});
+
+describe("the list paging", () => {
+  beforeEach(() => {
+    for (const forename of ["Ada", "Bea", "Cyd"]) mock.seed({ newForename: forename });
+  });
+
+  it("should default to the first page of twenty-five", async () => {
+    const list = await get("/caseworker/cases");
+
+    expect(list).toMatchObject({ page: 1, size: 25, total: 3, totalPages: 1 });
+  });
+
+  it("should count the whole result set rather than the rows on the page", async () => {
+    const list = await get("/caseworker/cases?sort=newForename:asc&page=2&size=2");
+
+    expect(list.cases.map((summary: { newForename: string }) => summary.newForename)).toEqual(["Cyd"]);
+    expect(list).toMatchObject({ page: 2, size: 2, total: 3, totalPages: 2 });
+  });
+
+  it("should answer an empty page past the end rather than refusing it", async () => {
+    const list = await get("/caseworker/cases?page=9&size=2");
+
+    expect(list.cases).toEqual([]);
+    expect(list).toMatchObject({ total: 3, totalPages: 2 });
+  });
+
+  it("should report zero pages for an empty result set, not one page with nothing on it", async () => {
+    const list = await get("/caseworker/cases?where=newForename:is:Nobody");
+
+    expect(list).toMatchObject({ total: 0, totalPages: 0 });
+  });
+
+  it("should clamp a size above the cap rather than refusing it, and say which size it applied", async () => {
+    const list = await get("/caseworker/cases?size=500");
+
+    expect(list.size).toBe(100);
+  });
+
+  it("should refuse a page or a size that is not a whole number of one or more", async () => {
+    for (const query of ["page=0", "page=nonsense", "size=0", "size=1.5"]) {
+      const response = await fetch(`${mock.url}/caseworker/cases?${query}`);
+
+      expect(response.status, query).toBe(400);
+    }
+  });
+});
+
 describe("when the scenario says api is unavailable", () => {
   it("should answer 503 on every contract route while leaving the control routes working", async () => {
     mock.setScenario("api-unavailable");

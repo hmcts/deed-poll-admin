@@ -6,8 +6,13 @@
  * prototype had them as a module-level constant in its pages controller, which meant the API could
  * not offer the same filters without restating them.
  *
- * `all` deliberately has no `where`: `findDeedPolls(undefined, …)` returns everything, and an empty
- * object would be an equivalent but noisier way of saying so.
+ * `all` deliberately has no `where`: `findDeedPolls({}, …)` returns everything, and an empty object
+ * would be an equivalent but noisier way of saying so.
+ *
+ * **Not to be confused with the query builder's conditions.** `DeedPollQuery.conditions` are a
+ * caseworker's own question, sent as api's repeated `where` parameters and ANDed with whichever of these
+ * five tabs is selected. A tab is never expressed as a condition — that would change what a bookmarked
+ * `?filter=open` means.
  *
  * **`where` is no longer read by anything.** Since the cutover the service sends api the filter's KEY
  * and api resolves it — its `ListFilters` is the port of this file, the same five keys in the same

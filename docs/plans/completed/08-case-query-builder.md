@@ -1,0 +1,359 @@
+# Plan 08: a field-level query builder on the case list
+
+## Overview
+
+The case list offers five saved-query tabs — All, Open, Received, Enroled, Returned — and nothing else. A
+caseworker cannot ask "Adult applications received in June that are still awaiting enrolment". This adds a builder
+that composes conditions on named case fields, plus sorting and paging of the results.
+
+### Sequencing — blocked on api
+
+**`deed-poll-api/docs/plans/case-query-and-paging.md` must be merged first.** It establishes the query surface:
+repeated `where=field:operator:value` parameters on `GET /caseworker/cases`, `sort=field:asc|desc`, 1-based `page`
+with `size` capped at 100, and a `CaseListResponse` carrying `page`, `size`, `total`, `totalPages`.
+
+Per `.claude/rules/backend.md`, an operation api does not have is not something to work around here.
+
+### The metadata already exists, and that is what makes this tractable
+
+`libs/deed-poll/src/deed-poll/form-fields.ts` holds **70 `FieldDef`s** — `name`, `label`, `kind`, `enumSet` —
+across 7 kinds: 30 text, 15 date, 10 enum, 6 number, 3 boolean, 3 multiselect, 3 textarea. It is the port of the
+Dynamics form, so **the labels are the ones caseworkers already know from the case tabs.** The builder is a
+projection of that metadata, not a second list of fields to maintain.
+
+**Do not create a separate list of queryable fields.** A field added to the form should become queryable without
+anyone remembering to add it twice.
+
+## Decisions taken — implement these, do not revisit
+
+1. **api validates; this app guides.** Every condition is re-validated by api against its own `FormFields`, and
+   this app must not treat its own validation as authoritative — it exists to stop obviously-wrong requests and to
+   render api's errors well. **If the two disagree, api wins and this app has the bug.** Same principle as the
+   two-witness rule.
+2. **Offer only operators valid for the chosen field's kind**, matching api's table exactly:
+   text/textarea `is, contains, startsWith, isEmpty, isNotEmpty`; date `is, before, after, between, isEmpty,
+   isNotEmpty`; number `is, gt, lt, between, isEmpty, isNotEmpty`; enum `is, isOneOf, isEmpty, isNotEmpty`;
+   multiselect `contains, isEmpty, isNotEmpty`; boolean `is`.
+   **Derive the operator list from `kind`, in one place** — a hand-written per-field mapping would drift.
+3. **The value control follows the kind.** `govukDateInput` for dates, `govukSelect` for enum, `govukCheckboxes`
+   for `isOneOf` and multiselect, `govukInput type=number` for number, radios for boolean, text input otherwise.
+   `isEmpty`/`isNotEmpty` take **no** value control at all — showing a disabled box would imply one is wanted.
+4. **Conditions are ANDed, and the page says so in words.** api supports no OR. The UI must not imply otherwise —
+   render the joining as the word "and" between rows rather than a chooser that offers only one option.
+5. **It is a `GET` form, and the URL is the state.** No session, no server-side draft. A caseworker can bookmark a
+   query, share it, and use the back button — which is the whole reason api took repeated query parameters rather
+   than a POST body. **Do not add a session-stored query**; it would break exactly the property the api surface
+   was shaped for.
+6. **The five tabs stay, and compose with the query.** They are ported system views, and a bookmarked
+   `?filter=open` must keep meaning what it means. The tab bar stays above the builder, and a query narrows within
+   the selected tab.
+7. **Progressive enhancement: it must work without JavaScript.** Adding a condition is a submit that re-renders
+   with one more empty row — the GOV.UK add-another pattern. **JavaScript may make it smoother but must not be
+   required**, because this is a staff service on managed devices and a query builder that dies with a CSP change
+   is worse than a slower one.
+8. **Sorting is on the existing six columns only** — `CASE_LIST_COLUMNS` is Reference, Privacy, Received, Type,
+   State, New forename, and `CaseSummary` carries exactly those. Offering a sort on a field the table does not show
+   produces a reordering the caseworker cannot see the reason for.
+9. **Paging renders as GOV.UK pagination**, using api's `page`/`size`/`total`/`totalPages` rather than counting
+   rows locally. State the total in words too — "1 to 25 of 213 applications" — because a caseworker needs to know
+   whether to refine the query, not just that there is a next page.
+
+## Open questions — flagged, NOT answered here
+
+- **Welsh.** As with the detail page, the list page's labels are inline English strings in the page handler, not
+  keys in `src/locales/cy.ts`. New builder labels follow that, which is consistent but not right; fixing it is
+  page-wide work. Flagged so decision 3 is not read as a shortcut.
+- **Whether a query should be saveable as a named tab.** The Dynamics original had saved views and the five tabs
+  are the ported ones. api's plan excludes it — it needs per-user persistence the service does not have. If it is
+  wanted, the URL-as-state decision above is what makes it cheap later: a saved view is a stored URL.
+- **Empty-result wording.** "No cases match this filter" exists for the tabs. A failed *query* wants different
+  wording, and probably a way back to the unfiltered tab. Worth a content decision rather than my guess.
+
+## Constraints
+
+- **No `prisma.*`, no migration, no JSON route.** There is no database in this repo. Everything goes through
+  `libs/deed-poll-api-client`.
+- **An operation must exist in `openapi.json` before `client.ts`** — `contract.test.ts` fails otherwise. Refresh
+  the spec **from api** (`cd ../deed-poll-api && ./gradlew integration`, then copy `/tmp/openapi-specs.json`); do
+  not hand-edit it, and update `SPEC-PROVENANCE.md`.
+- **`Caller` is `{ accessToken }` and nothing else.**
+- **The builder lives in `libs/deed-poll/src/deed-poll/`, not in the page.** `list-filters.ts` records why: a
+  predicate is a business statement the page merely renders. Operator-per-kind belongs beside `form-fields.ts`.
+- **Never run bare `yarn test`.** It reports `0 successful, 8 total` / `Tests no tests` — nothing ran, so nothing
+  failed. Use `yarn turbo test test:app --concurrency=1`.
+- **`yarn lint` is a single `biome check .`** It exits 0 today with two pre-existing `noUndeclaredEnvVars`
+  warnings and a stale `biome.json` schema notice. Do not let the count grow.
+
+## Validation Commands
+
+**These run after every task, so everything here must be green after every task — not only at the end.**
+
+```bash
+yarn lint
+yarn turbo test test:app --concurrency=1
+yarn build
+```
+
+**Take the baseline from master immediately before starting.** It was 1,394 unit tests and 23 e2e at `68d6db3`,
+but work has been landing steadily. **The skip count moves with the environment** — the three Redis session tests
+skip when no cache is reachable and pass when one is, so compare **totals**, not passed counts.
+
+Deliberately **not** here: `yarn test:e2e` and count comparisons. e2e needs Docker, a seeded IDAM simulator and a
+browser; the rest are only true once the plan is finished. Both live in the final task.
+
+## Tasks
+
+### Task 1: Operators from field kinds
+
+`libs/deed-poll/src/deed-poll/query-fields.ts`: the operator list per `FieldKind`, the value-arity per operator
+(`between` two, `isOneOf` many, `isEmpty`/`isNotEmpty` none, the rest one), and a queryable-field list **derived
+from `FORM_FIELDS`** rather than restated. Include the 5 `readOnly` fields — `referencenumber` and `state` are
+among the most useful to query.
+
+- [x] Operators derived from kind in one place; queryable list derived from `FORM_FIELDS`; read-only fields included
+
+`libs/deed-poll/src/deed-poll/query-fields.ts`. Note for the tasks below: **there is no `FORM_FIELDS` export** —
+`form-fields.ts` publishes `FORM_TABS`, `EDITABLE_FIELDS` (non-`readOnly` only) and `FIELD_BY_NAME`, so
+`QUERYABLE_FIELDS` derives from `FORM_TABS` by flattening tabs → sections → fields. That keeps the five `readOnly`
+fields, which `EDITABLE_FIELDS` would have dropped, and the subgrid tabs contribute nothing because they carry no
+sections. `queryableField(name)` is a `find` rather than a `FIELD_BY_NAME` lookup so a name off the URL cannot
+resolve `toString`.
+
+### Task 2: Query parsing and serialising
+
+Parse repeated `where` parameters from the URL into conditions, and serialise conditions back — the same shape api
+expects, splitting on the first two colons only and URL-encoding values. A round-trip must survive a value
+containing a colon and one containing a comma. Validate with Zod, per `.claude/rules/backend.md`.
+
+- [x] Round-trips cleanly, including values containing `:` and `,`
+
+`libs/deed-poll/src/deed-poll/case-query.ts`. The round trip is asserted **through a real
+`URLSearchParams`**, not by handing the serialiser's output back to the parser — a format that survives
+only when the URL is skipped is not a format that survives a URL. Four things the tasks below should not
+have to rediscover:
+
+- **Parsing is tolerant; sending is not, and that is two functions.** `parseConditions` keeps every row
+  verbatim, including `":"` — the empty row "Add condition" produces — because a row mid-edit has to
+  re-render. `caseQueryWhere` is the narrower gate that drops the incomplete ones, so adding a row does
+  not turn the whole request into a 400 and lose the results already on screen. Task 4's rows are
+  `parseConditions`' output; task 3 sends `caseQueryWhere`'s.
+- **A comma is only a separator for `between` and `isOneOf`.** api splits a list-taking operator's values
+  on commas and trims each, and leaves a single-valued operator's value alone — so
+  `contains:Flat 2, Rose Court` asks what it looks like. An **unknown** operator is treated as
+  single-valued for the same reason: splitting on an arity nobody published would lose the round trip for
+  exactly the row a caseworker needs to see and fix.
+- **A condition beyond api's cap of 20 is sent, not truncated to it.** Truncating would answer a narrower
+  question invisibly; api refuses the whole request and the page renders that. Same reasoning applies to
+  a `where` that is not a string or a list of them (`?where[a]=b`, which `qs` reads as an object): there
+  is no row to render it as, so it is dropped rather than reported.
+- **The Zod schema guards shape only** — a queryable field, an operator the kind admits, the right number
+  of values. Whether a value *means* anything (a date that parses, an enum member that exists,
+  `between` bounds the right way round) is api's answer per decision 1, and `caseConditionSchema` has a
+  test pinning that it does not judge it.
+
+`isQueryOperator` joined `query-fields.ts` rather than living here: "is this token an operator at all" is
+a question about the operator table, and it uses `Object.hasOwn` for the reason `queryableField` is a
+`find` — `"toString" in ARITY_BY_OPERATOR` is true.
+
+**One divergence from api, for task 4 to decide on:** api queries **68 of the 70** fields.
+`daysReceivedToEnroled` and `daysReceivedToReturned` are computed at read time, have no column, and are
+refused with *"is derived, not stored"* — see task 1 of api's own plan. `QUERYABLE_FIELDS` holds all 70,
+so the field chooser would offer two fields that can only 400. Not fixed here: what belongs in the
+chooser is a task 4 question, and narrowing `QUERYABLE_FIELDS` would weaken the drift guard that is task
+1's whole point. The same two are also refused as **sort** fields, which task 5 needs — though decision 8
+limits sorting to the six list columns, none of which is one of them.
+
+### Task 3: Client and service
+
+Refresh `openapi.json` from api, add the new parameters to `client.ts` and the mock, extend the service call.
+`contract.test.ts` pins it.
+
+- [x] Spec refreshed **from api**, `where`/`sort`/`page`/`size` sent, new response fields read, contract test green
+
+Refreshed from api at `fd4fe3a` ("Field-level case query, sorting and paging"), via `./gradlew integration
+--tests '*OpenAPIPublisherTest*'` → `/tmp/openapi-specs.json`, reformatted with Biome. The whole diff is **62
+added lines and nothing removed**: no operation was added, because the query surface extends
+`GET /caseworker/cases`. `SPEC-PROVENANCE.md` records the commit and a fourth thing the document does not
+say — the operator table and the sortable-field list arrive only as **prose** in the `where` and `sort`
+parameter descriptions, so `contract.test.ts` cannot pin `query-fields.ts` against them. Read those
+descriptions on the next refresh.
+
+Four things the tasks below should not have to rediscover:
+
+- **`listCases` takes a query object now, not a filter string**, built with `URLSearchParams` so a value
+  carrying a colon, comma, ampersand or space is encoded rather than re-splitting the URL at api's end.
+  Every part is optional and an omitted one is **not sent at all**, so api applies its own default — this
+  app must not write 25 or `createdOn:desc` into a URL a caseworker bookmarks.
+- **`findDeedPolls` returns the whole page, not its rows**, and takes `DeedPollQuery`
+  (`filter`, `conditions`, `sort`, `page`, `size`). Conditions rather than `where` strings: serialising is
+  `caseQueryWhere`'s job, so an incomplete row stays off the wire. `total` and `totalPages` are api's counts
+  across every page and cannot be inferred from the rows — task 5 renders them, and must not count locally.
+- **The mock now evaluates the query — a seventh api rule restated there, and its header says so.**
+  Conditions, sort and paging, with refusals in api's own order (`where` → `sort` → `page`/`size`) and
+  condition errors addressed to `where.0`, `where.1`. Deliberately NOT restated: the operator-per-kind
+  table, which lives in api's `QueryOperator` and here in `query-fields.ts`. Its queryable set is
+  **derived** from the response schema minus `id` and the two day counts.
+- **The list page shows only api's first 25 until task 5 lands**, with nothing on screen saying so. That is
+  the sequencing, not an oversight: `page`/`size` are api's defaults and the pagination that makes them
+  visible is task 5's checkbox.
+
+### Task 4: The builder UI
+
+On `deed-polls/index`: the condition rows above the results, an "Add condition" submit, a remove per row, and the
+value control chosen by kind per decision 3. Works with JavaScript disabled.
+
+- [x] Renders per kind, adds and removes rows without JavaScript, and the word "and" joins rows
+
+`libs/deed-poll/src/deed-poll/query-builder.ts`, plus `caseListSearch` in `case-query.ts` and the rewritten
+`src/pages/deed-polls/index.{ts,njk}`. Reading a submission and rendering the rows are **one file** because
+they share the control names and each needs a type the other produces; splitting them made an import cycle.
+
+Six things the tasks below should not have to rediscover:
+
+- **A GET form cannot submit one parameter built from three controls, so the builder submits row-scoped
+  names — `field-0`, `op-0`, `value-0-0` — and the page redirects to the canonical `where=` URL.** Those
+  names are a transport for one round trip; the URL is still the only state. The three buttons name
+  themselves (`apply`, `add`, `remove=<row>`), which is what `builderAction` reads: a canonical URL carries
+  none of them and so is never mistaken for a submission of an empty builder that would wipe the query.
+  `removeValue` is a **string** on the row because `govukButton` drops a falsy `value` and the first row's
+  `0` would otherwise render a Remove button naming no row.
+- **`caseListSearch` is the only place a link to the list is built, and task 5 must go through it.** It
+  omits what it has nothing to say about — the default `all` filter, `page=1`, an absent sort — for the
+  reason `listCases` omits them, and it carries a blank row (`where=:`) because the row "Add condition"
+  adds has to survive the redirect. A *lone* blank row is dropped, since that is what an unfiltered list
+  renders anyway. It already takes `sort` and `page`; the builder form will want a hidden `sort` input, and
+  deliberately carries no `page`, so applying a query returns to the first page.
+- **Changing the field re-offers the operators, and that is why an invalid pairing is dropped rather than
+  kept.** Both choosers submit together, so a field changed from text to date arrives beside `contains`.
+  `readRow` clears the operator and its values; `buildRow` does the same for a hand-edited URL, so the row
+  a caseworker is shown is always one they can fix.
+- **A date is assembled as `YYYY-MM-DD`, never through `composeDateParts`,** which rolls `31 2 2026` over
+  to 3 March — a filter that quietly answers about another date is worse than one that answers about none.
+  `builderDateErrors` (the case form's own `collectDateErrors`) is what says so, and it is the **one path
+  that re-renders instead of redirecting**, replaying the submission so the offending parts stay on screen.
+  The rest of the query still runs, because the bad row is incomplete and never sent.
+- **api addresses a condition refusal to its position among the conditions it was SENT, which is not the
+  row.** `rowForSentCondition` is the translation and `queryErrors` applies it; a refusal of the query as a
+  whole (the cap, the sort, the paging) has no row and gets the page's own copy, with api's developer-facing
+  wording logged. The list page catches `InvalidInputError` for the same reason the new-case form does.
+- **Two loose ends, both deliberate.** `CHOOSABLE_FIELDS` leaves the two derived fields out of the chooser
+  while `QUERYABLE_FIELDS` keeps them, so the drift guard stands and a hand-edited URL naming one still
+  renders api's refusal — the task 2 divergence, answered. And decision 3's checkboxes for a **multiselect**
+  sit awkwardly with `contains` taking one value: ticking two leaves the row incomplete rather than
+  narrowing it. Followed as written; revisit only with a content decision, alongside the empty-result
+  wording the open questions already flag.
+
+### Task 5: Sorting and pagination
+
+Sortable column headers for the six `CASE_LIST_COLUMNS`, and GOV.UK pagination driven by api's counts, with the
+"1 to 25 of 213" summary.
+
+- [x] Sort links preserve the query and the tab; pagination uses api's `total`/`totalPages`, not a local count
+
+`libs/deed-poll/src/deed-poll/list-sort.ts` and `list-paging.ts`, plus the six columns gaining their sort
+field in `list-view.ts` and the page threading a `ListView` through every link it builds. Four things task
+6 should not have to rediscover:
+
+- **`CASE_LIST_COLUMNS` is now `{ label, sort }` per column, not a list of headings.** A sortable header
+  *is* that pair — decision 8 limits sorting to what the table shows — and declaring the heading and the
+  field separately is how a column comes to offer an order for a cell that is not on screen. `en.columns`
+  went with it: the template renders `sortHeaders`, which carry the label, the link and the `aria-sort`.
+  api's sortable-field list is prose in the `sort` parameter description, so nothing pins these six.
+- **An order this app cannot show is dropped, not forwarded.** `parseSort` answers `undefined` for a field
+  outside the six, a direction that is not api's two, and an absent parameter alike — api would happily
+  order by `applicantEmail`, and rows moving for a reason nothing on screen gives reads as a bug.
+  `parsePage` falls back the same way for a page that is not a whole number of 1 or more, because api's
+  refusal of one is developer-facing. A page **past the end** is sent: how many pages there are is api's
+  count, not this app's to guess before asking.
+- **Every link goes through one `listHref`, and what each drops is the point.** A header link and a tab
+  link carry the tab, the conditions and the order but **not the page** — page 3 of another order or
+  another tab holds other rows — and the builder carries the order through as a hidden `sort` control for
+  the same reason, while still returning to the first page. Only the pagination names a page.
+- **Nothing counts rows.** `buildPaging` takes api's four counts (`CaseListCounts` is the envelope minus
+  its rows) and does arithmetic on those alone, so "1 to 25 of 213" is api's total and not the 25 on
+  screen. A page holding no rows — an empty result set, or a page past the end — states **no** range
+  rather than the "76 to 73 of 73" that computing one produces; the empty message stands in. A refused
+  query renders `paging: null`, having no page of results to be one of.
+
+### Task 6: Tests
+
+- Unit: operators per kind, arity per operator, and that the queryable list tracks `FORM_FIELDS` — **a test that
+  fails if a form field is added without becoming queryable**
+- Unit: parse/serialise round-trip, including the delimiter cases
+- Page: a query renders results; an invalid condition re-renders with api's error against the row; `isEmpty` shows
+  no value control; tab plus query applies both
+- Page: sort and page links preserve every other parameter — the bug this class of UI always has
+- e2e: build a two-condition query, run it, sort it, page it
+
+- [x] All present, including the form-fields-drift test and the parameter-preservation test
+
+Tasks 1–5 each landed their own unit and page tests, so what task 6 added is the **e2e journey** in
+`e2e-tests/tests/deed-polls.spec.ts` and one page test that a query renders the rows api answered with
+alongside the rows it was built from. The rest was audit: the drift guard is
+`query-fields.test.ts`'s "should offer every form field", the delimiter round trips are `case-query.test.ts`'s
+`throughAUrl`, and the parameter preservation is `index.test.ts`'s sort-header, tab-link and page-link
+assertions on the full hrefs. Three things the e2e journey pins that nothing below it could:
+
+- **Choosing a field, then a comparison, then a value is three submits**, because each control's options
+  come from the one before it and nothing rewrites them in the browser. The journey walks all three per
+  condition, twice, which is the only test that fails if decision 7 is quietly traded away — the page tests
+  drive the handler and would keep passing against a builder that needed a script.
+- **The cases are seeded through `POST /__mock/cases`, not the new-case form** — 29 of them, 26 Adult, one
+  forename unique per *run* and per *test*. Unique per run because `reuseExistingServer` keeps the mock
+  alive between local runs and a fixed forename would find the previous run's cases; per test because the
+  case store is shared with every parallel spec, so `POST /__mock/reset` would delete their cases mid-journey.
+  Each seed carries a `displayReference`: the Reference cell is a link, and one with no text is an
+  accessibility violation on every list page the rest of the run renders.
+- **The sort and the page links are checked on the URL, not only on the rows.** A link that dropped a
+  condition still renders a plausible table, so `conditionsOf` reads `where` off the address bar after each.
+
+### Task 7: Full validation
+
+- [x] `yarn lint` — exits 0, still only the two pre-existing warnings and the schema notice
+- [x] `yarn turbo test test:app --concurrency=1` — 8 of 8, total above the baseline taken at the start
+- [x] `yarn build` — 8 of 8
+- [x] **e2e actually run, not just written.** From cold:
+      1. `docker compose up -d` (redis 6379, IDAM simulator 5556 — a JVM; `curl 127.0.0.1:5556/health` → 200)
+      2. **`yarn idam:users`** — a fresh simulator has an empty user store, and the failure looks like a broken
+         login: the journey parks on the IDAM page with `toHaveURL` timing out
+      3. `yarn playwright install chromium` if the version has moved
+      4. **Pre-warm the mock api *first*, then the app.** `REDIS_URL=redis://127.0.0.1:6379 yarn mock:api &`, then
+         `REDIS_URL=redis://127.0.0.1:6379 yarn dev:nowatch:web &`, then wait for `:3000`. The app takes 35–75s to
+         bind, nearly all of it the Azure Key Vault DNS lookup timing out, which blows Playwright's 120s budget and
+         presents as a **dead** server. Pre-warming the app alone leaves readiness at **503** until the mock is up —
+         check `curl 127.0.0.1:3000/health` shows both `redis` and `deedPollApi` UP before starting
+      5. **`--workers=1`.** At the default 7 this suite is unreliable here — `page.goto` timeouts in specs you never
+         touched. The same starvation that makes bare `yarn test` false-red, one layer up
+      6. `REDIS_URL=redis://127.0.0.1:6379 yarn test:e2e --workers=1`
+- [x] `git grep -n 'queryableFields\|QUERYABLE' -- libs/deed-poll/src` shows the list derived, not enumerated
+- [x] Mark completed
+
+Green on all five, run in that order on this machine. What the numbers were, so the next plan has a
+baseline rather than this one's:
+
+- **`yarn lint` exits 0** with exactly the two `noUndeclaredEnvVars` warnings the constraints predicted
+  (`src/server.ts:3` on `PORT`, `src/session-store.test.ts:32` on `REDIS_URL`) and the stale-schema info
+  pair. 286 files checked, no fixes applied. The count did not grow.
+- **1,639 unit tests, 8 of 8 tasks, 0 skipped** — 644 `@hmcts/deed-poll`, 465 `//:test:app`, 192
+  `deed-poll-api-client`, 140 cloud-native-platform, 127 express-govuk-starter, 41 simple-router, 23
+  express-session-postgres, 7 express-session-redis. Against the 1,394 at `68d6db3` that is +245, and the
+  three Redis session tests **passed rather than skipped** because `docker compose` was already up — which
+  is why the constraint says compare totals, not passed counts.
+- **`yarn build` 8 of 8**, and the second run was `FULL TURBO` off cache in 624ms.
+- **24 e2e passed in 1.4m at `--workers=1`**, 22 chromium plus the two `auth.setup.ts` sign-ins, against 23
+  at the baseline: the one added is `deed-polls.spec.ts:372`, "caseworker filters the case list on two
+  fields, sorts it and pages through it". Every step of the cold-start recipe above earned its place —
+  `yarn idam:users` seeded the two users, the mock bound in 1s but the app took **31s**, all of it the
+  `deed-poll-aat.vault.azure.net` DNS lookup failing, and readiness only reported
+  `{"redis":"UP","deedPollApi":"UP"}` once both were up. One correction for the next reader:
+  **`yarn playwright install chromium` is not a script in this repo** — there is no root `playwright`
+  binary, so the step is a no-op to skip unless a version bump makes Playwright itself ask for it.
+
+## Deliberately not in this plan
+
+- **The api query surface.** `deed-poll-api/docs/plans/case-query-and-paging.md`, which must merge first.
+- **OR or nested conditions.** api supports AND only; offering more would be a UI that cannot be answered.
+- **Free-text search across fields.** Different feature, different relevance question.
+- **Saved views.** See the open questions — but URL-as-state keeps it cheap later.
+- **Welsh.** Pre-existing and page-wide.
+- **Sorting on fields the table does not show.** Decision 8.

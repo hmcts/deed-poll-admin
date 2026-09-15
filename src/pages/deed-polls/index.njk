@@ -2,19 +2,158 @@
 {% from "govuk/components/table/macro.njk" import govukTable %}
 {% from "govuk/components/tag/macro.njk" import govukTag %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/select/macro.njk" import govukSelect %}
+{% from "govuk/components/input/macro.njk" import govukInput %}
+{% from "govuk/components/date-input/macro.njk" import govukDateInput %}
+{% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
+{% from "govuk/components/radios/macro.njk" import govukRadios %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/pagination/macro.njk" import govukPagination %}
 
 {% block content %}
   <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+  {% if errorSummary and errorSummary.length > 0 %}
+    {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorSummary }) }}
+  {% endif %}
 
   <nav class="govuk-!-margin-bottom-6" aria-label="{{ filterLabel }}">
     {% for f in filters %}
       {% if f.key == activeFilter %}
         <strong class="govuk-!-margin-right-3" aria-current="true">{{ f.label }}</strong>
       {% else %}
-        <a class="govuk-link govuk-!-margin-right-3" href="/deed-polls?filter={{ f.key }}">{{ f.label }}</a>
+        {# The tab carries the query, so switching tab narrows the same conditions within another view. #}
+        <a class="govuk-link govuk-!-margin-right-3" href="{{ f.href }}">{{ f.label }}</a>
       {% endif %}
     {% endfor %}
   </nav>
+
+  {#
+    A GET form, and every control in it is row-scoped: the canonical `where=field:operator:value` URL is
+    what the page redirects to, so this form is a transport for one round trip. Add and Remove are plain
+    submits, which is what makes the builder work with JavaScript disabled.
+  #}
+  <form method="get" action="/deed-polls" class="govuk-!-margin-bottom-6" novalidate>
+    <input type="hidden" name="filter" value="{{ activeFilter }}">
+    {# The order survives applying a query; the page number deliberately does not, so a query starts at its first page. #}
+    {% if sortValue %}<input type="hidden" name="sort" value="{{ sortValue }}">{% endif %}
+
+    <h2 class="govuk-heading-m">{{ builderHeading }}</h2>
+    <p class="govuk-hint">{{ builderHint }}</p>
+
+    {% for row in queryRows %}
+      {% if not loop.first %}
+        {# Decision 4: api ANDs the conditions, so the joining is a word rather than a chooser. #}
+        <p class="govuk-body govuk-!-font-weight-bold govuk-!-margin-bottom-2">{{ andWord }}</p>
+      {% endif %}
+
+      <div class="govuk-form-group {% if row.error %}govuk-form-group--error{% endif %}">
+        {% if row.error %}
+          <p id="{{ row.field.name }}-error" class="govuk-error-message">
+            <span class="govuk-visually-hidden">{{ errorPrefix }}</span> {{ row.error }}
+          </p>
+        {% endif %}
+
+        <div class="govuk-grid-row">
+          <div class="govuk-grid-column-one-quarter">
+            {# The refusal is announced with the row's first control, since it is the row that is wrong. #}
+            {{ govukSelect({
+              id: row.field.name,
+              name: row.field.name,
+              label: { text: fieldLabel ~ " " ~ row.number, classes: "govuk-visually-hidden" },
+              describedBy: (row.field.name ~ "-error") if row.error else "",
+              items: row.field.options
+            }) }}
+          </div>
+
+          <div class="govuk-grid-column-one-quarter">
+            {{ govukSelect({
+              id: row.operator.name,
+              name: row.operator.name,
+              label: { text: operatorLabel ~ " " ~ row.number, classes: "govuk-visually-hidden" },
+              items: row.operator.options
+            }) }}
+          </div>
+
+          <div class="govuk-grid-column-one-quarter">
+            {#
+              The control follows the field's kind — decision 3. `isEmpty` and `isNotEmpty` render nothing
+              at all here, because a disabled box would imply a value is wanted.
+            #}
+            {% for input in row.values %}
+              {% set boundLabel = valueLabel %}
+              {% if row.values.length > 1 %}
+                {% set boundLabel = lowerBoundLabel if input.slot == 0 else upperBoundLabel %}
+              {% endif %}
+
+              {% if row.control == "date" %}
+                {{ govukDateInput({
+                  id: input.name,
+                  namePrefix: input.name,
+                  fieldset: { legend: { text: boundLabel ~ " " ~ row.number, classes: "govuk-visually-hidden" } },
+                  items: [
+                    { name: "day", classes: "govuk-input--width-2", value: input.dateParts.day },
+                    { name: "month", classes: "govuk-input--width-2", value: input.dateParts.month },
+                    { name: "year", classes: "govuk-input--width-4", value: input.dateParts.year }
+                  ]
+                }) }}
+              {% else %}
+                {{ govukInput({
+                  id: input.name,
+                  name: input.name,
+                  type: "number" if row.control == "number" else "text",
+                  value: input.value,
+                  label: { text: boundLabel ~ " " ~ row.number, classes: "govuk-visually-hidden" }
+                }) }}
+              {% endif %}
+            {% endfor %}
+
+            {% if row.control == "select" %}
+              {{ govukSelect({
+                id: row.valueName,
+                name: row.valueName,
+                label: { text: valueLabel ~ " " ~ row.number, classes: "govuk-visually-hidden" },
+                items: row.valueOptions
+              }) }}
+            {% elif row.control == "checkboxes" %}
+              {{ govukCheckboxes({
+                idPrefix: row.valueName,
+                name: row.valueName,
+                classes: "govuk-checkboxes--small",
+                fieldset: { legend: { text: valueLabel ~ " " ~ row.number, classes: "govuk-visually-hidden" } },
+                items: row.valueOptions
+              }) }}
+            {% elif row.control == "radios" %}
+              {{ govukRadios({
+                idPrefix: row.valueName,
+                name: row.valueName,
+                classes: "govuk-radios--small govuk-radios--inline",
+                fieldset: { legend: { text: valueLabel ~ " " ~ row.number, classes: "govuk-visually-hidden" } },
+                items: row.valueOptions
+              }) }}
+            {% endif %}
+          </div>
+
+          <div class="govuk-grid-column-one-quarter">
+            {{ govukButton({
+              text: removeCondition ~ " " ~ row.number,
+              name: "remove",
+              value: row.removeValue,
+              classes: "govuk-button--secondary"
+            }) }}
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+
+    <div class="govuk-button-group">
+      {{ govukButton({ text: applyFilters, name: "apply", value: "true" }) }}
+      {{ govukButton({ text: addCondition, name: "add", value: "condition", classes: "govuk-button--secondary" }) }}
+      {% if hasQuery %}
+        <a class="govuk-link" href="{{ clearHref }}">{{ clearFilters }}</a>
+      {% endif %}
+    </div>
+  </form>
 
   {% if cases.length == 0 %}
     <p class="govuk-body">{{ empty }}</p>
@@ -36,18 +175,35 @@
       ]), rows) %}
     {% endfor %}
 
+    {#
+      Sortable headers: a plain link per column, so reordering needs no JavaScript, and `aria-sort` on the
+      cell because the link text alone does not say which way the column points.
+    #}
+    {% set head = [] %}
+    {% for column in sortHeaders %}
+      {% set headerCell %}<a class="govuk-link" href="{{ column.href }}"><span class="govuk-visually-hidden">{{ sortHint }} </span>{{ column.label }}</a>{% endset %}
+      {% set head = (head.push({ html: headerCell, attributes: { "aria-sort": column.ariaSort } }), head) %}
+    {% endfor %}
+
     {{ govukTable({
-      head: [
-        { text: columns[0] },
-        { text: columns[1] },
-        { text: columns[2] },
-        { text: columns[3] },
-        { text: columns[4] },
-        { text: columns[5] }
-      ],
+      head: head,
       rows: rows,
       caption: heading,
       captionClasses: "govuk-visually-hidden"
+    }) }}
+  {% endif %}
+
+  {# api's counts, not a count of the rows above: `total` spans every page and this one holds at most 25. #}
+  {% if pagingSummary %}
+    <p class="govuk-body">{{ pagingSummary }}</p>
+  {% endif %}
+
+  {% if paging and paging.links %}
+    {{ govukPagination({
+      previous: paging.links.previous,
+      next: paging.links.next,
+      items: paging.links.items,
+      landmarkLabel: pagingLabel
     }) }}
   {% endif %}
 

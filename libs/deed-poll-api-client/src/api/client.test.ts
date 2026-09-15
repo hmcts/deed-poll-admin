@@ -221,7 +221,7 @@ describe("listCases", () => {
   it("should report which filter api resolved, so an unrecognised one is visible", async () => {
     await caseId();
 
-    const result = await listCases("nonsense", config);
+    const result = await listCases({ filter: "nonsense" }, config);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -233,11 +233,64 @@ describe("listCases", () => {
     const id = await enrollableCaseId();
     await patchCase(id, { dateEnroled: new Date("2026-04-01T00:00:00Z") }, config);
 
-    const result = await listCases("open", config);
+    const result = await listCases({ filter: "open" }, config);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.cases.map((summary) => summary.id)).not.toContain(id);
+  });
+
+  it("should send each condition as its own where parameter, ANDed", async () => {
+    const wanted = await caseId({ type: "Adult", newForename: "Ada" });
+    await caseId({ type: "Minor", newForename: "Ada" });
+    await caseId({ type: "Adult", newForename: "Grace" });
+
+    const result = await listCases({ where: ["type:is:Adult", "newForename:is:Ada"] }, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.cases.map((summary) => summary.id)).toEqual([wanted]);
+  });
+
+  it("should encode a value containing a colon rather than letting it re-split the condition", async () => {
+    // The reason api splits on the first two colons only: `contains:10:30` is one value, not two parts.
+    const id = await caseId({ returnReason: "Returned at 10:30, unsigned" });
+
+    const result = await listCases({ where: ["returnReason:contains:at 10:30"] }, config);
+
+    expect(result.ok && result.data.cases.map((summary) => summary.id)).toEqual([id]);
+  });
+
+  it("should sort by the field and direction asked for", async () => {
+    const first = await caseId({ dateReceived: new Date("2026-01-05T00:00:00Z"), newForename: "Ada" });
+    const second = await caseId({ dateReceived: new Date("2026-02-05T00:00:00Z"), newForename: "Bea" });
+
+    const ascending = await listCases({ sort: "dateReceived:asc" }, config);
+    const descending = await listCases({ sort: "dateReceived:desc" }, config);
+
+    expect(ascending.ok && ascending.data.cases.map((summary) => summary.id)).toEqual([first, second]);
+    expect(descending.ok && descending.data.cases.map((summary) => summary.id)).toEqual([second, first]);
+  });
+
+  it("should carry the counts of the whole result set, not of the page it returned", async () => {
+    for (const forename of ["Ada", "Bea", "Cyd"]) await caseId({ newForename: forename, dateReceived: DATE_RECEIVED });
+
+    const result = await listCases({ sort: "newForename:asc", page: 2, size: 2 }, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.cases.map((summary) => summary.newForename)).toEqual(["Cyd"]);
+    expect(result.data).toMatchObject({ page: 2, size: 2, total: 3, totalPages: 2 });
+  });
+
+  it("should report a condition api cannot read as a validation failure against its position", async () => {
+    const result = await listCases({ where: ["type:is:Adult", "nonsense:is:x"] }, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("validation");
+    // Addressed to the position, because the parameter is repeated and only a position says which row.
+    expect(result.error.fieldErrors?.map((error) => error.field)).toEqual(["where.1"]);
   });
 });
 
@@ -544,7 +597,7 @@ describe("when api is unavailable", () => {
 
   it("should report unavailable when the connection is refused", async () => {
     // Port 1 is privileged and nothing is listening: a refused connection rather than a status code.
-    const result = await listCases(undefined, { baseUrl: "http://localhost:1", timeoutMs: 2000 });
+    const result = await listCases({}, { baseUrl: "http://localhost:1", timeoutMs: 2000 });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -556,7 +609,7 @@ describe("when api is unavailable", () => {
     const silent = await listen(createServer(() => {}));
 
     try {
-      const result = await listCases(undefined, { baseUrl: silent.url, timeoutMs: 50 });
+      const result = await listCases({}, { baseUrl: silent.url, timeoutMs: 50 });
 
       expect(result.ok).toBe(false);
       if (result.ok) return;
@@ -576,7 +629,7 @@ describe("when api is unavailable", () => {
     );
 
     try {
-      const result = await listCases(undefined, { baseUrl: stalling.url, timeoutMs: 100 });
+      const result = await listCases({}, { baseUrl: stalling.url, timeoutMs: 100 });
 
       expect(result.ok).toBe(false);
       if (result.ok) return;
@@ -589,7 +642,7 @@ describe("when api is unavailable", () => {
   it("should never throw, whatever the failure", async () => {
     // The property the whole `ApiResult` shape exists for: a caseworker's half-filled form must not be
     // lost to an exception from the data layer.
-    await expect(listCases(undefined, { baseUrl: "http://localhost:1", timeoutMs: 500 })).resolves.toMatchObject({ ok: false });
+    await expect(listCases({}, { baseUrl: "http://localhost:1", timeoutMs: 500 })).resolves.toMatchObject({ ok: false });
   });
 });
 
@@ -733,7 +786,7 @@ describe("when api answers a status the contract does not describe", () => {
       );
 
       try {
-        const result = await listCases(undefined, { baseUrl: answering.url, timeoutMs: 2000 });
+        const result = await listCases({}, { baseUrl: answering.url, timeoutMs: 2000 });
 
         expect(result.ok).toBe(false);
         if (result.ok) return;
@@ -755,7 +808,7 @@ describe("when api answers a status the contract does not describe", () => {
     );
 
     try {
-      const result = await listCases(undefined, { baseUrl: proxy.url, timeoutMs: 2000 });
+      const result = await listCases({}, { baseUrl: proxy.url, timeoutMs: 2000 });
 
       expect(result.ok).toBe(false);
       if (result.ok) return;
@@ -798,7 +851,7 @@ describe("when api answers 2xx with a body that breaks the contract", () => {
     );
 
     try {
-      const result = await listCases(undefined, { baseUrl: notJson.url, timeoutMs: 2000 });
+      const result = await listCases({}, { baseUrl: notJson.url, timeoutMs: 2000 });
 
       expect(result.ok).toBe(false);
       if (result.ok) return;
@@ -813,12 +866,12 @@ describe("when api answers 2xx with a body that breaks the contract", () => {
     const unknownState = await listen(
       createServer((_req, res) => {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ filter: "all", cases: [{ id: "abc", state: "SomethingNew" }] }));
+        res.end(JSON.stringify({ filter: "all", cases: [{ id: "abc", state: "SomethingNew" }], page: 1, size: 25, total: 1, totalPages: 1 }));
       })
     );
 
     try {
-      const result = await listCases(undefined, { baseUrl: unknownState.url, timeoutMs: 2000 });
+      const result = await listCases({}, { baseUrl: unknownState.url, timeoutMs: 2000 });
 
       expect(result.ok).toBe(false);
       if (result.ok) return;
@@ -837,12 +890,12 @@ describe("the bearer token", () => {
       createServer((req, res) => {
         headers.push(req.headers.authorization);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ filter: "all", cases: [] }));
+        res.end(JSON.stringify({ filter: "all", cases: [], page: 1, size: 25, total: 0, totalPages: 0 }));
       })
     );
 
     try {
-      await listCases(undefined, { baseUrl: recorder.url, timeoutMs: 2000, accessToken: "a-token" });
+      await listCases({}, { baseUrl: recorder.url, timeoutMs: 2000, accessToken: "a-token" });
 
       expect(headers).toEqual(["Bearer a-token"]);
     } finally {

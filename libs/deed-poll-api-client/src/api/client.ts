@@ -83,11 +83,28 @@ const UPLOAD_TIMEOUT_MS = 60_000;
 /** The multipart field name api reads the upload from. Matches `UploadPolicy.UPLOAD_FILE_FIELD`. */
 const UPLOAD_FILE_FIELD = "file";
 
-/** The case list, filtered by one of the saved-query keys. */
-export async function listCases(filter: string | undefined, config: ApiConfig): Promise<ApiResult<CaseList>> {
-  const query = filter === undefined ? "" : `?filter=${encodeURIComponent(filter)}`;
+/**
+ * One page of the case list: a saved-query filter, field-level conditions, an order and a page.
+ *
+ * `where` is REPEATED rather than joined, because that is api's format — one parameter per condition,
+ * ANDed. `URLSearchParams` is what builds the string, so a value carrying a colon, a comma, an ampersand
+ * or a space is encoded rather than re-splitting the URL at api's end.
+ *
+ * Every part is optional and an omitted one is not sent at all, so api applies its own default: no
+ * filter is "all", no sort is newest first, and no page is the first 25. Sending this app's idea of those
+ * defaults would be a second opinion about them, and the one that shows up in a bookmarked URL.
+ */
+export async function listCases(query: CaseListQuery, config: ApiConfig): Promise<ApiResult<CaseList>> {
+  const parameters = new URLSearchParams();
+  if (query.filter !== undefined) parameters.set("filter", query.filter);
+  for (const condition of query.where ?? []) parameters.append("where", condition);
+  if (query.sort !== undefined) parameters.set("sort", query.sort);
+  if (query.page !== undefined) parameters.set("page", String(query.page));
+  if (query.size !== undefined) parameters.set("size", String(query.size));
 
-  return request(config, "GET", `/caseworker/cases${query}`, WIRE_SCHEMAS.CaseListResponse);
+  const search = parameters.toString();
+
+  return request(config, "GET", `/caseworker/cases${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.CaseListResponse);
 }
 
 /** One case with its notes, witnesses and documents. One call, because the detail page needs all four. */
@@ -620,6 +637,27 @@ export type NationalitySection = NonNullable<SavedCase["nationalitySection"]>;
 export type MasterDecision = NonNullable<SavedCase["masterDecision"]>;
 export type ReferToMaster = NonNullable<SavedCase["referToMasterChoice"]>;
 export type DocumentDirection = NonNullable<Document["direction"]>;
+
+/**
+ * What to ask the case list for, in api's own vocabulary.
+ *
+ * Strings rather than a modelled query, deliberately: composing a condition is the domain's job — this is
+ * the layer that puts one on the wire, and `field:operator:value` is api's format for it, published in
+ * `openapi.json`. `libs/deed-poll`'s `caseQueryWhere` is what produces the entries, and it is the only
+ * thing that should.
+ */
+export interface CaseListQuery {
+  /** One of api's saved-query keys. It composes with `where` rather than being replaced by it. */
+  filter?: string;
+  /** Conditions as `field:operator:value`, ANDed. api caps them at 20 and refuses the request beyond that. */
+  where?: readonly string[];
+  /** `field` or `field:asc` or `field:desc`. Omitted is newest first. */
+  sort?: string;
+  /** 1-based. */
+  page?: number;
+  /** Rows per page. api defaults to 25 and clamps anything above 100 to 100. */
+  size?: number;
+}
 
 export interface FieldRulesQuery {
   type?: CaseType | null;
