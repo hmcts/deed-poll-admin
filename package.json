@@ -21,6 +21,7 @@
     "test:smoke": "yarn workspace e2e-tests run test:smoke",
     "test:functional": "echo 'No functional suite: every journey spec needs a caseworker signed in through the local rse-idam-simulator and the in-memory deed-poll-api mock on :3200, neither of which a deployed environment has, so the deployed subset is test:smoke. Present because sectionDeployToAKS invokes it on aat AND preview — every PR — and fails the deploy on a missing script. See docs/PIPELINES.md.'",
     "mock:api": "yarn workspace @hmcts/deed-poll-api-client run mock",
+    "mock:seed": "node scripts/seed-local-cases.mjs",
     "format": "biome format --write .",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
