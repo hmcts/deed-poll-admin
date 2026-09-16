@@ -90,8 +90,8 @@ describe("charts/deed-poll-admin", () => {
 
   it("should override values.yaml from per-environment templates, which helmInstall appends rather than renders over it", () => {
     // `helmInstall` does `envsubst < values.template.yaml > values.yaml`, so a file with that exact name
-    // *replaces* the shared defaults instead of layering on them: the vault list, `aadIdentityName`,
-    // `applicationPort`, both probe paths, every `IDAM_*` variable and `redis.enabled: false` would all be
+    // *replaces* the shared defaults instead of layering on them: the vault list, `useWorkloadIdentity` and
+    // `saEnabled`, `applicationPort`, both probe paths, every `IDAM_*` variable and `redis.enabled: false` would all be
     // gone from every non-preview deploy. No mounted secrets means `getPropertiesVolumeSecrets` returns an
     // empty alias map without throwing, `REDIS_URL` falls back to `config/default.json`'s localhost and
     // `assertRedisUrl` refuses to start — and `redis.enabled` going missing enables the ephemeral subchart in

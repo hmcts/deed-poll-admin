@@ -23,8 +23,13 @@ home: https://github.com/hmcts/deed-poll-admin
 # `postgresql` is removed rather than left `enabled: false`: this app has no database, so a per-PR one has
 # nothing to put in it. Restoring any of them starts in `hmcts/deed-poll-api`, not here.
 dependencies:
+  # 3.3.1 rather than 3.2.1 for two reasons that happen to coincide. It is the version the pipeline's own
+  # deprecation check demands — `check-deprecated-charts.sh` prints "chart 3.2.1 is deprecated, please
+  # upgrade to at least 3.3.1" and exits 1, tolerated today and fatal at the 2026-10-08 deadline in
+  # `cnp-deprecation-map`. And it carries chart-library **2.3.1** where 3.2.1 carried 2.2.2, which is what
+  # provides the `useWorkloadIdentity` and `saEnabled` values `values.yaml` now sets.
   - name: nodejs
-    version: 3.2.1
+    version: 3.3.1
     repository: 'oci://hmctsprod.azurecr.io/helm'
   # The one subchart that survives, and it is the answer to blocker 4 in `docs/PIPELINES.md` rather than a
   # leftover. Sessions live in Redis and `assertRedisUrl` refuses `config/default.json`'s loopback default

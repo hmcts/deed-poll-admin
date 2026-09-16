@@ -5,7 +5,8 @@
 # The name is load-bearing, and `values.template.yaml` — which this file replaced — is the wrong one.
 # `helmInstall` in `hmcts/cnp-jenkins-library` does `envsubst < values.template.yaml > values.yaml`: it
 # renders that file *over* `values.yaml` rather than layering on top of it, so a `values.template.yaml`
-# holding only the pipeline-owned values would delete the vault list, `aadIdentityName`, `applicationPort`,
+# holding only the pipeline-owned values would delete the vault list, the two identity switches
+# (`useWorkloadIdentity` and `saEnabled` — a pod that silently loses those reverts to no identity), `applicationPort`,
 # both probe paths, every `IDAM_*` variable and `redis.enabled: false` from every non-preview deploy. A
 # `values.${environment}.template.yaml` renders to its own `values.${environment}.yaml` and is *appended* to
 # helm's `-f` list, which is what an override file has to do. `pcs-frontend` and `deed-poll-web` both have
