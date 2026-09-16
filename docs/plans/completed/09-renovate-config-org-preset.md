@@ -1,0 +1,216 @@
+# Plan: Extend the mandatory HMCTS renovate preset
+
+## Overview
+
+This repo's **first master build has never succeeded**, and this is the only thing stopping it. Build #3
+(2026-09-15 09:20, triggered by `#100` merging) failed inside `checkoutScm`, before any application code ran:
+
+```
++ grep -iq 'local>hmcts/.github:renovate-config' .github/renovate.json
++ echo 'Renovate config should extend local>hmcts/.github:renovate-config'
++ exit 1
+
+Please note Renovate config is now mandatory in every repo extending default org level config without using
+enabledManagers. This change is enforced from 23/09/2023
+```
+
+The check is a literal `grep` for the string `local>hmcts/.github:renovate-config` in
+`.github/renovate.json` or `renovate.json`. Our file extends `config:recommended` instead, so it fails.
+
+**The fix is one array entry.** It is written as a plan rather than done ad hoc because adopting the org
+preset **changes Renovate's behaviour**, and that consequence deserves recording rather than discovery next
+Monday morning.
+
+**Why this matters now.** `hmcts/deed-poll-infra` applied for the first time on 2026-09-15, so the AAT Key
+Vault, Postgres and Redis exist. The remaining gate on a first deployment is that no component has ever
+published an image or Helm chart — and a component's **first master build** is what publishes them. Nine
+changes merged here this week with no automated checks at all, which also resolves once builds run.
+
+### Source material — read these, do not re-derive them
+
+| What | Where |
+|---|---|
+| The failing check itself | `warnAboutRenovateConfig.groovy` and `renovate-config-check.sh` in `hmcts/cnp-jenkins-library` |
+| **What the preset actually does** | `hmcts/.github`, `renovate-config.json` — read it, do not assume |
+| A repo of ours that already passes | `../deed-poll-infra/renovate.json` |
+| The sibling repo with the same failure | `../deed-poll-web/.github/renovate.json` and its `docs/plans/02-renovate-config-org-preset.md` |
+| CNP's own guidance | <https://hmcts.github.io/cloud-native-platform/guides/automated-dependency-updates.html> |
+
+### Decisions already taken — implement these, do not revisit
+
+1. **Add the preset; do not replace this file.** `deed-poll-infra`'s `renovate.json` is four lines because
+   Terraform needs nothing else. This repo's config carries deliberate, commented rules — three custom
+   managers, the `@types/node` ceiling, never-automerge-a-major — each with a stated reason. **Keep them all.**
+2. **The preset goes first in `extends`.** Renovate merges in order and later entries win, so listing it
+   first keeps our own overrides authoritative. That is the intent: adopt the org baseline, keep our rules.
+3. **Keep `config:recommended` as well.** The preset extends `config:base`, the older name for broadly the
+   same thing; dropping `config:recommended` is a behaviour change this plan is not making. Two overlapping
+   presets are harmless — the check cares only that the org one is present.
+4. **This repo's `customManagers` spelling is already correct** and must stay. `deed-poll-web` still uses
+   the deprecated `regexManagers`/`fileMatch`; this repo uses `customManagers`/`managerFilePatterns`, which
+   is the current API. **Do not "align" this file down to match web's.**
+
+### Two consequences of adopting the preset — expected, not defects
+
+Read `hmcts/.github`'s `renovate-config.json` before starting. Adopting it brings:
+
+- **A schedule.** `"schedule": "after 7am and before 11am every weekday"`. Renovate currently opens PRs
+  whenever it likes; afterwards only on weekday mornings. Also `"timezone": "Europe/London"` and a
+  `dependencies` label on every PR.
+- **A dependency dashboard issue** (`:dependencyDashboard`), which Renovate will open in this repo — a new
+  GitHub issue appearing by itself. Expected.
+
+There is a third worth knowing, specific to this repo: the preset sets `helmv3.bumpVersion: "patch"` and
+`registryAliases` for both `hmctspublic` and `hmctsprod`. This repo has a real chart at
+`charts/deed-poll-admin/`, so **Renovate may start bumping its `version:` on dependency updates.** Harmless
+and arguably desirable, but it is a new behaviour on a tracked file.
+
+None is a reason not to do this: the preset is mandatory and the build cannot pass without it.
+
+### Constraints
+
+- **No application code, no test changes, no dependency upgrades.** This plan edits exactly one file.
+- **Never run bare `yarn test`.** It reports `0 successful, 8 total` / `Tests no tests` — nothing ran, so
+  nothing failed. Use `yarn turbo test test:app --concurrency=1`.
+- **Valid JSON matters more than tidiness.** A malformed `renovate.json` fails the same build differently.
+- The check accepts `.github/renovate.json` **or** `renovate.json`. Ours is at `.github/renovate.json`;
+  leave it there and do not add a second one.
+
+## Validation Commands
+
+```bash
+yarn lint
+yarn turbo test test:app --concurrency=1
+yarn build
+```
+
+> Every task. **None of them reads `renovate.json`**, so this plan must not change their result — they are
+> the guard against a task straying beyond its scope, not proof the fix works. The baseline at `2a6b441`
+> (plan 08's merge) was **1,639 unit tests, 8 of 8 tasks**, `lint` exit 0 with two pre-existing
+> `noUndeclaredEnvVars` warnings, `build` 8 of 8. **Compare totals, not passed counts** — the three Redis
+> session tests skip when no cache is reachable and pass when one is.
+>
+> Proof the fix works is Task 2's `grep`, which is exactly what the pipeline runs.
+
+## Tasks
+
+### Task 1: Extend the org preset
+
+- [x] In `.github/renovate.json`, change `"extends": ["config:recommended"]` to:
+
+      ```json
+      "extends": [
+        "local>hmcts/.github:renovate-config",
+        "config:recommended"
+      ]
+      ```
+
+      Preset first, per decision 2. **Change nothing else in the file** — not `automerge`, not
+      `customManagers`, not `packageRules`, not `constraints`
+- [x] Confirm the file is still valid JSON:
+      `node -e "JSON.parse(require('fs').readFileSync('.github/renovate.json','utf8')); console.log('valid')"`
+      — printed `valid`
+- [x] Confirm nothing else was lost:
+      `node -e "const c=require('./.github/renovate.json'); console.log(c.customManagers.length, c.packageRules.length)"`
+      must print `3 5` — the counts on `master` before this change. **Three custom managers, not two:**
+      `.nvmrc`, Dockerfiles, and GitHub Actions
+      — printed `3 5`; `extends` is `["local>hmcts/.github:renovate-config","config:recommended"]`
+- [x] Run the validation commands — all three match the `2a6b441` baseline: `lint` exit 0 with the same two
+      pre-existing `noUndeclaredEnvVars` warnings (`PORT` in `src/server.ts`, `REDIS_URL` in
+      `src/session-store.test.ts`), `yarn turbo test test:app --concurrency=1` **1,639 tests, 8 of 8 tasks**
+      (41 + 23 + 192 + 644 + 7 + 127 + 140 + 465), `build` 8 of 8. The single-line `extends` edit is the only
+      change in the working tree
+- [x] Mark completed
+
+### Task 2: Prove it passes the check the pipeline actually runs
+
+- [x] Run the pipeline's own test verbatim — this is the whole point of the plan:
+
+      ```bash
+      grep -iq 'local>hmcts/.github:renovate-config' .github/renovate.json && echo PASS || echo FAIL
+      ```
+
+      It must print `PASS` — printed `PASS`
+- [x] Run the other branch of the same script, which decides *whether* the check applies:
+      `grep -iq enabledManagers .github/renovate.json && echo "skipped" || echo "check applies"`.
+      Expect **`check applies`** — we are passing the check, not opting out of it. If a task ever makes this
+      print `skipped`, it has taken the wrong route: `enabledManagers` narrows Renovate to named managers and
+      would silently stop most updates
+      — printed `check applies`; there is no `enabledManagers` key in the file and none was added
+- [x] Record in this plan that the fix is **unverified against a real build**, and that this is expected:
+      `build.hmcts.net` is behind Azure AD App Proxy and unreachable from the devcontainer, so triggering and
+      reading the master build is Steve's. **Do not attempt it** — recorded below, and not attempted
+- [x] Mark completed
+
+**Verification status: the fix passes the check locally and is unverified against a real build.** Both
+branches of `renovate-config-check.sh` were reproduced verbatim above and behave as the pipeline needs —
+the org preset is found, and the `enabledManagers` opt-out is absent, so the check applies and passes. That
+is the whole of what can be shown from here: `build.hmcts.net` sits behind Azure AD App Proxy and is
+unreachable from the devcontainer, so triggering the master build and reading `checkoutScm`'s output is
+Steve's step, not this plan's. It was not attempted. Confirmation that build #4 gets past `checkoutScm` — and
+so becomes the first master build to publish an image and Helm chart — is the real close-out signal.
+
+The three validation commands were re-run on this task and match the `2a6b441` baseline unchanged, which is
+what should happen: `lint` exit 0 with the same two pre-existing `noUndeclaredEnvVars` warnings, 1,639 unit
+tests across 8 of 8 turbo tasks (41 + 23 + 192 + 644 + 7 + 127 + 140 + 465), `build` 8 of 8. This task read
+files and ran greps; it changed no code.
+
+### Task 3: Check the third custom manager still makes sense
+
+This repo has a manager `deed-poll-web` does not: "Update Node.js version in GitHub Actions". **This repo
+has no `.github/workflows/`** — it was deleted when all four repos moved to the Jenkins CNP pipeline. So the
+manager may now match nothing.
+
+- [x] Confirm whether any file it could match exists:
+      `ls -la .github/workflows/ 2>/dev/null || echo "no workflows directory"`
+      — printed `no workflows directory`
+- [x] If there is nothing for it to match, **leave it in place and record that** in this plan rather than
+      deleting it. Two reasons: a manager matching nothing is inert, not harmful; and `docs/PIPELINES.md`
+      notes the Playwright suite still wants a pipeline stage, so a workflow could return. Deleting it would
+      be a silent behaviour change on a file this plan is otherwise leaving alone
+      — left in place, unchanged; finding recorded below
+- [x] Note the finding either way, with the manager's index, so a future tidy-up has the evidence
+- [x] Mark completed
+
+**Finding: the GitHub Actions manager currently matches nothing, and it stays.**
+
+It is `customManagers[2]` — the third and last of the three, `description` "Update Node.js version in GitHub
+Actions", `managerFilePatterns: ["/^\\.github/workflows/.*\\.ya?ml$/"]`. Evidence gathered on 2026-09-15:
+
+- `ls -la .github/workflows/` → `no workflows directory`. `.github/` holds only
+  `copilot-instructions.md`, `osv-scanner.toml`, `renovate.json` and `scripts/`.
+- `find .github -name '*.yml' -o -name '*.yaml'` → no output. There is no YAML anywhere under `.github/`,
+  so nothing can match even if the directory reappeared under a different name.
+- `git log --diff-filter=D -- '.github/workflows/*'` → the files went in `20f08ac`, "Move deed-poll-admin to
+  the Jenkins CNP pipeline, and sessions to Redis (#75)". This is a known, deliberate deletion, not drift.
+
+So the manager is inert: Renovate will find no file to scan and will raise no dependency from it. The two
+other managers are the live ones — `customManagers[0]` reads `.nvmrc` and `customManagers[1]` reads
+`Dockerfile*`, both of which exist, and `packageRules`' "Group all Node.js version updates" keeps them in one
+branch via `matchManagers: ["custom.regex", "nvm"]`.
+
+One correction to the plan's stated second reason, recorded so a future tidy-up is not misled: the claim that
+"a workflow could return" is weaker than it reads. `docs/PIPELINES.md` does note the Playwright journeys have
+no pipeline stage — `AppPipelineConfig.e2eTest` defaults false and `Jenkinsfile_CNP` never calls
+`enableE2eTest()` — but the repo's `CLAUDE.md` states plainly that `.github/workflows/` was deleted in full
+and **none should be added**. A workflow returning would therefore be a reversal of a documented decision,
+not a routine addition. The reason to keep the manager is the first one alone, and it is sufficient: an inert
+manager costs nothing, and deleting it is a behaviour change on the one file this plan exists to make a
+single-line edit to. If a later plan tidies `renovate.json` for its own sake, `customManagers[2]` is the
+candidate and this paragraph is the evidence.
+
+This task read files and ran `ls`, `find`, `git log` and `grep`. It changed no code and no configuration, and
+the three validation commands were re-run anyway and match the `2a6b441` baseline: `lint` exit 0 with the same
+two pre-existing `noUndeclaredEnvVars` warnings (`PORT` in `src/server.ts`, `REDIS_URL` in
+`src/session-store.test.ts`), 1,639 unit tests across 8 of 8 turbo tasks (465 + 644 + 192 + 140 + 127 + 41 +
+23 + 7), `build` 8 of 8.
+
+## Deliberately not in this plan
+
+- **The ACR registry nagger.** It fails `deed-poll-api`, not this repo — this repo's Dockerfile and chart
+  already use `hmctsprod.azurecr.io`. It has its own plan there.
+- **Deleting the GitHub Actions custom manager.** See Task 3.
+- **Dropping `config:recommended`,** or otherwise tuning what the preset brings in. Decision 3.
+- **Reconciling the schedule, the dashboard issue, or Helm chart version bumping.** Expected consequences,
+  documented above.
+- **Triggering or verifying the master build.** Not possible from here.
