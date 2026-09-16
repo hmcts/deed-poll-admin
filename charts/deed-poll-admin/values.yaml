@@ -16,9 +16,23 @@ redis:
 
 nodejs:
   applicationPort: 3000
-  # Resolves the `deed-poll-{env}-mi` managed identity the shared key vault module creates in
-  # `hmcts/deed-poll-infra`. That identity is how the pod reads the vault below.
-  aadIdentityName: deed-poll
+  # Workload identity, not aad-pod-identity. This replaces `aadIdentityName: deed-poll`, which put an
+  # `aadpodidbinding` label on the pod and sent the CSI driver to NMI — where it got a 404, because nothing
+  # creates an `AzureIdentityBinding` for this namespace. That is what left the first AAT deploy stuck in
+  # `Init:0/1` until helm timed out.
+  #
+  # `useWorkloadIdentity` adds `azure.workload.identity/use: "true"` to the pod (chart-library
+  # `templates/v2/_podtemplate.tpl`) and suppresses the legacy label, which `_labels.tpl` guards with
+  # `and aadIdentityName (not useWorkloadIdentity)`. So `aadIdentityName` is removed rather than left
+  # alongside: with this set it would be inert, and keeping it would imply the old path still applies.
+  useWorkloadIdentity: true
+  # Required alongside the above, and the easiest half to miss. Without it the pod gets **no**
+  # `serviceAccountName` and runs as `default`. The federated credential in `cnp-flux-config` binds the
+  # subject `system:serviceaccount:deed-poll:deed-poll`, and `saEnabled` is what makes the pod use the
+  # namespace-named account that subject refers to — `_podtemplate.tpl` renders
+  # `serviceAccountName: {{ .Release.Namespace }}`. Annotating the service account without this would
+  # federate an identity no pod ever presents.
+  saEnabled: true
   # The stable per-environment service host, matching `deed-poll-web`'s shape. AAT and preview override it
   # with `${SERVICE_FQDN}`, which is the host the pipeline actually registers in DNS; this value is what
   # demo, ithc, perftest and prod get.
