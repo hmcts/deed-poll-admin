@@ -13,6 +13,17 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
 /** api's list envelope: the rows plus the counts every page of it carries. */
 const page = (cases: unknown[]) => ({ filter: "all", cases, page: 1, size: 25, total: cases.length, totalPages: cases.length === 0 ? 0 : 1 });
 
+/**
+ * The keys of every nav entry the render marked current.
+ *
+ * A list rather than a single value, because "exactly one entry is current" is half of what the assertion
+ * is for: a bar with two current entries tells a screen-reader user they are in two places.
+ */
+const currentEntries = (res: ReturnType<typeof pageResponse>): string[] =>
+  res.render.mock.calls[0][1].filterGroups.flatMap((group: { entries: { key: string; current: boolean }[] }) =>
+    group.entries.filter((entry) => entry.current).map((entry) => entry.key)
+  );
+
 const record = {
   id: "case-1",
   displayReference: "KBDP2026-00001",
@@ -61,7 +72,7 @@ describe("deed-polls list page", () => {
     await GET(pageRequest({ query: { filter: "nonsense" } }), res);
 
     expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", conditions: [] }, expect.anything());
-    expect(res.render).toHaveBeenCalledWith("deed-polls/index", expect.objectContaining({ activeFilter: "all" }));
+    expect(currentEntries(res)).toEqual(["all"]);
   });
 
   it("presents the caseworker's own token, so api authenticates and audits as them", async () => {
@@ -70,12 +81,32 @@ describe("deed-polls list page", () => {
     expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", conditions: [] }, { accessToken: "caseworker-token" });
   });
 
-  it("marks the active filter so the tab bar can show which is current", async () => {
+  it("decides which entry is current in the handler, since a saved query's identity is not its label", async () => {
     const res = pageResponse();
 
     await GET(pageRequest({ query: { filter: "open" } }), res);
 
-    expect(res.render).toHaveBeenCalledWith("deed-polls/index", expect.objectContaining({ activeFilter: "open" }));
+    // One current entry, and the tab bar is told which rather than comparing keys in the template.
+    expect(currentEntries(res)).toEqual(["open"]);
+  });
+
+  it("carries the filter into the builder's hidden control separately from the nav's current entry", async () => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ query: { filter: "open" } }), res);
+
+    expect(res.render).toHaveBeenCalledWith("deed-polls/index", expect.objectContaining({ filterValue: "open" }));
+  });
+
+  it("groups the nav's entries under a label, so a second group costs no template change", async () => {
+    const res = pageResponse();
+
+    await GET(pageRequest(), res);
+
+    const groups = res.render.mock.calls[0][1].filterGroups;
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe("Status");
+    expect(groups[0].entries).toHaveLength(5);
   });
 
   it("passes the filter tabs without their where clauses", async () => {
@@ -84,8 +115,8 @@ describe("deed-polls list page", () => {
     await GET(pageRequest(), res);
 
     const model = res.render.mock.calls[0][1];
-    for (const tab of model.filters) {
-      expect(Object.keys(tab)).toEqual(["key", "label", "href"]);
+    for (const entry of model.filterGroups[0].entries) {
+      expect(Object.keys(entry)).toEqual(["key", "label", "href", "current"]);
     }
   });
 
@@ -147,7 +178,7 @@ describe("deed-polls list page", () => {
       await GET(pageRequest({ query: { filter: "open", where: "type:is:Adult" } }), res);
 
       const model = res.render.mock.calls[0][1];
-      expect(model.filters.map((tab: { href: string }) => tab.href)).toEqual([
+      expect(model.filterGroups[0].entries.map((tab: { href: string }) => tab.href)).toEqual([
         "/deed-polls?where=type%3Ais%3AAdult",
         "/deed-polls?filter=open&where=type%3Ais%3AAdult",
         "/deed-polls?filter=received&where=type%3Ais%3AAdult",
@@ -323,7 +354,7 @@ describe("deed-polls list page", () => {
 
       await GET(pageRequest({ query: { filter: "open", sort: "state:desc", page: "3" } }), res);
 
-      expect(res.render.mock.calls[0][1].filters[2].href).toBe("/deed-polls?filter=received&sort=state%3Adesc");
+      expect(res.render.mock.calls[0][1].filterGroups[0].entries[2].href).toBe("/deed-polls?filter=received&sort=state%3Adesc");
     });
 
     it("states the range and the total from api's counts rather than from the rows on screen", async () => {

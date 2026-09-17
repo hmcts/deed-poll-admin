@@ -335,7 +335,16 @@ describe("deed-polls list template", () => {
       const nav = filterNav(await render());
 
       expect(nav).toMatch(/<div class="app-filter-nav__group">\s*<h2 class="app-filter-nav__group-label">Status<\/h2>/);
-      expect(nav).toContain('aria-label="Filter by status"');
+      // Wording true of every group the bar can hold, since the second one is saved queries and not
+      // statuses — plan 11's decision 4. The group's own label is what says "status".
+      expect(nav).toContain('aria-label="Filter cases"');
+      expect(nav).not.toContain("Filter by status");
+    });
+
+    it("renders one group until saved queries add the second, so an empty labelled group is never drawn", async () => {
+      const nav = filterNav(await render());
+
+      expect([...nav.matchAll(/<div class="app-filter-nav__group">/g)]).toHaveLength(1);
     });
 
     /**

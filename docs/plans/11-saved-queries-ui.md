@@ -607,10 +607,38 @@ and the list test at ~line 305 asserts exactly five `<li class="app-filter-nav__
 `<nav>`**, which is the assertion that will break in task 5 once a saved query renders as a sixth. Update
 the label assertion here; in task 5, scope the count to the first group rather than raising the number.
 
-- [ ] `filterGroups` replaces flat `filters` plus scalar `filterGroupLabel`; `current` computed in the
+- [x] `filterGroups` replaces flat `filters` plus scalar `filterGroupLabel`; `current` computed in the
       handler not the template; `filterLabel` no longer claims "by status"; template loops groups with the
       per-entry markup unchanged; the two plan-10 nav tests updated to match with their intent intact; still
       exactly one group rendered
+
+#### What was built, and one name this task had to add rather than remove
+
+`filterGroups: [statusGroup(view, content)]` is the whole of the nav's model, one
+`{ label, entries: NavEntry[] }` per group with `NavEntry` as `{ key, label, href, current }` — structurally
+task 3's `SavedQueryNavEntry`, so task 5 appends its group with no shape to convert. Both interfaces are at
+the bottom of `index.ts` per the repo's conventions rather than in the domain: a group is the page's layout
+decision, and `view.ts` already declines to make it.
+
+**`activeFilter` could not simply go, because it was doing two jobs.** The template read it twice — once to
+decide which tab was current, and once as the builder's `<input type="hidden" name="filter">`. Only the first
+is the nav's. The second is now `filterValue`, named beside the `sortValue` it sits next to in the form, so
+the bar's "you are here" and the GET form's transport are two values that can no longer drift into each
+other. The `en` key `filterGroupLabel` became `statusGroupLabel` for the same reason: a scalar named for the
+whole bar, holding the first group's label, is the shape this task exists to remove.
+
+`filterLabel` is now **"Filter cases"**, and the plan-10 test that asserted `aria-label="Filter by status"`
+asserts the new wording plus `not.toContain("Filter by status")` — the old string is the regression worth
+pinning, since it reappears silently and only a screen-reader user is told the lie. The five-item count at
+`index.njk.test.ts:309` is **left scoped to the whole `<nav>`**, per task 4's note that task 5 scopes it to
+the first group rather than renumbering it. A third `index.test.ts` reference to `model.filters` was at line
+357 and not caught by grepping for the property alone.
+
+Measured from a `/tmp` copy (`git ls-files -co`, the change being uncommitted), all three green: `yarn lint`
+**exit 0**, 3 warnings and 2 infos, the same set tasks 2 and 3 recorded. **1,774 tests**, 8 of 8 tasks
+successful, 0 failures — up 3 from 1,771, all of it the app (488 → 491): one template test that one group
+renders, and the handler's single `activeFilter` assertion replaced by three (current entry, `filterValue`,
+the group's label and size). `yarn build` 8 of 8 in 13.8s. Task 5 onward compares against **1,774**.
 
 ### Task 5: Selected queries as the nav's second group
 
