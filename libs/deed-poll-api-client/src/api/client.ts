@@ -316,7 +316,7 @@ export function listDocumentTypes(config: ApiConfig): Promise<ApiResult<Document
  * navigation bar renders the subset where `selected` is true, which is a filter over data already held
  * rather than a second call.
  */
-export function listSavedQueries(config: ApiConfig): Promise<ApiResult<WireSavedQuery[]>> {
+export function listSavedQueries(config: ApiConfig): Promise<ApiResult<SavedQuery[]>> {
   return request(config, "GET", "/caseworker/saved-queries", WIRE_SCHEMAS.SavedQueryResponse.array());
 }
 
@@ -327,12 +327,12 @@ export function listSavedQueries(config: ApiConfig): Promise<ApiResult<WireSaved
  * indistinguishable on purpose, so no id is discoverable by watching status codes. A caller cannot tell
  * "somebody else's private query" from "no such query", and neither can this app.
  */
-export function getSavedQuery(id: string, config: ApiConfig): Promise<ApiResult<WireSavedQuery>> {
+export function getSavedQuery(id: string, config: ApiConfig): Promise<ApiResult<SavedQuery>> {
   return request(config, "GET", savedQueryPath(id), WIRE_SCHEMAS.SavedQueryResponse);
 }
 
 /** Save a new query, owned by the caller. The owner comes from the token, so it is not a parameter. */
-export function createSavedQuery(query: WireSavedQueryCreate, config: ApiConfig): Promise<ApiResult<WireSavedQuery>> {
+export function createSavedQuery(query: SavedQueryCreate, config: ApiConfig): Promise<ApiResult<SavedQuery>> {
   return request(config, "POST", "/caseworker/saved-queries", WIRE_SCHEMAS.SavedQueryResponse, query);
 }
 
@@ -343,7 +343,7 @@ export function createSavedQuery(query: WireSavedQueryCreate, config: ApiConfig)
  * `patchNote` and `updateWitness`: no column of theirs is nullable, so api answers 400 for a null there.
  * `JSON.stringify` drops an undefined property, so "omit" and "clear" stay distinguishable on the wire.
  */
-export function patchSavedQuery(id: string, patch: WireSavedQueryUpdate, config: ApiConfig): Promise<ApiResult<WireSavedQuery>> {
+export function patchSavedQuery(id: string, patch: SavedQueryPatch, config: ApiConfig): Promise<ApiResult<SavedQuery>> {
   return request(config, "PATCH", savedQueryPath(id), WIRE_SCHEMAS.SavedQueryResponse, patch);
 }
 
@@ -700,6 +700,9 @@ export type DocumentType = WireDocumentType;
 export type FieldRules = WireFieldRules["rules"];
 export type FieldRule = FieldRules[string];
 export type CaseWrite = WireCaseWrite;
+export type SavedQuery = WireSavedQuery;
+export type SavedQueryCreate = WireSavedQueryCreate;
+export type SavedQueryPatch = WireSavedQueryUpdate;
 
 /**
  * The option sets, as the member unions a caller annotates with.

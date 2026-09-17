@@ -275,6 +275,9 @@ worker errors; the whole rise is `@hmcts/deed-poll-api-client` 192 → 199, whic
 **Re-measured after task 2: 1,731**, 8 of 8, 0 failures; the rise is again all
 `@hmcts/deed-poll-api-client`, 199 → 221. Tasks 3 onward compare against **1,731**.
 
+**Re-measured after task 3: 1,771**, 8 of 8, 0 failures; the rise is all `@hmcts/deed-poll`, 684 → 724.
+Tasks 4 onward compare against **1,771**.
+
 **Run these from a `/tmp` copy, not in the clone.** Measured 2026-09-16: the same `yarn build` took 19m26s
 in the working tree and 13.8s in a `git archive HEAD` copy under `/tmp`. Use
 `git archive HEAD | (mkdir -p /tmp/dpa-verify && tar -x -C /tmp/dpa-verify)`, then `yarn install` and run
@@ -525,11 +528,55 @@ lines. **Do not export `callApi`** — see the comment at lines 9-14.
 
 Types live in the file that uses them, per the repo's conventions; no `types.ts`.
 
-- [ ] `libs/deed-poll/src/saved-queries/service.ts` with one thin `callApi` function per operation, shaped
+- [x] `libs/deed-poll/src/saved-queries/service.ts` with one thin `callApi` function per operation, shaped
       like `notes/service.ts`; `view.ts` building links through `caseListSearch` and reading conditions
       through `parseConditions`; both `export *`d from the package index; colocated `*.test.ts` for each,
       stubbing `@hmcts/deed-poll-api-client` and returning `ApiResult` unions as
       `.claude/rules/testing.md` shows
+
+#### What was built, and one thing task 1 had left undone
+
+`service.ts` is seven one-line `callApi` functions named as `notes/service.ts` names its five —
+`findSavedQueries`, `findSavedQuery`, `createSavedQuery`, `updateSavedQuery`, `removeSavedQuery`, plus
+`selectSavedQuery` and `deselectSavedQuery` for the selection sub-resource. The three whose names collide
+with the adapter's are imported aliased (`apiCreateSavedQuery`, …), exactly as `createNote` is. **No
+`delete-policy.ts`**, unlike `notes/` and `witnesses/`: those decide a rule this app owns and this one has
+none to decide — `editable` is api's statement (decision 3).
+
+**Task 1 typed its seven operations in terms of `WireSavedQuery*` directly**, where every other operation
+in `client.ts` is typed with a domain alias (`Witness`, `WitnessCreate`, `WitnessPatch`). Since `wire.ts` is
+deliberately not re-exported from the package index, a domain service could infer the type but could not
+name it. Fixed here rather than worked around: `SavedQuery`, `SavedQueryCreate` and `SavedQueryPatch` join
+the alias block at `client.ts:690`, and the seven signatures now use them. Types only — no call, no schema
+and no assertion changed, and `contract.test.ts` stays at 57.
+
+The DTO parameters are those aliases rather than a schema's inferred type, because **there is no
+`saved-queries/schemas.ts` yet**: task 6 owns the form, so its zod schema, its bounds messages and its
+checkbox coercion arrive with the page that needs them rather than being guessed at here.
+
+`view.ts` holds four exported functions and no policy:
+
+- `savedQueryLink(query)` → the `CaseListLink` a stored query stands for. `parseConditions` reads the
+  stored `conditions` strings; `filterFor` falls back for a filter key api no longer publishes; the order
+  is round-tripped through **`parseSort`**, so a query saved by `applicantEmail` opens in api's own order
+  rather than reordering the rows by a cell the table does not show. No `page`, per decision 8.
+- `savedQueryHref(query, listPath)` → the URL, built by `caseListSearch`. The path is a parameter because
+  only a page knows where the list lives, which is the same division `CaseListLink` already draws.
+- `buildSavedQueryNav(queries, { listPath, current })` → task 5's second group: the `selected` subset, in
+  api's order and deliberately not re-sorted, each entry keyed on the query's **id** rather than its name.
+- `buildSavedQueryLibrary(queries, listPath)` → task 6's rows, carrying `shared`, `selected` and
+  `editable` through untouched.
+
+One judgement worth flagging because task 5 inherits it: **`current` ignores `page`.** A caseworker on
+page 2 of a saved query is still looking at that query, so the comparison is of the serialised
+filter/conditions/sort with the page dropped from both sides. Everything else about it is a plain string
+comparison of what `caseListSearch` produces, per task 5's instruction to compare serialised forms.
+
+Measured from a `/tmp` copy of the working tree (`git ls-files -co`, not `git archive`, because the change
+was uncommitted), all three commands green: `yarn lint` **exit 0** with the same 3 warnings and 2 infos
+task 2 recorded and no new ones. **1,771 tests**, 8 of 8 tasks successful, 0 failures, 0 worker errors —
+up 40 from 1,731, the whole rise being `@hmcts/deed-poll` 684 → 724 (15 service cases, 25 view cases).
+`yarn build` 8 of 8 in 12.8s. Tasks 4 onward compare against **1,771**.
 
 ### Task 4: Generalise the filter nav to groups
 
