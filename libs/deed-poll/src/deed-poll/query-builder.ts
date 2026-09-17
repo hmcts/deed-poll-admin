@@ -25,7 +25,7 @@ import { type CaseCondition, rowForSentCondition } from "./case-query.js";
 import { type DateParts, splitDateParts, submittedDateParts } from "./date-parts.js";
 import { enumOptions, type FieldDef } from "./form-fields.js";
 import { collectDateErrors } from "./form-validation.js";
-import { CHOOSABLE_FIELDS, isOperatorValidFor, OPERATOR_LABELS, operatorsFor, queryableField, type ValueArity, valueArity } from "./query-fields.js";
+import { CHOOSABLE_FIELD_GROUPS, isOperatorValidFor, OPERATOR_LABELS, operatorsFor, queryableField, type ValueArity, valueArity } from "./query-fields.js";
 
 /** The three buttons the builder submits with. Each names itself, which is how the action is read back. */
 const ADD_PARAMETER = "add";
@@ -233,10 +233,13 @@ function buildRow(condition: CaseCondition, index: number, labels: QueryLabels, 
     removeValue: String(index),
     field: {
       name: fieldControlName(index),
-      options: [
-        { value: "", text: labels.chooseField, selected: definition === undefined, checked: false },
-        ...CHOOSABLE_FIELDS.map((candidate) => option(candidate.name, candidate.label, candidate.name === condition.field))
-      ]
+      // Above the groups rather than in one: a placeholder inside an `<optgroup>` is announced as a member
+      // of that section, and "Choose a case field" belongs to no section.
+      placeholder: { value: "", text: labels.chooseField, selected: definition === undefined, checked: false },
+      groups: CHOOSABLE_FIELD_GROUPS.map((group) => ({
+        label: group.label,
+        options: group.fields.map((candidate) => option(candidate.name, candidate.label, candidate.name === condition.field))
+      }))
     },
     operator: {
       name: operatorControlName(index),
@@ -383,6 +386,23 @@ export interface QuerySelect {
   options: QueryOption[];
 }
 
+/** One `<optgroup>` of the field chooser, labelled from the tab and section its fields sit in. */
+export interface QueryOptionGroup {
+  label: string;
+  options: QueryOption[];
+}
+
+/**
+ * The field chooser, which is grouped where the operator chooser is flat: a case has 43 filterable fields
+ * and eleven comparisons, and only the first list needs the case tabs' structure to be readable.
+ */
+export interface QueryFieldSelect {
+  name: string;
+  /** The "Choose a case field" entry, which belongs to no group. */
+  placeholder: QueryOption;
+  groups: QueryOptionGroup[];
+}
+
 export interface QueryValueInput {
   name: string;
   /** 0 for a single value or `between`'s lower bound, 1 for its upper. */
@@ -399,7 +419,7 @@ export interface QueryRow {
   index: number;
   /** The row's index as the Remove button's value. */
   removeValue: string;
-  field: QuerySelect;
+  field: QueryFieldSelect;
   operator: QuerySelect;
   control: ValueControl;
   /** The typed-in values, for `text`, `number` and `date`; two of them for `between`. */

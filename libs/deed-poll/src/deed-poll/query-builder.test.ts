@@ -8,10 +8,12 @@ import {
   fieldControlName,
   operatorControlName,
   type QueryLabels,
+  type QueryOption,
   type QueryRow,
   queryErrors,
   valueControlName
 } from "./query-builder.js";
+import { CHOOSABLE_FIELDS } from "./query-fields.js";
 
 const LABELS: QueryLabels = {
   chooseField: "Choose a case field",
@@ -30,7 +32,11 @@ const submission = (index: number, field: string, operator: string, values: Reco
 
 const rowFor = (condition: Partial<CaseCondition>): QueryRow => buildQueryRows([{ field: "", operator: "", values: [], ...condition }], LABELS)[0];
 
-const chosen = (row: QueryRow, part: "field" | "operator") => row[part].options.filter((option) => option.selected).map((option) => option.value);
+/** Every option of the field chooser, placeholder first: the chooser is grouped, so its options are nested. */
+const fieldOptions = (row: QueryRow): QueryOption[] => [row.field.placeholder, ...row.field.groups.flatMap((group) => group.options)];
+
+const chosen = (row: QueryRow, part: "field" | "operator") =>
+  (part === "field" ? fieldOptions(row) : row.operator.options).filter((option) => option.selected).map((option) => option.value);
 
 describe("deed-poll/query-builder", () => {
   describe("builderAction", () => {
@@ -332,10 +338,59 @@ describe("deed-poll/query-builder", () => {
     });
 
     it("should not offer the derived fields, since api can only refuse a condition on one", () => {
-      const names = rowFor({}).field.options.map((option) => option.value);
+      const names = fieldOptions(rowFor({})).map((option) => option.value);
 
       expect(names).not.toContain("daysReceivedToEnroled");
       expect(names).toContain("state");
+    });
+
+    it("should group the field chooser by the tab and section each field sits on, in form order", () => {
+      const groups = rowFor({}).field.groups;
+
+      expect(groups.map((group) => group.label)).toEqual([
+        "Application: General",
+        "Application: Names",
+        "Application: Applicant address and contact details",
+        "Application: Representative address and contact details",
+        "Application: Nationality",
+        "Application: Declarations",
+        "Referral to Master",
+        "Signature",
+        "Enrolment",
+        "Return",
+        "Refund"
+      ]);
+      expect(groups[1].options.map((option) => option.value)).toEqual([
+        "newForename",
+        "newMiddleName",
+        "newSurname",
+        "oldForename",
+        "oldMiddleName",
+        "oldSurname"
+      ]);
+    });
+
+    it("should keep the placeholder out of every group, since Choose a case field belongs to no section", () => {
+      const row = rowFor({});
+
+      expect(row.field.placeholder).toEqual({ value: "", text: LABELS.chooseField, selected: true, checked: false });
+      expect(row.field.groups.flatMap((group) => group.options).some((option) => option.value === "")).toBe(false);
+    });
+
+    it("should put every choosable field in exactly one group, and leave no group empty", () => {
+      const grouped = rowFor({}).field.groups.flatMap((group) => group.options.map((option) => option.value));
+
+      expect(grouped).toEqual(CHOOSABLE_FIELDS.map((field) => field.name));
+      expect(new Set(grouped).size).toBe(grouped.length);
+      expect(rowFor({}).field.groups.every((group) => group.options.length > 0)).toBe(true);
+    });
+
+    it("should mark the chosen field inside its own group, so the chooser comes back showing it", () => {
+      const groups = rowFor({ field: "dateReceived", operator: "is", values: ["2026-03-01"] }).field.groups;
+      const selected = groups.filter((group) => group.options.some((option) => option.selected));
+
+      expect(selected.map((group) => group.label)).toEqual(["Application: General"]);
+      expect(groups[0].options.filter((option) => option.selected).map((option) => option.text)).toEqual(["Date received"]);
     });
 
     it("should render a field the chooser does not offer, so a hand-edited URL is visible rather than silently dropped", () => {

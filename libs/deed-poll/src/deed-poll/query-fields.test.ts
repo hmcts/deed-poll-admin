@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FIELD_BY_NAME, type FieldKind, FORM_TABS } from "./form-fields.js";
 import {
+  CHOOSABLE_FIELD_GROUPS,
   CHOOSABLE_FIELDS,
   isOperatorValidFor,
   isQueryOperator,
@@ -109,6 +110,46 @@ describe("deed-poll/query-fields", () => {
 
     it("should still resolve an unqueryable field, so a hand-edited URL naming one renders rather than vanishing", () => {
       expect(queryableField("feeReference")?.label).toBe("Fee reference");
+    });
+  });
+
+  describe("CHOOSABLE_FIELD_GROUPS", () => {
+    it("should hold exactly the choosable fields, in the same order, since the flat list is derived from these", () => {
+      const grouped = CHOOSABLE_FIELD_GROUPS.flatMap((group) => group.fields);
+
+      expect(grouped).toEqual(CHOOSABLE_FIELDS);
+    });
+
+    it("should put each field in one group only, so a caseworker meets it once", () => {
+      const names = CHOOSABLE_FIELD_GROUPS.flatMap((group) => group.fields.map((field) => field.name));
+
+      expect(new Set(names).size).toBe(names.length);
+    });
+
+    it("should contribute no empty group, since a section whose every field was curated out has nothing to label", () => {
+      expect(CHOOSABLE_FIELD_GROUPS.every((group) => group.fields.length > 0)).toBe(true);
+    });
+
+    it("should label a group from its tab and section, and from the tab alone where the two say the same thing", () => {
+      const labels = CHOOSABLE_FIELD_GROUPS.map((group) => group.label);
+
+      expect(labels).toContain("Application: Names");
+      // The Signature tab holds one section named after it, and "Signature: Signature" says nothing twice.
+      expect(labels).toContain("Signature");
+      expect(labels).not.toContain("Signature: Signature");
+    });
+
+    it("should take the labels from the form rather than restating them, so renaming a tab renames its group", () => {
+      const application = FORM_TABS.find((tab) => tab.id === "application");
+
+      expect(CHOOSABLE_FIELD_GROUPS[0].label).toBe(`${application?.label}: ${application?.sections[0].label}`);
+    });
+
+    it("should group in form order, so the groups follow the case tabs a caseworker already knows", () => {
+      const tabOrder = FORM_TABS.filter((tab) => tab.sections.length > 0).map((tab) => tab.label);
+      const groupTabs = [...new Set(CHOOSABLE_FIELD_GROUPS.map((group) => group.label.split(":")[0]))];
+
+      expect(groupTabs).toEqual(tabOrder);
     });
   });
 

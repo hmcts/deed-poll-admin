@@ -89,7 +89,15 @@ export const QUERYABLE_FIELDS: FieldDef[] = FORM_TABS.flatMap((tab) => tab.secti
 const DERIVED_FIELD_NAMES = ["daysReceivedToEnroled", "daysReceivedToReturned"];
 
 /**
- * The fields the builder's chooser offers.
+ * The fields the builder's chooser offers, grouped as the case tabs present them — one group per section
+ * of one tab, in form order, so the chooser reads as the form a caseworker already knows.
+ *
+ * Grouped rather than flat because 43 options in one list is barely better than the 68 it replaced: the
+ * groups become `<optgroup>`s, which cost no JavaScript and are announced. A section whose every field was
+ * curated out contributes no group rather than an empty one.
+ *
+ * The label is the tab's, qualified by the section's only where the two differ: five tabs hold a single
+ * section named after them, and *"Signature: Signature"* says nothing twice.
  *
  * Two exclusions, kept separate because their reasons are different and only one of them is ours:
  *
@@ -103,7 +111,20 @@ const DERIVED_FIELD_NAMES = ["daysReceivedToEnroled", "daysReceivedToReturned"];
  * hand-edited URL can name one, and `queryableField` resolves it so the row renders with whatever api
  * says about it.
  */
-export const CHOOSABLE_FIELDS: FieldDef[] = QUERYABLE_FIELDS.filter((field) => field.queryable !== false && !DERIVED_FIELD_NAMES.includes(field.name));
+export const CHOOSABLE_FIELD_GROUPS: ChoosableFieldGroup[] = FORM_TABS.flatMap((tab) =>
+  tab.sections
+    .map((section) => ({
+      label: section.label === tab.label ? tab.label : `${tab.label}: ${section.label}`,
+      fields: section.fields.filter(isChoosable)
+    }))
+    .filter((group) => group.fields.length > 0)
+);
+
+/**
+ * The same fields flat, for everything that asks "may a condition name this?" rather than rendering the
+ * chooser. Derived from the groups rather than beside them, so the two cannot disagree about a field.
+ */
+export const CHOOSABLE_FIELDS: FieldDef[] = CHOOSABLE_FIELD_GROUPS.flatMap((group) => group.fields);
 
 /** The operators offered for a field's kind. */
 export function operatorsFor(kind: FieldKind): QueryOperator[] {
@@ -139,6 +160,17 @@ export function isOperatorValidFor(kind: FieldKind, operator: string): operator 
  */
 export function queryableField(name: unknown): FieldDef | undefined {
   return typeof name === "string" ? QUERYABLE_FIELDS.find((field) => field.name === name) : undefined;
+}
+
+/** Whether the chooser offers the field: neither curated out on the form nor derived by api. */
+function isChoosable(field: FieldDef): boolean {
+  return field.queryable !== false && !DERIVED_FIELD_NAMES.includes(field.name);
+}
+
+/** One `<optgroup>` of the field chooser: a tab's section, labelled from the two. */
+export interface ChoosableFieldGroup {
+  label: string;
+  fields: FieldDef[];
 }
 
 /** Every operator api accepts, across all kinds. */

@@ -177,6 +177,24 @@ describe("deed-polls list template", () => {
     expect(markup).not.toContain('value="daysReceivedToEnroled"');
   });
 
+  it("groups the field chooser by tab and section, so the fields are not one flat list of 43", async () => {
+    const markup = await render();
+    const chooser = markup.slice(markup.indexOf('name="field-0"'));
+    const groups = [...chooser.slice(0, chooser.indexOf("</select>")).matchAll(/<optgroup label="([^"]+)">/g)].map((match) => match[1]);
+
+    expect(groups).toContain("Application: Names");
+    expect(groups).toContain("Enrolment");
+    // The placeholder is above every group rather than inside the first one, where it would be announced
+    // as one of that section's fields.
+    expect(chooser.indexOf("Choose a case field")).toBeLessThan(chooser.indexOf("<optgroup"));
+  });
+
+  it("keeps the chosen field selected inside its group, so the round trip comes back showing it", async () => {
+    const markup = await render({ where: "newSurname:is:Lovelace" });
+
+    expect(markup).toMatch(/<optgroup label="Application: Names">[\s\S]*?<option value="newSurname" selected>New surname<\/option>/);
+  });
+
   describe("the order and the page", () => {
     /** One page of a longer result set: the counts a caseworker pages through. */
     const results = (page: number) => ({ filter: "all", cases: [record], page, size: 25, total: 213, totalPages: 9 });

@@ -208,9 +208,21 @@ fields in the order the case tabs present them.
 `QueryRow.field.options` is currently a flat list, so this changes its shape — **check every consumer**, including
 `buildQueryRows`'s callers and the error-summary anchor, which uses `fieldControlName(row)` and must keep working.
 
-- [ ] Field options carry a group label derived from tab + section; the template renders `<optgroup>`; the
+- [x] Field options carry a group label derived from tab + section; the template renders `<optgroup>`; the
       "Choose a case field" placeholder stays outside any group; a test asserts the grouping and that no group is
       empty
+
+      `CHOOSABLE_FIELD_GROUPS` in `query-fields.ts` is the new derivation and `CHOOSABLE_FIELDS` is now derived
+      *from it*, so the flat list and the grouped one cannot disagree. Eleven groups, labelled `Tab: Section`
+      except where a tab holds one section named after it — *"Signature: Signature"* says nothing twice. A
+      section whose every field was curated out contributes no group. `QueryRow.field` changed shape from
+      `QuerySelect` to `QueryFieldSelect` (`{ name, placeholder, groups }`); the only consumers were
+      `index.njk` and the tests' own helper, and `fieldControlName` is untouched, so the error-summary anchor
+      still resolves. The field chooser is hand-written markup in the template because `govukSelect` cannot
+      render an `<optgroup>` — it keeps the component's classes, its visually-hidden label and its
+      `aria-describedby`. Validation after the task: `yarn lint` exit 0 with the two pre-existing warnings,
+      `yarn turbo test test:app --concurrency=1` 8 of 8 with 1656 tests (3 skipped, no Redis) and no worker
+      failures, `yarn build` green.
 
 ### Task 3: Make the value control reachable — the server behaviour
 

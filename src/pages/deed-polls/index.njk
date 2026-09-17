@@ -56,14 +56,26 @@
 
         <div class="govuk-grid-row">
           <div class="govuk-grid-column-one-quarter">
-            {# The refusal is announced with the row's first control, since it is the row that is wrong. #}
-            {{ govukSelect({
-              id: row.field.name,
-              name: row.field.name,
-              label: { text: fieldLabel ~ " " ~ row.number, classes: "govuk-visually-hidden" },
-              describedBy: (row.field.name ~ "-error") if row.error else "",
-              items: row.field.options
-            }) }}
+            {#
+              Hand-written rather than `govukSelect`, which cannot render an `<optgroup>`: the fields are
+              grouped by the case tab and section they sit on — decision 6 — and one flat list of 43 is not
+              a list anyone reads. The classes are the component's, so it stays a GOV.UK select.
+
+              The refusal is announced with the row's first control, since it is the row that is wrong.
+            #}
+            <div class="govuk-form-group">
+              <label class="govuk-label govuk-visually-hidden" for="{{ row.field.name }}">{{ fieldLabel }} {{ row.number }}</label>
+              <select class="govuk-select" id="{{ row.field.name }}" name="{{ row.field.name }}"{% if row.error %} aria-describedby="{{ row.field.name }}-error"{% endif %}>
+                <option value="{{ row.field.placeholder.value }}"{% if row.field.placeholder.selected %} selected{% endif %}>{{ row.field.placeholder.text }}</option>
+                {% for group in row.field.groups %}
+                  <optgroup label="{{ group.label }}">
+                    {% for option in group.options %}
+                      <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.text }}</option>
+                    {% endfor %}
+                  </optgroup>
+                {% endfor %}
+              </select>
+            </div>
           </div>
 
           <div class="govuk-grid-column-one-quarter">
