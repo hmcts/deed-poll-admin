@@ -468,9 +468,34 @@ correctness core of the plan.
 **Do not add a `q` reader to `parseConditions` or the builder** — `q` is not a condition, it is a sibling
 parameter. It is read from `req.query.q` in the handler (task 4), not parsed as a `where` entry.
 
-- [ ] `q` on `CaseListLink` and `DeedPollQuery`, threaded through `caseListSearch` (trimmed, omitted when
+- [x] `q` on `CaseListLink` and `DeedPollQuery`, threaded through `caseListSearch` (trimmed, omitted when
       blank) and `findDeedPolls` into `listCases`; `case-query.test.ts` covers carried/trimmed/omitted; no
       change to condition parsing
+
+**Done 2026-09-17.** `q?: string` is on `CaseListLink` and on `DeedPollQuery`, and `caseListSearch` sets it
+between `filter` and the `where` entries with `if (link.q !== undefined && link.q.trim() !== "")
+parameters.set("q", link.q.trim())` — so the term is trimmed once, in the one place a list URL is built, and
+a term that is only whitespace produces no parameter at all rather than `q=`. `findDeedPolls` passes
+`query.q` straight into `listCases` beside `filter`; it does **not** trim, because the trim belongs where the
+URL is written and a service that trimmed too would be a second opinion about the same string.
+
+`parseConditions` and the builder are untouched — `q` is read from `req.query.q` by the handler in task 4,
+not parsed as a `where` entry.
+
+Two existing `service.test.ts` assertions compared the `listCases` argument by exact equality, so both now
+name `q: undefined`; that is the assertion earning its keep rather than noise — an exact-equality test is
+what would catch `q` being sent as `""`. New tests: three in `case-query.test.ts` (carried beside
+filter/where/sort/page, trimmed, omitted when blank or undefined) and two in `service.test.ts` (the term
+reaches `listCases` alongside the tab and the conditions; `referenceMatch` comes back out of `findDeedPolls`
+untouched, since deciding what counts as an exact reference is api's).
+
+Measured: `@hmcts/deed-poll` **745** (was 740), full suite **1,920** across 8 of 8 tasks, 0 failures — redis
+7, cnp 140, simple-router 41, session-postgres 23, api-client 242, deed-poll 745, govuk-starter 127, app 595.
+`yarn lint` exit 0 with the documented 2 warnings and 2 infos. `yarn build` green in 12.9s from a `/tmp` copy.
+One note for later tasks: a `/tmp` copy made with `tar` rather than `git archive` carries the untracked
+`tsconfig.tsbuildinfo` files, and with `dist/` excluded `tsc` then emits nothing and
+`express-govuk-starter#build` fails on `cp`. Delete the `*.tsbuildinfo` files in the copy — it is not a code
+failure.
 
 ### Task 4: The handler reads q, redirects on a reference match, and carries q on every link
 

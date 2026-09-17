@@ -43,12 +43,32 @@ describe("deed-poll/service", () => {
       expect(listCases).toHaveBeenCalledWith(expect.objectContaining({ filter: "open" }), expect.objectContaining({ baseUrl: "http://api.test" }));
     });
 
-    it("sends no filter, sort or page when none was asked for, so api resolves its own defaults", async () => {
+    it("sends no filter, search term, sort or page when none was asked for, so api resolves its own defaults", async () => {
       vi.mocked(listCases).mockResolvedValue(ok({ filter: "all", cases: [], page: 1, size: 25, total: 0, totalPages: 0 }) as never);
 
       await findDeedPolls({}, CALLER);
 
-      expect(listCases).toHaveBeenCalledWith({ filter: undefined, where: [], sort: undefined, page: undefined, size: undefined }, expect.anything());
+      expect(listCases).toHaveBeenCalledWith(
+        { filter: undefined, q: undefined, where: [], sort: undefined, page: undefined, size: undefined },
+        expect.anything()
+      );
+    });
+
+    it("sends the search term alongside the tab and the conditions, because api ANDs the three", async () => {
+      vi.mocked(listCases).mockResolvedValue(ok({ filter: "open", cases: [], page: 1, size: 25, total: 0, totalPages: 0 }) as never);
+
+      await findDeedPolls({ filter: "open", q: "Smith", conditions: [{ field: "type", operator: "is", values: ["Adult"] }] }, CALLER);
+
+      expect(listCases).toHaveBeenCalledWith(expect.objectContaining({ filter: "open", q: "Smith", where: ["type:is:Adult"] }), expect.anything());
+    });
+
+    it("returns the referenceMatch api sent, because deciding what is an exact reference is api's and not this app's", async () => {
+      const page = { filter: "all", cases: [{ id: "case-7" }], page: 1, size: 25, total: 1, totalPages: 1, referenceMatch: "case-7" };
+      vi.mocked(listCases).mockResolvedValue(ok(page) as never);
+
+      const result = await findDeedPolls({ q: "DP-2026-000007" }, CALLER);
+
+      expect(result.referenceMatch).toBe("case-7");
     });
 
     it("serialises the conditions as api's where parameters, with the tab alongside them", async () => {
@@ -59,7 +79,10 @@ describe("deed-poll/service", () => {
         CALLER
       );
 
-      expect(listCases).toHaveBeenCalledWith({ filter: "open", where: ["type:is:Adult"], sort: "dateReceived:desc", page: 2, size: 10 }, expect.anything());
+      expect(listCases).toHaveBeenCalledWith(
+        { filter: "open", q: undefined, where: ["type:is:Adult"], sort: "dateReceived:desc", page: 2, size: 10 },
+        expect.anything()
+      );
     });
 
     it("leaves an incomplete condition off the wire, so adding a row does not turn the request into a 400", async () => {
