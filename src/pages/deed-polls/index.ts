@@ -37,6 +37,7 @@ import {
   findDeedPolls,
   findSavedQueries,
   InvalidInputError,
+  isBlankCondition,
   type ListFilter,
   parseConditions,
   parsePage,
@@ -45,6 +46,7 @@ import {
   type QueryScriptLabels,
   queryBuilderMetadata,
   queryErrors,
+  serialiseConditions,
   serialiseSort,
   unusedConditionRows
 } from "@hmcts/deed-poll";
@@ -63,6 +65,12 @@ const en = {
   // was accurate while the bar held only statuses, and describing a bar of saved queries that way is a lie
   // told only to a screen-reader user.
   filterLabel: "Filter cases",
+  // The search box, above the bar — plan 12's decision 4. The hint states what api actually matches: a
+  // reference has to be the whole thing (api compares it exactly), a name matches any part of one, and
+  // there is no tolerance for a misspelling because the matching is substring rather than fuzzy.
+  searchLabel: "Search cases",
+  searchHint: "Enter a full case reference, or part of any name on the case.",
+  searchButton: "Search",
   // The first group's own label. Labelled because plan 11 puts saved queries in a second group beside it,
   // and an unlabelled bar of both reads as one list — decision 8.
   statusGroupLabel: "Status",
@@ -144,18 +152,21 @@ export const GET = async (req: Request, res: Response) => {
   const filter = filterFor(req.query.filter);
   const query = req.query as Record<string, unknown>;
   const sort = parseSort(query.sort);
+  const q = searchTerm(query.q);
 
   const action = builderAction(query);
   if (action === null) {
-    return await runQuery(req, res, { filter, conditions: parseConditions(query.where), sort, page: parsePage(query.page) });
+    return await runQuery(req, res, { filter, q, conditions: parseConditions(query.where), sort, page: parsePage(query.page) });
   }
 
   const conditions = conditionsFromBuilder(query, action);
   const dateErrors = builderDateErrors(query, conditions);
   if (dateErrors.length === 0) {
-    // The order is carried and the page number is not: a new query narrows a different set of rows, so
-    // page 4 of the previous one is not a page of this one.
-    return res.redirect(`${LIST_PATH}${caseListSearch({ filter: filter.key, conditions, sort: serialiseSort(sort) })}`);
+    // The order and the search term are carried and the page number is not: a new query narrows a
+    // different set of rows, so page 4 of the previous one is not a page of this one. The term travels for
+    // the reason every link carries it — decision 1: applying a filter to a search must narrow the search,
+    // not silently drop it.
+    return res.redirect(`${LIST_PATH}${caseListSearch({ filter: filter.key, q, conditions, sort: serialiseSort(sort) })}`);
   }
 
   // Not redirected: a set of date parts that names no real date composes to no value, so the canonical
@@ -163,7 +174,7 @@ export const GET = async (req: Request, res: Response) => {
   // error explaining it. The submission is replayed over the rows instead, as a rejected save is.
   res.status(400);
 
-  return await runQuery(req, res, { filter, conditions, sort }, dateErrors, query);
+  return await runQuery(req, res, { filter, q, conditions, sort }, dateErrors, query);
 };
 
 /**
@@ -173,7 +184,7 @@ export const GET = async (req: Request, res: Response) => {
  * what is a caseworker's own filter to correct — the same reason the new-case form catches its own.
  */
 async function runQuery(req: Request, res: Response, view: ListView, rowErrors: QueryRowError[] = [], submitted?: Record<string, unknown>) {
-  const { filter, conditions, sort, page } = view;
+  const { filter, q, conditions, sort, page } = view;
   const caller = callerFromRequest(req);
   // Started before the list call and awaited after it: the table and the nav are two things this page
   // needs, and one waiting on the other's round trip would put a second api latency in front of every
@@ -181,11 +192,16 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
   const savedQueries = savedQueryEntries(caller, view);
 
   try {
-    const results = await findDeedPolls({ filter: filter.key, conditions, sort: serialiseSort(sort), page }, caller);
+    const results = await findDeedPolls({ filter: filter.key, q, conditions, sort: serialiseSort(sort), page }, caller);
+
+    // Decision 2: api names the case whose reference the term matched exactly, and somebody who typed a
+    // whole reference wants that case rather than a list of one row. **Never on `total === 1`** — a single
+    // name match is a list that happens to be short, and the distinction is api's to draw, not this page's.
+    if (results.referenceMatch) return res.redirect(`${LIST_PATH}/${results.referenceMatch}`);
 
     // api's own counts, straight through: `total` and `totalPages` are across every page and cannot be
     // inferred from the rows this one holds — decision 9.
-    const paging = buildPaging(results, (wanted) => listHref({ filter: filter.key, conditions, sort, page: wanted }));
+    const paging = buildPaging(results, (wanted) => listHref({ filter: filter.key, q, conditions, sort, page: wanted }));
 
     return render(res, view, await savedQueries, buildCaseList(results.cases), paging, rowErrors, [], submitted);
   } catch (error) {
@@ -239,7 +255,7 @@ function render(
   // Resolved here as well as by the render interceptor, because the row builder needs the words before
   // the template does — the pattern `.claude/rules/frontend.md` gives for a schema's messages.
   const content = res.locals.locale === "cy" ? cy : en;
-  const { filter, conditions, sort } = view;
+  const { filter, q, conditions, sort } = view;
   // The rows `findDeedPolls` left off the wire, as a caseworker numbers them. Not a status change: the
   // query ran, and being told what it ran on is the point — decision 3.
   const unused = unusedConditionRows(conditions, rowErrors);
@@ -251,7 +267,14 @@ function render(
     // the filter through a GET submission, where a nav entry's `current` is what the bar draws. One value
     // serving both is how the two quietly become the same decision.
     filterValue: filter.key,
-    clearHref: listHref({ filter: filter.key, conditions: [], sort }),
+    // What the search box shows, so a refined search starts from the term that was searched rather than
+    // from an empty box beside somebody else's results.
+    searchTerm: q ?? "",
+    // The active query as the search form's hidden inputs, so submitting a search composes with it rather
+    // than replacing it — decision 4, and api ANDs `q` with `filter` and `where`. Blank rows are left out:
+    // a row holding nothing narrows nothing, and `where=:` in the URL a search produces says nothing.
+    searchWhere: serialiseConditions(conditions.filter((condition) => !isBlankCondition(condition))),
+    clearHref: listHref({ filter: filter.key, q, conditions: [], sort }),
     // The save page is opened with the query in its URL rather than with hidden inputs, because a list URL is
     // the query — so this is `caseListSearch` again, under the other path.
     saveQueryHref: `${QUERIES_PATH}/new${caseListSearch({ filter: filter.key, conditions, sort: serialiseSort(sort) })}`,
@@ -263,7 +286,7 @@ function render(
     hasQuery: conditions.length > 0,
     unusedConditions: unused.length === 0 ? "" : content.unusedConditionsFor(unused.map((row) => row + 1)),
     // Every header link carries the tab and the conditions, which is the bug this class of UI always has.
-    sortHeaders: buildSortHeaders(sort, (next) => listHref({ filter: filter.key, conditions, sort: next })),
+    sortHeaders: buildSortHeaders(sort, (next) => listHref({ filter: filter.key, q, conditions, sort: next })),
     // The builder submits as a GET, so the order it was applied to travels as a control of its own.
     sortValue: serialiseSort(sort) ?? "",
     paging,
@@ -290,21 +313,22 @@ function filterGroups(view: ListView, content: typeof en, savedQueries: NavEntry
 /**
  * The status tabs as a nav group.
  *
- * Each tab carries the query and the order, so switching tab narrows the same conditions within another
- * saved query rather than throwing them away — decision 6. The page number is left behind for the reason a
- * new query leaves it behind: another tab's page 4 holds other rows.
+ * Each tab carries the query, the search term and the order, so switching tab narrows the same conditions
+ * within another saved query rather than throwing them away — decision 6, and plan 12's decision 1. The
+ * page number is left behind for the reason a new query leaves it behind: another tab's page 4 holds other
+ * rows.
  *
  * `current` is decided here rather than by comparing keys in the template, because the template's
  * `f.key == activeFilter` only worked while every entry in the bar was a status — a saved query's identity
  * is its id, and the page it points at is not named by its label.
  */
-function statusGroup({ filter, conditions, sort }: ListView, content: typeof en): FilterGroup {
+function statusGroup({ filter, q, conditions, sort }: ListView, content: typeof en): FilterGroup {
   return {
     label: content.statusGroupLabel,
     entries: filterTabs().map((tab) => ({
       key: tab.key,
       label: tab.label,
-      href: listHref({ filter: tab.key, conditions, sort }),
+      href: listHref({ filter: tab.key, q, conditions, sort }),
       current: tab.key === filter.key
     }))
   };
@@ -349,9 +373,40 @@ function listOfNumbers(numbers: number[]): string {
 /**
  * A link to the list, and the only way one is built here: `caseListSearch` owns which parts a URL carries
  * and which it omits, so a tab, a sort header and a page number cannot each remember a different subset.
+ *
+ * One shape for every call site is what makes plan 12's decision 1 hold: `q` was added here and to
+ * `caseListSearch`, and every link on the page carried it without being visited.
  */
-function listHref({ filter, conditions, sort, page }: { filter: string; conditions: CaseCondition[]; sort?: CaseListSort; page?: number }): string {
-  return `${LIST_PATH}${caseListSearch({ filter, conditions, sort: serialiseSort(sort), page })}`;
+function listHref({
+  filter,
+  q,
+  conditions,
+  sort,
+  page
+}: {
+  filter: string;
+  q?: string;
+  conditions: CaseCondition[];
+  sort?: CaseListSort;
+  page?: number;
+}): string {
+  return `${LIST_PATH}${caseListSearch({ filter, q, conditions, sort: serialiseSort(sort), page })}`;
+}
+
+/**
+ * The search term the request carries: trimmed, and `undefined` for one that says nothing — decision 3.
+ *
+ * Not a parse of a domain value, which is why it is here rather than beside `parseSort`: `q` is free text
+ * and what api does with it is api's (decision 5). All this decides is whether there is a term at all,
+ * because a `q=` written into a bookmarked URL pins nothing and a term of spaces is not a search.
+ * A repeated `?q=a&q=b` arrives as an array and is no term either — one search box, one term.
+ */
+function searchTerm(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+
+  const term = value.trim();
+
+  return term === "" ? undefined : term;
 }
 
 /**
@@ -370,13 +425,16 @@ function errorSummary(content: typeof en, rowErrors: QueryRowError[], unaddresse
 }
 
 /**
- * What the request asks the list for: the tab, the query, the order and the page.
+ * What the request asks the list for: the tab, the search term, the query, the order and the page.
  *
- * Held together rather than passed part by part because every link on the page is built from all four, and
- * a header link that took three of them is exactly how a sort quietly drops a caseworker's conditions.
+ * Held together rather than passed part by part because every link on the page is built from all of them,
+ * and a header link that took all but one is exactly how a sort quietly drops a caseworker's conditions —
+ * or, now, their search.
  */
 interface ListView {
   filter: ListFilter;
+  /** The search term, or nothing. Trimmed by `searchTerm` on the way in — decision 3. */
+  q?: string;
   conditions: CaseCondition[];
   sort?: CaseListSort;
   page?: number;

@@ -87,6 +87,18 @@ describe("deed-polls list template", () => {
     expect(markup).toContain('<input type="hidden" name="filter" value="enroled">');
   });
 
+  it("carries the search term through the builder, so applying a filter narrows the search", async () => {
+    const markup = await render({ q: "Smith" });
+
+    expect(markup).toContain('<input type="hidden" name="q" value="Smith">');
+  });
+
+  it("carries no search control when nothing was searched, rather than submitting an empty q", async () => {
+    const markup = await render();
+
+    expect(markup).not.toContain('name="q"');
+  });
+
   it("adds and removes rows with submit buttons, so the builder needs no JavaScript at all", async () => {
     const markup = await render({ where: "type:is:Adult" });
 

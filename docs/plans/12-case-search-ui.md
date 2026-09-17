@@ -522,11 +522,56 @@ failure.
 (`index.njk:240`), with the search term still in the box so the caseworker can refine it. Do not add an error
 path for a zero-result search.
 
-- [ ] `q` read from the query, trimmed, empty→undefined, on `ListView`; carried through every `listHref`
+- [x] `q` read from the query, trimmed, empty→undefined, on `ListView`; carried through every `listHref`
       (tabs, clear, sort headers, paging) so no link drops it; a non-null `referenceMatch` redirects to the
       case and `total==1` does not; the serialised filter/where/sort passed to the render model for the search
       form's hidden inputs; search strings in `en`/`cy`; a handler test that every link carries `q` and that a
       reference match redirects
+
+**Done 2026-09-17.** `searchTerm(query.q)` is the handler's own reader — trimmed, `undefined` for a blank or
+whitespace-only term, and `undefined` for a repeated `?q=a&q=b` that arrives as an array. It is local rather
+than beside `parseSort` in the domain deliberately: `q` is free text this app has no opinion about
+(decision 5), so all it decides is whether there is a term at all.
+
+`q` is on `ListView` and in `listHref`'s single parameter shape, which is what made decision 1 hold without
+visiting each link: the tab links, the clear link, the sort headers and the paging hrefs all inherited it
+from that one shape. Pinned by tests per link class rather than as one assertion, because the failure this
+guards is exactly one call site being missed.
+
+**Two carriers the task text did not name, both added:**
+
+- **The builder form.** Its "Apply filters" submit is the one round trip on the page that is not a link, so
+  the term travels as a hidden `q` control (`index.njk`) and the canonical redirect at `index.ts` includes
+  it. Without both, applying a filter to a set of search results silently dropped the search — decision 1's
+  own failure mode, reached by a route the task's list of `listHref` call sites did not cover. The template
+  edit is one input and its comment; task 5's search form is untouched by it.
+- **`res.render`'s `searchTerm` and `searchWhere`.** `searchTerm` is `q ?? ""` so the box shows what was
+  searched; `searchWhere` is `serialiseConditions` over the conditions **minus blank rows** — a row holding
+  nothing narrows nothing, and emitting `where=:` from the search form would put a parameter in the URL that
+  says nothing (the same exception `caseListSearch` makes). `filterValue` and `sortValue` were already in the
+  model, so the form's other hidden inputs needed nothing new.
+
+The redirect is `res.redirect(`/deed-polls/${results.referenceMatch}`)` on a truthy `referenceMatch`, before
+the view is built, and nothing looks at `total`. Both halves are pinned: `referenceMatch: "case-1"` redirects
+and renders nothing, and a one-row page with `referenceMatch: null` renders the list.
+
+**Two things deliberately left carrying no `q`, so neither is mistaken for an oversight:**
+
+- **The saved-query nav entries.** `buildSavedQueryNav` builds each href from the *saved* query's own
+  filter/conditions/sort — it replaces the query rather than modifying it — and threading `q` through it
+  means changing plan 11's domain signature. Out of this task's scope.
+- **`saveQueryHref`.** api's saved query has a `searchTerm` column and `saved-queries/view.ts:165` records
+  that writing it is "plan 12's". It is not written here either: saving a term means the save page reading
+  `q` and the create body carrying it, which is the saved-query journey plan 12's own "deliberately not in
+  this plan" hands back to plan 11. Flagged rather than done.
+
+Measured: app **612** (was 595), full suite **1,937** across 8 of 8 tasks, 0 failures — redis 7, cnp 140,
+simple-router 41, session-postgres 23, api-client 242, deed-poll 745, govuk-starter 127, app 612. The 17 new
+tests are 15 in `index.test.ts` and 2 in `index.njk.test.ts` (the builder's hidden `q`, and its absence when
+nothing was searched). No existing assertion needed changing: `toHaveBeenCalledWith` ignores an `undefined`
+property, so the tests that compare the `findDeedPolls` argument by equality accepted `q: undefined` as they
+already accepted `sort: undefined`. `yarn lint` exit 0 with the documented 2 warnings and 2 infos;
+`yarn build` green in 13.9s from a `/tmp` copy with the `*.tsbuildinfo` files deleted.
 
 ### Task 5: The search form and the new surname column in the template
 

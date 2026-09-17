@@ -58,6 +58,12 @@
     <input type="hidden" name="filter" value="{{ filterValue }}">
     {# The order survives applying a query; the page number deliberately does not, so a query starts at its first page. #}
     {% if sortValue %}<input type="hidden" name="sort" value="{{ sortValue }}">{% endif %}
+    {#
+      And so does the search term — plan 12's decision 1. Applying a filter to a set of search results must
+      narrow the search, not throw it away: this form is the one submission on the page that is not a link,
+      so the term travels as a control instead of in an href.
+    #}
+    {% if searchTerm %}<input type="hidden" name="q" value="{{ searchTerm }}">{% endif %}
 
     <h2 class="govuk-heading-m">{{ builderHeading }}</h2>
     <p class="govuk-hint">{{ builderHint }}</p>
