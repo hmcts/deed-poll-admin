@@ -257,16 +257,15 @@ new persona area):
 
 ## Open questions — flagged, NOT answered here
 
-- **api-3 flag 1 — the judicial application view's exact field set — is a legal/policy question that must be
-  settled before admin-3 (and api-3) run, and it lands squarely on this screen.** api-3 implemented a
-  defensible *minimum* (`JudicialCaseView`: reference, application type, old/new names, the referral's
-  reasons/notes/urgency) and excluded payment/fee references, internal audit trails, and admin-only privacy
-  fields — but "what must a judge see to make a lawful direction, and what must they not see?" is for the
-  business/legal, not engineering. **This screen renders exactly what `JudicialCaseView` carries (decision 4),
-  so the field-set decision is made upstream in api-3** — but it *shows* here, so it must be confirmed with
-  business/legal before this screen is put in front of a real judge. Task 0 STOPS if the DTO carries an admin
-  field; but "the DTO is correct and complete for a lawful direction" is the human question this flag raises.
-  **Surfaced, not answered.**
+- **api-3 flag 1 — the judicial application view's field set — is RESOLVED (Steve, 2026-09-17).** api-3
+  implemented a defensible *minimum* (`JudicialCaseView`: reference, application type, old/new names, the
+  referral's reasons/notes/urgency) and excluded payment/fee references, internal audit trails, and
+  admin-only privacy fields, pending a legal/policy call ("what must a judge see to make a lawful direction,
+  and what must they not see?"). **Steve has confirmed this exact set is correct.** This screen renders
+  exactly what `JudicialCaseView` carries (decision 4), so the field set is owned upstream in api-3 and this
+  screen inherits the confirmed set — no longer provisional. Task 0 still STOPS if the DTO carries an
+  admin-only field it should not (that would mean api-3 drifted from the confirmed set), but the human
+  question this flag raised is now answered.
 - **The exact attestation wording** (decision 6 — "I confirm this is my direction") and the direction form
   labels — working text; a judicial-facing wording/Welsh pass can revise. Display-only.
 - **Dual-role users** (decision 2 — a user with both caseworker and judicial roles) — defaulted to
