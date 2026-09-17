@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CaseCondition } from "./case-query.js";
+import type { FieldKind } from "./form-fields.js";
 import {
   builderAction,
   builderDateErrors,
@@ -10,11 +11,13 @@ import {
   type QueryLabels,
   type QueryOption,
   type QueryRow,
+  type QueryScriptLabels,
+  queryBuilderMetadata,
   queryErrors,
   unusedConditionRows,
   valueControlName
 } from "./query-builder.js";
-import { CHOOSABLE_FIELDS } from "./query-fields.js";
+import { CHOOSABLE_FIELDS, OPERATOR_LABELS, operatorsFor, QUERYABLE_FIELDS } from "./query-fields.js";
 
 const LABELS: QueryLabels = {
   chooseField: "Choose a case field",
@@ -24,6 +27,25 @@ const LABELS: QueryLabels = {
   no: "No",
   enterValue: "Enter a value to use this condition",
   enterBothValues: "Enter both values to use this condition"
+};
+
+/** The page's words as the browser receives them, which the metadata carries and nothing here interprets. */
+const SCRIPT_LABELS: QueryScriptLabels = {
+  chooseOperator: LABELS.chooseOperator,
+  chooseValue: LABELS.chooseValue,
+  yes: LABELS.yes,
+  no: LABELS.no,
+  value: "Value for condition",
+  lowerBound: "Lower value for condition",
+  upperBound: "Upper value for condition",
+  day: "Day",
+  month: "Month",
+  year: "Year",
+  enterValue: LABELS.enterValue,
+  enterBothValues: LABELS.enterBothValues,
+  announceValue: "Condition {n} now asks for a value.",
+  announceValues: "Condition {n} now asks for two values.",
+  announceNoValue: "Condition {n} needs no value."
 };
 
 /** One row of a submitted builder, in the control names a GET form actually sends. */
@@ -488,6 +510,74 @@ describe("deed-poll/query-builder", () => {
       const conditions: CaseCondition[] = [{ field: "state", operator: "is", values: [""] }];
 
       expect(unusedConditionRows(conditions, [{ row: 0, message: "is not a member of state" }])).toEqual([]);
+    });
+  });
+
+  /**
+   * The metadata the browser swaps a control in from. Every assertion here is about it agreeing with the
+   * rows the server renders, because that agreement is the whole reason the function exists — a browser
+   * carrying its own operator table is the drift the plan's decision 4 forbids.
+   */
+  describe("queryBuilderMetadata", () => {
+    const metadata = queryBuilderMetadata(SCRIPT_LABELS);
+
+    it("should offer each kind exactly the operators the server offers it", () => {
+      for (const kind of Object.keys(metadata.kinds) as FieldKind[]) {
+        expect(metadata.kinds[kind].operators).toEqual(operatorsFor(kind));
+      }
+    });
+
+    it("should state every operator's arity and label from the domain's own table", () => {
+      expect(Object.keys(metadata.operators)).toEqual(Object.keys(OPERATOR_LABELS));
+      expect(metadata.operators.between).toEqual({ label: "is between", arity: 2 });
+      expect(metadata.operators.isOneOf).toEqual({ label: "is one of", arity: "many" });
+      expect(metadata.operators.isEmpty.arity).toBe(0);
+    });
+
+    it("should name the control each kind asks a value with, which is what the browser must not decide", () => {
+      expect(metadata.kinds.date.controls["1"]).toBe("date");
+      expect(metadata.kinds.number.controls["2"]).toBe("number");
+      expect(metadata.kinds.boolean.controls["1"]).toBe("radios");
+      expect(metadata.kinds.enum.controls["1"]).toBe("select");
+      // The same field asks with checkboxes once the comparison takes a set of values rather than one.
+      expect(metadata.kinds.enum.controls.many).toBe("checkboxes");
+      expect(metadata.kinds.multiselect.controls["1"]).toBe("checkboxes");
+      expect(metadata.kinds.text.controls["1"]).toBe("text");
+      expect(metadata.kinds.textarea.controls["1"]).toBe("text");
+    });
+
+    it("should ask for no control at all where the comparison takes no value", () => {
+      for (const kind of Object.keys(metadata.kinds)) {
+        expect(metadata.kinds[kind].controls["0"]).toBe("none");
+      }
+    });
+
+    it("should carry every queryable field, not only the ones the chooser offers, since a URL can name one", () => {
+      expect(Object.keys(metadata.fields)).toHaveLength(QUERYABLE_FIELDS.length);
+      expect(metadata.fields.displayReference.kind).toBe("text");
+      // Curated out of the chooser and still answerable by api — the row a hand-edited URL renders has to
+      // go on working.
+      expect(CHOOSABLE_FIELDS.some((field) => field.name === "applicantTelephone")).toBe(false);
+      expect(metadata.fields.applicantTelephone.kind).toBe("text");
+    });
+
+    it("should carry an option set's members, which is what a select or a checkbox set is built from", () => {
+      expect(metadata.fields.type.options).toEqual(expect.arrayContaining([{ value: "Adult", text: "Adult" }]));
+      expect(metadata.fields.newForename.options).toEqual([]);
+    });
+
+    it("should name a kind for every field, so no field leaves the browser without a control to ask with", () => {
+      for (const field of QUERYABLE_FIELDS) {
+        expect(metadata.kinds[metadata.fields[field.name].kind]).toBeDefined();
+      }
+    });
+
+    it("should carry the page's words, since the controls it builds have no macro to default them", () => {
+      expect(metadata.labels).toEqual(SCRIPT_LABELS);
+    });
+
+    it("should survive the round trip through JSON, which is how the browser receives it", () => {
+      expect(JSON.parse(JSON.stringify(metadata))).toEqual(metadata);
     });
   });
 });

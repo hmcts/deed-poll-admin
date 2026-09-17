@@ -359,11 +359,14 @@ test("caseworker is told a case is short of witnesses, and can enrol it once it 
 });
 
 /**
- * The query builder, end to end and **with no JavaScript involved anywhere**: choosing a field, then its
- * comparison, then its value is three submits, because each control's options depend on the one before it
- * and nothing on the page rewrites them in the browser. That is decision 7 of the plan, and this journey is
- * what would notice it being quietly traded away — the page tests drive the handler, which would keep
- * passing against a builder that only worked with a script running.
+ * The query builder, end to end: choosing a field, then its comparison, then its value, each through a
+ * submit, because each control's options depend on the one before it.
+ *
+ * **Written against the round trip and driven with a browser that has scripts on**, which is deliberate on
+ * both counts: the three submits are what a caseworker does with no script running, and they go on working
+ * with one because the enhancement only spares them the trip. The floor itself is asserted by the
+ * scripts-off journey below — this one would still pass against a builder that had quietly come to need
+ * JavaScript, which is why that one exists.
  *
  * The other half is the parameter preservation, which is the bug this class of UI always has: the two
  * conditions survive a sort, and both survive a page. Asserted on the URL as well as on the rows, because a
@@ -428,6 +431,121 @@ test("caseworker filters the case list on two fields, sorts it and pages through
   await expect(page.getByText("26 to 26 of 26 applications")).toBeVisible();
   await expect(page.locator("tbody tr")).toHaveCount(1);
   await expect(page.locator("tbody tr").first()).toContainText("26 January 2026");
+});
+
+/**
+ * The same builder with a script running, which is the enhancement of the plan's decision 4: choosing a
+ * field or a comparison swaps in the control its value is typed into, with no submit at all.
+ *
+ * Driven in a browser because there is nowhere else it can be — the swap is a DOM operation, and the page
+ * tests can only show that the metadata it reads is on the page. Three of the assertions here are the
+ * accessibility requirements rather than the feature: the change is announced through the live region, the
+ * hint stays true to the control now on screen, and **focus is not moved onto what appeared** — a select
+ * fires `change` as the arrow keys walk it, so stealing focus would throw a keyboard user out of a list they
+ * are still reading.
+ */
+test("caseworker builds a condition without a round trip, and is told when the value control appears", async ({ page }) => {
+  await page.goto("/deed-polls");
+
+  const field = page.getByLabel("Case field for condition 1", { exact: true });
+  const operator = page.getByLabel("Comparison for condition 1", { exact: true });
+  const announcer = page.locator("[data-query-announcer]");
+
+  // The comparisons are the field's kind's, so choosing a field rebuilds them: an enum admits `is one of`
+  // and none of a text field's comparisons.
+  await field.selectOption("type");
+  await expect(operator.locator("option")).toHaveText(["Choose a comparison", "is", "is one of", "is empty", "is not empty"]);
+  await expect(page.getByLabel("Value for condition 1", { exact: true })).toHaveCount(0);
+
+  // And choosing the comparison reveals the control its value goes in — the fault the whole plan is about.
+  await operator.selectOption("is");
+  const value = page.getByLabel("Value for condition 1", { exact: true });
+  await expect(value).toHaveAttribute("name", "value-0-0");
+  await expect(value.locator("option")).toContainText(["Choose a value", "Adult"]);
+  await expect(page.getByText("Enter a value to use this condition")).toBeVisible();
+  await expect(announcer).toHaveText("Condition 1 now asks for a value.");
+  await expect(value).not.toBeFocused();
+
+  // A comparison that takes no value takes the control away with it, and the hint asking for one with that:
+  // a row that needs no value must not be left being asked for one.
+  await operator.selectOption("isEmpty");
+  await expect(page.getByLabel("Value for condition 1", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Enter a value to use this condition")).toHaveCount(0);
+  await expect(announcer).toHaveText("Condition 1 needs no value.");
+
+  // A set of values is a checkbox set sharing one name, which is how a set arrives in the URL.
+  await operator.selectOption("isOneOf");
+  await expect(page.getByRole("checkbox", { name: "Adult", exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Minor", exact: true })).toHaveAttribute("name", "value-0-0");
+
+  // Both bounds of a between, each labelled as its own bound rather than twice as "Value".
+  await field.selectOption("dateReceived");
+  await operator.selectOption("between");
+  await expect(page.getByRole("group", { name: "Lower value for condition 1" }).getByLabel("Day")).toBeVisible();
+  await expect(page.getByRole("group", { name: "Upper value for condition 1" }).getByLabel("Year")).toBeVisible();
+  await expect(announcer).toHaveText("Condition 1 now asks for two values.");
+
+  // A comparison of the same shape keeps a value already typed: `contains` and `is` both ask a text field
+  // for one string, and rebuilding the box would empty it under the caseworker.
+  await field.selectOption("newForename");
+  await operator.selectOption("contains");
+  await page.getByLabel("Value for condition 1", { exact: true }).fill("Ada");
+  await operator.selectOption("is");
+  await expect(page.getByLabel("Value for condition 1", { exact: true })).toHaveValue("Ada");
+
+  // One submit for the whole condition, and it lands on the same canonical URL three submits would have.
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await expect(page).toHaveURL("/deed-polls?where=newForename%3Ais%3AAda");
+});
+
+/**
+ * The builder with **the browser's scripts switched off**, which is the floor everything above it stands on.
+ *
+ * Verified rather than reasoned about, per the plan's decision 4: the enhancement that reveals a value
+ * control is enhancement, so a caseworker whose scripts are blocked — by a CSP change, an extension, a
+ * managed-device policy — still has to be able to build a condition. What that costs them is one submit per
+ * control, and what it must not cost them is an error for a condition they are part-way through.
+ *
+ * No axe check here: `AxeBuilder` injects a script to run, so there is nothing for it to run in. The
+ * accessibility of this same markup is checked by the journey above, which renders it from the server too.
+ */
+test.describe("with JavaScript disabled", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test("caseworker reaches the value control by applying an unfinished condition, and is not told off for it", async ({ page, request }) => {
+    // Arrange: two cases sharing a forename, which is all a journey that only has to filter needs — the
+    // paging and ordering are the journey above's.
+    const forename = seedForename();
+    await seedCasesToFilter(request, forename);
+
+    await page.goto("/deed-polls");
+
+    // Two submits to get as far as a value control, and the second of them is the one that used to be a
+    // dead end: it runs an incomplete condition, which is decision 1.
+    await page.getByLabel("Case field for condition 1", { exact: true }).selectOption("newForename");
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await page.getByLabel("Comparison for condition 1", { exact: true }).selectOption("is");
+    await page.getByRole("button", { name: "Apply filters" }).click();
+
+    // The control is on screen and the row asks for its value with a hint — not an error, not an error
+    // summary, and not a 400. Decision 2: a caseworker halfway through building a filter has made no mistake.
+    await expect(page.getByLabel("Value for condition 1", { exact: true })).toBeVisible();
+    await expect(page.getByText("Enter a value to use this condition")).toBeVisible();
+    await expect(page.locator(".govuk-error-summary")).toHaveCount(0);
+    expect((await page.reload())?.status()).toBe(200);
+
+    // And the page says what the query ran without, above the results — decision 3, because filtering by
+    // less than was asked without saying so is the worse failure.
+    await expect(page.getByText("Condition 1 was not used, because it is not complete.")).toBeVisible();
+
+    // Finished, and now the condition runs: the same rows a caseworker with scripts would have got.
+    await page.getByLabel("Value for condition 1", { exact: true }).fill(forename);
+    await page.getByRole("button", { name: "Apply filters" }).click();
+
+    await expect(page).toHaveURL(`/deed-polls?where=newForename%3Ais%3A${forename}`);
+    await expect(page.getByText("1 to 2 of 2 applications")).toBeVisible();
+    await expect(page.locator(".govuk-inset-text")).toHaveCount(0);
+  });
 });
 
 /**
@@ -561,6 +679,22 @@ async function seedCasesToQuery(request: APIRequestContext, newForename: string)
   for (let day = 1; day <= MINOR_CASES_TO_QUERY; day++) {
     const dd = String(day).padStart(2, "0");
     await seed({ type: "Minor", dateReceived: `2026-02-${dd}T00:00:00.000`, displayReference: `KBDP2026-2${dd}00` });
+  }
+}
+
+/**
+ * Two cases sharing one forename, for a journey that has to filter and nothing else.
+ *
+ * Received in April so they cannot collide with either `DATE_RECEIVED` or `seedCasesToQuery`'s January and
+ * February, and given a display reference each because the Reference cell is a link and one with no text is
+ * an accessibility violation on every list page the rest of the run renders.
+ */
+async function seedCasesToFilter(request: APIRequestContext, newForename: string): Promise<void> {
+  for (const day of ["05", "06"]) {
+    const response = await request.post(`${MOCK_API_URL}/__mock/cases`, {
+      data: { newForename, type: "Adult", dateReceived: `2026-04-${day}T00:00:00.000`, displayReference: `KBDP2026-3${day}00` }
+    });
+    expect(response.status(), await response.text()).toBe(201);
   }
 }
 

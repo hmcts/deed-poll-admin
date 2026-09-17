@@ -280,9 +280,51 @@ two copies is exactly the drift `query-fields.ts` was written to prevent.
 **With JavaScript disabled, task 3's behaviour must be unchanged.** Verify that by testing with scripts off, not
 by reasoning about it.
 
-- [ ] Control swaps on field/operator change with no submit; metadata emitted once from the domain, not restated;
+- [x] Control swaps on field/operator change with no submit; metadata emitted once from the domain, not restated;
       `aria-live="polite"` announces the change; focus is not moved on `change`; behaviour with JS disabled is
       identical to task 3; a test with scripts off
+
+      `queryBuilderMetadata` in `query-builder.ts` is the single emission: per operator its label and arity
+      (from `OPERATOR_LABELS` and `valueArity`), per kind the operators it admits and the control each arity
+      asks with (from `operatorsFor` and `valueControl`), and per field its kind and option-set members. It
+      is keyed by **`QUERYABLE_FIELDS`, not the choosable list**, because a hand-edited URL can name a
+      curated-out field and the row it renders has to keep working. `valueControl` now takes a `FieldKind`
+      rather than a `FieldDef` — that is all it ever read, and the metadata asks it about a kind with no
+      field in hand. The page serialises it once into a `<script type="application/json">` data block,
+      escaping `<` and nothing else: a script element's contents are raw text, so the JSON cannot be
+      HTML-escaped, and `<` is the one sequence that could close the element early.
+
+      **No control name is composed in the browser.** `QueryRow.valueName` became `valueNames: [string,
+      string]` — both slots, whatever the operator takes — and the row carries them as
+      `data-value-name`/`data-upper-value-name` for the script to read, so `valueControlName` stays the only
+      place that knows the format. The row also carries `data-condition-number`, since one live region serves
+      every row and the announcements name the condition through a `{n}` placeholder.
+
+      `src/assets/js/query-builder.ts` is the enhancement, imported by `index.ts` rather than loaded as a
+      `<script>` of its own: `createAssetHelpers` names a nunjucks global after the entry file and
+      `query-builder_js` is not an identifier a template can read. It rebuilds the **operator** chooser too,
+      not only the value control — the comparisons are the kind's, and leaving a text field's list beside a
+      date would offer comparisons the server drops on submit. A comparison the new kind also admits is kept.
+      A control is rebuilt only when its *shape* changes (control, arity, and the field whose members it
+      lists), so switching `contains` for `is` keeps a value already typed. The row's hint is managed with
+      it, because the alternative is a lie: choosing `is empty` under a rendered *"Enter a value…"* would
+      leave a row that needs no value being asked for one. A refusal from api is left alone, as the server
+      leaves it.
+
+      **Driven in a real browser, not reasoned about.** Two new journeys in `deed-polls.spec.ts`: one with
+      scripts on covering the swap, the rebuilt operator list, the checkbox set, both bounds of a `between`,
+      the announcements, the preserved value and **focus not moving onto what appeared**; one in a
+      `test.describe` using `test.use({ javaScriptEnabled: false })` covering task 3's floor unchanged —
+      field, apply, comparison, apply, value control visible with a hint, no error summary, a reloaded 200,
+      the unused-condition statement, then the value and the right rows. No axe check in the scripts-off one:
+      `AxeBuilder` injects a script to run.
+
+      Validation after the task: `yarn lint` exit 0 with the two pre-existing warnings, `yarn turbo test
+      test:app --concurrency=1` 8 of 8 with 1696 tests (up from 1682; 0 skipped here because Redis was up)
+      and no worker failures, `yarn build` green, and `yarn test:e2e --workers=1` 26 passed — the whole
+      Playwright suite, since the change touches the list template every list page renders. That run needed
+      `yarn playwright install chromium` first: the cached browser was build 1228 and `@playwright/test`
+      1.63.0 wants 1243.
 
 ### Task 5: The filter nav component
 

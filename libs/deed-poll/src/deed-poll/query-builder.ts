@@ -28,9 +28,19 @@
 import type { FieldError } from "../errors.js";
 import { type CaseCondition, isBlankCondition, isCompleteCondition, rowForSentCondition } from "./case-query.js";
 import { type DateParts, splitDateParts, submittedDateParts } from "./date-parts.js";
-import { enumOptions, type FieldDef } from "./form-fields.js";
+import { enumOptions, type FieldDef, type FieldKind } from "./form-fields.js";
 import { collectDateErrors } from "./form-validation.js";
-import { CHOOSABLE_FIELD_GROUPS, isOperatorValidFor, OPERATOR_LABELS, operatorsFor, queryableField, type ValueArity, valueArity } from "./query-fields.js";
+import {
+  CHOOSABLE_FIELD_GROUPS,
+  isOperatorValidFor,
+  OPERATOR_LABELS,
+  operatorsFor,
+  QUERYABLE_FIELDS,
+  type QueryOperator,
+  queryableField,
+  type ValueArity,
+  valueArity
+} from "./query-fields.js";
 
 /** The three buttons the builder submits with. Each names itself, which is how the action is read back. */
 const ADD_PARAMETER = "add";
@@ -47,6 +57,9 @@ const SENT_CONDITION = /^where\.(\d+)$/;
 
 /** A row holding nothing, which is what "Add condition" adds and what an unfiltered list renders. */
 const BLANK_CONDITION: CaseCondition = { field: "", operator: "", values: [] };
+
+/** Every arity there is, so the metadata can state a control for each of them rather than for the ones in use. */
+const ARITIES: ValueArity[] = [0, 1, 2, "many"];
 
 /** The name of the row's field chooser, which is also the anchor an error summary entry links to. */
 export function fieldControlName(index: number): string {
@@ -179,6 +192,48 @@ export function buildQueryRows(conditions: CaseCondition[], labels: QueryLabels,
   return rows.map((condition, index) => buildRow(condition, index, labels, messages.get(index), options.submitted));
 }
 
+/**
+ * The whole of what the browser needs to swap a value control in without a submit — emitted **once** per
+ * page as JSON, per the plan's decision 4.
+ *
+ * Everything here is read off the same functions the server renders a row with: `operatorsFor`,
+ * `valueArity`, `OPERATOR_LABELS` and `valueControl`. That is the point of the function existing at all. A
+ * script that carried its own copy of the operator table would be a second opinion about which comparisons
+ * a field admits, and the first field anyone added would make the two disagree silently — the drift
+ * `query-fields.ts` was written to prevent, moved to where nothing type-checks it.
+ *
+ * Three things the script cannot derive for itself and so are stated:
+ *
+ *   - **the operators each kind admits, in offer order**, because changing the field changes which
+ *     comparisons are on offer and the chooser has to be rebuilt to match;
+ *   - **the control each kind asks a value with at each arity**, which is `valueControl`'s answer and not a
+ *     rule to restate in a browser;
+ *   - **the words**, which are page content resolved for the request's locale.
+ *
+ * Keyed by every *queryable* field rather than only the ones the chooser offers: a hand-edited URL can name
+ * a curated-out field, `queryableField` resolves it, and the row it renders has to go on working.
+ */
+export function queryBuilderMetadata(labels: QueryScriptLabels): QueryBuilderMetadata {
+  const kinds = [...new Set(QUERYABLE_FIELDS.map((field) => field.kind))];
+
+  return {
+    operators: Object.fromEntries(
+      (Object.keys(OPERATOR_LABELS) as QueryOperator[]).map((operator) => [operator, { label: OPERATOR_LABELS[operator], arity: valueArity(operator) }])
+    ),
+    kinds: Object.fromEntries(
+      kinds.map((kind) => [
+        kind,
+        {
+          operators: operatorsFor(kind),
+          controls: Object.fromEntries(ARITIES.map((arity) => [String(arity), valueControl(kind, arity)]))
+        }
+      ])
+    ),
+    fields: Object.fromEntries(QUERYABLE_FIELDS.map((field) => [field.name, { kind: field.kind, options: field.enumSet ? enumOptions(field.enumSet) : [] }])),
+    labels
+  };
+}
+
 /** The row indices present in a submission, ascending and each once. */
 function rowIndices(query: Record<string, unknown>): number[] {
   const indices = Object.keys(query)
@@ -244,7 +299,7 @@ function buildRow(condition: CaseCondition, index: number, labels: QueryLabels, 
   // not on offer — a hand-edited URL is the only way to arrive here, and the row has to be fixable.
   const operator = definition !== undefined && isOperatorValidFor(definition.kind, condition.operator) ? condition.operator : "";
   const arity = operator === "" ? 0 : valueArity(operator);
-  const control = valueControl(definition, arity);
+  const control = valueControl(definition?.kind, arity);
   const slots: (0 | 1)[] = arity === 2 ? [0, 1] : arity === 1 ? [0] : [];
 
   return {
@@ -277,7 +332,9 @@ function buildRow(condition: CaseCondition, index: number, labels: QueryLabels, 
       control === "text" || control === "number" || control === "date"
         ? slots.map((slot) => buildInput(index, slot, condition.values[slot] ?? "", control === "date", submitted))
         : [],
-    valueName: valueControlName(index, 0),
+    // Both slots, whether or not this operator uses both: the browser swaps in the control the *next*
+    // comparison asks for, and a script that composed the name itself would be a second copy of the format.
+    valueNames: [valueControlName(index, 0), valueControlName(index, 1)],
     valueOptions: definition === undefined ? [] : chooserOptions(definition, control, labels, condition.values),
     error,
     // Suppressed beside a refusal: the refusal is the more specific thing to say about the row, and two
@@ -292,11 +349,14 @@ function buildRow(condition: CaseCondition, index: number, labels: QueryLabels, 
  * `isEmpty` and `isNotEmpty` get none at all — a disabled box beside them would imply a value is wanted.
  * A multiselect gets checkboxes because its members are what there is to choose from; `contains` takes
  * one of them, so ticking two leaves the row incomplete and `caseConditionSchema` says so.
+ *
+ * Takes the kind rather than the field, because that is all it looks at and `queryBuilderMetadata` asks it
+ * about a kind with no field in hand.
  */
-function valueControl(definition: FieldDef | undefined, arity: ValueArity): ValueControl {
-  if (definition === undefined || arity === 0) return "none";
+function valueControl(kind: FieldKind | undefined, arity: ValueArity): ValueControl {
+  if (kind === undefined || arity === 0) return "none";
 
-  switch (definition.kind) {
+  switch (kind) {
     case "date":
       return "date";
     case "number":
@@ -471,10 +531,69 @@ export interface QueryRow {
   control: ValueControl;
   /** The typed-in values, for `text`, `number` and `date`; two of them for `between`. */
   values: QueryValueInput[];
-  /** The shared name of a `select`, `checkboxes` or `radios` control. */
-  valueName: string;
+  /**
+   * The names of the row's two value slots — slot 0 is also the shared name of a `select`, `checkboxes` or
+   * `radios` control. Both are given whatever the operator takes, because the browser builds the control
+   * the comparison chosen *next* asks for and must not compose a control name of its own.
+   */
+  valueNames: [string, string];
   valueOptions: QueryOption[];
   error?: string;
   /** The row's next step, when its value is still wanted. Never set beside an `error`. */
   hint?: string;
+}
+
+/**
+ * The words the browser's swapped-in controls read. Page content, like `QueryLabels`, and separate from it
+ * because these are the strings the *script* needs — a label the server renders is already in the markup.
+ *
+ * The three announcements are what the `aria-live` region says when a control appears or goes; `{n}` in each
+ * is the condition's number, since one region serves every row and "a value is wanted" says nothing about
+ * which one.
+ */
+export interface QueryScriptLabels {
+  chooseOperator: string;
+  chooseValue: string;
+  yes: string;
+  no: string;
+  /** The visually-hidden label of a single value control, without the condition number. */
+  value: string;
+  lowerBound: string;
+  upperBound: string;
+  /** The three parts of a date input, which govuk-frontend's macro defaults to English. */
+  day: string;
+  month: string;
+  year: string;
+  enterValue: string;
+  enterBothValues: string;
+  announceValue: string;
+  announceValues: string;
+  announceNoValue: string;
+}
+
+/** One operator as the browser needs it: the words to offer it in, and how many values it takes. */
+export interface QueryOperatorMeta {
+  label: string;
+  arity: ValueArity;
+}
+
+/** One kind: the comparisons it admits in offer order, and the control each arity asks its value with. */
+export interface QueryKindMeta {
+  operators: QueryOperator[];
+  /** Keyed by arity as a string, because this crosses to the browser as JSON. */
+  controls: Record<string, ValueControl>;
+}
+
+/** One field: its kind, and its option set's members when it has one. */
+export interface QueryFieldMeta {
+  kind: FieldKind;
+  options: { value: string; text: string }[];
+}
+
+/** The builder's metadata as the browser receives it — see `queryBuilderMetadata`. */
+export interface QueryBuilderMetadata {
+  operators: Record<string, QueryOperatorMeta>;
+  kinds: Record<string, QueryKindMeta>;
+  fields: Record<string, QueryFieldMeta>;
+  labels: QueryScriptLabels;
 }

@@ -57,8 +57,14 @@ const render = async (query: Record<string, unknown> = {}): Promise<string> => {
   return environment.render("deed-polls/index.njk", { ...model, ...model.en });
 };
 
-/** The `name="…"` attributes of every control in the markup, which is what a GET form submits. */
-const controlNames = (markup: string): string[] => [...markup.matchAll(/name="([^"]+)"/g)].map((match) => match[1]);
+/**
+ * The `name="…"` attributes of every control in the markup, which is what a GET form submits.
+ *
+ * The leading space is load-bearing: the rows also carry `data-value-name`, which is the name of a control
+ * the *browser* may build rather than a control being submitted, and matching it would count a control that
+ * is not there.
+ */
+const controlNames = (markup: string): string[] => [...markup.matchAll(/ name="([^"]+)"/g)].map((match) => match[1]);
 
 describe("deed-polls list template", () => {
   beforeEach(() => {
@@ -219,6 +225,70 @@ describe("deed-polls list template", () => {
     // The placeholder is above every group rather than inside the first one, where it would be announced
     // as one of that section's fields.
     expect(chooser.indexOf("Choose a case field")).toBeLessThan(chooser.indexOf("<optgroup"));
+  });
+
+  /**
+   * The enhancement's half of the page, which is markup and metadata and no behaviour: the browser swapping
+   * a control in is driven in `deed-polls.spec.ts`, because a DOM is the only place it can be. What a
+   * template test can hold is that everything the script reads is on the page and that none of it is a
+   * second copy of a domain rule.
+   */
+  describe("the value control's enhancement", () => {
+    /** The metadata block as the browser parses it. */
+    const metadataFrom = (markup: string): Record<string, any> => {
+      const opening = '<script type="application/json" id="query-builder-metadata">';
+      const start = markup.indexOf(opening) + opening.length;
+
+      return JSON.parse(markup.slice(start, markup.indexOf("</script>", start)));
+    };
+
+    it("carries the field, operator and control metadata once, as JSON the browser can parse", async () => {
+      const markup = await render();
+      const metadata = metadataFrom(markup);
+
+      expect(metadata.fields.type).toEqual({ kind: "enum", options: expect.arrayContaining([{ value: "Adult", text: "Adult" }]) });
+      expect(metadata.operators.between).toEqual({ label: "is between", arity: 2 });
+      expect(metadata.kinds.date.operators).toContain("before");
+      expect(metadata.kinds.date.controls["1"]).toBe("date");
+      // The words the swapped-in controls read, which have no macro to default them.
+      expect(metadata.labels.chooseValue).toBe("Choose a value");
+      expect(metadata.labels.announceValue).toContain("{n}");
+      // Once, so the page is not carrying the same table per row.
+      expect([...markup.matchAll(/id="query-builder-metadata"/g)]).toHaveLength(1);
+    });
+
+    it("gives each row the names the script needs, rather than leaving it to compose them", async () => {
+      const markup = await render({ where: "dateReceived:between:2026-03-01,2026-04-01" });
+
+      expect(markup).toContain('data-query-row="0"');
+      expect(markup).toContain('data-condition-number="1"');
+      expect(markup).toContain('data-value-name="value-0-0"');
+      expect(markup).toContain('data-upper-value-name="value-0-1"');
+    });
+
+    it("marks the two choosers and the column the control is swapped into", async () => {
+      const markup = await render();
+
+      expect(markup).toMatch(/<select[^>]*id="field-0"[^>]*data-query-field/);
+      expect(markup).toMatch(/<select[^>]*id="op-0"[^>]*data-query-operator/);
+      expect(markup).toContain('<div class="govuk-grid-column-one-quarter" data-query-values>');
+    });
+
+    it("gives the builder one polite live region, empty until something changes", async () => {
+      const markup = await render();
+
+      expect(markup).toContain('<div class="govuk-visually-hidden" aria-live="polite" data-query-announcer></div>');
+      // Polite and not assertive: a control appearing is not worth interrupting a caseworker mid-sentence.
+      expect(markup).not.toContain('aria-live="assertive"');
+    });
+
+    it("still asks for the value with a plain control, so the page works with the script blocked", async () => {
+      const markup = await render({ where: "type:is:" });
+
+      // The metadata is a data block, not a script: nothing on this page executes to make the builder work.
+      expect(markup).toMatch(/<select[^>]*name="value-0-0"/);
+      expect(markup).toMatch(/<button[^>]*type="submit"[^>]*name="apply"/);
+    });
   });
 
   it("keeps the chosen field selected inside its group, so the round trip comes back showing it", async () => {

@@ -39,6 +39,8 @@ import {
   parsePage,
   parseSort,
   type QueryRowError,
+  type QueryScriptLabels,
+  queryBuilderMetadata,
   queryErrors,
   serialiseSort,
   unusedConditionRows
@@ -66,6 +68,19 @@ const en = {
   valueLabel: "Value for condition",
   lowerBoundLabel: "Lower value for condition",
   upperBoundLabel: "Upper value for condition",
+  // The three parts of a date input. Already on screen for a server-rendered one — govuk-frontend's macro
+  // defaults each item's label to its own name — so they exist here only for the controls the browser
+  // builds, which have no macro to default them.
+  dayLabel: "Day",
+  monthLabel: "Month",
+  yearLabel: "Year",
+  // What the builder's live region says when choosing a comparison reveals its value control, or takes one
+  // away. `{n}` is the condition's number: one region serves every row, and "a value is wanted" leaves a
+  // screen-reader user to guess which of four conditions is asking. Decision 4 — the appearance of a
+  // control is announced, and focus is left where the caseworker put it.
+  announceValue: "Condition {n} now asks for a value.",
+  announceValues: "Condition {n} now asks for two values.",
+  announceNoValue: "Condition {n} needs no value.",
   addCondition: "Add condition",
   removeCondition: "Remove condition",
   applyFilters: "Apply filters",
@@ -188,6 +203,9 @@ function render(
     activeFilter: filter.key,
     clearHref: listHref({ filter: filter.key, conditions: [], sort }),
     queryRows: buildQueryRows(conditions, content.queryLabels, { rowErrors, submitted }),
+    // Once per page, for the enhancement that reveals a value control without a submit. The page renders it
+    // whether or not a script is running: it is a data block, and the floor below it is the round trip.
+    queryMetadata: queryMetadataJson(content),
     hasQuery: conditions.length > 0,
     unusedConditions: unused.length === 0 ? "" : content.unusedConditionsFor(unused.map((row) => row + 1)),
     // Every header link carries the tab and the conditions, which is the bug this class of UI always has.
@@ -200,6 +218,37 @@ function render(
     en,
     cy
   });
+}
+
+/**
+ * The builder's metadata as the JSON text the page carries — decision 4: emitted **once**, never fetched
+ * per keystroke, and never a second copy of the operator table. `queryBuilderMetadata` reads it off the same
+ * domain functions the rows are rendered from; what is added here is the page's own words.
+ *
+ * `<` is escaped and nothing else is. A `<script>` element's contents are raw text, so the block cannot be
+ * HTML-escaped — `&quot;` would not parse as JSON — which leaves exactly one sequence able to end the
+ * element early. Escaping it as `<` is still valid JSON and still the same string.
+ */
+function queryMetadataJson(content: typeof en): string {
+  const labels: QueryScriptLabels = {
+    chooseOperator: content.queryLabels.chooseOperator,
+    chooseValue: content.queryLabels.chooseValue,
+    yes: content.queryLabels.yes,
+    no: content.queryLabels.no,
+    value: content.valueLabel,
+    lowerBound: content.lowerBoundLabel,
+    upperBound: content.upperBoundLabel,
+    day: content.dayLabel,
+    month: content.monthLabel,
+    year: content.yearLabel,
+    enterValue: content.queryLabels.enterValue,
+    enterBothValues: content.queryLabels.enterBothValues,
+    announceValue: content.announceValue,
+    announceValues: content.announceValues,
+    announceNoValue: content.announceNoValue
+  };
+
+  return JSON.stringify(queryBuilderMetadata(labels)).replaceAll("<", "\\u003c");
 }
 
 /** The condition numbers as a sentence reads them: `2`, `2 and 3`, `2, 3 and 5`. */
