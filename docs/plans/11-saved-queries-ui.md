@@ -5,7 +5,7 @@
 **Written provisionally, and now reconciled.** Written 2026-09-17 on Steve's instruction to get the UI
 thinking on paper ahead of the api work, with every contract claim flagged rather than assumed. **api's side
 has since run and merged, and this plan has been corrected against the document it actually publishes**
-(reconciled 2026-09-17 against api commit `19fbb39`). The gate below is met; the corrections are recorded
+(reconciled 2026-09-17 against api commit `3b2579a`). The gate below is met; the corrections are recorded
 here rather than silently applied, because a plan that quietly changed its mind teaches nothing.
 
 `deed-poll-api`'s `docs/plans/saved-queries-and-search.md` describes seven `/caseworker/saved-queries*`
@@ -41,7 +41,7 @@ reports the same red and the run teaches nothing.
 **The gate, all three steps done:**
 
 1. ~~Run api's `saved-queries-and-search.md`~~ — **done**, `hmcts/deed-poll-api#16`, all seven tasks.
-2. ~~Refresh `libs/deed-poll-api-client/openapi.json`~~ — **done**, from api commit `19fbb39`; provenance table
+2. ~~Refresh `libs/deed-poll-api-client/openapi.json`~~ — **done**, from api commit `3b2579a`; provenance table
    updated. 19 → 26 operations, 16 → 19 schemas, no removals and no renames.
 3. ~~Re-read this plan against the refreshed spec and correct it~~ — **done**, and the corrections are the
    `editable` rename plus the two unanticipated behaviours in the section below. Task 0 still runs, as a check
@@ -296,7 +296,7 @@ write the answer into the task log:
 - The exact name of each new schema in `components.schemas`, and each one's properties.
 - **That `SavedQueryResponse` carries `editable: boolean`.** If it does not, **stop and report** — decisions 1
   and 3 depend on it and no local workaround is permitted. It was `editable` when this plan was reconciled
-  against api commit `19fbb39`; the flag is **not** called `canEdit`, which is the name this plan originally
+  against api commit `3b2579a`; the flag is **not** called `canEdit`, which is the name this plan originally
   asked for.
 - Whether the selection sub-resource is `PUT`/`DELETE` on `…/{id}/selection` as api's plan describes.
 - Read the `where` and `sort` parameter *descriptions*, per `SPEC-PROVENANCE.md`'s fourth note: the operator

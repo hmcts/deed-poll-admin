@@ -6,7 +6,7 @@ one of them rather than licence to invent.
 
 | | |
 |---|---|
-| **api commit** | `19fbb39f6bdd6b77104019eeec999d8a1998471f` — "Publish the saved-query write bodies, and guard every keyed body (#17)", 2026-09-17 |
+| **api commit** | `3b2579ab14e8c073aa27999e0f477d1d6bc4aa92` — "Publish the sortable fields in a fixed order (#18)", 2026-09-17. **Not `19fbb39` (#17)**, though this file was captured before #18 merged: #18 only fixed the order of four names in the `sort` description, and the captured document already carries the fixed order, so `3b2579a` is the commit that reproduces this file byte-for-byte and `19fbb39` is not. |
 | **Taken on** | 2026-09-17 |
 | **How** | `GET /v3/api-docs`, as api's `OpenAPIPublisherTest` captures it for the `hmcts/cnp-api-docs` publish workflow. Reformatted (2-space JSON) and otherwise unmodified. |
 | **Operations** | **25 caseworker operations** across 13 paths, plus Spring Boot's `GET /` — 26 in total. 19 schemas. The refresh added the seven `/caseworker/saved-queries*` operations, three schemas (`SavedQueryResponse`, `CreateSavedQueryRequest`, `UpdateSavedQueryRequest`), a `q` parameter on the case list, and two response properties: `CaseListResponse.referenceMatch` and `CaseSummaryResponse.newSurname`. |
