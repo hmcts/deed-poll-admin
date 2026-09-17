@@ -624,6 +624,77 @@ test("caseworker saves the query they built, follows it from the filter bar, and
 });
 
 /**
+ * The search box — plan 12's journey, and the two things a term can be.
+ *
+ * A name narrows the list; a whole reference does not, it *goes to the case*. Both halves are api's decision
+ * and neither is inferrable from the rows: `referenceMatch` is a field on the response, so a page that
+ * redirected on `total === 1` instead would look right against a one-row name search and wrong against a
+ * reference whose case shares a name with others. Only a browser shows that the redirect is a redirect.
+ *
+ * The middle of the journey is decision 1, which is the correctness rule of the whole plan: a sort header
+ * carries the term. Asserted on the URL *and* on the rows, because a header that dropped `q` renders a
+ * plausible table of the wrong query under the same heading.
+ */
+test("caseworker searches the list by name, and is taken to the case when the term is a whole reference", async ({ page, request }) => {
+  // Arrange: two cases sharing a surname no other case has, and a third with a different one — so the
+  // search has something to exclude, which a search that returned everything would also pass against.
+  const seeded = await seedCasesToSearch(request);
+
+  await page.goto("/deed-polls");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Deed poll cases");
+
+  await page.getByLabel("Search cases").fill(seeded.surname);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+
+  // The term is in the URL beside the tab, so a set of results is shareable — decision 7, and the reason
+  // there is no JavaScript here. `page` is deliberately absent: a new search starts at its first page.
+  await expect(page).toHaveURL(`/deed-polls?filter=all&q=${seeded.surname}`);
+  await expect(page.getByText("1 to 2 of 2 applications")).toBeVisible();
+  await expect(page.locator("tbody tr")).toHaveCount(2);
+  // The surname is on screen, which is why decision 6 added the column: a search that matched on surname and
+  // showed only forenames would be a table of results with the reason for each of them off screen.
+  await expect(page.locator("tbody tr").first()).toContainText(seeded.surname);
+  await expect(page.locator("tbody")).not.toContainText(seeded.otherSurname);
+  // Still in the box, so refining a search starts from the term that was searched.
+  await expect(page.getByLabel("Search cases")).toHaveValue(seeded.surname);
+  await expectNoAccessibilityViolations(page);
+
+  // Decision 1: the order changes and the search does not. The header exists at all because `newSurname` is
+  // one of api's sortable fields — a column offering an order api would answer 400 for is decision 6's own
+  // failure mode.
+  //
+  // **Activated from the keyboard rather than clicked**, and not as a preference: the seventh header is the
+  // narrowest, so its link — "Sort by" as visually hidden text plus the label — wraps onto two lines, and the
+  // centre of a wrapped anchor's bounding box is the gutter between its line boxes, where the `<th>` is what
+  // paints. A synthetic centre click is intercepted by the cell; a real user clicks the words, and a keyboard
+  // user does this. Nothing about the markup is wrong, so nothing about the markup is worked around.
+  const surnameHeader = page.getByRole("link", { name: "Sort by New surname" });
+  await surnameHeader.focus();
+  await page.keyboard.press("Enter");
+
+  // Waited for rather than read straight off `page.url()`: pressing a key does not await the navigation it
+  // starts, and the URL a moment after the press is still the one that was searched.
+  await expect(page).toHaveURL(/[?&]sort=newSurname%3Aasc/);
+  expect(new URL(page.url()).searchParams.get("q")).toBe(seeded.surname);
+  await expect(page.locator("th", { hasText: "New surname" })).toHaveAttribute("aria-sort", "ascending");
+  await expect(page.locator("tbody tr")).toHaveCount(2);
+
+  // And the other half: a whole reference is not a query, it is a case. The redirect is api's `referenceMatch`
+  // acted on — never `total === 1`, which this list of two would not have satisfied anyway.
+  await page.getByLabel("Search cases").fill(seeded.reference);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+
+  await expect(page).toHaveURL(CASE_URL);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(new RegExp(`^\\s*${seeded.reference}\\s*$`));
+  await expectNoAccessibilityViolations(page);
+
+  // The back button returns to the results, which is what makes the redirect safe to do without asking —
+  // decision 2, and the answer to "what if they wanted the list".
+  await page.goBack();
+  await expect(page.getByText("1 to 2 of 2 applications")).toBeVisible();
+});
+
+/**
  * The builder with **the browser's scripts switched off**, which is the floor everything above it stands on.
  *
  * Verified rather than reasoned about, per the plan's decision 4: the enhancement that reveals a value
@@ -823,6 +894,45 @@ async function seedCasesToFilter(request: APIRequestContext, newForename: string
     });
     expect(response.status(), await response.text()).toBe(201);
   }
+}
+
+/**
+ * The three cases the search journey needs: two sharing a surname, one not, each with a reference of its own.
+ *
+ * **The surname is unique per test for the reason the forename is** — the mock's store is shared with every
+ * spec in the run and outlives the run itself, so a fixed "Smith" would find the previous run's cases and the
+ * total this journey asserts would climb by two each time. The seed script's `Adultcase`/`Minorcase` surnames
+ * are no use here for the same reason: every case it seeds shares one, so a search for it matches 26 rows.
+ *
+ * **The references are unique per test too, and that is load-bearing rather than tidy**: the redirect goes to
+ * the *first* case whose reference matches, so a second case carrying the same reference would send the
+ * journey to somebody else's case and the heading assertion would still pass. Four digits off the clock in
+ * seconds, so two runs collide only if they start an exact multiple of ~2.8 hours apart, and the leading digit
+ * keeps them clear of the other seeds' `1`/`2`/`3` and of the `0000n` serials the mock allocates on a create.
+ */
+async function seedCasesToSearch(request: APIRequestContext): Promise<{ surname: string; otherSurname: string; reference: string }> {
+  const token = Date.now().toString(36);
+  const serial = String(Math.floor(Date.now() / 1000)).slice(-4);
+  const surname = `Searchby${token}`;
+  const otherSurname = `Ignoreby${token}`;
+  const reference = `KBDP2026-8${serial}`;
+
+  // Received in May, so they cannot collide with `DATE_RECEIVED` or with either builder journey's seeds —
+  // those cases are in the list too, and only the surname keeps them out of this one.
+  const cases = [
+    { newForename: "Ada", newSurname: surname, displayReference: reference, dateReceived: "2026-05-01T00:00:00.000" },
+    { newForename: "Grace", newSurname: surname, displayReference: `KBDP2026-7${serial}`, dateReceived: "2026-05-02T00:00:00.000" },
+    { newForename: "Nia", newSurname: otherSurname, displayReference: `KBDP2026-6${serial}`, dateReceived: "2026-05-03T00:00:00.000" }
+  ];
+
+  for (const body of cases) {
+    const response = await request.post(`${MOCK_API_URL}/__mock/cases`, { data: { type: "Adult", ...body } });
+    // Asserted, because a rejected seed leaves the journey searching an emptier list than it means to and the
+    // failure would surface as a wrong total several steps later.
+    expect(response.status(), await response.text()).toBe(201);
+  }
+
+  return { surname, otherSurname, reference };
 }
 
 /**

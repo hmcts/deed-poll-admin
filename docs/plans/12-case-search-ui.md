@@ -670,10 +670,68 @@ Record the unit total against the baseline measured at this branch's actual star
 blindly — this branch sits on plan 11 or a moved master). **Re-run once before believing any worker-startup
 failure.** Confirm `yarn welsh:check` is no worse than at the branch point.
 
-- [ ] One e2e happy path — a name search filtering results and a reference search redirecting to the case —
+- [x] One e2e happy path — a name search filtering results and a reference search redirecting to the case —
       with an axe check; lint exit 0 with no new warnings; unit total up from the measured branch-point
       baseline with no suite lost; build green; e2e green; `welsh:check` no worse; the measured numbers written
       into this task's log rather than estimated
+
+**Done 2026-09-17.** One journey, `caseworker searches the list by name, and is taken to the case when the term
+is a whole reference`, in `e2e-tests/tests/deed-polls.spec.ts` — the two things a term can be, in one test,
+because they are one gesture with two answers. A name narrows the list; a whole reference redirects. Both axe
+checks run inline, on the results page and on the case the redirect lands on, per `.claude/rules/e2e-testing.md`.
+
+`seedCasesToSearch` seeds three cases through `POST /__mock/cases`: two sharing a surname unique to the test
+run and one with a different one, so a matcher that returned everything fails here rather than passing on a
+list it never narrowed. **The display references are unique per run too, and that is load-bearing rather than
+tidy**: the redirect goes to the *first* case whose reference matches, so a second case carrying the same
+reference would send the journey to somebody else's case and the heading assertion would still pass. Four
+digits off the clock in seconds, with a leading digit clear of the other seeds' `1`/`2`/`3` and of the
+`0000n` serials a create allocates.
+
+**The seed was still not extended** (the validation note suggested it might need to be): a journey that needs
+two cases with one surname and one without is three seeded cases, not a change to the 32-case fixture every
+other spec shares — and `scripts/seed-local-cases.mjs` gives every case one of three surnames, so a search
+for any of them matches 26 rows rather than a subset worth asserting on.
+
+**Two mechanics worth recording, neither a product defect:**
+
+- **The seventh sort header is activated from the keyboard, not clicked.** Its link is "Sort by" as visually
+  hidden text plus the label, and in the narrowest column that wraps onto two lines — the centre of a wrapped
+  anchor's bounding box is the gutter between its line boxes, where the `<th>` is what paints, so Playwright's
+  centre click is intercepted by the cell. A real user clicks the words. `focus()` then `Enter` is what a
+  keyboard user does and is layout-independent; the markup is not worked around because nothing about it is
+  wrong.
+- **The URL after that press is waited for, not read.** `keyboard.press` does not await the navigation it
+  starts, so `page.url()` a moment later is still the URL that was searched — the first version of the
+  assertion read `sort` as `null` for exactly that reason. `expect(page).toHaveURL` retries; the `q` check
+  then reads a settled URL.
+
+**Measured on the working tree, from `/tmp/dpa-t5` carrying it, servers started by hand (`yarn mock:api`,
+`build:app:dev` + `tsx src/server.ts`) and reused by Playwright's `webServer`:**
+
+| Command | Result |
+|---|---|
+| `yarn lint` | exit 0, **2 warnings, 2 infos** — the documented pre-existing state, unchanged |
+| `yarn turbo test test:app --concurrency=1` | **1,949**, 8 of 8 tasks, 0 failures, 0 worker errors |
+| `yarn build` | green, 13.0s |
+| `yarn test:e2e --workers=1` | **28 passed** (27 before, +1), 1.8m |
+
+Unit totals per package, unchanged from task 5 because this task adds no unit test: redis 7, cnp 140,
+simple-router 41, session-postgres 23, api-client 242, deed-poll 748, govuk-starter 127, app 621. Nothing
+fell, so no suite was lost — the branch-point baseline was 1,702 as measured before plan 11's own additions,
+and the api-client's own branch-point figure was 221 (task 0's note), so the delta this plan is responsible
+for is api-client 221→242, deed-poll →748, app →621.
+
+**One note on the `/tmp` copy, for the next run:** an `rsync` of the working tree carries the untracked
+`rules-of-engagement.md` symlink, whose target is outside the repo, and `biome` then reports a third warning
+as `internalError/fs`. It is the copy, not the code — the working tree reports exactly two. Delete the symlink
+in the copy before trusting the count.
+
+**`welsh:check` is no worse, and the arithmetic is worth stating rather than asserting.** Branch point
+(`6d70e6e`): 225 strings, 200 still identical in `cy` (193 prose). Now: 228 strings, 203 identical (196 prose).
+The three new strings are the search label, hint and button, English in `cy` via `cy = { ...en }` — the page's
+existing pattern, and the plan's own open question. No previously translated string regressed; the untranslated
+*proportion* is unchanged.
 
 ## Deliberately not in this plan
 
