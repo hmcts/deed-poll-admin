@@ -70,6 +70,15 @@
             }
           },
           {
+            "description": "A search term. Matched against the case reference exactly -- tolerant of case, hyphens and spaces, so `kbdp2026-10100` and `KBDP202610100` find the same case -- or as a case-insensitive substring of newForename, newSurname, oldForename, oldSurname, parents, representativeName. Those two are ORed, and the result is ANDed with `filter` and every `where` condition. Matching is substring and not fuzzy: a misspelling does not match. Addresses and narrative fields are deliberately not searched. Longer than 100 characters is truncated rather than refused. Where the term matched one case's reference exactly, the response's `referenceMatch` carries that case's id.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "An order, as `field:asc|desc`. The direction may be omitted and defaults to ascending. Sortable fields are the columns the list shows: referencenumber, displayReference, dateOfApplication, inPerson, postCounter, feeReference, dateReceived, type, maritalStatus, minorDateOfBirth, ageOfMinor, ageOfMinorMonths, parents, privacy, state, urgency, urgencyreason, onlineApplicationReference, retainPermanently, awaitingFurtherDocsInfo, newForename, newMiddleName, newSurname, oldForename, oldMiddleName, oldSurname, applicantBuildingNoName, applicantAddress1, applicantAddress2, applicantTownCity, applicantPostcode, applicantEmail, applicantTelephone, representativeName, representativeCompany, representativeEmail, representativeTelephone, representativeBuildingNoName, representativeAddress1, representativeAddress2, representativeTownCity, representativePostcode, nationality, nationalitySection, nationalitySectionOther, dateOfDeclaration, referToMasterChoice, dateReadyForMaster, dateReferred, referralNotes, masterName, masterDirections, masterDecision, masterDateOfDecision, dateDecisionDirectionsReceived, publishToLondonGazette, signatureRequestedDate, signatureReceivedDate, dateEnroled, dateNoticeSentToLondonGazette, dateReturned, returnReason, refundAmount, dateOfRefund, refundReference, createdOn, modifiedOn, createdBy, modifiedBy. Defaults to newest first.",
             "in": "query",
             "name": "sort",
@@ -118,7 +127,7 @@
         "tags": ["caseworker-read-controller"]
       },
       "post": {
-        "operationId": "create",
+        "operationId": "create_1",
         "requestBody": {
           "content": {
             "application/json": {
@@ -225,7 +234,7 @@
         "tags": ["caseworker-read-controller"]
       },
       "patch": {
-        "operationId": "update",
+        "operationId": "update_1",
         "parameters": [
           {
             "in": "path",
@@ -390,7 +399,7 @@
         "tags": ["caseworker-note-controller"]
       },
       "post": {
-        "operationId": "create_2",
+        "operationId": "create_3",
         "parameters": [
           {
             "in": "path",
@@ -428,7 +437,7 @@
     },
     "/caseworker/cases/{id}/notes/{noteId}": {
       "delete": {
-        "operationId": "delete_1",
+        "operationId": "delete_2",
         "parameters": [
           {
             "in": "path",
@@ -489,7 +498,7 @@
         "tags": ["caseworker-note-controller"]
       },
       "patch": {
-        "operationId": "update_2",
+        "operationId": "update_3",
         "parameters": [
           {
             "in": "path",
@@ -564,7 +573,7 @@
         "tags": ["caseworker-witness-controller"]
       },
       "post": {
-        "operationId": "create_1",
+        "operationId": "create_2",
         "parameters": [
           {
             "in": "path",
@@ -602,7 +611,7 @@
     },
     "/caseworker/cases/{id}/witnesses/{witnessId}": {
       "delete": {
-        "operationId": "delete",
+        "operationId": "delete_1",
         "parameters": [
           {
             "in": "path",
@@ -663,7 +672,7 @@
         "tags": ["caseworker-witness-controller"]
       },
       "patch": {
-        "operationId": "update_1",
+        "operationId": "update_2",
         "parameters": [
           {
             "in": "path",
@@ -726,6 +735,176 @@
           }
         },
         "tags": ["caseworker-read-controller"]
+      }
+    },
+    "/caseworker/saved-queries": {
+      "get": {
+        "operationId": "savedQueries",
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SavedQueryResponse"
+                  }
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-saved-query-controller"]
+      },
+      "post": {
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSavedQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedQueryResponse"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "tags": ["caseworker-saved-query-controller"]
+      }
+    },
+    "/caseworker/saved-queries/{id}": {
+      "delete": {
+        "operationId": "delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": ["caseworker-saved-query-controller"]
+      },
+      "get": {
+        "operationId": "savedQuery",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedQueryResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-saved-query-controller"]
+      },
+      "patch": {
+        "operationId": "update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSavedQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedQueryResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-saved-query-controller"]
+      }
+    },
+    "/caseworker/saved-queries/{id}/selection": {
+      "delete": {
+        "operationId": "deselect",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": ["caseworker-saved-query-controller"]
+      },
+      "put": {
+        "operationId": "select",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": ["caseworker-saved-query-controller"]
       }
     }
   },
@@ -1042,6 +1221,9 @@
             "type": "integer",
             "format": "int32"
           },
+          "referenceMatch": {
+            "type": "string"
+          },
           "size": {
             "type": "integer",
             "format": "int32"
@@ -1070,6 +1252,9 @@
             "type": "string"
           },
           "newForename": {
+            "type": "string"
+          },
+          "newSurname": {
             "type": "string"
           },
           "privacy": {
@@ -1359,6 +1544,54 @@
           }
         },
         "required": ["note"]
+      },
+      "CreateSavedQueryRequest": {
+        "additionalProperties": true,
+        "description": "A saved case-list query. Only name is required: a query that narrows nothing is legitimate, because \"everything, newest first\" is a view somebody wants a tab for. The owner comes from the caller's token, so ownerId cannot be set here, and page is not part of a view -- both are ignored rather than refused, as any unknown key is. Saving does not select: the new query is in the library and in nobody's list, including its owner's.",
+        "properties": {
+          "conditions": {
+            "type": "array",
+            "description": "The where conditions as the wire strings a list URL carried -- \"field:operator:value\", split on the first two colons -- and NOT structured objects. Validated on write by the same parser a live query goes through, so a saved query round-trips a list URL unchanged.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "filter": {
+            "type": "string",
+            "description": "Which case-list filter tab the view opens on.",
+            "enum": ["all", "open", "received", "enroled", "returned"]
+          },
+          "name": {
+            "type": "string",
+            "description": "What the query is called, as it appears in a navigation bar.",
+            "maxLength": 100,
+            "minLength": 1
+          },
+          "searchTerm": {
+            "type": "string",
+            "description": "The q search term this view carries, matched against the reference and the name columns. page is deliberately not stored: page 4 of a previous result set is not a page of this one.",
+            "maxLength": 100
+          },
+          "shared": {
+            "type": "boolean",
+            "description": "Whether the query is published to the library every caseworker can browse. Publishing makes it findable, not present in anyone else's list -- each user selects what they want to see. A shared query may also be amended or deleted by an Administrator."
+          },
+          "sortDirection": {
+            "type": "string",
+            "description": "Matched exactly: asc, desc. A bare sortField with no direction is read as ascending.",
+            "enum": ["asc", "desc"]
+          },
+          "sortField": {
+            "type": "string",
+            "description": "The field to order by. Any of CaseSort.sortableFields() -- the single-valued form fields plus the audit columns -- which is not enumerated here because there are more than sixty and a frozen copy would drift."
+          }
+        },
+        "required": ["name"]
       },
       "CreateWitnessRequest": {
         "additionalProperties": true,
@@ -1772,6 +2005,67 @@
           }
         }
       },
+      "SavedQueryResponse": {
+        "type": "object",
+        "properties": {
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdOn": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string"
+          },
+          "editable": {
+            "type": "boolean"
+          },
+          "filter": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "modifiedBy": {
+            "type": "string"
+          },
+          "modifiedOn": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "ownerName": {
+            "type": "string"
+          },
+          "searchTerm": {
+            "type": "string"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "shared": {
+            "type": "boolean"
+          },
+          "sortDirection": {
+            "type": "string"
+          },
+          "sortField": {
+            "type": "string"
+          }
+        }
+      },
       "UpdateCaseRequest": {
         "additionalProperties": true,
         "description": "A patch: an omitted field is left alone, an explicit null clears the column where the column is nullable, and unknown keys are ignored. referencenumber, displayReference and the audit columns are not writable. privacy is honoured only for a caller entitled to set it, and state is re-derived from the merged dates.",
@@ -2042,6 +2336,53 @@
             "type": "string",
             "maxLength": 2000,
             "minLength": 1
+          }
+        }
+      },
+      "UpdateSavedQueryRequest": {
+        "additionalProperties": true,
+        "description": "A patch. An omitted field is left as stored, and an explicit null clears the column -- unlike the note and witness patches, where no column is nullable and a null is a 400. name cannot be cleared. An empty patch is accepted and re-stamps modifiedOn. Editing is the owner's right, or an Administrator's if the query is shared. Unknown keys are ignored.",
+        "properties": {
+          "conditions": {
+            "type": "array",
+            "description": "The where conditions as the wire strings a list URL carried -- \"field:operator:value\", split on the first two colons -- and NOT structured objects. Validated on write by the same parser a live query goes through, so a saved query round-trips a list URL unchanged.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "filter": {
+            "type": "string",
+            "description": "Which case-list filter tab the view opens on.",
+            "enum": ["all", "open", "received", "enroled", "returned"]
+          },
+          "name": {
+            "type": "string",
+            "description": "What the query is called, as it appears in a navigation bar.",
+            "maxLength": 100,
+            "minLength": 1
+          },
+          "searchTerm": {
+            "type": "string",
+            "description": "The q search term this view carries, matched against the reference and the name columns. page is deliberately not stored: page 4 of a previous result set is not a page of this one.",
+            "maxLength": 100
+          },
+          "shared": {
+            "type": "boolean",
+            "description": "Whether the query is published to the library every caseworker can browse. Publishing makes it findable, not present in anyone else's list -- each user selects what they want to see. A shared query may also be amended or deleted by an Administrator."
+          },
+          "sortDirection": {
+            "type": "string",
+            "description": "Matched exactly: asc, desc. A bare sortField with no direction is read as ascending.",
+            "enum": ["asc", "desc"]
+          },
+          "sortField": {
+            "type": "string",
+            "description": "The field to order by. Any of CaseSort.sortableFields() -- the single-valued form fields plus the audit columns -- which is not enumerated here because there are more than sixty and a frozen copy would drift."
           }
         }
       },

@@ -1,20 +1,32 @@
 # Plan 11: saved and shared queries — the caseworker's side
 
-## PROVISIONAL — read this section before running anything
+## Read this section before running anything
 
-**This plan is written against a contract that does not exist yet, deliberately, and it cannot be run until
-that changes.** Written 2026-09-17 on Steve's instruction to get the UI thinking on paper ahead of the api
-work, with every contract claim flagged rather than assumed.
+**Written provisionally, and now reconciled.** Written 2026-09-17 on Steve's instruction to get the UI
+thinking on paper ahead of the api work, with every contract claim flagged rather than assumed. **api's side
+has since run and merged, and this plan has been corrected against the document it actually publishes**
+(reconciled 2026-09-17 against api commit `19fbb39`). The gate below is met; the corrections are recorded
+here rather than silently applied, because a plan that quietly changed its mind teaches nothing.
 
 `deed-poll-api`'s `docs/plans/saved-queries-and-search.md` describes seven `/caseworker/saved-queries*`
-operations. That plan is **written and has never been run** — branch `saved-queries-and-search` holds one
-commit, the plan document itself. Verified against admin's copy of the spec
-(`libs/deed-poll-api-client/openapi.json`, provenance api commit `fd4fe3a`, taken 2026-09-14):
+operations. **That plan has now run and merged** — `hmcts/deed-poll-api#16`, 2026-09-17 — and admin's copy of
+the spec has been refreshed from it. Everything this plan needs exists:
 
 | What this plan needs | In the spec today |
 |---|---|
-| 7 `/caseworker/saved-queries*` operations | **absent** — 10 caseworker paths, no `saved-queries`; grep for `saved` finds only `SavedCaseResponse` |
-| A per-query `canEdit`/`isOwner` flag | **absent**, and **not in api's plan either** — see "What this plan asks of api" |
+| 7 `/caseworker/saved-queries*` operations | **present** — 13 caseworker paths, 25 operations |
+| A per-query editability flag | **present**, and named **`editable`** — not `canEdit`. See below |
+| `CreateSavedQueryRequest` / `UpdateSavedQueryRequest` field lists | **present** — 8 properties each, `name` required on create |
+
+**The flag is `editable`, not `canEdit`.** api added it as asked, under its own name, and
+[`SavedQueryResponse`](../../libs/deed-poll-api-client/openapi.json) publishes `editable: boolean` beside
+`selected: boolean`. **Use `editable` everywhere.** This repo does not rename at the boundary — the wire is
+camelCase and a field named differently here would be a divergence to fix, not a style choice (`CLAUDE.md`,
+"Wire Fields"). The name `canEdit` survives in this document only where it records the original ask.
+
+`editable` is computed server-side from the same predicate that enforces the rule
+(`SavedQueryPermissions.editableBy`), so what a client is told and what it is permitted cannot drift — which
+is a stronger guarantee than the `isOwner` alternative this plan offered as an option.
 
 **Why it cannot merely be run early and corrected.** `libs/deed-poll-api-client/src/api/contract.test.ts`
 asserts **exact set equality** twice: `Object.keys(WIRE_SCHEMAS)` against the spec's
@@ -26,20 +38,29 @@ onward**. That is precisely the failure mode
 validation gate that starts red cannot tell a break from a pre-existing failure, so every subsequent task
 reports the same red and the run teaches nothing.
 
-**The gate, therefore, in order:**
+**The gate, all three steps done:**
 
-1. Run api's `saved-queries-and-search.md` (`ralphex -t docs/plans/saved-queries-and-search.md` in the api
-   clone).
-2. Refresh `libs/deed-poll-api-client/openapi.json` from api's published document per
-   [`libs/deed-poll-api-client/SPEC-PROVENANCE.md`](../../libs/deed-poll-api-client/SPEC-PROVENANCE.md) —
-   `./gradlew integration -Dtest.single=OpenAPIPublisherTest` writes `/tmp/openapi-specs.json`; copy it over
-   and update the commit table.
-3. **Re-read this plan against the refreshed spec and correct it.** Task 0 below exists to force that, and
-   it is the only task that may be run before the gate is met.
+1. ~~Run api's `saved-queries-and-search.md`~~ — **done**, `hmcts/deed-poll-api#16`, all seven tasks.
+2. ~~Refresh `libs/deed-poll-api-client/openapi.json`~~ — **done**, from api commit `19fbb39`; provenance table
+   updated. 19 → 26 operations, 16 → 19 schemas, no removals and no renames.
+3. ~~Re-read this plan against the refreshed spec and correct it~~ — **done**, and the corrections are the
+   `editable` rename plus the two unanticipated behaviours in the section below. Task 0 still runs, as a check
+   rather than a discovery.
 
-**Every statement in this plan about an api path, parameter or response field is provisional.** Where one is
-load-bearing it is marked **[PROVISIONAL]**. Do not implement a marked claim without checking the refreshed
-spec first; where the spec disagrees, **the spec wins and this plan is wrong**.
+**Two api defects were found and fixed during the refresh**, both of which would have broken this plan:
+
+- **The two request bodies published as `{}`.** `CreateSavedQueryRequest` and `UpdateSavedQueryRequest` are
+  keyed maps, so springdoc reflected no fields; `OpenAPIWriteBodies` had not been extended. `contract.test.ts`
+  would have matched empty schemas and a client would have been built blind to the fields it must send. Fixed
+  in `hmcts/deed-poll-api#17`, with a classpath-scanning guard so a future keyed body cannot ship empty.
+- **The `sort` parameter's field list was non-deterministic.** api held four audit columns in a `Set.of`, whose
+  iteration order Java randomises per JVM, so every spec refresh would show a spurious diff in those names.
+  Fixed in `hmcts/deed-poll-api#18`.
+
+**Statements about api paths, parameters and response fields are now checked rather than provisional.** Two
+**[PROVISIONAL]** markers deliberately remain, and neither is about api's contract: the mock's `editable: true`
+(a limitation of the mock, recorded at the mock) and the operation table in task 1. Where the spec and this
+plan disagree, **the spec still wins and this plan is still wrong** — that rule does not expire.
 
 ## Overview
 
@@ -127,24 +148,37 @@ stands on its own merits — a shared query others rely on has a wider blast rad
 **new work with no local pattern to copy**, and the task must be read that way rather than as "do what
 witnesses do".
 
-## What this plan asks of api — an addition to a plan that has not run
+## What this plan asked of api — asked, and delivered
 
-**Decision 3 needs something api's plan does not currently describe, and this is the highest-value thing in
-this document.** api's plan states the permission rules in prose — decision 2: *"Only the owner may edit or
-delete a query — and an administrator may edit or delete any shared one"* — and lists `PATCH` and `DELETE`
-as owner-or-admin. But its `GET /caseworker/saved-queries` response is described only as *"shared queries
-plus their own, each flagged with whether it is selected"*. **Selected, not editable.**
+**This was the highest-value thing in this document when it was written, and it worked.** api's plan stated
+the permission rules in prose — decision 2: *"Only the owner may edit or delete a query — and an administrator
+may edit or delete any shared one"* — but described its `GET /caseworker/saved-queries` response only as
+*"shared queries plus their own, each flagged with whether it is selected"*. **Selected, not editable.** The
+UI would have had to infer editability from `ownerId` against a local user id, which decision 1 forbids and
+this repo cannot do.
 
-So as written, api tells the UI whether a query is *in the caller's list* but not whether the caller may
-*change* it. The UI would have to infer editability — which needs `ownerId` compared against a local user
-id, which is exactly what decision 1 forbids and what this repo cannot do.
+**api added the flag before its plan ran.** `SavedQueryResponse` now carries `editable: boolean`, derived
+server-side from `SavedQueryPermissions.editableBy` — the same predicate the write paths use to refuse — so
+what a client is told and what it is permitted cannot drift.
 
-**Ask api's plan to add a per-query `canEdit` boolean** (or `isOwner` plus the admin rule applied
-server-side — either works, one flag is simpler) to the saved-query response schema. It is a small change
-there and it removes an impossible requirement here. **Raise this before running api's plan**, so it lands in
-one pass rather than as a follow-up.
+**Nothing in this plan is provisional on that any more.** Every task below reads `editable` as a fact api
+states. Do not write a local policy function, do not compare owner ids, and do not treat the flag as advisory:
+a client that renders an edit button on its own reasoning is a second authority on a rule api enforces.
 
-Until then, treat every reference to `canEdit` in the tasks below as **[PROVISIONAL]**.
+### Two things api shipped that this plan did not anticipate
+
+Both are api's own decisions, discovered when the spec was refreshed, and both are *narrower* than what this
+plan assumed:
+
+1. **A query the caller cannot see is `404`, not `403`** — identical to an id that never existed, so no id is
+   discoverable by watching status codes. That includes an administrator naming somebody else's *unshared*
+   query: the admin override reaches shared queries only. So a page handling a saved query must treat 404 as
+   "gone or never yours" and must not distinguish the two in what it renders.
+2. **`DELETE .../selection` answers `204` even for a query the caller cannot see.** Deliberate asymmetry with
+   `PUT`, which 404s: the selection row is keyed by the caller, so the delete cannot reach anybody else's, and
+   requiring visibility would trap a subscriber holding a stale selection for a query its owner has since
+   unshared — the one selection they most need to clear and the one they can no longer see. **Do not add a
+   visibility pre-check before unselecting.**
 
 ## Open questions — flagged, NOT answered here
 
@@ -260,8 +294,10 @@ write the answer into the task log:
 
 - Which `/caseworker/saved-queries*` paths exist, with their exact methods and paths.
 - The exact name of each new schema in `components.schemas`, and each one's properties.
-- **Whether a per-query `canEdit` (or `isOwner`) flag exists**, per "What this plan asks of api". If it does
-  not, **stop and report** — decisions 1 and 3 depend on it and no local workaround is permitted.
+- **That `SavedQueryResponse` carries `editable: boolean`.** If it does not, **stop and report** — decisions 1
+  and 3 depend on it and no local workaround is permitted. It was `editable` when this plan was reconciled
+  against api commit `19fbb39`; the flag is **not** called `canEdit`, which is the name this plan originally
+  asked for.
 - Whether the selection sub-resource is `PUT`/`DELETE` on `…/{id}/selection` as api's plan describes.
 - Read the `where` and `sort` parameter *descriptions*, per `SPEC-PROVENANCE.md`'s fourth note: the operator
   vocabulary arrives only as prose and nothing pins it.
@@ -273,8 +309,9 @@ worked around.
 If the spec has no saved-query operations at all, the gate at the top of this plan has not been met: stop.
 
 - [ ] Spec confirmed to carry the saved-query surface; every path, schema name and property recorded in the
-      task log; `canEdit` confirmed present; every **[PROVISIONAL]** marker in this plan either corrected or
-      the run stopped with a report
+      task log; `editable` confirmed present on `SavedQueryResponse`; the two request bodies confirmed to
+      publish their eight properties rather than an empty schema; every **[PROVISIONAL]** marker in this plan
+      either corrected or the run stopped with a report
 
 ### Task 1: The wire schemas and the adapter operations
 
@@ -293,7 +330,8 @@ Follow the file's existing pattern exactly (it is uniform, so there is no judgem
 Then the operations in `client.ts`. Copy the shape of `listCases` (line 97) for the read and `createNote`
 (165) / `patchNote` (177) / `deleteNote` (187) for the writes. Nothing new is invented: `request(...)` for
 anything with a body to parse, `requestNoContent(...)` for a `DELETE` or an idempotent `PUT` that returns
-none. **[PROVISIONAL]** — seven operations, per api's plan:
+none. Seven operations, **each verified against the refreshed spec** — every method and path below is exactly
+as `openapi.json` carries it:
 
 | Function | Method and path |
 |---|---|
@@ -332,7 +370,7 @@ failure into `send(res, 400, fieldErrorsFrom(parsed.error.issues))`. Unknown met
 **The mock cannot model the permission rules, and must not pretend to.** `auditName(req)` (line 630) decodes
 the bearer token's `sub` without verifying it and there is no role in it — the mock comments at lines
 400-403 say a 403 is not a state it can produce, which is why the witness delete's Administrator gate is
-unmodelled. So: the mock sets `canEdit: true` **[PROVISIONAL]** on everything and answers every write. Put a
+unmodelled. So: the mock sets `editable: true` **[PROVISIONAL]** on everything and answers every write. Put a
 comment saying so, in the shape of the existing one, or someone will later read the mock as evidence that
 the UI's permission handling is tested.
 
@@ -438,7 +476,7 @@ URL (`libs/simple-router/src/route-discovery.ts:44-52`), so `queries/index.ts` i
   description, `ownerName` (decision 2 — display only), whether it is in the caller's list, and a control to
   add or remove it. Add/remove are `PUT`/`DELETE` on the selection sub-resource and are idempotent, so a
   double-submit is harmless.
-- **Edit and delete**, shown only when api says `canEdit` **[PROVISIONAL]** (decision 3). Follow the
+- **Edit and delete**, shown only when api says `editable` **[PROVISIONAL]** (decision 3). Follow the
   existing shape for *rendering* a permissioned control — a named `canX` value passed into the template and
   `{% if %}`'d, hidden rather than disabled (`witness-edit.njk:79`, and the comment there on why a disabled
   button has no value to read). **Unlike witnesses, the flag comes from api, not from a local policy
@@ -448,7 +486,7 @@ Every page needs `callerFromRequest(req)` (`src/auth/current-user.ts:35`).
 
 - [ ] `queries/new.ts` saving a named query from the query it was opened with, validated, errors summarised
       and anchored; `queries/index.ts` listing shared plus own with idempotent add/remove; edit and delete
-      rendered on api's `canEdit` and hidden not disabled; no local policy function; colocated tests for
+      rendered on api's `editable` and hidden not disabled; no local policy function; colocated tests for
       each page asserting the render model
 
 ### Task 7: The delete confirmation

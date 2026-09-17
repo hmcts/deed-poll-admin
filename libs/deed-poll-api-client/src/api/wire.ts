@@ -243,7 +243,11 @@ const caseSummarySchema = z.object({
   dateReceived: wireDateTime.nullish(),
   type: z.enum(DEED_POLL_TYPE).nullish(),
   state: z.enum(DEED_POLL_STATE).nullish(),
-  newForename: z.string().nullish()
+  newForename: z.string().nullish(),
+  // api added this so a search matching on surname can show the surname it matched. Registered here ahead of
+  // the search UI (plan 12) because contract.test.ts asserts exact property equality against the spec, and an
+  // unregistered property makes the suite red for every task of plan 11 as well.
+  newSurname: z.string().nullish()
 });
 
 /**
@@ -260,7 +264,12 @@ const caseListSchema = z.object({
   page: z.number(),
   size: z.number(),
   total: z.number(),
-  totalPages: z.number()
+  totalPages: z.number(),
+  // The id of the case whose reference the `q` term matched exactly, or null — api states the fact and the UI
+  // decides whether to redirect. Null for no match AND for several, because a serial repeats across years, so
+  // there is then no single case to go to. Nothing reads it until plan 12; it is registered now because
+  // contract.test.ts asserts exact property equality against the spec.
+  referenceMatch: z.string().nullish()
 });
 
 const fieldRuleSchema = z.object({
