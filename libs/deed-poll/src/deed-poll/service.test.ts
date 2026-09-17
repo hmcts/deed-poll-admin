@@ -77,6 +77,25 @@ describe("deed-poll/service", () => {
 
       expect(listCases).toHaveBeenCalledWith(expect.objectContaining({ where: ["type:is:Adult"] }), expect.anything());
     });
+
+    it("leaves a chosen comparison with no value yet off the wire, rather than asking api to refuse it", async () => {
+      // The state a caseworker is in the moment they have picked a field and a comparison: api answers
+      // "is takes one value, and was given 0", and being shown that for a step not yet taken is the fault
+      // plan 10 exists to fix.
+      vi.mocked(listCases).mockResolvedValue(ok({ filter: "all", cases: [], page: 1, size: 25, total: 0, totalPages: 0 }) as never);
+
+      await findDeedPolls(
+        {
+          conditions: [
+            { field: "type", operator: "is", values: [""] },
+            { field: "ageOfMinor", operator: "between", values: ["3"] }
+          ]
+        },
+        CALLER
+      );
+
+      expect(listCases).toHaveBeenCalledWith(expect.objectContaining({ where: [] }), expect.anything());
+    });
   });
 
   describe("findDeedPoll", () => {

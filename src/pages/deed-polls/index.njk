@@ -8,6 +8,7 @@
 {% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
 {% from "govuk/components/radios/macro.njk" import govukRadios %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/inset-text/macro.njk" import govukInsetText %}
 {% from "govuk/components/pagination/macro.njk" import govukPagination %}
 
 {% block content %}
@@ -17,15 +18,28 @@
     {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorSummary }) }}
   {% endif %}
 
-  <nav class="govuk-!-margin-bottom-6" aria-label="{{ filterLabel }}">
-    {% for f in filters %}
-      {% if f.key == activeFilter %}
-        <strong class="govuk-!-margin-right-3" aria-current="true">{{ f.label }}</strong>
-      {% else %}
-        {# The tab carries the query, so switching tab narrows the same conditions within another view. #}
-        <a class="govuk-link govuk-!-margin-right-3" href="{{ f.href }}">{{ f.label }}</a>
-      {% endif %}
-    {% endfor %}
+  {#
+    The filter bar, as `app-filter-nav` in the global stylesheet — decisions 7, 8 and 9. A list because it
+    is one, a labelled group because plan 11 adds a second one of saved queries beside it, and
+    `aria-current="page"` rather than a `<strong>` because "you are here" is not strong importance and must
+    not be carried by boldness alone. Spacing is the component's, so no `govuk-!-margin-*` here.
+  #}
+  <nav class="app-filter-nav" aria-label="{{ filterLabel }}">
+    <div class="app-filter-nav__group">
+      <h2 class="app-filter-nav__group-label">{{ filterGroupLabel }}</h2>
+      <ul class="app-filter-nav__list">
+        {% for f in filters %}
+          <li class="app-filter-nav__item">
+            {% if f.key == activeFilter %}
+              <span class="app-filter-nav__current" aria-current="page">{{ f.label }}</span>
+            {% else %}
+              {# The tab carries the query, so switching tab narrows the same conditions within another view. #}
+              <a class="govuk-link govuk-link--no-visited-state" href="{{ f.href }}">{{ f.label }}</a>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
   </nav>
 
   {#
@@ -47,23 +61,58 @@
         <p class="govuk-body govuk-!-font-weight-bold govuk-!-margin-bottom-2">{{ andWord }}</p>
       {% endif %}
 
-      <div class="govuk-form-group {% if row.error %}govuk-form-group--error{% endif %}">
+      {#
+        `data-query-row` is what the enhancement keys on, and every name it needs comes off these
+        attributes rather than being composed in the browser: the row's number for the words, and its two
+        value slots' names — slot 0, and `between`'s upper bound — which `valueControlName` owns.
+      #}
+      <div class="govuk-form-group {% if row.error %}govuk-form-group--error{% endif %}"
+           data-query-row="{{ row.index }}"
+           data-condition-number="{{ row.number }}"
+           data-value-name="{{ row.valueNames[0] }}"
+           data-upper-value-name="{{ row.valueNames[1] }}">
         {% if row.error %}
           <p id="{{ row.field.name }}-error" class="govuk-error-message">
             <span class="govuk-visually-hidden">{{ errorPrefix }}</span> {{ row.error }}
           </p>
+        {% elif row.hint %}
+          {#
+            A hint and not an error message, and deliberately not in the error summary: choosing a
+            comparison is what reveals the value control, so a row waiting for its value is a step the
+            caseworker is part-way through rather than a mistake they have made — decision 2.
+          #}
+          <p id="{{ row.field.name }}-hint" class="govuk-hint">{{ row.hint }}</p>
         {% endif %}
 
         <div class="govuk-grid-row">
           <div class="govuk-grid-column-one-quarter">
-            {# The refusal is announced with the row's first control, since it is the row that is wrong. #}
-            {{ govukSelect({
-              id: row.field.name,
-              name: row.field.name,
-              label: { text: fieldLabel ~ " " ~ row.number, classes: "govuk-visually-hidden" },
-              describedBy: (row.field.name ~ "-error") if row.error else "",
-              items: row.field.options
-            }) }}
+            {#
+              Hand-written rather than `govukSelect`, which cannot render an `<optgroup>`: the fields are
+              grouped by the case tab and section they sit on — decision 6 — and one flat list of 43 is not
+              a list anyone reads. The classes are the component's, so it stays a GOV.UK select.
+
+              The refusal — or the hint asking for the value — is announced with the row's first control,
+              since it is the row that is unfinished rather than one control of it.
+            #}
+            {% set rowDescribedBy = "" %}
+            {% if row.error %}
+              {% set rowDescribedBy = row.field.name ~ "-error" %}
+            {% elif row.hint %}
+              {% set rowDescribedBy = row.field.name ~ "-hint" %}
+            {% endif %}
+            <div class="govuk-form-group">
+              <label class="govuk-label govuk-visually-hidden" for="{{ row.field.name }}">{{ fieldLabel }} {{ row.number }}</label>
+              <select class="govuk-select" id="{{ row.field.name }}" name="{{ row.field.name }}" data-query-field{% if rowDescribedBy %} aria-describedby="{{ rowDescribedBy }}"{% endif %}>
+                <option value="{{ row.field.placeholder.value }}"{% if row.field.placeholder.selected %} selected{% endif %}>{{ row.field.placeholder.text }}</option>
+                {% for group in row.field.groups %}
+                  <optgroup label="{{ group.label }}">
+                    {% for option in group.options %}
+                      <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.text }}</option>
+                    {% endfor %}
+                  </optgroup>
+                {% endfor %}
+              </select>
+            </div>
           </div>
 
           <div class="govuk-grid-column-one-quarter">
@@ -71,14 +120,19 @@
               id: row.operator.name,
               name: row.operator.name,
               label: { text: operatorLabel ~ " " ~ row.number, classes: "govuk-visually-hidden" },
-              items: row.operator.options
+              items: row.operator.options,
+              attributes: { "data-query-operator": "" }
             }) }}
           </div>
 
-          <div class="govuk-grid-column-one-quarter">
+          <div class="govuk-grid-column-one-quarter" data-query-values>
             {#
               The control follows the field's kind — decision 3. `isEmpty` and `isNotEmpty` render nothing
               at all here, because a disabled box would imply a value is wanted.
+
+              This column is also what the enhancement replaces the contents of when a comparison is
+              chosen. What is rendered here is the floor: with no script running, the same control arrives
+              on the next round trip and the row keeps its hint until it is filled in.
             #}
             {% for input in row.values %}
               {% set boundLabel = valueLabel %}
@@ -110,23 +164,23 @@
 
             {% if row.control == "select" %}
               {{ govukSelect({
-                id: row.valueName,
-                name: row.valueName,
+                id: row.valueNames[0],
+                name: row.valueNames[0],
                 label: { text: valueLabel ~ " " ~ row.number, classes: "govuk-visually-hidden" },
                 items: row.valueOptions
               }) }}
             {% elif row.control == "checkboxes" %}
               {{ govukCheckboxes({
-                idPrefix: row.valueName,
-                name: row.valueName,
+                idPrefix: row.valueNames[0],
+                name: row.valueNames[0],
                 classes: "govuk-checkboxes--small",
                 fieldset: { legend: { text: valueLabel ~ " " ~ row.number, classes: "govuk-visually-hidden" } },
                 items: row.valueOptions
               }) }}
             {% elif row.control == "radios" %}
               {{ govukRadios({
-                idPrefix: row.valueName,
-                name: row.valueName,
+                idPrefix: row.valueNames[0],
+                name: row.valueNames[0],
                 classes: "govuk-radios--small govuk-radios--inline",
                 fieldset: { legend: { text: valueLabel ~ " " ~ row.number, classes: "govuk-visually-hidden" } },
                 items: row.valueOptions
@@ -146,6 +200,13 @@
       </div>
     {% endfor %}
 
+    {#
+      Where the enhancement says that a value control has appeared or gone — decision 4. Polite, so it waits
+      for a pause rather than interrupting, and empty on arrival because nothing has changed yet. One region
+      for the builder rather than one per row, which is why its words name the condition.
+    #}
+    <div class="govuk-visually-hidden" aria-live="polite" data-query-announcer></div>
+
     <div class="govuk-button-group">
       {{ govukButton({ text: applyFilters, name: "apply", value: "true" }) }}
       {{ govukButton({ text: addCondition, name: "add", value: "condition", classes: "govuk-button--secondary" }) }}
@@ -154,6 +215,27 @@
       {% endif %}
     </div>
   </form>
+
+  {#
+    The builder's metadata, once per page and not per keystroke — decision 4. A data block rather than a
+    script: nothing here executes, and `queryBuilderMetadata` derives every word of it from the same domain
+    functions the rows above were rendered from, so the browser cannot hold a second opinion about which
+    comparisons a field admits.
+
+    `| safe` is required and safe: a `<script>` element's contents are raw text, so an escaped `&quot;` would
+    not parse as JSON, and the page handler has already escaped the one sequence that could close the element
+    early.
+  #}
+  <script type="application/json" id="query-builder-metadata">{{ queryMetadata | safe }}</script>
+
+  {#
+    Above the table, because a caseworker reading results has to know the query answered less than they
+    asked — the row's own hint is below the fold once there are four conditions. Inset text rather than an
+    error summary: nothing is wrong, and the rows below are a true answer to a narrower question.
+  #}
+  {% if unusedConditions %}
+    {{ govukInsetText({ text: unusedConditions }) }}
+  {% endif %}
 
   {% if cases.length == 0 %}
     <p class="govuk-body">{{ empty }}</p>

@@ -1,0 +1,59 @@
+/*
+ * The case list's filter bar.
+ *
+ * Purpose-built rather than taken from a design system: plan 10's decision 7 rejected
+ * `@ministryofjustice/frontend` because the only workspace precedent carries it for a file-upload
+ * component and uses none of its navigation, and `moj-sub-navigation` does not do what plan 11 asks of
+ * this bar either — variable-length saved-query entries with per-entry actions.
+ *
+ * `base` and not `index`, so this file gets the settings, tools and helpers and emits no rules of its own
+ * beyond the ones below.
+ */
+@use "govuk-frontend/dist/govuk/base" as *;
+
+.app-filter-nav {
+  @include govuk-responsive-margin(6, "bottom");
+}
+
+/*
+ * A group holds one label and its entries. Only one group exists today; the wrapper is here from the start
+ * because plan 11 adds saved queries beside these five, and short tab labels sharing an undifferentiated
+ * line with "Urgent minors awaiting signature — Ops" reads as one broken list — decision 8.
+ */
+.app-filter-nav__group + .app-filter-nav__group {
+  @include govuk-responsive-margin(4, "top");
+}
+
+.app-filter-nav__group-label {
+  @include govuk-font($size: 16, $weight: bold);
+  color: govuk-functional-colour(secondary-text);
+  margin: 0 0 govuk-spacing(1);
+}
+
+.app-filter-nav__list {
+  @include govuk-font($size: 19);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * Spacing is the component's job, which is why the markup carries no `govuk-!-margin-right-3` overrides.
+ * The bottom margin matters only once the entries wrap, and plan 11 guarantees they will.
+ */
+.app-filter-nav__item {
+  display: inline-block;
+  margin: 0 govuk-spacing(3) govuk-spacing(1) 0;
+}
+
+/*
+ * Decision 9: "you are here" is not strong importance, so the current entry is not a `<strong>` and its
+ * state is not conveyed by weight alone. The underline is the indicator; the weight and the colour repeat
+ * it for anyone who reads either.
+ */
+.app-filter-nav__current {
+  @include govuk-typography-weight-bold;
+  display: inline-block;
+  padding-bottom: govuk-spacing(1);
+  border-bottom: 4px solid govuk-functional-colour(brand);
+}

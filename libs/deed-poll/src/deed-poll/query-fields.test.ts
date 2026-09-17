@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FIELD_BY_NAME, type FieldKind, FORM_TABS } from "./form-fields.js";
 import {
+  CHOOSABLE_FIELD_GROUPS,
   CHOOSABLE_FIELDS,
   isOperatorValidFor,
   isQueryOperator,
@@ -30,6 +31,16 @@ describe("deed-poll/query-fields", () => {
       const formFields = FORM_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields)).map((field) => field.name);
 
       expect(QUERYABLE_FIELDS.map((field) => field.name)).toEqual(formFields);
+    });
+
+    it("should still carry the fields the chooser declines to offer, because api answers a condition on them", () => {
+      // `queryable: false` curates the chooser, not the queryable surface: narrowing this list would turn
+      // "every form field" into "every form field except the ones someone remembered".
+      const names = QUERYABLE_FIELDS.map((field) => field.name);
+
+      expect(names).toContain("feeReference");
+      expect(names).toContain("iShall");
+      expect(QUERYABLE_FIELDS).toHaveLength(70);
     });
 
     it("should include the read-only fields, because reference number and state are the most useful to query", () => {
@@ -62,14 +73,83 @@ describe("deed-poll/query-fields", () => {
       expect(names).not.toContain("daysReceivedToReturned");
     });
 
+    it("should leave out the fields the form marks unqueryable, alongside the derived pair rather than instead of it", () => {
+      const names = CHOOSABLE_FIELDS.map((field) => field.name);
+
+      expect(names).not.toContain("feeReference");
+      expect(names).not.toContain("referralNotes");
+      expect(names).not.toContain("applicantAddress1");
+    });
+
     it("should offer everything else queryable, in form order, so it tracks the form as the queryable list does", () => {
-      const expected = QUERYABLE_FIELDS.filter((field) => !field.name.startsWith("daysReceivedTo")).map((field) => field.name);
+      const expected = QUERYABLE_FIELDS.filter((field) => field.queryable !== false && !field.name.startsWith("daysReceivedTo")).map((field) => field.name);
 
       expect(CHOOSABLE_FIELDS.map((field) => field.name)).toEqual(expected);
     });
 
+    it("should offer the 43 curated fields, so a cut or an addition to the table is a deliberate edit here", () => {
+      // Pinned as a count because the point of the curation is that the list stays short: 68 options in
+      // one chooser is what plan 10 was written to fix, and a silent drift back is the regression.
+      expect(CHOOSABLE_FIELDS).toHaveLength(43);
+    });
+
+    it("should keep the fields the curation deliberately spared, which a caseworker really does filter by", () => {
+      const names = CHOOSABLE_FIELDS.map((field) => field.name);
+
+      expect(names).toContain("referencenumber");
+      expect(names).toContain("displayReference");
+      expect(names).toContain("parents");
+      expect(names).toContain("masterName");
+      expect(names).toContain("representativeName");
+      expect(names).toContain("representativeCompany");
+    });
+
     it("should still keep the derived pair queryable, so a hand-edited URL naming one renders its refusal", () => {
       expect(queryableField("daysReceivedToEnroled")).toBeDefined();
+    });
+
+    it("should still resolve an unqueryable field, so a hand-edited URL naming one renders rather than vanishing", () => {
+      expect(queryableField("feeReference")?.label).toBe("Fee reference");
+    });
+  });
+
+  describe("CHOOSABLE_FIELD_GROUPS", () => {
+    it("should hold exactly the choosable fields, in the same order, since the flat list is derived from these", () => {
+      const grouped = CHOOSABLE_FIELD_GROUPS.flatMap((group) => group.fields);
+
+      expect(grouped).toEqual(CHOOSABLE_FIELDS);
+    });
+
+    it("should put each field in one group only, so a caseworker meets it once", () => {
+      const names = CHOOSABLE_FIELD_GROUPS.flatMap((group) => group.fields.map((field) => field.name));
+
+      expect(new Set(names).size).toBe(names.length);
+    });
+
+    it("should contribute no empty group, since a section whose every field was curated out has nothing to label", () => {
+      expect(CHOOSABLE_FIELD_GROUPS.every((group) => group.fields.length > 0)).toBe(true);
+    });
+
+    it("should label a group from its tab and section, and from the tab alone where the two say the same thing", () => {
+      const labels = CHOOSABLE_FIELD_GROUPS.map((group) => group.label);
+
+      expect(labels).toContain("Application: Names");
+      // The Signature tab holds one section named after it, and "Signature: Signature" says nothing twice.
+      expect(labels).toContain("Signature");
+      expect(labels).not.toContain("Signature: Signature");
+    });
+
+    it("should take the labels from the form rather than restating them, so renaming a tab renames its group", () => {
+      const application = FORM_TABS.find((tab) => tab.id === "application");
+
+      expect(CHOOSABLE_FIELD_GROUPS[0].label).toBe(`${application?.label}: ${application?.sections[0].label}`);
+    });
+
+    it("should group in form order, so the groups follow the case tabs a caseworker already knows", () => {
+      const tabOrder = FORM_TABS.filter((tab) => tab.sections.length > 0).map((tab) => tab.label);
+      const groupTabs = [...new Set(CHOOSABLE_FIELD_GROUPS.map((group) => group.label.split(":")[0]))];
+
+      expect(groupTabs).toEqual(tabOrder);
     });
   });
 

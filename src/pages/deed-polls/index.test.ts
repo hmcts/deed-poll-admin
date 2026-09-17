@@ -184,6 +184,69 @@ describe("deed-polls list page", () => {
       expect(row.values).toEqual([]);
     });
 
+    it("answers 200 for a condition with no value yet, keeping the row and the results already on screen", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue(page([record]) as never);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: "type:is:" } }), res);
+
+      expect(res.status).not.toHaveBeenCalled();
+      const model = res.render.mock.calls[0][1];
+      // The row survives, so the value control is on screen for the value to be typed into.
+      expect(model.queryRows).toHaveLength(1);
+      expect(model.queryRows[0].control).toBe("select");
+      expect(model.queryRows[0].hint).toBe("Enter a value to use this condition");
+      expect(model.queryRows[0].error).toBeUndefined();
+      expect(model.errorSummary).toEqual([]);
+      expect(model.cases).toHaveLength(1);
+    });
+
+    it("states above the table which condition the query ran without, since filtering by less than was asked is worse", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: ["type:is:Adult", "newForename:is:"] } }), res);
+
+      expect(res.render.mock.calls[0][1].unusedConditions).toBe("Condition 2 was not used, because it is not complete.");
+    });
+
+    it("names every unused condition in one statement, reading as a sentence", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: ["type:is:", "newForename:is:", "ageOfMinor:between:3"] } }), res);
+
+      expect(res.render.mock.calls[0][1].unusedConditions).toBe("Conditions 1, 2 and 3 were not used, because they are not complete.");
+    });
+
+    it("states nothing for a query every condition of which ran", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: ["type:is:Adult", "parents:isEmpty"] } }), res);
+
+      expect(res.render.mock.calls[0][1].unusedConditions).toBe("");
+    });
+
+    it("treats an operator compared without a value as complete, rather than asking for one it renders no control for", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: ["parents:isEmpty", "newForename:isNotEmpty"] } }), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.queryRows.map((row: { hint?: string }) => row.hint)).toEqual([undefined, undefined]);
+      expect(model.unusedConditions).toBe("");
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it("asks for both bounds of a between holding one of two, and runs the query without it", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: "ageOfMinor:between:3" } }), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.queryRows[0].hint).toBe("Enter both values to use this condition");
+      expect(model.unusedConditions).toBe("Condition 1 was not used, because it is not complete.");
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
     it("renders the value control the chosen field's kind asks for", async () => {
       const res = pageResponse();
 
@@ -386,6 +449,23 @@ describe("deed-polls list page", () => {
       expect(model.queryRows[0].error).toBe("is not a member of state");
       expect(model.errorSummary).toEqual([{ text: "Condition 1: is not a member of state", href: "#field-0" }]);
       expect(model.cases).toEqual([]);
+    });
+
+    it("keeps its 400 and its error summary, and says nothing about an unfinished row beside it", async () => {
+      vi.mocked(findDeedPolls).mockRejectedValue(new InvalidInputError("Case query is not valid", [{ field: "where.0", message: "is not a member of state" }]));
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: ["state:is:Nonsense", "newForename:is:"] } }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      const model = res.render.mock.calls[0][1];
+      expect(model.errorSummary).toEqual([{ text: "Condition 1: is not a member of state", href: "#field-0" }]);
+      // The refused row carries the refusal and no hint; the unfinished one carries the hint and is stated.
+      expect(model.queryRows.map((row: { error?: string; hint?: string }) => [row.error, row.hint])).toEqual([
+        ["is not a member of state", undefined],
+        [undefined, "Enter a value to use this condition"]
+      ]);
+      expect(model.unusedConditions).toBe("Condition 2 was not used, because it is not complete.");
     });
 
     it("addresses the refusal to the row rather than to its position on the wire, since incomplete rows are not sent", async () => {

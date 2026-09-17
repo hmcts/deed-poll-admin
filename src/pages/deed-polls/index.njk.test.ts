@@ -11,6 +11,7 @@
  * passing fails this test too. `en` is spread over it because `renderInterceptorMiddleware` is what does
  * that in a real request, and the double does not run middleware.
  */
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findDeedPolls, InvalidInputError } from "@hmcts/deed-poll";
@@ -57,8 +58,14 @@ const render = async (query: Record<string, unknown> = {}): Promise<string> => {
   return environment.render("deed-polls/index.njk", { ...model, ...model.en });
 };
 
-/** The `name="…"` attributes of every control in the markup, which is what a GET form submits. */
-const controlNames = (markup: string): string[] => [...markup.matchAll(/name="([^"]+)"/g)].map((match) => match[1]);
+/**
+ * The `name="…"` attributes of every control in the markup, which is what a GET form submits.
+ *
+ * The leading space is load-bearing: the rows also carry `data-value-name`, which is the name of a control
+ * the *browser* may build rather than a control being submitted, and matching it would count a control that
+ * is not there.
+ */
+const controlNames = (markup: string): string[] => [...markup.matchAll(/ name="([^"]+)"/g)].map((match) => match[1]);
 
 describe("deed-polls list template", () => {
   beforeEach(() => {
@@ -170,11 +177,177 @@ describe("deed-polls list template", () => {
     expect(markup).toContain("govuk-form-group--error");
   });
 
+  it("asks for a missing value with a hint and no error markup, since the row is a step part-way through", async () => {
+    const markup = await render({ where: "type:is:" });
+
+    expect(markup).toContain('id="field-0-hint" class="govuk-hint">Enter a value to use this condition');
+    expect(markup).toMatch(/id="field-0"[^>]*aria-describedby="field-0-hint"/);
+    // The three ways this could be dressed up as a mistake, and is not: an error message, an errored form
+    // group, and an entry in the error summary.
+    expect(markup).not.toContain("govuk-error-message");
+    expect(markup).not.toContain("govuk-form-group--error");
+    expect(markup).not.toContain("govuk-error-summary");
+    // And the control the hint is asking for a value in is on screen, which is the whole point.
+    expect(markup).toMatch(/<select[^>]*name="value-0-0"/);
+  });
+
+  it("states an unused condition above the table, where a caseworker reading the results will see it", async () => {
+    vi.mocked(findDeedPolls).mockResolvedValue({ filter: "all", cases: [record], page: 1, size: 25, total: 1, totalPages: 1 } as never);
+
+    const markup = await render({ where: ["type:is:Adult", "newForename:is:"] });
+    const statement = markup.indexOf("Condition 2 was not used, because it is not complete.");
+
+    expect(statement).toBeGreaterThan(-1);
+    expect(markup.indexOf('class="govuk-inset-text"')).toBeLessThan(markup.indexOf("<table"));
+    expect(statement).toBeLessThan(markup.indexOf("<table"));
+  });
+
+  it("states nothing when every condition ran, so the page is quiet about a query it answered in full", async () => {
+    const markup = await render({ where: "type:is:Adult" });
+
+    expect(markup).not.toContain("govuk-inset-text");
+    expect(markup).not.toContain("was not used");
+  });
+
   it("shows every field the chooser offers, and not the ones api computes", async () => {
     const markup = await render();
 
     expect(markup).toContain('<option value="state">State</option>');
     expect(markup).not.toContain('value="daysReceivedToEnroled"');
+  });
+
+  it("groups the field chooser by tab and section, so the fields are not one flat list of 43", async () => {
+    const markup = await render();
+    const chooser = markup.slice(markup.indexOf('name="field-0"'));
+    const groups = [...chooser.slice(0, chooser.indexOf("</select>")).matchAll(/<optgroup label="([^"]+)">/g)].map((match) => match[1]);
+
+    expect(groups).toContain("Application: Names");
+    expect(groups).toContain("Enrolment");
+    // The placeholder is above every group rather than inside the first one, where it would be announced
+    // as one of that section's fields.
+    expect(chooser.indexOf("Choose a case field")).toBeLessThan(chooser.indexOf("<optgroup"));
+  });
+
+  /**
+   * The enhancement's half of the page, which is markup and metadata and no behaviour: the browser swapping
+   * a control in is driven in `deed-polls.spec.ts`, because a DOM is the only place it can be. What a
+   * template test can hold is that everything the script reads is on the page and that none of it is a
+   * second copy of a domain rule.
+   */
+  describe("the value control's enhancement", () => {
+    /** The metadata block as the browser parses it. */
+    const metadataFrom = (markup: string): Record<string, any> => {
+      const opening = '<script type="application/json" id="query-builder-metadata">';
+      const start = markup.indexOf(opening) + opening.length;
+
+      return JSON.parse(markup.slice(start, markup.indexOf("</script>", start)));
+    };
+
+    it("carries the field, operator and control metadata once, as JSON the browser can parse", async () => {
+      const markup = await render();
+      const metadata = metadataFrom(markup);
+
+      expect(metadata.fields.type).toEqual({ kind: "enum", options: expect.arrayContaining([{ value: "Adult", text: "Adult" }]) });
+      expect(metadata.operators.between).toEqual({ label: "is between", arity: 2 });
+      expect(metadata.kinds.date.operators).toContain("before");
+      expect(metadata.kinds.date.controls["1"]).toBe("date");
+      // The words the swapped-in controls read, which have no macro to default them.
+      expect(metadata.labels.chooseValue).toBe("Choose a value");
+      expect(metadata.labels.announceValue).toContain("{n}");
+      // Once, so the page is not carrying the same table per row.
+      expect([...markup.matchAll(/id="query-builder-metadata"/g)]).toHaveLength(1);
+    });
+
+    it("gives each row the names the script needs, rather than leaving it to compose them", async () => {
+      const markup = await render({ where: "dateReceived:between:2026-03-01,2026-04-01" });
+
+      expect(markup).toContain('data-query-row="0"');
+      expect(markup).toContain('data-condition-number="1"');
+      expect(markup).toContain('data-value-name="value-0-0"');
+      expect(markup).toContain('data-upper-value-name="value-0-1"');
+    });
+
+    it("marks the two choosers and the column the control is swapped into", async () => {
+      const markup = await render();
+
+      expect(markup).toMatch(/<select[^>]*id="field-0"[^>]*data-query-field/);
+      expect(markup).toMatch(/<select[^>]*id="op-0"[^>]*data-query-operator/);
+      expect(markup).toContain('<div class="govuk-grid-column-one-quarter" data-query-values>');
+    });
+
+    it("gives the builder one polite live region, empty until something changes", async () => {
+      const markup = await render();
+
+      expect(markup).toContain('<div class="govuk-visually-hidden" aria-live="polite" data-query-announcer></div>');
+      // Polite and not assertive: a control appearing is not worth interrupting a caseworker mid-sentence.
+      expect(markup).not.toContain('aria-live="assertive"');
+    });
+
+    it("still asks for the value with a plain control, so the page works with the script blocked", async () => {
+      const markup = await render({ where: "type:is:" });
+
+      // The metadata is a data block, not a script: nothing on this page executes to make the builder work.
+      expect(markup).toMatch(/<select[^>]*name="value-0-0"/);
+      expect(markup).toMatch(/<button[^>]*type="submit"[^>]*name="apply"/);
+    });
+  });
+
+  it("keeps the chosen field selected inside its group, so the round trip comes back showing it", async () => {
+    const markup = await render({ where: "newSurname:is:Lovelace" });
+
+    expect(markup).toMatch(/<optgroup label="Application: Names">[\s\S]*?<option value="newSurname" selected>New surname<\/option>/);
+  });
+
+  describe("the filter bar", () => {
+    /** The nav on its own, so an assertion about what the bar carries cannot be satisfied by the rest of the page. */
+    const filterNav = (markup: string): string => markup.match(/<nav class="app-filter-nav"[\s\S]*?<\/nav>/)?.[0] ?? "";
+
+    it("renders the tabs as a list, because a set of sibling destinations is one", async () => {
+      const nav = filterNav(await render());
+
+      expect(nav).toContain('<ul class="app-filter-nav__list">');
+      expect([...nav.matchAll(/<li class="app-filter-nav__item">/g)]).toHaveLength(5);
+    });
+
+    it("marks the current tab with aria-current=page rather than a strong, since you-are-here is not importance", async () => {
+      const nav = filterNav(await render({ filter: "enroled" }));
+
+      expect(nav).toContain('<span class="app-filter-nav__current" aria-current="page">Enroled</span>');
+      expect(nav).not.toContain("<strong");
+      expect(nav).not.toContain('aria-current="true"');
+      // One current entry, so the other four are still links to somewhere.
+      expect([...nav.matchAll(/aria-current=/g)]).toHaveLength(1);
+    });
+
+    it("does not fade the tabs a caseworker has already used, which would read as progress through them", async () => {
+      const nav = filterNav(await render());
+
+      expect([...nav.matchAll(/class="govuk-link govuk-link--no-visited-state"/g)]).toHaveLength(4);
+    });
+
+    it("leaves the spacing to the component, so the markup carries no override utilities", async () => {
+      const nav = filterNav(await render());
+
+      expect(nav).not.toContain("govuk-!-");
+    });
+
+    it("labels the group, ready for plan 11's saved queries to sit in a second one", async () => {
+      const nav = filterNav(await render());
+
+      expect(nav).toMatch(/<div class="app-filter-nav__group">\s*<h2 class="app-filter-nav__group-label">Status<\/h2>/);
+      expect(nav).toContain('aria-label="Filter by status"');
+    });
+
+    /**
+     * The stylesheet and not the markup, because "distinguishable by something other than weight" is a rule
+     * about how the current entry is drawn — and the only other place that claim could live is a screenshot.
+     */
+    it("distinguishes the current tab with a border, not by boldness alone", async () => {
+      const partial = await readFile(path.join(fileURLToPath(import.meta.url), "../../../assets/css/components/_filter-nav.scss"), "utf8");
+      const currentRule = partial.match(/\.app-filter-nav__current \{[^}]*\}/)?.[0] ?? "";
+
+      expect(currentRule).toMatch(/border-bottom: \d+px solid/);
+    });
   });
 
   describe("the order and the page", () => {

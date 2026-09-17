@@ -1,7 +1,17 @@
 import cookieManager from "@hmcts/cookie-manager";
 import { initAll } from "govuk-frontend";
+import { initQueryBuilder } from "./query-builder.js";
 
 initAll();
+
+// Loaded through this bundle rather than a `<script>` of its own, because `createAssetHelpers` names a
+// nunjucks global after the entry file and `query-builder_js` is not an identifier a template can read.
+// `vite.build.ts` makes every `src/assets/js/*.ts` an entry, so it is also emitted as a chunk of its own —
+// this import is what pulls that chunk in, not a second copy of it, and nothing else loads it.
+//
+// After `initAll`, because the controls it swaps in are built to match components that have already
+// initialised. A no-op on every page but the case list.
+initQueryBuilder();
 
 const config = {
   userPreferences: {
