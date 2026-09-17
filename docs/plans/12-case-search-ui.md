@@ -368,10 +368,25 @@ plan's. So this task is now mostly `q`, plus a verification.
 schemas already registered, so the existing per-schema property test (`contract.test.ts:85-87`) is what proves
 the adapter and api agree.
 
-- [ ] Both response properties confirmed present and nullish (not re-added); both stale "nothing reads this
+- [x] Both response properties confirmed present and nullish (not re-added); both stale "nothing reads this
       yet" comments updated now that plan 12 reads them; `q` on `CaseListQuery` and set in `listCases` beside
       `filter`, omitted when undefined; `@hmcts/deed-poll-api-client` suite green; no strictness-list edit
       needed and confirmed so
+
+**Done 2026-09-17.** `caseSummarySchema.newSurname` (`wire.ts:263`) and `caseListSchema.referenceMatch`
+(`wire.ts:285`) were both already `z.string().nullish()` and were left as they are; only their comments
+changed, each now describing the property instead of promising plan 12 as a future consumer. The code change
+is `q?: string` on `CaseListQuery` with `if (query.q !== undefined) parameters.set("q", query.q)` beside
+`filter` in `listCases` — a set-once scalar, not appended like `where`.
+
+`STRICT_RESPONSE_PROPERTIES` was not edited and `contract.test.ts` stayed green, so point 3 is confirmed by
+the suite rather than assumed. `client.test.ts` gains one test that records the request URL off its own
+`http` server — the mock cannot answer a `q` until task 2, and what is worth pinning at this layer is the URL:
+`{filter: "open", q: "Smith"}` produces `?filter=open&q=Smith` and `{filter: "open"}` produces `?filter=open`
+with no empty `q=`. Measured after the change: api-client **222** (was 221), full suite **1,895** across 8 of
+8 tasks with 0 failures (redis 7, cnp 140, simple-router 41, session-postgres 23, api-client 222, deed-poll
+740, govuk-starter 127, app 595). `yarn lint` exit 0 with the documented 2 warnings and 2 infos; `yarn build`
+green in 14.6s from the `/tmp` copy.
 
 ### Task 2: The in-memory mock
 
