@@ -384,8 +384,33 @@ the regression guard for the whole plan; without it the fault can return silentl
 running e2e — readiness stays 503 until the mock answers, and the resulting failure reads as a test-isolation
 problem rather than a missing dependency.
 
-- [ ] e2e journey covering field → comparison → value control with no error → value → apply → correct rows;
+- [x] e2e journey covering field → comparison → value control with no error → value → apply → correct rows;
       an axe check on the builder with a value control revealed by JS; `yarn test:e2e --workers=1` green
+
+      The journey is **two** journeys, because the sequence that was broken has two floors and the plan
+      requires both: the scripts-off one added in task 4 is the regression guard for the fault as traced
+      (field, apply, comparison, apply, value control with a hint and no error summary, a reloaded 200, the
+      unused-condition statement, then the value and the two rows it matches), and the scripts-on one is the
+      same sequence with no submit until the end. Extended here rather than added to, per
+      `.claude/rules/e2e-testing.md` — one test per journey, with the accessibility checks inline.
+
+      Two things were missing and are now there. The scripts-on journey **seeds cases and ends on rows**
+      (`1 to 2 of 2 applications`, two `tbody` rows, no `govuk-inset-text`) instead of stopping at the
+      canonical URL: a journey that asserts only the query string still passes when the query it built
+      matches nothing, which is most of what "correct rows" is guarding. And it carries **two axe checks on
+      markup the script built**, which is the point of having them here as well as in the round-trip journey
+      — a control assembled in the browser has no template to carry its label, its `aria-describedby` or its
+      fieldset legend, so a JS-built control is exactly where an accessible name goes missing. The first is
+      on the revealed single value control with its hint and live-region announcement; the second is on the
+      two `govukDateInput` fieldsets of a `between`, the most structured thing the script builds. Both clean.
+      `seedCasesToFilter` now serves both journeys, each with a forename of its own so the four cases never
+      meet.
+
+      Validation after the task: `yarn lint` exit 0 with the two pre-existing warnings, `yarn turbo test
+      test:app --concurrency=1` 8 of 8 with 1702 tests (0 skipped, Redis up) and no worker failures, `yarn
+      build` green, and `yarn test:e2e --workers=1` **26 passed in 1.5m**. Both servers were pre-warmed
+      before the browser started and `readiness` confirmed `{"redis":"UP","deedPollApi":"UP"}` — a 503 there
+      reads as test isolation rather than a missing dependency, which is the trap the task text names.
 
 ### Task 7: Full validation
 

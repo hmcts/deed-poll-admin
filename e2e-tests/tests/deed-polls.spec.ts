@@ -443,8 +443,22 @@ test("caseworker filters the case list on two fields, sorts it and pages through
  * hint stays true to the control now on screen, and **focus is not moved onto what appeared** — a select
  * fires `change` as the arrow keys walk it, so stealing focus would throw a keyboard user out of a list they
  * are still reading.
+ *
+ * **The axe checks run on markup the script built, not on markup the server rendered.** That is the point of
+ * having them here as well as in the journey above: a control assembled in the browser has no template to
+ * carry its label, its `aria-describedby` or its fieldset legend, so a JS-built control is exactly where the
+ * accessible name goes missing. Checked twice — once on the single value control, and once on the two
+ * `govukDateInput` fieldsets of a `between`, which is the most structured thing the script builds.
+ *
+ * It finishes on rows rather than on the URL, because that is the regression guard the plan asks for: the
+ * fault this plan fixes was reaching a value control at all, and a journey that stops at the query string
+ * would still pass if the query it built matched nothing.
  */
-test("caseworker builds a condition without a round trip, and is told when the value control appears", async ({ page }) => {
+test("caseworker builds a condition without a round trip, and is told when the value control appears", async ({ page, request }) => {
+  // Arrange: two cases sharing a forename, so the condition this journey builds by hand has rows to find.
+  const forename = seedForename();
+  await seedCasesToFilter(request, forename);
+
   await page.goto("/deed-polls");
 
   const field = page.getByLabel("Case field for condition 1", { exact: true });
@@ -465,6 +479,7 @@ test("caseworker builds a condition without a round trip, and is told when the v
   await expect(page.getByText("Enter a value to use this condition")).toBeVisible();
   await expect(announcer).toHaveText("Condition 1 now asks for a value.");
   await expect(value).not.toBeFocused();
+  await expectNoAccessibilityViolations(page);
 
   // A comparison that takes no value takes the control away with it, and the hint asking for one with that:
   // a row that needs no value must not be left being asked for one.
@@ -484,18 +499,24 @@ test("caseworker builds a condition without a round trip, and is told when the v
   await expect(page.getByRole("group", { name: "Lower value for condition 1" }).getByLabel("Day")).toBeVisible();
   await expect(page.getByRole("group", { name: "Upper value for condition 1" }).getByLabel("Year")).toBeVisible();
   await expect(announcer).toHaveText("Condition 1 now asks for two values.");
+  await expectNoAccessibilityViolations(page);
 
   // A comparison of the same shape keeps a value already typed: `contains` and `is` both ask a text field
   // for one string, and rebuilding the box would empty it under the caseworker.
   await field.selectOption("newForename");
   await operator.selectOption("contains");
-  await page.getByLabel("Value for condition 1", { exact: true }).fill("Ada");
+  await page.getByLabel("Value for condition 1", { exact: true }).fill(forename);
   await operator.selectOption("is");
-  await expect(page.getByLabel("Value for condition 1", { exact: true })).toHaveValue("Ada");
+  await expect(page.getByLabel("Value for condition 1", { exact: true })).toHaveValue(forename);
 
-  // One submit for the whole condition, and it lands on the same canonical URL three submits would have.
+  // One submit for the whole condition, and it lands on the same canonical URL three submits would have —
+  // holding the rows the finished condition matches, and no statement about a condition left out, because
+  // nothing was left out.
   await page.getByRole("button", { name: "Apply filters" }).click();
-  await expect(page).toHaveURL("/deed-polls?where=newForename%3Ais%3AAda");
+  await expect(page).toHaveURL(`/deed-polls?where=newForename%3Ais%3A${forename}`);
+  await expect(page.getByText("1 to 2 of 2 applications")).toBeVisible();
+  await expect(page.locator("tbody tr")).toHaveCount(2);
+  await expect(page.locator(".govuk-inset-text")).toHaveCount(0);
 });
 
 /**
@@ -683,7 +704,9 @@ async function seedCasesToQuery(request: APIRequestContext, newForename: string)
 }
 
 /**
- * Two cases sharing one forename, for a journey that has to filter and nothing else.
+ * Two cases sharing one forename, for the two builder journeys, which have to filter and nothing else — the
+ * paging and the ordering are `seedCasesToQuery`'s. Each journey calls this with a forename of its own, so
+ * the four cases never meet.
  *
  * Received in April so they cannot collide with either `DATE_RECEIVED` or `seedCasesToQuery`'s January and
  * February, and given a display reference each because the Reference cell is a link and one with no text is
