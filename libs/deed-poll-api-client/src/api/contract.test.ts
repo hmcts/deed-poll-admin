@@ -51,7 +51,14 @@ const IMPLEMENTED_OPERATIONS = [
   "DELETE /caseworker/cases/{id}/witnesses/{witnessId}",
   "POST /caseworker/cases/{id}/documents",
   "GET /caseworker/cases/{id}/documents/{documentId}/file",
-  "GET /caseworker/document-types"
+  "GET /caseworker/document-types",
+  "GET /caseworker/saved-queries",
+  "POST /caseworker/saved-queries",
+  "GET /caseworker/saved-queries/{id}",
+  "PATCH /caseworker/saved-queries/{id}",
+  "DELETE /caseworker/saved-queries/{id}",
+  "PUT /caseworker/saved-queries/{id}/selection",
+  "DELETE /caseworker/saved-queries/{id}/selection"
 ];
 
 describe("openapi.json and the wire schemas", () => {
@@ -120,7 +127,16 @@ describe("openapi.json and the wire schemas", () => {
   it("should pin strictness for every response schema", () => {
     // A schema added to the registry with no strictness decision would otherwise inherit whatever its
     // author happened to write, which is the drift this list exists to stop.
-    const requests = ["CreateCaseRequest", "UpdateCaseRequest", "CreateNoteRequest", "UpdateNoteRequest", "CreateWitnessRequest", "UpdateWitnessRequest"];
+    const requests = [
+      "CreateCaseRequest",
+      "UpdateCaseRequest",
+      "CreateNoteRequest",
+      "UpdateNoteRequest",
+      "CreateWitnessRequest",
+      "UpdateWitnessRequest",
+      "CreateSavedQueryRequest",
+      "UpdateSavedQueryRequest"
+    ];
     const responses = Object.keys(WIRE_SCHEMAS).filter((name) => !requests.includes(name));
 
     expect(responses.sort()).toEqual(Object.keys(STRICT_RESPONSE_PROPERTIES).sort());

@@ -1,17 +1,29 @@
-import { findDeedPolls, InvalidInputError } from "@hmcts/deed-poll";
+import { findDeedPolls, findSavedQueries, InvalidInputError } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET } from "./index.js";
 
-// The filters and the row formatting are the domain's, and tested there. Only the api call is
-// replaced, so this exercises the page against the real filter and view-model logic.
+// The filters and the row formatting are the domain's, and tested there. Only the api calls are
+// replaced, so this exercises the page against the real filter, nav and view-model logic.
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
-  findDeedPolls: vi.fn()
+  findDeedPolls: vi.fn(),
+  findSavedQueries: vi.fn()
 }));
 
 /** api's list envelope: the rows plus the counts every page of it carries. */
 const page = (cases: unknown[]) => ({ filter: "all", cases, page: 1, size: 25, total: cases.length, totalPages: cases.length === 0 ? 0 : 1 });
+
+/**
+ * The keys of every nav entry the render marked current.
+ *
+ * A list rather than a single value, because "exactly one entry is current" is half of what the assertion
+ * is for: a bar with two current entries tells a screen-reader user they are in two places.
+ */
+const currentEntries = (res: ReturnType<typeof pageResponse>): string[] =>
+  res.render.mock.calls[0][1].filterGroups.flatMap((group: { entries: { key: string; current: boolean }[] }) =>
+    group.entries.filter((entry) => entry.current).map((entry) => entry.key)
+  );
 
 const record = {
   id: "case-1",
@@ -23,10 +35,29 @@ const record = {
   newForename: "Ada"
 };
 
+/**
+ * One of api's saved queries, with only the properties the nav reads spelled out.
+ *
+ * `selected` defaults to true because the nav is the selection: a test that wants an unselected one says
+ * so, and every other test in here is about a query that is in the caseworker's list.
+ */
+const savedQuery = (fields: Record<string, unknown>) => ({
+  description: null,
+  searchTerm: null,
+  sortField: null,
+  sortDirection: null,
+  shared: false,
+  selected: true,
+  editable: true,
+  ownerName: "A Caseworker",
+  ...fields
+});
+
 describe("deed-polls list page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(findDeedPolls).mockResolvedValue(page([]) as never);
+    vi.mocked(findSavedQueries).mockResolvedValue([] as never);
   });
 
   it("renders its own template, qualified by directory so it cannot be shadowed by pages/index.njk", async () => {
@@ -61,7 +92,7 @@ describe("deed-polls list page", () => {
     await GET(pageRequest({ query: { filter: "nonsense" } }), res);
 
     expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", conditions: [] }, expect.anything());
-    expect(res.render).toHaveBeenCalledWith("deed-polls/index", expect.objectContaining({ activeFilter: "all" }));
+    expect(currentEntries(res)).toEqual(["all"]);
   });
 
   it("presents the caseworker's own token, so api authenticates and audits as them", async () => {
@@ -70,12 +101,32 @@ describe("deed-polls list page", () => {
     expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", conditions: [] }, { accessToken: "caseworker-token" });
   });
 
-  it("marks the active filter so the tab bar can show which is current", async () => {
+  it("decides which entry is current in the handler, since a saved query's identity is not its label", async () => {
     const res = pageResponse();
 
     await GET(pageRequest({ query: { filter: "open" } }), res);
 
-    expect(res.render).toHaveBeenCalledWith("deed-polls/index", expect.objectContaining({ activeFilter: "open" }));
+    // One current entry, and the tab bar is told which rather than comparing keys in the template.
+    expect(currentEntries(res)).toEqual(["open"]);
+  });
+
+  it("carries the filter into the builder's hidden control separately from the nav's current entry", async () => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ query: { filter: "open" } }), res);
+
+    expect(res.render).toHaveBeenCalledWith("deed-polls/index", expect.objectContaining({ filterValue: "open" }));
+  });
+
+  it("groups the nav's entries under a label, so a second group costs no template change", async () => {
+    const res = pageResponse();
+
+    await GET(pageRequest(), res);
+
+    const groups = res.render.mock.calls[0][1].filterGroups;
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe("Status");
+    expect(groups[0].entries).toHaveLength(5);
   });
 
   it("passes the filter tabs without their where clauses", async () => {
@@ -84,8 +135,8 @@ describe("deed-polls list page", () => {
     await GET(pageRequest(), res);
 
     const model = res.render.mock.calls[0][1];
-    for (const tab of model.filters) {
-      expect(Object.keys(tab)).toEqual(["key", "label", "href"]);
+    for (const entry of model.filterGroups[0].entries) {
+      expect(Object.keys(entry)).toEqual(["key", "label", "href", "current"]);
     }
   });
 
@@ -104,6 +155,99 @@ describe("deed-polls list page", () => {
     await GET(pageRequest(), res);
 
     expect(res.render).toHaveBeenCalledWith("deed-polls/index", expect.objectContaining({ cases: [] }));
+  });
+
+  describe("the saved-query group", () => {
+    /** The nav's second group, or undefined when the bar holds only the statuses. */
+    const savedGroup = (res: ReturnType<typeof pageResponse>) => res.render.mock.calls[0][1].filterGroups[1];
+
+    it("appends the caseworker's selected queries as a second labelled group", async () => {
+      vi.mocked(findSavedQueries).mockResolvedValue([
+        savedQuery({ id: "q-1", name: "Adult, this month", filter: "open", conditions: ["type:is:Adult"] })
+      ] as never);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].filterGroups).toHaveLength(2);
+      expect(savedGroup(res).label).toBe("Saved queries");
+      // Keyed on the id, not the name: two queries may be called the same thing.
+      expect(savedGroup(res).entries).toEqual([
+        { key: "q-1", label: "Adult, this month", href: "/deed-polls?filter=open&where=type%3Ais%3AAdult", current: false }
+      ]);
+    });
+
+    it("reads the selection from the one call that answers both screens, with the caseworker's own token", async () => {
+      await GET(pageRequest({ accessToken: "caseworker-token" }), pageResponse());
+
+      expect(findSavedQueries).toHaveBeenCalledTimes(1);
+      expect(findSavedQueries).toHaveBeenCalledWith({ accessToken: "caseworker-token" });
+    });
+
+    it("leaves out a query the caseworker has not selected, because the group is their own list", async () => {
+      vi.mocked(findSavedQueries).mockResolvedValue([
+        savedQuery({ id: "q-1", name: "Mine", filter: "open", conditions: [] }),
+        savedQuery({ id: "q-2", name: "Somebody else's", filter: "returned", conditions: [], shared: true, selected: false })
+      ] as never);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(savedGroup(res).entries.map((entry: { key: string }) => entry.key)).toEqual(["q-1"]);
+    });
+
+    it("marks the saved query current when the request is the query it describes", async () => {
+      vi.mocked(findSavedQueries).mockResolvedValue([
+        savedQuery({ id: "q-1", name: "Adult, open", filter: "open", conditions: ["type:is:Adult"] }),
+        savedQuery({ id: "q-2", name: "Everything", filter: "all", conditions: [] })
+      ] as never);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "open", where: "type:is:Adult" } }), res);
+
+      expect(
+        savedGroup(res)
+          .entries.filter((entry: { current: boolean }) => entry.current)
+          .map((entry: { key: string }) => entry.key)
+      ).toEqual(["q-1"]);
+    });
+
+    it("renders no second group when the caseworker has selected nothing, rather than a heading over nothing", async () => {
+      vi.mocked(findSavedQueries).mockResolvedValue([savedQuery({ id: "q-2", name: "Not mine", filter: "all", conditions: [], selected: false })] as never);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].filterGroups).toHaveLength(1);
+    });
+
+    it("still renders the cases when the saved queries cannot be read, since the nav is not the page's job", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(findDeedPolls).mockResolvedValue(page([record]) as never);
+      vi.mocked(findSavedQueries).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.cases).toHaveLength(1);
+      expect(model.filterGroups).toHaveLength(1);
+      expect(res.status).not.toHaveBeenCalled();
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("saved queries unavailable"));
+    });
+
+    it("degrades the same way when api also refuses the query, so neither failure hides the other", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(findDeedPolls).mockRejectedValue(new InvalidInputError("refused", [{ field: "where", message: "Unknown field" }]));
+      vi.mocked(findSavedQueries).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: "nonsense:is:1" } }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].filterGroups).toHaveLength(1);
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("saved queries unavailable"));
+    });
   });
 
   describe("the query", () => {
@@ -147,7 +291,7 @@ describe("deed-polls list page", () => {
       await GET(pageRequest({ query: { filter: "open", where: "type:is:Adult" } }), res);
 
       const model = res.render.mock.calls[0][1];
-      expect(model.filters.map((tab: { href: string }) => tab.href)).toEqual([
+      expect(model.filterGroups[0].entries.map((tab: { href: string }) => tab.href)).toEqual([
         "/deed-polls?where=type%3Ais%3AAdult",
         "/deed-polls?filter=open&where=type%3Ais%3AAdult",
         "/deed-polls?filter=received&where=type%3Ais%3AAdult",
@@ -162,6 +306,30 @@ describe("deed-polls list page", () => {
       await GET(pageRequest({ query: { filter: "open", where: "type:is:Adult" } }), res);
 
       expect(res.render.mock.calls[0][1].clearHref).toBe("/deed-polls?filter=open");
+    });
+
+    it("offers to save the query as the URL states it, so the save page needs no hidden inputs", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "open", where: "type:is:Adult", sort: "dateReceived:desc" } }), res);
+
+      expect(res.render.mock.calls[0][1].saveQueryHref).toBe("/deed-polls/queries/new?filter=open&where=type%3Ais%3AAdult&sort=dateReceived%3Adesc");
+    });
+
+    it("offers to save an unfiltered list, which is a view somebody wants a tab for too", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].saveQueryHref).toBe("/deed-polls/queries/new");
+    });
+
+    it("offers the library, which is not query-specific and so carries nothing", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "open" } }), res);
+
+      expect(res.render.mock.calls[0][1].libraryHref).toBe("/deed-polls/queries");
     });
 
     it("renders one empty row for a list with no query, since an empty row is the invitation to filter", async () => {
@@ -323,7 +491,7 @@ describe("deed-polls list page", () => {
 
       await GET(pageRequest({ query: { filter: "open", sort: "state:desc", page: "3" } }), res);
 
-      expect(res.render.mock.calls[0][1].filters[2].href).toBe("/deed-polls?filter=received&sort=state%3Adesc");
+      expect(res.render.mock.calls[0][1].filterGroups[0].entries[2].href).toBe("/deed-polls?filter=received&sort=state%3Adesc");
     });
 
     it("states the range and the total from api's counts rather than from the rows on screen", async () => {

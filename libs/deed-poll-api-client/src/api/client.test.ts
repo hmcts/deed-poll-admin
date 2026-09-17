@@ -14,20 +14,27 @@ import {
   checkApiReachable,
   createCase,
   createNote,
+  createSavedQuery,
   createWitness,
   deleteNote,
+  deleteSavedQuery,
   deleteWitness,
+  deselectSavedQuery,
   downloadDocument,
   getCase,
   getFieldRules,
   getNote,
+  getSavedQuery,
   getWitness,
   listCases,
   listDocumentTypes,
   listNotes,
+  listSavedQueries,
   listWitnesses,
   patchCase,
   patchNote,
+  patchSavedQuery,
+  selectSavedQuery,
   updateWitness,
   uploadDocument
 } from "./client.js";
@@ -557,6 +564,114 @@ describe("documents", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.map((type) => type.name)).toContain("Birth certificate");
+  });
+});
+
+describe("saved queries", () => {
+  const A_QUERY = { name: "Enroled this month", conditions: ["state:is:Enroled"], filter: "enroled", sortDirection: "desc" } as const;
+
+  it("should create, list, read back and patch a saved query", async () => {
+    const created = await createSavedQuery({ ...A_QUERY, description: "For the monthly count" }, config);
+    if (!created.ok) throw new Error("saved query was not created");
+    expect(created.data).toMatchObject({ name: "Enroled this month", conditions: ["state:is:Enroled"], filter: "enroled" });
+
+    const listed = await listSavedQueries(config);
+    expect(listed.ok && listed.data.map((query) => query.name)).toEqual(["Enroled this month"]);
+
+    const read = await getSavedQuery(created.data.id, config);
+    expect(read.ok && read.data.description).toBe("For the monthly count");
+
+    const patched = await patchSavedQuery(created.data.id, { name: "Enroled recently" }, config);
+    expect(patched.ok && patched.data.name).toBe("Enroled recently");
+    // The patch named one field, so the rest is left as stored rather than cleared.
+    expect(patched.ok && patched.data.conditions).toEqual(["state:is:Enroled"]);
+  });
+
+  it("should clear a column on an explicit null, which is what distinguishes this patch from a note's", async () => {
+    const created = await createSavedQuery({ name: "With a description", description: "To be cleared" }, config);
+    if (!created.ok) throw new Error("saved query was not created");
+
+    const patched = await patchSavedQuery(created.data.id, { description: null }, config);
+
+    expect(patched.ok && patched.data.description).toBe(null);
+  });
+
+  it("should return an unnarrowed query's conditions as an empty array rather than null", async () => {
+    // "Everything, newest first" is a view somebody wants a tab for, and a page that maps over `conditions`
+    // must not have to guard for null.
+    const created = await createSavedQuery({ name: "Everything" }, config);
+
+    expect(created.ok && created.data.conditions).toEqual([]);
+  });
+
+  it("should refuse a name over api's hundred characters", async () => {
+    const result = await createSavedQuery({ name: "x".repeat(101) }, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("validation");
+  });
+
+  it("should select and deselect a query, reporting the flag api derives", async () => {
+    const created = await createSavedQuery(A_QUERY, config);
+    if (!created.ok) throw new Error("saved query was not created");
+    // Not selected by its creation: a page that wants it in the caller's list says so.
+    expect(created.data.selected).toBe(false);
+
+    expect(await selectSavedQuery(created.data.id, config)).toEqual({ ok: true, data: undefined });
+    const afterSelect = await getSavedQuery(created.data.id, config);
+    expect(afterSelect.ok && afterSelect.data.selected).toBe(true);
+
+    expect(await deselectSavedQuery(created.data.id, config)).toEqual({ ok: true, data: undefined });
+    const afterDeselect = await getSavedQuery(created.data.id, config);
+    expect(afterDeselect.ok && afterDeselect.data.selected).toBe(false);
+  });
+
+  it("should select idempotently, so a retried request is never told it has a duplicate", async () => {
+    const created = await createSavedQuery(A_QUERY, config);
+    if (!created.ok) throw new Error("saved query was not created");
+
+    await selectSavedQuery(created.data.id, config);
+    const again = await selectSavedQuery(created.data.id, config);
+
+    expect(again).toEqual({ ok: true, data: undefined });
+  });
+
+  it("should deselect a query it cannot see, so a stale selection is always clearable", async () => {
+    // api's deliberate asymmetry with the `PUT`: the selection row is keyed by the caller, so requiring
+    // visibility would trap a subscriber holding a selection for a query its owner has since unshared.
+    const result = await deselectSavedQuery("00000000-0000-0000-0000-000000000000", config);
+
+    expect(result).toEqual({ ok: true, data: undefined });
+  });
+
+  it("should report not-found when selecting a query that is not there, so no id is discoverable", async () => {
+    const result = await selectSavedQuery("00000000-0000-0000-0000-000000000000", config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("not-found");
+  });
+
+  it("should delete a query and report it gone afterwards", async () => {
+    const created = await createSavedQuery(A_QUERY, config);
+    if (!created.ok) throw new Error("saved query was not created");
+
+    const deleted = await deleteSavedQuery(created.data.id, config);
+
+    expect(deleted).toEqual({ ok: true, data: undefined });
+    const listed = await listSavedQueries(config);
+    expect(listed.ok && listed.data).toEqual([]);
+    const read = await getSavedQuery(created.data.id, config);
+    expect(read.ok).toBe(false);
+  });
+
+  it("should report not-found when reading a query that is not there", async () => {
+    const result = await getSavedQuery("00000000-0000-0000-0000-000000000000", config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("not-found");
   });
 });
 

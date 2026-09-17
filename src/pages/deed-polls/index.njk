@@ -20,26 +20,33 @@
 
   {#
     The filter bar, as `app-filter-nav` in the global stylesheet — decisions 7, 8 and 9. A list because it
-    is one, a labelled group because plan 11 adds a second one of saved queries beside it, and
-    `aria-current="page"` rather than a `<strong>` because "you are here" is not strong importance and must
-    not be carried by boldness alone. Spacing is the component's, so no `govuk-!-margin-*` here.
+    is one, a labelled group per group of destinations, and `aria-current="page"` rather than a `<strong>`
+    because "you are here" is not strong importance and must not be carried by boldness alone. Spacing is
+    the component's, so no `govuk-!-margin-*` here.
+
+    Every group renders identically, and `current` arrives already decided — plan 11's decision 4. The
+    template used to compare each entry's key with the active filter, which only held while every entry was
+    a status: a saved query is current when the request's whole query matches it, which is not a comparison
+    a template can make.
   #}
   <nav class="app-filter-nav" aria-label="{{ filterLabel }}">
-    <div class="app-filter-nav__group">
-      <h2 class="app-filter-nav__group-label">{{ filterGroupLabel }}</h2>
-      <ul class="app-filter-nav__list">
-        {% for f in filters %}
-          <li class="app-filter-nav__item">
-            {% if f.key == activeFilter %}
-              <span class="app-filter-nav__current" aria-current="page">{{ f.label }}</span>
-            {% else %}
-              {# The tab carries the query, so switching tab narrows the same conditions within another view. #}
-              <a class="govuk-link govuk-link--no-visited-state" href="{{ f.href }}">{{ f.label }}</a>
-            {% endif %}
-          </li>
-        {% endfor %}
-      </ul>
-    </div>
+    {% for group in filterGroups %}
+      <div class="app-filter-nav__group">
+        <h2 class="app-filter-nav__group-label">{{ group.label }}</h2>
+        <ul class="app-filter-nav__list">
+          {% for entry in group.entries %}
+            <li class="app-filter-nav__item">
+              {% if entry.current %}
+                <span class="app-filter-nav__current" aria-current="page">{{ entry.label }}</span>
+              {% else %}
+                {# The tab carries the query, so switching tab narrows the same conditions within another view. #}
+                <a class="govuk-link govuk-link--no-visited-state" href="{{ entry.href }}">{{ entry.label }}</a>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endfor %}
   </nav>
 
   {#
@@ -48,7 +55,7 @@
     submits, which is what makes the builder work with JavaScript disabled.
   #}
   <form method="get" action="/deed-polls" class="govuk-!-margin-bottom-6" novalidate>
-    <input type="hidden" name="filter" value="{{ activeFilter }}">
+    <input type="hidden" name="filter" value="{{ filterValue }}">
     {# The order survives applying a query; the page number deliberately does not, so a query starts at its first page. #}
     {% if sortValue %}<input type="hidden" name="sort" value="{{ sortValue }}">{% endif %}
 
@@ -215,6 +222,19 @@
       {% endif %}
     </div>
   </form>
+
+  {#
+    Out of the list and into the saved-query pages — decision 9: saving is a page of its own, so these are
+    links and not two more submits in the form above. "Save this query" carries the query as the URL states
+    it, which means it saves the filters that produced the rows on screen rather than an edit left unapplied
+    in the builder.
+  #}
+  <p class="govuk-body">
+    <a class="govuk-link govuk-link--no-visited-state" href="{{ saveQueryHref }}">{{ saveQuery }}</a>
+  </p>
+  <p class="govuk-body">
+    <a class="govuk-link govuk-link--no-visited-state" href="{{ libraryHref }}">{{ savedQueryLibrary }}</a>
+  </p>
 
   {#
     The builder's metadata, once per page and not per keystroke — decision 4. A data block rather than a
