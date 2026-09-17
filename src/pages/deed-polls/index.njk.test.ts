@@ -211,6 +211,16 @@ describe("deed-polls list template", () => {
     expect(markup).not.toContain("was not used");
   });
 
+  it("offers the saved-query pages as links outside the builder's form, since saving is a page of its own", async () => {
+    const markup = await render({ filter: "open", where: "type:is:Adult" });
+    const afterForm = markup.slice(markup.lastIndexOf("</form>"));
+
+    // Read after the last `</form>` so a link that drifted inside the GET form — where it would submit the
+    // builder rather than open the save page — fails rather than passing on a substring match.
+    expect(afterForm).toContain('href="/deed-polls/queries/new?filter=open&amp;where=type%3Ais%3AAdult"');
+    expect(afterForm).toContain('href="/deed-polls/queries"');
+  });
+
   it("shows every field the chooser offers, and not the ones api computes", async () => {
     const markup = await render();
 

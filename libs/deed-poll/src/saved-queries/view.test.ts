@@ -1,6 +1,6 @@
 import type { SavedQuery } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
-import { buildSavedQueryLibrary, buildSavedQueryNav, savedQueryHref, savedQueryLink } from "./view.js";
+import { buildSavedQueryLibrary, buildSavedQueryNav, savedQueryHref, savedQueryLink, savedQueryStored } from "./view.js";
 
 const LIST_PATH = "/deed-polls";
 
@@ -205,6 +205,64 @@ describe("saved-queries/view", () => {
       const queries = [savedQuery({ id: "sq-1", selected: true }), savedQuery({ id: "sq-2", selected: false })];
 
       expect(buildSavedQueryLibrary(queries, LIST_PATH)).toHaveLength(2);
+    });
+  });
+
+  describe("savedQueryStored", () => {
+    it("should store the tab, the conditions and the order as api's four columns", () => {
+      const stored = savedQueryStored({
+        filter: "received",
+        conditions: [{ field: "newSurname", operator: "contains", values: ["Smith"] }],
+        sort: "dateReceived:desc"
+      });
+
+      expect(stored).toEqual({
+        filter: "received",
+        conditions: ["newSurname:contains:Smith"],
+        sortField: "dateReceived",
+        sortDirection: "desc"
+      });
+    });
+
+    it("should round-trip a link through both directions unchanged, so the two stay inverses", () => {
+      const link = {
+        filter: "enroled",
+        conditions: [{ field: "newSurname", operator: "contains", values: ["Smith, John"] }],
+        sort: "displayReference:asc"
+      };
+
+      const stored = savedQueryStored(link);
+
+      expect(savedQueryLink(savedQuery({ ...stored, conditions: stored.conditions ?? [] }))).toEqual(link);
+    });
+
+    it("should leave a half-filled condition unstored, so the query finds what was on screen", () => {
+      // The state "Add condition" leaves a row in. It is left off the wire when the list is queried, so a
+      // saved query that carried it would find something other than what was named.
+      const stored = savedQueryStored({
+        conditions: [
+          { field: "newSurname", operator: "contains", values: ["Smith"] },
+          { field: "", operator: "", values: [] }
+        ]
+      });
+
+      expect(stored.conditions).toEqual(["newSurname:contains:Smith"]);
+    });
+
+    it("should store no order for a sort the table cannot show, rather than one nobody can see", () => {
+      const stored = savedQueryStored({ filter: "all", conditions: [], sort: "applicantEmail:asc" });
+
+      expect(stored.sortField).toBeUndefined();
+      expect(stored.sortDirection).toBeUndefined();
+    });
+
+    it("should fall back to the first filter for a key api's enum does not carry", () => {
+      // A hand-edited `?filter=nonsense` is the same everywhere else on the list: it shows everything.
+      expect(savedQueryStored({ filter: "nonsense", conditions: [] }).filter).toBe("all");
+    });
+
+    it("should store an unfiltered, unsorted list as empty conditions and no order", () => {
+      expect(savedQueryStored({})).toEqual({ filter: "all", conditions: [], sortField: undefined, sortDirection: undefined });
     });
   });
 });

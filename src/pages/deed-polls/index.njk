@@ -224,6 +224,19 @@
   </form>
 
   {#
+    Out of the list and into the saved-query pages — decision 9: saving is a page of its own, so these are
+    links and not two more submits in the form above. "Save this query" carries the query as the URL states
+    it, which means it saves the filters that produced the rows on screen rather than an edit left unapplied
+    in the builder.
+  #}
+  <p class="govuk-body">
+    <a class="govuk-link govuk-link--no-visited-state" href="{{ saveQueryHref }}">{{ saveQuery }}</a>
+  </p>
+  <p class="govuk-body">
+    <a class="govuk-link govuk-link--no-visited-state" href="{{ libraryHref }}">{{ savedQueryLibrary }}</a>
+  </p>
+
+  {#
     The builder's metadata, once per page and not per keystroke — decision 4. A data block rather than a
     script: nothing here executes, and `queryBuilderMetadata` derives every word of it from the same domain
     functions the rows above were rendered from, so the browser cannot hold a second opinion about which

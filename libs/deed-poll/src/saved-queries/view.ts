@@ -18,9 +18,9 @@
  * `editable` in particular is derived server-side from the predicate api's write paths refuse on. They
  * are carried through to the row and no more.
  */
-import type { SavedQuery } from "@hmcts/deed-poll-api-client";
+import { LIST_FILTER, type SavedQuery, type SavedQueryCreate } from "@hmcts/deed-poll-api-client";
 import { NOT_RECORDED } from "../deed-poll/case-header.js";
-import { type CaseListLink, caseListSearch, parseConditions } from "../deed-poll/case-query.js";
+import { type CaseListLink, caseListSearch, caseQueryWhere, parseConditions } from "../deed-poll/case-query.js";
 import { filterFor } from "../deed-poll/list-filters.js";
 import { parseSort, serialiseSort } from "../deed-poll/list-sort.js";
 
@@ -46,6 +46,37 @@ export function savedQueryLink(query: SavedQuery): CaseListLink {
 /** Where a saved query points. The path is the page's, because only a page knows where the list lives. */
 export function savedQueryHref(query: SavedQuery, listPath: string): string {
   return `${listPath}${caseListSearch(savedQueryLink(query))}`;
+}
+
+/**
+ * A list link as api stores it — the other direction, and beside `savedQueryLink` so the two stay
+ * inverses. `view.test.ts` round-trips a link through both, which is what would catch one of them growing
+ * a part the other drops.
+ *
+ * Two deliberate asymmetries with `savedQueryLink`:
+ *
+ *   - **Only the complete conditions are stored**, through `caseQueryWhere` rather than
+ *     `serialiseConditions`. A half-filled row is a normal state of the builder — "Add condition" produces
+ *     one — and it is left off the wire when the list is queried, so storing it would save a query that
+ *     finds something other than what was on screen when it was named, and that api may refuse when it is
+ *     applied.
+ *   - **The order is split into api's two columns**, `sortField` and `sortDirection`. `parseSort` has
+ *     already dropped an order the table cannot show, so an unusable `?sort=` is stored as no order rather
+ *     than as one that reorders the rows by a cell nobody can see.
+ *
+ * The filter is narrowed against the adapter's published vocabulary rather than cast: `filterFor` answers
+ * one of this app's five keys and api's enum is the same five, and going through the array is what fails
+ * to compile on the day it is not.
+ */
+export function savedQueryStored(link: CaseListLink): StoredQueryParts {
+  const sort = parseSort(link.sort);
+
+  return {
+    filter: LIST_FILTER.find((key) => key === filterFor(link.filter).key),
+    conditions: caseQueryWhere(link.conditions ?? []),
+    sortField: sort?.field,
+    sortDirection: sort?.direction
+  };
 }
 
 /**
@@ -128,6 +159,12 @@ function owner(name: string | null | undefined): string {
 
   return trimmed === "" ? NOT_RECORDED : trimmed;
 }
+
+/**
+ * The four columns api stores a list query in, typed off the create body so a page cannot hand it a
+ * filter or a direction api's enums do not carry. `searchTerm` is plan 12's and is not written here.
+ */
+export type StoredQueryParts = Pick<SavedQueryCreate, "filter" | "conditions" | "sortField" | "sortDirection">;
 
 /** One entry of the filter nav's saved-query group. Structurally a status tab's entry, deliberately. */
 export interface SavedQueryNavEntry {

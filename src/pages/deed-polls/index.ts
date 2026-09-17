@@ -53,6 +53,9 @@ import { callerFromRequest } from "../../auth/current-user.js";
 
 const LIST_PATH = "/deed-polls";
 
+/** Where the saved-query pages live: the library, and `new` beneath it — plan 11's decision 9. */
+const QUERIES_PATH = "/deed-polls/queries";
+
 const en = {
   title: "Deed poll cases",
   heading: "Deed poll cases",
@@ -96,6 +99,10 @@ const en = {
   removeCondition: "Remove condition",
   applyFilters: "Apply filters",
   clearFilters: "Clear filters",
+  // The way out to the saved-query pages. A link and not a control in the builder — decision 9 — and it
+  // carries the query as the URL states it, so it saves the filters that produced the rows on screen.
+  saveQuery: "Save this query",
+  savedQueryLibrary: "All saved queries",
   errorSummaryTitle: "There is a problem",
   errorPrefix: "Error:",
   // Shown for a refusal addressed to the query as a whole rather than to a condition — the 20-condition
@@ -245,6 +252,10 @@ function render(
     // serving both is how the two quietly become the same decision.
     filterValue: filter.key,
     clearHref: listHref({ filter: filter.key, conditions: [], sort }),
+    // The save page is opened with the query in its URL rather than with hidden inputs, because a list URL is
+    // the query — so this is `caseListSearch` again, under the other path.
+    saveQueryHref: `${QUERIES_PATH}/new${caseListSearch({ filter: filter.key, conditions, sort: serialiseSort(sort) })}`,
+    libraryHref: QUERIES_PATH,
     queryRows: buildQueryRows(conditions, content.queryLabels, { rowErrors, submitted }),
     // Once per page, for the enhancement that reveals a value control without a submit. The page renders it
     // whether or not a script is running: it is a data block, and the floor below it is the round trip.

@@ -46,6 +46,11 @@ export {
   DEED_POLL_STATE,
   DEED_POLL_TYPE,
   DOCUMENT_DIRECTION,
+  // The two saved-query vocabularies, for the same reason as the option sets above: the domain turns a
+  // caseworker's chosen tab and sort order into a create body, and narrowing against the published array
+  // is what fails to compile on the day api's five filters are not this app's five. Casting instead would
+  // let a divergence reach the wire as a 400.
+  LIST_FILTER,
   MARITAL_STATUS,
   MASTER_DECISION,
   NATIONALITY,
@@ -53,6 +58,7 @@ export {
   POST_COUNTER,
   PRIVACY,
   REFER_TO_MASTER,
+  SORT_DIRECTION,
   URGENCY
 } from "./wire.js";
 

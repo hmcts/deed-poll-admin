@@ -718,10 +718,73 @@ URL (`libs/simple-router/src/route-discovery.ts:44-52`), so `queries/index.ts` i
 
 Every page needs `callerFromRequest(req)` (`src/auth/current-user.ts:35`).
 
-- [ ] `queries/new.ts` saving a named query from the query it was opened with, validated, errors summarised
+- [x] `queries/new.ts` saving a named query from the query it was opened with, validated, errors summarised
       and anchored; `queries/index.ts` listing shared plus own with idempotent add/remove; edit and delete
       rendered on api's `editable` and hidden not disabled; no local policy function; colocated tests for
       each page asserting the render model
+
+#### What was built, and the three things it had to add that the task did not list
+
+Four pages' worth of files under `src/pages/deed-polls/queries/`: `new.ts` + `new.njk`, `index.ts` +
+`index.njk` (the library), and `[queryId]/edit.ts` + `edit.njk`. The amend page is the addition the task
+implies rather than names: "edit … rendered on api's `editable`" needs somewhere for the link to go, and a
+library offering a link to a 404 is not a delivered feature.
+
+**The query being saved travels in the form's `action`, not in hidden inputs.** A list URL *is* the query, so
+`new.njk` posts back to the query string it was opened with and `case-query.ts` reads it exactly as the list
+does — asserted in `new.njk.test.ts` by the *absence* of `name="where"` and `name="filter"`. Hidden inputs
+would have been a second copy of state the URL already carries, and the first place a caseworker's conditions
+get quietly re-serialised into something else.
+
+Three additions the task's bullets did not list, each because the feature is unreachable or untypeable
+without it:
+
+- **`libs/deed-poll/src/saved-queries/schemas.ts`**, which task 3 deliberately deferred to here. One schema
+  for both forms rather than a create/update pair, because both offer the same three controls and both post
+  all three every time — a `.partial()` would accept a body missing a field the form always sends, which is
+  why the witness *amend* page validates against its *create* schema. The messages are in the schema
+  (`../notes/note-form.ts`'s precedent, not `../witnesses/schemas.ts`') because a blank name and an over-long
+  name are two different things to say about one field and a page mapping one message per field can only say
+  one. `MAX_SAVED_QUERY_NAME` and `MAX_SAVED_QUERY_DESCRIPTION` are api's published bounds, and a test pins
+  that they may only ever be *lowered*.
+- **`savedQueryStored(link)` in `view.ts`**, the inverse of `savedQueryLink`, placed beside it so the two
+  cannot drift and round-tripped in the test. It stores **only the complete conditions** (`caseQueryWhere`,
+  not `serialiseConditions`): a half-filled row is what "Add condition" leaves behind, it is left off the wire
+  when the list is queried, and storing it would save a query that finds something other than what was on
+  screen when it was named. It also splits the order into api's `sortField`/`sortDirection`.
+- **`LIST_FILTER` and `SORT_DIRECTION` re-exported from `client.ts`**, beside the option-set arrays already
+  there. Task 1 recorded them as exported and they were not — only from `wire.ts`, which the package index
+  deliberately does not re-export — so a domain function could not *name* api's filter enum. Narrowing
+  through the published array rather than casting is what fails to compile on the day api's five filters are
+  not this app's five.
+
+**Two links out of the list page**, after the builder's form and outside it: "Save this query", carrying
+`caseListSearch` of the request's own query, and "All saved queries". Links rather than controls in the form,
+per decision 9, and the template test reads them from after the last `</form>` so one drifting inside the GET
+form fails rather than passing on a substring match. One consequence worth stating: the save link carries the
+query **as applied**, so a caseworker who edits the builder without applying saves what produced the rows on
+screen, which is what the save page's own first sentence says.
+
+Two judgement calls inside the pages:
+
+- **A failed *selection* does not lose a saved query.** `new.ts` creates then `PUT`s the selection, and a
+  failure of the second is logged and the redirect stands: the query exists by then, and a 500 saying the save
+  failed invites a caseworker to save it again. The library is still where they can add it by hand.
+- **The library's api failure is a 500, deliberately unlike the nav's.** Task 5 degrades to the status group
+  because there the saved queries sit beside the rows a caseworker came for. Here they *are* the page, and
+  there is nothing else to render.
+
+The write branches are ungated, as the witness delete is: with the controls hidden, reaching them takes a
+hand-crafted POST and api refuses one — a local refusal as well would put one rule's authority in two places.
+Both `editable` branches are covered in the page tests because the mock only ever answers `true`, exactly as
+task 2 warned.
+
+Measured from a `/tmp` copy (`git ls-files -co`, the change being uncommitted), all three green: `yarn lint`
+**exit 0**, the same 3 warnings and 2 infos tasks 2-5 recorded and no new ones. **1,872 tests**, 8 of 8 tasks
+successful, 0 failures, 0 worker errors — up 89 from 1,783: the app 500 → 573 (55 handler cases across the
+three pages, 14 template cases, 4 on the list page's two new links) and `@hmcts/deed-poll` 724 → 740 (10
+schema cases, 6 on `savedQueryStored`). `yarn build` 8 of 8 in 12.4s. Task 7 onward compares against
+**1,872**.
 
 ### Task 7: The delete confirmation
 

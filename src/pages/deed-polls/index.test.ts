@@ -308,6 +308,30 @@ describe("deed-polls list page", () => {
       expect(res.render.mock.calls[0][1].clearHref).toBe("/deed-polls?filter=open");
     });
 
+    it("offers to save the query as the URL states it, so the save page needs no hidden inputs", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "open", where: "type:is:Adult", sort: "dateReceived:desc" } }), res);
+
+      expect(res.render.mock.calls[0][1].saveQueryHref).toBe("/deed-polls/queries/new?filter=open&where=type%3Ais%3AAdult&sort=dateReceived%3Adesc");
+    });
+
+    it("offers to save an unfiltered list, which is a view somebody wants a tab for too", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].saveQueryHref).toBe("/deed-polls/queries/new");
+    });
+
+    it("offers the library, which is not query-specific and so carries nothing", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "open" } }), res);
+
+      expect(res.render.mock.calls[0][1].libraryHref).toBe("/deed-polls/queries");
+    });
+
     it("renders one empty row for a list with no query, since an empty row is the invitation to filter", async () => {
       const res = pageResponse();
 

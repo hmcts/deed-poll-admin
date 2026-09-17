@@ -1,0 +1,82 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/input/macro.njk" import govukInput %}
+{% from "govuk/components/textarea/macro.njk" import govukTextarea %}
+{% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{#
+  Amend-a-saved-query form. The same three controls as `new.njk`, and that file holds the reasoning for each.
+
+  Delete is a second submit on the SAME form rather than its own route, as the witness and note deletes are,
+  so the two cannot drift; the handler branches on `action`, checking delete first. Styled as a warning so it
+  cannot be mistaken for the primary action.
+
+  Both write controls hang off `canAmend`, which is api's `editable` and nothing computed here. They are
+  absent rather than disabled when it is false — a disabled button has no value to read — and the sentence in
+  their place says why, because a form with no way to submit it otherwise reads as broken.
+
+  The conditions are not edited here: a query is its URL, so "Open this query" goes to the builder that owns
+  them.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if errorList.length %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+    {% endif %}
+
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+    <p class="govuk-body">
+      <a class="govuk-link govuk-link--no-visited-state" href="{{ queryHref }}">{{ openQuery }}</a>
+    </p>
+
+    <form method="post" action="{{ libraryPath }}/{{ queryId }}/edit" novalidate>
+      {{ govukInput({
+        id: "name",
+        name: "name",
+        autocomplete: "off",
+        label: { text: nameLabel, classes: "govuk-label--m" },
+        hint: { text: nameHint },
+        value: values.name,
+        errorMessage: { text: errors.name } if errors.name
+      }) }}
+
+      {{ govukTextarea({
+        id: "description",
+        name: "description",
+        rows: 3,
+        autocomplete: "off",
+        label: { text: descriptionLabel, classes: "govuk-label--m" },
+        hint: { text: descriptionHint },
+        value: values.description,
+        errorMessage: { text: errors.description } if errors.description
+      }) }}
+
+      {{ govukCheckboxes({
+        name: "shared",
+        fieldset: { legend: { text: sharedLegend, classes: "govuk-fieldset__legend--m" } },
+        hint: { text: sharedHint },
+        items: [
+          { value: "true", text: sharedLabel, checked: values.shared == "true" }
+        ]
+      }) }}
+
+      <div class="govuk-button-group">
+        {% if canAmend %}
+          {{ govukButton({ text: submit, name: "action", value: "save" }) }}
+          {{ govukButton({ text: delete, name: "action", value: "delete", classes: "govuk-button--warning" }) }}
+        {% endif %}
+        <a class="govuk-link" href="{{ libraryPath }}">{{ cancel }}</a>
+      </div>
+
+      {% if not canAmend %}
+        <p class="govuk-body">{{ readOnly }}</p>
+      {% endif %}
+    </form>
+
+  </div>
+</div>
+{% endblock %}
