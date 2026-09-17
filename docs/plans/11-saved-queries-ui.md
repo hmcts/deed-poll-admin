@@ -272,6 +272,9 @@ test was lost, not replaced.
 worker errors; the whole rise is `@hmcts/deed-poll-api-client` 192 → 199, which is task 1's seven operations.
 `yarn build` 8 of 8 in 12.2s. Later tasks compare against **1,709**, not 1,702.
 
+**Re-measured after task 2: 1,731**, 8 of 8, 0 failures; the rise is again all
+`@hmcts/deed-poll-api-client`, 199 → 221. Tasks 3 onward compare against **1,731**.
+
 **Run these from a `/tmp` copy, not in the clone.** Measured 2026-09-16: the same `yarn build` took 19m26s
 in the working tree and 13.8s in a `git archive HEAD` copy under `/tmp`. Use
 `git archive HEAD | (mkdir -p /tmp/dpa-verify && tar -x -C /tmp/dpa-verify)`, then `yarn install` and run
@@ -456,9 +459,50 @@ divergence from api, which computes the flag from `SavedQueryPermissions.editabl
 comment saying so, in the shape of the existing one, or someone will later read the mock as evidence that
 the UI's permission handling is tested.
 
-- [ ] Saved-query routes added after the reachability gate with the collection path before the `{id}` regex;
+- [x] Saved-query routes added after the reachability gate with the collection path before the `{id}` regex;
       state held beside `cases`; bodies validated through `WIRE_SCHEMAS` with `fieldErrorsFrom` on failure;
       405/404 as the existing routes do; a comment recording that permissions are not modelled and why
+
+#### What was built, and the two things it deliberately does not do
+
+Routes added immediately after the reachability gate, so the whole surface 503s under `api-unavailable`
+alongside the case routes — asserted, because a saved-query route reachable during a modelled outage would
+make the nav's degradation path (task 5) untestable. State is a `Map` of queries plus a `Set` of selected
+ids beside `cases`, and `reset()` clears both: without that, `POST /__mock/reset` would leave a library
+behind and any assertion on its length would depend on what ran before it.
+
+Two divergences from api, both commented at the code and worth knowing before tasks 5-7 read the mock as
+evidence of anything:
+
+- **`editable` is the constant `true` and every write is answered.** api computes the flag from
+  `SavedQueryPermissions.editableBy`; `auditName` decodes an unverified token for a `sub` and there is no
+  role in it, so a 403 is not a state this mock can produce — the same reason the witness delete's
+  Administrator gate is unmodelled. Task 6 must therefore give the flag **both** values in its page tests;
+  driving the mock will only ever show it the true branch.
+- **Selection is one `Set`, not per-caller.** api keys the row by the caller's subject, so two people can
+  select one shared query independently. A per-subject map would look like it modelled two users while still
+  reading no roles out of a token, so the plan's "a set of selected ids" was taken literally.
+
+The asymmetry task 0 recorded **is** modelled, because a page depends on it: `PUT …/selection` 404s for a
+query that is not there, `DELETE …/selection` answers 204 regardless. A delete of a query also drops its
+selections, as api's foreign key cascades them. Ownership comes from the token — `ownerId`, `ownerName` and
+`createdBy` are all `auditName(req)` — which is the one thing about identity the mock already modelled.
+
+**A create does not select the new query for its creator.** The spec does not say api does, so a mock that
+did would let task 6 ship relying on it; that page issues the `PUT` itself, which is idempotent either way.
+
+Tests split the way this package already splits them: the seven operations are driven **through the adapter**
+in `src/api/client.test.ts` (14 cases — the round trip, the null-clears-a-column patch that distinguishes
+this from a note's, the bounds refusal, idempotent select, deselect-what-you-cannot-see, the delete), and
+what the adapter cannot reach is in `src/mock/server.test.ts` (11 cases — name ordering, the `editable`
+constant, token-derived ownership, the two schema refusals, the cascade, reset, three 405s and a 404).
+
+Measured from a `/tmp` copy, all three commands green: `yarn lint` exit 0 with the two known
+`noUndeclaredEnvVars` warnings and no new ones — note the count is **3 warnings and 2 infos**, the third
+being `biome.json`'s deprecated `recommended` field, which is pre-existing drift in this plan's baseline
+note rather than anything this task added. **1,731 tests**, 8 of 8 tasks successful, 0 failures — up from
+1,709, the whole rise being `@hmcts/deed-poll-api-client` 199 → 221. `yarn build` 8 of 8 in 10.3s. Later
+tasks compare against **1,731**.
 
 ### Task 3: The domain service and its view model
 
