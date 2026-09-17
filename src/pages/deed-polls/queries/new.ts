@@ -134,7 +134,11 @@ function queryFrom(req: Request): CaseListLink {
   return {
     filter: filterFor(query.filter).key,
     conditions: parseConditions(query.where),
-    sort: serialiseSort(parseSort(query.sort))
+    sort: serialiseSort(parseSort(query.sort)),
+    // Handed on untrimmed on purpose: `savedQueryStored` trims it for the column and `caseListSearch` trims
+    // it for the URL, so a third trimmer here would be a third opinion about the same string. A repeated
+    // `?q=a&q=b` arrives as an array and is not a term.
+    q: typeof query.q === "string" ? query.q : undefined
   };
 }
 

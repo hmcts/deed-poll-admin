@@ -316,6 +316,14 @@ describe("deed-polls list page", () => {
       expect(res.render.mock.calls[0][1].saveQueryHref).toBe("/deed-polls/queries/new?filter=open&where=type%3Ais%3AAdult&sort=dateReceived%3Adesc");
     });
 
+    it("carries the search term to the save page, so a saved search is saved as a search", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "open", q: "Threepwood" } }), res);
+
+      expect(res.render.mock.calls[0][1].saveQueryHref).toBe("/deed-polls/queries/new?filter=open&q=Threepwood");
+    });
+
     it("offers to save an unfiltered list, which is a view somebody wants a tab for too", async () => {
       const res = pageResponse();
 

@@ -39,6 +39,16 @@ describe("saved-queries/view", () => {
       ]);
     });
 
+    it("should restore the search term, so a saved search reopens as the search it was", () => {
+      expect(savedQueryLink(savedQuery({ searchTerm: "Threepwood" })).q).toBe("Threepwood");
+    });
+
+    it("should carry no term for a query api holds none for", () => {
+      // `undefined` rather than null: `caseListSearch` omits an undefined `q`, so the URL is the one it was
+      // before a term was ever storable.
+      expect(savedQueryLink(savedQuery({ searchTerm: null })).q).toBeUndefined();
+    });
+
     it("should carry no page, because a saved query never stores one", () => {
       expect(savedQueryLink(savedQuery())).not.toHaveProperty("page");
     });
@@ -209,18 +219,20 @@ describe("saved-queries/view", () => {
   });
 
   describe("savedQueryStored", () => {
-    it("should store the tab, the conditions and the order as api's four columns", () => {
+    it("should store the tab, the conditions, the order and the term as api's five columns", () => {
       const stored = savedQueryStored({
         filter: "received",
         conditions: [{ field: "newSurname", operator: "contains", values: ["Smith"] }],
-        sort: "dateReceived:desc"
+        sort: "dateReceived:desc",
+        q: "Threepwood"
       });
 
       expect(stored).toEqual({
         filter: "received",
         conditions: ["newSurname:contains:Smith"],
         sortField: "dateReceived",
-        sortDirection: "desc"
+        sortDirection: "desc",
+        searchTerm: "Threepwood"
       });
     });
 
@@ -228,12 +240,24 @@ describe("saved-queries/view", () => {
       const link = {
         filter: "enroled",
         conditions: [{ field: "newSurname", operator: "contains", values: ["Smith, John"] }],
-        sort: "displayReference:asc"
+        sort: "displayReference:asc",
+        q: "Threepwood"
       };
 
       const stored = savedQueryStored(link);
 
       expect(savedQueryLink(savedQuery({ ...stored, conditions: stored.conditions ?? [] }))).toEqual(link);
+    });
+
+    it("should trim the term, so a stored one matches what a search would have run", () => {
+      expect(savedQueryStored({ q: "  Threepwood  " }).searchTerm).toBe("Threepwood");
+    });
+
+    it("should store no term for a blank one, rather than an empty string", () => {
+      // `""` in api's column is a stored term that matches everything, where an absent one is no search at
+      // all. The two are not the same query and a blank box means the second.
+      expect(savedQueryStored({ q: "   " }).searchTerm).toBeUndefined();
+      expect(savedQueryStored({}).searchTerm).toBeUndefined();
     });
 
     it("should leave a half-filled condition unstored, so the query finds what was on screen", () => {

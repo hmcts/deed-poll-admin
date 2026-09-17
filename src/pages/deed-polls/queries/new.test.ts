@@ -68,7 +68,7 @@ describe("save a query page", () => {
   });
 
   describe("POST", () => {
-    it("should save the URL's query under the submitted name, split into api's four columns", async () => {
+    it("should save the URL's query under the submitted name, split into api's five columns", async () => {
       await POST(request(SUBMITTED), response());
 
       expect(createSavedQuery).toHaveBeenCalledWith(
@@ -79,10 +79,25 @@ describe("save a query page", () => {
           filter: "received",
           conditions: ["newSurname:contains:Smith"],
           sortField: "dateReceived",
-          sortDirection: "desc"
+          sortDirection: "desc",
+          searchTerm: undefined
         },
         CALLER
       );
+    });
+
+    it("should save the search term the results were found with", async () => {
+      // The gap this page had: a query saved from a set of search results dropped the term, so reopening it
+      // returned different rows from the ones it was named after.
+      await POST(request(SUBMITTED, { ...QUERY, q: "Threepwood" }), response());
+
+      expect(createSavedQuery).toHaveBeenCalledWith(expect.objectContaining({ searchTerm: "Threepwood" }), CALLER);
+    });
+
+    it("should save no term when the list was not searched", async () => {
+      await POST(request(SUBMITTED, { ...QUERY, q: "   " }), response());
+
+      expect(createSavedQuery).toHaveBeenCalledWith(expect.objectContaining({ searchTerm: undefined }), CALLER);
     });
 
     it("should send the session's token and nothing else, because api takes the owner from it", async () => {

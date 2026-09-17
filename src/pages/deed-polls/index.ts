@@ -276,8 +276,10 @@ function render(
     searchWhere: serialiseConditions(conditions.filter((condition) => !isBlankCondition(condition))),
     clearHref: listHref({ filter: filter.key, q, conditions: [], sort }),
     // The save page is opened with the query in its URL rather than with hidden inputs, because a list URL is
-    // the query — so this is `caseListSearch` again, under the other path.
-    saveQueryHref: `${QUERIES_PATH}/new${caseListSearch({ filter: filter.key, conditions, sort: serialiseSort(sort) })}`,
+    // the query — so this is `caseListSearch` again, under the other path. `q` is carried like everything
+    // else: api stores a `searchTerm`, and a query saved from a set of search results that forgot the term
+    // would reopen returning different rows from the ones it was named after.
+    saveQueryHref: `${QUERIES_PATH}/new${caseListSearch({ filter: filter.key, q, conditions, sort: serialiseSort(sort) })}`,
     libraryHref: QUERIES_PATH,
     queryRows: buildQueryRows(conditions, content.queryLabels, { rowErrors, submitted }),
     // Once per page, for the enhancement that reveals a value control without a submit. The page renders it
