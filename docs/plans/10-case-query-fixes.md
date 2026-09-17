@@ -195,7 +195,7 @@ Set `queryable: false` on exactly these 25, each with a short reason comment:
 `displayReference` (the api plan's search matches on them), `parents`, `masterName`, `representativeName`,
 `representativeCompany` — filtering by solicitor firm is a real caseworker need.
 
-- [ ] `queryable` on `FieldDef` defaulting true; 25 fields marked with reasons; `CHOOSABLE_FIELDS` filters on it
+- [x] `queryable` on `FieldDef` defaulting true; 25 fields marked with reasons; `CHOOSABLE_FIELDS` filters on it
       **and** still excludes the derived pair; `QUERYABLE_FIELDS` still derived from `FORM_TABS` and unchanged in
       length; a test asserts the count is 43 and that `referencenumber` survives
 

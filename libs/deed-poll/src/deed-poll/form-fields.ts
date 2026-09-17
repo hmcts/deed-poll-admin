@@ -36,6 +36,19 @@ export interface FieldDef {
    */
   notNullable?: boolean;
   /**
+   * Whether the query builder offers this field in its chooser. **Absent means queryable** — a field
+   * added to a case tab becomes filterable with no second edit, which is the drift guard `query-fields.ts`
+   * is built around. Opt-out rather than opt-in for that reason: `queryable: true` as the default would
+   * make a new field silently absent from the builder.
+   *
+   * Set `false` only where a caseworker would never build a worklist from the field — a per-case
+   * identifier, free prose whose queryable fact is the enum beside it, an address component, or a
+   * declaration every case carries. The reason is a comment on each one; a field with no reason has none.
+   * This is not api's business: api answers a condition on any of these, and a hand-edited URL naming one
+   * still renders (see `queryableField`).
+   */
+  queryable?: boolean;
+  /**
    * Which column of the two-column card this field sits in (1 = left, 2 = right,
    * 'full' = spanning both), replicating the Dynamics form's field positions so staff
    * keep their muscle memory. Sections that leave it unset are split in order by
@@ -91,8 +104,10 @@ const APPLICATION_TAB: TabDef = {
         { name: "displayReference", label: "Display reference", kind: "text", readOnly: true, column: 1 },
         { name: "dateOfApplication", label: "Date of application", kind: "date", column: 1 },
         { name: "inPerson", label: "In person", kind: "boolean", column: 1 },
-        { name: "postCounter", label: "Post / Counter", kind: "enum", enumSet: "postCounter", column: 1 },
-        { name: "feeReference", label: "Fee reference", kind: "text", column: 1 },
+        // an internal counter, not a caseworker concept
+        { name: "postCounter", label: "Post / Counter", kind: "enum", enumSet: "postCounter", queryable: false, column: 1 },
+        // unique per case — a lookup, never a filter
+        { name: "feeReference", label: "Fee reference", kind: "text", queryable: false, column: 1 },
         { name: "dateReceived", label: "Date received", kind: "date", column: 1 },
         { name: "type", label: "Type", kind: "enum", enumSet: "type", column: 1 },
         { name: "maritalStatus", label: "Marital status", kind: "enum", enumSet: "maritalStatus", column: 1 },
@@ -103,15 +118,19 @@ const APPLICATION_TAB: TabDef = {
         // so on an Adult case the left column simply ends at Marital status.
         { name: "minorDateOfBirth", label: "Minor's date of birth", kind: "date", column: 1 },
         { name: "ageOfMinor", label: "Age of minor years", kind: "number", column: 1 },
-        { name: "ageOfMinorMonths", label: "Age of minor months", kind: "number", column: 1 },
+        // duplicates ageOfMinor at finer grain
+        { name: "ageOfMinorMonths", label: "Age of minor months", kind: "number", queryable: false, column: 1 },
         { name: "parents", label: "Parents", kind: "text", column: 1 },
 
         { name: "privacy", label: "Privacy", kind: "enum", enumSet: "privacy", notNullable: true, column: 2 },
         { name: "state", label: "State", kind: "enum", enumSet: "state", readOnly: true, column: 2 },
         { name: "urgency", label: "Urgency", kind: "enum", enumSet: "urgency", notNullable: true, column: 2 },
-        { name: "urgencyreason", label: "Urgency reason", kind: "text", column: 2 },
-        { name: "onlineApplicationReference", label: "Online application reference", kind: "text", column: 2 },
-        { name: "retainPermanently", label: "Retain permanently", kind: "boolean", column: 2 },
+        // free prose; the queryable fact is the `urgency` enum beside it
+        { name: "urgencyreason", label: "Urgency reason", kind: "text", queryable: false, column: 2 },
+        // unique per case — a lookup, never a filter
+        { name: "onlineApplicationReference", label: "Online application reference", kind: "text", queryable: false, column: 2 },
+        // a records-management flag, not a caseworker's worklist
+        { name: "retainPermanently", label: "Retain permanently", kind: "boolean", queryable: false, column: 2 },
         { name: "awaitingFurtherDocsInfo", label: "Awaiting further docs/info", kind: "date", column: 2 }
       ]
     },
@@ -146,14 +165,16 @@ const APPLICATION_TAB: TabDef = {
       // on the source screenshot's own "Applicant Building No/Name".
       label: "Applicant address and contact details",
       fields: [
-        { name: "applicantBuildingNoName", label: "Building number/name", kind: "text", column: 1 },
-        { name: "applicantAddress1", label: "Address line 1", kind: "text", column: 1 },
-        { name: "applicantAddress2", label: "Address line 2", kind: "text", column: 1 },
+        // address components; town and postcode below carry the signal a caseworker filters on
+        { name: "applicantBuildingNoName", label: "Building number/name", kind: "text", queryable: false, column: 1 },
+        { name: "applicantAddress1", label: "Address line 1", kind: "text", queryable: false, column: 1 },
+        { name: "applicantAddress2", label: "Address line 2", kind: "text", queryable: false, column: 1 },
         { name: "applicantTownCity", label: "Town/city", kind: "text", column: 1 },
         { name: "applicantPostcode", label: "Postcode", kind: "text", column: 1 },
 
         { name: "applicantEmail", label: "Email", kind: "text", column: 2 },
-        { name: "applicantTelephone", label: "Telephone", kind: "text", column: 2 }
+        // formatting varies too much for `contains`; email is the reliable contact lookup
+        { name: "applicantTelephone", label: "Telephone", kind: "text", queryable: false, column: 2 }
       ]
     },
     {
@@ -168,13 +189,16 @@ const APPLICATION_TAB: TabDef = {
         { name: "representativeName", label: "Name", kind: "text", column: 1 },
         { name: "representativeCompany", label: "Company", kind: "text", column: 1 },
         { name: "representativeEmail", label: "Email", kind: "text", column: 1 },
-        { name: "representativeTelephone", label: "Telephone", kind: "text", column: 1 },
+        // formatting varies too much for `contains`; email is the reliable contact lookup
+        { name: "representativeTelephone", label: "Telephone", kind: "text", queryable: false, column: 1 },
 
-        { name: "representativeBuildingNoName", label: "Building number/name", kind: "text", column: 2 },
-        { name: "representativeAddress1", label: "Address line 1", kind: "text", column: 2 },
-        { name: "representativeAddress2", label: "Address line 2", kind: "text", column: 2 },
-        { name: "representativeTownCity", label: "Town/city", kind: "text", column: 2 },
-        { name: "representativePostcode", label: "Postcode", kind: "text", column: 2 }
+        // address components; the firm's name and email are what a caseworker filters a worklist by
+        { name: "representativeBuildingNoName", label: "Building number/name", kind: "text", queryable: false, column: 2 },
+        { name: "representativeAddress1", label: "Address line 1", kind: "text", queryable: false, column: 2 },
+        { name: "representativeAddress2", label: "Address line 2", kind: "text", queryable: false, column: 2 },
+        // only useful when working by solicitor region, which nobody does yet
+        { name: "representativeTownCity", label: "Town/city", kind: "text", queryable: false, column: 2 },
+        { name: "representativePostcode", label: "Postcode", kind: "text", queryable: false, column: 2 }
       ]
     },
     {
@@ -185,7 +209,8 @@ const APPLICATION_TAB: TabDef = {
       fields: [
         { name: "nationality", label: "Nationality", kind: "enum", enumSet: "nationality", column: 1 },
         { name: "nationalitySection", label: "Section", kind: "enum", enumSet: "nationalitySection", column: 1 },
-        { name: "nationalitySectionOther", label: "Section (other)", kind: "text", column: 1 }
+        // free prose; the queryable fact is the `nationalitySection` enum above it
+        { name: "nationalitySectionOther", label: "Section (other)", kind: "text", queryable: false, column: 1 }
       ]
     },
     {
@@ -196,11 +221,12 @@ const APPLICATION_TAB: TabDef = {
       // the stacking order on the edit form, where column-major reads better.
       label: "Declarations",
       fields: [
-        { name: "iShall", label: "I shall", kind: "multiselect", enumSet: "iShall", column: 1 },
+        // the three legal declaration checkboxes — every case has them, so a condition on one selects everything
+        { name: "iShall", label: "I shall", kind: "multiselect", enumSet: "iShall", queryable: false, column: 1 },
         { name: "dateOfDeclaration", label: "Date of declaration", kind: "date", column: 1 },
 
-        { name: "iHaveSubscribed", label: "I have subscribed", kind: "multiselect", enumSet: "iHaveSubscribed", column: 2 },
-        { name: "andAlsoMyOld", label: "And also my old", kind: "multiselect", enumSet: "andAlsoMyOld", column: 2 }
+        { name: "iHaveSubscribed", label: "I have subscribed", kind: "multiselect", enumSet: "iHaveSubscribed", queryable: false, column: 2 },
+        { name: "andAlsoMyOld", label: "And also my old", kind: "multiselect", enumSet: "andAlsoMyOld", queryable: false, column: 2 }
       ]
     }
   ]
@@ -223,13 +249,16 @@ const REFERRAL_TAB: TabDef = {
         { name: "referToMasterChoice", label: "Refer to Master", kind: "enum", enumSet: "referToMaster", column: 1 },
         { name: "dateReadyForMaster", label: "Date ready for Master", kind: "date", column: 1 },
         { name: "dateReferred", label: "Date referred", kind: "date", column: 1 },
-        { name: "referralNotes", label: "Referral notes", kind: "textarea", column: "full" },
+        // narrative
+        { name: "referralNotes", label: "Referral notes", kind: "textarea", queryable: false, column: "full" },
         { name: "masterName", label: "Master name", kind: "text", column: 1 },
-        { name: "masterDirections", label: "Master directions", kind: "textarea", column: "full" },
+        // narrative
+        { name: "masterDirections", label: "Master directions", kind: "textarea", queryable: false, column: "full" },
         { name: "masterDecision", label: "Master decision", kind: "enum", enumSet: "masterDecision", column: 1 },
         { name: "masterDateOfDecision", label: "Master date of decision", kind: "date", column: 1 },
         { name: "dateDecisionDirectionsReceived", label: "Date decision/directions received", kind: "date", column: 1 },
-        { name: "publishToLondonGazette", label: "Publish to London Gazette", kind: "boolean", column: 1 }
+        // a Gazette process flag; `dateNoticeSentToLondonGazette` on the Enrolment tab is the queryable fact
+        { name: "publishToLondonGazette", label: "Publish to London Gazette", kind: "boolean", queryable: false, column: 1 }
       ]
     }
   ]
@@ -285,7 +314,8 @@ const RETURN_TAB: TabDef = {
       fields: [
         { name: "dateReturned", label: "Date returned", kind: "date", column: 1 },
         { name: "daysReceivedToReturned", label: "Days received to returned", kind: "number", readOnly: true, column: 1 },
-        { name: "returnReason", label: "Return reason", kind: "textarea", column: "full" }
+        // narrative
+        { name: "returnReason", label: "Return reason", kind: "textarea", queryable: false, column: "full" }
       ]
     }
   ]
@@ -302,7 +332,8 @@ const REFUND_TAB: TabDef = {
       fields: [
         { name: "refundAmount", label: "Refund amount", kind: "number", column: 1 },
         { name: "dateOfRefund", label: "Date of refund", kind: "date", column: 1 },
-        { name: "refundReference", label: "Refund reference", kind: "text", column: 1 }
+        // unique per case — a lookup, never a filter
+        { name: "refundReference", label: "Refund reference", kind: "text", queryable: false, column: 1 }
       ]
     }
   ]

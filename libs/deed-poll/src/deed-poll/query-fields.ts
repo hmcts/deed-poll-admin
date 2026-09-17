@@ -91,11 +91,19 @@ const DERIVED_FIELD_NAMES = ["daysReceivedToEnroled", "daysReceivedToReturned"];
 /**
  * The fields the builder's chooser offers.
  *
- * Everything queryable except the derived pair, because an option a caseworker can only be refused for
- * choosing is not a guide. api still answers for a condition on one — a hand-edited URL can name it, and
- * `queryableField` resolves it so the row renders with api's refusal against it.
+ * Two exclusions, kept separate because their reasons are different and only one of them is ours:
+ *
+ *   - the derived pair, which **api refuses a condition on** — an option a caseworker can only be
+ *     refused for choosing is not a guide;
+ *   - the fields marked `queryable: false` in `form-fields.ts`, which api answers perfectly well and are
+ *     merely **not worth offering** — per-case identifiers, narrative prose, address components. 68
+ *     options in one list is a list nobody reads; the reason for each cut is a comment on the field.
+ *
+ * Still derived from the form either way. api answers a condition on anything excluded here — a
+ * hand-edited URL can name one, and `queryableField` resolves it so the row renders with whatever api
+ * says about it.
  */
-export const CHOOSABLE_FIELDS: FieldDef[] = QUERYABLE_FIELDS.filter((field) => !DERIVED_FIELD_NAMES.includes(field.name));
+export const CHOOSABLE_FIELDS: FieldDef[] = QUERYABLE_FIELDS.filter((field) => field.queryable !== false && !DERIVED_FIELD_NAMES.includes(field.name));
 
 /** The operators offered for a field's kind. */
 export function operatorsFor(kind: FieldKind): QueryOperator[] {

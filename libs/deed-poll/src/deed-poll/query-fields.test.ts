@@ -32,6 +32,16 @@ describe("deed-poll/query-fields", () => {
       expect(QUERYABLE_FIELDS.map((field) => field.name)).toEqual(formFields);
     });
 
+    it("should still carry the fields the chooser declines to offer, because api answers a condition on them", () => {
+      // `queryable: false` curates the chooser, not the queryable surface: narrowing this list would turn
+      // "every form field" into "every form field except the ones someone remembered".
+      const names = QUERYABLE_FIELDS.map((field) => field.name);
+
+      expect(names).toContain("feeReference");
+      expect(names).toContain("iShall");
+      expect(QUERYABLE_FIELDS).toHaveLength(70);
+    });
+
     it("should include the read-only fields, because reference number and state are the most useful to query", () => {
       const readOnly = QUERYABLE_FIELDS.filter((field) => field.readOnly).map((field) => field.name);
 
@@ -62,14 +72,43 @@ describe("deed-poll/query-fields", () => {
       expect(names).not.toContain("daysReceivedToReturned");
     });
 
+    it("should leave out the fields the form marks unqueryable, alongside the derived pair rather than instead of it", () => {
+      const names = CHOOSABLE_FIELDS.map((field) => field.name);
+
+      expect(names).not.toContain("feeReference");
+      expect(names).not.toContain("referralNotes");
+      expect(names).not.toContain("applicantAddress1");
+    });
+
     it("should offer everything else queryable, in form order, so it tracks the form as the queryable list does", () => {
-      const expected = QUERYABLE_FIELDS.filter((field) => !field.name.startsWith("daysReceivedTo")).map((field) => field.name);
+      const expected = QUERYABLE_FIELDS.filter((field) => field.queryable !== false && !field.name.startsWith("daysReceivedTo")).map((field) => field.name);
 
       expect(CHOOSABLE_FIELDS.map((field) => field.name)).toEqual(expected);
     });
 
+    it("should offer the 43 curated fields, so a cut or an addition to the table is a deliberate edit here", () => {
+      // Pinned as a count because the point of the curation is that the list stays short: 68 options in
+      // one chooser is what plan 10 was written to fix, and a silent drift back is the regression.
+      expect(CHOOSABLE_FIELDS).toHaveLength(43);
+    });
+
+    it("should keep the fields the curation deliberately spared, which a caseworker really does filter by", () => {
+      const names = CHOOSABLE_FIELDS.map((field) => field.name);
+
+      expect(names).toContain("referencenumber");
+      expect(names).toContain("displayReference");
+      expect(names).toContain("parents");
+      expect(names).toContain("masterName");
+      expect(names).toContain("representativeName");
+      expect(names).toContain("representativeCompany");
+    });
+
     it("should still keep the derived pair queryable, so a hand-edited URL naming one renders its refusal", () => {
       expect(queryableField("daysReceivedToEnroled")).toBeDefined();
+    });
+
+    it("should still resolve an unqueryable field, so a hand-edited URL naming one renders rather than vanishing", () => {
+      expect(queryableField("feeReference")?.label).toBe("Fee reference");
     });
   });
 
