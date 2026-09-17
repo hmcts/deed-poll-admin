@@ -3,6 +3,13 @@
 Updated 2026-09-03. Registration is via PR to `hmcts/idam-access-config`, not an email request. The
 configuration below follows the standard OIDC pattern from the CFT IDAM developer guide.
 
+> **2026-09-17: #993 has since MERGED (2026-09-16), so the `deed-poll-admin` client and the
+> `caseworker-deedpoll-admin` role are now live upstream.** Everywhere below that says #993 is "open and
+> unmerged" is a 2026-09-10 snapshot and is stale. The merged `base/roles.yaml` also grew an
+> `environment_exclusions: [demo, ithc, perftest, prod]` block (the vaults exist only for AAT). A separate
+> **judicial** role for the referrals feature is prepared as a second PR — see
+> [`JUDICIAL_ROLE_REGISTRATION.md`](JUDICIAL_ROLE_REGISTRATION.md).
+
 > **The hostnames in this document are wrong, and the PR carrying them has to be corrected before it
 > merges. Corrected 2026-09-10 by plan 03 task 4.**
 >
