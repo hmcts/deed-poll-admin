@@ -1,6 +1,10 @@
 
 @use "govuk-frontend/dist/govuk/index";
 
+// The case list's filter bar. A partial under `components/` rather than beside this file: `vite.build.ts`
+// globs `css/*.scss` into build entries, so a partial as a sibling would become a stylesheet of its own.
+@use "components/filter-nav";
+
 /*
  * Caseworker case-detail styles, ported from the prototype's app.css.
  *

@@ -11,6 +11,7 @@
  * passing fails this test too. `en` is spread over it because `renderInterceptorMiddleware` is what does
  * that in a real request, and the double does not run middleware.
  */
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findDeedPolls, InvalidInputError } from "@hmcts/deed-poll";
@@ -295,6 +296,58 @@ describe("deed-polls list template", () => {
     const markup = await render({ where: "newSurname:is:Lovelace" });
 
     expect(markup).toMatch(/<optgroup label="Application: Names">[\s\S]*?<option value="newSurname" selected>New surname<\/option>/);
+  });
+
+  describe("the filter bar", () => {
+    /** The nav on its own, so an assertion about what the bar carries cannot be satisfied by the rest of the page. */
+    const filterNav = (markup: string): string => markup.match(/<nav class="app-filter-nav"[\s\S]*?<\/nav>/)?.[0] ?? "";
+
+    it("renders the tabs as a list, because a set of sibling destinations is one", async () => {
+      const nav = filterNav(await render());
+
+      expect(nav).toContain('<ul class="app-filter-nav__list">');
+      expect([...nav.matchAll(/<li class="app-filter-nav__item">/g)]).toHaveLength(5);
+    });
+
+    it("marks the current tab with aria-current=page rather than a strong, since you-are-here is not importance", async () => {
+      const nav = filterNav(await render({ filter: "enroled" }));
+
+      expect(nav).toContain('<span class="app-filter-nav__current" aria-current="page">Enroled</span>');
+      expect(nav).not.toContain("<strong");
+      expect(nav).not.toContain('aria-current="true"');
+      // One current entry, so the other four are still links to somewhere.
+      expect([...nav.matchAll(/aria-current=/g)]).toHaveLength(1);
+    });
+
+    it("does not fade the tabs a caseworker has already used, which would read as progress through them", async () => {
+      const nav = filterNav(await render());
+
+      expect([...nav.matchAll(/class="govuk-link govuk-link--no-visited-state"/g)]).toHaveLength(4);
+    });
+
+    it("leaves the spacing to the component, so the markup carries no override utilities", async () => {
+      const nav = filterNav(await render());
+
+      expect(nav).not.toContain("govuk-!-");
+    });
+
+    it("labels the group, ready for plan 11's saved queries to sit in a second one", async () => {
+      const nav = filterNav(await render());
+
+      expect(nav).toMatch(/<div class="app-filter-nav__group">\s*<h2 class="app-filter-nav__group-label">Status<\/h2>/);
+      expect(nav).toContain('aria-label="Filter by status"');
+    });
+
+    /**
+     * The stylesheet and not the markup, because "distinguishable by something other than weight" is a rule
+     * about how the current entry is drawn — and the only other place that claim could live is a screenshot.
+     */
+    it("distinguishes the current tab with a border, not by boldness alone", async () => {
+      const partial = await readFile(path.join(fileURLToPath(import.meta.url), "../../../assets/css/components/_filter-nav.scss"), "utf8");
+      const currentRule = partial.match(/\.app-filter-nav__current \{[^}]*\}/)?.[0] ?? "";
+
+      expect(currentRule).toMatch(/border-bottom: \d+px solid/);
+    });
   });
 
   describe("the order and the page", () => {

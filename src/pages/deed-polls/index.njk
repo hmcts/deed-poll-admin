@@ -18,15 +18,28 @@
     {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorSummary }) }}
   {% endif %}
 
-  <nav class="govuk-!-margin-bottom-6" aria-label="{{ filterLabel }}">
-    {% for f in filters %}
-      {% if f.key == activeFilter %}
-        <strong class="govuk-!-margin-right-3" aria-current="true">{{ f.label }}</strong>
-      {% else %}
-        {# The tab carries the query, so switching tab narrows the same conditions within another view. #}
-        <a class="govuk-link govuk-!-margin-right-3" href="{{ f.href }}">{{ f.label }}</a>
-      {% endif %}
-    {% endfor %}
+  {#
+    The filter bar, as `app-filter-nav` in the global stylesheet — decisions 7, 8 and 9. A list because it
+    is one, a labelled group because plan 11 adds a second one of saved queries beside it, and
+    `aria-current="page"` rather than a `<strong>` because "you are here" is not strong importance and must
+    not be carried by boldness alone. Spacing is the component's, so no `govuk-!-margin-*` here.
+  #}
+  <nav class="app-filter-nav" aria-label="{{ filterLabel }}">
+    <div class="app-filter-nav__group">
+      <h2 class="app-filter-nav__group-label">{{ filterGroupLabel }}</h2>
+      <ul class="app-filter-nav__list">
+        {% for f in filters %}
+          <li class="app-filter-nav__item">
+            {% if f.key == activeFilter %}
+              <span class="app-filter-nav__current" aria-current="page">{{ f.label }}</span>
+            {% else %}
+              {# The tab carries the query, so switching tab narrows the same conditions within another view. #}
+              <a class="govuk-link govuk-link--no-visited-state" href="{{ f.href }}">{{ f.label }}</a>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
   </nav>
 
   {#

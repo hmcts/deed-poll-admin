@@ -54,6 +54,9 @@ const en = {
   title: "Deed poll cases",
   heading: "Deed poll cases",
   filterLabel: "Filter by status",
+  // The filter bar's one group. Labelled from the start because plan 11 puts saved queries in a second
+  // group beside it, and an unlabelled bar of both reads as one list — decision 8.
+  filterGroupLabel: "Status",
   empty: "No cases match this filter.",
   newCase: "New case",
   privateTag: "Private",

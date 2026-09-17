@@ -336,10 +336,41 @@ on the others, and a group wrapper with a label ready for plan 11's second group
 
 The current entry must be distinguishable by something other than font weight.
 
-- [ ] `<nav>` wraps a `<ul>`; `aria-current="page"` not `="true"`; no `<strong>`; `no-visited-state` on links;
+- [x] `<nav>` wraps a `<ul>`; `aria-current="page"` not `="true"`; no `<strong>`; `no-visited-state` on links;
       no `govuk-!-margin-*` left in the nav markup; group wrapper with a label present; current entry
       distinguishable without relying on weight; the existing nav tests still assert tab hrefs carry conditions
       and sort
+
+      `app-filter-nav` is the component: `src/assets/css/components/_filter-nav.scss`, 30 lines of rules,
+      `@use`d from `index.scss`. **The partial is under `components/` and not beside `index.scss`** because
+      `vite.build.ts` globs `css/*.scss` into build entries, so a sibling partial would become a stylesheet
+      of its own — the build still emits exactly `index_css` and `footer_css`. It `@use`s
+      `govuk-frontend/dist/govuk/base`, not `index`, so it gets the settings, tools and helpers without
+      re-emitting the framework, and it reads colours through `govuk-functional-colour(brand)` /
+      `(secondary-text)` rather than `$govuk-brand-colour` — the variables are deprecated in
+      govuk-frontend 6.
+      Markup: `<nav class="app-filter-nav" aria-label="Filter by status">` → one
+      `app-filter-nav__group` carrying an `<h2>` label (`filterGroupLabel`, "Status", new in `en`) → a `<ul>`
+      of five `<li>`. The current entry is a `<span aria-current="page">` and the other four are
+      `govuk-link govuk-link--no-visited-state`, so a tab already visited does not read as progress through
+      them. Spacing is `govuk-spacing(3)` on the item and `govuk-responsive-margin(6, "bottom")` on the nav,
+      which is what let the two `govuk-!-margin-right-3` and the `govuk-!-margin-bottom-6` come out of the
+      markup. The current entry's indicator is a 4px bottom border in the brand colour; the bold weight
+      repeats it rather than carrying it.
+      The group wrapper exists with one group in it deliberately (decision 8) and has the
+      `+ .app-filter-nav__group` spacing rule plan 11 will need; the saved-query group itself is not built
+      here.
+      Six new template tests in `index.njk.test.ts` under *the filter bar*, asserting against the nav
+      extracted from the page rather than the whole markup — the list and its five items, `aria-current="page"`
+      exactly once with no `<strong>` and no `aria-current="true"`, four no-visited-state links, no `govuk-!-`
+      anywhere in the nav, the labelled group. The last reads the SCSS partial and pins
+      `border-bottom: 4px solid` on `.app-filter-nav__current`, because "distinguishable by something other
+      than weight" is a statement about how it is drawn and the only other place to make it is a screenshot.
+      The model-level nav tests in `index.test.ts` are untouched and still pin that every tab href carries the
+      conditions and the sort.
+      Validation after the task: `yarn lint` exit 0 with the two pre-existing warnings, `yarn turbo test
+      test:app --concurrency=1` 8 of 8 with 1702 tests (up from 1696; 0 skipped, Redis up), no worker
+      failures, `yarn build` green with `app-filter-nav__current` in the emitted stylesheet.
 
 ### Task 6: Tests and a driven check
 
