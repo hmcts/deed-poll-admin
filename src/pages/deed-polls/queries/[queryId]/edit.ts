@@ -20,8 +20,10 @@
  * watching status codes. That includes an administrator naming somebody else's *unshared* query. This page
  * renders "gone or never yours" and cannot say which.
  *
- * **Delete is immediate here.** Plan 11's task 7 puts a confirmation in front of a *shared* query's delete,
- * where colleagues may hold it in their own lists; an unshared one has nobody else to warn.
+ * **Delete is immediate only for an unshared query.** A published one goes through `delete.ts`'s confirmation,
+ * because colleagues may hold it in their own lists and this app cannot see whose — plan 11's decision 5. The
+ * branch reads the *stored* `shared` rather than the checkbox's value, so an untouched-but-unsaved form cannot
+ * decide whether anybody else is affected.
  */
 import {
   type FieldError,
@@ -84,7 +86,16 @@ export const POST = async (req: Request, res: Response) => {
 
   // First, so a name that would fail validation cannot block a deletion.
   if (body.action === "delete") {
-    await removeSavedQuery(req.params.queryId, callerFromRequest(req));
+    const caller = callerFromRequest(req);
+    // The stored `shared`, not the checkbox's — a caseworker who unticked the box without saving has published
+    // the query as far as everybody else is concerned, and it is their lists the warning is about.
+    const query = await findSavedQuery(req.params.queryId, caller);
+
+    // Decision 5: a published query may be in colleagues' filter bars and this app cannot know whose, so the
+    // delete goes through a confirmation. An unshared one has nobody else to warn, so it goes now.
+    if (query.shared) return res.redirect(`${LIBRARY_PATH}/${encodeURIComponent(query.id)}/delete`);
+
+    await removeSavedQuery(req.params.queryId, caller);
 
     return res.redirect(LIBRARY_PATH);
   }

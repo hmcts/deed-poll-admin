@@ -204,7 +204,8 @@ describe("amend a saved query page", () => {
       await expect(POST(request(SUBMITTED), response())).rejects.toThrow(/unavailable/);
     });
 
-    it("should delete the query and redirect to the library", async () => {
+    it("should delete an unshared query at once and redirect to the library, since nobody else can hold it", async () => {
+      vi.mocked(findSavedQuery).mockResolvedValue(savedQuery({ shared: false }) as never);
       const res = response();
 
       await POST(request({ ...SUBMITTED, action: "delete" }), res);
@@ -214,7 +215,28 @@ describe("amend a saved query page", () => {
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls/queries");
     });
 
-    it("should delete a query whose name would fail validation, because delete is checked before it", async () => {
+    it("should send a published query's delete to the confirmation rather than acting on it", async () => {
+      const res = response();
+
+      await POST(request({ ...SUBMITTED, action: "delete" }), res);
+
+      expect(removeSavedQuery).not.toHaveBeenCalled();
+      expect(updateSavedQuery).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/queries/sq-1/delete");
+    });
+
+    it("should decide on the stored share flag, not on a box unticked without saving", async () => {
+      // Everybody who has the query in their filter bar still has it, so the warning is still owed.
+      const res = response();
+
+      await POST(request({ name: "Awaiting enrolment", action: "delete" }), res);
+
+      expect(removeSavedQuery).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/queries/sq-1/delete");
+    });
+
+    it("should act on a delete whose name would fail validation, because delete is checked before it", async () => {
+      vi.mocked(findSavedQuery).mockResolvedValue(savedQuery({ shared: false }) as never);
       const res = response();
 
       await POST(request({ name: "", action: "delete" }), res);
@@ -240,7 +262,7 @@ describe("amend a saved query page", () => {
     it("should leave a forged write on somebody else's query to api rather than refusing it here", async () => {
       // With the controls hidden, reaching this takes a hand-crafted POST, and api refuses one. A local
       // refusal as well would put the authority for one rule in two places.
-      vi.mocked(findSavedQuery).mockResolvedValue(savedQuery({ editable: false }) as never);
+      vi.mocked(findSavedQuery).mockResolvedValue(savedQuery({ editable: false, shared: false }) as never);
       const res = response();
 
       await POST(request({ ...SUBMITTED, action: "delete" }), res);

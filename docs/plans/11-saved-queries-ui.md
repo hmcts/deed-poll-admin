@@ -797,9 +797,44 @@ no interstitial — nobody else can see it, so there is nothing to warn about.
 Wording states uncertainty. **Do not write a number**: api exposes no subscriber count, and *"3 people"*
 would be invented.
 
-- [ ] Confirmation page for a shared query's delete, warning-styled confirm and a cancel that acts on
+- [x] Confirmation page for a shared query's delete, warning-styled confirm and a cancel that acts on
       nothing; unshared queries delete without one; wording claims no count; tests covering both paths and
       that cancel deletes nothing
+
+#### What was built, and the one thing it had to decide that the task did not name
+
+`src/pages/deed-polls/queries/[queryId]/delete.ts` plus `queries/delete.njk`, and the amend form's delete
+branch now routes rather than acting: it reads the query and redirects a **published** one to the
+confirmation, deleting an unshared one where it stands.
+
+**The branch reads the *stored* `shared`, not the checkbox's.** That is the decision the task left open, and
+the alternatives are not equivalent: a caseworker who unticks "publish" and then hits Delete without saving
+has not unpublished anything, so everybody holding the query in their filter bar still holds it and the
+warning is still owed. Deciding from `values.shared` would have skipped the interstitial on exactly the form
+state that looks like it should. It costs one extra read on a delete — not a permission pre-check, which
+decision 1 forbids, but the one fact the page cannot otherwise know.
+
+**A typed URL for an unshared query's confirmation redirects to the amend form** rather than rendering. The
+page's own sentence — "Other people may have this query in their filter bar" — is untrue of a query nobody
+else can see, and a `GET` may not delete, so there is nothing honest for it to render.
+
+Three properties the tests pin that the code alone does not state:
+
+- **The wording carries no digit.** `expect(warning).not.toMatch(/\d/)` — decision 5 said no count, and a
+  string assertion on the current sentence would not notice one arriving.
+- **Cancel is a link, so the page has exactly one thing that can act.** The template test counts `<button>`
+  and finds **one**, which is what makes "cancel deletes nothing" a property of the markup rather than of a
+  handler branch. `POST` still refuses anything but the literal `action=delete`, because a body this page
+  did not produce is not a confirmation.
+- **`POST` does not re-read the query**, asserted rather than assumed: the confirmation was for the
+  caseworker, not a lock, and a re-read would only invite a second opinion on api's rule. The confirm
+  control still hangs off `editable` and is absent rather than disabled, as the amend form's is.
+
+Measured from a `/tmp` copy (`git ls-files -co`, the change being uncommitted), all three green: `yarn lint`
+**exit 0**, the same 3 warnings and 2 infos tasks 2-6 recorded and no new ones. **1,894 tests**, 8 of 8 tasks
+successful, 0 failures, 0 worker errors — up 22 from 1,872, all of it the app (573 → 595): 15 handler cases
+on the new page, 5 template cases, and 2 net on the amend form's rerouted delete. `yarn build` 8 of 8 in
+14.2s. Task 8 compares against **1,894**.
 
 ### Task 8: An e2e journey, and full validation
 

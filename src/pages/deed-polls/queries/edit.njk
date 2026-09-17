@@ -10,7 +10,8 @@
 
   Delete is a second submit on the SAME form rather than its own route, as the witness and note deletes are,
   so the two cannot drift; the handler branches on `action`, checking delete first. Styled as a warning so it
-  cannot be mistaken for the primary action.
+  cannot be mistaken for the primary action. Where it goes depends on the stored query and not on this markup:
+  a published one gets `delete.njk`'s confirmation, an unshared one goes at once.
 
   Both write controls hang off `canAmend`, which is api's `editable` and nothing computed here. They are
   absent rather than disabled when it is false — a disabled button has no value to read — and the sentence in
