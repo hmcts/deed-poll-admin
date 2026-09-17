@@ -10,7 +10,8 @@ const record = {
   dateReceived: new Date("2026-03-01T00:00:00.000Z"),
   type: "Adult" as const,
   state: "Received" as const,
-  newForename: "Ada"
+  newForename: "Ada",
+  newSurname: "Lovelace"
 };
 
 describe("deed-poll/list-view", () => {
@@ -71,6 +72,20 @@ describe("deed-poll/list-view", () => {
     expect(buildCaseList([{ ...record, newForename: null }])[0].newForename).toBe(NOT_PROVIDED);
   });
 
+  it("shows the surname the search may have matched on, beside the forename", () => {
+    // Plan 12's decision 6: a q of "Smith" matching newSurname must be able to show the surname it
+    // matched, or the results are a table of forenames with the reason for each row off screen.
+    expect(buildCaseList([record])[0].newSurname).toBe("Lovelace");
+  });
+
+  it("shows the placeholder for a case with no surname, which api permits", () => {
+    expect(buildCaseList([{ ...record, newSurname: null }])[0].newSurname).toBe(NOT_PROVIDED);
+  });
+
+  it("offers a sortable header for the surname column, since api orders by it", () => {
+    expect(CASE_LIST_COLUMNS.find((column) => column.sort === "newSurname")?.label).toBe("New surname");
+  });
+
   it("carries the id so the reference can link to the case", () => {
     expect(buildCaseList([record])[0].id).toBe("case-1");
   });
@@ -97,7 +112,7 @@ describe("deed-poll/list-view", () => {
   it("resolves every column name it formats against the shared field metadata", () => {
     // If a name were absent, format() would fall back to String() and quietly lose the label or
     // date formatting for that column.
-    for (const name of ["privacy", "dateReceived", "type", "state", "newForename"]) {
+    for (const name of ["privacy", "dateReceived", "type", "state", "newForename", "newSurname"]) {
       expect(FIELD_BY_NAME[name], `${name} is not on any form tab`).toBeDefined();
     }
   });

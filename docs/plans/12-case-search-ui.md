@@ -607,11 +607,47 @@ once the view model carries it; no separate template edit for the header.
 
 The empty-search and empty-list states are the same markup (`index.njk:240`); nothing to add there.
 
-- [ ] `newSurname` on `CaseListRow`, `CASE_LIST_COLUMNS` and `buildCaseList`; `list-view.test.ts` count and
+- [x] `newSurname` on `CaseListRow`, `CASE_LIST_COLUMNS` and `buildCaseList`; `list-view.test.ts` count and
       field assertions updated (count +1); a `role="search"` GET form above the nav carrying filter/where/sort
       as hidden inputs and `q` as the visible search input; the surname cell in the row array so seven columns
       render; `index.njk.test.ts` updated for the new column and asserting the search form preserves an active
       query's hidden inputs
+
+**Done 2026-09-17.** `newSurname` is `CASE_LIST_COLUMNS`' seventh entry — appended **after** `newForename`
+rather than inserted beside it, so every existing index-keyed assertion in `list-sort.test.ts` and
+`index.test.ts` still names the column it did before; the cell went in the same position in the template's row
+array. `buildCaseList` maps it through the shared `format`, so an unset surname shows the same placeholder the
+other cells show rather than an empty td.
+
+The count assertion in `list-view.test.ts` needed no edit: it compares the row's cell keys against
+`CASE_LIST_COLUMNS.length`, so it moved from 6 to 7 on both sides at once and is the assertion that would have
+caught a column added to one and not the other. **Two enumerated assertions elsewhere did need the new entry**
+— `list-sort.test.ts:83`'s list of unsorted-column hrefs and `index.test.ts:598`'s list of sort-header hrefs —
+which is those tests earning their keep: a header offering an order the table cannot show is decision 8's own
+failure mode.
+
+The search form is above the nav, `role="search"`, `method="get"`, and carries `filterValue`, each entry of
+`searchWhere` and `sortValue` as hidden inputs with **no `page`**. The visible control is `govukInput` with
+`type="search"` — a labelled, hinted, `aria-describedby`-wired native input, no JavaScript, so a set of results
+is a shareable URL. The hint states what api actually matches: a reference has to be whole, a name matches any
+part, and there is no tolerance for a misspelling.
+
+**One existing test had to change rather than be added to**, and it is worth naming: `index.njk.test.ts`'s
+"carries no search control when nothing was searched" asserted the markup contained no `name="q"` at all,
+which was true only while the builder's hidden control was the page's only `q`. It is now scoped to
+`<input type="hidden" name="q"` — the builder's copy is what must be absent when there is no term, while the
+search box is always named `q`. Left as a bare `name="q"` it would have failed for the right reason and the
+wrong cause.
+
+Also updated for accuracy rather than behaviour: `list-sort.ts`'s docblock said "only the six columns the
+table shows are sortable" and `buildCaseList`'s said a table "that shows six cells", both now unnumbered or
+seven — a comment that counts wrongly is worse than one that does not count.
+
+Measured: `@hmcts/deed-poll` **748** (was 745, +3 in `list-view.test.ts`), app **621** (was 612 — 8 search-form
+tests and 1 for the column and its header). Full suite **1,949** across 8 of 8 tasks, 0 failures — redis 7,
+cnp 140, simple-router 41, session-postgres 23, api-client 242, deed-poll 748, govuk-starter 127, app 621.
+`yarn lint` exit 0 with the documented 2 warnings and 2 infos. `yarn build` green in 13.6s from a `/tmp` copy
+of the working tree with the `*.tsbuildinfo` files excluded.
 
 ### Task 6: An e2e journey, and full validation
 
