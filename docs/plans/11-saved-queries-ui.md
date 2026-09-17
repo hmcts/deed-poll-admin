@@ -315,6 +315,14 @@ If the spec has no saved-query operations at all, the gate at the top of this pl
 
 ### Task 1: The wire schemas and the adapter operations
 
+**DONE BY HAND before the run, commit `18ba54a` — do not redo it.** The gate had to be green before task 2
+could mean anything: `contract.test.ts` asserts exact set equality against the spec, so the refreshed document
+made two assertions fail, and they were red *for this task*. A run starting here would have had every task
+reporting a red gate it did not cause. Two corrections worth knowing, both of which the contract test caught:
+`filter` and `sortDirection` are **enums** in the spec, not plain strings, and are now `LIST_FILTER` and
+`SORT_DIRECTION` exported beside the other published vocabularies. Verify with
+`cd libs/deed-poll-api-client && yarn vitest run src/api/contract.test.ts` — 57 assertions, all green.
+
 `libs/deed-poll-api-client/src/api/wire.ts`, then `client.ts`, then `contract.test.ts`.
 
 Follow the file's existing pattern exactly (it is uniform, so there is no judgement to exercise):
@@ -347,7 +355,7 @@ as `openapi.json` carries it:
 (`contract.test.ts:35`) — the list is compared for **exact equality** with the spec's paths, so it must
 match to the character.
 
-- [ ] Schemas added to `WIRE_SCHEMAS` under their exact spec names, strictness pinned, request schemas
+- [x] Schemas added to `WIRE_SCHEMAS` under their exact spec names, strictness pinned, request schemas
       registered in the `requests` array; seven operations added following `listCases`/`createNote`
       verbatim in shape; all seven in `IMPLEMENTED_OPERATIONS`; `contract.test.ts` green, which is the
       proof the adapter and the spec agree
