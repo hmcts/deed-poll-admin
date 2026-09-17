@@ -424,6 +424,146 @@ describe("deed-polls list page", () => {
     });
   });
 
+  describe("the search", () => {
+    it("sends api the term the URL carries, so the matching is api's and nothing is searched here", async () => {
+      await GET(pageRequest({ query: { q: "Smith" } }), pageResponse());
+
+      expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", q: "Smith", conditions: [], sort: undefined, page: undefined }, expect.anything());
+    });
+
+    it("trims the term, since a leading space is a paste rather than a search for one", async () => {
+      await GET(pageRequest({ query: { q: "  Smith  " } }), pageResponse());
+
+      expect(findDeedPolls).toHaveBeenCalledWith(expect.objectContaining({ q: "Smith" }), expect.anything());
+    });
+
+    it("sends no term for a search of only whitespace, leaving the list exactly as it is without one", async () => {
+      await GET(pageRequest({ query: { q: "   " } }), pageResponse());
+
+      expect(findDeedPolls).toHaveBeenCalledWith({ filter: "all", q: undefined, conditions: [], sort: undefined, page: undefined }, expect.anything());
+    });
+
+    it("applies the term with the tab and the query, because api ANDs a search within them", async () => {
+      await GET(pageRequest({ query: { q: "Smith", filter: "open", where: "type:is:Adult" } }), pageResponse());
+
+      expect(findDeedPolls).toHaveBeenCalledWith(
+        expect.objectContaining({ filter: "open", q: "Smith", conditions: [{ field: "type", operator: "is", values: ["Adult"] }] }),
+        expect.anything()
+      );
+    });
+
+    it("carries the term on every tab link, so switching tab searches within the other tab", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { q: "Smith", filter: "open" } }), res);
+
+      expect(res.render.mock.calls[0][1].filterGroups[0].entries.map((tab: { href: string }) => tab.href)).toEqual([
+        "/deed-polls?q=Smith",
+        "/deed-polls?filter=open&q=Smith",
+        "/deed-polls?filter=received&q=Smith",
+        "/deed-polls?filter=enroled&q=Smith",
+        "/deed-polls?filter=returned&q=Smith"
+      ]);
+    });
+
+    it("carries the term on every sort header, so reordering results does not silently widen them", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { q: "Smith" } }), res);
+
+      for (const header of res.render.mock.calls[0][1].sortHeaders) {
+        expect(header.href).toContain("q=Smith");
+      }
+    });
+
+    it("carries the term on every page link, since page 2 of a search is a page of that search", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ filter: "all", cases: [], page: 2, size: 25, total: 60, totalPages: 3 } as never);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { q: "Smith", page: "2" } }), res);
+
+      const { links } = res.render.mock.calls[0][1].paging;
+      expect(links.previous).toEqual({ href: "/deed-polls?q=Smith" });
+      expect(links.next).toEqual({ href: "/deed-polls?q=Smith&page=3" });
+    });
+
+    it("keeps the term on the clear link, which clears the conditions and not the search", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { q: "Smith", filter: "open", where: "type:is:Adult" } }), res);
+
+      expect(res.render.mock.calls[0][1].clearHref).toBe("/deed-polls?filter=open&q=Smith");
+    });
+
+    it("carries the term through a builder submission, so applying a filter narrows the search", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { apply: "true", q: "Smith", "field-0": "type", "op-0": "is", "value-0-0": "Adult" } }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls?q=Smith&where=type%3Ais%3AAdult");
+    });
+
+    it("hands the search form the active query as hidden inputs, so a search composes with it", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { q: "Smith", filter: "open", where: ["type:is:Adult", "state:is:Received"], sort: "state:desc" } }), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.searchTerm).toBe("Smith");
+      expect(model.searchWhere).toEqual(["type:is:Adult", "state:is:Received"]);
+      expect(model.filterValue).toBe("open");
+      expect(model.sortValue).toBe("state:desc");
+    });
+
+    it("leaves a blank builder row out of the search form's hidden inputs, since it narrows nothing", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: [":", "type:is:Adult"] } }), res);
+
+      expect(res.render.mock.calls[0][1].searchWhere).toEqual(["type:is:Adult"]);
+    });
+
+    it("shows an empty box when nothing was searched, rather than the word undefined", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].searchTerm).toBe("");
+    });
+
+    it("renders the empty list with the term still in the box, because a search that finds nothing is not an error", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { q: "Nobody" } }), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.cases).toEqual([]);
+      expect(model.searchTerm).toBe("Nobody");
+      expect(model.errorSummary).toEqual([]);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it("redirects to the case api matched the reference exactly, rather than rendering a list of one", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ ...page([record]), referenceMatch: "case-1" } as never);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { q: "KBDP2026-00001" } }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1");
+      expect(res.render).not.toHaveBeenCalled();
+    });
+
+    it("does not redirect for a single row api reported no reference match for, since one name match is a list", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ ...page([record]), referenceMatch: null } as never);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { q: "Ada" } }), res);
+
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.render.mock.calls[0][1].cases).toHaveLength(1);
+    });
+  });
+
   describe("the order and the page", () => {
     it("sends api the order the URL asks for", async () => {
       await GET(pageRequest({ query: { sort: "dateReceived:desc" } }), pageResponse());
@@ -461,7 +601,8 @@ describe("deed-polls list page", () => {
         "/deed-polls?filter=open&where=type%3Ais%3AAdult&where=state%3Ais%3AReceived&sort=dateReceived%3Aasc",
         "/deed-polls?filter=open&where=type%3Ais%3AAdult&where=state%3Ais%3AReceived&sort=type%3Aasc",
         "/deed-polls?filter=open&where=type%3Ais%3AAdult&where=state%3Ais%3AReceived&sort=state%3Aasc",
-        "/deed-polls?filter=open&where=type%3Ais%3AAdult&where=state%3Ais%3AReceived&sort=newForename%3Aasc"
+        "/deed-polls?filter=open&where=type%3Ais%3AAdult&where=state%3Ais%3AReceived&sort=newForename%3Aasc",
+        "/deed-polls?filter=open&where=type%3Ais%3AAdult&where=state%3Ais%3AReceived&sort=newSurname%3Aasc"
       ]);
     });
 

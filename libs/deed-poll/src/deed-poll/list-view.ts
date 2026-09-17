@@ -26,6 +26,12 @@ export interface CaseListRow {
   type: string;
   state: string;
   newForename: string;
+  /**
+   * Beside the forename because a search matches on it — plan 12's decision 6. A `q` of "Smith" that
+   * matched `newSurname` and showed only forenames would be a table of results with the reason for each
+   * of them off screen.
+   */
+  newSurname: string;
 }
 
 /**
@@ -44,13 +50,16 @@ export const CASE_LIST_COLUMNS: CaseListColumn[] = [
   { label: "Received", sort: "dateReceived" },
   { label: "Type", sort: "type" },
   { label: "State", sort: "state" },
-  { label: "New forename", sort: "newForename" }
+  { label: "New forename", sort: "newForename" },
+  // Sortable, and confirmed so rather than assumed: `newSurname` is named in the `sort` parameter's
+  // sortable-field prose, so the header this pair produces cannot earn a 400.
+  { label: "New surname", sort: "newSurname" }
 ];
 
 /**
- * `CaseSummary` is exactly these seven columns — api's list response carries no more, because a
- * table that shows six cells has no business asking for 70 — so the row builder takes it whole
- * rather than picking from it.
+ * `CaseSummary` is exactly these columns — api's list response carries no more, because a table that
+ * shows seven cells has no business asking for 70 — so the row builder takes it whole rather than
+ * picking from it.
  */
 export function buildCaseList(cases: CaseSummary[]): CaseListRow[] {
   return cases.map((record) => ({
@@ -65,7 +74,8 @@ export function buildCaseList(cases: CaseSummary[]): CaseListRow[] {
     dateReceived: format("dateReceived", record.dateReceived),
     type: format("type", record.type),
     state: format("state", record.state),
-    newForename: format("newForename", record.newForename)
+    newForename: format("newForename", record.newForename),
+    newSurname: format("newSurname", record.newSurname)
   }));
 }
 

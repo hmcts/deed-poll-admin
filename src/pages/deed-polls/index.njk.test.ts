@@ -47,7 +47,8 @@ const record = {
   dateReceived: new Date("2026-03-01T00:00:00.000Z"),
   type: "Adult",
   state: "Received",
-  newForename: "Ada"
+  newForename: "Ada",
+  newSurname: "Lovelace"
 };
 
 /** The list page as a browser receives it, for the query the URL carries. */
@@ -85,6 +86,20 @@ describe("deed-polls list template", () => {
     const markup = await render({ filter: "enroled" });
 
     expect(markup).toContain('<input type="hidden" name="filter" value="enroled">');
+  });
+
+  it("carries the search term through the builder, so applying a filter narrows the search", async () => {
+    const markup = await render({ q: "Smith" });
+
+    expect(markup).toContain('<input type="hidden" name="q" value="Smith">');
+  });
+
+  it("carries no hidden search control when nothing was searched, rather than submitting an empty q", async () => {
+    // Scoped to the hidden control: the search box itself is always `name="q"`, and it is the builder's
+    // copy of the term that must not appear when there is no term to carry.
+    const markup = await render();
+
+    expect(markup).not.toContain('<input type="hidden" name="q"');
   });
 
   it("adds and removes rows with submit buttons, so the builder needs no JavaScript at all", async () => {
@@ -310,6 +325,74 @@ describe("deed-polls list template", () => {
     expect(markup).toMatch(/<optgroup label="Application: Names">[\s\S]*?<option value="newSurname" selected>New surname<\/option>/);
   });
 
+  describe("the search form", () => {
+    /**
+     * The search form on its own, so "the search carries the filter" cannot be satisfied by the builder
+     * form below it, which carries the same value under the same name.
+     */
+    const searchForm = (markup: string): string => markup.match(/<form[^>]*role="search"[\s\S]*?<\/form>/)?.[0] ?? "";
+
+    it("sits above the filter bar, since searching is how a caseworker enters the list", async () => {
+      const markup = await render();
+
+      expect(searchForm(markup)).not.toBe("");
+      expect(markup.indexOf('role="search"')).toBeLessThan(markup.indexOf('<nav class="app-filter-nav"'));
+    });
+
+    it("submits as a GET, so a set of results is a URL that can be bookmarked and shared", async () => {
+      const form = searchForm(await render());
+
+      expect(form).toContain('<form method="get" action="/deed-polls"');
+    });
+
+    it("asks for the term with a native search input, so it needs no JavaScript", async () => {
+      const form = searchForm(await render());
+
+      expect(form).toMatch(/<input[^>]*id="q"[^>]*name="q"[^>]*type="search"/);
+      expect(form).toContain("Search cases");
+      expect(form).toContain("Enter a full case reference, or part of any name on the case.");
+    });
+
+    it("shows the term that was searched, so refining a search starts from it", async () => {
+      const form = searchForm(await render({ q: "Smith" }));
+
+      expect(form).toMatch(/<input[^>]*name="q"[^>]*value="Smith"/);
+    });
+
+    it("shows an empty box when nothing was searched, rather than the word undefined", async () => {
+      const form = searchForm(await render());
+
+      expect(form).toMatch(/<input[^>]*name="q"[^>]*value=""/);
+      expect(form).not.toContain("undefined");
+    });
+
+    it("carries the active query as hidden inputs, so a search narrows it instead of replacing it", async () => {
+      // api ANDs q with filter and where — decision 4 — so the form has to be able to say
+      // "Smith, within Enroled, received in June".
+      const form = searchForm(await render({ filter: "enroled", where: ["type:is:Adult", "state:is:Received"], sort: "state:desc" }));
+
+      expect(form).toContain('<input type="hidden" name="filter" value="enroled">');
+      expect(form).toContain('<input type="hidden" name="where" value="type:is:Adult">');
+      expect(form).toContain('<input type="hidden" name="where" value="state:is:Received">');
+      expect(form).toContain('<input type="hidden" name="sort" value="state:desc">');
+    });
+
+    it("carries no page, so a new search starts at its own first page", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ filter: "all", cases: [record], page: 4, size: 25, total: 213, totalPages: 9 } as never);
+
+      const form = searchForm(await render({ page: "4" }));
+
+      expect(form).not.toContain('name="page"');
+    });
+
+    it("leaves a blank builder row out of its hidden inputs, since a row holding nothing narrows nothing", async () => {
+      const form = searchForm(await render({ where: [":", "type:is:Adult"] }));
+
+      expect(form).toContain('<input type="hidden" name="where" value="type:is:Adult">');
+      expect(form).not.toContain('name="where" value=":"');
+    });
+  });
+
   describe("the filter bar", () => {
     /** The nav on its own, so an assertion about what the bar carries cannot be satisfied by the rest of the page. */
     const filterNav = (markup: string): string => markup.match(/<nav class="app-filter-nav"[\s\S]*?<\/nav>/)?.[0] ?? "";
@@ -445,7 +528,20 @@ describe("deed-polls list template", () => {
       const markup = await render({ sort: "state:desc" });
 
       expect(markup).toMatch(/<th[^>]*aria-sort="descending"[^>]*>\s*<a class="govuk-link" href="\/deed-polls\?sort=state%3Aasc"/);
-      expect([...markup.matchAll(/aria-sort="none"/g)]).toHaveLength(5);
+      expect([...markup.matchAll(/aria-sort="none"/g)]).toHaveLength(6);
+    });
+
+    it("shows the surname the search may have matched on, with a sortable header of its own", async () => {
+      // Decision 6: a row array shorter than the header loop renders a table whose cells sit under the
+      // wrong headings, so the cell and the header are asserted together.
+      vi.mocked(findDeedPolls).mockResolvedValue(results(1) as never);
+
+      const markup = await render();
+
+      expect(markup).toContain('<a class="govuk-link" href="/deed-polls?sort=newSurname%3Aasc">');
+      expect(markup).toContain("Sort by </span>New surname");
+      expect([...markup.matchAll(/<th /g)]).toHaveLength(7);
+      expect(markup).toContain("Lovelace");
     });
 
     it("carries the order through the builder as a control of its own, since the form submits as a GET", async () => {

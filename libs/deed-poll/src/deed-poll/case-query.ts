@@ -133,6 +133,10 @@ export function isCompleteCondition(condition: CaseCondition): boolean {
  * round trip. The single exception is a builder holding **one** entirely blank row, which is what an
  * unfiltered list renders anyway — writing `where=:` for it would put a parameter in the URL that says
  * nothing.
+ *
+ * `q` is carried here for the same reason the conditions are: a sort header or a page number that dropped
+ * the search term would show a different result set under the same heading. It is trimmed, and a term that
+ * is only whitespace is no term — an empty `q=` in a bookmark pins nothing.
  */
 export function caseListSearch(link: CaseListLink): string {
   const conditions = link.conditions ?? [];
@@ -141,6 +145,7 @@ export function caseListSearch(link: CaseListLink): string {
   const parameters = new URLSearchParams();
   // The first filter is the one an absent key falls back to, at both ends, so naming it says nothing.
   if (link.filter !== undefined && link.filter !== "" && link.filter !== LIST_FILTERS[0].key) parameters.set("filter", link.filter);
+  if (link.q !== undefined && link.q.trim() !== "") parameters.set("q", link.q.trim());
   for (const entry of serialiseConditions(carried)) parameters.append("where", entry);
   if (link.sort !== undefined && link.sort !== "") parameters.set("sort", link.sort);
   if (link.page !== undefined && link.page > 1) parameters.set("page", String(link.page));
@@ -255,6 +260,8 @@ export interface CaseCondition {
 /** Everything a link to the case list carries. The path is the page's business, not this file's. */
 export interface CaseListLink {
   filter?: string;
+  /** The search term, matched by api across the reference and the name fields. Not a condition. */
+  q?: string;
   conditions?: CaseCondition[];
   sort?: string;
   page?: number;

@@ -106,6 +106,7 @@ const UPLOAD_FILE_FIELD = "file";
 export async function listCases(query: CaseListQuery, config: ApiConfig): Promise<ApiResult<CaseList>> {
   const parameters = new URLSearchParams();
   if (query.filter !== undefined) parameters.set("filter", query.filter);
+  if (query.q !== undefined) parameters.set("q", query.q);
   for (const condition of query.where ?? []) parameters.append("where", condition);
   if (query.sort !== undefined) parameters.set("sort", query.sort);
   if (query.page !== undefined) parameters.set("page", String(query.page));
@@ -740,6 +741,15 @@ export type DocumentDirection = NonNullable<Document["direction"]>;
 export interface CaseListQuery {
   /** One of api's saved-query keys. It composes with `where` rather than being replaced by it. */
   filter?: string;
+  /**
+   * A free-text search term, ANDed with `filter` and `where`.
+   *
+   * api ORs it across six name fields and the reference number, matching a substring rather than fuzzily,
+   * and truncates a term beyond 100 characters instead of refusing it. Which fields those are and what
+   * counts as a reference are api's rules, not repeated here — a `referenceMatch` on the response is how it
+   * reports an exact reference hit.
+   */
+  q?: string;
   /** Conditions as `field:operator:value`, ANDed. api caps them at 20 and refuses the request beyond that. */
   where?: readonly string[];
   /** `field` or `field:asc` or `field:desc`. Omitted is newest first. */

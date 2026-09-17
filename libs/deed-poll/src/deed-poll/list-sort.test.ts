@@ -85,7 +85,8 @@ describe("deed-poll/list-sort", () => {
         "/deed-polls?sort=privacy:asc",
         "/deed-polls?sort=type:asc",
         "/deed-polls?sort=state:asc",
-        "/deed-polls?sort=newForename:asc"
+        "/deed-polls?sort=newForename:asc",
+        "/deed-polls?sort=newSurname:asc"
       ]);
     });
   });

@@ -19,6 +19,36 @@
   {% endif %}
 
   {#
+    The search box, above the bar and in a form of its own — plan 12's decision 4. A form rather than a
+    control of the builder because searching is an entry gesture: a caseworker looking for the Smith case
+    should not have to reach past a query builder to type a name.
+
+    The active query travels as hidden inputs, so submitting a search **narrows** what is on screen rather
+    than replacing it — api ANDs `q` with `filter` and `where`, and the UI has to be able to say "Smith,
+    within Enroled, received in June". `page` deliberately does not travel: a new search is a different set
+    of rows, so page 4 of the last one is not a page of this one.
+
+    No JavaScript: a native `type="search"` input submitting a GET, so the results are a URL that can be
+    bookmarked and shared — decision 7.
+  #}
+  <form method="get" action="/deed-polls" class="govuk-!-margin-bottom-4" role="search">
+    <input type="hidden" name="filter" value="{{ filterValue }}">
+    {% for entry in searchWhere %}<input type="hidden" name="where" value="{{ entry }}">{% endfor %}
+    {% if sortValue %}<input type="hidden" name="sort" value="{{ sortValue }}">{% endif %}
+
+    {{ govukInput({
+      id: "q",
+      name: "q",
+      type: "search",
+      value: searchTerm,
+      label: { text: searchLabel, classes: "govuk-label--s" },
+      hint: { text: searchHint }
+    }) }}
+
+    {{ govukButton({ text: searchButton, classes: "govuk-button--secondary" }) }}
+  </form>
+
+  {#
     The filter bar, as `app-filter-nav` in the global stylesheet — decisions 7, 8 and 9. A list because it
     is one, a labelled group per group of destinations, and `aria-current="page"` rather than a `<strong>`
     because "you are here" is not strong importance and must not be carried by boldness alone. Spacing is
@@ -58,6 +88,12 @@
     <input type="hidden" name="filter" value="{{ filterValue }}">
     {# The order survives applying a query; the page number deliberately does not, so a query starts at its first page. #}
     {% if sortValue %}<input type="hidden" name="sort" value="{{ sortValue }}">{% endif %}
+    {#
+      And so does the search term — plan 12's decision 1. Applying a filter to a set of search results must
+      narrow the search, not throw it away: this form is the one submission on the page that is not a link,
+      so the term travels as a control instead of in an href.
+    #}
+    {% if searchTerm %}<input type="hidden" name="q" value="{{ searchTerm }}">{% endif %}
 
     <h2 class="govuk-heading-m">{{ builderHeading }}</h2>
     <p class="govuk-hint">{{ builderHint }}</p>
@@ -273,7 +309,8 @@
         { text: c.dateReceived },
         { text: c.type },
         { text: c.state },
-        { text: c.newForename }
+        { text: c.newForename },
+        { text: c.newSurname }
       ]), rows) %}
     {% endfor %}
 

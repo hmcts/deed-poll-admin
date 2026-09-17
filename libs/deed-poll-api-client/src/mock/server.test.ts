@@ -647,6 +647,108 @@ describe("the list query", () => {
   });
 });
 
+describe("the list search term", () => {
+  it("should match a name as a case-insensitive substring, as the published q rule states", async () => {
+    mock.seed({ newSurname: "Smithson" });
+    mock.seed({ newSurname: "Jones" });
+
+    const list = await get("/caseworker/cases?q=smith");
+
+    expect(list.cases.map((summary: { newSurname: string }) => summary.newSurname)).toEqual(["Smithson"]);
+    expect(list.total).toBe(1);
+  });
+
+  it.each(["newForename", "newSurname", "oldForename", "oldSurname", "parents", "representativeName"] as const)(
+    "should search %s, one of the six fields the term is matched against",
+    async (field) => {
+      mock.seed({ [field]: "Wollstonecraft" } as Partial<MockCase>);
+
+      expect((await get("/caseworker/cases?q=stonecraft")).total).toBe(1);
+    }
+  );
+
+  it("should not search an address or a narrative field, which api deliberately excludes", async () => {
+    mock.seed({ applicantAddress1: "Wollstonecraft Road", returnReason: "Returned to Wollstonecraft" });
+
+    expect((await get("/caseworker/cases?q=Wollstonecraft")).total).toBe(0);
+  });
+
+  it("should not match a misspelling, because the term is substring and not fuzzy", async () => {
+    mock.seed({ newSurname: "Smith" });
+
+    expect((await get("/caseworker/cases?q=Smyth")).total).toBe(0);
+  });
+
+  it("should treat a blank term as no search rather than as a term nothing matches", async () => {
+    mock.seed({ newSurname: "Smith" });
+
+    expect((await get("/caseworker/cases?q=")).total).toBe(1);
+    expect((await get(`/caseworker/cases?q=${encodeURIComponent("   ")}`)).total).toBe(1);
+  });
+
+  it("should AND the term with the filter and the conditions rather than widening either", async () => {
+    mock.seed({ newSurname: "Smith", type: "Adult", state: "Received" });
+    mock.seed({ newSurname: "Smith", type: "Minor", state: "Received" });
+    mock.seed({ newSurname: "Smith", type: "Adult", state: "Enroled" });
+
+    const list = await get("/caseworker/cases?q=Smith&filter=open&where=type:is:Adult");
+
+    expect(list.total).toBe(1);
+  });
+
+  it("should page the matches rather than paging the whole list and then matching it", async () => {
+    for (const surname of ["Smith", "Smithers", "Jones"]) mock.seed({ newSurname: surname });
+
+    const list = await get("/caseworker/cases?q=Smith&page=1&size=25");
+
+    expect(list.total).toBe(2);
+    expect(list.cases).toHaveLength(2);
+  });
+
+  it("should carry the exactly-matched case's id as referenceMatch", async () => {
+    const seeded = mock.seed({ displayReference: "KBDP2026-00042", newSurname: "Smith" });
+
+    expect((await get("/caseworker/cases?q=KBDP2026-00042")).referenceMatch).toBe(seeded.id);
+  });
+
+  it.each(["kbdp2026-00042", "KBDP202600042", " KBDP2026-00042 "])("should match the reference tolerantly of case, hyphens and spaces for %s", async (term) => {
+    const seeded = mock.seed({ displayReference: "KBDP2026-00042" });
+
+    expect((await get(`/caseworker/cases?q=${encodeURIComponent(term)}`)).referenceMatch).toBe(seeded.id);
+  });
+
+  it("should leave referenceMatch null for a name term, so a name search is never redirected past", async () => {
+    mock.seed({ displayReference: "KBDP2026-00042", newSurname: "Smith" });
+
+    const list = await get("/caseworker/cases?q=Smith");
+
+    expect(list.total).toBe(1);
+    expect(list.referenceMatch).toBeNull();
+  });
+
+  it("should leave referenceMatch null when there is no term at all, whatever a case's reference is", async () => {
+    mock.seed({ displayReference: "KBDP2026-00042" });
+
+    expect((await get("/caseworker/cases")).referenceMatch).toBeNull();
+  });
+
+  it("should leave referenceMatch null when the filter excludes the case whose reference matched", async () => {
+    // Otherwise a page would redirect to a case the caseworker's own filter had just excluded.
+    mock.seed({ displayReference: "KBDP2026-00042", state: "Enroled" });
+
+    const list = await get("/caseworker/cases?q=KBDP2026-00042&filter=open");
+
+    expect(list.total).toBe(0);
+    expect(list.referenceMatch).toBeNull();
+  });
+
+  it("should include the surname in a row, since a surname match has to be able to show what it matched", async () => {
+    mock.seed({ newForename: "Ada", newSurname: "Smith" });
+
+    expect((await get("/caseworker/cases")).cases[0]).toMatchObject({ newForename: "Ada", newSurname: "Smith" });
+  });
+});
+
 describe("the list sort", () => {
   it("should default to newest first, which is what the endpoint answered before it took a sort", async () => {
     const older = mock.seed({ createdOn: new Date("2026-01-01T00:00:00Z") });

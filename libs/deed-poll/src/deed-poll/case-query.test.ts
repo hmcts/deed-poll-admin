@@ -288,6 +288,34 @@ describe("deed-poll/case-query", () => {
     it("should write a page only once it is not the first, and a sort only when there is one", () => {
       expect(caseListSearch({ page: 2, sort: "dateReceived:desc" })).toBe("?sort=dateReceived%3Adesc&page=2");
     });
+
+    it("should carry the search term beside the tab, the conditions and the sort, so no link drops it", () => {
+      const search = caseListSearch({
+        filter: "open",
+        q: "Smith",
+        conditions: parseConditions(["type:is:Adult"]),
+        sort: "newSurname:asc",
+        page: 3
+      });
+
+      const parameters = new URLSearchParams(search);
+
+      expect(parameters.get("q")).toBe("Smith");
+      expect(parameters.get("filter")).toBe("open");
+      expect(parameters.getAll("where")).toEqual(["type:is:Adult"]);
+      expect(parameters.get("sort")).toBe("newSurname:asc");
+      expect(parameters.get("page")).toBe("3");
+    });
+
+    it("should trim the search term, because the surrounding spaces of a paste are not part of what was searched for", () => {
+      expect(new URLSearchParams(caseListSearch({ q: "  Smith  " })).get("q")).toBe("Smith");
+    });
+
+    it("should leave out a term that is empty or only whitespace, rather than pinning an empty q in a bookmark", () => {
+      expect(caseListSearch({ q: "" })).toBe("");
+      expect(caseListSearch({ q: "   " })).toBe("");
+      expect(caseListSearch({ q: undefined })).toBe("");
+    });
   });
 
   describe("rowForSentCondition", () => {

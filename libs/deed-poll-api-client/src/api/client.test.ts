@@ -299,6 +299,29 @@ describe("listCases", () => {
     // Addressed to the position, because the parameter is repeated and only a position says which row.
     expect(result.error.fieldErrors?.map((error) => error.field)).toEqual(["where.1"]);
   });
+
+  it("should put a search term on the wire as one q parameter beside the filter, and omit it when there is none", async () => {
+    // Recorded off a server of its own rather than asserted through the mock's results: what this pins is the
+    // URL, and an absent `q` must be absent rather than empty so api applies its own no-search behaviour.
+    const urls: (string | undefined)[] = [];
+    const recorder = await listen(
+      createServer((req, res) => {
+        urls.push(req.url);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ filter: "all", cases: [], page: 1, size: 25, total: 0, totalPages: 0 }));
+      })
+    );
+    const recorderConfig = { baseUrl: recorder.url, timeoutMs: 2000 };
+
+    try {
+      await listCases({ filter: "open", q: "Smith" }, recorderConfig);
+      await listCases({ filter: "open" }, recorderConfig);
+
+      expect(urls).toEqual(["/caseworker/cases?filter=open&q=Smith", "/caseworker/cases?filter=open"]);
+    } finally {
+      await recorder.close();
+    }
+  });
 });
 
 describe("notes", () => {

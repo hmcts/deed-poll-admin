@@ -3,7 +3,7 @@
  * a caseworker clicks.
  *
  * In the domain rather than on the page for the reason `list-filters.ts` records, and because the order is
- * `CASE_LIST_COLUMNS`' business: **only the six columns the table shows are sortable** — the plan's
+ * `CASE_LIST_COLUMNS`' business: **only the columns the table shows are sortable** — the plan's
  * decision 8. api will order by any of its 68 stored fields, and a `?sort=applicantEmail` off a
  * hand-edited URL would reorder the rows by a cell that is not on screen, which reads as a bug rather
  * than as an answer. An order this app cannot show is dropped, leaving api's own default of newest first,

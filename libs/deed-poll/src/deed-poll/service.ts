@@ -59,6 +59,7 @@ export function findDeedPolls(query: DeedPollQuery, caller: Caller): Promise<Cas
     listCases(
       {
         filter: query.filter,
+        q: query.q,
         where: caseQueryWhere(query.conditions ?? []),
         sort: query.sort,
         page: query.page,
@@ -140,6 +141,11 @@ export async function validateCaseForSubmit(id: string, caller: Caller): Promise
  */
 export interface DeedPollQuery {
   filter?: string;
+  /**
+   * The search term. api ORs it across the reference and the six name fields and ANDs the result with the
+   * filter and the conditions, so a search narrows within a tab rather than replacing it.
+   */
+  q?: string;
   conditions?: CaseCondition[];
   /** `field` or `field:asc` or `field:desc`, as api reads it. */
   sort?: string;
