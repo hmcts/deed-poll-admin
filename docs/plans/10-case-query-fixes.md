@@ -414,9 +414,40 @@ problem rather than a missing dependency.
 
 ### Task 7: Full validation
 
-- [ ] `yarn lint` exit 0 with no new warnings; `yarn turbo test test:app --concurrency=1` green with the total up
+- [x] `yarn lint` exit 0 with no new warnings; `yarn turbo test test:app --concurrency=1` green with the total up
       from the recorded baseline and 8 of 8 tasks; `yarn build` green; `yarn test:e2e --workers=1` green; the
       counts recorded in the task log next to the baseline
+
+      **The baseline was measured here, not at the start.** Task 1 deferred it (its log says so), so there was
+      no number to compare against — it was taken now from a `git worktree` of `master` (`d86fff2`) under
+      `/tmp`, installed and run in the same session with the same Redis up, which is the only way the skip
+      count is comparable. Master and this branch report the **same 109 test files** because every test added
+      by this plan went into a file that already existed; the plan's guidance to compare totals rather than
+      passed counts is why that is not a warning sign.
+
+      | | master (`d86fff2`) | `case-query-fixes` (`c3c2594`) |
+      |---|---|---|
+      | tasks | 8 of 8 | 8 of 8 |
+      | test files | 109 | 109 |
+      | tests | **1639** passed, 0 skipped | **1702** passed, 0 skipped (**+63**) |
+      | worker-startup errors | 0 | 0 |
+
+      Per workspace on the branch: app 488, `@hmcts/deed-poll` 684, `deed-poll-api-client` 192,
+      `cloud-native-platform` 140, `express-govuk-starter` 127, `simple-router` 41,
+      `express-session-postgres` 23, `express-session-redis` 7. The growth is all in the two workspaces this
+      plan touched — app 465 → 488 and `deed-poll` 644 → 684 — and the other six are unchanged, which is the
+      check that nothing outside the plan's scope moved. `deployment-chart.test.ts` and `pipeline.test.ts` are
+      inside the app's 488 and green.
+
+      `yarn lint` exit 0, the two pre-existing `noUndeclaredEnvVars` warnings (`src/server.ts` `PORT`,
+      `src/session-store.test.ts` `REDIS_URL`) and the two infos, over 288 files — the count did not grow.
+      `yarn build` 8 of 8 **uncached** (`--force`, 13.1s) with `app-filter-nav__current` present in the
+      emitted `index_css` and `query-builder_js` emitted at 4.27 kB. `yarn test:e2e --workers=1` **26 passed
+      in 1.5m** with both servers pre-warmed and `readiness` reporting `{"redis":"UP","deedPollApi":"UP"}`
+      before the browser started, the mock seeded with 32 cases; the two journeys this plan added — the
+      scripts-on swap and the scripts-off floor — are numbers 21 and 22 in that run. **No worker-startup
+      flake in any run**, so the environment failure the plan warns about did not appear this time and no
+      re-run was needed.
 
 ## Deliberately not in this plan
 
