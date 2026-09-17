@@ -520,6 +520,110 @@ test("caseworker builds a condition without a round trip, and is told when the v
 });
 
 /**
+ * Saving the query just built, and finding it again — plan 11's journey.
+ *
+ * What only a browser can show here is that three things are one object: the URL the builder produced, the
+ * row api stores, and the entry in the filter bar. Each half is unit-tested against a stub, and a stub cannot
+ * catch a `conditions` array that survives a save and comes back as something the builder cannot read.
+ *
+ * **The saved query is followed from somewhere else, deliberately.** The entry for the query a caseworker is
+ * already looking at renders as a span carrying `aria-current`, not a link, so the journey leaves for another
+ * tab and comes back through the filter bar — otherwise the link half of that branch is never exercised at
+ * all, and it is the half that navigates.
+ *
+ * **The `Amend` link's presence is not evidence the permission rule works.** The mock sets `editable: true`
+ * on everything and can produce no 403 — `libs/deed-poll-api-client/src/mock/server.ts` says so at the code —
+ * so both branches of that flag are covered in the page tests instead. What is asserted here is only that the
+ * control the flag gates is wired to a URL that resolves.
+ */
+test("caseworker saves the query they built, follows it from the filter bar, and takes it out again", async ({ page, request }) => {
+  // Arrange: two cases sharing a forename, so the query being saved finds rows of its own. The query's name
+  // is unique for the same reason the forename is — the mock's saved queries outlive a run and are shared
+  // with every spec beside this one, so a fixed name would find the previous run's query too.
+  const forename = seedForename();
+  await seedCasesToFilter(request, forename);
+  const queryName = `Applications from ${forename}`;
+
+  await page.goto("/deed-polls");
+
+  // One condition, built with a script running: three controls and a single submit. Driven rather than
+  // asserted — the builder itself is the two journeys above.
+  await page.getByLabel("Case field for condition 1", { exact: true }).selectOption("newForename");
+  await page.getByLabel("Comparison for condition 1", { exact: true }).selectOption("is");
+  await page.getByLabel("Value for condition 1", { exact: true }).fill(forename);
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await expect(page).toHaveURL(`/deed-polls?where=newForename%3Ais%3A${forename}`);
+
+  // A link out of the list rather than a control inside the builder's form — decision 9 — and it carries the
+  // query *as applied*, which is what the save page's own first sentence promises.
+  await page.getByRole("link", { name: "Save this query" }).click();
+  await expect(page).toHaveURL(`/deed-polls/queries/new?where=newForename%3Ais%3A${forename}`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Save this query");
+  await expectNoAccessibilityViolations(page);
+
+  // A query with no name is the mistake this form invites, and the name is the only thing it requires. The
+  // summary's anchor is checked because a link that resolves to nothing is the half that breaks in silence.
+  await page.getByRole("button", { name: "Save query" }).click();
+  await expect(page.getByRole("alert")).toContainText("Enter a name for this query");
+  await expect(page.getByRole("alert").getByRole("link", { name: "Enter a name for this query" })).toHaveAttribute("href", "#name");
+  await expectNoAccessibilityViolations(page);
+
+  await page.getByLabel("Name").fill(queryName);
+  await page.getByLabel("Description (optional)").fill("Everything this applicant has applied for.");
+  await page.getByRole("button", { name: "Save query" }).click();
+
+  // Back to the results just named, so the query string the form was opened with survived the round trip
+  // through api's columns and out again.
+  await expect(page).toHaveURL(`/deed-polls?where=newForename%3Ais%3A${forename}`);
+
+  // The filter bar's second group, which exists only because something is in it — an empty labelled group is
+  // a heading over nothing, so its presence is the assertion that the selection reached api.
+  const savedQueries = savedQueryGroup(page);
+  await expect(savedQueries.getByRole("heading", { level: 2 })).toHaveText("Saved queries");
+  await expect(savedQueries.getByText(queryName)).toHaveAttribute("aria-current", "page");
+  await expectNoAccessibilityViolations(page);
+
+  // Away to another tab, which carries the conditions and so is not the saved query: the entry stops being
+  // current and becomes the link a caseworker actually travels by.
+  await page.getByRole("link", { name: "Enroled" }).click();
+  await savedQueries.getByRole("link", { name: queryName }).click();
+
+  // And the conditions are in the builder, not merely in the URL — decision 7, which is the whole reason a
+  // saved query is a list URL rather than a mode: it opens ready to amend.
+  await expect(page).toHaveURL(`/deed-polls?where=newForename%3Ais%3A${forename}`);
+  await expect(page.getByLabel("Case field for condition 1", { exact: true })).toHaveValue("newForename");
+  await expect(page.getByLabel("Comparison for condition 1", { exact: true })).toHaveValue("is");
+  await expect(page.getByLabel("Value for condition 1", { exact: true })).toHaveValue(forename);
+  await expect(page.getByText("1 to 2 of 2 applications")).toBeVisible();
+
+  await page.getByRole("link", { name: "All saved queries" }).click();
+  await expect(page).toHaveURL("/deed-polls/queries");
+
+  // Scoped to its own row, because the library holds every query the mock has been asked to keep and each
+  // row carries a button of the same name.
+  const row = libraryRow(page, queryName);
+  await expect(row.getByRole("link", { name: queryName })).toHaveAttribute("href", `/deed-polls?where=newForename%3Ais%3A${forename}`);
+  await expect(row).toContainText("In your filter bar");
+  // Not published, so no tag says it is: the checkbox was left alone, which is the state a query stays in
+  // until somebody asks for it.
+  await expect(row).not.toContainText("Published");
+  // Owned by the signed-in caseworker, and the subject rather than "An Admin" for the reason the case header
+  // is — the mock stamps the token's `sub`, having no IDAM to resolve a display name from.
+  await expect(row).toContainText(ADMIN_EMAIL);
+  await expect(row.getByRole("link", { name: "Amend" })).toBeVisible();
+  await expectNoAccessibilityViolations(page);
+
+  // Out of the filter bar, which is the caller's own row and not the query: it is still in the library
+  // afterwards, offering to be added back.
+  await row.getByRole("button", { name: "Remove from my filter bar" }).click();
+  await expect(page).toHaveURL("/deed-polls/queries");
+  await expect(libraryRow(page, queryName).getByRole("button", { name: "Add to my filter bar" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Back to the case list" }).click();
+  await expect(page.getByRole("navigation", { name: "Filter cases" })).not.toContainText(queryName);
+});
+
+/**
  * The builder with **the browser's scripts switched off**, which is the floor everything above it stands on.
  *
  * Verified rather than reasoned about, per the plan's decision 4: the enhancement that reveals a value
@@ -719,6 +823,26 @@ async function seedCasesToFilter(request: APIRequestContext, newForename: string
     });
     expect(response.status(), await response.text()).toBe(201);
   }
+}
+
+/**
+ * The filter bar's saved-query group, addressed by position because a group has no accessible name of its
+ * own — the `<nav>` carries the label and each group carries an `<h2>`. It is the second group because the
+ * statuses are the first, and there is no third.
+ */
+function savedQueryGroup(page: Page): Locator {
+  return page.locator(".app-filter-nav__group").nth(1);
+}
+
+/**
+ * One query's row in the library, found by its name.
+ *
+ * The mock's saved queries are shared with every spec in the run and outlive the run itself, so the library
+ * holds rows this journey did not put there — and every row carries an Add-or-Remove button of the same name.
+ * Scoping by the name each journey generates is what keeps the control that gets pressed the right one.
+ */
+function libraryRow(page: Page, queryName: string): Locator {
+  return page.locator("li", { hasText: queryName });
 }
 
 /** The conditions the URL on screen holds, which is what a sort or a page link must not have dropped. */

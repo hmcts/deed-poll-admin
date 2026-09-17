@@ -854,9 +854,82 @@ yarn test:e2e --workers=1
 Record the unit total against the baseline taken at the branch point. **Re-run once before believing any
 worker-startup failure.** Confirm `yarn welsh:check` is no worse than at the branch point.
 
-- [ ] One e2e happy path with an axe check; lint exit 0 with no new warnings; unit total up from the
+- [x] One e2e happy path with an axe check; lint exit 0 with no new warnings; unit total up from the
       recorded baseline with no suite lost; build green; e2e green; `welsh:check` no worse; the measured
       numbers written into this task's log rather than estimated
+
+#### What was built, and what the numbers actually say
+
+One test in `e2e-tests/tests/deed-polls.spec.ts` — *"caseworker saves the query they built, follows it from
+the filter bar, and takes it out again"* — placed after the two builder journeys and before the
+scripts-disabled `describe`. It builds one condition with a script running (driven, not asserted: the builder
+is the journeys above), follows **Save this query**, is refused for a blank name and checks the summary's
+anchor resolves to `#name`, saves, and then reads the filter bar's second group. Four axe checks along it: the
+save form, the same form carrying its error summary, the list page with the new group, and the library.
+
+**The journey leaves and comes back, and that is not padding.** The entry for the query a caseworker is
+already looking at renders as a `<span aria-current="page">`, so following it from where it was saved is
+impossible by construction — the test goes to the Enroled tab, which carries the conditions and therefore is
+not the saved query, and returns through the bar. That is the only way the *link* branch of task 5's `current`
+is exercised at all, and it is the branch that navigates.
+
+Three properties the assertions pin that no unit test can:
+
+- **The stored query and the URL are one object.** The conditions come back in the *builder's controls*, not
+  merely in the query string — `newForename` / `is` / the forename — which is decision 7's whole point and
+  what a stub cannot catch: a `conditions` array that survives `savedQueryStored` and comes back as something
+  `parseConditions` cannot read would still produce a plausible URL.
+- **The second group exists only because something is in it.** Its presence is the assertion that the `PUT`
+  on the selection sub-resource reached api, since task 5 renders no group for an empty selection.
+- **Removing from the filter bar does not delete the query.** After the remove the row is still in the
+  library offering **Add to my filter bar**, and the bar no longer names it.
+
+Two helpers were added rather than inlined, both for reasons the existing file already documents elsewhere:
+`savedQueryGroup` addresses the group by position because a group has no accessible name of its own (the
+`<nav>` carries the label), and `libraryRow` scopes to one row because the mock's saved queries outlive a run
+and are shared with every spec, so every row carries a button of the same name. The query's **name is unique
+per run**, exactly as `seedForename` is and for the same reason.
+
+Deliberately not asserted here: that `editable` gates anything. The mock sets it to the constant `true` and
+can produce no 403 — task 2 recorded why — so what this journey shows is only that the control the flag gates
+points at a URL that resolves. Both branches are covered in the page tests.
+
+**Measured, from `/tmp/dpa-t8` (`git ls-files -co`, the change being uncommitted), all four commands:**
+
+| Command | Result |
+|---|---|
+| `yarn lint` | **exit 0**, 3 warnings and 2 infos — the same set tasks 2-7 recorded, no new ones |
+| `yarn turbo test test:app --concurrency=1` | **1,894 tests**, 8 of 8 tasks successful, 0 failures, 0 worker errors |
+| `yarn build` | 8 of 8, 12.3s |
+| `yarn test:e2e --workers=1` | **27 passed**, 0 failed, in 2.0m — 26 before, the new journey 7.9s |
+
+**The unit total is 1,894 and did not move, which is correct rather than a lost suite.** Task 7's baseline was
+1,894 and an e2e spec contributes nothing to the vitest run; per package, `//` 595, `@hmcts/deed-poll` 740,
+`@hmcts/deed-poll-api-client` 221, `cloud-native-platform` 140, `express-govuk-starter` 127, `simple-router`
+41, `express-session-postgres` 23, `express-session-redis` 7. Against the branch point (`d430d50`, 1,702) the
+plan added **192**. The spec was type-checked separately (`tsc --noEmit --strict` over it), since Playwright
+transpiles without checking and nothing else covers `e2e-tests/`.
+
+**`welsh:check` is in the same state as at the branch point, and the honest statement is narrower than "no
+worse".** Both exit **1** — it fails on any `cy` value identical to `en`, which is this repo's documented
+pre-existing condition, not this plan's. Measured on a `git archive d430d50` copy against the working tree:
+
+| | Strings | Identical in cy | of which not prose |
+|---|---|---|---|
+| Branch point `d430d50` | 170 | 145 | 7 |
+| After task 8 | 225 | 200 | 7 |
+
+So the *count* of untranslated strings rose by 55 — every string this plan added, all following the page's
+`cy = { ...en }` pattern that the open question above sanctions — while the verdict, the failure mode and the
+non-prose count are unchanged. Nothing previously translated was un-translated. Read that as the open
+question still being open at a larger size, not as this task having improved or degraded it.
+
+**Running the e2e suite needs the local stack, and two of its pieces are not the config's to start.** Redis
+and `rse-idam-simulator` come from `docker compose` with fixed `container_name`s, so a second copy of the repo
+under `/tmp` cannot run `yarn dev:up` — Compose refuses the name already in use. Start the containers from the
+clone once, run `yarn idam:users` to seed the two fixtures (in-memory, gone on restart), then start
+`yarn mock:api` and the app in the `/tmp` copy and let `reuseExistingServer` pick them up. `webServer`'s own
+commands work in the clone and only there.
 
 ## Deliberately not in this plan
 
