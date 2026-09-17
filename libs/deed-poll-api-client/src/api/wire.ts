@@ -54,6 +54,19 @@ export const REFER_TO_MASTER = ["Yes", "No"] as const;
 export const DOCUMENT_DIRECTION = ["Incoming", "Outgoing"] as const;
 
 /**
+ * The case-list filter keys, as api's own `LIST_FILTERS` table orders them.
+ *
+ * Lower case, unlike every vocabulary above: these are URL parameter values rather than stored option-set
+ * members. api publishes them as the `filter` enum on both saved-query bodies, and `contract.test.ts`
+ * asserts these members against it — so a tab api adds fails here rather than becoming a saved query this
+ * app cannot round-trip.
+ */
+export const LIST_FILTER = ["all", "open", "received", "enroled", "returned"] as const;
+
+/** The two `sortDirection` tokens api matches exactly. A bare field with no direction means ascending. */
+export const SORT_DIRECTION = ["asc", "desc"] as const;
+
+/**
  * An api date-time, as a `Date`.
  *
  * api serialises `LocalDateTime` without a zone — `2026-03-10T00:00` — which `new Date()` reads as
@@ -243,7 +256,11 @@ const caseSummarySchema = z.object({
   dateReceived: wireDateTime.nullish(),
   type: z.enum(DEED_POLL_TYPE).nullish(),
   state: z.enum(DEED_POLL_STATE).nullish(),
-  newForename: z.string().nullish()
+  newForename: z.string().nullish(),
+  // api added this so a search matching on surname can show the surname it matched. Registered here ahead of
+  // the search UI (plan 12) because contract.test.ts asserts exact property equality against the spec, and an
+  // unregistered property makes the suite red for every task of plan 11 as well.
+  newSurname: z.string().nullish()
 });
 
 /**
@@ -260,7 +277,12 @@ const caseListSchema = z.object({
   page: z.number(),
   size: z.number(),
   total: z.number(),
-  totalPages: z.number()
+  totalPages: z.number(),
+  // The id of the case whose reference the `q` term matched exactly, or null — api states the fact and the UI
+  // decides whether to redirect. Null for no match AND for several, because a serial repeats across years, so
+  // there is then no single case to go to. Nothing reads it until plan 12; it is registered now because
+  // contract.test.ts asserts exact property equality against the spec.
+  referenceMatch: z.string().nullish()
 });
 
 const fieldRuleSchema = z.object({
@@ -392,6 +414,76 @@ const createWitnessSchema = z.object({
 /** `createWitnessSchema.partial()`, as api's patch body is: an omitted field is left as stored. */
 const updateWitnessSchema = createWitnessSchema.partial();
 
+/**
+ * A saved case-list query, as api returns one.
+ *
+ * `conditions` is the array of `where` wire strings the list URL carried — `"state:in:Enroled,Received"` —
+ * and not structured objects, which is what lets a saved query round-trip a list URL unchanged. It arrives
+ * as an array rather than null even for a query that narrows nothing.
+ *
+ * `selected` and `editable` are the two flags this app renders behaviour from, and both are api's to state:
+ * `selected` is whether the caller has it in their own list, `editable` whether they may amend or delete it
+ * — the owner, or an Administrator if it is shared. Both are Java primitives at source, so neither is
+ * nullish. **Never recompute `editable` here**: api derives it from the same predicate its write paths
+ * refuse on, so a local opinion would be a second authority on somebody else's rule.
+ *
+ * `page` is deliberately absent: api does not store it, because page 4 of a previous result set is not a
+ * page of this one.
+ */
+const savedQuerySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  shared: z.boolean(),
+  ownerId: z.string().nullish(),
+  ownerName: z.string().nullish(),
+  filter: z.string().nullish(),
+  conditions: z.array(z.string()),
+  sortField: z.string().nullish(),
+  sortDirection: z.string().nullish(),
+  searchTerm: z.string().nullish(),
+  selected: z.boolean(),
+  editable: z.boolean(),
+  createdBy: z.string().nullish(),
+  modifiedBy: z.string().nullish(),
+  createdOn: wireDateTime.nullish(),
+  modifiedOn: wireDateTime.nullish()
+});
+
+/**
+ * The body of `POST /caseworker/saved-queries`. Only `name` is required — a query that narrows nothing is
+ * legitimate, because "everything, newest first" is a view somebody wants a tab for.
+ *
+ * The bounds are api's, from its published document. `ownerId` is deliberately absent: api takes the owner
+ * from the token, so a body cannot claim a query for somebody else.
+ */
+const createSavedQuerySchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  shared: z.boolean().optional(),
+  filter: z.enum(LIST_FILTER).optional(),
+  conditions: z.array(z.string()).max(20).optional(),
+  sortField: z.string().optional(),
+  sortDirection: z.enum(SORT_DIRECTION).optional(),
+  searchTerm: z.string().max(100).optional()
+});
+
+/**
+ * The patch body. Not `createSavedQuerySchema.partial()`, unlike the witness patch: api's nullable columns
+ * accept an explicit null to *clear* them, where the witness and note patches answer 400 for a null because
+ * no column of theirs is nullable. `name` is the exception — it cannot be cleared.
+ */
+const updateSavedQuerySchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).nullish(),
+  shared: z.boolean().optional(),
+  filter: z.enum(LIST_FILTER).nullish(),
+  conditions: z.array(z.string()).max(20).optional(),
+  sortField: z.string().nullish(),
+  sortDirection: z.enum(SORT_DIRECTION).nullish(),
+  searchTerm: z.string().max(100).nullish()
+});
+
 /** api's failure body. `errors` is omitted rather than empty when there are none (`@JsonInclude`). */
 const apiErrorSchema = z.object({
   error: z.string(),
@@ -423,7 +515,10 @@ export const WIRE_SCHEMAS = {
   DocumentResponse: documentSchema,
   DocumentTypeResponse: documentTypeSchema,
   FieldRuleResponse: fieldRuleSchema,
-  FieldRulesResponse: fieldRulesSchema
+  FieldRulesResponse: fieldRulesSchema,
+  SavedQueryResponse: savedQuerySchema,
+  CreateSavedQueryRequest: createSavedQuerySchema,
+  UpdateSavedQueryRequest: updateSavedQuerySchema
 } as const;
 
 /**
@@ -473,7 +568,10 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   DocumentResponse: ["id", "hasFile"],
   DocumentTypeResponse: ["id", "applicableMaritalStatuses", "applicableTypes"],
   FieldRuleResponse: ["visible", "required"],
-  FieldRulesResponse: ["rules"]
+  FieldRulesResponse: ["rules"],
+  // `shared`, `selected` and `editable` are Java booleans at source, and `conditions` is a List api always
+  // sends — empty for a query that narrows nothing, never null. `name` is NOT NULL in the schema.
+  SavedQueryResponse: ["id", "name", "shared", "conditions", "selected", "editable"]
 };
 
 export type WireSavedCase = z.infer<typeof savedCaseSchema>;
@@ -489,4 +587,8 @@ export type WireWitnessUpdate = z.infer<typeof updateWitnessSchema>;
 export type WireDocument = z.infer<typeof documentSchema>;
 export type WireDocumentType = z.infer<typeof documentTypeSchema>;
 export type WireFieldRules = z.infer<typeof fieldRulesSchema>;
+export type WireSavedQuery = z.infer<typeof savedQuerySchema>;
+/** `z.input` for the writes, as `WireCaseWrite` is: a write is what goes out, before any transform. */
+export type WireSavedQueryCreate = z.input<typeof createSavedQuerySchema>;
+export type WireSavedQueryUpdate = z.input<typeof updateSavedQuerySchema>;
 export type WireApiError = z.infer<typeof apiErrorSchema>;

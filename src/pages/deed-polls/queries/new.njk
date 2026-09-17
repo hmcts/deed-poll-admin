@@ -1,0 +1,67 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/input/macro.njk" import govukInput %}
+{% from "govuk/components/textarea/macro.njk" import govukTextarea %}
+{% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{#
+  Save-a-query form. Three controls, and the query itself is not among them: it is in the form's action,
+  because a list URL *is* the query and hidden inputs would be a second copy of it — see `new.ts`.
+
+  The share box is a single checkbox rather than radios: not publishing is the state a query is in until
+  somebody asks for it, so there is no second answer to give. No `maxlength` attributes, following the other
+  forms here — the bound is stated in the hint and enforced by the schema, where an error can be rendered
+  beside the control rather than silently truncating what was typed.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if errorList.length %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+    {% endif %}
+
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+    <p class="govuk-body">{{ intro }}</p>
+
+    <form method="post" action="{{ formAction }}" novalidate>
+      {{ govukInput({
+        id: "name",
+        name: "name",
+        autocomplete: "off",
+        label: { text: nameLabel, classes: "govuk-label--m" },
+        hint: { text: nameHint },
+        value: values.name,
+        errorMessage: { text: errors.name } if errors.name
+      }) }}
+
+      {{ govukTextarea({
+        id: "description",
+        name: "description",
+        rows: 3,
+        autocomplete: "off",
+        label: { text: descriptionLabel, classes: "govuk-label--m" },
+        hint: { text: descriptionHint },
+        value: values.description,
+        errorMessage: { text: errors.description } if errors.description
+      }) }}
+
+      {{ govukCheckboxes({
+        name: "shared",
+        fieldset: { legend: { text: sharedLegend, classes: "govuk-fieldset__legend--m" } },
+        hint: { text: sharedHint },
+        items: [
+          { value: "true", text: sharedLabel, checked: values.shared == "true" }
+        ]
+      }) }}
+
+      <div class="govuk-button-group">
+        {{ govukButton({ text: submit }) }}
+        <a class="govuk-link" href="{{ cancelHref }}">{{ cancel }}</a>
+      </div>
+    </form>
+
+  </div>
+</div>
+{% endblock %}

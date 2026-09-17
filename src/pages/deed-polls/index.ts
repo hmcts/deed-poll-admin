@@ -21,7 +21,9 @@ import {
   builderDateErrors,
   buildPaging,
   buildQueryRows,
+  buildSavedQueryNav,
   buildSortHeaders,
+  type Caller,
   type CaseCondition,
   type CaseListPaging,
   type CaseListRow,
@@ -33,6 +35,7 @@ import {
   filterFor,
   filterTabs,
   findDeedPolls,
+  findSavedQueries,
   InvalidInputError,
   type ListFilter,
   parseConditions,
@@ -50,13 +53,21 @@ import { callerFromRequest } from "../../auth/current-user.js";
 
 const LIST_PATH = "/deed-polls";
 
+/** Where the saved-query pages live: the library, and `new` beneath it — plan 11's decision 9. */
+const QUERIES_PATH = "/deed-polls/queries";
+
 const en = {
   title: "Deed poll cases",
   heading: "Deed poll cases",
-  filterLabel: "Filter by status",
-  // The filter bar's one group. Labelled from the start because plan 11 puts saved queries in a second
-  // group beside it, and an unlabelled bar of both reads as one list — decision 8.
-  filterGroupLabel: "Status",
+  // True of every group in the bar rather than of the first one: plan 11's decision 4. "Filter by status"
+  // was accurate while the bar held only statuses, and describing a bar of saved queries that way is a lie
+  // told only to a screen-reader user.
+  filterLabel: "Filter cases",
+  // The first group's own label. Labelled because plan 11 puts saved queries in a second group beside it,
+  // and an unlabelled bar of both reads as one list — decision 8.
+  statusGroupLabel: "Status",
+  // The second group's label, rendered only when the caseworker has queries in their own list.
+  savedQueryGroupLabel: "Saved queries",
   empty: "No cases match this filter.",
   newCase: "New case",
   privateTag: "Private",
@@ -88,6 +99,10 @@ const en = {
   removeCondition: "Remove condition",
   applyFilters: "Apply filters",
   clearFilters: "Clear filters",
+  // The way out to the saved-query pages. A link and not a control in the builder — decision 9 — and it
+  // carries the query as the URL states it, so it saves the filters that produced the rows on screen.
+  saveQuery: "Save this query",
+  savedQueryLibrary: "All saved queries",
   errorSummaryTitle: "There is a problem",
   errorPrefix: "Error:",
   // Shown for a refusal addressed to the query as a whole rather than to a condition — the 20-condition
@@ -159,15 +174,20 @@ export const GET = async (req: Request, res: Response) => {
  */
 async function runQuery(req: Request, res: Response, view: ListView, rowErrors: QueryRowError[] = [], submitted?: Record<string, unknown>) {
   const { filter, conditions, sort, page } = view;
+  const caller = callerFromRequest(req);
+  // Started before the list call and awaited after it: the table and the nav are two things this page
+  // needs, and one waiting on the other's round trip would put a second api latency in front of every
+  // case list for the sake of a navigation bar.
+  const savedQueries = savedQueryEntries(caller, view);
 
   try {
-    const results = await findDeedPolls({ filter: filter.key, conditions, sort: serialiseSort(sort), page }, callerFromRequest(req));
+    const results = await findDeedPolls({ filter: filter.key, conditions, sort: serialiseSort(sort), page }, caller);
 
     // api's own counts, straight through: `total` and `totalPages` are across every page and cannot be
     // inferred from the rows this one holds — decision 9.
     const paging = buildPaging(results, (wanted) => listHref({ filter: filter.key, conditions, sort, page: wanted }));
 
-    return render(res, view, buildCaseList(results.cases), paging, rowErrors, [], submitted);
+    return render(res, view, await savedQueries, buildCaseList(results.cases), paging, rowErrors, [], submitted);
   } catch (error) {
     if (!(error instanceof InvalidInputError)) throw error;
 
@@ -176,13 +196,40 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
     res.status(400);
 
     // No paging: a refused query has no page of results to be one of.
-    return render(res, view, [], null, [...rowErrors, ...refusals.rows], refusals.unaddressed, submitted);
+    return render(res, view, await savedQueries, [], null, [...rowErrors, ...refusals.rows], refusals.unaddressed, submitted);
+  }
+}
+
+/**
+ * The caseworker's selected queries as nav entries, or none if they could not be read.
+ *
+ * **A failure here must not cost anyone their case list.** The list is what the page is for and the saved
+ * queries are navigation, so an unreachable api leaves the status group alone rather than a 500 —
+ * the same reasoning as the adapter never throwing: an unavailable api is a state a page renders. `callApi`
+ * throws for every classified failure, so this catches all of them rather than naming one.
+ *
+ * Logged without the caller or the query, per `client.ts`'s no-PII rule: what a search of the logs needs
+ * to answer is whether the nav is degrading, not whose nav it was.
+ */
+async function savedQueryEntries(caller: Caller, { filter, conditions, sort }: ListView): Promise<NavEntry[]> {
+  try {
+    const queries = await findSavedQueries(caller);
+
+    // `current` is the request's own query against each saved one, compared as the URL states it —
+    // `buildSavedQueryNav` serialises both sides and drops the page, so paging through a saved query
+    // does not stop it being the one you are looking at.
+    return buildSavedQueryNav(queries, { listPath: LIST_PATH, current: { filter: filter.key, conditions, sort: serialiseSort(sort) } });
+  } catch (error) {
+    console.error(`saved queries unavailable: ${error instanceof Error ? error.message : String(error)}`);
+
+    return [];
   }
 }
 
 function render(
   res: Response,
   view: ListView,
+  savedQueries: NavEntry[],
   cases: CaseListRow[],
   paging: CaseListPaging | null,
   rowErrors: QueryRowError[],
@@ -199,12 +246,16 @@ function render(
 
   res.render("deed-polls/index", {
     cases,
-    // Each tab carries the query and the order, so switching tab narrows the same conditions within
-    // another saved query rather than throwing them away — decision 6. The page number is left behind
-    // for the reason a new query leaves it behind: another tab's page 4 holds other rows.
-    filters: filterTabs().map((tab) => ({ ...tab, href: listHref({ filter: tab.key, conditions, sort }) })),
-    activeFilter: filter.key,
+    filterGroups: filterGroups(view, content, savedQueries),
+    // The builder's own copy of the tab, and deliberately not the nav's: the hidden control is what carries
+    // the filter through a GET submission, where a nav entry's `current` is what the bar draws. One value
+    // serving both is how the two quietly become the same decision.
+    filterValue: filter.key,
     clearHref: listHref({ filter: filter.key, conditions: [], sort }),
+    // The save page is opened with the query in its URL rather than with hidden inputs, because a list URL is
+    // the query — so this is `caseListSearch` again, under the other path.
+    saveQueryHref: `${QUERIES_PATH}/new${caseListSearch({ filter: filter.key, conditions, sort: serialiseSort(sort) })}`,
+    libraryHref: QUERIES_PATH,
     queryRows: buildQueryRows(conditions, content.queryLabels, { rowErrors, submitted }),
     // Once per page, for the enhancement that reveals a value control without a submit. The page renders it
     // whether or not a script is running: it is a data block, and the floor below it is the round trip.
@@ -221,6 +272,42 @@ function render(
     en,
     cy
   });
+}
+
+/**
+ * The bar's groups: the statuses, and the caseworker's own selected queries beside them.
+ *
+ * One data shape for every group, so a third costs no template change — decision 4. An empty selection
+ * renders **no** second group rather than an empty one: a labelled group over nothing announces a list that
+ * is not there, and to a screen-reader user a heading is a promise of content.
+ */
+function filterGroups(view: ListView, content: typeof en, savedQueries: NavEntry[]): FilterGroup[] {
+  const status = statusGroup(view, content);
+
+  return savedQueries.length === 0 ? [status] : [status, { label: content.savedQueryGroupLabel, entries: savedQueries }];
+}
+
+/**
+ * The status tabs as a nav group.
+ *
+ * Each tab carries the query and the order, so switching tab narrows the same conditions within another
+ * saved query rather than throwing them away — decision 6. The page number is left behind for the reason a
+ * new query leaves it behind: another tab's page 4 holds other rows.
+ *
+ * `current` is decided here rather than by comparing keys in the template, because the template's
+ * `f.key == activeFilter` only worked while every entry in the bar was a status — a saved query's identity
+ * is its id, and the page it points at is not named by its label.
+ */
+function statusGroup({ filter, conditions, sort }: ListView, content: typeof en): FilterGroup {
+  return {
+    label: content.statusGroupLabel,
+    entries: filterTabs().map((tab) => ({
+      key: tab.key,
+      label: tab.label,
+      href: listHref({ filter: tab.key, conditions, sort }),
+      current: tab.key === filter.key
+    }))
+  };
 }
 
 /**
@@ -293,4 +380,30 @@ interface ListView {
   conditions: CaseCondition[];
   sort?: CaseListSort;
   page?: number;
+}
+
+/**
+ * One labelled group of the filter bar — the statuses, and from task 5 the caseworker's saved queries.
+ *
+ * A group and not a flat list of entries with a label beside it, because the label belongs to the entries
+ * it heads: the previous shape passed one scalar label for one hard-coded group, and a second group would
+ * have had to be hard-coded in the template beside it.
+ */
+interface FilterGroup {
+  label: string;
+  entries: NavEntry[];
+}
+
+/**
+ * One destination in the filter bar.
+ *
+ * `key` identifies the entry — a status's key, a saved query's id — and is never its label: two saved
+ * queries may be named the same thing. `current` is the handler's answer to "are we looking at this
+ * already", because only the handler knows what the request asked for.
+ */
+interface NavEntry {
+  key: string;
+  label: string;
+  href: string;
+  current: boolean;
 }

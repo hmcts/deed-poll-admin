@@ -1,0 +1,44 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
+
+{#
+  The confirmation in front of a published query's delete. New work: there is no interstitial anywhere else in
+  this repo, and `[queryId]/delete.ts` holds the reasoning for having one here.
+
+  Cancel is a link, not a second submit, so the only thing on this page that can act is the warning button.
+
+  The warning names no number of colleagues, because api publishes none.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+    <p class="govuk-body">{{ nameLabel }}: <strong>{{ queryName }}</strong></p>
+
+    <p class="govuk-body">
+      <a class="govuk-link govuk-link--no-visited-state" href="{{ queryHref }}">{{ openQuery }}</a>
+    </p>
+
+    {{ govukWarningText({ text: warning, iconFallbackText: warningIconText }) }}
+
+    <p class="govuk-body">{{ irreversible }}</p>
+
+    <form method="post" action="{{ libraryPath }}/{{ queryId }}/delete" novalidate>
+      <div class="govuk-button-group">
+        {% if canDelete %}
+          {{ govukButton({ text: confirm, name: "action", value: "delete", classes: "govuk-button--warning" }) }}
+        {% endif %}
+        <a class="govuk-link" href="{{ editHref }}">{{ cancel }}</a>
+      </div>
+
+      {% if not canDelete %}
+        <p class="govuk-body">{{ readOnly }}</p>
+      {% endif %}
+    </form>
+
+  </div>
+</div>
+{% endblock %}

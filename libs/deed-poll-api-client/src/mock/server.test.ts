@@ -378,7 +378,112 @@ describe("the witness routes", () => {
   });
 });
 
+describe("the saved-query routes", () => {
+  it("should order the library by name, as api v1 orders it", async () => {
+    // Insertion order here would make a page's rendering order accidental: it would look right locally and
+    // be something else deployed.
+    await post("/caseworker/saved-queries", { name: "Zebra" });
+    await post("/caseworker/saved-queries", { name: "Aardvark" });
+
+    const listed = await get("/caseworker/saved-queries");
+
+    expect(listed.map((query: { name: string }) => query.name)).toEqual(["Aardvark", "Zebra"]);
+  });
+
+  it("should flag every query editable, because permissions are not a thing this mock models", async () => {
+    // api computes `editable` from `SavedQueryPermissions` — the owner, or an Administrator for a shared
+    // query. This mock reads no roles out of a token, so it cannot produce a false and does not pretend to:
+    // what the UI does with the flag is tested by giving it both values in the page tests, not here.
+    const created = await (await post("/caseworker/saved-queries", { name: "Somebody else's, for all this mock knows" })).json();
+
+    expect(created.editable).toBe(true);
+    expect((await get(`/caseworker/saved-queries/${created.id}`)).editable).toBe(true);
+  });
+
+  it("should attribute a query to the caller the token names, as it attributes a case's audit author", async () => {
+    const token = `header.${Buffer.from(JSON.stringify({ sub: "caseworker@example.com" })).toString("base64url")}.signature`;
+
+    const created = await (await post("/caseworker/saved-queries", { name: "Mine" }, { authorization: `Bearer ${token}` })).json();
+
+    expect(created.ownerId).toBe("caseworker@example.com");
+    expect(created.ownerName).toBe("caseworker@example.com");
+    expect(created.createdBy).toBe("caseworker@example.com");
+  });
+
+  it("should refuse a body the wire schema rejects, addressing the failure to its field", async () => {
+    const response = await post("/caseworker/saved-queries", { name: "Too many", conditions: Array.from({ length: 21 }, () => "state:is:Enroled") });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].field).toBe("conditions");
+  });
+
+  it("should refuse a filter that is not one of api's five tabs", async () => {
+    const response = await post("/caseworker/saved-queries", { name: "Bad tab", filter: "in-progress" });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].field).toBe("filter");
+  });
+
+  it("should forget a deleted query's selections, as api's foreign key cascades them", async () => {
+    const created = await (await post("/caseworker/saved-queries", { name: "Selected then deleted" })).json();
+    await fetch(`${mock.url}/caseworker/saved-queries/${created.id}/selection`, { method: "PUT" });
+    await fetch(`${mock.url}/caseworker/saved-queries/${created.id}`, { method: "DELETE" });
+
+    // Re-created under a new id, so a leaked selection could only come from the id that went.
+    const replacement = await (await post("/caseworker/saved-queries", { name: "Selected then deleted" })).json();
+
+    expect(replacement.selected).toBe(false);
+  });
+
+  it("should forget every saved query on a reset", async () => {
+    await post("/caseworker/saved-queries", { name: "Before the reset" });
+
+    await post("/__mock/reset");
+
+    expect(await get("/caseworker/saved-queries")).toEqual([]);
+  });
+
+  it("should refuse a method it has no route for on the collection", async () => {
+    const response = await fetch(`${mock.url}/caseworker/saved-queries`, { method: "PUT" });
+
+    expect(response.status).toBe(405);
+  });
+
+  it("should refuse a method it has no route for on one query", async () => {
+    const created = await (await post("/caseworker/saved-queries", { name: "No PUT here" })).json();
+
+    const response = await fetch(`${mock.url}/caseworker/saved-queries/${created.id}`, { method: "PUT" });
+
+    expect(response.status).toBe(405);
+  });
+
+  it("should refuse a method it has no route for on the selection sub-resource", async () => {
+    const created = await (await post("/caseworker/saved-queries", { name: "No PATCH here" })).json();
+
+    const response = await patch(`/caseworker/saved-queries/${created.id}/selection`, {});
+
+    expect(response.status).toBe(405);
+  });
+
+  it("should answer 404 for a path below a query that neither api nor the mock serves", async () => {
+    const created = await (await post("/caseworker/saved-queries", { name: "No children" })).json();
+
+    const response = await fetch(`${mock.url}/caseworker/saved-queries/${created.id}/subscribers`);
+
+    expect(response.status).toBe(404);
+  });
+});
+
 describe("route ordering", () => {
+  it("should resolve the saved-query collection before the id pattern, not read the bare path as an id", async () => {
+    // The same trap as field-rules, the other way round: read as an id, the collection would 404 and only
+    // the sub-paths would work.
+    const response = await fetch(`${mock.url}/caseworker/saved-queries`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([]);
+  });
+
   it("should resolve field-rules before the case-id route, not read it as an id", async () => {
     // The trap api relies on Spring's pattern ordering to avoid: matched the other way round, this
     // answers 404 for a route that exists.
@@ -632,6 +737,7 @@ describe("when the scenario says api is unavailable", () => {
 
     expect((await fetch(`${mock.url}/caseworker/cases`)).status).toBe(503);
     expect((await fetch(`${mock.url}/caseworker/document-types`)).status).toBe(503);
+    expect((await fetch(`${mock.url}/caseworker/saved-queries`)).status).toBe(503);
     expect((await post("/__mock/reset")).status).toBe(200);
   });
 });

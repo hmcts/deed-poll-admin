@@ -14,7 +14,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { findDeedPolls, InvalidInputError } from "@hmcts/deed-poll";
+import { findDeedPolls, findSavedQueries, InvalidInputError } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
@@ -22,7 +22,8 @@ import { GET } from "./index.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
-  findDeedPolls: vi.fn()
+  findDeedPolls: vi.fn(),
+  findSavedQueries: vi.fn()
 }));
 
 // The three roots `configureGovuk` mounts, minus the assets it also wires up: govuk-frontend's macros,
@@ -71,6 +72,7 @@ describe("deed-polls list template", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(findDeedPolls).mockResolvedValue({ filter: "all", cases: [], page: 1, size: 25, total: 0, totalPages: 0 } as never);
+    vi.mocked(findSavedQueries).mockResolvedValue([] as never);
   });
 
   it("submits the builder as a GET, because the URL is the query and a POST could not be bookmarked", async () => {
@@ -209,6 +211,16 @@ describe("deed-polls list template", () => {
     expect(markup).not.toContain("was not used");
   });
 
+  it("offers the saved-query pages as links outside the builder's form, since saving is a page of its own", async () => {
+    const markup = await render({ filter: "open", where: "type:is:Adult" });
+    const afterForm = markup.slice(markup.lastIndexOf("</form>"));
+
+    // Read after the last `</form>` so a link that drifted inside the GET form — where it would submit the
+    // builder rather than open the save page — fails rather than passing on a substring match.
+    expect(afterForm).toContain('href="/deed-polls/queries/new?filter=open&amp;where=type%3Ais%3AAdult"');
+    expect(afterForm).toContain('href="/deed-polls/queries"');
+  });
+
   it("shows every field the chooser offers, and not the ones api computes", async () => {
     const markup = await render();
 
@@ -302,11 +314,19 @@ describe("deed-polls list template", () => {
     /** The nav on its own, so an assertion about what the bar carries cannot be satisfied by the rest of the page. */
     const filterNav = (markup: string): string => markup.match(/<nav class="app-filter-nav"[\s\S]*?<\/nav>/)?.[0] ?? "";
 
+    /**
+     * One group of the bar, since the saved-query group renders the same markup as the status group.
+     *
+     * A count of items across the whole `<nav>` was the plan-10 assertion, and it would now be satisfied by
+     * five items spread over two groups — so a count of statuses is scoped to the group it counts.
+     */
+    const group = (nav: string, index: number): string => [...nav.matchAll(/<div class="app-filter-nav__group">[\s\S]*?<\/div>/g)][index]?.[0] ?? "";
+
     it("renders the tabs as a list, because a set of sibling destinations is one", async () => {
       const nav = filterNav(await render());
 
       expect(nav).toContain('<ul class="app-filter-nav__list">');
-      expect([...nav.matchAll(/<li class="app-filter-nav__item">/g)]).toHaveLength(5);
+      expect([...group(nav, 0).matchAll(/<li class="app-filter-nav__item">/g)]).toHaveLength(5);
     });
 
     it("marks the current tab with aria-current=page rather than a strong, since you-are-here is not importance", async () => {
@@ -331,11 +351,67 @@ describe("deed-polls list template", () => {
       expect(nav).not.toContain("govuk-!-");
     });
 
+    it("renders the caseworker's selected queries as a second group of the same markup", async () => {
+      vi.mocked(findSavedQueries).mockResolvedValue([
+        {
+          id: "q-1",
+          name: "Adult, open",
+          description: null,
+          filter: "open",
+          conditions: ["type:is:Adult"],
+          sortField: null,
+          sortDirection: null,
+          shared: false,
+          selected: true,
+          editable: true
+        }
+      ] as never);
+
+      const nav = filterNav(await render({ filter: "open", where: "type:is:Adult" }));
+
+      expect([...nav.matchAll(/<div class="app-filter-nav__group">/g)]).toHaveLength(2);
+      expect(group(nav, 1)).toContain('<h2 class="app-filter-nav__group-label">Saved queries</h2>');
+      // The request is that query, so its entry says "you are here" rather than linking to where you are.
+      expect(group(nav, 1)).toContain('<span class="app-filter-nav__current" aria-current="page">Adult, open</span>');
+    });
+
+    it("links a selected query that is not the one being looked at, carrying its whole query in the URL", async () => {
+      vi.mocked(findSavedQueries).mockResolvedValue([
+        {
+          id: "q-1",
+          name: "Adult, open",
+          description: null,
+          filter: "open",
+          conditions: ["type:is:Adult"],
+          sortField: null,
+          sortDirection: null,
+          shared: false,
+          selected: true,
+          editable: true
+        }
+      ] as never);
+
+      const nav = filterNav(await render());
+
+      expect(group(nav, 1)).toContain(
+        '<a class="govuk-link govuk-link--no-visited-state" href="/deed-polls?filter=open&amp;where=type%3Ais%3AAdult">Adult, open</a>'
+      );
+    });
+
     it("labels the group, ready for plan 11's saved queries to sit in a second one", async () => {
       const nav = filterNav(await render());
 
       expect(nav).toMatch(/<div class="app-filter-nav__group">\s*<h2 class="app-filter-nav__group-label">Status<\/h2>/);
-      expect(nav).toContain('aria-label="Filter by status"');
+      // Wording true of every group the bar can hold, since the second one is saved queries and not
+      // statuses — plan 11's decision 4. The group's own label is what says "status".
+      expect(nav).toContain('aria-label="Filter cases"');
+      expect(nav).not.toContain("Filter by status");
+    });
+
+    it("renders one group when the caseworker has selected no queries, so an empty labelled group is never drawn", async () => {
+      const nav = filterNav(await render());
+
+      expect([...nav.matchAll(/<div class="app-filter-nav__group">/g)]).toHaveLength(1);
     });
 
     /**

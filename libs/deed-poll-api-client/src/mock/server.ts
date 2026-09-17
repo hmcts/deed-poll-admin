@@ -31,13 +31,14 @@
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers`, `CaseQuery` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
- * privacy lock, the minor and Gazette write gates, create-time defaults) is deliberately NOT modelled: no
+ * privacy lock, the minor and Gazette write gates, create-time defaults, the saved-query permission rules —
+ * see `savedQuery`) is deliberately NOT modelled: no
  * page's behaviour depends on it, and a half-copy would be a second opinion to keep in step. If a page
  * ever does depend on one, model it here and say so in this list.
  */
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { WireCaseDetail, WireCaseWrite, WireDocument, WireDocumentType, WireNote, WireSavedCase, WireWitness } from "../api/wire.js";
+import type { WireCaseDetail, WireCaseWrite, WireDocument, WireDocumentType, WireNote, WireSavedCase, WireSavedQuery, WireWitness } from "../api/wire.js";
 import { WIRE_SCHEMAS } from "../api/wire.js";
 import { DEFAULT_SCENARIO, isMockScenario, MOCK_DOCUMENT_TYPES, MOCK_SCENARIOS, MOCK_WRITE_REJECTION, type MockScenario } from "./fixtures.js";
 
@@ -116,6 +117,16 @@ const CASE_DEFAULTS = {
  */
 export function createMockApi(options: MockApiOptions = {}): MockApi {
   const cases = new Map<string, MockCase>();
+  const savedQueries = new Map<string, MockSavedQuery>();
+  /**
+   * The ids in "my list", for the one notional caller this mock has.
+   *
+   * api keys the selection by the caller's subject, so two people can select the same shared query and one
+   * unselecting it leaves the other's alone. **Not modelled**, for the same reason the permission rules are
+   * not (see `savedQuery`): a set is enough for every journey a page can drive here, and a per-subject map
+   * would look like it modelled two users while still reading no roles out of a token.
+   */
+  const selectedQueryIds = new Set<string>();
   let scenario: MockScenario = options.scenario ?? DEFAULT_SCENARIO;
   const serials = new Map<number, number>();
 
@@ -174,6 +185,20 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (!MOCK_SCENARIOS[scenario].reachable) return send(res, 503, { error: "deed-poll-api is unavailable" });
 
     if (method === "GET" && pathname === "/caseworker/document-types") return send(res, 200, MOCK_DOCUMENT_TYPES);
+
+    // The collection before the `{id}` pattern, for the reason recorded above the field-rules route: matched
+    // the other way round, a `PUT /caseworker/saved-queries/…` would be reached but the bare collection would
+    // not, and the literal path is the one Spring resolves first.
+    if (pathname === "/caseworker/saved-queries") {
+      // Ordered by name, as api v1 orders them — its own open question, and a page that renders them in the
+      // order it is given would otherwise be seeing insertion order here and something else deployed.
+      if (method === "GET") return send(res, 200, [...savedQueries.values()].sort((left, right) => rank(left.name, right.name)).map(toWireSavedQuery));
+      if (method === "POST") return createSavedQuery(req, res);
+      return send(res, 405, { error: `no such route: ${method} ${pathname}` });
+    }
+
+    const query = /^\/caseworker\/saved-queries\/([^/]+)(\/selection)?$/.exec(pathname);
+    if (query) return savedQuery(req, res, method, decodeURIComponent(query[1]), query[2] !== undefined);
 
     // Before the `{id}` route, exactly as api relies on Spring ordering a literal pattern first: matched
     // the other way round, "field-rules" would be read as a case id and answer 404 for a route that exists.
@@ -500,6 +525,107 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     return send(res, 404, { error: `no such route: ${method} on documents` });
   }
 
+  async function createSavedQuery(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const parsed = WIRE_SCHEMAS.CreateSavedQueryRequest.safeParse(await readJsonBody(req));
+    if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+
+    const now = new Date();
+    // The owner from the token, which is the one thing about identity this mock does model — api takes the
+    // owner from the subject exactly as it takes the audit author, so a caller sending no token owns
+    // everything it creates under the fallback name.
+    const owner = auditName(req);
+    const record: MockSavedQuery = {
+      id: randomUUID(),
+      name: parsed.data.name,
+      description: parsed.data.description ?? null,
+      shared: parsed.data.shared ?? false,
+      filter: parsed.data.filter ?? null,
+      // Never null, as api's `List.of()` never is: a query that narrows nothing has no conditions, not
+      // absent ones.
+      conditions: parsed.data.conditions ?? [],
+      sortField: parsed.data.sortField ?? null,
+      sortDirection: parsed.data.sortDirection ?? null,
+      searchTerm: parsed.data.searchTerm ?? null,
+      ownerId: owner,
+      ownerName: owner,
+      createdBy: owner,
+      modifiedBy: owner,
+      createdOn: now,
+      modifiedOn: now
+    };
+    savedQueries.set(record.id, record);
+
+    // Deliberately NOT selected for its creator: the spec does not say api selects one, and a mock that
+    // did would let a page ship relying on it. A page that wants the query in the caller's list says so
+    // with the `PUT`, which is idempotent either way.
+    return send(res, 201, toWireSavedQuery(record));
+  }
+
+  /**
+   * One saved query: read, amend, delete, and the selection sub-resource.
+   *
+   * **The permission rules are not modelled, and this mock must not be read as evidence that the UI's
+   * handling of them is tested.** api decides who may amend or delete from `SavedQueryPermissions` — the
+   * owner, or an Administrator for a shared query — and computes `editable` from that same predicate. This
+   * mock has no roles: `auditName` decodes an unverified token for a subject and nothing else, so a 403 is
+   * not a state it can produce, exactly as the witness delete's Administrator gate is unmodelled. So it
+   * sets **`editable: true` on everything and answers every write**. What that leaves untested locally is
+   * api's gate, which is api's own test; what the UI does with the flag is tested by giving the flag both
+   * values in the page tests, not by driving this.
+   *
+   * The one asymmetry that IS modelled, because a page depends on it: `PUT …/selection` answers 404 for a
+   * query that is not there, and `DELETE …/selection` answers 204 regardless — the selection row is keyed
+   * by the caller, so a subscriber can always clear a stale selection for a query since unshared.
+   */
+  async function savedQuery(req: IncomingMessage, res: ServerResponse, method: string, id: string, isSelection: boolean): Promise<void> {
+    if (isSelection) {
+      if (method === "DELETE") {
+        selectedQueryIds.delete(id);
+        return sendNoContent(res);
+      }
+      if (method === "PUT") {
+        if (!savedQueries.has(id)) return send(res, 404, { error: `Saved query ${id} not found` });
+        selectedQueryIds.add(id);
+        return sendNoContent(res);
+      }
+      return send(res, 405, { error: `no such route: ${method} on a saved query's selection` });
+    }
+
+    const found = savedQueries.get(id);
+    // 404 for a query the caller cannot see as well as for one that never existed, which is api's rule —
+    // indistinguishable on purpose, so no id is discoverable by watching status codes. Here the two collapse
+    // into one branch because everything this mock holds is visible to it.
+    if (!found) return send(res, 404, { error: `Saved query ${id} not found` });
+
+    if (method === "GET") return send(res, 200, toWireSavedQuery(found));
+
+    if (method === "PATCH") {
+      const parsed = WIRE_SCHEMAS.UpdateSavedQueryRequest.safeParse(await readJsonBody(req));
+      if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+
+      // An omitted field is absent from the parsed patch rather than present as undefined, so an empty patch
+      // re-stamps the author and changes nothing — and an explicit null CLEARS the column, which is api's
+      // behaviour here and not the note or witness patches', whose columns are all NOT NULL.
+      Object.assign(found, parsed.data, { modifiedOn: new Date(), modifiedBy: auditName(req) });
+      return send(res, 200, toWireSavedQuery(found));
+    }
+
+    if (method === "DELETE") {
+      savedQueries.delete(id);
+      // Every selection of it goes too, through api's foreign-key cascade: a subscriber's list cannot hold a
+      // query that no longer exists.
+      selectedQueryIds.delete(id);
+      return sendNoContent(res);
+    }
+
+    return send(res, 405, { error: `no such route: ${method} on a saved query` });
+  }
+
+  /** A saved query on the wire: the stored fields, plus the two flags api derives per caller. */
+  function toWireSavedQuery(record: MockSavedQuery): unknown {
+    return { ...isoDates(record), selected: selectedQueryIds.has(record.id), editable: true };
+  }
+
   function fieldRules(res: ServerResponse, query: URLSearchParams): void {
     // Taken as lists and refused when repeated, for api's reason: each parameter changes the answer, so a
     // caller who sent one twice must be told rather than picked for.
@@ -557,6 +683,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   function reset(): void {
     cases.clear();
     serials.clear();
+    savedQueries.clear();
+    selectedQueryIds.clear();
   }
 
   return {
@@ -1153,7 +1281,7 @@ export interface MockApi {
   /** Put a case straight into memory, bypassing the create rules. For tests that start mid-lifecycle. */
   seed(record: Partial<MockCase> | null): MockCase;
   /**
-   * Forget every case and every reference serial.
+   * Forget every case, every reference serial and every saved query.
    *
    * In process as well as over `POST /__mock/reset`, so a suite sharing one mock across a file can start
    * each test from empty. Without it the per-year serials accumulate, and any assertion on a reference
@@ -1185,6 +1313,18 @@ export type MockCase = Omit<WireSavedCase, "daysReceivedToEnroled" | "daysReceiv
 };
 
 type CaseState = NonNullable<WireSavedCase["state"]>;
+
+/**
+ * A saved query as the mock holds it: api's published fields with the dates still `Date`, minus the two
+ * flags derived per caller on the way out.
+ *
+ * `selected` is derived from the selection set and `editable` is the constant this mock cannot do better
+ * than, so neither is storable — a record carrying either would be a second place for the answer to live.
+ */
+type MockSavedQuery = Omit<WireSavedQuery, "selected" | "editable" | "createdOn" | "modifiedOn"> & {
+  createdOn: Date;
+  modifiedOn: Date;
+};
 
 /** One condition of a list query, already checked as far as the mock checks one. */
 interface MockCondition {

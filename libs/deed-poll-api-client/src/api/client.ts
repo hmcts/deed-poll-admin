@@ -27,6 +27,9 @@ import {
   type WireFieldRules,
   type WireNote,
   type WireSavedCase,
+  type WireSavedQuery,
+  type WireSavedQueryCreate,
+  type WireSavedQueryUpdate,
   type WireWitnessCreate,
   type WireWitnessUpdate
 } from "./wire.js";
@@ -43,6 +46,11 @@ export {
   DEED_POLL_STATE,
   DEED_POLL_TYPE,
   DOCUMENT_DIRECTION,
+  // The two saved-query vocabularies, for the same reason as the option sets above: the domain turns a
+  // caseworker's chosen tab and sort order into a create body, and narrowing against the published array
+  // is what fails to compile on the day api's five filters are not this app's five. Casting instead would
+  // let a divergence reach the wire as a 400.
+  LIST_FILTER,
   MARITAL_STATUS,
   MASTER_DECISION,
   NATIONALITY,
@@ -50,6 +58,7 @@ export {
   POST_COUNTER,
   PRIVACY,
   REFER_TO_MASTER,
+  SORT_DIRECTION,
   URGENCY
 } from "./wire.js";
 
@@ -306,6 +315,81 @@ export function listDocumentTypes(config: ApiConfig): Promise<ApiResult<Document
 }
 
 /**
+ * The caller's saved-query library: every shared query plus their own, each flagged `selected` and
+ * `editable`.
+ *
+ * Shared-or-mine rather than selected-only, because this is what a "browse and add one" screen reads. A
+ * navigation bar renders the subset where `selected` is true, which is a filter over data already held
+ * rather than a second call.
+ */
+export function listSavedQueries(config: ApiConfig): Promise<ApiResult<SavedQuery[]>> {
+  return request(config, "GET", "/caseworker/saved-queries", WIRE_SCHEMAS.SavedQueryResponse.array());
+}
+
+/**
+ * One saved query, if it is shared or the caller's own.
+ *
+ * A query that is neither answers `not-found`, identically to an id that never existed — api makes the two
+ * indistinguishable on purpose, so no id is discoverable by watching status codes. A caller cannot tell
+ * "somebody else's private query" from "no such query", and neither can this app.
+ */
+export function getSavedQuery(id: string, config: ApiConfig): Promise<ApiResult<SavedQuery>> {
+  return request(config, "GET", savedQueryPath(id), WIRE_SCHEMAS.SavedQueryResponse);
+}
+
+/** Save a new query, owned by the caller. The owner comes from the token, so it is not a parameter. */
+export function createSavedQuery(query: SavedQueryCreate, config: ApiConfig): Promise<ApiResult<SavedQuery>> {
+  return request(config, "POST", "/caseworker/saved-queries", WIRE_SCHEMAS.SavedQueryResponse, query);
+}
+
+/**
+ * Amend a saved query — the owner, or an Administrator if it is shared.
+ *
+ * An omitted field is left as stored and an **explicit null clears the column**, which is unlike
+ * `patchNote` and `updateWitness`: no column of theirs is nullable, so api answers 400 for a null there.
+ * `JSON.stringify` drops an undefined property, so "omit" and "clear" stay distinguishable on the wire.
+ */
+export function patchSavedQuery(id: string, patch: SavedQueryPatch, config: ApiConfig): Promise<ApiResult<SavedQuery>> {
+  return request(config, "PATCH", savedQueryPath(id), WIRE_SCHEMAS.SavedQueryResponse, patch);
+}
+
+/**
+ * Delete a saved query. 204, so there is nothing to parse.
+ *
+ * Permitted even where others have selected it, and their selections go with it through api's foreign-key
+ * cascade. Deleting twice is `not-found` on the second call, unlike unselecting twice — absence of shared
+ * state is worth reporting where absence of the caller's own preference is not.
+ */
+export function deleteSavedQuery(id: string, config: ApiConfig): Promise<ApiResult<void>> {
+  return requestNoContent(config, "DELETE", savedQueryPath(id));
+}
+
+/**
+ * Add a query to the caller's own list. Idempotent: a second call is another 204, not a conflict.
+ *
+ * `PUT` rather than `POST` because the request states an end state — this query is in my list — which is
+ * true however many times it is sent, so a client retrying a lost response is never told it has a duplicate
+ * to clean up. Permitted on somebody else's *shared* query, which is what the library is for, and refused
+ * with `not-found` on one the caller cannot see: selecting must not become a way to discover a private query.
+ */
+export function selectSavedQuery(id: string, config: ApiConfig): Promise<ApiResult<void>> {
+  return requestNoContent(config, "PUT", `${savedQueryPath(id)}/selection`);
+}
+
+/**
+ * Remove a query from the caller's own list. 204 whether or not it was in it.
+ *
+ * **Also 204 for a query the caller cannot see**, which is api's deliberate asymmetry with
+ * {@link selectSavedQuery}: the row is keyed by the caller, so the delete cannot reach anybody else's, and
+ * requiring visibility would trap a subscriber holding a stale selection for a query its owner has since
+ * unshared — the one selection they most need to clear and the one they can no longer see. **Do not add a
+ * visibility check before calling this.**
+ */
+export function deselectSavedQuery(id: string, config: ApiConfig): Promise<ApiResult<void>> {
+  return requestNoContent(config, "DELETE", `${savedQueryPath(id)}/selection`);
+}
+
+/**
  * Whether api is answering.
  *
  * `/health/liveness` and not the ungrouped `/health`, deliberately. api's `application.yaml` restricts
@@ -331,6 +415,10 @@ function notePath(caseId: string, noteId: string): string {
 
 function witnessPath(caseId: string, witnessId: string): string {
   return `/caseworker/cases/${encodeURIComponent(caseId)}/witnesses/${encodeURIComponent(witnessId)}`;
+}
+
+function savedQueryPath(id: string): string {
+  return `/caseworker/saved-queries/${encodeURIComponent(id)}`;
 }
 
 /**
@@ -618,6 +706,9 @@ export type DocumentType = WireDocumentType;
 export type FieldRules = WireFieldRules["rules"];
 export type FieldRule = FieldRules[string];
 export type CaseWrite = WireCaseWrite;
+export type SavedQuery = WireSavedQuery;
+export type SavedQueryCreate = WireSavedQueryCreate;
+export type SavedQueryPatch = WireSavedQueryUpdate;
 
 /**
  * The option sets, as the member unions a caller annotates with.
