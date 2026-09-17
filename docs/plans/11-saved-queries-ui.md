@@ -658,10 +658,40 @@ With no selected queries, render **no second group** — an empty labelled group
 
 Now scope the five-item count in `index.njk.test.ts` to the first group, per task 4's note.
 
-- [ ] Second group rendered from the caller's selected queries, entries linking to each query's list URL;
+- [x] Second group rendered from the caller's selected queries, entries linking to each query's list URL;
       `current` decided on serialised filter/conditions/sort; a saved-query load failure degrades to the
       status group alone with the case list intact and a test covering it; no group rendered when the
       selection is empty; the five-item assertion scoped to the first group rather than renumbered
+
+#### What was built, and the one shape decision inside it
+
+`savedQueryEntries(caller, view)` is the whole of it: one call to `findSavedQueries`, handed to task 3's
+`buildSavedQueryNav` with `LIST_PATH` and the request's own link as `current`, and **returning `NavEntry[]`
+rather than the domain's `SavedQueryNavEntry[]`** — the two are structurally identical by task 4's design, so
+the page names its own interface and no wire or view type crosses into `src/pages/`.
+
+**The call is started before the list call and awaited after it.** `render` stayed synchronous; what changed
+is that `runQuery` holds the promise across its `try`, so the table and the nav cost one round trip's latency
+between them rather than two. It also means the `InvalidInputError` branch renders the same nav as the happy
+one — asserted, because a refused query is exactly when a caseworker reaches for a saved one.
+
+**Failure is caught for every kind, not for a named one.** `callApi` maps `unavailable`, `timeout` and
+`invalid-response` to a plain `Error`, so a catch naming domain errors would let the commonest outage through
+as a 500 — the opposite of this task's point. The log line is `saved queries unavailable: …` with no caller
+and no query in it, per `client.ts`'s no-PII rule: what the logs must answer is whether the nav is degrading,
+not whose it was.
+
+The empty case renders **one** group. `filterGroups()` appends nothing for an empty selection rather than a
+group with no items, because a heading is a promise of content to a screen-reader user.
+
+`index.njk.test.ts`'s five-item count is now scoped to the first group through a `group(nav, index)` helper,
+per task 4's note — the whole-`<nav>` count would have been satisfied by five items spread across two groups,
+which is the assertion silently going quiet rather than failing.
+
+Measured from a `/tmp` copy (`git ls-files -co`, the change being uncommitted), all three green: `yarn lint`
+**exit 0**, the same 3 warnings and 2 infos tasks 2-4 recorded. **1,783 tests**, 8 of 8 tasks successful, 0
+failures, 0 worker errors — up 9 from 1,774, all of it the app (491 → 500): 7 handler cases and 2 template
+cases. `yarn build` 8 of 8 in 13.3s. Task 6 onward compares against **1,783**.
 
 ### Task 6: Save a query, and the library
 
