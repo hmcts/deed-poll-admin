@@ -8,6 +8,7 @@
 {% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
 {% from "govuk/components/radios/macro.njk" import govukRadios %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/inset-text/macro.njk" import govukInsetText %}
 {% from "govuk/components/pagination/macro.njk" import govukPagination %}
 
 {% block content %}
@@ -52,6 +53,13 @@
           <p id="{{ row.field.name }}-error" class="govuk-error-message">
             <span class="govuk-visually-hidden">{{ errorPrefix }}</span> {{ row.error }}
           </p>
+        {% elif row.hint %}
+          {#
+            A hint and not an error message, and deliberately not in the error summary: choosing a
+            comparison is what reveals the value control, so a row waiting for its value is a step the
+            caseworker is part-way through rather than a mistake they have made — decision 2.
+          #}
+          <p id="{{ row.field.name }}-hint" class="govuk-hint">{{ row.hint }}</p>
         {% endif %}
 
         <div class="govuk-grid-row">
@@ -61,11 +69,18 @@
               grouped by the case tab and section they sit on — decision 6 — and one flat list of 43 is not
               a list anyone reads. The classes are the component's, so it stays a GOV.UK select.
 
-              The refusal is announced with the row's first control, since it is the row that is wrong.
+              The refusal — or the hint asking for the value — is announced with the row's first control,
+              since it is the row that is unfinished rather than one control of it.
             #}
+            {% set rowDescribedBy = "" %}
+            {% if row.error %}
+              {% set rowDescribedBy = row.field.name ~ "-error" %}
+            {% elif row.hint %}
+              {% set rowDescribedBy = row.field.name ~ "-hint" %}
+            {% endif %}
             <div class="govuk-form-group">
               <label class="govuk-label govuk-visually-hidden" for="{{ row.field.name }}">{{ fieldLabel }} {{ row.number }}</label>
-              <select class="govuk-select" id="{{ row.field.name }}" name="{{ row.field.name }}"{% if row.error %} aria-describedby="{{ row.field.name }}-error"{% endif %}>
+              <select class="govuk-select" id="{{ row.field.name }}" name="{{ row.field.name }}"{% if rowDescribedBy %} aria-describedby="{{ rowDescribedBy }}"{% endif %}>
                 <option value="{{ row.field.placeholder.value }}"{% if row.field.placeholder.selected %} selected{% endif %}>{{ row.field.placeholder.text }}</option>
                 {% for group in row.field.groups %}
                   <optgroup label="{{ group.label }}">
@@ -166,6 +181,15 @@
       {% endif %}
     </div>
   </form>
+
+  {#
+    Above the table, because a caseworker reading results has to know the query answered less than they
+    asked — the row's own hint is below the fold once there are four conditions. Inset text rather than an
+    error summary: nothing is wrong, and the rows below are a true answer to a narrower question.
+  #}
+  {% if unusedConditions %}
+    {{ govukInsetText({ text: unusedConditions }) }}
+  {% endif %}
 
   {% if cases.length == 0 %}
     <p class="govuk-body">{{ empty }}</p>

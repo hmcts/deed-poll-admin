@@ -40,7 +40,8 @@ import {
   parseSort,
   type QueryRowError,
   queryErrors,
-  serialiseSort
+  serialiseSort,
+  unusedConditionRows
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../auth/current-user.js";
@@ -74,6 +75,13 @@ const en = {
   // Shown for a refusal addressed to the query as a whole rather than to a condition — the 20-condition
   // cap, the sort, the paging. api's own wording for those is developer-facing, so it is logged instead.
   queryRefused: "These filters could not be applied. Check them and try again.",
+  // Decision 3: a condition the query ran without is stated where the results are, because the row's own
+  // hint is below the fold once there are four conditions and filtering by less than was asked is the
+  // worse failure. Plain words rather than an error — an unfinished row is a step, not a mistake.
+  unusedConditionsFor: (numbers: number[]) =>
+    numbers.length === 1
+      ? `Condition ${numbers[0]} was not used, because it is not complete.`
+      : `Conditions ${listOfNumbers(numbers)} were not used, because they are not complete.`,
   pagingLabel: "Pages of results",
   // Decision 9: the total in words, because a caseworker needs to know whether to refine the query and
   // not only that there is a next page. The numbers are api's counts across every page.
@@ -84,7 +92,9 @@ const en = {
     chooseOperator: "Choose a comparison",
     chooseValue: "Choose a value",
     yes: "Yes",
-    no: "No"
+    no: "No",
+    enterValue: "Enter a value to use this condition",
+    enterBothValues: "Enter both values to use this condition"
   }
 };
 
@@ -165,6 +175,9 @@ function render(
   // the template does — the pattern `.claude/rules/frontend.md` gives for a schema's messages.
   const content = res.locals.locale === "cy" ? cy : en;
   const { filter, conditions, sort } = view;
+  // The rows `findDeedPolls` left off the wire, as a caseworker numbers them. Not a status change: the
+  // query ran, and being told what it ran on is the point — decision 3.
+  const unused = unusedConditionRows(conditions, rowErrors);
 
   res.render("deed-polls/index", {
     cases,
@@ -176,6 +189,7 @@ function render(
     clearHref: listHref({ filter: filter.key, conditions: [], sort }),
     queryRows: buildQueryRows(conditions, content.queryLabels, { rowErrors, submitted }),
     hasQuery: conditions.length > 0,
+    unusedConditions: unused.length === 0 ? "" : content.unusedConditionsFor(unused.map((row) => row + 1)),
     // Every header link carries the tab and the conditions, which is the bug this class of UI always has.
     sortHeaders: buildSortHeaders(sort, (next) => listHref({ filter: filter.key, conditions, sort: next })),
     // The builder submits as a GET, so the order it was applied to travels as a control of its own.
@@ -186,6 +200,11 @@ function render(
     en,
     cy
   });
+}
+
+/** The condition numbers as a sentence reads them: `2`, `2 and 3`, `2, 3 and 5`. */
+function listOfNumbers(numbers: number[]): string {
+  return numbers.length < 2 ? numbers.join("") : `${numbers.slice(0, -1).join(", ")} and ${numbers[numbers.length - 1]}`;
 }
 
 /**

@@ -11,6 +11,7 @@ import {
   type QueryOption,
   type QueryRow,
   queryErrors,
+  unusedConditionRows,
   valueControlName
 } from "./query-builder.js";
 import { CHOOSABLE_FIELDS } from "./query-fields.js";
@@ -20,7 +21,9 @@ const LABELS: QueryLabels = {
   chooseOperator: "Choose a comparison",
   chooseValue: "Choose a value",
   yes: "Yes",
-  no: "No"
+  no: "No",
+  enterValue: "Enter a value to use this condition",
+  enterBothValues: "Enter both values to use this condition"
 };
 
 /** One row of a submitted builder, in the control names a GET form actually sends. */
@@ -411,6 +414,80 @@ describe("deed-poll/query-builder", () => {
       );
 
       expect(rows.map((row) => row.error)).toEqual([undefined, "is not a member of state"]);
+    });
+
+    it("should ask for the value of a row whose comparison takes one, since choosing it is what reveals the control", () => {
+      const row = rowFor({ field: "type", operator: "is", values: [""] });
+
+      expect(row.hint).toBe(LABELS.enterValue);
+      expect(row.error).toBeUndefined();
+      expect(row.control).toBe("select");
+    });
+
+    it("should ask nothing of a complete row", () => {
+      expect(rowFor({ field: "type", operator: "is", values: ["Adult"] }).hint).toBeUndefined();
+    });
+
+    it("should ask nothing of a row with no comparison yet, since the operator chooser already says what to do", () => {
+      expect(rowFor({ field: "type", operator: "", values: [] }).hint).toBeUndefined();
+      expect(rowFor({}).hint).toBeUndefined();
+    });
+
+    it.each(["isEmpty", "isNotEmpty"])("should ask nothing of %s, which is complete without a value", (operator) => {
+      expect(rowFor({ field: "parents", operator, values: [] }).hint).toBeUndefined();
+    });
+
+    it("should ask for both bounds of a between holding one of two", () => {
+      expect(rowFor({ field: "ageOfMinor", operator: "between", values: ["3"] }).hint).toBe(LABELS.enterBothValues);
+      expect(rowFor({ field: "ageOfMinor", operator: "between", values: ["3", "9"] }).hint).toBeUndefined();
+    });
+
+    it("should ask for a value of isOneOf until one box is ticked, since one member is a whole condition", () => {
+      expect(rowFor({ field: "type", operator: "isOneOf", values: [] }).hint).toBe(LABELS.enterValue);
+      expect(rowFor({ field: "type", operator: "isOneOf", values: ["Adult"] }).hint).toBeUndefined();
+    });
+
+    it("should say nothing beside a refusal, so one unfinished row does not read as two problems", () => {
+      const rows = buildQueryRows([{ field: "state", operator: "is", values: [""] }], LABELS, {
+        rowErrors: [{ row: 0, message: "is not a member of state" }]
+      });
+
+      expect(rows[0].error).toBe("is not a member of state");
+      expect(rows[0].hint).toBeUndefined();
+    });
+  });
+
+  describe("unusedConditionRows", () => {
+    it("should name the row a value-less condition occupies, which is the one the query ran without", () => {
+      const conditions: CaseCondition[] = [
+        { field: "type", operator: "is", values: ["Adult"] },
+        { field: "newForename", operator: "is", values: [""] }
+      ];
+
+      expect(unusedConditionRows(conditions)).toEqual([1]);
+    });
+
+    it("should name a between holding one of two bounds, and not one holding both", () => {
+      expect(unusedConditionRows([{ field: "ageOfMinor", operator: "between", values: ["3"] }])).toEqual([0]);
+      expect(unusedConditionRows([{ field: "ageOfMinor", operator: "between", values: ["3", "9"] }])).toEqual([]);
+    });
+
+    it.each(["isEmpty", "isNotEmpty"])("should not name a %s row, which is complete and was sent", (operator) => {
+      expect(unusedConditionRows([{ field: "parents", operator, values: [] }])).toEqual([]);
+    });
+
+    it("should not name an entirely blank row, since nothing was asked of it", () => {
+      expect(unusedConditionRows([{ field: "", operator: "", values: [] }])).toEqual([]);
+    });
+
+    it("should name a row holding a field and no comparison, which is unfinished and so was not sent", () => {
+      expect(unusedConditionRows([{ field: "type", operator: "", values: [] }])).toEqual([0]);
+    });
+
+    it("should not name a row api refused, whose own message already says what happened", () => {
+      const conditions: CaseCondition[] = [{ field: "state", operator: "is", values: [""] }];
+
+      expect(unusedConditionRows(conditions, [{ row: 0, message: "is not a member of state" }])).toEqual([]);
     });
   });
 });

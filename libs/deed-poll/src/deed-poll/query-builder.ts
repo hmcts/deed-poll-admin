@@ -18,10 +18,15 @@
  *   - **api validates; this app guides.** The chooser offers only operators the field's kind admits and
  *     only the controls the operator takes, which is what keeps a caseworker from building a condition
  *     that can only be refused. It is not a second opinion: api re-checks every condition and wins.
+ *   - **An unfinished row is a step, not a mistake.** Choosing a comparison is what reveals the control
+ *     its value is typed into, and with JavaScript off the only way to reveal it is to submit — so Apply
+ *     runs the conditions that are complete, keeps the rest as rows, and says what it left out.
+ *     `valueHint` is the *hint* that asks for the missing value, and `unusedConditionRows` is what the
+ *     page states above the table. Neither is an error: a caseworker halfway through has made none.
  */
 
 import type { FieldError } from "../errors.js";
-import { type CaseCondition, rowForSentCondition } from "./case-query.js";
+import { type CaseCondition, isBlankCondition, isCompleteCondition, rowForSentCondition } from "./case-query.js";
 import { type DateParts, splitDateParts, submittedDateParts } from "./date-parts.js";
 import { enumOptions, type FieldDef } from "./form-fields.js";
 import { collectDateErrors } from "./form-validation.js";
@@ -143,6 +148,23 @@ export function queryErrors(errors: FieldError[], conditions: CaseCondition[]): 
 }
 
 /**
+ * The rows a query ran without, so the page can say so above the table.
+ *
+ * Decision 3: leaving a condition out quietly answers a wider question than the one asked, and the row's
+ * own hint sits below the fold once there are four conditions. So the omission is stated where the results
+ * are, in the page's words — this only reports *which* rows.
+ *
+ * An entirely blank row is not among them: it is what "Add condition" leaves behind and what an unfiltered
+ * list renders, and nothing was asked of it. A row api refused is not either — its message already says
+ * what happened, and reporting it twice in two registers would read as two separate problems.
+ */
+export function unusedConditionRows(conditions: CaseCondition[], rowErrors: QueryRowError[] = []): number[] {
+  const refused = new Set(rowErrors.map((error) => error.row));
+
+  return conditions.map((_, row) => row).filter((row) => !refused.has(row) && !isBlankCondition(conditions[row]) && !isCompleteCondition(conditions[row]));
+}
+
+/**
  * The builder's rows, each carrying its control names, its options and the value controls its operator
  * takes — so the template renders them without deciding anything, exactly as `edit-view.ts` does for the
  * case form.
@@ -257,7 +279,10 @@ function buildRow(condition: CaseCondition, index: number, labels: QueryLabels, 
         : [],
     valueName: valueControlName(index, 0),
     valueOptions: definition === undefined ? [] : chooserOptions(definition, control, labels, condition.values),
-    error
+    error,
+    // Suppressed beside a refusal: the refusal is the more specific thing to say about the row, and two
+    // messages under one condition read as two problems.
+    hint: error === undefined ? valueHint(arity, condition.values, labels) : undefined
   };
 }
 
@@ -319,6 +344,24 @@ function chooserOptions(definition: FieldDef, control: ValueControl, labels: Que
   return [option("", labels.chooseValue, !members.some((member) => member.selected)), ...members];
 }
 
+/**
+ * What to say about a row whose comparison is chosen and whose value is not given yet — a `govuk-hint`,
+ * never a `govukErrorMessage` and never an error-summary entry (decision 2). Choosing the comparison is
+ * what reveals the control, so being asked for the value is the next step rather than a mistake made.
+ *
+ * Nothing for the two arity-0 operators, which are complete without a value: asking one for a value would
+ * contradict the control `valueControl` deliberately does not render for it. `between` wants both bounds,
+ * so one of two still asks.
+ */
+function valueHint(arity: ValueArity, values: string[], labels: QueryLabels): string | undefined {
+  if (arity === 0) return undefined;
+  const filled = values.filter((value) => value.trim() !== "").length;
+  // `isOneOf` is satisfied by one ticked box, so its arity is a floor rather than a count.
+  if (filled >= (arity === "many" ? 1 : arity)) return undefined;
+
+  return arity === 2 ? labels.enterBothValues : labels.enterValue;
+}
+
 /** `selected` and `checked` both, because `govukSelect` reads one and `govukCheckboxes`/`govukRadios` the other. */
 function option(value: string, text: string, chosen: boolean): QueryOption {
   return { value, text, selected: chosen, checked: chosen };
@@ -363,6 +406,10 @@ export interface QueryLabels {
   chooseValue: string;
   yes: string;
   no: string;
+  /** Asked of a row whose comparison takes a value it has not been given. */
+  enterValue: string;
+  /** The same for `between`, which is unfinished with one of its two bounds. */
+  enterBothValues: string;
 }
 
 export interface QueryRowOptions {
@@ -428,4 +475,6 @@ export interface QueryRow {
   valueName: string;
   valueOptions: QueryOption[];
   error?: string;
+  /** The row's next step, when its value is still wanted. Never set beside an `error`. */
+  hint?: string;
 }

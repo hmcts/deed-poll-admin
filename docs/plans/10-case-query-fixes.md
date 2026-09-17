@@ -242,9 +242,32 @@ this branch. `between` needs **both** slots; one of two is incomplete.
 The existing api-refusal path is untouched: a condition api rejects still renders its message against its row with
 a 400.
 
-- [ ] Incomplete conditions excluded from the api call, kept as rows, 200 with a hint and a statement above the
+- [x] Incomplete conditions excluded from the api call, kept as rows, 200 with a hint and a statement above the
       table; arity-0 operators never incomplete; `between` incomplete with one of two values; api's own refusals
       still 400 with the error summary; a test for each of those five
+
+      **The exclusion was already there, and was not the fault.** `findDeedPolls` filters through
+      `caseQueryWhere`, so `where=type:is:` never reached api and the response was already 200 — traced
+      again on 2026-09-17 and pinned by a new `service.test.ts` case for the exact scenario the plan
+      records. So the plan's traced 400 does not reproduce on this branch, and what was actually missing
+      was decisions 2 and 3: the page dropped the condition **silently**, which is the failure decision 3
+      calls the worse one. The exclusion deliberately stays inside `findDeedPolls` rather than moving up
+      to the page — pre-filtering before the call would renumber the conditions and break
+      `rowForSentCondition`, which is how api's `where.0` finds the row a caseworker sees.
+
+      New: `valueHint` in `query-builder.ts` puts `QueryRow.hint` on a row whose comparison is chosen and
+      whose value is not given (`enterValue`, or `enterBothValues` for `between`), and
+      `unusedConditionRows` names the rows the query ran without. Neither is an error: the hint is a
+      `govuk-hint` announced through the row's field chooser via `aria-describedby`, there is no
+      `govuk-form-group--error` and no error-summary entry, and the status stays 200. `isEmpty`/
+      `isNotEmpty` are complete without a value and get neither; `isOneOf` is satisfied by one ticked box;
+      `between` with one of two gets both. A row api refused gets its refusal and **not** a hint, and is
+      left out of the statement — one unfinished row reading as two problems is worse than either.
+      The statement is `govukInsetText` immediately above the table, from `unusedConditionsFor` in the
+      page's content (*"Condition 2 was not used, because it is not complete."*, pluralising to
+      *"Conditions 1, 2 and 3 were not used…"*). Validation after the task: `yarn lint` exit 0 with the two
+      pre-existing warnings, `yarn turbo test test:app --concurrency=1` 8 of 8 with 1682 tests (3 skipped,
+      no Redis) up from 1656, no worker failures, `yarn build` green.
 
 ### Task 4: Make the value control reachable — the JavaScript enhancement
 

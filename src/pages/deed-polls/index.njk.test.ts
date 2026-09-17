@@ -170,6 +170,38 @@ describe("deed-polls list template", () => {
     expect(markup).toContain("govuk-form-group--error");
   });
 
+  it("asks for a missing value with a hint and no error markup, since the row is a step part-way through", async () => {
+    const markup = await render({ where: "type:is:" });
+
+    expect(markup).toContain('id="field-0-hint" class="govuk-hint">Enter a value to use this condition');
+    expect(markup).toMatch(/id="field-0"[^>]*aria-describedby="field-0-hint"/);
+    // The three ways this could be dressed up as a mistake, and is not: an error message, an errored form
+    // group, and an entry in the error summary.
+    expect(markup).not.toContain("govuk-error-message");
+    expect(markup).not.toContain("govuk-form-group--error");
+    expect(markup).not.toContain("govuk-error-summary");
+    // And the control the hint is asking for a value in is on screen, which is the whole point.
+    expect(markup).toMatch(/<select[^>]*name="value-0-0"/);
+  });
+
+  it("states an unused condition above the table, where a caseworker reading the results will see it", async () => {
+    vi.mocked(findDeedPolls).mockResolvedValue({ filter: "all", cases: [record], page: 1, size: 25, total: 1, totalPages: 1 } as never);
+
+    const markup = await render({ where: ["type:is:Adult", "newForename:is:"] });
+    const statement = markup.indexOf("Condition 2 was not used, because it is not complete.");
+
+    expect(statement).toBeGreaterThan(-1);
+    expect(markup.indexOf('class="govuk-inset-text"')).toBeLessThan(markup.indexOf("<table"));
+    expect(statement).toBeLessThan(markup.indexOf("<table"));
+  });
+
+  it("states nothing when every condition ran, so the page is quiet about a query it answered in full", async () => {
+    const markup = await render({ where: "type:is:Adult" });
+
+    expect(markup).not.toContain("govuk-inset-text");
+    expect(markup).not.toContain("was not used");
+  });
+
   it("shows every field the chooser offers, and not the ones api computes", async () => {
     const markup = await render();
 
