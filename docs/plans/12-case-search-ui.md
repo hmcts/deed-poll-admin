@@ -1,55 +1,50 @@
 # Plan 12: a case search — the caseworker's side
 
-## PROVISIONAL — read this section before running anything
+## The api gate is MET — but this plan is still blocked on plan 11
 
-**This plan is written against a contract that does not exist yet, deliberately, and it cannot be run until
-that changes.** Written 2026-09-17 on Steve's instruction to get the search UI onto paper alongside plan 11,
-ahead of the api work, with every contract claim flagged rather than assumed.
+**Reconciled 2026-09-17 against the refreshed spec.** This plan was written ahead of api's contract, with
+every claim flagged. api's `saved-queries-and-search.md` has since **run and merged**
+([`hmcts/deed-poll-api#16`](https://github.com/hmcts/deed-poll-api/pull/16)), and every contract claim below
+has now been checked against the published document rather than assumed. **All [PROVISIONAL] markers are
+resolved and removed.** Nothing in the search surface diverged from what api's plan proposed.
 
-`deed-poll-api`'s `docs/plans/saved-queries-and-search.md` describes the search half of one caseworker
-journey: a `q` parameter on `GET /caseworker/cases`, a `referenceMatch` on the list response, and a
-`newSurname` on the case summary (its decisions 8–13). That plan is **being run now** — as of writing it is
-on task 1 of 5 in another terminal (`.ralphex/progress/progress-saved-queries-and-search.txt` in the api
-clone) — but its output has not landed in this repo's `openapi.json`. Verified against admin's copy of the
-spec (`libs/deed-poll-api-client/openapi.json`, provenance api commit `fd4fe3a`, taken 2026-09-14):
+Verified against `libs/deed-poll-api-client/openapi.json` as refreshed by commit `f08ccd2` (api commit
+`19fbb39`, 26 operations, 19 schemas):
 
-| What this plan needs | In the spec today |
+| What this plan needs | In the refreshed spec |
 |---|---|
-| `q` query parameter on `GET /caseworker/cases` | **absent** — the operation has `filter`, `where`, `sort`, `page`, `size` and no `q` |
-| `referenceMatch` on the list response schema (`CaseListResponse`) | **absent** — `caseListSchema` is `filter`, `cases`, `page`, `size`, `total`, `totalPages` |
-| `newSurname` on the summary schema (`CaseSummaryResponse`) | **absent** — `caseSummarySchema` carries `newForename` but not `newSurname` |
+| `q` query parameter on `GET /caseworker/cases` | **present** — `in: query`, `type: string`, `required: false` |
+| `referenceMatch` on `CaseListResponse` | **present** — `type: string`; properties are `cases`, `filter`, `page`, `referenceMatch`, `size`, `total`, `totalPages` |
+| `newSurname` on `CaseSummaryResponse` | **present** — `type: string` |
+| `newSurname` sortable (decision 6) | **yes** — named in the `sort` description's field list |
+| The six searched name fields (task 2) | **exactly** `newForename`, `newSurname`, `oldForename`, `oldSurname`, `parents`, `representativeName` |
 
-**Why it cannot merely be run early and corrected.** `q` on its own breaks nothing —
-`contract.test.ts` does not check query parameters, only schemas and operation paths, and `q` adds no
-operation. But `referenceMatch` and `newSurname` are **schema-property additions**, and the per-schema test
-at `libs/deed-poll-api-client/src/api/contract.test.ts:85-87` asserts, for every registered schema,
-`Object.keys(schema.shape)` equals `Object.keys(specSchema.properties)`. Add `referenceMatch` to the
-`CaseListResponse` zod schema before the spec carries it and that test goes red for `CaseListResponse`; add
-`newSurname` to `CaseSummaryResponse` and it goes red for that too — **from task 1 onward**. That is the
-failure mode [`10-case-query-fixes.md`](completed/10-case-query-fixes.md) and
-[`11-saved-queries-ui.md`](11-saved-queries-ui.md) both warn about: a validation gate that starts red cannot
-tell a break from a pre-existing failure, so every subsequent task reports the same red and the run teaches
-nothing.
+**Task 0 is already partly done, by plan 11, and this is important.** Commit `f08ccd2` on branch
+`saved-queries-ui` refreshed the spec **and registered both of plan 12's response properties** — because
+`contract.test.ts` asserts exact property equality, an unregistered property would have made plan 11's suite
+red for every one of its tasks. So `caseSummarySchema.newSurname` and `caseListSchema.referenceMatch` are
+**already in `wire.ts`**, both `z.string().nullish()`, each with a comment naming plan 12 as the consumer.
+**Task 1 must verify rather than re-add them** — see the task, which is rewritten accordingly.
+
+**The remaining blocker is plan 11, not api.**
+
+- **The refreshed spec exists only on `saved-queries-ui`.** `master` and this branch (`case-search-ui`) still
+  carry the pre-refresh document — `git show master:libs/deed-poll-api-client/openapi.json | grep -c
+  referenceMatch` returns `0`. **Running this plan on a tree without that refresh puts the contract test red
+  from task 1**, which is the exact failure mode this section used to warn about. Do not branch plan 12 off
+  `master`.
+- **Both plans edit `src/pages/deed-polls/index.ts` and `src/pages/deed-polls/index.njk`.** They must not run
+  in parallel; the second rebases on the first. See "Sequencing against plan 11" below.
 
 **The gate, therefore, in order:**
 
-1. Finish api's `saved-queries-and-search.md` run (the search half is its task 5 and task 6 publishes the
-   spec — so a partial run that has not reached task 6 has not moved the document either).
-2. Refresh `libs/deed-poll-api-client/openapi.json` from api's published document per
-   [`libs/deed-poll-api-client/SPEC-PROVENANCE.md`](../../libs/deed-poll-api-client/SPEC-PROVENANCE.md) —
-   `./gradlew integration -Dtest.single=OpenAPIPublisherTest` writes `/tmp/openapi-specs.json`; copy it over
-   and update the commit table.
-3. **Re-read this plan against the refreshed spec and correct it.** Task 0 below exists to force that, and
-   it is the only task that may be run before the gate is met.
+1. **Let plan 11 finish** (it was mid-run on `saved-queries-ui` when this was reconciled) and land.
+2. **Rebase this branch on plan 11's result**, so the tree carries the refreshed `openapi.json` and the two
+   registered properties.
+3. Then run from Task 0, which is now a verification task rather than a refresh task.
 
-**This plan and plan 11 both refresh the same `openapi.json` and both edit the same two files
-(`src/pages/deed-polls/index.ts` and `index.njk`).** They must not be run in parallel, and the second to run
-rebases on the first. See "Sequencing against plan 11" below — this is a real ordering decision, not a
-caveat.
-
-**Every statement in this plan about an api path, parameter or response field is provisional.** Where one is
-load-bearing it is marked **[PROVISIONAL]**. Do not implement a marked claim without checking the refreshed
-spec first; where the spec disagrees, **the spec wins and this plan is wrong**.
+Should api's contract change again before this runs, the spec still wins and this plan is still wrong —
+Task 0 exists to catch that.
 
 ## Overview
 
@@ -60,11 +55,15 @@ matches a reference exactly or a name loosely, composing with whatever filter an
 applied.
 
 The matching is entirely api's. This repo sends `q` and renders what comes back — it does not split the term,
-decide what counts as a reference, or search anything locally. Three api-side facts drive the UI (all
-**[PROVISIONAL]** until the spec is refreshed):
+decide what counts as a reference, or search anything locally. Three api-side facts drive the UI, all three
+now confirmed against the published document:
 
 - **`q` is one parameter on `GET /caseworker/cases`** (api decision 8), ORed internally across six name
-  fields and two reference fields and ANDed with `filter` and `where` (decisions 9–10).
+  fields and the reference and ANDed with `filter` and `where` (decisions 9–10). The published description
+  states the rule in full, and two details worth having in the UI's head: matching is **substring, not
+  fuzzy** — a misspelling does not match, so there is no "did you mean" to render — and a term **longer than
+  100 characters is truncated rather than refused**, so a paste of junk returns results rather than a 400.
+  Addresses and narrative fields are deliberately not searched.
 - **`referenceMatch`** on the list response is the id of the case whose reference the term matched exactly,
   or null (decision 11). A caseworker who types a full reference wants *the case*, not a list of one — so the
   UI redirects to it rather than making them click through a single row.
@@ -79,8 +78,9 @@ independently.
 
 Both plans are provisional, both wait on the same api run, and they overlap:
 
-- **Both refresh `openapi.json`.** Whichever runs second finds the spec already refreshed and its Task 0 a
-  no-op for the refresh itself — but must still reconcile its own **[PROVISIONAL]** markers.
+- **Plan 11 has already refreshed `openapi.json`** (commit `f08ccd2`) and registered plan 12's two response
+  properties with it. So plan 12's Task 0 is a verification, not a refresh — and plan 12 **must** run on a
+  tree containing that commit.
 - **Both edit `src/pages/deed-polls/index.ts` and `src/pages/deed-polls/index.njk`.** Plan 11 generalises the
   filter nav to `filterGroups` and adds a second group; plan 12 adds a search form above the nav and threads
   `q` through every link the handler builds. These touch different regions of both files, but git will not
@@ -135,9 +135,9 @@ overlap.
 6. **`newSurname` becomes the list table's seventh column.** api decision 13. `CASE_LIST_COLUMNS`
    (`list-view.ts:41`) and `CaseListRow` (`list-view.ts:19`) gain it, `buildCaseList` (`list-view.ts:55`)
    maps it through the shared `format`, and the template's row array (`index.njk:250-257`) and header loop
-   render it. Its sort field is `newSurname` **[PROVISIONAL]** — confirm it is in api's sortable-fields list
-   when the spec is refreshed (that list is prose in the `sort` parameter description, not an enum, per
-   `list-view.ts:36-40`), because a column offering a sort api refuses is a 400 waiting to happen.
+   render it. Its sort field is `newSurname`, **confirmed sortable**: the `sort` parameter's description names
+   it in the sortable-field list (that list is prose, not an enum, per `list-view.ts:36-40`). So the column
+   ships *with* a sort header, and there is no 400 risk.
 7. **No JavaScript.** Plan 10 established JS as enhancement over a working round trip and plan 11 added none;
    a search box is a native `<input type="search">` submitting a GET form. Do not add any.
 8. **The empty-search state is the list as it is today.** With no `q`, `GET /caseworker/cases` must behave
@@ -265,63 +265,87 @@ docblock names a script that does not exist.
 
 ## Tasks
 
-### Task 0: Reconcile this plan against the refreshed spec — RUN THIS FIRST, ALONE
+### Task 0: Confirm the tree carries plan 11's spec refresh — RUN THIS FIRST, ALONE
 
-**Do not proceed past this task if it finds a divergence. Report and stop.**
+**This is now a verification task.** The reconciliation it used to demand was done by hand on 2026-09-17 and
+its results are written into this plan — every claim in the table at the top was checked against the
+published document, and no `[PROVISIONAL]` markers remain. What this task guards is different and narrower:
+**that the tree you are about to run against actually contains the refreshed spec.**
 
-Read `libs/deed-poll-api-client/openapi.json` and confirm it carries the search surface. Check, and write
-the answer into the task log:
+That matters because the refresh lives on plan 11's branch, not on `master`. Run these three checks:
 
-- **The `q` parameter on `GET /caseworker/cases`** — its exact name, and that it is a string query parameter.
-- **`referenceMatch` on the list response schema** — its exact property name and type (a nullable string id,
-  per api decision 11), and the exact schema name it sits on (`CaseListResponse` today).
-- **`newSurname` on the summary schema** — its exact name and type, and the schema name
-  (`CaseSummaryResponse` today).
-- **Whether `newSurname` is a sortable field** — read the `sort` parameter's *description* prose per
-  `SPEC-PROVENANCE.md`'s note (the operator/field vocabulary arrives as prose, not an enum). If it is not
-  sortable, decision 6's sort field is wrong and the column must ship without a sort header — correct the
-  plan.
-- The exact reference-normalisation and name-field behaviour api implemented, so decision 5's "api owns this"
-  is checked against what api actually did, not what its plan proposed.
+```bash
+# 1. The spec must carry referenceMatch on the LIST response. Must print a name, not an error.
+yq -p json -o json '.components.schemas.CaseListResponse.properties.referenceMatch' \
+  libs/deed-poll-api-client/openapi.json
+yq -p json -o json '.components.schemas.CaseSummaryResponse.properties.newSurname' \
+  libs/deed-poll-api-client/openapi.json
+yq -p json -o json '.paths."/caseworker/cases".get.parameters[] | select(.name == "q") | .name' \
+  libs/deed-poll-api-client/openapi.json
 
-Then **correct every [PROVISIONAL] marker in this document** to match, and delete the marker. A task below
-that names a field the spec does not have is a task to rewrite before running, not to work around.
+# 2. Plan 11 already registered both properties in the zod schemas — both must ALREADY be here.
+grep -c 'referenceMatch' libs/deed-poll-api-client/src/api/wire.ts   # expect 1 (0 = wrong tree)
+grep -c 'newSurname'     libs/deed-poll-api-client/src/api/wire.ts   # expect 3 (2 = wrong tree)
 
-If the spec has no `q`, `referenceMatch` or `newSurname`, the gate at the top has not been met: stop.
+# 3. The authoritative gate, and the one to trust over any grep above.
+yarn workspace @hmcts/deed-poll-api-client run test
+```
 
-- [ ] Spec confirmed to carry `q`, `referenceMatch` and `newSurname`; each name, type and owning schema
-      recorded in the task log; `newSurname` sortability confirmed from the `sort` description; every
-      [PROVISIONAL] marker corrected or the run stopped with a report
+**Read check 2's `newSurname` count carefully: it is 3, not 1.** `newSurname` is already a property of two
+*other* schemas — the case-detail response (`wire.ts:111`) and the update request (`wire.ts:302`, which is
+`.max(1000)`, not nullish). Only the third occurrence, on **`caseSummarySchema`** (the schema behind the
+*list rows*), is the one this plan needs. Verified 2026-09-17: pre-refresh trees have 2, refreshed have 3, so
+a bare "is it there at all" grep gives a **false pass**. `referenceMatch` is unambiguous at 1 versus 0.
+
+**Check 3 is the one that cannot be fooled.** If the counts and the test disagree, believe the test and
+investigate — the counts are a fast triage, not the contract.
+
+**If check 1 errors or returns null for any of the three, STOP.** The tree predates plan 11's `f08ccd2`;
+rebase on plan 11 and start again. Proceeding would put `contract.test.ts` red from task 1 and every later
+task would report the same red, which teaches nothing.
+
+**If check 2 finds both already registered, that is expected, not a surprise** — plan 11 added them so its own
+suite would not be red. Task 1 verifies them rather than adding them.
+
+Then re-read the table at the top of this plan against the spec in *this* tree. If api has shipped a further
+change since `19fbb39` that contradicts any row, **the spec wins, this plan is wrong, and the right move is
+to stop and report** rather than to work around it.
+
+- [ ] Refreshed spec confirmed present in this tree (`q`, `referenceMatch`, `newSurname` all found);
+      `wire.ts` confirmed to already carry both properties as `nullish`; `@hmcts/deed-poll-api-client` test
+      suite green **before** any edit; the table at the top re-checked against this tree's spec and either
+      confirmed or the run stopped with a report
 
 ### Task 1: The wire schema additions and the adapter parameter
 
-`libs/deed-poll-api-client/src/api/wire.ts`, then `client.ts`, then `contract.test.ts`. This is the task that
-would turn the gate red if run early — it is here first among the implementation tasks so the schema and the
-spec move together.
+`libs/deed-poll-api-client/src/api/wire.ts`, then `client.ts`. **Most of the schema half of this task is
+already done** — plan 11's `f08ccd2` registered both response properties, for its own sake rather than this
+plan's. So this task is now mostly `q`, plus a verification.
 
-1. Add **`newSurname`** to `caseSummarySchema` (`wire.ts:239`), beside `newForename`, as
-   `z.string().nullish()` — a response property with no published nullability is `.nullish()`, exactly as
-   `newForename` is. **[PROVISIONAL]** on the exact name.
-2. Add **`referenceMatch`** to `caseListSchema` (`wire.ts:257`) as `z.string().nullish()` — an id or null,
-   api decision 11. **[PROVISIONAL]**.
-3. **`STRICT_RESPONSE_PROPERTIES` (`wire.ts:454`) needs no change unless api publishes either new property as
-   non-nullable** — neither is a Java primitive, so both stay nullish and neither joins the strict list. But
-   the per-schema strictness test (`contract.test.ts:110`) asserts the schema rejects null for *exactly* the
-   pinned set, so if `referenceMatch`/`newSurname` are added as nullish (they should be), that test stays
-   green with no edit. Confirm, do not assume.
-4. Add **`q`** to `CaseListQuery` and set it in `listCases` (`client.ts:97`): `if (query.q !== undefined)
-   parameters.set("q", query.q)`, placed beside `filter`. It is a scalar set-once parameter, not repeated
-   like `where`.
+1. **Verify, do not add: `newSurname` on `caseSummarySchema`** (around `wire.ts:250`) as
+   `z.string().nullish()`, beside `newForename`. It is already there with a comment naming plan 12 as the
+   consumer. If it is missing, Task 0's check 2 failed and you are on the wrong tree — stop.
+2. **Verify, do not add: `referenceMatch` on `caseListSchema`** (around `wire.ts:272`) as
+   `z.string().nullish()`. Also already there, also commented. Same instruction if missing.
+   - Both comments say "nothing reads this until plan 12". **This plan is what makes them read.** Update both
+     comments to describe the property rather than promise a consumer — a comment that still says "nothing
+     reads it" once something does is worse than no comment.
+3. **`STRICT_RESPONSE_PROPERTIES` (`wire.ts:454`) needs no change.** Both properties are published as
+   `type: string` with no `required` entry, so both are `.nullish()` and neither joins the strict list. The
+   per-schema strictness test (`contract.test.ts:110`) asserts the schema rejects null for *exactly* the
+   pinned set, so it stays green with no edit. Confirm by running the suite, do not assume.
+4. **The one real code change: add `q`** to `CaseListQuery` and set it in `listCases` (`client.ts:97`):
+   `if (query.q !== undefined) parameters.set("q", query.q)`, beside `filter`. It is a scalar set-once
+   parameter, not repeated like `where`.
 
-`contract.test.ts` needs **no new entry** — `q` adds no operation and no schema, and `referenceMatch`/
-`newSurname` are properties of schemas already registered, so the existing per-schema property test
-(`contract.test.ts:85-87`) is what proves they match the spec. That test is the whole point of doing this
-task against a refreshed spec: green means the adapter and api agree on the new fields.
+`contract.test.ts` needs **no new entry** — `q` adds no operation and no schema, and both properties belong to
+schemas already registered, so the existing per-schema property test (`contract.test.ts:85-87`) is what proves
+the adapter and api agree.
 
-- [ ] `newSurname` on `caseSummarySchema` and `referenceMatch` on `caseListSchema`, both nullish and matching
-      the refreshed spec's exact names; `q` set in `listCases` beside `filter`, omitted when undefined;
-      `contract.test.ts` green (the per-schema property test is the proof); no strictness-list edit needed and
-      confirmed so
+- [ ] Both response properties confirmed present and nullish (not re-added); both stale "nothing reads this
+      yet" comments updated now that plan 12 reads them; `q` on `CaseListQuery` and set in `listCases` beside
+      `filter`, omitted when undefined; `@hmcts/deed-poll-api-client` suite green; no strictness-list edit
+      needed and confirmed so
 
 ### Task 2: The in-memory mock
 
@@ -336,9 +360,10 @@ else — it is a stand-in for the contract (`server.ts:5`):
 - **Reference match**: normalise case, hyphens and surrounding whitespace on both the term and the case's
   `displayReference` (and `referencenumber` as a string), and test equality. On an exact hit, that case's id
   is the response's `referenceMatch`.
-- **Name match**: case-insensitive substring against `newForename`, `newSurname`, `oldForename`,
-  `oldSurname`, `parents`, `representativeName` **[PROVISIONAL]** — use whatever field list the refreshed spec
-  and api's decision 9 settle on.
+- **Name match**: case-insensitive substring against exactly `newForename`, `newSurname`, `oldForename`,
+  `oldSurname`, `parents`, `representativeName` — **confirmed**: these are the six the published `q`
+  description names, and the list is closed. Addresses and narrative fields are deliberately excluded, so the
+  mock must not match them either. Substring, **not fuzzy** — do not add any tolerance for misspelling.
 - The two ORed per case; the `q` filter ANDed with the existing filter/where/sort chain
   (`server.ts:251-254`). **Keep the matcher in one helper** so it reads as one rule, mirroring api's
   decision-12 "one function" instruction.
@@ -413,7 +438,7 @@ path for a zero-result search.
 `src/pages/deed-polls/index.njk`, and the list view model in `libs/deed-poll/src/deed-poll/list-view.ts`.
 
 **The view model first** (decision 6): add `newSurname` to `CaseListRow` (`list-view.ts:19`), to
-`CASE_LIST_COLUMNS` (`list-view.ts:41`) with sort field `newSurname` **[PROVISIONAL]**, and to `buildCaseList`
+`CASE_LIST_COLUMNS` (`list-view.ts:41`) with sort field `newSurname` (confirmed sortable), and to `buildCaseList`
 (`list-view.ts:55`) via `format("newSurname", record.newSurname)`. `list-view.test.ts` pins
 `CASE_LIST_COLUMNS.length` (line 94) and the formatted fields (line 100) — update both to include the new
 column; the count assertion rises by one.
