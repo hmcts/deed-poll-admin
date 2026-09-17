@@ -417,10 +417,39 @@ The seed (`scripts/seed-local-cases.mjs`) gives every case forename `Filterby` a
 mock's own tests or a by-hand check need distinct surnames to exercise name matching, extend the seed here in
 the same task rather than leaving surname matching untestable against real fixtures.
 
-- [ ] `q` filters the list before paging, reference-exact ORed with name-substring in one helper, ANDed with
+- [x] `q` filters the list before paging, reference-exact ORed with name-substring in one helper, ANDed with
       the existing chain; `referenceMatch` set to the exact-reference hit or null; `newSurname` on
       `toSummary`; a mock test that a reference term populates `referenceMatch` and a name term does not; seed
       surname data added if the by-hand path needs it
+
+**Done 2026-09-17.** `list()` reads `parameters.get("q")`, trims it, and applies `matchesTerm` as a fourth
+`.filter` in the existing chain — after the tab and the conditions, **before** the sort and the slice, so the
+term narrows what is paged rather than the page being matched after the fact. A blank or whitespace-only term
+is no filter, so the no-search request is byte-identically the one the list already made (decision 8).
+
+`matchesTerm` is the one helper api's decision 12 asks for: `matchesReference` ORed with a case-insensitive
+substring over `SEARCHED_NAME_FIELDS`, a new module-level const holding exactly the six fields the published
+`q` description names. The reference match normalises case, hyphens and spaces on both sides
+(`normaliseReference`), tests `displayReference` and `referencenumber` as a string, and returns false for a
+term that normalises to empty — otherwise a case with no reference would match a blank term. No fuzziness and
+no field beyond the six: a test seeds `applicantAddress1` and `returnReason` with the search term and asserts
+zero matches, so a later widening of the matcher fails here.
+
+`referenceMatch` is the exact hit **among the matching set**, or null — computed off `matching`, not off every
+case, because a page redirecting to a case the caseworker's own filter had just excluded is worse than the
+empty list they asked for. That is pinned: `q=<reference>&filter=open` on an Enroled case answers `total: 0`
+with `referenceMatch: null`. `toSummary` gains `newSurname` from `record.newSurname`.
+
+**The seed was not changed, deliberately.** The plan's validation note calls its surname data thin, but
+`scripts/seed-local-cases.mjs` already sets `newSurname` per group — `Adultcase` (26), `Minorcase` (3),
+`Returnedcase` (2), one blank — and a `displayReference` per case, so the by-hand path has both a name search
+that returns a subset and a reference search that redirects. Distinct per-case surnames would have bought
+nothing and would have broken the `newSurname:is:Adultcase` condition the seed's own docblock relies on.
+
+Measured: api-client **242** (was 222 after task 1), full suite **1,915** across 8 of 8 tasks, 0 failures —
+redis 7, cnp 140, simple-router 41, session-postgres 23, api-client 242, deed-poll 740, govuk-starter 127, app
+595. `yarn lint` exit 0 with the documented 2 warnings and 2 infos. `yarn build` green in 13.3s from a `/tmp`
+copy carrying the working tree.
 
 ### Task 3: The list URL carries q, and the query type threads it
 

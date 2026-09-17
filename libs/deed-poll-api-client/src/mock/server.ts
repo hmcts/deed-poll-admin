@@ -25,9 +25,10 @@
  *   4. The per-type field-rule matrix.
  *   5. The audit author taken from the caller's token — see `auditName`.
  *   6. The two-witness gate on enrolment — see `enrolmentWitnessError`.
- *   7. The list query — the `where` conditions, the sort and the paging — see `list`. Without it a query
- *      builder could ship having narrowed nothing: every page and every e2e journey would see the same
- *      list whatever it asked for, which is the one thing about a query worth testing.
+ *   7. The list query — the search term, the `where` conditions, the sort and the paging — see `list`.
+ *      Without it a query builder could ship having narrowed nothing: every page and every e2e journey
+ *      would see the same list whatever it asked for, which is the one thing about a query worth testing.
+ *      The search term brings `referenceMatch` with it, since a page redirects on it — see `matchesTerm`.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers`, `CaseQuery` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
@@ -73,6 +74,12 @@ const RULED_FIELDS = [
 ] as const;
 
 const MINOR_ONLY_FIELDS = ["minorDateOfBirth", "ageOfMinor", "ageOfMinorMonths", "parents"] as const;
+
+/**
+ * The fields a search term is matched against as a substring, from the published `q` description. A closed
+ * list: addresses and the narrative fields are deliberately outside it.
+ */
+const SEARCHED_NAME_FIELDS = ["newForename", "newSurname", "oldForename", "oldSurname", "parents", "representativeName"] as const;
 
 /** Relaxed to optional when Migrated Record = Yes, whatever the type. Visibility is untouched. */
 const MIGRATED_RELAXED_FIELDS = [
@@ -231,13 +238,17 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   }
 
   /**
-   * One page of the list: the saved-query filter, the field-level conditions, the order and the page.
+   * One page of the list: the search term, the saved-query filter, the field-level conditions, the order
+   * and the page.
    *
    * Refusals are sent in api's order — the conditions, then the sort, then the paging — each as its own
    * 400, because that is the order `CaseworkerReadController` parses them in and a page rendering the
    * first refusal it is given should see the same one either way. The condition errors are addressed to
    * `where.0`, `where.1` … since the parameter is repeated and a position is the only thing that says
    * which of three conditions was the wrong one.
+   *
+   * `q` is not refusable: a blank term is no search and a long one is truncated by api rather than
+   * rejected, so there is no 400 to send and it is applied with the rest of the narrowing.
    */
   function list(res: ServerResponse, parameters: URLSearchParams): void {
     const where = parameters.getAll("where");
@@ -272,10 +283,12 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return;
     }
 
+    const term = (parameters.get("q") ?? "").trim();
     const resolved = FILTERS.find((candidate) => candidate.key === parameters.get("filter")) ?? FILTERS[0];
     const matching = [...cases.values()]
       .filter((record) => resolved.matches(record.state))
       .filter((record) => conditions.every((condition) => matchesCondition(record, condition)))
+      .filter((record) => term === "" || matchesTerm(record, term))
       .sort(comparing(order));
 
     const from = (paging.page - 1) * paging.size;
@@ -284,6 +297,9 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       filter: resolved.key,
       cases: matching.slice(from, from + paging.size).map(toSummary),
       page: paging.page,
+      // The exact-reference hit among the cases the whole query left, so a term whose case the filter or a
+      // condition excluded does not redirect a page past the empty list it asked for.
+      referenceMatch: matching.find((record) => matchesReference(record, term))?.id ?? null,
       size: paging.size,
       total: matching.length,
       // Zero pages for an empty result set, as `CaseResults` derives it: "page 1 of 0" tells the truth
@@ -938,6 +954,46 @@ function matchesCondition(record: MockCase, { field, operator, values }: MockCon
   }
 }
 
+/**
+ * Whether the search term matches one case: its reference exactly, or one of the six searched names
+ * loosely. api's `q` rule, in one function as api keeps it in one function.
+ *
+ * The two are ORed and the term is substring, **not** fuzzy — a misspelling matches nothing, so there is
+ * no tolerance to add here either. The six fields are the closed list the published `q` description names;
+ * addresses and the narrative fields are deliberately not searched, so the mock must not search them.
+ */
+function matchesTerm(record: MockCase, term: string): boolean {
+  if (matchesReference(record, term)) return true;
+
+  const needle = term.toLowerCase();
+
+  return SEARCHED_NAME_FIELDS.some((field) => {
+    const stored = record[field];
+
+    return typeof stored === "string" && stored.toLowerCase().includes(needle);
+  });
+}
+
+/**
+ * Whether the term is this case's reference, tolerant of case, hyphens and spaces — so `kbdp2026-10100`
+ * and `KBDP202610100` find the same case, as the published description states.
+ *
+ * The bare serial counts too, since a caseworker reading one off a spreadsheet column has no prefix. A
+ * case with no reference matches nothing, rather than matching a term that normalises to empty.
+ */
+function matchesReference(record: MockCase, term: string): boolean {
+  const wanted = normaliseReference(term);
+  if (wanted === "") return false;
+
+  return [record.displayReference, record.referencenumber].some(
+    (candidate) => candidate !== null && candidate !== undefined && normaliseReference(String(candidate)) === wanted
+  );
+}
+
+function normaliseReference(value: string): string {
+  return value.toLowerCase().replaceAll(/[\s-]/g, "");
+}
+
 /** Whether the stored value is one `isEmpty` matches: absent, blank, or an empty multiselect. */
 function isBlank(value: unknown): boolean {
   if (value === null || value === undefined) return true;
@@ -994,7 +1050,8 @@ function toSummary(record: MockCase): unknown {
     dateReceived: iso(record.dateReceived),
     type: record.type,
     state: record.state,
-    newForename: record.newForename
+    newForename: record.newForename,
+    newSurname: record.newSurname
   };
 }
 
