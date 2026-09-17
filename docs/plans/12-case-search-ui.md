@@ -311,10 +311,36 @@ Then re-read the table at the top of this plan against the spec in *this* tree. 
 change since `19fbb39` that contradicts any row, **the spec wins, this plan is wrong, and the right move is
 to stop and report** rather than to work around it.
 
-- [ ] Refreshed spec confirmed present in this tree (`q`, `referenceMatch`, `newSurname` all found);
+- [x] Refreshed spec confirmed present in this tree (`q`, `referenceMatch`, `newSurname` all found);
       `wire.ts` confirmed to already carry both properties as `nullish`; `@hmcts/deed-poll-api-client` test
       suite green **before** any edit; the table at the top re-checked against this tree's spec and either
       confirmed or the run stopped with a report
+
+**Verified 2026-09-17 at `6d70e6e` (branch `case-search-ui-rebased`).** Every row of the table at the top of
+this plan re-checked against *this* tree's spec, all confirmed, nothing contradicted:
+
+- `openapi.json` carries **26 operations, 19 schemas** — the `f08ccd2` refresh, matching the figure the table
+  cites. `CaseListResponse.properties` is exactly `cases, filter, page, referenceMatch, size, total,
+  totalPages`, with `referenceMatch: {type: string}` and no `required` array; `CaseSummaryResponse.newSurname`
+  is `{type: string}`, also with no `required`. So both are correctly `.nullish()` and neither belongs on
+  `STRICT_RESPONSE_PROPERTIES` — task 1's point 3 holds.
+- `q` is present on `GET /caseworker/cases` as `in: query`, `type: string`, `required: false`. Its published
+  description names **exactly** the six searched fields task 2 lists — `newForename`, `newSurname`,
+  `oldForename`, `oldSurname`, `parents`, `representativeName` — and states the OR-then-AND rule, substring
+  not fuzzy, the 100-character truncation, that addresses and narrative fields are excluded, and that
+  `referenceMatch` carries the exactly-matched case's id. Nothing to reinterpret.
+- `newSurname` appears in the `sort` parameter's sortable-field prose, so decision 6's column ships with a
+  sort header and no 400 risk.
+- Check 2's counts came back as the plan predicts a *refreshed* tree: `referenceMatch` 1, `newSurname` 3 (the
+  third being `caseSummarySchema` at `wire.ts:263`; the other two are the detail response at 124 and the
+  update request at 324). Both plan-12 properties are registered as `z.string().nullish()` at `wire.ts:263`
+  and `wire.ts:285`, each with the comment task 1 point 2 tells us to rewrite.
+- Check 3, the gate that cannot be fooled: `@hmcts/deed-poll-api-client` **4 files, 221 tests, all passing**
+  before any edit. Note 221, not the 192 in the baseline table — plan 11 added tests after that figure was
+  measured, so **this package's branch-point baseline is 221**, and task 6 should compare against a baseline
+  re-measured here rather than the 1,702 total.
+- One immaterial correction to task 1's prose: the update request's `newSurname` (`wire.ts:324`) is
+  `.max(1000).nullish()`, not `.max(1000)` alone as the task text says. It is not a property this plan edits.
 
 ### Task 1: The wire schema additions and the adapter parameter
 
