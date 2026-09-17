@@ -34,12 +34,18 @@ import { parseSort, serialiseSort } from "../deed-poll/list-sort.js";
  * `parseSort`, both for the reason those functions fall back rather than refusing: a query saved against
  * an older version of the list is still a query, and answering it with everything in api's own order beats
  * answering it with a 400.
+ *
+ * **`q` is restored here, which is the whole of the read half.** Every path back to a saved query's list —
+ * `savedQueryHref`, the library rows and the filter nav's entries — builds its URL through this function and
+ * then `caseListSearch`, so restoring the term in one place restores it everywhere. `caseListSearch` drops a
+ * blank one, so a query api holds no term for is byte-identically the URL it was before.
  */
 export function savedQueryLink(query: SavedQuery): CaseListLink {
   return {
     filter: filterFor(query.filter).key,
     conditions: parseConditions(query.conditions),
-    sort: savedQuerySort(query)
+    sort: savedQuerySort(query),
+    q: query.searchTerm ?? undefined
   };
 }
 
@@ -70,12 +76,17 @@ export function savedQueryHref(query: SavedQuery, listPath: string): string {
  */
 export function savedQueryStored(link: CaseListLink): StoredQueryParts {
   const sort = parseSort(link.sort);
+  const term = link.q?.trim();
 
   return {
     filter: LIST_FILTER.find((key) => key === filterFor(link.filter).key),
     conditions: caseQueryWhere(link.conditions ?? []),
     sortField: sort?.field,
-    sortDirection: sort?.direction
+    sortDirection: sort?.direction,
+    // Trimmed, and `undefined` rather than `""` for a blank one: an omitted property is a column api leaves
+    // unset, where an empty string is a stored term that matches everything. `caseListSearch` makes the same
+    // distinction on the way out, so a saved blank and a saved term round-trip identically to no term.
+    searchTerm: term === "" ? undefined : term
   };
 }
 
@@ -161,10 +172,15 @@ function owner(name: string | null | undefined): string {
 }
 
 /**
- * The four columns api stores a list query in, typed off the create body so a page cannot hand it a
- * filter or a direction api's enums do not carry. `searchTerm` is plan 12's and is not written here.
+ * The five columns api stores a list query in, typed off the create body so a page cannot hand it a
+ * filter or a direction api's enums do not carry.
+ *
+ * `searchTerm` was plan 12's and went unwritten by both plans — each handed it to the other — so a query
+ * saved while a search was active reopened without the term and silently returned different results from
+ * the ones it was named after. It is written here now, which is the only place it can be: this is the
+ * function that turns a list URL into api's columns.
  */
-export type StoredQueryParts = Pick<SavedQueryCreate, "filter" | "conditions" | "sortField" | "sortDirection">;
+export type StoredQueryParts = Pick<SavedQueryCreate, "filter" | "conditions" | "sortField" | "sortDirection" | "searchTerm">;
 
 /** One entry of the filter nav's saved-query group. Structurally a status tab's entry, deliberately. */
 export interface SavedQueryNavEntry {
