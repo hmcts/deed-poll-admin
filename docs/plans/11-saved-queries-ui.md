@@ -57,10 +57,12 @@ reports the same red and the run teaches nothing.
   iteration order Java randomises per JVM, so every spec refresh would show a spurious diff in those names.
   Fixed in `hmcts/deed-poll-api#18`.
 
-**Statements about api paths, parameters and response fields are now checked rather than provisional.** Two
-**[PROVISIONAL]** markers deliberately remain, and neither is about api's contract: the mock's `editable: true`
-(a limitation of the mock, recorded at the mock) and the operation table in task 1. Where the spec and this
-plan disagree, **the spec still wins and this plan is still wrong** — that rule does not expire.
+**Statements about api paths, parameters and response fields are now checked rather than provisional.** Task 0
+has since run against the spec on disk and **no `[PROVISIONAL]` marker remains** — the findings are recorded
+under task 0. The one thing task 2 must still not overclaim is the mock's `editable: true`, which is a
+limitation of the mock rather than an open question about api's contract, and is now stated as such at the
+mock. Where the spec and this plan disagree, **the spec still wins and this plan is still wrong** — that rule
+does not expire.
 
 ## Overview
 
@@ -266,6 +268,10 @@ The whole suite ran in **33s** and the build in **13s** from `/tmp`.
 Compare **totals** against 1,702, and expect the count to rise monotonically. If a total *falls*, stop — a
 test was lost, not replaced.
 
+**Re-measured after tasks 1 and 0, at commit `76ae7ac`: 1,709**, 8 of 8 tasks successful, 0 failures, 0
+worker errors; the whole rise is `@hmcts/deed-poll-api-client` 192 → 199, which is task 1's seven operations.
+`yarn build` 8 of 8 in 12.2s. Later tasks compare against **1,709**, not 1,702.
+
 **Run these from a `/tmp` copy, not in the clone.** Measured 2026-09-16: the same `yarn build` took 19m26s
 in the working tree and 13.8s in a `git archive HEAD` copy under `/tmp`. Use
 `git archive HEAD | (mkdir -p /tmp/dpa-verify && tar -x -C /tmp/dpa-verify)`, then `yarn install` and run
@@ -308,7 +314,74 @@ worked around.
 
 If the spec has no saved-query operations at all, the gate at the top of this plan has not been met: stop.
 
-- [ ] Spec confirmed to carry the saved-query surface; every path, schema name and property recorded in the
+#### Findings — run 2026-09-17 against `libs/deed-poll-api-client/openapi.json` as committed in `f08ccd2`
+
+**No divergence. Every claim in this plan holds.** 14 paths, 26 operations; 13 of the paths and 25 of the
+operations are `/caseworker/*`, exactly as the table at the top of this document says.
+
+All seven saved-query operations are present, with the methods, paths and success statuses task 1's table
+names:
+
+| Operation | Status | Request body |
+|---|---|---|
+| `GET /caseworker/saved-queries` | 200 | — |
+| `POST /caseworker/saved-queries` | 201 | `CreateSavedQueryRequest` |
+| `GET /caseworker/saved-queries/{id}` | 200 | — |
+| `PATCH /caseworker/saved-queries/{id}` | 200 | `UpdateSavedQueryRequest` |
+| `DELETE /caseworker/saved-queries/{id}` | 204 | — |
+| `PUT /caseworker/saved-queries/{id}/selection` | 204 | — |
+| `DELETE /caseworker/saved-queries/{id}/selection` | 204 | — |
+
+The selection sub-resource is therefore `PUT`/`DELETE` on `…/{id}/selection` as api's plan describes, and
+**both answer 204 with no body** — so the adapter reaches them with `requestNoContent`, and neither returns the
+query, which matters for task 6: after an add or remove, re-read or redirect, do not expect a fresh flag back.
+
+Three new schemas, named exactly `SavedQueryResponse`, `CreateSavedQueryRequest`, `UpdateSavedQueryRequest`
+(19 schemas in total, up from 16).
+
+- **`SavedQueryResponse` — 17 properties, `required: []`.** `id`, `name`, `description`, `filter`,
+  `searchTerm`, `conditions` (`string[]`), `sortField`, `sortDirection`, `shared` (boolean), `selected`
+  (boolean), **`editable` (boolean — confirmed present, and it is `editable`, not `canEdit`)**, `ownerId`,
+  `ownerName`, `createdBy`, `createdOn` (`date-time`), `modifiedBy`, `modifiedOn` (`date-time`). Nothing is
+  required, which is springdoc's usual silence on a response body rather than a statement about nullability.
+- **`CreateSavedQueryRequest` — 8 properties, `required: ["name"]`.** `name` (`maxLength: 100`,
+  `minLength: 1`), `description` (`maxLength: 500`), `filter` (**enum**: `all`, `open`, `received`, `enroled`,
+  `returned`), `searchTerm` (`maxLength: 100`), `conditions` (`string[]`, `maxItems: 20`), `sortField`,
+  `sortDirection` (**enum**: `asc`, `desc`), `shared`. Not an empty schema — `hmcts/deed-poll-api#17` holds.
+- **`UpdateSavedQueryRequest` — the same 8 properties with the same bounds, `required: []`**, so a PATCH may
+  send any subset.
+
+The bounds are the ones task 6 must not exceed: **name ≤ 100 and ≥ 1 character, description ≤ 500,
+conditions ≤ 20, searchTerm ≤ 100.**
+
+`GET /caseworker/saved-queries` **takes no parameters at all** — no filter, no paging — and returns a bare
+`SavedQueryResponse[]`. So the shared/own/selected split is the client's to make from `shared`, `selected` and
+`editable` on each item; there is no server-side "just my selection" call, which is worth knowing before task
+5 goes looking for one. Note also that the response is published under `*/*` rather than
+`application/json`, springdoc's default where no `produces` is declared; that is a documentation artefact, not
+a content-type the client should send or expect.
+
+Per `SPEC-PROVENANCE.md`'s fourth note, the vocabularies that arrive **only as prose** in a parameter
+description and are pinned by nothing:
+
+- **`where`** — `field:operator:value`, repeated per condition, ANDed with no OR, split on the first two
+  colons so a colon inside a value survives. Operators: `is`, `contains`, `startsWith`, `before`, `after`,
+  `gt`, `lt` (one value each), `between` (two comma-separated, low first), `isOneOf` (at least one
+  comma-separated), `isEmpty`, `isNotEmpty` (no value). A bad field or a bad operator for that field's kind is
+  a 400 naming **every** unreadable condition, not just the first.
+- **`sort`** — `field:asc|desc`, direction optional and defaulting to ascending. The sortable field list is
+  prose in the description and deliberately not enumerated in `CreateSavedQueryRequest.sortField`, api's note
+  saying there are more than sixty and a frozen copy would drift. **Do not build a select of sort fields from
+  the spec** — the list is not machine-readable, and `case-query.ts` is where this repo's copy of the sortable
+  set already lives.
+- **`q`** — plan 12's, recorded only so nobody re-derives it: exact-ish reference match (tolerant of case,
+  hyphens, spaces) ORed with a case-insensitive substring over `newForename`, `newSurname`, `oldForename`,
+  `oldSurname`, `parents`, `representativeName`; over 100 characters is truncated, not refused.
+
+Proof the adapter and the spec agree, re-run as part of this task:
+`cd libs/deed-poll-api-client && yarn vitest run src/api/contract.test.ts` — **57 assertions, 57 passed.**
+
+- [x] Spec confirmed to carry the saved-query surface; every path, schema name and property recorded in the
       task log; `editable` confirmed present on `SavedQueryResponse`; the two request bodies confirmed to
       publish their eight properties rather than an empty schema; every **[PROVISIONAL]** marker in this plan
       either corrected or the run stopped with a report
@@ -378,7 +451,8 @@ failure into `send(res, 400, fieldErrorsFrom(parsed.error.issues))`. Unknown met
 **The mock cannot model the permission rules, and must not pretend to.** `auditName(req)` (line 630) decodes
 the bearer token's `sub` without verifying it and there is no role in it — the mock comments at lines
 400-403 say a 403 is not a state it can produce, which is why the witness delete's Administrator gate is
-unmodelled. So: the mock sets `editable: true` **[PROVISIONAL]** on everything and answers every write. Put a
+unmodelled. So: the mock sets `editable: true` on everything and answers every write — a deliberate
+divergence from api, which computes the flag from `SavedQueryPermissions.editableBy`. Put a
 comment saying so, in the shape of the existing one, or someone will later read the mock as evidence that
 the UI's permission handling is tested.
 
@@ -397,8 +471,10 @@ every service function does.
 `view.ts` — turns wire saved queries into what the nav and the library page render. **This is where the
 query's stored form becomes a URL**: use `caseListSearch({ filter, conditions, sort })` from
 `case-query.ts:137`, so a saved query's link is built by the same function every other list link on the page
-uses and cannot carry a different subset. `parseConditions` (`case-query.ts:93`) turns the stored `where`
-strings back into `CaseCondition[]`.
+uses and cannot carry a different subset. `parseConditions` (`case-query.ts:93`) turns the stored condition
+strings back into `CaseCondition[]`. **On the wire the field is `conditions`, not `where`** — task 0 confirmed
+it — carrying the same `field:operator:value` strings the `where` *query parameter* takes; a request body with
+a `where` key would be dropped in silence.
 
 Export both from `libs/deed-poll/src/index.ts` with `export *`, in alphabetical position among the existing
 lines. **Do not export `callApi`** — see the comment at lines 9-14.
@@ -484,7 +560,8 @@ URL (`libs/simple-router/src/route-discovery.ts:44-52`), so `queries/index.ts` i
   description, `ownerName` (decision 2 — display only), whether it is in the caller's list, and a control to
   add or remove it. Add/remove are `PUT`/`DELETE` on the selection sub-resource and are idempotent, so a
   double-submit is harmless.
-- **Edit and delete**, shown only when api says `editable` **[PROVISIONAL]** (decision 3). Follow the
+- **Edit and delete**, shown only when api says `editable` — confirmed present on `SavedQueryResponse` by
+  task 0 (decision 3). Follow the
   existing shape for *rendering* a permissioned control — a named `canX` value passed into the template and
   `{% if %}`'d, hidden rather than disabled (`witness-edit.njk:79`, and the comment there on why a disabled
   button has no value to read). **Unlike witnesses, the flag comes from api, not from a local policy
