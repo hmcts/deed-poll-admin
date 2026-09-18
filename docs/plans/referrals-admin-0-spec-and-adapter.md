@@ -183,6 +183,142 @@ but it is unproven, so do not go hunting elsewhere first.
 
 ---
 
+## Finding: the measured delta
+
+**Measured 2026-09-18. The gate passes: the delta is exactly the referral surface, and nothing else.**
+Regenerated from a detached worktree at `deed-poll-api` `ee3717313d3cd841608b05a38f4b9a9598f84a30` — still the
+tip of `origin/master` after `git fetch`, so decision 1 stands unamended. The shared clone was left on
+`referrals-api-3` and untouched (decision 7).
+
+### The commit range, including #21
+
+`3b2579a..ee37173` first-parent is five merges — `#19`, `#21`, `#22`, `#23`, `#24`. **`#21` is documents only**:
+two files, both under `docs/plans/`, and **zero** files under `src/main/`. It is confirmation exactly as the
+Overview expected, so the four api plans in the table are the whole of the production delta and there is no
+fifth.
+
+### Counts
+
+| | Committed (`3b2579a`) | Refreshed (`ee37173`) | Delta |
+|---|---|---|---|
+| Operations | 26 | **35** | +9 |
+| — caseworker | 25 | **30** | +5 |
+| — judicial | 0 | **4** | +4 |
+| — Spring Boot's `GET /` | 1 | 1 | — |
+| Paths | 14 | **22** | +8 (17 caseworker, 4 judicial, 1 welcome) |
+| Schemas | 19 | **27** | +8 |
+
+**api asserts both halves of that itself**, which is the corroboration worth having: `OpenAPIPublisherTest`
+asserts `isEqualTo(30)` for the caseworker count and `isEqualTo(4)` for the judicial one, separately and with
+`doesNotContainAnyElementsOf` between the two lists. My count is not an independent measurement that happens
+to agree — it agrees with a number api's own build fails on.
+
+The nine operations are the nine the gate named, with no removals:
+
+```
++ GET  /caseworker/cases/{id}/referrals
++ POST /caseworker/cases/{id}/referrals
++ GET  /caseworker/cases/{id}/referrals/{referralId}
++ POST /caseworker/cases/{id}/referrals/{referralId}/withdrawal
++ POST /caseworker/cases/{id}/referrals/{referralId}/closure
++ GET  /judicial/referrals
++ GET  /judicial/referrals/{referralId}
++ POST /judicial/referrals/{referralId}/claim
++ POST /judicial/referrals/{referralId}/direction
+```
+
+The eight schemas are likewise the eight named: `CreateReferralRequest`, `ReferralResponse`,
+`JudicialDirectionRequest`, `JudicialPoolResponse`, `JudicialReferralSummary`, `JudicialReferralDetail`,
+`JudicialCaseView`, `JudicialCaseNote`. Nothing was removed on either axis.
+
+### Decision 6 confirmed — both keyed bodies published properly
+
+**`CreateReferralRequest` carries 4 properties and `JudicialDirectionRequest` 3**, both with their enum members,
+their `maxLength` constraints and a `required` array. Not `{}`. `OpenAPIWriteBodies`'s
+`describeReferralBody`/`describeDirectionBody` did their job, so there is nothing to raise upstream:
+
+- `CreateReferralRequest` — `reasons` (required, `minItems: 1`, enum of six: `Minor`, `DomesticAbuse`,
+  `NonPublication`, `DeclarantRequirementsNotMet`, `SeparatedOrEstranged`, `Other`), `notes`
+  (`maxLength: 1000`), `urgency` (enum `Normal`/`Urgent`), `urgencyReason` (`maxLength: 500`).
+- `JudicialDirectionRequest` — `decision` (required, enum `Approved`/`Rejected`), `publishToGazette`
+  (required, boolean), `directionsText` (`maxLength: 4000`).
+
+One shared quirk, checked rather than assumed to be new: **every hand-registered write body omits `type:
+object`.** `CreateSavedQueryRequest`, `UpdateSavedQueryRequest`, `CreateNoteRequest` and `CreateCaseRequest`
+all publish `type: undefined` with their properties present, and the two referral bodies match them. That is
+how `OpenAPIWriteBodies` has always registered, it is not the 2026-09-17 `{}` defect recurring, and the
+contract test keys off property sets rather than `type`.
+
+### Every difference, accounted for
+
+Four kinds, where the gate anticipated three. The fourth is below and is not a surprise to absorb — it is the
+same api-2b addition surfacing in a second place:
+
+1. **The nine operations and eight schemas** above.
+2. **`currentReferralState` on the three case schemas** — `CaseSummaryResponse`, `CaseDetailResponse` and
+   `SavedCaseResponse`, identical on all three: `{"type":"string","enum":["Open","Claimed","Decided","Closed",
+   "Withdrawn"]}`. Decision 4's list of three was right; a property-by-property deep diff of all 19
+   pre-existing schemas found **these three properties and nothing else** — no retypes, no removals, no
+   changes to any other schema's non-`properties` keys.
+3. **One `operationId` shift** — `POST /caseworker/cases/{id}/notes` went `create_3` → `create_4`, because the
+   new `POST …/referrals` took `create_3`. The known collision-by-shape churn (`SPEC-PROVENANCE.md`); nothing
+   here keys off an `operationId`. Only one moved this time, against eight last refresh.
+4. **`currentReferralState` appended to the `sort` parameter's sortable-field list** on `GET /caseworker/cases`
+   — 69 names to 70, inserted at index 15, directly after `state`. **Not the determinism bug returning**, and
+   that was checked specifically rather than eyeballed: the 69 shared names are in *byte-identical order*, and
+   `createdOn, modifiedOn, createdBy, modifiedBy` are still the last four in `#18`'s pinned order. So the
+   `List.of` fix holds. This is api-2b making the new field sortable, and the Scope section already expects it
+   to be queryable — registering it in `query-fields.ts` is admin-2's task, not this plan's. Nothing in the
+   adapter reads this description, so it changes no work here beyond being recorded in `SPEC-PROVENANCE.md` at
+   Task 2b.
+
+No other difference exists anywhere in the document: the deep diff covered every pre-existing operation
+(parameters, bodies, responses, security), the top-level keys and `components.securitySchemes`.
+
+### Three shape notes Task 2a should not re-derive
+
+- **Decision 9 confirmed from the document, not just the controllers.** `POST …/withdrawal`, `POST …/closure`
+  and `POST …/claim` each publish **no `requestBody` at all**. Only `create` and `direction` carry one, both
+  `required: true`. A client function sending `{}` to those three would be inventing a body api does not
+  document.
+- **`GET /judicial/referrals`'s `page` and `size` publish as `{"type":"string"}`**, not the case list's
+  `integer`/`int32`-with-default-and-minimum. That is deliberate on api's side and documented in
+  `JudicialReferralController.pool`'s javadoc — both bind as `String` and go to `CasePaging.parse`, which
+  "refuses what it cannot understand and clamps an over-cap size rather than refusing it". Faithful
+  publication of a real signature, not a springdoc artefact, and it costs the adapter nothing since query
+  values serialise as strings regardless.
+- **Responses are `*/*`, and every 200/201 references a schema.** The caseworker five answer
+  `ReferralResponse` (a bare array for the list); judicial answers `JudicialPoolResponse` for the pool and
+  `JudicialReferralDetail` for the other three, including `claim` and `direction`.
+
+### Artefacts and reproduction
+
+`/tmp/openapi-specs.json` is Task 2a's and 2b's input — 50,881 bytes, the same size a run earlier the same day
+produced, which is consistent with `#18`'s determinism fix holding. The worktree was removed after
+regenerating, per decision 7. If `/tmp` is cleared before pass 1 finishes, reproduce with:
+
+```bash
+cd ../deed-poll-api && git worktree add /tmp/api-spec-refresh ee3717313d3cd841608b05a38f4b9a9598f84a30
+cd /tmp/api-spec-refresh && TESTCONTAINERS_RYUK_DISABLED=true ./gradlew integration --tests "*OpenAPIPublisherTest*"
+```
+
+### Baseline, measured rather than trusted
+
+Both validation commands were run before anything changed, and both reproduce the plan's stated figures
+exactly — so the movement each later task records is against a real number:
+
+| | Result |
+|---|---|
+| `yarn lint` | exit 0 — 306 files checked, **2 warnings, 2 infos** |
+| `yarn turbo test test:app --concurrency=1` | **8 of 8 tasks, 1,953 passed, 3 skipped** (120 files) |
+
+Per package: `@hmcts/deed-poll` 752, `//:test:app` 621 + 3 skipped, `@hmcts/deed-poll-api-client` **242**,
+`@hmcts-cft/cloud-native-platform` 140, `@hmcts-cft/express-govuk-starter` 127, `@hmcts-cft/simple-router` 41,
+`@hmcts-cft/express-session-postgres` 23, `@hmcts-cft/express-session-redis` 7. The api-client's **242** is the
+one to watch: Tasks 2b and 4 should move that figure and no other.
+
+---
+
 ## Tasks
 
 ### Task 1: Establish the delta, and stop if it is not the referral surface
@@ -225,7 +361,13 @@ not absorb a surprise into the adapter to keep the task moving.
 Record the finding in this file under `## Finding: the measured delta`, citing the counts you measured rather
 than the ones above.
 
-- [ ] Task 1 complete
+- [x] Task 1 complete — gate **passes**. 26→35 operations (+9), 19→27 schemas (+8),
+      `currentReferralState` on the three case schemas, at api `ee37173` (still `origin/master`'s tip). `#21`
+      confirmed documents-only. Both keyed bodies published with real properties (decision 6 clear). One
+      difference beyond the gate's three categories — `currentReferralState` appended to the `sort`
+      description's field list — accounted for above as api-2b's, not the determinism regression: the other 69
+      names are in unchanged order. Tree unchanged except this file. Baseline recorded: lint exit 0
+      (2 warnings, 2 infos); **1,953 passed, 3 skipped, 8 of 8 tasks**.
 
 ### Task 2a: Write the adapter — schemas and client functions, registered nowhere
 
