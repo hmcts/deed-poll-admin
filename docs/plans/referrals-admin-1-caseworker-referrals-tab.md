@@ -565,10 +565,40 @@ Two behaviour fixes, one accessibility finding, and the journey test that found 
   small change (`Promise.allSettled`, a load-failure flag on the view model, no raise button in that state) if
   you decide the tab is worth less than the page.
 
-Counts after the review fixes: `//` (the app) **48 files / 705 tests**, `@hmcts/deed-poll` **48 / 822** — 2,190
+### Code review, third pass — the mixed api 400
+
+- **A 400 that names a field this form renders *and* one it does not no longer hides half of itself.** The
+  earlier fix asked "did api name any control this page has?" and, if so, rendered api's messages as they
+  arrived — but a Spring 400 carries every field error at once, so a rejection naming `notes` and `reasons[0]`
+  together showed the notes message and dropped the other. The caseworker would fix what they were shown and
+  be refused a second time for a half that had never been on the page. The test is now per rejection rather
+  than per response: whatever lands on a control is rendered there, and anything left over adds the page's
+  own `referralRefused` row to the summary and a line to the log. The two ends of the range are unchanged —
+  all fields placeable renders api's words alone, none placeable renders the page's copy alone — so only the
+  mixed case moves. Pinned by a third case in `referrals/new.test.ts`.
+- **The form-level summary row no longer links to `#reasons`.** `referralRefused` stands in for a rejection that
+  named no control this page renders, so the `href` was a guess — and following it moved a keyboard or
+  screen-reader user's focus to a checkbox group that may be entirely valid. It is now rendered without one, the
+  same call the conflict row in `referral-form.njk` already made and for the same stated reason; field rows stay
+  linked. The wording stays generic: api's own text is written for whoever reads api's logs, and `backend.md`
+  forbids putting it in front of a caseworker, so an unplaceable message is logged and not rendered.
+
+Counts after the review fixes: `//` (the app) **48 files / 706 tests**, `@hmcts/deed-poll` **48 / 822** — 2,191
 across the eight workspaces, `turbo test test:app --concurrency=1` 8 successful. `yarn lint` still the
 baseline's 2 pre-existing warnings. The Playwright suite passes serially (28 of 29; the saved-queries journey
 times out on this devcontainer's filesystem under load, which predates this branch and is why CI retries).
+
+### Code review, fourth pass — a rejected reason now lands on the checkbox group
+
+- **`reasons[0]` is placeable after all.** `fieldMessages` split the field path on `.` only, so zod's
+  `reasons.0` reached the checkbox group and Spring's `reasons[0]` — the same fact, spelled the way the other
+  end spells it — was classified unplaceable, logged, and replaced by the generic `referralRefused` row. The
+  docblock always claimed a member's issue lands on the group; only the dotted spelling actually did. It now
+  splits on the first `.` or `[`, so an api rejection naming a reason renders api's message against the
+  `reasons` group with a working summary link, and the unplaceable path keeps its meaning: a field this form
+  genuinely has no control for (api-allocated `state`, or no field at all). The two tests that used
+  `reasons[0]` as their example of "no control for this" now use `state`, and a new case pins the bracketed
+  member onto the group.
 
 ## Deliberately not in this plan
 

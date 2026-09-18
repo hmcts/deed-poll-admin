@@ -93,15 +93,21 @@ export const POST = async (req: Request, res: Response) => {
     }
     if (error instanceof InvalidInputError) {
       // api's field names are the wire names, which are this form's control names, so they land in place —
-      // but only the four this form has a control for. A rejection that names none of them (no field at all,
-      // or one this form does not render) has nowhere to land, and rendering nothing at all would leave a 400
-      // with an untouched form and no explanation on it, which is the one failure a caseworker cannot act on.
+      // but only the four this form has a control for (a `reasons` member included, see `fieldMessages`).
+      // Anything else (no field at all, or one this form does not render) has nowhere to land, so it is
+      // logged and the page's own copy stands in for it. Per rejection, not per response: a 400 naming both
+      // `notes` and a field with no control would otherwise show the notes message and drop the other, and
+      // the caseworker would fix what they were shown and be refused again for the half they were not.
       const messages = fieldMessages(error.errors);
-      if (Object.keys(messages).some((field) => FIELD_ORDER.includes(field))) {
-        return rerender(req, res, 400, messages);
+      const placed = Object.keys(messages).filter((field) => FIELD_ORDER.includes(field));
+      const unplaceable = Object.keys(messages).filter((field) => !FIELD_ORDER.includes(field));
+
+      if (unplaceable.length > 0 || placed.length === 0) {
+        console.error(`referral create refused with rejections this form cannot place (${unplaceable.join(", ") || "no field named"}): ${error.message}`);
+        return rerender(req, res, 400, Object.fromEntries(placed.map((field) => [field, messages[field]])), en.referralRefused);
       }
-      console.error(`referral create refused with no field this form renders: ${error.message}`);
-      return rerender(req, res, 400, {}, en.referralRefused);
+
+      return rerender(req, res, 400, messages);
     }
     throw error;
   }
@@ -147,12 +153,14 @@ function reasonsFrom(value: unknown): unknown[] {
 /**
  * Rejections keyed by the control they belong against.
  *
- * The path's first segment, so an issue about one member of `reasons` (`reasons.0`) lands on the checkbox
- * group — there is no control for a member, and an error addressed to `reasons.0` would leave the summary
- * link pointing at nothing.
+ * The path up to its first index or property separator, so an issue about one member of `reasons` lands on
+ * the checkbox group — there is no control for a member, and an error addressed to the member itself would
+ * leave the summary link pointing at nothing. **Both spellings of a member, because the two ends spell it
+ * differently:** zod dots it (`reasons.0`) and Spring brackets it (`reasons[0]`), and an api rejection of a
+ * reason is about the group the caseworker can actually change.
  */
 function fieldMessages(errors: FieldError[]): Record<string, string> {
-  return Object.fromEntries(errors.map((error) => [error.field.split(".")[0], error.message]));
+  return Object.fromEntries(errors.map((error) => [error.field.split(/[.[]/)[0], error.message]));
 }
 
 /**
@@ -221,9 +229,16 @@ async function render(req: Request, res: Response, values: Record<string, unknow
   });
 }
 
-/** Error-summary rows, ordered by the controls rather than by whatever order the errors arrived in. */
-function summaryList(errors: Record<string, string>, formError?: string): { text: string; href: string }[] {
+/**
+ * Error-summary rows, ordered by the controls rather than by whatever order the errors arrived in.
+ *
+ * **The form-level row carries no `href`, for the same reason the conflict row in `referral-form.njk` does
+ * not.** It stands in for a rejection that named no control this page renders, so there is no control to send
+ * anyone to — linking it at a guess would move focus to a checkbox group that may be perfectly valid, which is
+ * worse for a keyboard or screen-reader user than a row that simply reads. Field rows stay linked.
+ */
+function summaryList(errors: Record<string, string>, formError?: string): { text: string; href?: string }[] {
   const rows = FIELD_ORDER.filter((field) => errors[field]).map((field) => ({ text: errors[field], href: `#${field}` }));
 
-  return formError ? [{ text: formError, href: "#reasons" }, ...rows] : rows;
+  return formError ? [{ text: formError }, ...rows] : rows;
 }

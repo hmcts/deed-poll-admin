@@ -352,10 +352,10 @@ describe("raise a referral page", () => {
       expect(res.redirect).not.toHaveBeenCalled();
     });
 
-    it("should show its own copy when api names a field this form has no control for", async () => {
-      // Spring addresses a collection member as `reasons[0]`, and nothing on this page is keyed that way, so
-      // the message would be dropped from both the summary and the controls — a 400 with an untouched form and
-      // no explanation on it, which a caseworker cannot act on and resubmitting cannot clear.
+    it("should render a rejection of one reason against the checkbox group, whichever way api spells the member", async () => {
+      // Spring addresses a collection member as `reasons[0]` where zod dots it; both are about the group the
+      // caseworker can change, and treating the bracketed form as unplaceable would throw away the one message
+      // that says which reason was refused.
       vi.mocked(createReferral).mockRejectedValue(
         new InvalidInputError("Request body is not valid", [{ field: "reasons[0]", message: "Minor is not accepted on a migrated case" }])
       );
@@ -364,7 +364,47 @@ describe("raise a referral page", () => {
       await POST(request(COMPLETE), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errors.reasons).toBe("Minor is not accepted on a migrated case");
+      expect(res.render.mock.calls[0][1].errorList).toEqual([{ text: "Minor is not accepted on a migrated case", href: "#reasons" }]);
+    });
+
+    it("should show its own copy when api names a field this form has no control for", async () => {
+      // Nothing on this page is keyed by `state` — api allocates it — so the message would be dropped from both
+      // the summary and the controls: a 400 with an untouched form and no explanation on it, which a caseworker
+      // cannot act on and resubmitting cannot clear.
+      vi.mocked(createReferral).mockRejectedValue(
+        new InvalidInputError("Request body is not valid", [{ field: "state", message: "state is not accepted on create" }])
+      );
+      const res = response();
+
+      await POST(request(COMPLETE), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
       expect(res.render.mock.calls[0][1].errorList[0].text).toBe("The referral could not be raised. Check the details and try again.");
+    });
+
+    it("should show both the field it can place and its own copy when api rejects on a field it cannot", async () => {
+      // A Spring 400 carries every field error at once, so a rejection can name `notes` and a field this form
+      // does not render together. Rendering only the notes message would have the caseworker fix what they were
+      // shown and be refused a second time for the half that was never on the page.
+      vi.mocked(createReferral).mockRejectedValue(
+        new InvalidInputError("Request body is not valid", [
+          { field: "notes", message: "Give the other reason" },
+          { field: "state", message: "state is not accepted on create" }
+        ])
+      );
+      const res = response();
+
+      await POST(request(COMPLETE), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errors.notes).toBe("Give the other reason");
+      // The form-level row names no control, so it is unlinked — sending focus to a guess at one is worse for a
+      // keyboard user than a row that reads. The field row keeps its link.
+      expect(res.render.mock.calls[0][1].errorList).toEqual([
+        { text: "The referral could not be raised. Check the details and try again." },
+        { text: "Give the other reason", href: "#notes" }
+      ]);
     });
 
     it("should show the page's own copy, not api's wording, when its rejection names no field", async () => {
