@@ -1,11 +1,11 @@
-import { findDeedPoll, NotFoundError } from "@hmcts/deed-poll";
+import { findDeedPoll, findReferrals, NotFoundError } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET } from "./[id].js";
 
-// Only the two api calls are replaced. The tabs, header, notes and documents view models are the
-// domain's and tested there, so this exercises the page against the real ones — which is the point: the
+// Only the three api calls are replaced. The tabs, header, notes, documents and referrals view models are
+// the domain's and tested there, so this exercises the page against the real ones — which is the point: the
 // page's job is to assemble them, and a wrong argument order would not show up against mocks.
 vi.mock("@hmcts/deed-poll", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@hmcts/deed-poll")>();
@@ -13,6 +13,7 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => {
   return {
     ...actual,
     findDeedPoll: vi.fn(),
+    findReferrals: vi.fn(),
     // The rules come over HTTP now, so the call is stubbed — but stubbed with the local matrix, which
     // is the same one api's port answers from. A stub map would make the type-awareness assertions
     // below assertions about the stub.
@@ -41,6 +42,21 @@ const found = {
   documents: []
 };
 
+/** One referral as api answers it, for the tab that is the only subgrid fed by a second call. */
+const REFERRAL = {
+  id: "ref-1",
+  state: "Open",
+  reasons: ["Minor"],
+  notes: null,
+  urgency: "Normal",
+  urgencyReason: null,
+  migrated: false,
+  createdBy: "A Caseworker",
+  modifiedBy: "A Caseworker",
+  createdOn: new Date("2026-05-13T08:44:00Z"),
+  modifiedOn: new Date("2026-05-13T08:44:00Z")
+};
+
 function request(admin = false): Request {
   return pageRequest({ params: { id: "case-1" }, admin });
 }
@@ -66,6 +82,7 @@ describe("case detail page", () => {
     vi.clearAllMocks();
     process.env.NODE_ENV = "test";
     vi.mocked(findDeedPoll).mockResolvedValue(found as never);
+    vi.mocked(findReferrals).mockResolvedValue([]);
   });
 
   it("renders its own template, qualified by directory", async () => {
@@ -82,13 +99,14 @@ describe("case detail page", () => {
     expect(findDeedPoll).toHaveBeenCalledWith("case-1", expect.anything());
   });
 
-  it("makes both api calls as the signed-in caseworker", async () => {
+  it("makes all three api calls as the signed-in caseworker", async () => {
     const { getCaseFieldRules } = await import("@hmcts/deed-poll");
 
     await GET(pageRequest({ params: { id: "case-1" }, accessToken: "caseworker-token" }), response());
 
     expect(findDeedPoll).toHaveBeenCalledWith("case-1", { accessToken: "caseworker-token" });
     expect(getCaseFieldRules).toHaveBeenCalledWith(expect.anything(), { accessToken: "caseworker-token" });
+    expect(findReferrals).toHaveBeenCalledWith("case-1", { accessToken: "caseworker-token" });
   });
 
   it("uses the reference as the page heading, since that is data rather than content", async () => {
@@ -128,6 +146,67 @@ describe("case detail page", () => {
     const model = res.render.mock.calls[0][1];
     expect(model.notes).toHaveProperty("count", 0);
     expect(model.documents).toEqual([]);
+  });
+
+  it("passes a referrals view model built from the second call, formatted rather than raw", async () => {
+    // Referrals are the one subgrid whose rows are not on the case payload, so the tab is only ever as
+    // populated as this call makes it — and the labels are the view model's, not the template's.
+    vi.mocked(findReferrals).mockResolvedValue([REFERRAL] as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    const referrals = res.render.mock.calls[0][1].referrals;
+    expect(referrals.count).toBe(1);
+    expect(referrals.rows[0]).toMatchObject({ id: "ref-1", state: "Open", reasons: ["Applicant is a minor"], urgency: "Standard" });
+  });
+
+  it("populates the referrals tab from that call, not from the case record", async () => {
+    // The merge in the handler is the whole mechanism: `buildDetailTabs` counts `record.referrals`, and the
+    // case api returned carries no such property, so a tab that says "None recorded" on a referred case is
+    // what forgetting it looks like.
+    vi.mocked(findReferrals).mockResolvedValue([REFERRAL] as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    const tabs = res.render.mock.calls[0][1].tabs as { id: string; subgrid?: string; empty: boolean }[];
+    expect(tabs.find((tab) => tab.id === "referrals")).toMatchObject({ subgrid: "referrals", empty: false, label: "Referrals" });
+  });
+
+  it("renders the referrals tab empty on a case that has never been referred", async () => {
+    const res = response();
+
+    await GET(request(), res);
+
+    const tabs = res.render.mock.calls[0][1].tabs as { id: string; empty: boolean }[];
+    expect(tabs.find((tab) => tab.id === "referrals")?.empty).toBe(true);
+    expect(res.render.mock.calls[0][1].referrals).toEqual({ rows: [], count: 0, anyOpen: false });
+  });
+
+  it("reports an open referral so the tab can withhold the raise button api would refuse", async () => {
+    vi.mocked(findReferrals).mockResolvedValue([REFERRAL] as never);
+    const open = response();
+    await GET(request(), open);
+
+    vi.mocked(findReferrals).mockResolvedValue([{ ...REFERRAL, state: "Withdrawn" }] as never);
+    const closed = response();
+    await GET(request(), closed);
+
+    expect(open.render.mock.calls[0][1].referrals.anyOpen).toBe(true);
+    expect(closed.render.mock.calls[0][1].referrals.anyOpen).toBe(false);
+  });
+
+  it("carries the labels the referrals subgrid renders, since a missing one is a blank column or button", async () => {
+    const res = response();
+
+    await GET(request(), res);
+
+    const { en } = res.render.mock.calls[0][1];
+    expect(en.referralColumns).toHaveLength(4);
+    for (const key of ["raiseReferral", "viewReferralHint", "migratedReferral", "referralAlreadyOpen"]) {
+      expect(en[key], key).toBeTruthy();
+    }
   });
 
   it("treats an admin caller as able to edit privacy", async () => {

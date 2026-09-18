@@ -462,10 +462,60 @@ Then:
   call, shows the raise button only when none is open, and links to a referral view.
 - Confirm the tab's `empty` state (no referrals) renders cleanly.
 
-- [ ] Referrals tab renders in `govukTabs` with list, tags, labels, per-referral links and a
+- [x] Referrals tab renders in `govukTabs` with list, tags, labels, per-referral links and a
       conditionally-shown raise button; `[id].ts` makes the second call and the panel is populated; empty
       state clean; detail-page test covers the tab; `yarn lint` clean; `turbo test test:app --concurrency=1`
       green; final test count recorded next to the baseline
+
+**Done 2026-09-18.** Option (a) as decided — referrals are the fourth subgrid tab inside the one `govukTabs`
+the detail page already renders, not a standalone page.
+
+| File | Change |
+|---|---|
+| `libs/deed-poll/src/deed-poll/form-fields.ts` | `referrals` in the `TabDef.subgrid` union; `FORM_TABS` entry, last |
+| `libs/deed-poll/src/deed-poll/detail-view.ts` | `DetailTab.subgrid` now derives from `TabDef["subgrid"]` rather than restating it |
+| `libs/deed-poll/src/referrals/referrals-view.ts` | `buildReferralsView` — the tab's rows, count and `anyOpen` |
+| `src/pages/deed-polls/[id].ts` | the `findReferrals` call, merged into the record and passed as a view model |
+| `src/pages/deed-polls/detail.njk` | the `subgrid == "referrals"` panel |
+| `src/pages/deed-polls/detail.njk.test.ts` | new — the panel's markup |
+
+Four things worth knowing:
+
+- **`referrals` and `referral` are different tabs.** `REFERRAL_TAB` holds the case's own "Refer to Master?"
+  fields, ported from the Dynamics form and conditionally visible; the new one lists the referrals actually
+  raised. Both ids are edit-route slugs (`/deed-polls/{id}/edit/referral`), so neither could be renamed to tell
+  them apart — hence the comment at the `FORM_TABS` entry. `tabVisible`'s `case "referral"` is untouched and
+  still means the old one.
+- **The merge is the whole mechanism, and it is one line.** `subgridCount` reads `record[subgrid]`, so
+  `buildDetailTabs({ ...found, referrals }, …)` is what makes the tab non-empty; without it the tab renders
+  "None recorded" on a referred case and nothing fails. `detail-view.test.ts` pins the count and `[id].test.ts`
+  pins the merge, because the two halves can break independently.
+- **`anyOpen` is on the view model, not in the template.** It is `terminal` asked of the list (Task 3's note),
+  and it only decides whether the panel offers "Refer this case to the judiciary" — with the sentence
+  "This case is with the judiciary. Withdraw the open referral before raising another." in its place. api still
+  owns the rule; the button is withheld so its 409 does not arrive after a 1,000-character form is filled in.
+- **The second call is `Promise.all`'d with `findDeedPoll`**, as `referrals/[referralId].ts` already does:
+  neither answer depends on the other, the tab is on every case, and a 404 for the case rejects both.
+
+Final counts against Task 1's baseline. The app's `//#test:app` gained the 6 model tests in `[id].test.ts` and
+the 9 template tests in the new `detail.njk.test.ts`; `@hmcts/deed-poll` gained `buildReferralsView`'s 9 and one
+`detail-view` test.
+
+| Workspace | Files (baseline → final) | Tests (baseline → final) |
+|---|---|---|
+| `//` (the app, `test:app`) | 42 → **48** | 621 → **693** passed, 3 skipped |
+| `@hmcts/deed-poll` | 45 → **48** | 752 → **818** |
+| `@hmcts/deed-poll-api-client` | 4 → 4 | 325 → 325 |
+| `@hmcts-cft/cloud-native-platform` | 10 → 10 | 140 → 140 |
+| `@hmcts-cft/express-govuk-starter` | 12 → 12 | 127 → 127 |
+| `@hmcts-cft/simple-router` | 4 → 4 | 41 → 41 |
+| `@hmcts-cft/express-session-postgres` | 2 → 2 | 23 → 23 |
+| `@hmcts-cft/express-session-redis` | 1 → 1 | 7 → 7 |
+| **Total** | **120 → 129** | **2,036 → 2,174 passed, 3 skipped (2,177)** |
+
+`turbo test test:app --concurrency=1` **8 successful, 8 total**; `yarn lint` unchanged at the baseline's 2
+pre-existing `noUndeclaredEnvVars` warnings; `yarn build` clean, so the merged record and the new view model
+type-check.
 
 ## Deliberately not in this plan
 

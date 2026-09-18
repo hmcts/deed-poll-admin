@@ -2,6 +2,7 @@ import { REFERRAL_REASON, type Referral, URGENCY } from "@hmcts/deed-poll-api-cl
 import { describe, expect, it } from "vitest";
 import {
   buildReferralDetail,
+  buildReferralsView,
   REFERRAL_REASON_CHOICES,
   REFERRAL_REASON_LABEL,
   REFERRAL_STATE_TAG,
@@ -134,6 +135,49 @@ describe("referrals/referrals-view", () => {
     it("should render the urgency as its label and say when none was published", () => {
       expect(buildReferralDetail(REFERRAL).urgency).toBe("Urgent");
       expect(buildReferralDetail({ ...REFERRAL, urgency: null }).urgency).toBe("Not provided");
+    });
+  });
+
+  describe("buildReferralsView", () => {
+    it("should format every referral through the same builder the referral page uses", () => {
+      const view = buildReferralsView([REFERRAL]);
+
+      expect(view.count).toBe(1);
+      expect(view.rows).toEqual([buildReferralDetail(REFERRAL)]);
+    });
+
+    it("should keep api's order rather than re-sorting, since listReferrals answers newest first", () => {
+      const older = { ...REFERRAL, id: "ref-0", createdOn: new Date("2026-01-01T08:44:00Z") };
+
+      const view = buildReferralsView([REFERRAL, older]);
+
+      expect(view.rows.map((row) => row.id)).toEqual(["ref-1", "ref-0"]);
+    });
+
+    it("should report a case with no referrals as an empty tab rather than failing", () => {
+      const view = buildReferralsView([]);
+
+      expect(view).toEqual({ rows: [], count: 0, anyOpen: false });
+    });
+
+    it.each(["Open", "Claimed", "Decided"] as const)("should count a %s referral as open, so no second one is offered", (state) => {
+      expect(buildReferralsView([{ ...REFERRAL, state }]).anyOpen).toBe(true);
+    });
+
+    it("should report no open referral when every one of them is closed or withdrawn", () => {
+      const view = buildReferralsView([
+        { ...REFERRAL, id: "ref-2", state: "Withdrawn" },
+        { ...REFERRAL, id: "ref-1", state: "Closed" }
+      ]);
+
+      expect(view.anyOpen).toBe(false);
+      expect(view.count).toBe(2);
+    });
+
+    it("should report an open referral from a history that also holds closed ones", () => {
+      const view = buildReferralsView([REFERRAL, { ...REFERRAL, id: "ref-0", state: "Withdrawn" }]);
+
+      expect(view.anyOpen).toBe(true);
     });
   });
 });

@@ -9,6 +9,11 @@
  * appears on both.
  *
  * `findDeedPoll` includes the children, so notes, witnesses and documents come from the one query.
+ *
+ * Referrals are the exception and cost a third call: `GET /caseworker/cases/{id}` does not carry them, so the
+ * referrals tab has to ask — the same justification `getCaseFieldRules` has below, and the reason
+ * `libs/deed-poll/src/referrals/service.ts` reads them dedicated rather than off the case. They are merged
+ * into the record handed to `buildDetailTabs` under `referrals`, which is where its empty-state count looks.
  */
 import {
   buildCaseHeader,
@@ -16,8 +21,10 @@ import {
   buildDocumentsView,
   buildNotesView,
   build as buildPresentation,
+  buildReferralsView,
   DOCUMENT_COLUMNS,
   findDeedPoll,
+  findReferrals,
   getCaseFieldRules,
   witnessCountText
 } from "@hmcts/deed-poll";
@@ -39,6 +46,14 @@ const en = {
   unknownType: "Unknown",
   noteColumns: ["NoteID", "Note", "Created", "Modified"],
   amendNoteHint: "amend this note",
+  referralColumns: ["Raised", "Status", "Reasons", "Urgency"],
+  raiseReferral: "Refer this case to the judiciary",
+  viewReferralHint: "view this referral",
+  // Decision 9: the previous system recorded no reasons, so a migrated referral has none and says which it is.
+  migratedReferral: "Migrated from the previous system",
+  // Shown instead of the raise button while a referral is still with the judiciary: a case holds one at a
+  // time, and api answers 409 for the second. Saying so beats a button that only fails.
+  referralAlreadyOpen: "This case is with the judiciary. Withdraw the open referral before raising another.",
   documentColumns: DOCUMENT_COLUMNS,
   amendWitnessHint: "amend this witness",
   witnessAddress: "Address",
@@ -56,7 +71,9 @@ const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
   const caller = callerFromRequest(req);
-  const found = await findDeedPoll(req.params.id, caller);
+  // Together, because neither answer depends on the other and the referrals tab is rendered on every case:
+  // the same shape `referrals/[referralId].ts` uses, and a 404 for the case rejects both rather than one.
+  const [found, referrals] = await Promise.all([findDeedPoll(req.params.id, caller), findReferrals(req.params.id, caller)]);
   const { isAdmin } = userFromRequest(req);
 
   const presentation = buildPresentation(
@@ -76,10 +93,12 @@ export const GET = async (req: Request, res: Response) => {
     pageHeading: found.displayReference,
     case: found,
     presentation,
-    tabs: buildDetailTabs(found as unknown as Record<string, unknown>, rules, presentation),
+    // `referrals` merged in because it is the one subgrid whose rows are not on the case — see the docblock.
+    tabs: buildDetailTabs({ ...found, referrals } as unknown as Record<string, unknown>, rules, presentation),
     header: buildCaseHeader(found),
     notes: buildNotesView(found.notes),
     documents: buildDocumentsView(found.documents),
+    referrals: buildReferralsView(referrals),
     // Data rather than a label in `en`, as every other interpolated string on this page is: it carries
     // the case's count and api's threshold. The threshold is api's — enrolment-requirement.ts.
     witnessCount: witnessCountText(found.witnesses.length),

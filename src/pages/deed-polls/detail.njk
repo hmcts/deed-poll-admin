@@ -202,6 +202,70 @@
         {% endif %}
         {{ govukButton({ text: uploadDocument, href: "/deed-polls/" + case.id + "/documents/upload", classes: "govuk-button--secondary" }) }}
 
+      {#
+        Referrals to the judiciary. The only subgrid whose rows are not on the case payload — they come from a
+        second api call — so `referrals` is a view model (referrals-view.ts) rather than `case.referrals`, and
+        every cell here is already a display string.
+
+        The whole history, newest first as api ordered it, because a case can be referred more than once and
+        the closed ones are how a caseworker sees what the judiciary has already been asked. The date raised is
+        the row's handle and carries the link, the same shape as a note's code cell above.
+      #}
+      {% elif tab.subgrid == "referrals" %}
+        {% if referrals.count %}
+          <p class="govuk-caption-m">{{ referrals.count }} referral{{ "" if referrals.count == 1 else "s" }}</p>
+          {% set referralRows = [] %}
+          {% for r in referrals.rows %}
+            {% set raisedCell %}
+              <a class="govuk-link app-nowrap" href="/deed-polls/{{ case.id }}/referrals/{{ r.id }}">{{ r.createdOn }}<span class="govuk-visually-hidden"> — {{ viewReferralHint }}</span></a><br>
+              <span class="govuk-hint govuk-!-font-size-16 govuk-!-margin-bottom-0">{{ r.createdBy }}</span>
+            {% endset %}
+            {#
+              A migrated referral has no reasons and says so, rather than showing a blank cell that reads as
+              missing data: the power app it came from recorded none.
+            #}
+            {% set reasonsCell %}
+              {% if r.reasons.length %}
+                <ul class="govuk-list govuk-!-margin-bottom-0">
+                  {% for reason in r.reasons %}<li>{{ reason }}</li>{% endfor %}
+                </ul>
+              {% elif r.migrated %}
+                <span class="govuk-hint govuk-!-font-size-16 govuk-!-margin-bottom-0">{{ migratedReferral }}</span>
+              {% else %}
+                {{ noneRecorded }}
+              {% endif %}
+            {% endset %}
+            {% set referralRows = (referralRows.push([
+              { html: raisedCell },
+              { html: govukTag({ text: r.state, classes: r.stateTagClasses }) },
+              { html: reasonsCell },
+              { text: r.urgency }
+            ]), referralRows) %}
+          {% endfor %}
+          {{ govukTable({
+            head: [
+              { text: referralColumns[0] },
+              { text: referralColumns[1] },
+              { text: referralColumns[2] },
+              { text: referralColumns[3] }
+            ],
+            rows: referralRows
+          }) }}
+        {% else %}
+          <p class="govuk-body">{{ noneRecorded }}</p>
+        {% endif %}
+        {#
+          Unlike the Add buttons above, this one is conditional: a case holds one live referral at a time and
+          api answers 409 for a second, so offering the form while one is open would only fail after it was
+          filled in. `anyOpen` is the single state question this app asks of the list — api still enforces the
+          transition, which is why raising is a 409 rather than an impossibility.
+        #}
+        {% if referrals.anyOpen %}
+          <p class="govuk-body">{{ referralAlreadyOpen }}</p>
+        {% else %}
+          {{ govukButton({ text: raiseReferral, href: "/deed-polls/" + case.id + "/referrals/new", classes: "govuk-button--secondary" }) }}
+        {% endif %}
+
       {% else %}
         {% if tab.empty %}
           <p class="govuk-body">{{ noneRecorded }}</p>

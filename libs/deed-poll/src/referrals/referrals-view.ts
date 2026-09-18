@@ -106,6 +106,25 @@ export function buildReferralDetail(referral: Referral): ReferralView {
   };
 }
 
+/**
+ * The referrals tab on the case detail page: every referral formatted, plus the one question the tab asks of
+ * the set.
+ *
+ * **api's order is kept.** `listReferrals` answers newest first, which is the order a history is read in, and
+ * a second sort here would be this repo deciding something api has already decided — the mistake
+ * `../notes/notes-view.ts` documents itself as *not* making only because its callers disagree on order.
+ *
+ * **`anyOpen` is `terminal` asked of the list, and nothing more.** It decides whether the tab offers "Raise a
+ * referral", because a case holds at most one live referral and api answers 409 for the second — the button is
+ * hidden so the refusal does not arrive after the form is filled in. It is not a claim about what else may
+ * happen to those referrals: who may claim one, and whether a withdraw is allowed, stay api's (decision 10).
+ */
+export function buildReferralsView(referrals: Referral[]): ReferralsView {
+  const rows = referrals.map(buildReferralDetail);
+
+  return { rows, count: rows.length, anyOpen: rows.some((row) => !row.terminal) };
+}
+
 /** A stored free-text value, or the placeholder for one never filled in. */
 function text(raw: string | null | undefined): string {
   const value = typeof raw === "string" ? raw.trim() : "";
@@ -137,4 +156,14 @@ export interface ReferralView {
   modifiedOn: string;
   /** Closed or withdrawn, so there is nothing left to withdraw. See `TERMINAL_STATES`. */
   terminal: boolean;
+}
+
+/** A case's referral history, as the detail page's referrals tab renders it. */
+export interface ReferralsView {
+  /** Newest first, as api answered them. */
+  rows: ReferralView[];
+  /** Row count, shown as a caption above the list. */
+  count: number;
+  /** True while one referral is still with the judiciary, so no second one can be raised. */
+  anyOpen: boolean;
 }

@@ -45,7 +45,7 @@ export interface DetailTab {
   id: string;
   label: string;
   /** Set for child-entity tabs, which render a list rather than rows. */
-  subgrid?: "notes" | "witnesses" | "documents";
+  subgrid?: NonNullable<TabDef["subgrid"]>;
   sections: DetailSection[];
   /** True when the tab has nothing to show (drives the "None recorded" message). */
   empty: boolean;
@@ -138,7 +138,13 @@ function tabVisible(tab: TabDef, presentation: FormPresentation): boolean {
   }
 }
 
-/** Count of child rows backing a subgrid tab, for its empty state. */
+/**
+ * Count of child rows backing a subgrid tab, for its empty state.
+ *
+ * Read off `record` under the subgrid's own name, which for three of the four is the property api nested in
+ * the case. `referrals` is not on that payload, so the page merges its second call's result in under the same
+ * name — a caller that forgets to gets a tab that says "None recorded" however many referrals the case has.
+ */
 function subgridCount(subgrid: NonNullable<TabDef["subgrid"]>, record: Record<string, unknown>): number {
   const list = record[subgrid];
   return Array.isArray(list) ? list.length : 0;
