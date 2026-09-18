@@ -30,8 +30,8 @@ planning fact, not an obstacle to code around.
 equality, in both directions, on both axes**:
 
 ```js
-expect(inCode).toEqual(inSpec);                              // contract.test.ts:70  — schema keys
-expect([...IMPLEMENTED_OPERATIONS].sort()).toEqual(inSpec);  // contract.test.ts:86  — operations
+expect(inCode).toEqual(inSpec);                              // contract.test.ts:69  — schema keys
+expect([...IMPLEMENTED_OPERATIONS].sort()).toEqual(inSpec);  // contract.test.ts:85  — operations
 ```
 
 An operation api serves with no adapter function fails as loudly as a call the adapter makes that api does not
@@ -245,11 +245,22 @@ modelling, not from the committed `openapi.json`, which does not carry referrals
    neighbours) for the caseworker five, and `notePath:413` for
    `/caseworker/cases/{id}/referrals/{referralId}` and `/judicial/referrals/{referralId}`. Bodyless POSTs
    send no body (decision 9). Auth is not a parameter — it rides in `ApiConfig` (decision 3).
-3. **Comment the judicial functions for what they are**: the adapter half of api-3's surface, with no caller
+3. **The exported type aliases, in the block at `client.ts:697`–`:722`.** This is the part the domain layer
+   actually imports and the easiest to forget: `export type Referral = WireReferralResponse`,
+   `ReferralCreate`, the judicial detail/summary/pool types, and the direction request — following `Note`,
+   `WitnessCreate` and `SavedQueryPatch` exactly. **Also derive the enum unions the pages will need** the way
+   `CaseState` does at `:722` (`NonNullable<Referral["state"]>`), rather than restating members that already
+   exist on the schema. admin-1's gate checks these are exported, not just the functions.
+   **No edit to `libs/deed-poll-api-client/src/index.ts` is needed or wanted** — it is
+   `export * from "./api/client.js"`, so everything above is on the package surface automatically, and the
+   wire schemas and the mock stay off it deliberately (the file's own docblock says why).
+4. **Comment the judicial functions for what they are**: the adapter half of api-3's surface, with no caller
    in this repo until admin-3. **Describe the operations rather than promising a future reader** — plan 12 had
    to go back and fix two comments that still said "nothing reads this yet" after something did.
-4. **No tests in this task.** `client.test.ts` cannot exercise any of it until the mock answers (Task 3), and
+5. **No tests in this task.** `client.test.ts` cannot exercise any of it until the mock answers (Task 3), and
    a test written against nothing is a test that pins nothing. Task 4 is where the coverage lands.
+   **There is no coverage threshold configured** (`vitest.config.ts` sets `reportsDirectory` and nothing
+   else — verified 2026-09-18), so uncovered code here fails no gate. Do not add a threshold to compensate.
 
 Both validation commands must be green at the end, with the totals **unchanged** from the baseline — this task
 adds no test. A count that moved here means something was registered that should not have been.
@@ -320,7 +331,7 @@ a shortcut here is a shortcut in three places.
    internally consistent without it, and **admin-2's Task 0 gate checks it**: admin-2's whole feature is a
    count over this field, so a mock where the field and the referrals disagree makes that plan untestable.
    `MockCase` inherits the property from `WireSavedCase` once Task 2b registers it, and the mock's
-   `QUERYABLE_FIELDS` derives from `SavedCaseResponse.shape` (`server.ts:803`), so the filter is accepted
+   `QUERYABLE_FIELDS` derives from `SavedCaseResponse.shape` (`server.ts:819`), so the filter is accepted
    automatically — what is *not* automatic is the value being right.
 
 - [ ] Task 3 complete

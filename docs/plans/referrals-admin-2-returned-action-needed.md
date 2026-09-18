@@ -103,7 +103,7 @@ Everything else below is kept for context — do not edit `openapi.json`, `wire.
    `wire.ts:274-285`). `IMPLEMENTED_OPERATIONS` does not change.
 3. **Mock — routing and recompute are admin-0's; the seeded data is this plan's.**
    `libs/deed-poll-api-client/src/mock/server.ts`: `QUERYABLE_FIELDS` derives from
-   `SavedCaseResponse.shape` (`server.ts:803`), so once the wire schema carries `currentReferralState` the
+   `SavedCaseResponse.shape` (`server.ts:819`), so once the wire schema carries `currentReferralState` the
    mock accepts the filter automatically. What the mock needs *added* is **data**: seed some of its cases with
    `currentReferralState: 'Decided'` (and others `Open`/`Claimed`/`null`) so the count call returns a real,
    asserted number rather than always zero (`server.ts` seed/reset around `:656`/`:683`).
@@ -215,7 +215,7 @@ confirm four things and stop if any fails:
 - **`currentReferralState` is on all three wire schemas** — `caseSummarySchema` (`wire.ts:252`),
   `caseDetailSchema` and `savedCaseSchema` — as a nullable enum with members
   `Open`/`Claimed`/`Decided`/`Closed`/`Withdrawn`. **`savedCaseSchema` is the one that matters most**: the
-  mock's `QUERYABLE_FIELDS` derives from `SavedCaseResponse.shape` (`server.ts:803`), so if the property is
+  mock's `QUERYABLE_FIELDS` derives from `SavedCaseResponse.shape` (`server.ts:819`), so if the property is
   missing *there* the count 400s in process no matter what the other two carry. That was api-2b decision 7 and
   admin-0 inherits it — if it is absent, stop; do not special-case the mock.
 - **The mock keeps it in step with referral transitions** (admin-0's recompute). Drive a referral to `Decided`
