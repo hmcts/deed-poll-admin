@@ -558,7 +558,29 @@ a shortcut here is a shortcut in three places.
 3. Confirm the three things a green suite does **not** prove, and say so in the checkbox: no page renders a
    referral yet, no domain service exists, and `query-fields.ts` is untouched. All three are intended.
 
-- [ ] Task 4 complete
+- [x] Task 4 complete — `client.test.ts` covers all nine operations against the mock: 21 new tests, 11 on the
+      caseworker five and 10 on the judicial four, each happy path plus the failures the layers above branch on
+      — 409 → `conflict` (a second live referral, a second withdrawal, a close before a direction, a second
+      claim, a direction on a referral nobody holds), 404 → `not-found` (a referral read through the wrong case,
+      and one another judge holds, on both the read and the direction), and a 400's field errors (api's two
+      conditional requirements, an empty `reasons`, and a decision api does not publish). No `fetch` was stubbed;
+      a judge is the token's subject, which is what tells one judge's claim from another's.
+      **Measured:** lint exit 0, 306 files, **2 warnings and 2 infos** — unchanged across all four tasks.
+      `yarn turbo test test:app --concurrency=1`: **8 of 8 tasks, 2,036 passed, 3 skipped**, up 21 from 2,015,
+      and **all 21 in `@hmcts/deed-poll-api-client` (304 → 325)**. Per package, for the next plan to measure
+      against: `@hmcts/deed-poll` 752, `//:test:app` 621 + 3 skipped, `@hmcts/deed-poll-api-client` **325**,
+      `@hmcts-cft/cloud-native-platform` 140, `@hmcts-cft/express-govuk-starter` 127, `@hmcts-cft/simple-router`
+      41, `@hmcts-cft/express-session-postgres` 23, `@hmcts-cft/express-session-redis` 7. So the api-client has
+      moved 242 → 325 over the plan and no other package's figure has moved at all.
+      **The three things this green suite does not prove, all confirmed still true and all intended:** no page
+      renders a referral to the judiciary (`src/pages` has no referral page — the two matches for "referral" are
+      the case's own pre-existing `referral` edit tab and a comment in `detail.njk`, neither touched),
+      `libs/deed-poll/src/referrals/` does not exist, and `query-fields.ts` is unmodified, so
+      `currentReferralState` is on the wire and in the mock but is not yet a queryable field. They are admin-1's,
+      admin-1's and admin-2's respectively.
+      One formatting note for anyone repeating this: Biome's line-width rule fires on long `toMatchObject`
+      calls, so `yarn format` ran once between writing the tests and lint coming back clean — a formatting fix,
+      not a lint finding.
 
 ## Deliberately not in this plan
 
