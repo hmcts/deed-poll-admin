@@ -222,7 +222,10 @@ Follow these strict naming conventions throughout the project:
 ## Performance Considerations
 
 - **One api call per thing a page needs, and no more.** A case's witnesses and documents arrive inside
-  `GET /caseworker/cases/{id}`, so re-reading them is a second round trip for an answer already held
+  `GET /caseworker/cases/{id}`, so re-reading them is a second round trip for an answer already held — **but
+  check the payload before assuming one carried it.** A case's *referrals* are not on it, so the referrals tab
+  is a justified second call, `Promise.all`'d with the case (`src/pages/deed-polls/[id].ts`). The rule forbids
+  re-reading what the first call already answered, not calling for something it never held
 - Ask api to filter, sort and page. It resolves a filter key; do not fetch a list and narrow it here
 - Consider caching for expensive computations
 - Every call carries an `AbortSignal.timeout`, so a slow api degrades pages rather than hanging them

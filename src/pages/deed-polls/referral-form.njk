@@ -22,6 +22,12 @@
   Character counts rather than `maxlength`: both limits are api's and are stated in the schema's messages, and
   a browser that silently stops accepting characters gives no reason for having done so — the same call
   `witness-form.njk` records.
+
+  **The urgency reveal carries one waived axe finding, and it is govuk-frontend's.** `radios.mjs` sets
+  `aria-expanded` on the radio that owns a reveal, which ARIA 1.2 does not allow on `role="radio"` (it does on
+  `role="checkbox"`, so the Other → notes reveal above is clean). Nothing here produces it and nothing here can
+  suppress it, so the journey in `e2e-tests/tests/deed-polls.spec.ts` waives that rule for that one element and
+  keeps every other check on this page live. If a future govuk-frontend drops the attribute, delete the waiver.
 #}
 {% block content %}
 <div class="govuk-grid-row">

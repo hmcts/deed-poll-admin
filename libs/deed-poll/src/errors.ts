@@ -55,14 +55,17 @@ export class UnauthorizedError extends Error {
 /**
  * The request is well-formed and permitted, but the current state of the data forbids it.
  *
- * Distinct from `InvalidInputError` because nothing about the input is wrong: deleting a
- * document type is a perfectly good request that fails only because documents still reference
- * it, and it would succeed unchanged once they no longer do. That is a 409, not a 400 — the
- * caller should retry later or remove the references, not correct a field.
+ * Distinct from `InvalidInputError` because nothing about the input is wrong: raising a referral
+ * on a case that already has one open is a perfectly good request, and the identical one succeeds
+ * once that referral is closed or withdrawn. That is a 409, not a 400 — the caller should act on
+ * the state, not correct a field.
  *
- * Introduced for `removeDocumentType`, whose restrict-on-delete FK previously surfaced as a
- * `DriverAdapterError` that `errorHandler` could not recognise, making an ordinary caseworker
- * action answer 500.
+ * **A handler is expected to catch it.** api answers 409 for the two referral transitions a
+ * caseworker can lose a race on — raising a second live referral, and withdrawing one somebody
+ * else has already finished with — and both are rendered as ordinary page states
+ * (`src/pages/deed-polls/[id]/referrals/new.ts`, `.../[referralId]/withdraw.ts`). So it is
+ * deliberately unmapped in `src/errors.ts`'s `domainErrorHandler`: a 409 reaching the 500 page
+ * means a handler did not catch one it should have.
  */
 export class ConflictError extends Error {
   constructor(message: string) {

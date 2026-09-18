@@ -132,9 +132,23 @@ describe("referrals/schemas", () => {
       ]);
     });
 
-    it("should offer exactly the members api publishes, built from its arrays rather than restated", () => {
-      expect(REFERRAL_REASON).toEqual(["Minor", "DomesticAbuse", "NonPublication", "DeclarantRequirementsNotMet", "SeparatedOrEstranged", "Other"]);
-      expect(URGENCY).toEqual(["Normal", "Urgent"]);
+    it("should accept every urgency api publishes, built from its array rather than restated", () => {
+      for (const urgency of URGENCY) {
+        const parsed = createReferralSchema.safeParse({ reasons: ["Minor"], urgency, urgencyReason: "Hearing on Friday" });
+
+        expect(parsed.success).toBe(true);
+      }
+    });
+
+    it("should say the same sentence for an unpublished reason as for none, rather than printing api's members", () => {
+      // zod's own message for an enum lists every member it accepts, which is api's vocabulary and not
+      // something to show a caseworker — reachable only by a tampered or stale post, but reachable.
+      const parsed = createReferralSchema.safeParse({ reasons: ["Whatever"], urgency: "Normal" });
+
+      // The `message` is what a page renders (the issue object still carries zod's `values`, which nothing
+      // reads), so that is what this asserts: no member names in the sentence.
+      expect(zodErrorToFieldErrors(parsed.error!)).toContainEqual({ field: "reasons.0", message: "Select at least one reason for referring this case" });
+      expect(parsed.error?.issues[0].message).not.toContain("DeclarantRequirementsNotMet");
     });
 
     it("should keep the bounds no wider than api's, which is the rule that may only be tightened", () => {

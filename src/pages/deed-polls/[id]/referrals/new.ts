@@ -92,12 +92,16 @@ export const POST = async (req: Request, res: Response) => {
       return rerender(req, res, 409, {}, undefined, await openReferralHref(req));
     }
     if (error instanceof InvalidInputError) {
-      if (error.errors.length === 0) {
-        console.error(`referral create refused with no field named: ${error.message}`);
-        return rerender(req, res, 400, {}, en.referralRefused);
+      // api's field names are the wire names, which are this form's control names, so they land in place —
+      // but only the four this form has a control for. A rejection that names none of them (no field at all,
+      // or one this form does not render) has nowhere to land, and rendering nothing at all would leave a 400
+      // with an untouched form and no explanation on it, which is the one failure a caseworker cannot act on.
+      const messages = fieldMessages(error.errors);
+      if (Object.keys(messages).some((field) => FIELD_ORDER.includes(field))) {
+        return rerender(req, res, 400, messages);
       }
-      // api's field names are the wire names, which are this form's control names, so they land in place.
-      return rerender(req, res, 400, fieldMessages(error.errors));
+      console.error(`referral create refused with no field this form renders: ${error.message}`);
+      return rerender(req, res, 400, {}, en.referralRefused);
     }
     throw error;
   }
@@ -111,15 +115,25 @@ export const POST = async (req: Request, res: Response) => {
  * `reasons` is normalised to an array because a checkbox group posts a bare string when exactly one box is
  * ticked and nothing at all when none is — so the untouched group becomes `[]` and fails `min(1)` with the
  * message written for it, rather than failing the type check with a different one.
+ *
+ * **A revealed field that is not revealed was not answered.** GOV.UK's conditional reveal only *hides* its
+ * input — the textarea stays in the form and the browser posts whatever is in it — so a caseworker who types
+ * a reason for urgency, then changes their mind and picks Standard, posts `urgency=Normal` with the reason
+ * still attached. api stores what it is sent, and decision 10 leaves no edit page to correct it with, so a
+ * referral would read "Standard / because there is a hearing on Friday" for the rest of its life. Dropping it
+ * here is the form's own knowledge — which question it actually asked — and not a domain rule, which is why
+ * it is not in `createReferralSchema`. The value is still put back on a re-render (see `submittedValues`), so
+ * re-ticking the box brings the text back rather than making it be typed twice.
  */
 function submitted(req: Request): Record<string, unknown> {
   const body = (req.body ?? {}) as Record<string, unknown>;
+  const reasons = reasonsFrom(body.reasons);
 
   return {
-    reasons: reasonsFrom(body.reasons),
-    notes: body.notes,
+    reasons,
+    notes: reasons.includes("Other") ? body.notes : undefined,
     urgency: body.urgency,
-    urgencyReason: body.urgencyReason
+    urgencyReason: body.urgency === "Urgent" ? body.urgencyReason : undefined
   };
 }
 
@@ -148,12 +162,24 @@ function fieldMessages(errors: FieldError[]): Record<string, string> {
  * it" needs an id. A case whose open referral has been withdrawn between the two calls falls back to the
  * case's referrals tab rather than linking to nothing — `terminal` is the one state rule this app keeps, and
  * api remains the authority on the transition itself.
+ *
+ * **A failed read falls back rather than throwing.** This runs inside the handler's `catch`, so letting it
+ * reject would turn a 409 this page knows how to render into the 500 page and take up to 1,000 typed
+ * characters with it — the expensive failure the re-render exists to prevent. The tab link is worse than a
+ * direct one and better than an error page.
  */
 async function openReferralHref(req: Request): Promise<string> {
-  const referrals = await findReferrals(req.params.id, callerFromRequest(req));
-  const open = referrals.find((referral) => !buildReferralDetail(referral).terminal);
+  const referralsTab = `/deed-polls/${req.params.id}#referrals`;
 
-  return open ? `/deed-polls/${req.params.id}/referrals/${open.id}` : `/deed-polls/${req.params.id}#referrals`;
+  try {
+    const referrals = await findReferrals(req.params.id, callerFromRequest(req));
+    const open = referrals.find((referral) => !buildReferralDetail(referral).terminal);
+
+    return open ? `/deed-polls/${req.params.id}/referrals/${open.id}` : referralsTab;
+  } catch (error) {
+    console.error(`could not resolve the open referral to link to: ${error instanceof Error ? error.message : error}`);
+    return referralsTab;
+  }
 }
 
 async function rerender(req: Request, res: Response, status: number, errors: Record<string, string>, formError?: string, conflictHref?: string) {
@@ -163,7 +189,13 @@ async function rerender(req: Request, res: Response, status: number, errors: Rec
   await render(req, res, submittedValues(req), errors, formError, conflictHref);
 }
 
-/** The body as the controls want it back — `reasons` an array, so the boxes can be re-checked. */
+/**
+ * The body as the controls want it back — `reasons` an array, so the boxes can be re-checked.
+ *
+ * Deliberately not `submitted(req)`: that drops a value whose reveal is closed because it is not an answer,
+ * and this keeps it because it is still typing. A caseworker who re-ticks Other finds their text where they
+ * left it.
+ */
 function submittedValues(req: Request): Record<string, unknown> {
   const body = (req.body ?? {}) as Record<string, unknown>;
 

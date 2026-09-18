@@ -140,9 +140,10 @@ The application uses Simple Router for automatic route discovery from the `src/p
   and a classified `{ ok: false, error }` — so an unreachable or refusing api is an ordinary state a page
   can render rather than a 500. This is a caseworker's whole working day: "the backend blinked" must not
   lose their form
-- **`openapi.json` is api's published document, not a hand-written contract.** Taken from api commit
-  `847933a` and recorded in `SPEC-PROVENANCE.md`; `src/api/contract.test.ts` fails if the adapter and the
-  spec disagree, so divergence is a bug in one of them rather than licence to invent
+- **`openapi.json` is api's published document, not a hand-written contract.** Which api commit it was taken
+  from is recorded in `SPEC-PROVENANCE.md` and nowhere else, so a refresh cannot leave a stale hash behind
+  here; `src/api/contract.test.ts` fails if the adapter and the spec disagree, so divergence is a bug in one of
+  them rather than licence to invent
 - **The wire types and the mock are not exported from the package index**, deliberately. Nothing above the
   adapter knows api exists
 - **Two value conversions happen here and nowhere else**: date-times become `Date` pinned to UTC (api's

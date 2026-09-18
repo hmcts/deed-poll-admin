@@ -143,7 +143,12 @@ function tabVisible(tab: TabDef, presentation: FormPresentation): boolean {
  *
  * Read off `record` under the subgrid's own name, which for three of the four is the property api nested in
  * the case. `referrals` is not on that payload, so the page merges its second call's result in under the same
- * name — a caller that forgets to gets a tab that says "None recorded" however many referrals the case has.
+ * name, and a caller that forgets to leaves `empty` claiming a referred case has nothing.
+ *
+ * Note that `detail.njk` renders each subgrid panel's own "None recorded" from that panel's view model
+ * (`referrals.count`, `notes.count`, `case.witnesses.length`, `documents.length`) rather than from `empty`,
+ * which the template reads for field tabs only. So `empty` is a property of this model that has to be true,
+ * not the switch the message hangs off — do not rely on it to hide a populated list.
  */
 function subgridCount(subgrid: NonNullable<TabDef["subgrid"]>, record: Record<string, unknown>): number {
   const list = record[subgrid];

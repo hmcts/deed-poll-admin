@@ -517,6 +517,39 @@ the 9 template tests in the new `detail.njk.test.ts`; `@hmcts/deed-poll` gained 
 pre-existing `noUndeclaredEnvVars` warnings; `yarn build` clean, so the merged record and the new view model
 type-check.
 
+### Code review, 2026-09-18 — what changed after the four tasks
+
+Two behaviour fixes, one accessibility finding, and the journey test that found it.
+
+- **A value left inside a closed conditional reveal is no longer sent.** GOV.UK's reveal only *hides* its
+  input, so a caseworker who typed a reason for urgency and then chose Standard was posting both, and api
+  stored both — a referral reading "Standard" beside a reason for being urgent, with decision 10 leaving no
+  edit page to correct it. `submitted()` in `referrals/new.ts` now drops `urgencyReason` unless `Urgent` is
+  chosen and `notes` unless `Other` is ticked, and `submittedValues()` still keeps both on screen so re-ticking
+  the box does not mean typing it again. That also removes the path where an over-long value's error message
+  rendered inside a closed reveal with a summary link to an invisible field.
+- **The create-409's extra read can no longer turn a rendered 409 into a 500.** `openReferralHref` runs inside
+  the handler's `catch`; an unreachable api there took the whole form with it. It now falls back to
+  `…#referrals`.
+- **An api 400 naming a field this form has no control for now shows the page's own message** instead of
+  nothing at all (Spring addresses a collection member as `reasons[0]`, which no control is keyed by).
+- **Decision 7 says "a POST with a confirmation" and the implementation has none**, following the note and
+  witness deletes as the same decision's second sentence directs. The decision text is self-contradictory;
+  the code and `withdraw.ts`'s docblock are the record, and no confirmation step is a deliberate choice rather
+  than an omission.
+- **The journey test the repo's conventions asked for is now in `e2e-tests/tests/deed-polls.spec.ts`** — raise,
+  the two conditional reveals, both 409s, view and withdraw, with axe at five points. It immediately earned its
+  keep: govuk-frontend 6.5.0's `radios.mjs` sets `aria-expanded` on the radio owning a reveal, which ARIA 1.2
+  does not allow on `role="radio"` (it does on `role="checkbox"`, so the Other → notes reveal is clean). That
+  one finding is waived by rule **and** element, with the reasoning at both the waiver and in
+  `referral-form.njk`; everything else on the page stays live. **Worth a decision from Steve:** accept the
+  upstream finding, or drop the reveal on urgency and show the reason field always.
+
+Counts after the review fixes: `//` (the app) **48 files / 704 tests**, `@hmcts/deed-poll` **48 / 821** — 2,188
+across the eight workspaces, `turbo test test:app --concurrency=1` 8 successful. `yarn lint` still the
+baseline's 2 pre-existing warnings. The Playwright suite passes serially (28 of 29; the saved-queries journey
+times out on this devcontainer's filesystem under load, which predates this branch and is why CI retries).
+
 ## Deliberately not in this plan
 
 - **The "returned — action needed" dashboard count and any alerting.** admin-2 — it consumes api-2's decided

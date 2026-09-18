@@ -80,7 +80,7 @@ export function updateNote(deedPollId: string, id: string, dto: UpdateNoteInput,
 | `validation` | `InvalidInputError`, carrying api's field errors | the page handler catches it and re-renders its form with the errors against the fields. Reaching `domainErrorHandler` means a handler did not, which is a bug in that handler |
 | `forbidden` | `ForbiddenError` | 403, on the 404 template — a caseworker learns no more from it than that the case is not theirs |
 | `unauthorized` | `UnauthorizedError` | **500**, deliberately unmapped. `requireAuth` and `refreshMiddleware` own re-authentication; a redirect to `/login` from an error handler loops when the session is valid and only api rejected the token |
-| `conflict` | `ConflictError` | 500. Nothing in the UI can currently provoke one — the document-type delete that could went with `apps/api` — so it is a fault rather than a state to render |
+| `conflict` | `ConflictError` | the page handler's own message, not the 500 page. api answers 409 for a referral raised while one is already open and for a withdraw of one that is already terminal — states two caseworkers can reach between them, so `referrals/new.ts` re-renders at 409 with a link to the open referral and `referrals/[referralId]/withdraw.ts` redirects to the referral view with `?withdraw=conflict`. Reaching `domainErrorHandler` means a handler did not catch it, which is a bug in that handler |
 | `unavailable`, `timeout`, `invalid-response`, `unknown` | plain `Error` | 500 page, the same as a database outage did before |
 
 Adding an operation: it must exist in `openapi.json` first. Add it to `client.ts`, let `contract.test.ts`

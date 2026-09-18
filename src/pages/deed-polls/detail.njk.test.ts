@@ -151,4 +151,13 @@ describe("case detail template — the referrals tab", () => {
     expect(rendered).toContain("Migrated from the previous system");
     expect(rendered).toContain("Not provided");
   });
+
+  it("should not call a referral migrated because it has no reasons, when it is not", async () => {
+    const rendered = await page([{ ...REFERRAL, reasons: [] }]);
+
+    expect(rendered).not.toContain("Migrated from the previous system");
+    // The row is still listed and still links to the referral — an empty reasons cell is not a reason to hide
+    // a referral the case has.
+    expect(rendered).toContain('href="/deed-polls/case-1/referrals/ref-1"');
+  });
 });

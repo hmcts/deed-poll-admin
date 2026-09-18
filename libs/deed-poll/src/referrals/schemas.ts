@@ -15,7 +15,9 @@
  * where this repo's copies of api's rules live for a form to render.
  *
  * **The bounds are api's too, and may only ever be lowered.** `CreateReferralRequest` publishes `notes` as
- * ≤1000 characters and `urgencyReason` as ≤500, and the adapter's own schema refuses a body beyond them.
+ * ≤1000 characters and `urgencyReason` as ≤500, and this is the **only** guard on them before the wire: the
+ * adapter validates the response it gets back, not the body it sends, so `WIRE_SCHEMAS.CreateReferralRequest`
+ * is a type source and not a second check. Widen either bound and api's 400 is what a caseworker meets.
  *
  * **`urgency` is required here while api leaves it optional**, which is a narrowing rather than a
  * disagreement: the form always renders both radios, so "no answer" is not a body it can send, and the
@@ -44,9 +46,13 @@ const URGENCY_REQUIRING_REASON = "Urgent";
 export const createReferralSchema = z
   .object({
     // Checkboxes, so an untouched group posts nothing at all and the error has to land on the group rather
-    // than on a box. `.min(1)` and the absent-value message say the same thing for that reason.
+    // than on a box. `.min(1)`, the absent-value message and the member message all say the same thing for
+    // that reason — the member one because zod's default for an enum prints every member it accepts, which is
+    // api's vocabulary rather than a sentence, and a tampered post is not worth showing it for.
     reasons: z
-      .array(z.enum(REFERRAL_REASON), { error: "Select at least one reason for referring this case" })
+      .array(z.enum(REFERRAL_REASON, { error: "Select at least one reason for referring this case" }), {
+        error: "Select at least one reason for referring this case"
+      })
       .min(1, "Select at least one reason for referring this case"),
     // Blank becomes `undefined` rather than `""`: api takes no null on a create, and an empty note is the
     // absence of one rather than a note that says nothing. Trimmed before it is measured, so "   " is a

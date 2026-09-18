@@ -82,6 +82,14 @@ describe("referrals/referrals-view", () => {
       expect(view.reasons).toEqual(["SomethingApiOnceHad"]);
     });
 
+    it("should print a stored reason that names an Object member as it stands, not as what it inherits", () => {
+      // `reasons` is `string[]` on the wire, so the label map is indexed with data. A plain `map[reason] ??`
+      // resolves "constructor" to a function off Object.prototype, which reaches the page as a reason.
+      const view = buildReferralDetail({ ...REFERRAL, reasons: ["constructor", "toString"] });
+
+      expect(view.reasons).toEqual(["constructor", "toString"]);
+    });
+
     it("should format both audit timestamps in GOV.UK style, in London time", () => {
       const view = buildReferralDetail(REFERRAL);
 
@@ -144,6 +152,15 @@ describe("referrals/referrals-view", () => {
 
       expect(view.count).toBe(1);
       expect(view.rows).toEqual([buildReferralDetail(REFERRAL)]);
+      // Named values as well as the shape, so this cannot pass by both sides changing together: a row the tab
+      // renders is already display text, not the wire's members.
+      expect(view.rows[0]).toMatchObject({ id: "ref-1", state: "Open", reasons: ["Applicant is a minor", "Other"], urgency: "Urgent", terminal: false });
+    });
+
+    it("should count a referral whose state api did not publish as open, so no second one is offered", () => {
+      // The conservative answer in both directions: `terminal: false` offers the withdraw and withholds the
+      // raise, so api refuses whichever of the two is wrong instead of this app guessing.
+      expect(buildReferralsView([{ ...REFERRAL, state: null }]).anyOpen).toBe(true);
     });
 
     it("should keep api's order rather than re-sorting, since listReferrals answers newest first", () => {

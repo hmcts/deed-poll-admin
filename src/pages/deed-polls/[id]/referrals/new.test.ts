@@ -187,6 +187,42 @@ describe("raise a referral page", () => {
       );
     });
 
+    it("should not send a reason for urgency left behind in a closed reveal after Standard was chosen", async () => {
+      // The conditional reveal only hides its textarea, so the browser still posts it: a caseworker who typed
+      // a reason, then changed their mind, would otherwise store "Standard" alongside "because of the hearing"
+      // with no edit page to correct it.
+      await POST(request({ reasons: ["Minor"], urgency: "Normal", urgencyReason: "Hearing on Friday." }), response());
+
+      expect(createReferral).toHaveBeenCalledWith("case-1", { reasons: ["Minor"], notes: undefined, urgency: "Normal", urgencyReason: undefined }, CALLER);
+    });
+
+    it("should not send notes left behind in a closed reveal after Other was unticked", async () => {
+      await POST(request({ reasons: ["Minor"], notes: "Typed while Other was ticked.", urgency: "Normal" }), response());
+
+      expect(createReferral).toHaveBeenCalledWith("case-1", { reasons: ["Minor"], notes: undefined, urgency: "Normal", urgencyReason: undefined }, CALLER);
+    });
+
+    it("should keep a value it did not send on screen, so re-ticking its box does not mean typing it again", async () => {
+      const res = response();
+
+      await POST(request({ urgency: "Normal", urgencyReason: "Hearing on Friday.", notes: "Typed while Other was ticked." }), res);
+
+      // Dropped from the body because neither reveal was open, and still in the model the form re-renders
+      // from: not sending it and forgetting it are different things.
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].values.urgencyReason).toBe("Hearing on Friday.");
+      expect(res.render.mock.calls[0][1].values.notes).toBe("Typed while Other was ticked.");
+    });
+
+    it("should not validate the length of a value it is not going to send", async () => {
+      // Over-long notes with Other unticked: the message would render inside a closed reveal and its summary
+      // link would focus an invisible field, so there is nothing for a caseworker to act on. The value is not
+      // an answer, so it is dropped rather than measured.
+      await POST(request({ reasons: ["Minor"], urgency: "Normal", notes: "x".repeat(1001) }), response());
+
+      expect(createReferral).toHaveBeenCalledWith("case-1", expect.objectContaining({ notes: undefined }), CALLER);
+    });
+
     it("should re-render with the error against urgency when the question was left unanswered", async () => {
       const res = response();
 
@@ -269,6 +305,18 @@ describe("raise a referral page", () => {
       expect(res.render.mock.calls[0][1].conflictHref).toBe("/deed-polls/case-1#referrals");
     });
 
+    it("should still render the 409 when the read that resolves the link fails, rather than losing the form to a 500", async () => {
+      vi.mocked(createReferral).mockRejectedValue(new ConflictError("Case case-1 already has an open referral"));
+      vi.mocked(findReferrals).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      const res = response();
+
+      await POST(request({ reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Hearing on Friday." }), res);
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.render.mock.calls[0][1].conflictHref).toBe("/deed-polls/case-1#referrals");
+      expect(res.render.mock.calls[0][1].values.urgencyReason).toBe("Hearing on Friday.");
+    });
+
     it("should keep what was chosen on screen when the case already has an open referral", async () => {
       vi.mocked(createReferral).mockRejectedValue(new ConflictError("Case case-1 already has an open referral"));
       const res = response();
@@ -289,6 +337,21 @@ describe("raise a referral page", () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.render.mock.calls[0][1].errors.reasons).toBe("Minor cannot be combined with NonPublication");
       expect(res.redirect).not.toHaveBeenCalled();
+    });
+
+    it("should show its own copy when api names a field this form has no control for", async () => {
+      // Spring addresses a collection member as `reasons[0]`, and nothing on this page is keyed that way, so
+      // the message would be dropped from both the summary and the controls — a 400 with an untouched form and
+      // no explanation on it, which a caseworker cannot act on and resubmitting cannot clear.
+      vi.mocked(createReferral).mockRejectedValue(
+        new InvalidInputError("Request body is not valid", [{ field: "reasons[0]", message: "Minor is not accepted on a migrated case" }])
+      );
+      const res = response();
+
+      await POST(request(COMPLETE), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errorList[0].text).toBe("The referral could not be raised. Check the details and try again.");
     });
 
     it("should show the page's own copy, not api's wording, when its rejection names no field", async () => {

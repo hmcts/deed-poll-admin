@@ -91,14 +91,14 @@ export function buildReferralDetail(referral: Referral): ReferralView {
     // maintain. Absent means api did not publish one, which is a claim about the read rather than the data.
     state: referral.state ?? NOT_RECORDED,
     stateTagClasses: referral.state ? REFERRAL_STATE_TAG[referral.state] : "govuk-tag--grey",
-    reasons: referral.reasons.map((reason) => REFERRAL_REASON_LABEL[reason as ReferralReason] ?? reason),
+    reasons: referral.reasons.map(reasonLabel),
     migrated: referral.migrated,
-    notes: text(referral.notes),
+    notes: orPlaceholder(referral.notes, NOT_PROVIDED),
     urgency: referral.urgency ? REFERRAL_URGENCY_LABEL[referral.urgency] : NOT_PROVIDED,
-    urgencyReason: text(referral.urgencyReason),
-    createdBy: author(referral.createdBy),
+    urgencyReason: orPlaceholder(referral.urgencyReason, NOT_PROVIDED),
+    createdBy: orPlaceholder(referral.createdBy, NOT_RECORDED),
     createdOn: formatTimestamp(referral.createdOn),
-    modifiedBy: author(referral.modifiedBy),
+    modifiedBy: orPlaceholder(referral.modifiedBy, NOT_RECORDED),
     modifiedOn: formatTimestamp(referral.modifiedOn),
     // Unknown counts as not terminal, so the control is offered and api gets the final word. The alternative
     // hides a withdraw a caseworker is entitled to because a field did not arrive.
@@ -125,18 +125,29 @@ export function buildReferralsView(referrals: Referral[]): ReferralsView {
   return { rows, count: rows.length, anyOpen: rows.some((row) => !row.terminal) };
 }
 
-/** A stored free-text value, or the placeholder for one never filled in. */
-function text(raw: string | null | undefined): string {
-  const value = typeof raw === "string" ? raw.trim() : "";
-
-  return value.length > 0 ? value : NOT_PROVIDED;
+/**
+ * One stored reason in the business's words, or as api stored it.
+ *
+ * `Object.hasOwn` rather than `??`, because the wire type is `string[]` and an inherited member name —
+ * `"constructor"`, `"toString"` — would otherwise resolve to a function off `Object.prototype` and reach the
+ * page as a reason. The same backfilled-or-hand-corrected row the docblock above anticipates is exactly where
+ * an arbitrary string comes from.
+ */
+function reasonLabel(reason: string): string {
+  return Object.hasOwn(REFERRAL_REASON_LABEL, reason) ? REFERRAL_REASON_LABEL[reason as ReferralReason] : reason;
 }
 
-/** A stored author name, or the placeholder for a referral predating the audit columns. */
-function author(raw: string | null | undefined): string {
-  const name = typeof raw === "string" ? raw.trim() : "";
+/**
+ * A stored free-text value, or the placeholder for one that was never filled in.
+ *
+ * Trimmed first, so a value that is only whitespace reads as absent rather than as a blank cell. The
+ * placeholder is the caller's because the two questions differ: a note nobody wrote is "not provided", an
+ * author on a referral predating the audit columns is "not recorded".
+ */
+function orPlaceholder(raw: string | null | undefined, placeholder: string): string {
+  const value = typeof raw === "string" ? raw.trim() : "";
 
-  return name.length > 0 ? name : NOT_RECORDED;
+  return value.length > 0 ? value : placeholder;
 }
 
 /** One referral, every cell already a display string. */

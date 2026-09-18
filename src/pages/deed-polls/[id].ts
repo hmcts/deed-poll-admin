@@ -12,8 +12,13 @@
  *
  * Referrals are the exception and cost a third call: `GET /caseworker/cases/{id}` does not carry them, so the
  * referrals tab has to ask — the same justification `getCaseFieldRules` has below, and the reason
- * `libs/deed-poll/src/referrals/service.ts` reads them dedicated rather than off the case. They are merged
- * into the record handed to `buildDetailTabs` under `referrals`, which is where its empty-state count looks.
+ * `libs/deed-poll/src/referrals/service.ts` reads them dedicated rather than off the case. They go to the
+ * template twice over: merged into the record handed to `buildDetailTabs`, which counts them under their own
+ * name like the other three subgrids, and as the `referrals` view model the panel actually renders from.
+ *
+ * All three calls are fatal to the page, referrals included. That is the cost of the tab being on every case:
+ * a referrals read that fails takes the case with it rather than degrading to a tab that cannot say whether
+ * the case is with the judiciary.
  */
 import {
   buildCaseHeader,

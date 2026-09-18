@@ -111,6 +111,15 @@ describe("referral view template", () => {
     expect(rendered).toContain("Not provided");
   });
 
+  it("should say the reasons are not recorded, not that the referral was migrated, when it was not", async () => {
+    // The third branch of the reasons cell: no reasons and not migrated is data api should not produce, so it
+    // must not borrow the migrated explanation for it — that would assert a history the referral does not have.
+    const rendered = await page({ ...REFERRAL, reasons: [] });
+
+    expect(rendered).not.toContain("Migrated from the previous system");
+    expect(rendered).toContain("None recorded.");
+  });
+
   it("should show the refused-withdrawal message above the referral when api refused one", async () => {
     const rendered = await page({ ...REFERRAL, state: "Closed" }, { withdraw: "conflict" });
 
