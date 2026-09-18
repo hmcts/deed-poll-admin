@@ -337,11 +337,35 @@ inside this plan.
 - Export the service (not schemas' internals, not `callApi`) from `libs/deed-poll/src/index.ts` (witnesses at
   `index.ts:59`).
 
-- [ ] `createReferralSchema` enforces ≥1 reason, notes-when-Other, urgencyReason-when-Urgent, each as a
+- [x] `createReferralSchema` enforces ≥1 reason, notes-when-Other, urgencyReason-when-Urgent, each as a
       field-scoped error; service has dedicated `findReferrals`/`findReferral` calls and `createReferral`/
       `withdrawReferral` wrappers; api 409/400 surface as `ConflictError`/`InvalidInputError` via `callApi`;
       service exported from the domain index; unit tests mock `@hmcts/deed-poll-api-client` and cover each
       validation rule and each classified failure; `turbo test test:app --concurrency=1` green
+
+**Done 2026-09-18.** `libs/deed-poll/src/referrals/{schemas,service}.ts` plus their colocated tests, and two
+lines added to `libs/deed-poll/src/index.ts` (schemas + service; no `callApi`, no `ApiConfig`).
+
+Three decisions worth knowing before Task 3 writes the pages against these:
+
+- **`urgency` is required in this schema although api publishes it as optional.** A narrowing, not a
+  disagreement: the form always renders both radios so "no answer" is not a body it can send, and the
+  `urgencyReason` rule hinges on the answer. Its message is "Select how urgent this referral is".
+- **The messages live in the schema, not the page** — `../saved-queries/schemas.ts`'s split rather than
+  `../witnesses/schemas.ts`'s. `notes` has two different things to say about it (required-because-`Other`,
+  too-long) and a page mapping one message per field cannot say both. The *labels* are still the page's
+  (decision 2). So Task 3's POST handler feeds `zodErrorToFieldErrors(parsed.error)` straight to the summary
+  rather than re-wording it: `reasons` → "Select at least one reason for referring this case", `notes` →
+  "Enter the other reason for referring this case", `urgencyReason` → "Enter why this referral is urgent".
+- **Both bounds and both member sets are read off api, never restated.** `MAX_REFERRAL_NOTES` (1000) and
+  `MAX_REFERRAL_URGENCY_REASON` (500) are exported for the form's hints; `reasons`/`urgency` are built from the
+  client's `REFERRAL_REASON`/`URGENCY` arrays, so the checkbox list Task 3 renders should map over the array
+  rather than typing six values out again.
+
+Whitespace-only `notes`/`urgencyReason` are trimmed to `undefined`, so "   " fails the conditional rule rather
+than satisfying it. `@hmcts/deed-poll` went 752 → **789** tests (45 → 47 files); `yarn lint` unchanged at the
+baseline's 2 pre-existing warnings; `yarn turbo build` clean, so the DTO type-checks against the adapter's
+`ReferralCreate`.
 
 ### Task 3: The pages — raise, view, withdraw
 
