@@ -1,0 +1,66 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/tag/macro.njk" import govukTag %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{#
+  One referral, read-only. The rows are the referral's own fields and nothing about the application: the case
+  detail page is one link away and api's referral response carries no case data.
+
+  Reasons are a list rather than a comma-joined sentence — a referral commonly has two or three and they are
+  scanned, not read. A migrated referral has none, and says so, because the previous system recorded no
+  reasons; a blank cell there would read as missing data rather than as data that never existed.
+
+  Withdraw is a form rather than a link, because it changes something. It is absent on a referral that is
+  already closed or withdrawn, and a caseworker who had the page open when somebody else closed it comes back
+  here with the message above instead of an error page.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if withdrawRefused %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [{ text: alreadyClosed }] }) }}
+    {% endif %}
+
+    <span class="govuk-caption-l">{{ case.displayReference }}</span>
+    <h1 class="govuk-heading-xl govuk-!-margin-bottom-4">{{ heading }}</h1>
+
+    {% set reasonsCell %}
+      {% if referral.reasons.length %}
+        <ul class="govuk-list govuk-!-margin-bottom-0">
+          {% for reason in referral.reasons %}<li>{{ reason }}</li>{% endfor %}
+        </ul>
+      {% elif referral.migrated %}
+        {{ migratedReasons }}
+      {% else %}
+        {{ noneRecorded }}
+      {% endif %}
+    {% endset %}
+
+    {{ govukSummaryList({
+      rows: [
+        { key: { text: stateLabel }, value: { html: govukTag({ text: referral.state, classes: referral.stateTagClasses }) } },
+        { key: { text: reasonsLabel }, value: { html: reasonsCell } },
+        { key: { text: notesLabel }, value: { text: referral.notes } },
+        { key: { text: urgencyLabel }, value: { text: referral.urgency } },
+        { key: { text: urgencyReasonLabel }, value: { text: referral.urgencyReason } },
+        { key: { text: createdLabel }, value: { text: referral.createdBy + ", " + referral.createdOn } },
+        { key: { text: modifiedLabel }, value: { text: referral.modifiedBy + ", " + referral.modifiedOn } }
+      ]
+    }) }}
+
+    {% if not referral.terminal %}
+      <form method="post" action="/deed-polls/{{ case.id }}/referrals/{{ referral.id }}/withdraw" novalidate>
+        <p class="govuk-body">{{ withdrawHint }}</p>
+        {{ govukButton({ text: withdraw, classes: "govuk-button--warning" }) }}
+      </form>
+    {% endif %}
+
+    <p class="govuk-body">
+      <a class="govuk-link" href="/deed-polls/{{ case.id }}#referrals">{{ backToCase }}</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

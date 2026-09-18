@@ -50,6 +50,7 @@ export * from "./notes/note-form.js";
 export * from "./notes/notes-view.js";
 export * from "./notes/schemas.js";
 export * from "./notes/service.js";
+export * from "./referrals/referrals-view.js";
 export * from "./referrals/schemas.js";
 export * from "./referrals/service.js";
 export * from "./saved-queries/schemas.js";

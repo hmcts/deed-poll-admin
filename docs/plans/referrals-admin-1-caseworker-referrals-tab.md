@@ -388,10 +388,60 @@ missing reason → 400 with summary; `Other` without notes → 400; `Urgent` wit
 one open → the 409 message with the link; view of an open vs terminal referral (withdraw action present/
 absent); withdraw success → redirect; withdraw of terminal → the 409 message.
 
-- [ ] Raise/view/withdraw pages live and route correctly (static-before-dynamic ordering holds); conditional
+- [x] Raise/view/withdraw pages live and route correctly (static-before-dynamic ordering holds); conditional
       reveals for notes and urgency reason; error summary + inline errors + preserved values; both 409s render
       as page messages not error pages; migrated referral renders honestly; page tests cover each path;
       `turbo test test:app --concurrency=1` green
+
+**Done 2026-09-18.** Three routes, two templates and a view model:
+
+| File | What it is |
+|---|---|
+| `src/pages/deed-polls/[id]/referrals/new.ts` + `deed-polls/referral-form.njk` | raise |
+| `src/pages/deed-polls/[id]/referrals/[referralId].ts` + `deed-polls/referral-detail.njk` | view |
+| `src/pages/deed-polls/[id]/referrals/[referralId]/withdraw.ts` | withdraw (POST only) |
+| `libs/deed-poll/src/referrals/referrals-view.ts` | the labels and one referral formatted, exported from the domain index |
+
+Templates sit beside `witness-form.njk` in `src/pages/deed-polls/`, which is where this app keeps them — any
+`.ts` under `src/pages/` is a route, so a shared non-route module cannot live there.
+
+Five decisions Task 4 should know about:
+
+- **A fourth file, `referrals-view.ts`, holds the labels.** The reason wording is needed by the raise form, the
+  referral view **and** Task 4's tab, and three copies of "Applicant is a minor" is three places for the
+  business's wording to drift. It follows `documents-view.ts` exactly: maps keyed by api's member arrays (so a
+  member added at api's end is a type error, not a blank cell), `REFERRAL_REASON_CHOICES` /
+  `REFERRAL_URGENCY_CHOICES` for the controls, `REFERRAL_STATE_TAG` for the tags, and `buildReferralDetail`.
+  **Task 4's panel should render rows through it rather than reading `referral.*` in the template.**
+  `REFERRAL_URGENCY_LABEL.Normal` is deliberately `"Standard"` where `URGENCY_LABEL.Normal` is `"Normal"` —
+  same api enum, two questions.
+- **`terminal` is the only state rule, and it lives on the view model.** Decision 10 holds: it governs whether
+  a control is rendered and nothing else, an unpublished `state` counts as *not* terminal so api gets the final
+  word, and the refusal itself is api's 409. Task 4's raise button can ask the same question of the list.
+- **The create-409 costs one extra read, on that path only.** api's 409 says *a* referral is open, not which,
+  and "view the open referral" needs an id — so `openReferralHref` calls `findReferrals` and links to the
+  non-terminal one, falling back to `…#referrals` if it has gone in between. Status is **409**, not 400.
+- **The withdraw-409 is a redirect, not a render.** `withdraw.ts` sends the caseworker to
+  `…/referrals/{id}?withdraw=conflict` and the referral view says "This referral has already been closed or
+  withdrawn." The forms' objection to `?error=` is about losing typed input; a withdrawal has none, and the
+  state shown beside the message has to be re-read to be true. It also keeps the wording in the one page that
+  owns it instead of copying ~18 content keys into a POST-only route.
+- **Zod's messages go straight to the summary**, per Task 2's note — no `en.fieldErrors` map like the witness
+  forms have. `fieldMessages` keys on the path's first segment so a `reasons.0` issue lands on the group.
+
+Route ordering verified by running `sortRoutes(discoverRoutes("src/pages"))`: `…/referrals/new` →
+`…/referrals/:referralId` → `…/referrals/:referralId/withdraw`, so the static file beats the sibling dynamic
+one and the `[referralId].ts` file and `[referralId]/` directory coexist (routes are keyed by URL path). Not
+asserted in a test — `discoverRoutes`/`sortRoutes` are not exported from `@hmcts-cft/simple-router`'s index, and
+notes/witnesses/documents document the same ordering in a docblock rather than pinning it.
+
+Two `.njk.test.ts` files render the templates through `nunjucks.configure` (the `index.njk.test.ts` pattern),
+because the conditional reveal is markup a view model cannot show: they assert the checkbox's
+`data-aria-controls` actually names the div holding `notes`, that `Normal` reveals nothing, that withdraw is a
+form that disappears on a terminal referral, and that a migrated referral says so.
+
+The app went 42 → **47** test files and 621 → **678** passing; `@hmcts/deed-poll` 47 → **48** files and 789 →
+**809**. `yarn lint` unchanged at the baseline's 2 pre-existing warnings; `yarn turbo build` clean.
 
 ### Task 4: The tab, and full validation
 
