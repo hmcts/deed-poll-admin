@@ -274,10 +274,53 @@ not carry referrals fails in a confusing place, several tasks later.
 admin-0 has not run or has not merged, in which case the fix is to run it, not to patch the adapter from
 inside this plan.
 
-- [ ] Gate passed: the nine referral operations and eight schemas present in `openapi.json` with provenance at
+- [x] Gate passed: the nine referral operations and eight schemas present in `openapi.json` with provenance at
       api `ee37173` or later; the four caseworker adapter functions and their types exported; the mock routing
       both paths and returning 409 on already-open and on terminal-withdraw; both validation commands green
       with the baseline totals recorded
+
+**Gate result 2026-09-18 — passed on all four. admin-0 has landed; proceed to Task 2.**
+
+1. **Spec** — `openapi.json` carries **9 referral operations** across 8 paths (5 caseworker:
+   `GET`+`POST …/referrals`, `GET …/{referralId}`, `POST …/withdrawal`, `POST …/closure`; 4 judicial:
+   `GET /judicial/referrals`, `GET …/{referralId}`, `POST …/claim`, `POST …/direction`) and all **8 referral
+   schemas** (`CreateReferralRequest`, `ReferralResponse`, `JudicialDirectionRequest`, `JudicialPoolResponse`,
+   `JudicialReferralSummary`, `JudicialReferralDetail`, `JudicialCaseView`, `JudicialCaseNote`). Document
+   totals: 35 operations across 22 paths, 27 schemas. `SPEC-PROVENANCE.md`'s top row is api
+   `ee3717313d3cd841608b05a38f4b9a9598f84a30` — exactly the gate's floor. All nine are registered in
+   `contract.test.ts` (`:54-58`, `:67-70`).
+2. **Adapter** — the four this plan calls are exported from `client.ts`: `listReferrals` (`:338`), `getReferral`
+   (`:343`), `createReferral` (`:354`), `withdrawReferral` (`:364`), with `referralPath` as the shared helper.
+   Types alongside them: `Referral` (`:838`), `ReferralCreate` (`:839`), `ReferralState` (`:870`),
+   `ReferralReason` (`:877`). `closeReferral` (`:374`) and the four judicial functions (`:484-506`) are also
+   there — expected, and **out of scope per decision 1**: nothing this plan writes may call them. The package
+   index re-exports only `./api/client.js`, so `wire.ts` and the mock stay private as the constraints require.
+3. **Mock** — one regex reaches all three sub-resources plus the `withdrawal`/`closure` actions
+   (`server.ts:266`), dispatching to `referrals()` (`:603`); `referrals: []` is on `MockCase` and seeded
+   (`:399`). Both 409s this plan renders are real, not 200s: **already-open on create** —
+   `record.referrals.some(candidate => !isTerminal(candidate.state))` → 409 (`:661-662`), ordered *after* the
+   body checks as api orders them; **terminal withdraw** — `isTerminal(referral.state)` → 409 (`:629`). Each is
+   covered twice over, at mock level (`server.test.ts:870`, `:898`) and through the adapter
+   (`client.test.ts:632`, `:701`), so the conflict UI has a contract to test against.
+4. **Baseline (this branch, before any edit)** — `yarn install --frozen-lockfile` clean; `yarn lint` **exit 0**
+   (2 pre-existing `noUndeclaredEnvVars` warnings in `src/server.test.ts` / `src/session-store.test.ts`, no
+   errors); `turbo test test:app --concurrency=1` **8 successful, 8 total** — not the false-green "0
+   successful" the constraints warn about.
+
+   | Workspace | Files | Tests |
+   |---|---|---|
+   | `//` (the app, `test:app`) | 42 | 621 passed, 3 skipped (624) |
+   | `@hmcts/deed-poll` | 45 | 752 |
+   | `@hmcts/deed-poll-api-client` | 4 | 325 |
+   | `@hmcts-cft/cloud-native-platform` | 10 | 140 |
+   | `@hmcts-cft/express-govuk-starter` | 12 | 127 |
+   | `@hmcts-cft/simple-router` | 4 | 41 |
+   | `@hmcts-cft/express-session-postgres` | 2 | 23 |
+   | `@hmcts-cft/express-session-redis` | 1 | 7 |
+   | **Baseline total** | **120** | **2,036 passed, 3 skipped (2,039)** |
+
+   Task 4 records the final count against this. Note the baseline is higher than plans 11/12 would suggest
+   because admin-0's adapter work added to `@hmcts/deed-poll-api-client` — quote this table, not theirs.
 
 ### Task 2: The domain layer — schemas and service
 
