@@ -232,6 +232,19 @@ describe("raise a referral page", () => {
       expect(res.render.mock.calls[0][1].errors.urgency).toBe("Select how urgent this referral is");
     });
 
+    it("should show both the unanswered urgency and the missing other reason in one re-render", async () => {
+      const res = response();
+
+      await POST(request({ reasons: ["Other"] }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(createReferral).not.toHaveBeenCalled();
+      expect(res.render.mock.calls[0][1].errorList).toEqual([
+        { text: "Enter the other reason for referring this case", href: "#notes" },
+        { text: "Select how urgent this referral is", href: "#urgency" }
+      ]);
+    });
+
     it("should require a reason for urgency when Urgent is chosen", async () => {
       const res = response();
 

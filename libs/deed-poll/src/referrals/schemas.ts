@@ -21,7 +21,11 @@
  *
  * **`urgency` is required here while api leaves it optional**, which is a narrowing rather than a
  * disagreement: the form always renders both radios, so "no answer" is not a body it can send, and the
- * `urgencyReason` rule hinges on the answer — a referral with no urgency would make that rule unaskable.
+ * `urgencyReason` rule hinges on the answer — a referral with no urgency would make that rule unaskable. The
+ * requirement is stated in the `superRefine` rather than by leaving the enum non-optional, because zod skips
+ * an object's refinements once a field has failed its own parse: a missing `urgency` would then suppress the
+ * `notes` message as well, and a caseworker who ticked `Other` and skipped the radios would pay two
+ * submissions to learn two things the form already knew — the round trip this whole schema exists to avoid.
  *
  * The messages live here rather than in the page, following `../saved-queries/schemas.ts`: `notes` has two
  * different things to say about it — required-because-Other and too-long — and a page that maps one message
@@ -64,7 +68,9 @@ export const createReferralSchema = z
       .max(MAX_REFERRAL_NOTES, `Notes must be ${MAX_REFERRAL_NOTES} characters or fewer`)
       .optional()
       .transform((value) => (value === undefined || value === "" ? undefined : value)),
-    urgency: z.enum(URGENCY, { error: "Select how urgent this referral is" }),
+    // Optional in the shape and required in the `superRefine` — see the docblock. A value api does not
+    // publish still fails here, which only a tampered post can do.
+    urgency: z.enum(URGENCY, { error: "Select how urgent this referral is" }).optional(),
     urgencyReason: z
       .string({ error: `The reason for urgency must be ${MAX_REFERRAL_URGENCY_REASON} characters or fewer` })
       .trim()
@@ -76,6 +82,9 @@ export const createReferralSchema = z
     // `path` is what makes `zodErrorToFieldErrors` address the issue to a control, so the error summary's
     // link resolves. An issue raised without one is addressed to the form, which is not where a caseworker
     // needs to look for either of these.
+    if (!referral.urgency) {
+      ctx.addIssue({ code: "custom", path: ["urgency"], message: "Select how urgent this referral is" });
+    }
     if (referral.reasons.includes(REASON_REQUIRING_NOTES) && !referral.notes) {
       ctx.addIssue({ code: "custom", path: ["notes"], message: "Enter the other reason for referring this case" });
     }

@@ -545,7 +545,27 @@ Two behaviour fixes, one accessibility finding, and the journey test that found 
   `referral-form.njk`; everything else on the page stays live. **Worth a decision from Steve:** accept the
   upstream finding, or drop the reveal on urgency and show the reason field always.
 
-Counts after the review fixes: `//` (the app) **48 files / 704 tests**, `@hmcts/deed-poll` **48 / 821** — 2,188
+### Code review, second pass — one validation fix
+
+- **A missing urgency no longer hides the other reason's message.** zod skips an object's refinements once a
+  field has failed its own parse, so `urgency` as a required enum meant a caseworker who ticked `Other`, left
+  the revealed textarea blank and skipped the radios saw only "Select how urgent this referral is", then
+  learned about the missing reason on the *next* submission — two round trips for two things the form already
+  knew, which is both what `createReferralSchema`'s docblock claims to prevent and what GOV.UK's validation
+  pattern requires. `urgency` is now optional in the shape with its requirement stated in the `superRefine`
+  alongside the two conditional rules, so one parse yields every message. The narrowing is unchanged in
+  substance — a referral with no urgency is still rejected — and api's create body has `urgency` optional, so
+  the inferred DTO still fits the wire. Pinned at both levels: `schemas.test.ts` for the two issues in one
+  parse, `referrals/new.test.ts` for the two rows in one error summary.
+- **Not changed, again: the detail page's `Promise.all` makes a referrals failure fatal to the whole case
+  page.** Flagged by both review agents in this pass as well. It is the plan's stated decision (Task 4's note),
+  it matches the third call `getCaseFieldRules` already makes, and the trade-off is documented at the call
+  site — but the blast radius is worth knowing: a `403` on the referrals endpoint renders the 404 template for
+  a case that exists, and an api without the endpoint would 404 every case page. Degrading the tab instead is a
+  small change (`Promise.allSettled`, a load-failure flag on the view model, no raise button in that state) if
+  you decide the tab is worth less than the page.
+
+Counts after the review fixes: `//` (the app) **48 files / 705 tests**, `@hmcts/deed-poll` **48 / 822** — 2,190
 across the eight workspaces, `turbo test test:app --concurrency=1` 8 successful. `yarn lint` still the
 baseline's 2 pre-existing warnings. The Playwright suite passes serially (28 of 29; the saved-queries journey
 times out on this devcontainer's filesystem under load, which predates this branch and is why CI retries).

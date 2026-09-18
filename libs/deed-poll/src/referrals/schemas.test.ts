@@ -118,6 +118,18 @@ describe("referrals/schemas", () => {
       expect(zodErrorToFieldErrors(parsed.error!)).toContainEqual({ field: "urgency", message: "Select how urgent this referral is" });
     });
 
+    it("should report the missing urgency and the missing other reason at once, not one submission each", () => {
+      // The reason `urgency` is optional in the shape: zod skips an object's refinements once a field has
+      // failed its own parse, so a required enum here would have withheld the `notes` message.
+      const parsed = createReferralSchema.safeParse({ reasons: ["Other"] });
+
+      expect(parsed.success).toBe(false);
+      expect(zodErrorToFieldErrors(parsed.error!)).toEqual([
+        { field: "urgency", message: "Select how urgent this referral is" },
+        { field: "notes", message: "Enter the other reason for referring this case" }
+      ]);
+    });
+
     it("should reject an urgency api does not publish", () => {
       expect(createReferralSchema.safeParse({ reasons: ["Minor"], urgency: "Immediately" }).success).toBe(false);
     });
