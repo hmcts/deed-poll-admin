@@ -1127,6 +1127,25 @@ describe("the upload's timeout, which is longer than the JSON default", () => {
   });
 });
 
+/**
+ * The figures the two streaming tests below share, sized for headroom rather than for speed.
+ *
+ * They were `timeoutMs: 60` against a server dripping every 20ms, which fails for a reason that has nothing
+ * to do with the code under test: the FIRST connection to a fresh `localhost` port costs ~75ms here for DNS
+ * and pool warm-up, so the answer missed a 60ms budget whenever an earlier test had not already paid that
+ * cost. Run as a whole file it passed on a warm resolver; run alone — or on a loaded machine — it failed on
+ * the `result.ok` assertion, which reads as a download bug and is not one.
+ *
+ * So the timeout has to clear cold-connect latency by a wide margin, while the two properties being pinned
+ * still hold: one inter-chunk gap must sit well UNDER it (or a slow trickle would be mistaken for a stall),
+ * and the whole transfer must run well OVER it (or the test would pass even if the timeout did bound the
+ * body, which is the regression it exists to catch). 200ms against 20ms gaps and a ~400ms transfer gives
+ * every one of those a factor of at least two.
+ */
+const STREAM_TIMEOUT_MS = 200;
+const DRIP_INTERVAL_MS = 20;
+const DRIP_CHUNKS = 20;
+
 describe("the download's timeout, which covers the answer and not the body", () => {
   it("should still time out when api never answers the download at all", async () => {
     const silent = await listen(createServer(() => {}));
@@ -1150,22 +1169,26 @@ describe("the download's timeout, which covers the answer and not the body", () 
     const dripping = await listen(
       createServer((_req, res) => {
         res.writeHead(200, { "content-type": "application/pdf" });
+        // Flushed rather than left to the first `write`: `writeHead` queues the headers, so without this the
+        // answer does not reach the client until the first chunk does, and the timeout under test would be
+        // measuring the drip it is supposed to be indifferent to.
+        res.flushHeaders();
         let sent = 0;
         const timer = setInterval(() => {
           sent += 1;
-          if (sent < 8) return res.write("chunk");
+          if (sent < DRIP_CHUNKS) return res.write("chunk");
           clearInterval(timer);
           res.end("chunk");
-        }, 20);
+        }, DRIP_INTERVAL_MS);
       })
     );
 
     try {
-      const result = await downloadDocument("case-1", "doc-1", { baseUrl: dripping.url, timeoutMs: 60 });
+      const result = await downloadDocument("case-1", "doc-1", { baseUrl: dripping.url, timeoutMs: STREAM_TIMEOUT_MS });
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;
-      await expect(collect(result.data.body)).resolves.toBe("chunk".repeat(8));
+      await expect(collect(result.data.body)).resolves.toBe("chunk".repeat(DRIP_CHUNKS));
     } finally {
       await dripping.close();
     }
@@ -1185,7 +1208,7 @@ describe("the download's timeout, which covers the answer and not the body", () 
     );
 
     try {
-      const result = await downloadDocument("case-1", "doc-1", { baseUrl: stalling.url, timeoutMs: 60 });
+      const result = await downloadDocument("case-1", "doc-1", { baseUrl: stalling.url, timeoutMs: STREAM_TIMEOUT_MS });
 
       // The headers arrived, so the call itself succeeded — the failure belongs to the stream.
       expect(result.ok).toBe(true);
