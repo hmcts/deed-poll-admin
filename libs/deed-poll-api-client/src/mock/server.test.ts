@@ -6,8 +6,12 @@
  * seeding — plus the api rules the mock reproduces (listed in `server.ts`), tested directly so a wrong
  * restatement fails here rather than as a puzzling page assertion.
  */
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { type MockCase, type RunningMockApi, startMockApi } from "./server.js";
+
+/** `server.ts`'s `MOCK_USER_NAME` — who a write with no token forwarded is attributed to. */
+const MOCK_CASEWORKER = "Mock Caseworker";
 
 let mock: RunningMockApi;
 
@@ -833,6 +837,383 @@ describe("the list paging", () => {
   });
 });
 
+describe("the referral routes", () => {
+  it("should raise a referral Open and unclaimed, attributing it to the token's subject", async () => {
+    const seeded = mock.seed(null);
+
+    const response = await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor", "Other"], notes: "  Why  " }, as("caseworker@example.com"));
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      state: "Open",
+      reasons: ["Minor", "Other"],
+      notes: "Why",
+      // Defaulted rather than stored as none, so the pool's first sort key is never blank.
+      urgency: "Normal",
+      migrated: false,
+      claimedBy: null,
+      decision: null,
+      createdBy: "caseworker@example.com"
+    });
+  });
+
+  it("should list a case's referrals newest first, as api's own query orders them", async () => {
+    const { caseId, referralId } = await referredCase();
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
+    const second = await (await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["DomesticAbuse"] })).json();
+
+    const listed = await get(`/caseworker/cases/${caseId}/referrals`);
+
+    expect(listed.map((referral: { id: string }) => referral.id)).toEqual([second.id, referralId]);
+  });
+
+  it("should refuse a second referral with 409 while the first is still in play", async () => {
+    const { caseId } = await referredCase();
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] });
+
+    // 409 and not 400: nothing about the body is wrong, and the same request succeeds unchanged once the
+    // live referral is closed or withdrawn.
+    expect(response.status).toBe(409);
+  });
+
+  it("should allow another referral once the previous one is terminal", async () => {
+    const { caseId, referralId } = await referredCase();
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] });
+
+    expect(response.status).toBe(201);
+  });
+
+  it("should withdraw a claimed referral, because the judiciary holding it does not make it final", async () => {
+    const { caseId, referralId } = await claimedReferral("judge@example.com");
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).state).toBe("Withdrawn");
+  });
+
+  it("should refuse a second withdrawal with 409 rather than answering as though the click did something", async () => {
+    const { caseId, referralId } = await referredCase();
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
+
+    expect(response.status).toBe(409);
+  });
+
+  it.each(["Open", "Withdrawn"])("should refuse a closure with 409 while the referral is %s", async (state) => {
+    // Closing an Open referral would take it out of the pool with no direction on it, and closing a
+    // Withdrawn one would relabel a referral that was abandoned as one that was actioned.
+    const { caseId, referralId } = await referredCase();
+    if (state === "Withdrawn") await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`);
+
+    expect(response.status).toBe(409);
+  });
+
+  it("should close a Decided referral, leaving the direction exactly as the judge recorded it", async () => {
+    const { caseId, referralId } = await decidedReferral("judge@example.com");
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ state: "Closed", decision: "Approved", decidedBy: "judge@example.com", publishToGazette: true });
+  });
+
+  it("should demand notes when Other is among the reasons, addressing the refusal to the field", async () => {
+    const seeded = mock.seed(null);
+
+    const response = await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Other"] });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors).toEqual([{ field: "notes", message: expect.any(String) }]);
+  });
+
+  it("should demand an urgencyReason when the urgency is Urgent", async () => {
+    const seeded = mock.seed(null);
+
+    const response = await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor"], urgency: "Urgent" });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].field).toBe("urgencyReason");
+  });
+
+  it("should refuse a body naming no reason, which is what the wire schema is for", async () => {
+    const seeded = mock.seed(null);
+
+    const response = await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: [] });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].field).toBe("reasons");
+  });
+
+  it("should answer 404 for a referral of another case, as api's scoping does", async () => {
+    const { referralId } = await referredCase();
+    const other = mock.seed(null);
+
+    const response = await fetch(`${mock.url}/caseworker/cases/${other.id}/referrals/${referralId}`);
+
+    expect(response.status).toBe(404);
+  });
+
+  it("should refuse a method it has no route for on a referral", async () => {
+    const { caseId, referralId } = await referredCase();
+
+    const response = await fetch(`${mock.url}/caseworker/cases/${caseId}/referrals/${referralId}`, { method: "DELETE" });
+
+    // There is no delete and no patch: amending a referral is withdrawing it and raising another.
+    expect(response.status).toBe(405);
+  });
+});
+
+describe("the case's currentReferralState", () => {
+  it("should be null on a case that has never been referred", async () => {
+    const seeded = mock.seed(null);
+
+    expect((await get(`/caseworker/cases/${seeded.id}`)).currentReferralState).toBeNull();
+  });
+
+  it("should follow the live referral through every transition, and go null when it becomes terminal", async () => {
+    // The whole rule in one test, because what matters is the sequence: api's column is "the state of the
+    // case's one referral that is not terminal, or null", so Closed must leave the case null rather than
+    // Closed — the drift that would leave every actioned case in the "returned — action needed" queue.
+    const { caseId, referralId } = await referredCase();
+    const judge = "judge@example.com";
+    const seen: (string | null)[] = [await currentReferralState(caseId)];
+
+    await post(`/judicial/referrals/${referralId}/claim`, undefined, as(judge));
+    seen.push(await currentReferralState(caseId));
+
+    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(judge));
+    seen.push(await currentReferralState(caseId));
+
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`);
+    seen.push(await currentReferralState(caseId));
+
+    expect(seen).toEqual(["Open", "Claimed", "Decided", null]);
+  });
+
+  it("should go null on a withdrawal, which is terminal too", async () => {
+    const { caseId, referralId } = await referredCase();
+
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
+
+    expect(await currentReferralState(caseId)).toBeNull();
+  });
+
+  it("should reach the list row as well as the case, so a worklist needs no read per row", async () => {
+    const { caseId } = await referredCase();
+
+    const listed = await get("/caseworker/cases");
+
+    expect(listed.cases.find((summary: { id: string }) => summary.id === caseId).currentReferralState).toBe("Open");
+  });
+
+  it("should be filterable, which is what a count over the field needs", async () => {
+    const { caseId } = await referredCase();
+    mock.seed(null);
+
+    const listed = await get("/caseworker/cases?where=currentReferralState:is:Open");
+
+    expect(listed.cases.map((summary: { id: string }) => summary.id)).toEqual([caseId]);
+  });
+
+  it("should be derived from the referrals a case is seeded with, rather than left to disagree with them", async () => {
+    // The arrangement a page test starts from: a case already with the judiciary, without driving the
+    // transitions that got it there.
+    const seeded = mock.seed({ referrals: [referral({ state: "Claimed", claimedBy: "judge@example.com" })] });
+
+    expect((await get(`/caseworker/cases/${seeded.id}`)).currentReferralState).toBe("Claimed");
+  });
+
+  it("should keep a column seeded with no referrals to recompute it from", async () => {
+    const seeded = mock.seed({ currentReferralState: "Decided" });
+
+    expect((await get(`/caseworker/cases/${seeded.id}`)).currentReferralState).toBe("Decided");
+  });
+
+  it("should not publish the referrals themselves on a case, which api serves under their own path", async () => {
+    const { caseId } = await referredCase();
+
+    expect(await get(`/caseworker/cases/${caseId}`)).not.toHaveProperty("referrals");
+  });
+});
+
+describe("the judicial referral routes", () => {
+  it("should offer only Open referrals in the pool, since a claimed one is its holder's", async () => {
+    const { referralId } = await referredCase();
+    await claimedReferral("judge@example.com");
+
+    const pool = await get("/judicial/referrals");
+
+    expect(pool.referrals.map((referral: { id: string }) => referral.id)).toEqual([referralId]);
+    expect(pool).toMatchObject({ page: 1, size: 10, total: 1, totalPages: 1 });
+  });
+
+  it("should order the pool urgent first, then longest-waiting within each band", async () => {
+    // Seeded with chosen dates rather than created over HTTP: three creates in the same millisecond would
+    // leave the order to `sort`'s stability, and a test that passes on insertion order pins nothing.
+    mock.seed({ referrals: [referral({ id: "old-normal", createdOn: new Date("2026-03-01T09:00:00") })] });
+    mock.seed({ referrals: [referral({ id: "new-normal", createdOn: new Date("2026-03-05T09:00:00") })] });
+    mock.seed({ referrals: [referral({ id: "urgent", urgency: "Urgent", createdOn: new Date("2026-03-06T09:00:00") })] });
+
+    const pool = await get("/judicial/referrals");
+
+    // Insertion order, or newest-first, would teach a page the wrong thing: the point of the pool is that the
+    // longest-waiting urgent referral is the next one to read.
+    expect(pool.referrals.map((row: { id: string }) => row.id)).toEqual(["urgent", "old-normal", "new-normal"]);
+  });
+
+  it("should page the pool ten at a time, and answer an empty page past the end rather than refusing it", async () => {
+    for (const _ of Array.from({ length: 11 })) await referredCase();
+
+    const first = await get("/judicial/referrals");
+    const past = await get("/judicial/referrals?page=9");
+
+    expect(first.referrals).toHaveLength(10);
+    expect(first).toMatchObject({ total: 11, totalPages: 2 });
+    expect(past.referrals).toEqual([]);
+  });
+
+  it("should refuse a page or a size that is not a whole number of one or more", async () => {
+    for (const query of ["page=0", "size=nonsense"]) {
+      const response = await fetch(`${mock.url}/judicial/referrals?${query}`);
+
+      expect(response.status, query).toBe(400);
+    }
+  });
+
+  it("should answer a referral with the narrow application view and the timeline, and no other case field", async () => {
+    const seeded = mock.seed({ displayReference: "KBDP2026-00001", type: "Adult", newForename: "Jo", newSurname: "Bloggs", privacy: "Sensitive" });
+    await post(`/caseworker/cases/${seeded.id}/notes`, { note: "Chased the declarant" });
+    const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor"] })).json();
+
+    const detail = await (await fetch(`${mock.url}/judicial/referrals/${created.id}`, { headers: as("judge@example.com") })).json();
+
+    expect(Object.keys(detail.application).sort()).toEqual(
+      ["displayReference", "newForename", "newMiddleName", "newSurname", "oldForename", "oldMiddleName", "oldSurname", "type"].sort()
+    );
+    expect(detail.application).toMatchObject({ displayReference: "KBDP2026-00001", newForename: "Jo" });
+    expect(detail.caseNotes).toEqual([{ note: "Chased the declarant", createdBy: MOCK_CASEWORKER, createdOn: expect.any(String) }]);
+    // No case id anywhere on the response: a judge must not be able to name an application.
+    expect(JSON.stringify(detail)).not.toContain(seeded.id);
+  });
+
+  it("should claim a referral out of the pool, recording the holder from the token", async () => {
+    const { referralId } = await referredCase();
+
+    const response = await post(`/judicial/referrals/${referralId}/claim`, undefined, as("judge@example.com"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ state: "Claimed", claimedBy: "judge@example.com", claimedAt: expect.any(String) });
+  });
+
+  it("should refuse a second claim with 409, even by the judge already holding it", async () => {
+    const { referralId } = await claimedReferral("judge@example.com");
+
+    const response = await post(`/judicial/referrals/${referralId}/claim`, undefined, as("judge@example.com"));
+
+    expect(response.status).toBe(409);
+  });
+
+  it("should record a direction from the holder, stamping the decider and the date itself", async () => {
+    const { referralId } = await claimedReferral("judge@example.com");
+
+    const response = await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Rejected", publishToGazette: false, directionsText: "  Not satisfied  ", decidedBy: "somebody else" },
+      as("judge@example.com")
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      state: "Decided",
+      decision: "Rejected",
+      publishToGazette: false,
+      directionsText: "Not satisfied",
+      // From the token and the clock, never from the payload — which is why the body above could not claim it.
+      decidedBy: "judge@example.com",
+      decisionDate: expect.any(String)
+    });
+  });
+
+  it("should refuse a direction on a referral nobody holds with 409, because the judge can see it", async () => {
+    // Open, so visible to every judge: the refusal is one they are looking at and can act on, which is why it
+    // is a conflict rather than the 404 an invisible referral gets.
+    const { referralId } = await referredCase();
+
+    const response = await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as("judge@example.com"));
+
+    expect(response.status).toBe(409);
+  });
+
+  it("should answer 404 rather than 409 for a direction on another judge's claim, so neither learns of the other", async () => {
+    const { referralId } = await claimedReferral("another@example.com");
+
+    const response = await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as("judge@example.com"));
+
+    expect(response.status).toBe(404);
+  });
+
+  it("should refuse a direction the wire schema rejects, because publication has no default", async () => {
+    const { referralId } = await claimedReferral("judge@example.com");
+
+    const response = await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved" }, as("judge@example.com"));
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].field).toBe("publishToGazette");
+  });
+
+  it.each([
+    ["claimed by another judge", "claim"],
+    ["withdrawn", "withdraw"],
+    ["closed", "close"]
+  ])("should answer 404 for a referral that is %s, indistinguishably from one that never existed", async (_, how) => {
+    const { caseId, referralId } = how === "claim" ? await claimedReferral("another@example.com") : await referredCase();
+    if (how === "withdraw") await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
+    if (how === "close") {
+      const decided = await decidedReferral("another@example.com");
+      await post(`/caseworker/cases/${decided.caseId}/referrals/${decided.referralId}/closure`);
+
+      expect((await fetch(`${mock.url}/judicial/referrals/${decided.referralId}`, { headers: as("judge@example.com") })).status).toBe(404);
+
+      return;
+    }
+
+    const response = await fetch(`${mock.url}/judicial/referrals/${referralId}`, { headers: as("judge@example.com") });
+
+    expect(response.status).toBe(404);
+  });
+
+  it("should still show a judge their own Decided referral, so they can re-read their direction", async () => {
+    const { referralId } = await decidedReferral("judge@example.com");
+
+    const response = await fetch(`${mock.url}/judicial/referrals/${referralId}`, { headers: as("judge@example.com") });
+
+    expect(response.status).toBe(200);
+  });
+
+  it("should answer 404 for an id nothing was stored under, in the shape every other refusal takes", async () => {
+    const response = await fetch(`${mock.url}/judicial/referrals/not-an-id`, { headers: as("judge@example.com") });
+
+    expect(response.status).toBe(404);
+  });
+
+  it("should refuse a method the pool has no route for", async () => {
+    expect((await fetch(`${mock.url}/judicial/referrals`, { method: "PUT" })).status).toBe(405);
+  });
+
+  it("should serve nothing under a judicial path api does not publish", async () => {
+    const { referralId } = await referredCase();
+
+    expect((await fetch(`${mock.url}/judicial/referrals/${referralId}/notes`)).status).toBe(404);
+  });
+});
+
 describe("when the scenario says api is unavailable", () => {
   it("should answer 503 on every contract route while leaving the control routes working", async () => {
     mock.setScenario("api-unavailable");
@@ -867,6 +1248,76 @@ async function get(path: string): Promise<any> {
  * Seeded rather than created because the gate is on the update path: a create that already carries the
  * dates under test is not what a caseworker does, and seeding keeps the arrangement out of the assertion.
  */
+/**
+ * The headers that make a request one person's.
+ *
+ * The mock reads a name out of the token and no roles, so this is what tells a judge's claim from another
+ * judge's — and the `caseworker-deedpoll-judicial` role gate is api's rather than something to arrange here.
+ */
+function as(subject: string): Record<string, string> {
+  return { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: subject }), "utf8").toString("base64url")}.signature` };
+}
+
+/** A seeded case carrying one referral raised over HTTP, which is where every referral journey starts. */
+async function referredCase(body: Record<string, unknown> = { reasons: ["Minor"] }): Promise<{ caseId: string; referralId: string }> {
+  const seeded = mock.seed(null);
+  const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, body)).json();
+
+  return { caseId: seeded.id, referralId: created.id };
+}
+
+/** The same, claimed by one judge — the state every judicial write but the claim starts from. */
+async function claimedReferral(judge: string): Promise<{ caseId: string; referralId: string }> {
+  const referred = await referredCase();
+  await post(`/judicial/referrals/${referred.referralId}/claim`, undefined, as(judge));
+
+  return referred;
+}
+
+/** The same again, directed — the only state a caseworker may close from. */
+async function decidedReferral(judge: string): Promise<{ caseId: string; referralId: string }> {
+  const claimed = await claimedReferral(judge);
+  await post(`/judicial/referrals/${claimed.referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(judge));
+
+  return claimed;
+}
+
+async function currentReferralState(caseId: string): Promise<string | null> {
+  return (await get(`/caseworker/cases/${caseId}`)).currentReferralState;
+}
+
+/**
+ * One referral as the mock stores it, for a case seeded mid-lifecycle.
+ *
+ * `Date` values rather than the ISO strings the wire carries, because `mock.seed` holds a `MockCase` — which is
+ * also why a case with children is seeded in process rather than over `POST /__mock/cases`.
+ */
+function referral(overrides: Partial<MockCase["referrals"][number]> = {}): MockCase["referrals"][number] {
+  const raised = new Date("2026-03-01T09:00:00");
+
+  return {
+    id: randomUUID(),
+    state: "Open",
+    reasons: ["Minor"],
+    notes: null,
+    urgency: "Normal",
+    urgencyReason: null,
+    migrated: false,
+    claimedBy: null,
+    claimedAt: null,
+    decision: null,
+    directionsText: null,
+    publishToGazette: null,
+    decisionDate: null,
+    decidedBy: null,
+    createdBy: MOCK_CASEWORKER,
+    modifiedBy: MOCK_CASEWORKER,
+    createdOn: raised,
+    modifiedOn: raised,
+    ...overrides
+  };
+}
+
 async function caseWithWitnesses(recorded: number, fields: Partial<MockCase> = {}): Promise<string> {
   const seeded = mock.seed(fields);
 

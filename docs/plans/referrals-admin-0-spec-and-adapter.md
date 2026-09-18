@@ -517,7 +517,36 @@ a shortcut here is a shortcut in three places.
    `QUERYABLE_FIELDS` derives from `SavedCaseResponse.shape` (`server.ts:819`), so the filter is accepted
    automatically — what is *not* automatic is the value being right.
 
-- [ ] Task 3 complete
+- [x] Task 3 complete — the mock answers the whole referral surface: the five caseworker operations on an
+      extended `scoped` regex with a trailing `(file|withdrawal|closure)` action group, and the four judicial
+      ones in their own top-level block beside the saved-query ones (decision 8, both halves). `MockCase`
+      carries a `referrals` array, seeded and reset with the rest, and `MockReferral` is api's published
+      referral with its dates still `Date` and no `lastTouchedAt` — the sweep is not modelled.
+      **Measured:** lint exit 0, 306 files, 2 warnings and 2 infos — unchanged. **2,015 passed, 3 skipped,
+      8 of 8 tasks**, up 40 from 1,975, and **all 40 in `@hmcts/deed-poll-api-client` (264 → 304)** with every
+      other package's figure identical.
+      **Two gaps the tests found in the mock rather than in the tests**, both the same omission: a case never
+      referred published **no `currentReferralState` key at all** (`undefined`, where api sends `null`), and
+      `toSummary` did not carry the property even though `CaseSummaryResponse` publishes it. Fixed in
+      `CASE_DEFAULTS` and `toSummary` — admin-2 counts over this field on list rows, so a row that omitted it
+      would have made the count read `undefined` for every case.
+      **One prediction in this plan's own Task 3 was wrong, and the mock follows api rather than the plan.**
+      Item 4 says "409 on claim when not `Open`" — true — but a direction by a judge who is *not* the holder is
+      **404, not 409**, when the referral is claimed by somebody else: api's `direct` resolves through
+      `visible()` first, and `visibleTo` admits a `Claimed` referral only to its holder, so the invisible-referral
+      404 fires before `decide`'s conflict. The 409 is for a direction the judge *can* see but does not hold — an
+      `Open` one, or their own `Decided` one. Both paths are pinned.
+      Three things are deliberately **not** modelled, each recorded in `server.ts`'s docblock with its reason:
+      the `caseworker-deedpoll-judicial` role gate (this mock reads no roles out of a token, exactly as it reads
+      none for the saved-query and witness-delete gates, so a 403 is not a state it can produce — idam-1 and
+      admin-3's concern), the inactivity sweep that reclaims a stale claim (a two-hour window on api's clock,
+      untestable machinery here), and the case notes api writes on a referral transition (the wording is api's
+      `ReferralNotes`, and a copy here would be a second opinion on text this app only renders). What **is**
+      restated brings the file's list from seven rules to ten: the state machine including the
+      one-live-referral guard and the two conditional create refusals, the `currentReferralState` recompute,
+      and the judicial visibility rule plus the pool's urgent-first-then-oldest order.
+      Judicial identity comes from `auditName`, so a judge is the token's subject — which is what lets the tests
+      tell one judge's claim from another's without a role this app cannot issue yet.
 
 ### Task 4: Adapter tests, and full validation
 
