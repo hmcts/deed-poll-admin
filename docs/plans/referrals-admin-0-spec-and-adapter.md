@@ -407,7 +407,28 @@ modelling, not from the committed `openapi.json`, which does not carry referrals
 Both validation commands must be green at the end, with the totals **unchanged** from the baseline — this task
 adds no test. A count that moved here means something was registered that should not have been.
 
-- [ ] Task 2a complete
+- [x] Task 2a complete — eight Zod schemas in `wire.ts`, nine client functions, two path helpers and the
+      exported aliases in `client.ts`. Totals **unchanged**, as required: lint exit 0 with 2 warnings and 2
+      infos, `1,953 passed, 3 skipped, 8 of 8 tasks`, api-client still **242**. Nothing registered, nothing
+      tested, and Biome came back clean — the expected-clean guess in "How this plan is run" held, so the
+      unused-code note above needed no follow-up.
+      **One thing 2b must also do, which its five edits do not list.** `client.ts` cannot reference
+      `WIRE_SCHEMAS.ReferralResponse` before the registry carries it, so the three response schemas it parses
+      with — `referralSchema`, `judicialPoolSchema`, `judicialReferralDetailSchema` — are `export const` in
+      `wire.ts` and imported by name. That is the 2a dead-code trade in a second form: once 2b registers the
+      eight, **switch those three call sites to `WIRE_SCHEMAS.*` and drop the `export` from all eight schemas**,
+      so the registry stays the single reference and the wire schemas stay off the package surface. They are off
+      it today regardless — `index.ts` exports only `./api/client.js`.
+      Shape decisions 2b's per-schema tests will check, taken from api's records rather than the document:
+      strict (reject null) are `ReferralResponse` `id`/`migrated`/`reasons`, `JudicialReferralSummary`
+      `id`/`reasons`, `JudicialReferralDetail` `id`/`reasons`/`caseNotes`, `JudicialPoolResponse` all five,
+      `JudicialCaseNote` `note` (the same NOT NULL column `NoteResponse.note` pins), and `JudicialCaseView`
+      **none at all** — it has no id, no primitive and no collection, so its pinned list is empty. `application`
+      is nullish despite api always building one: decision 5 admits primitives, `List` collections and `id`,
+      and a nested record is none of the three. Two vocabulary arrays were added for the schemas to use,
+      `REFERRAL_STATE` and `REFERRAL_REASON`, both re-exported from `client.ts` beside the option sets — and
+      `REFERRAL_REASON` is the one the drift test cannot pin, because api publishes those members on
+      `CreateReferralRequest.reasons`'s **items** and the test reads `properties[x].enum`.
 
 ### Task 2b: Flip the registration — the document and the registry, together
 
