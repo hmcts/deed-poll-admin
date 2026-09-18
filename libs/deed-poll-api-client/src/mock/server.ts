@@ -16,7 +16,7 @@
  * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
  * Both, because api's actuator serves both and `checkApiReachable` deliberately probes the liveness group.
  *
- * **Seven of api's rules are restated here, and only seven.** A mock that applied none of them would let a
+ * **Ten of api's rules are restated here, and only ten.** A mock that applied none of them would let a
  * page ship having never seen a real reference number or a derived state:
  *
  *   1. Reference-number allocation — the year from Date Received, the prefix from Type, a per-year serial.
@@ -29,18 +29,48 @@
  *      Without it a query builder could ship having narrowed nothing: every page and every e2e journey
  *      would see the same list whatever it asked for, which is the one thing about a query worth testing.
  *      The search term brings `referenceMatch` with it, since a page redirects on it — see `matchesTerm`.
+ *   8. The referral state machine, including the one-live-referral guard and the two conditional
+ *      requirements on a create — `Open → Claimed → Decided → Closed`, `Withdrawn` from any live state, and
+ *      a 409 rather than a silent success for every transition that is not available. Restated because
+ *      answering 200 where api answers 409 is how a page ships with no conflict handling at all.
+ *   9. `currentReferralState` recomputed from the case's referrals at every transition — never pushed per
+ *      site. See `refreshCurrentReferralState`, which is also why closing a referral leaves the case null.
+ *  10. The judicial surface's visibility rule and the pool's order — an `Open` referral is every judge's, a
+ *      claimed or decided one is only its holder's, and a closed or withdrawn one is nobody's. Urgent
+ *      first, then longest-waiting. See `visibleToJudge` and `poolOrder`.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
- * `ReferenceNumbers`, `CaseQuery` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
+ * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `JudicialReferralService` and
+ * `IdamAuthenticationConverter` — not this file. Everything else api does (the
  * privacy lock, the minor and Gazette write gates, create-time defaults, the saved-query permission rules —
  * see `savedQuery`) is deliberately NOT modelled: no
  * page's behaviour depends on it, and a half-copy would be a second opinion to keep in step. If a page
  * ever does depend on one, model it here and say so in this list.
+ *
+ * Three referral-shaped omissions, each for one of those reasons rather than by oversight:
+ *
+ *   - **The `caseworker-deedpoll-judicial` role gate on `/judicial/**`.** This mock reads a name out of a
+ *     token and no roles, exactly as it reads none for the saved-query and witness-delete gates, so a 403
+ *     is not a state it can produce. api's gate is api's own test.
+ *   - **The inactivity sweep that hands a forgotten claim back to the pool.** It is a two-hour window on
+ *     api's clock and nothing a page can drive, so a mock of it would be untestable machinery.
+ *   - **The case notes api writes when a referral is raised, withdrawn or lapses.** The wording is api's
+ *     `ReferralNotes`, and a copy of it here would be a second opinion on text this app only renders.
  */
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { WireCaseDetail, WireCaseWrite, WireDocument, WireDocumentType, WireNote, WireSavedCase, WireSavedQuery, WireWitness } from "../api/wire.js";
-import { WIRE_SCHEMAS } from "../api/wire.js";
+import type {
+  WireCaseDetail,
+  WireCaseWrite,
+  WireDocument,
+  WireDocumentType,
+  WireNote,
+  WireReferral,
+  WireSavedCase,
+  WireSavedQuery,
+  WireWitness
+} from "../api/wire.js";
+import { URGENCY, WIRE_SCHEMAS } from "../api/wire.js";
 import { DEFAULT_SCENARIO, isMockScenario, MOCK_DOCUMENT_TYPES, MOCK_SCENARIOS, MOCK_WRITE_REJECTION, type MockScenario } from "./fixtures.js";
 
 /** Five digits, zero-padded, as api's `ReferenceNumbers` formats it. */
@@ -113,7 +143,10 @@ const CASE_DEFAULTS = {
   urgency: "Normal",
   migratedRecord: false,
   retainPermanently: false,
-  publishToLondonGazette: true
+  publishToLondonGazette: true,
+  // Present and null rather than absent, because api publishes the column either way: a page reading it off a
+  // case it has never referred should see the value api sends, not the one a missing JSON key produces.
+  currentReferralState: null
 } as const;
 
 /**
@@ -207,6 +240,17 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     const query = /^\/caseworker\/saved-queries\/([^/]+)(\/selection)?$/.exec(pathname);
     if (query) return savedQuery(req, res, method, decodeURIComponent(query[1]), query[2] !== undefined);
 
+    // A sibling namespace to `/caseworker`, not a section of it, so its own branch rather than a widening of
+    // the case-scoped pattern below: a judicial path carries no case id, because api resolves the case from
+    // the referral precisely so a judge cannot name an application.
+    if (pathname === "/judicial/referrals") {
+      if (method === "GET") return judicialPool(res, searchParams);
+      return send(res, 405, { error: `no such route: ${method} ${pathname}` });
+    }
+
+    const judicial = /^\/judicial\/referrals\/([^/]+)(?:\/(claim|direction))?$/.exec(pathname);
+    if (judicial) return judicialReferral(req, res, method, decodeURIComponent(judicial[1]), judicial[2]);
+
     // Before the `{id}` route, exactly as api relies on Spring ordering a literal pattern first: matched
     // the other way round, "field-rules" would be read as a case id and answer 404 for a route that exists.
     if (method === "GET" && pathname === "/caseworker/cases/field-rules") return fieldRules(res, searchParams);
@@ -217,10 +261,12 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, 405, { error: `no such route: ${method} ${pathname}` });
     }
 
-    const scoped = /^\/caseworker\/cases\/([^/]+)(?:\/(notes|witnesses|documents)(?:\/([^/]+))?)?(?:\/file)?$/.exec(pathname);
+    // The trailing group is an ACTION on the child rather than a second child id — `/file` on a document,
+    // `/withdrawal` and `/closure` on a referral — which is why the three share one group.
+    const scoped = /^\/caseworker\/cases\/([^/]+)(?:\/(notes|witnesses|documents|referrals)(?:\/([^/]+))?)?(?:\/(file|withdrawal|closure))?$/.exec(pathname);
     if (!scoped) return send(res, 404, { error: `no such route: ${method} ${pathname}` });
 
-    const [, rawId, collection, childId] = scoped;
+    const [, rawId, collection, childId, action] = scoped;
     const found = cases.get(decodeURIComponent(rawId));
     if (!found) return send(res, 404, { error: `DeedPoll ${decodeURIComponent(rawId)} not found` });
 
@@ -232,7 +278,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
     if (collection === "notes") return notes(req, res, method, found, childId);
     if (collection === "witnesses") return witnesses(req, res, method, found, childId);
-    if (collection === "documents") return documents(req, res, method, found, childId, pathname.endsWith("/file"));
+    if (collection === "documents") return documents(req, res, method, found, childId, action === "file");
+    if (collection === "referrals") return referrals(req, res, method, found, childId, action);
 
     return send(res, 404, { error: `no such route: ${method} ${pathname}` });
   }
@@ -348,7 +395,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       modifiedBy: author,
       notes: [],
       witnesses: [],
-      documents: []
+      documents: [],
+      referrals: []
     };
     cases.set(record.id, record);
 
@@ -541,6 +589,217 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     return send(res, 404, { error: `no such route: ${method} on documents` });
   }
 
+  /**
+   * A case's referrals to the judiciary: list, raise, read one, withdraw and close.
+   *
+   * Newest first, as api's `findByDeedPollIdOrderByCreatedOnDesc` answers — a tab rendering them in the order
+   * it is given would otherwise see insertion order here and the reverse deployed.
+   *
+   * The two caseworker transitions are guarded as api guards them, and the difference between the two guards
+   * is api's rather than an inconsistency: withdrawal asks `isTerminal`, because a referral a judge is holding
+   * is still withdrawable, and closure names `Decided` alone, because closing anything else would relabel a
+   * referral nobody directed as one that was actioned.
+   */
+  async function referrals(
+    req: IncomingMessage,
+    res: ServerResponse,
+    method: string,
+    record: MockCase,
+    referralId: string | undefined,
+    action: string | undefined
+  ): Promise<void> {
+    if (referralId === undefined) {
+      if (method === "GET")
+        return send(res, 200, [...record.referrals].sort((left, right) => right.createdOn.getTime() - left.createdOn.getTime()).map(toWireReferral));
+      if (method === "POST") return createReferral(req, res, record);
+      return send(res, 405, { error: `no such route: ${method} on referrals` });
+    }
+
+    const id = decodeURIComponent(referralId);
+    // Only this case's list is searched, which is api's scoping rule: a referral of another case is a 404
+    // here rather than a row read through the wrong parent.
+    const referral = record.referrals.find((candidate) => candidate.id === id);
+    if (!referral) return send(res, 404, { error: `Referral ${id} not found` });
+
+    if (method === "GET" && action === undefined) return send(res, 200, toWireReferral(referral));
+
+    if (method === "POST" && action === "withdrawal") {
+      // Not idempotent-and-silent: a second withdrawal is a caseworker acting on a stale screen, and
+      // answering 200 would tell them their click did something it did not.
+      if (isTerminal(referral.state)) return send(res, 409, { error: `Referral ${id} is already ${referral.state} and cannot be withdrawn` });
+
+      return send(res, 200, toWireReferral(transition(record, referral, auditName(req), { state: "Withdrawn" })));
+    }
+
+    if (method === "POST" && action === "closure") {
+      if (referral.state !== "Decided") return send(res, 409, { error: `Referral ${id} is ${referral.state} and can only be closed once it is Decided` });
+
+      return send(res, 200, toWireReferral(transition(record, referral, auditName(req), { state: "Closed" })));
+    }
+
+    return send(res, 405, { error: `no such route: ${method} on a referral` });
+  }
+
+  /**
+   * Raise a referral, unclaimed and into the shared pool.
+   *
+   * Neither the state nor a target judge is the caller's to choose, so neither is read off the body: a new
+   * referral is `Open`, and who picks it up is a later transition. `migrated` is false because a caseworker
+   * raised it — the flag exists to explain why a backfilled referral has no reasons.
+   *
+   * The 409 comes after the body checks, as api orders them: at most one referral of a case may be live, and
+   * the same request succeeds unchanged once that one is closed or withdrawn, so it is a state rather than a
+   * malformed body.
+   */
+  async function createReferral(req: IncomingMessage, res: ServerResponse, record: MockCase): Promise<void> {
+    const parsed = WIRE_SCHEMAS.CreateReferralRequest.safeParse(await readJsonBody(req));
+    if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+
+    const conditional = referralConditionalErrors(parsed.data);
+    if (conditional.length > 0) return send(res, 400, { error: "Referral is not valid", errors: conditional });
+
+    if (record.referrals.some((candidate) => !isTerminal(candidate.state))) {
+      return send(res, 409, { error: `Case ${record.id} already has a referral that has not been closed or withdrawn` });
+    }
+
+    const now = new Date();
+    const author = auditName(req);
+    const created: MockReferral = {
+      id: randomUUID(),
+      state: "Open",
+      reasons: [...parsed.data.reasons],
+      notes: parsed.data.notes?.trim() || null,
+      // api defaults an absent urgency to `Normal` rather than storing none, so the pool's first sort key is
+      // never blank.
+      urgency: parsed.data.urgency ?? "Normal",
+      urgencyReason: parsed.data.urgencyReason?.trim() || null,
+      migrated: false,
+      claimedBy: null,
+      claimedAt: null,
+      decision: null,
+      directionsText: null,
+      publishToGazette: null,
+      decisionDate: null,
+      decidedBy: null,
+      createdBy: author,
+      modifiedBy: author,
+      createdOn: now,
+      modifiedOn: now
+    };
+    record.referrals.push(created);
+    refreshCurrentReferralState(record);
+
+    return send(res, 201, toWireReferral(created));
+  }
+
+  /**
+   * One page of the shared pool: the `Open` referrals of every case, urgent first then longest-waiting.
+   *
+   * `Open` only, which is what makes it a pool rather than a list of everything a judge may see: a claimed or
+   * decided referral is reachable by id by the judge it belongs to, and putting it here would show it to every
+   * other judge.
+   *
+   * A page past the end is an empty page rather than an error, as the case list's is, and `total` says where to
+   * look instead. The default size is ten and not the case list's twenty-five — see `POOL_PAGE_SIZE`.
+   */
+  function judicialPool(res: ServerResponse, parameters: URLSearchParams): void {
+    const paging = parsePaging(parameters.get("page"), parameters.get("size"), POOL_PAGE_SIZE);
+    if ("errors" in paging) {
+      send(res, 400, { error: "Case list paging is not valid", errors: paging.errors });
+      return;
+    }
+
+    const waiting = [...cases.values()]
+      .flatMap((record) => record.referrals)
+      .filter((referral) => referral.state === "Open")
+      .sort(poolOrder);
+    const from = (paging.page - 1) * paging.size;
+
+    send(res, 200, {
+      referrals: waiting.slice(from, from + paging.size).map(toWireJudicialSummary),
+      page: paging.page,
+      size: paging.size,
+      total: waiting.length,
+      totalPages: Math.ceil(waiting.length / paging.size)
+    });
+  }
+
+  /**
+   * One referral as a judge reads it, the claim that takes it out of the pool, and the direction that ends it.
+   *
+   * **Every way this caller may not have the referral is the same 404** — an id nothing was stored under, one
+   * another judge holds, and one already closed or withdrawn — which is what stops a referral id being probed
+   * for and stops one judge learning that another holds a case. The 403 of api's role gate is the one refusal
+   * this mock cannot produce (see the file's docblock).
+   *
+   * Reading a referral this judge holds refreshes the claim at api's end; there is no clock here to refresh it
+   * against, since the sweep that would read it is not modelled.
+   */
+  async function judicialReferral(req: IncomingMessage, res: ServerResponse, method: string, referralId: string, action: string | undefined): Promise<void> {
+    const judge = auditName(req);
+    const located = locateReferral(referralId);
+    if (!located || !visibleToJudge(located.referral, judge)) return send(res, 404, { error: `Referral ${referralId} not found` });
+
+    const { record, referral } = located;
+
+    if (method === "GET" && action === undefined) return send(res, 200, toWireJudicialDetail(record, referral));
+
+    if (method === "POST" && action === "claim") {
+      // A conflict even for the judge already holding it: two judges each shown "claimed by me" for different
+      // reasons is worse than one being told plainly that somebody got there first.
+      if (referral.state !== "Open") return send(res, 409, { error: `Referral ${referralId} is ${referral.state} and can only be claimed while it is Open` });
+
+      const now = new Date();
+      transition(record, referral, judge, { state: "Claimed", claimedBy: judge, claimedAt: now, modifiedOn: now });
+
+      return send(res, 200, toWireJudicialDetail(record, referral));
+    }
+
+    if (method === "POST" && action === "direction") {
+      const parsed = WIRE_SCHEMAS.JudicialDirectionRequest.safeParse(await readJsonBody(req));
+      if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+
+      // Both halves, as api asks both: the state says a claim exists and the name says whose. This is what
+      // refuses a direction on a referral withdrawn under the judge who was reading it.
+      if (referral.state !== "Claimed" || referral.claimedBy !== judge) {
+        return send(res, 409, { error: `Referral ${referralId} is not claimed by ${judge} -- it is ${referral.state}` });
+      }
+
+      const now = new Date();
+      transition(record, referral, judge, {
+        state: "Decided",
+        decision: parsed.data.decision,
+        directionsText: parsed.data.directionsText?.trim() || null,
+        publishToGazette: parsed.data.publishToGazette,
+        // From the clock and the token, never from the payload — api's rule, and the reason the direction body
+        // carries neither.
+        decisionDate: now,
+        decidedBy: judge,
+        modifiedOn: now
+      });
+
+      return send(res, 200, toWireJudicialDetail(record, referral));
+    }
+
+    return send(res, 405, { error: `no such route: ${method} on a judicial referral` });
+  }
+
+  /**
+   * The referral this id names and the case behind it.
+   *
+   * The resolution api's judicial surface performs, because a judicial path carries no case id. Every case is
+   * searched, which is the one place this mock reads across cases — and it is why the visibility check at the
+   * caller is not optional.
+   */
+  function locateReferral(referralId: string): { record: MockCase; referral: MockReferral } | null {
+    for (const record of cases.values()) {
+      const referral = record.referrals.find((candidate) => candidate.id === referralId);
+      if (referral) return { record, referral };
+    }
+
+    return null;
+  }
+
   async function createSavedQuery(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const parsed = WIRE_SCHEMAS.CreateSavedQueryRequest.safeParse(await readJsonBody(req));
     if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
@@ -689,8 +948,14 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       notes: [],
       witnesses: [],
       documents: [],
+      referrals: [],
       ...body
     };
+    // A case seeded WITH referrals gets its column from them, for the reason every transition recomputes it:
+    // the two disagreeing is the one thing a count over the column cannot be tested against. A case seeded
+    // with the column and no referrals keeps what it was given — that is how a test arranges a case referred
+    // before this process started, and there is nothing to recompute from.
+    if (record.referrals.length > 0) refreshCurrentReferralState(record);
     cases.set(record.id, record);
 
     return record;
@@ -805,6 +1070,14 @@ const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
 
 /**
+ * The judicial pool's default page size, from api's `JudicialReferralService.POOL_PAGE_SIZE`.
+ *
+ * Ten rather than the case list's twenty-five, and a page size rather than a cap: the whole pool is reachable
+ * by paging and `total` says how much is waiting. The same `MAX_PAGE_SIZE` applies above it.
+ */
+const POOL_PAGE_SIZE = 10;
+
+/**
  * The fields a condition or a sort may name.
  *
  * Derived from the response schema rather than listed, so a field api adds to a case becomes queryable
@@ -895,11 +1168,20 @@ function parseSort(sort: string | null): MockSort | string {
   return { field, descending: direction === "desc" };
 }
 
-/** The page asked for, clamped as api clamps it, or the parameters that were unusable. */
-function parsePaging(page: string | null, size: string | null): { page: number; size: number } | { errors: MockFieldError[] } {
+/**
+ * The page asked for, clamped as api clamps it, or the parameters that were unusable.
+ *
+ * `whenSizeAbsent` is a parameter for the reason api's `CasePaging.parse` takes one: the judicial pool applies
+ * a different default to the case list's, and everything else about reading the two parameters is the same.
+ */
+function parsePaging(
+  page: string | null,
+  size: string | null,
+  whenSizeAbsent = DEFAULT_PAGE_SIZE
+): { page: number; size: number } | { errors: MockFieldError[] } {
   const errors: MockFieldError[] = [];
   const number = pageNumber("page", page, 1, errors);
-  const rows = pageNumber("size", size, DEFAULT_PAGE_SIZE, errors);
+  const rows = pageNumber("size", size, whenSizeAbsent, errors);
   if (errors.length > 0) return { errors };
 
   // Clamped rather than refused, as `CasePaging` clamps it: the cap is a property of the service and not a
@@ -1041,7 +1323,7 @@ function comparing(order: MockSort): (left: MockCase, right: MockCase) => number
   };
 }
 
-/** One row of the list: the six columns `CaseSummaryResponse` carries and nothing else. */
+/** One row of the list: the columns `CaseSummaryResponse` carries and nothing else. */
 function toSummary(record: MockCase): unknown {
   return {
     id: record.id,
@@ -1051,7 +1333,10 @@ function toSummary(record: MockCase): unknown {
     type: record.type,
     state: record.state,
     newForename: record.newForename,
-    newSurname: record.newSurname
+    newSurname: record.newSurname,
+    // On the row as well as the case, so a worklist can show which rows are with the judiciary without a read
+    // per row — which is the whole reason api denormalised it.
+    currentReferralState: record.currentReferralState ?? null
   };
 }
 
@@ -1189,7 +1474,9 @@ function flag(value: string | null, whenAbsent: boolean): boolean | null {
 }
 
 function toSaved(record: MockCase): unknown {
-  const { notes: _notes, witnesses: _witnesses, documents: _documents, ...fields } = record;
+  // The referrals go with the other children, and unlike them they are on NO case response: api publishes them
+  // only under `/caseworker/cases/{id}/referrals`, and what the case itself carries is `currentReferralState`.
+  const { notes: _notes, witnesses: _witnesses, documents: _documents, referrals: _referrals, ...fields } = record;
 
   return {
     ...isoDates(fields),
@@ -1219,6 +1506,155 @@ function toWireDocument(document: MockDocument): unknown {
   const { bytes, ...fields } = document;
 
   return { ...isoDates(fields), hasFile: bytes.length > 0 };
+}
+
+/**
+ * One referral's state change: what moved, the audit stamp, and the case column that has to follow it.
+ *
+ * The stamp is a default rather than a fixed value, so `claimedAt` and `decisionDate` can be the same instant
+ * as the `modifiedOn` beside them — a claim recorded a millisecond before the row that holds it is a
+ * difference tests would have to tolerate for no reason.
+ */
+function transition(record: MockCase, referral: MockReferral, author: string, changes: Partial<MockReferral> & { state: ReferralState }): MockReferral {
+  Object.assign(referral, { modifiedBy: author, modifiedOn: new Date() }, changes);
+  refreshCurrentReferralState(record);
+
+  return referral;
+}
+
+/**
+ * The case's `currentReferralState`, **recomputed from its referrals** — api-2b's rule, which is "the state of
+ * the case's one referral that is not terminal, or null when it has none".
+ *
+ * A recompute and never a push, which is the whole point of the mechanism rather than a preference: pushing a
+ * value per site would write `Closed` when a referral closes, and a case whose direction has been actioned
+ * would then sit in the "returned — action needed" queue for good. Closing and withdrawing are both terminal,
+ * so both leave this null and the case referable again.
+ */
+function refreshCurrentReferralState(record: MockCase): void {
+  record.currentReferralState = record.referrals.find((referral) => !isTerminal(referral.state))?.state ?? null;
+}
+
+/** api's `ReferralState.isTerminal()`. A case holds at most one referral for which this is false. */
+function isTerminal(state: ReferralState): boolean {
+  return state === "Closed" || state === "Withdrawn";
+}
+
+/**
+ * api's two conditional requirements on a create, from `ReferralSchemas.parseCreateReferral`: `notes` when
+ * `Other` is among the reasons, and `urgencyReason` when the urgency is `Urgent`.
+ *
+ * Restated because both are refusals a page renders against a field, and a mock that accepted either pair
+ * would let the create form ship with the rule applied at neither end. The bounds and the members are the
+ * schema's, so only what a shape cannot express is here.
+ */
+function referralConditionalErrors(body: { reasons: readonly string[]; notes?: string; urgency?: string; urgencyReason?: string }): MockFieldError[] {
+  const errors: MockFieldError[] = [];
+
+  if (body.reasons.includes("Other") && !body.notes?.trim()) {
+    errors.push({ field: "notes", message: "notes is required when Other is among the reasons" });
+  }
+  if (body.urgency === "Urgent" && !body.urgencyReason?.trim()) {
+    errors.push({ field: "urgencyReason", message: "urgencyReason is required when urgency is Urgent" });
+  }
+
+  return errors;
+}
+
+/**
+ * Whether a judge may see one referral at all — api's `JudicialReferralService.visibleTo`.
+ *
+ * An `Open` referral is in the pool, so every judge may see it; a `Claimed` one is only its holder's, because
+ * a claim is exclusive and two judges reading the same papers is the duplication the pool exists to prevent; a
+ * `Decided` one is only the judge's who directed it; and a `Closed` or `Withdrawn` one is nobody's.
+ *
+ * The identity compared is the name, because that is what `claimedBy` and `decidedBy` hold — api's own
+ * consequence of those columns rather than a choice made here.
+ */
+function visibleToJudge(referral: MockReferral, judge: string): boolean {
+  if (referral.state === "Open") return true;
+  if (referral.state === "Claimed") return referral.claimedBy === judge;
+  if (referral.state === "Decided") return referral.decidedBy === judge;
+
+  return false;
+}
+
+/**
+ * The pool's order, from api's `POOL_ORDER`: urgent first, then the longest-waiting within each urgency band.
+ *
+ * Urgent-first is *descending* the urgency type, whose members are declared least-urgent first — Postgres
+ * orders an enum by its declared order, so the rank is a position in `URGENCY` rather than an opinion about the
+ * words, and an urgency added above `Urgent` later sorts above it for free.
+ *
+ * Oldest first within a band, where the case list's default is newest first, and the difference is the point: a
+ * case list is a record being browsed and a work queue is a backlog being cleared.
+ */
+function poolOrder(left: MockReferral, right: MockReferral): number {
+  const byUrgency = urgencyRank(right.urgency) - urgencyRank(left.urgency);
+
+  return byUrgency === 0 ? left.createdOn.getTime() - right.createdOn.getTime() : byUrgency;
+}
+
+function urgencyRank(urgency: MockReferral["urgency"]): number {
+  return urgency ? URGENCY.indexOf(urgency) : -1;
+}
+
+function toWireReferral(referral: MockReferral): unknown {
+  return isoDates(referral);
+}
+
+/**
+ * One pool row: the seven fields `JudicialReferralSummary` carries.
+ *
+ * Built field by field rather than from the stored referral, because what is left out is the point — a pool row
+ * carrying the direction would show a judge the answer before they had read the papers, and one carrying the
+ * applicant's names would make the pool a list of applications a judge has not been asked to see.
+ */
+function toWireJudicialSummary(referral: MockReferral): unknown {
+  return {
+    id: referral.id,
+    state: referral.state,
+    reasons: referral.reasons,
+    notes: referral.notes ?? null,
+    urgency: referral.urgency ?? null,
+    urgencyReason: referral.urgencyReason ?? null,
+    createdOn: iso(referral.createdOn)
+  };
+}
+
+/**
+ * One referral as the judge who may see it reads it: the referral, the narrow application view and the
+ * application's timeline.
+ *
+ * `application` is the eight fields of api's `JudicialCaseView` written out, and deliberately not a projection
+ * of the case: api's own `NamespaceSeparationSecurityTest` asserts the two records are unrelated, because the
+ * failure it guards against is a field added to the caseworker response silently appearing on a judge's screen.
+ * Spreading the case here would be exactly that failure.
+ */
+function toWireJudicialDetail(record: MockCase, referral: MockReferral): unknown {
+  return {
+    ...(toWireJudicialSummary(referral) as object),
+    claimedBy: referral.claimedBy ?? null,
+    claimedAt: iso(referral.claimedAt),
+    decision: referral.decision ?? null,
+    directionsText: referral.directionsText ?? null,
+    publishToGazette: referral.publishToGazette ?? null,
+    decisionDate: iso(referral.decisionDate),
+    decidedBy: referral.decidedBy ?? null,
+    application: {
+      displayReference: record.displayReference ?? null,
+      type: record.type ?? null,
+      oldForename: record.oldForename ?? null,
+      oldMiddleName: record.oldMiddleName ?? null,
+      oldSurname: record.oldSurname ?? null,
+      newForename: record.newForename ?? null,
+      newMiddleName: record.newMiddleName ?? null,
+      newSurname: record.newSurname ?? null
+    },
+    // The same timeline the caseworker surface publishes, narrowed to the three fields a judge is shown: no
+    // id, because no judicial route accepts one, and no amendment audit trail.
+    caseNotes: record.notes.map((note) => ({ note: note.note, createdBy: note.createdBy ?? null, createdOn: iso(note.createdOn) }))
+  };
 }
 
 /**
@@ -1367,9 +1803,27 @@ export type MockCase = Omit<WireSavedCase, "daysReceivedToEnroled" | "daysReceiv
   notes: MockNote[];
   witnesses: WireWitness[];
   documents: MockDocument[];
+  referrals: MockReferral[];
 };
 
 type CaseState = NonNullable<WireSavedCase["state"]>;
+
+/**
+ * A referral as the mock holds it: api's published referral with its dates still `Date`, and `state` tightened
+ * to non-null, since a stored referral without one is not a state api can be in.
+ *
+ * No `lastTouchedAt`, which api keeps and publishes nowhere: it is the inactivity sweep's bookkeeping, and the
+ * sweep is one of the three things this mock deliberately does not model.
+ */
+type MockReferral = Omit<WireReferral, "state" | "claimedAt" | "decisionDate" | "createdOn" | "modifiedOn"> & {
+  state: ReferralState;
+  claimedAt: Date | null;
+  decisionDate: Date | null;
+  createdOn: Date;
+  modifiedOn: Date;
+};
+
+type ReferralState = NonNullable<WireReferral["state"]>;
 
 /**
  * A saved query as the mock holds it: api's published fields with the dates still `Date`, minus the two

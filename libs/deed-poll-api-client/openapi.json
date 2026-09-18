@@ -79,7 +79,7 @@
             }
           },
           {
-            "description": "An order, as `field:asc|desc`. The direction may be omitted and defaults to ascending. Sortable fields are the columns the list shows: referencenumber, displayReference, dateOfApplication, inPerson, postCounter, feeReference, dateReceived, type, maritalStatus, minorDateOfBirth, ageOfMinor, ageOfMinorMonths, parents, privacy, state, urgency, urgencyreason, onlineApplicationReference, retainPermanently, awaitingFurtherDocsInfo, newForename, newMiddleName, newSurname, oldForename, oldMiddleName, oldSurname, applicantBuildingNoName, applicantAddress1, applicantAddress2, applicantTownCity, applicantPostcode, applicantEmail, applicantTelephone, representativeName, representativeCompany, representativeEmail, representativeTelephone, representativeBuildingNoName, representativeAddress1, representativeAddress2, representativeTownCity, representativePostcode, nationality, nationalitySection, nationalitySectionOther, dateOfDeclaration, referToMasterChoice, dateReadyForMaster, dateReferred, referralNotes, masterName, masterDirections, masterDecision, masterDateOfDecision, dateDecisionDirectionsReceived, publishToLondonGazette, signatureRequestedDate, signatureReceivedDate, dateEnroled, dateNoticeSentToLondonGazette, dateReturned, returnReason, refundAmount, dateOfRefund, refundReference, createdOn, modifiedOn, createdBy, modifiedBy. Defaults to newest first.",
+            "description": "An order, as `field:asc|desc`. The direction may be omitted and defaults to ascending. Sortable fields are the columns the list shows: referencenumber, displayReference, dateOfApplication, inPerson, postCounter, feeReference, dateReceived, type, maritalStatus, minorDateOfBirth, ageOfMinor, ageOfMinorMonths, parents, privacy, state, currentReferralState, urgency, urgencyreason, onlineApplicationReference, retainPermanently, awaitingFurtherDocsInfo, newForename, newMiddleName, newSurname, oldForename, oldMiddleName, oldSurname, applicantBuildingNoName, applicantAddress1, applicantAddress2, applicantTownCity, applicantPostcode, applicantEmail, applicantTelephone, representativeName, representativeCompany, representativeEmail, representativeTelephone, representativeBuildingNoName, representativeAddress1, representativeAddress2, representativeTownCity, representativePostcode, nationality, nationalitySection, nationalitySectionOther, dateOfDeclaration, referToMasterChoice, dateReadyForMaster, dateReferred, referralNotes, masterName, masterDirections, masterDecision, masterDateOfDecision, dateDecisionDirectionsReceived, publishToLondonGazette, signatureRequestedDate, signatureReceivedDate, dateEnroled, dateNoticeSentToLondonGazette, dateReturned, returnReason, refundAmount, dateOfRefund, refundReference, createdOn, modifiedOn, createdBy, modifiedBy. Defaults to newest first.",
             "in": "query",
             "name": "sort",
             "required": false,
@@ -399,7 +399,7 @@
         "tags": ["caseworker-note-controller"]
       },
       "post": {
-        "operationId": "create_3",
+        "operationId": "create_4",
         "parameters": [
           {
             "in": "path",
@@ -540,6 +540,181 @@
           }
         },
         "tags": ["caseworker-note-controller"]
+      }
+    },
+    "/caseworker/cases/{id}/referrals": {
+      "get": {
+        "operationId": "referrals",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReferralResponse"
+                  }
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-referral-controller"]
+      },
+      "post": {
+        "operationId": "create_3",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReferralRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralResponse"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "tags": ["caseworker-referral-controller"]
+      }
+    },
+    "/caseworker/cases/{id}/referrals/{referralId}": {
+      "get": {
+        "operationId": "referral_1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-referral-controller"]
+      }
+    },
+    "/caseworker/cases/{id}/referrals/{referralId}/closure": {
+      "post": {
+        "operationId": "close",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-referral-controller"]
+      }
+    },
+    "/caseworker/cases/{id}/referrals/{referralId}/withdrawal": {
+      "post": {
+        "operationId": "withdraw",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-referral-controller"]
       }
     },
     "/caseworker/cases/{id}/witnesses": {
@@ -906,6 +1081,136 @@
         },
         "tags": ["caseworker-saved-query-controller"]
       }
+    },
+    "/judicial/referrals": {
+      "get": {
+        "operationId": "pool",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudicialPoolResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["judicial-referral-controller"]
+      }
+    },
+    "/judicial/referrals/{referralId}": {
+      "get": {
+        "operationId": "referral",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudicialReferralDetail"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["judicial-referral-controller"]
+      }
+    },
+    "/judicial/referrals/{referralId}/claim": {
+      "post": {
+        "operationId": "claim",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudicialReferralDetail"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["judicial-referral-controller"]
+      }
+    },
+    "/judicial/referrals/{referralId}/direction": {
+      "post": {
+        "operationId": "direction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JudicialDirectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudicialReferralDetail"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["judicial-referral-controller"]
+      }
     }
   },
   "components": {
@@ -959,6 +1264,10 @@
           "createdOn": {
             "type": "string",
             "format": "date-time"
+          },
+          "currentReferralState": {
+            "type": "string",
+            "enum": ["Open", "Claimed", "Decided", "Closed", "Withdrawn"]
           },
           "dateDecisionDirectionsReceived": {
             "type": "string",
@@ -1241,6 +1550,10 @@
       "CaseSummaryResponse": {
         "type": "object",
         "properties": {
+          "currentReferralState": {
+            "type": "string",
+            "enum": ["Open", "Claimed", "Decided", "Closed", "Withdrawn"]
+          },
           "dateReceived": {
             "type": "string",
             "format": "date-time"
@@ -1545,6 +1858,38 @@
         },
         "required": ["note"]
       },
+      "CreateReferralRequest": {
+        "additionalProperties": true,
+        "description": "A referral of the case to the judiciary, raised unclaimed into the shared pool. reasons is the only field required outright; notes is required when Other is among them, and urgencyReason when urgency is Urgent. The case comes from the path, the state is always Open, and there is no target judge -- who picks a referral up is a later transition -- so state, migrated and any assignee are ignored rather than refused, as any unknown key is. A case may hold many referrals over its lifetime but only one that is not closed or withdrawn, so a second live referral is a 409 rather than a 400.",
+        "properties": {
+          "notes": {
+            "type": "string",
+            "description": "The single free-text field: the explanation Other requires and the general referral note at once, rather than two near-identical fields. Trimmed, and a whitespace-only value counts as none.",
+            "maxLength": 1000
+          },
+          "reasons": {
+            "type": "array",
+            "description": "Why the case is being referred. At least one, de-duplicated, and stored in the order they are sent. Other requires notes.",
+            "items": {
+              "type": "string",
+              "description": "Matched exactly, as the stored form is the wire form.",
+              "enum": ["Minor", "DomesticAbuse", "NonPublication", "DeclarantRequirementsNotMet", "SeparatedOrEstranged", "Other"]
+            },
+            "minItems": 1
+          },
+          "urgency": {
+            "type": "string",
+            "description": "The referral's own urgency, separate from the case's and defaulting to Normal. Matched exactly: an unknown value is refused rather than read as Normal, because that would drop the one signal that gets a referral looked at.",
+            "enum": ["Normal", "Urgent"]
+          },
+          "urgencyReason": {
+            "type": "string",
+            "description": "Why the referral jumped the queue. Required when urgency is Urgent.",
+            "maxLength": 500
+          }
+        },
+        "required": ["reasons"]
+      },
       "CreateSavedQueryRequest": {
         "additionalProperties": true,
         "description": "A saved case-list query. Only name is required: a query that narrows nothing is legitimate, because \"everything, newest first\" is a view somebody wants a tab for. The owner comes from the caller's token, so ownerId cannot be set here, and page is not part of a view -- both are ignored rather than refused, as any unknown key is. Saving does not select: the new query is in the library and in nobody's list, including its owner's.",
@@ -1703,6 +2048,196 @@
           }
         }
       },
+      "JudicialCaseNote": {
+        "type": "object",
+        "properties": {
+          "createdBy": {
+            "type": "string"
+          },
+          "createdOn": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "JudicialCaseView": {
+        "type": "object",
+        "properties": {
+          "displayReference": {
+            "type": "string"
+          },
+          "newForename": {
+            "type": "string"
+          },
+          "newMiddleName": {
+            "type": "string"
+          },
+          "newSurname": {
+            "type": "string"
+          },
+          "oldForename": {
+            "type": "string"
+          },
+          "oldMiddleName": {
+            "type": "string"
+          },
+          "oldSurname": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["Adult", "AdultTransgender", "Minor", "MinorTransgender", "DeedOfRelinquishment", "Unknown"]
+          }
+        }
+      },
+      "JudicialDirectionRequest": {
+        "additionalProperties": true,
+        "description": "The holding judge's direction on a referral, recorded once and complete -- there is no draft and no patch, because the check-your-answers page and the attestation are the admin's. Permitted only on a referral this caller currently holds, so a referral withdrawn under them or taken back by the inactivity sweep is a 409 rather than a late direction on a referral that moved on. The referral comes from the path and the case is resolved from it -- a judicial URL carries no case id -- and the state, decidedBy and decisionDate come from the transition, the token and the clock, so all of them are ignored rather than refused, as any unknown key is.",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "description": "What the judge decided. Matched exactly, as the stored form is the wire form.",
+            "enum": ["Approved", "Rejected"]
+          },
+          "directionsText": {
+            "type": "string",
+            "description": "What the judge directed. Optional: an approval that needs no comment is a real answer. Trimmed, and a whitespace-only value counts as none.",
+            "maxLength": 4000
+          },
+          "publishToGazette": {
+            "type": "boolean",
+            "description": "Whether the change is to be published in the London Gazette. The judge's decision, never derived from a caseworker's referral reasons. A JSON boolean -- the string \"false\" is refused rather than coerced, because publication cannot be taken back."
+          }
+        },
+        "required": ["decision", "publishToGazette"]
+      },
+      "JudicialPoolResponse": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "referrals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudicialReferralSummary"
+            }
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "JudicialReferralDetail": {
+        "type": "object",
+        "properties": {
+          "application": {
+            "$ref": "#/components/schemas/JudicialCaseView"
+          },
+          "caseNotes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudicialCaseNote"
+            }
+          },
+          "claimedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "claimedBy": {
+            "type": "string"
+          },
+          "createdOn": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedBy": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string",
+            "enum": ["Approved", "Rejected"]
+          },
+          "decisionDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "directionsText": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "publishToGazette": {
+            "type": "boolean"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "state": {
+            "type": "string",
+            "enum": ["Open", "Claimed", "Decided", "Closed", "Withdrawn"]
+          },
+          "urgency": {
+            "type": "string",
+            "enum": ["Normal", "Urgent"]
+          },
+          "urgencyReason": {
+            "type": "string"
+          }
+        }
+      },
+      "JudicialReferralSummary": {
+        "type": "object",
+        "properties": {
+          "createdOn": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "state": {
+            "type": "string",
+            "enum": ["Open", "Claimed", "Decided", "Closed", "Withdrawn"]
+          },
+          "urgency": {
+            "type": "string",
+            "enum": ["Normal", "Urgent"]
+          },
+          "urgencyReason": {
+            "type": "string"
+          }
+        }
+      },
       "NoteResponse": {
         "type": "object",
         "properties": {
@@ -1724,6 +2259,75 @@
             "format": "date-time"
           },
           "note": {
+            "type": "string"
+          }
+        }
+      },
+      "ReferralResponse": {
+        "type": "object",
+        "properties": {
+          "claimedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "claimedBy": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdOn": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedBy": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string",
+            "enum": ["Approved", "Rejected"]
+          },
+          "decisionDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "directionsText": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "migrated": {
+            "type": "boolean"
+          },
+          "modifiedBy": {
+            "type": "string"
+          },
+          "modifiedOn": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "publishToGazette": {
+            "type": "boolean"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "state": {
+            "type": "string",
+            "enum": ["Open", "Claimed", "Decided", "Closed", "Withdrawn"]
+          },
+          "urgency": {
+            "type": "string",
+            "enum": ["Normal", "Urgent"]
+          },
+          "urgencyReason": {
             "type": "string"
           }
         }
@@ -1777,6 +2381,10 @@
           "createdOn": {
             "type": "string",
             "format": "date-time"
+          },
+          "currentReferralState": {
+            "type": "string",
+            "enum": ["Open", "Claimed", "Decided", "Closed", "Withdrawn"]
           },
           "dateDecisionDirectionsReceived": {
             "type": "string",

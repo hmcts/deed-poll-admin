@@ -183,6 +183,142 @@ but it is unproven, so do not go hunting elsewhere first.
 
 ---
 
+## Finding: the measured delta
+
+**Measured 2026-09-18. The gate passes: the delta is exactly the referral surface, and nothing else.**
+Regenerated from a detached worktree at `deed-poll-api` `ee3717313d3cd841608b05a38f4b9a9598f84a30` — still the
+tip of `origin/master` after `git fetch`, so decision 1 stands unamended. The shared clone was left on
+`referrals-api-3` and untouched (decision 7).
+
+### The commit range, including #21
+
+`3b2579a..ee37173` first-parent is five merges — `#19`, `#21`, `#22`, `#23`, `#24`. **`#21` is documents only**:
+two files, both under `docs/plans/`, and **zero** files under `src/main/`. It is confirmation exactly as the
+Overview expected, so the four api plans in the table are the whole of the production delta and there is no
+fifth.
+
+### Counts
+
+| | Committed (`3b2579a`) | Refreshed (`ee37173`) | Delta |
+|---|---|---|---|
+| Operations | 26 | **35** | +9 |
+| — caseworker | 25 | **30** | +5 |
+| — judicial | 0 | **4** | +4 |
+| — Spring Boot's `GET /` | 1 | 1 | — |
+| Paths | 14 | **22** | +8 (17 caseworker, 4 judicial, 1 welcome) |
+| Schemas | 19 | **27** | +8 |
+
+**api asserts both halves of that itself**, which is the corroboration worth having: `OpenAPIPublisherTest`
+asserts `isEqualTo(30)` for the caseworker count and `isEqualTo(4)` for the judicial one, separately and with
+`doesNotContainAnyElementsOf` between the two lists. My count is not an independent measurement that happens
+to agree — it agrees with a number api's own build fails on.
+
+The nine operations are the nine the gate named, with no removals:
+
+```
++ GET  /caseworker/cases/{id}/referrals
++ POST /caseworker/cases/{id}/referrals
++ GET  /caseworker/cases/{id}/referrals/{referralId}
++ POST /caseworker/cases/{id}/referrals/{referralId}/withdrawal
++ POST /caseworker/cases/{id}/referrals/{referralId}/closure
++ GET  /judicial/referrals
++ GET  /judicial/referrals/{referralId}
++ POST /judicial/referrals/{referralId}/claim
++ POST /judicial/referrals/{referralId}/direction
+```
+
+The eight schemas are likewise the eight named: `CreateReferralRequest`, `ReferralResponse`,
+`JudicialDirectionRequest`, `JudicialPoolResponse`, `JudicialReferralSummary`, `JudicialReferralDetail`,
+`JudicialCaseView`, `JudicialCaseNote`. Nothing was removed on either axis.
+
+### Decision 6 confirmed — both keyed bodies published properly
+
+**`CreateReferralRequest` carries 4 properties and `JudicialDirectionRequest` 3**, both with their enum members,
+their `maxLength` constraints and a `required` array. Not `{}`. `OpenAPIWriteBodies`'s
+`describeReferralBody`/`describeDirectionBody` did their job, so there is nothing to raise upstream:
+
+- `CreateReferralRequest` — `reasons` (required, `minItems: 1`, enum of six: `Minor`, `DomesticAbuse`,
+  `NonPublication`, `DeclarantRequirementsNotMet`, `SeparatedOrEstranged`, `Other`), `notes`
+  (`maxLength: 1000`), `urgency` (enum `Normal`/`Urgent`), `urgencyReason` (`maxLength: 500`).
+- `JudicialDirectionRequest` — `decision` (required, enum `Approved`/`Rejected`), `publishToGazette`
+  (required, boolean), `directionsText` (`maxLength: 4000`).
+
+One shared quirk, checked rather than assumed to be new: **every hand-registered write body omits `type:
+object`.** `CreateSavedQueryRequest`, `UpdateSavedQueryRequest`, `CreateNoteRequest` and `CreateCaseRequest`
+all publish `type: undefined` with their properties present, and the two referral bodies match them. That is
+how `OpenAPIWriteBodies` has always registered, it is not the 2026-09-17 `{}` defect recurring, and the
+contract test keys off property sets rather than `type`.
+
+### Every difference, accounted for
+
+Four kinds, where the gate anticipated three. The fourth is below and is not a surprise to absorb — it is the
+same api-2b addition surfacing in a second place:
+
+1. **The nine operations and eight schemas** above.
+2. **`currentReferralState` on the three case schemas** — `CaseSummaryResponse`, `CaseDetailResponse` and
+   `SavedCaseResponse`, identical on all three: `{"type":"string","enum":["Open","Claimed","Decided","Closed",
+   "Withdrawn"]}`. Decision 4's list of three was right; a property-by-property deep diff of all 19
+   pre-existing schemas found **these three properties and nothing else** — no retypes, no removals, no
+   changes to any other schema's non-`properties` keys.
+3. **One `operationId` shift** — `POST /caseworker/cases/{id}/notes` went `create_3` → `create_4`, because the
+   new `POST …/referrals` took `create_3`. The known collision-by-shape churn (`SPEC-PROVENANCE.md`); nothing
+   here keys off an `operationId`. Only one moved this time, against eight last refresh.
+4. **`currentReferralState` appended to the `sort` parameter's sortable-field list** on `GET /caseworker/cases`
+   — 69 names to 70, inserted at index 15, directly after `state`. **Not the determinism bug returning**, and
+   that was checked specifically rather than eyeballed: the 69 shared names are in *byte-identical order*, and
+   `createdOn, modifiedOn, createdBy, modifiedBy` are still the last four in `#18`'s pinned order. So the
+   `List.of` fix holds. This is api-2b making the new field sortable, and the Scope section already expects it
+   to be queryable — registering it in `query-fields.ts` is admin-2's task, not this plan's. Nothing in the
+   adapter reads this description, so it changes no work here beyond being recorded in `SPEC-PROVENANCE.md` at
+   Task 2b.
+
+No other difference exists anywhere in the document: the deep diff covered every pre-existing operation
+(parameters, bodies, responses, security), the top-level keys and `components.securitySchemes`.
+
+### Three shape notes Task 2a should not re-derive
+
+- **Decision 9 confirmed from the document, not just the controllers.** `POST …/withdrawal`, `POST …/closure`
+  and `POST …/claim` each publish **no `requestBody` at all**. Only `create` and `direction` carry one, both
+  `required: true`. A client function sending `{}` to those three would be inventing a body api does not
+  document.
+- **`GET /judicial/referrals`'s `page` and `size` publish as `{"type":"string"}`**, not the case list's
+  `integer`/`int32`-with-default-and-minimum. That is deliberate on api's side and documented in
+  `JudicialReferralController.pool`'s javadoc — both bind as `String` and go to `CasePaging.parse`, which
+  "refuses what it cannot understand and clamps an over-cap size rather than refusing it". Faithful
+  publication of a real signature, not a springdoc artefact, and it costs the adapter nothing since query
+  values serialise as strings regardless.
+- **Responses are `*/*`, and every 200/201 references a schema.** The caseworker five answer
+  `ReferralResponse` (a bare array for the list); judicial answers `JudicialPoolResponse` for the pool and
+  `JudicialReferralDetail` for the other three, including `claim` and `direction`.
+
+### Artefacts and reproduction
+
+`/tmp/openapi-specs.json` is Task 2a's and 2b's input — 50,881 bytes, the same size a run earlier the same day
+produced, which is consistent with `#18`'s determinism fix holding. The worktree was removed after
+regenerating, per decision 7. If `/tmp` is cleared before pass 1 finishes, reproduce with:
+
+```bash
+cd ../deed-poll-api && git worktree add /tmp/api-spec-refresh ee3717313d3cd841608b05a38f4b9a9598f84a30
+cd /tmp/api-spec-refresh && TESTCONTAINERS_RYUK_DISABLED=true ./gradlew integration --tests "*OpenAPIPublisherTest*"
+```
+
+### Baseline, measured rather than trusted
+
+Both validation commands were run before anything changed, and both reproduce the plan's stated figures
+exactly — so the movement each later task records is against a real number:
+
+| | Result |
+|---|---|
+| `yarn lint` | exit 0 — 306 files checked, **2 warnings, 2 infos** |
+| `yarn turbo test test:app --concurrency=1` | **8 of 8 tasks, 1,953 passed, 3 skipped** (120 files) |
+
+Per package: `@hmcts/deed-poll` 752, `//:test:app` 621 + 3 skipped, `@hmcts/deed-poll-api-client` **242**,
+`@hmcts-cft/cloud-native-platform` 140, `@hmcts-cft/express-govuk-starter` 127, `@hmcts-cft/simple-router` 41,
+`@hmcts-cft/express-session-postgres` 23, `@hmcts-cft/express-session-redis` 7. The api-client's **242** is the
+one to watch: Tasks 2b and 4 should move that figure and no other.
+
+---
+
 ## Tasks
 
 ### Task 1: Establish the delta, and stop if it is not the referral surface
@@ -225,7 +361,13 @@ not absorb a surprise into the adapter to keep the task moving.
 Record the finding in this file under `## Finding: the measured delta`, citing the counts you measured rather
 than the ones above.
 
-- [ ] Task 1 complete
+- [x] Task 1 complete — gate **passes**. 26→35 operations (+9), 19→27 schemas (+8),
+      `currentReferralState` on the three case schemas, at api `ee37173` (still `origin/master`'s tip). `#21`
+      confirmed documents-only. Both keyed bodies published with real properties (decision 6 clear). One
+      difference beyond the gate's three categories — `currentReferralState` appended to the `sort`
+      description's field list — accounted for above as api-2b's, not the determinism regression: the other 69
+      names are in unchanged order. Tree unchanged except this file. Baseline recorded: lint exit 0
+      (2 warnings, 2 infos); **1,953 passed, 3 skipped, 8 of 8 tasks**.
 
 ### Task 2a: Write the adapter — schemas and client functions, registered nowhere
 
@@ -265,7 +407,28 @@ modelling, not from the committed `openapi.json`, which does not carry referrals
 Both validation commands must be green at the end, with the totals **unchanged** from the baseline — this task
 adds no test. A count that moved here means something was registered that should not have been.
 
-- [ ] Task 2a complete
+- [x] Task 2a complete — eight Zod schemas in `wire.ts`, nine client functions, two path helpers and the
+      exported aliases in `client.ts`. Totals **unchanged**, as required: lint exit 0 with 2 warnings and 2
+      infos, `1,953 passed, 3 skipped, 8 of 8 tasks`, api-client still **242**. Nothing registered, nothing
+      tested, and Biome came back clean — the expected-clean guess in "How this plan is run" held, so the
+      unused-code note above needed no follow-up.
+      **One thing 2b must also do, which its five edits do not list.** `client.ts` cannot reference
+      `WIRE_SCHEMAS.ReferralResponse` before the registry carries it, so the three response schemas it parses
+      with — `referralSchema`, `judicialPoolSchema`, `judicialReferralDetailSchema` — are `export const` in
+      `wire.ts` and imported by name. That is the 2a dead-code trade in a second form: once 2b registers the
+      eight, **switch those three call sites to `WIRE_SCHEMAS.*` and drop the `export` from all eight schemas**,
+      so the registry stays the single reference and the wire schemas stay off the package surface. They are off
+      it today regardless — `index.ts` exports only `./api/client.js`.
+      Shape decisions 2b's per-schema tests will check, taken from api's records rather than the document:
+      strict (reject null) are `ReferralResponse` `id`/`migrated`/`reasons`, `JudicialReferralSummary`
+      `id`/`reasons`, `JudicialReferralDetail` `id`/`reasons`/`caseNotes`, `JudicialPoolResponse` all five,
+      `JudicialCaseNote` `note` (the same NOT NULL column `NoteResponse.note` pins), and `JudicialCaseView`
+      **none at all** — it has no id, no primitive and no collection, so its pinned list is empty. `application`
+      is nullish despite api always building one: decision 5 admits primitives, `List` collections and `id`,
+      and a nested record is none of the three. Two vocabulary arrays were added for the schemas to use,
+      `REFERRAL_STATE` and `REFERRAL_REASON`, both re-exported from `client.ts` beside the option sets — and
+      `REFERRAL_REASON` is the one the drift test cannot pin, because api publishes those members on
+      `CreateReferralRequest.reasons`'s **items** and the test reads `properties[x].enum`.
 
 ### Task 2b: Flip the registration — the document and the registry, together
 
@@ -297,7 +460,27 @@ worth its dead code. Totals should rise only by whatever the per-schema comparis
 
 **Pass 1 ends here.** Stop, report the measured figures, and do not begin Task 3 in the same run.
 
-- [ ] Task 2b complete
+- [x] Task 2b complete — the document is at api `ee37173` (35 operations, 27 schemas), the eight schemas are
+      registered, `currentReferralState` is on the three case schemas, strictness is pinned per schema, the
+      nine operations are in `IMPLEMENTED_OPERATIONS`, and `SPEC-PROVENANCE.md` carries a new row with
+      `3b2579a` pushed down rather than overwritten.
+      **Measured:** lint exit 0, 306 files, 2 warnings and 2 infos — unchanged. `1,975 passed, 3 skipped,
+      8 of 8 tasks`, up 22 from 1,953, and **all 22 in `@hmcts/deed-poll-api-client` (242 → 264)** with every
+      other package's figure identical. That is the per-schema comparison arriving and nothing else moving.
+      **It did not go red on the way**, which is the one prediction above that did not hold: every shape 2a
+      guessed from api's records — all five strictness sets, the eight property lists, the six enum
+      comparisons — matched the document first time, so the split bought localisation it turned out not to
+      need. Worth recording as evidence that reading api's Java records beats inferring from the document,
+      not as an argument that the split was unnecessary.
+      **A sixth edit the task's five did not list**, and it is not optional: `contract.test.ts`'s
+      `requests` array (`:135`) is what excludes a write body from "should pin strictness for every response
+      schema", so `CreateReferralRequest` and `JudicialDirectionRequest` had to join it. Left out, that test
+      demands a `STRICT_RESPONSE_PROPERTIES` entry for two request schemas — the opposite of what the list
+      means. Task 2a's follow-up is also done: the three parse sites now read `WIRE_SCHEMAS.*` and all eight
+      schemas have lost their `export`, so the registry is the single reference again.
+      Two refresh obligations `SPEC-PROVENANCE.md` sets were discharged rather than skipped: api's actuator
+      config and `PUBLIC_PATHS` still put the liveness probe where `checkApiReachable` looks, and the `where`
+      parameter's operator table is byte-identical — `sort`'s is the only description that moved.
 
 ### Task 3: The in-memory mock
 
@@ -334,7 +517,36 @@ a shortcut here is a shortcut in three places.
    `QUERYABLE_FIELDS` derives from `SavedCaseResponse.shape` (`server.ts:819`), so the filter is accepted
    automatically — what is *not* automatic is the value being right.
 
-- [ ] Task 3 complete
+- [x] Task 3 complete — the mock answers the whole referral surface: the five caseworker operations on an
+      extended `scoped` regex with a trailing `(file|withdrawal|closure)` action group, and the four judicial
+      ones in their own top-level block beside the saved-query ones (decision 8, both halves). `MockCase`
+      carries a `referrals` array, seeded and reset with the rest, and `MockReferral` is api's published
+      referral with its dates still `Date` and no `lastTouchedAt` — the sweep is not modelled.
+      **Measured:** lint exit 0, 306 files, 2 warnings and 2 infos — unchanged. **2,015 passed, 3 skipped,
+      8 of 8 tasks**, up 40 from 1,975, and **all 40 in `@hmcts/deed-poll-api-client` (264 → 304)** with every
+      other package's figure identical.
+      **Two gaps the tests found in the mock rather than in the tests**, both the same omission: a case never
+      referred published **no `currentReferralState` key at all** (`undefined`, where api sends `null`), and
+      `toSummary` did not carry the property even though `CaseSummaryResponse` publishes it. Fixed in
+      `CASE_DEFAULTS` and `toSummary` — admin-2 counts over this field on list rows, so a row that omitted it
+      would have made the count read `undefined` for every case.
+      **One prediction in this plan's own Task 3 was wrong, and the mock follows api rather than the plan.**
+      Item 4 says "409 on claim when not `Open`" — true — but a direction by a judge who is *not* the holder is
+      **404, not 409**, when the referral is claimed by somebody else: api's `direct` resolves through
+      `visible()` first, and `visibleTo` admits a `Claimed` referral only to its holder, so the invisible-referral
+      404 fires before `decide`'s conflict. The 409 is for a direction the judge *can* see but does not hold — an
+      `Open` one, or their own `Decided` one. Both paths are pinned.
+      Three things are deliberately **not** modelled, each recorded in `server.ts`'s docblock with its reason:
+      the `caseworker-deedpoll-judicial` role gate (this mock reads no roles out of a token, exactly as it reads
+      none for the saved-query and witness-delete gates, so a 403 is not a state it can produce — idam-1 and
+      admin-3's concern), the inactivity sweep that reclaims a stale claim (a two-hour window on api's clock,
+      untestable machinery here), and the case notes api writes on a referral transition (the wording is api's
+      `ReferralNotes`, and a copy here would be a second opinion on text this app only renders). What **is**
+      restated brings the file's list from seven rules to ten: the state machine including the
+      one-live-referral guard and the two conditional create refusals, the `currentReferralState` recompute,
+      and the judicial visibility rule plus the pool's urgent-first-then-oldest order.
+      Judicial identity comes from `auditName`, so a judge is the token's subject — which is what lets the tests
+      tell one judge's claim from another's without a role this app cannot issue yet.
 
 ### Task 4: Adapter tests, and full validation
 
@@ -346,7 +558,29 @@ a shortcut here is a shortcut in three places.
 3. Confirm the three things a green suite does **not** prove, and say so in the checkbox: no page renders a
    referral yet, no domain service exists, and `query-fields.ts` is untouched. All three are intended.
 
-- [ ] Task 4 complete
+- [x] Task 4 complete — `client.test.ts` covers all nine operations against the mock: 21 new tests, 11 on the
+      caseworker five and 10 on the judicial four, each happy path plus the failures the layers above branch on
+      — 409 → `conflict` (a second live referral, a second withdrawal, a close before a direction, a second
+      claim, a direction on a referral nobody holds), 404 → `not-found` (a referral read through the wrong case,
+      and one another judge holds, on both the read and the direction), and a 400's field errors (api's two
+      conditional requirements, an empty `reasons`, and a decision api does not publish). No `fetch` was stubbed;
+      a judge is the token's subject, which is what tells one judge's claim from another's.
+      **Measured:** lint exit 0, 306 files, **2 warnings and 2 infos** — unchanged across all four tasks.
+      `yarn turbo test test:app --concurrency=1`: **8 of 8 tasks, 2,036 passed, 3 skipped**, up 21 from 2,015,
+      and **all 21 in `@hmcts/deed-poll-api-client` (304 → 325)**. Per package, for the next plan to measure
+      against: `@hmcts/deed-poll` 752, `//:test:app` 621 + 3 skipped, `@hmcts/deed-poll-api-client` **325**,
+      `@hmcts-cft/cloud-native-platform` 140, `@hmcts-cft/express-govuk-starter` 127, `@hmcts-cft/simple-router`
+      41, `@hmcts-cft/express-session-postgres` 23, `@hmcts-cft/express-session-redis` 7. So the api-client has
+      moved 242 → 325 over the plan and no other package's figure has moved at all.
+      **The three things this green suite does not prove, all confirmed still true and all intended:** no page
+      renders a referral to the judiciary (`src/pages` has no referral page — the two matches for "referral" are
+      the case's own pre-existing `referral` edit tab and a comment in `detail.njk`, neither touched),
+      `libs/deed-poll/src/referrals/` does not exist, and `query-fields.ts` is unmodified, so
+      `currentReferralState` is on the wire and in the mock but is not yet a queryable field. They are admin-1's,
+      admin-1's and admin-2's respectively.
+      One formatting note for anyone repeating this: Biome's line-width rule fires on long `toMatchObject`
+      calls, so `yarn format` ran once between writing the tests and lint coming back clean — a formatting fix,
+      not a lint finding.
 
 ## Deliberately not in this plan
 

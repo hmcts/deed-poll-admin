@@ -12,31 +12,41 @@ import { type RunningMockApi, startMockApi } from "../mock/server.js";
 import {
   type ApiConfig,
   checkApiReachable,
+  claimJudicialReferral,
+  closeReferral,
   createCase,
   createNote,
+  createReferral,
   createSavedQuery,
   createWitness,
   deleteNote,
   deleteSavedQuery,
   deleteWitness,
   deselectSavedQuery,
+  directJudicialReferral,
   downloadDocument,
   getCase,
   getFieldRules,
+  getJudicialPool,
+  getJudicialReferral,
   getNote,
+  getReferral,
   getSavedQuery,
   getWitness,
   listCases,
   listDocumentTypes,
   listNotes,
+  listReferrals,
   listSavedQueries,
   listWitnesses,
   patchCase,
   patchNote,
   patchSavedQuery,
+  type ReferralCreate,
   selectSavedQuery,
   updateWitness,
-  uploadDocument
+  uploadDocument,
+  withdrawReferral
 } from "./client.js";
 
 /** A create that succeeds: Date Received is the one field api cannot allocate a reference without. */
@@ -590,6 +600,141 @@ describe("documents", () => {
   });
 });
 
+describe("referrals", () => {
+  it("should raise a referral Open and unclaimed, with its dates as Date objects", async () => {
+    const id = await caseId();
+
+    const result = await createReferral(id, { reasons: ["Minor"], notes: "For the Master" }, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Neither the state nor a holder is the caseworker's to choose, and api defaults an absent urgency to
+    // Normal rather than storing none.
+    expect(result.data).toMatchObject({ state: "Open", reasons: ["Minor"], notes: "For the Master", urgency: "Normal", migrated: false, claimedBy: null });
+    expect(result.data.createdOn).toBeInstanceOf(Date);
+  });
+
+  it("should list every referral a case has had, not only the live one, and read one back by id", async () => {
+    const id = await caseId();
+    const withdrawn = await referralOn(id);
+    await withdrawReferral(id, withdrawn, config);
+    const live = await referralOn(id, { reasons: ["Other"], notes: "Unusual circumstances" });
+
+    const listed = await listReferrals(id, config);
+
+    // The set rather than the order: newest-first is the mock's, pinned in `server.test.ts` against referrals
+    // whose `createdOn` is arranged, where two creates a round trip apart can share a millisecond.
+    expect(listed.ok && [...listed.data].map((referral) => referral.id).sort()).toEqual([withdrawn, live].sort());
+    const read = await getReferral(id, live, config);
+    expect(read.ok && read.data.notes).toBe("Unusual circumstances");
+  });
+
+  it("should report conflict when the case already has a referral in play, because a second one is a state", async () => {
+    const id = await caseId();
+    await referralOn(id);
+
+    const result = await createReferral(id, { reasons: ["DomesticAbuse"] }, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("conflict");
+    expect(result.error.status).toBe(409);
+  });
+
+  it("should report api's conditional requirement against the field the create form renders it on", async () => {
+    const id = await caseId();
+
+    const result = await createReferral(id, { reasons: ["Other"] }, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("validation");
+    expect(result.error.fieldErrors?.map((error) => error.field)).toEqual(["notes"]);
+  });
+
+  it("should report an empty reasons array as a validation failure, since a referral states why", async () => {
+    const id = await caseId();
+
+    const result = await createReferral(id, { reasons: [] }, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("validation");
+    expect(result.error.fieldErrors?.map((error) => error.field)).toContain("reasons");
+  });
+
+  it("should report not-found for a referral read through the wrong case", async () => {
+    const owning = await caseId();
+    const other = await caseId();
+    const referralId = await referralOn(owning);
+
+    const result = await getReferral(other, referralId, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("not-found");
+  });
+
+  it("should withdraw a referral and leave the case with no current referral state", async () => {
+    const id = await caseId();
+    const referralId = await referralOn(id);
+    const referred = await getCase(id, config);
+    expect(referred.ok && referred.data.currentReferralState).toBe("Open");
+
+    const result = await withdrawReferral(id, referralId, config);
+
+    expect(result.ok && result.data.state).toBe("Withdrawn");
+    // Recomputed from the referrals rather than pushed: withdrawal is terminal, so the case holds none.
+    const after = await getCase(id, config);
+    expect(after.ok && after.data.currentReferralState).toBe(null);
+  });
+
+  it("should carry the live referral's state onto the case list row as well as the case", async () => {
+    const id = await caseId();
+    await referralOn(id);
+
+    const result = await listCases({}, config);
+
+    expect(result.ok && result.data.cases.map((summary) => summary.currentReferralState)).toEqual(["Open"]);
+  });
+
+  it("should report conflict when withdrawing a referral that is already terminal", async () => {
+    const id = await caseId();
+    const referralId = await referralOn(id);
+    await withdrawReferral(id, referralId, config);
+
+    const result = await withdrawReferral(id, referralId, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("conflict");
+  });
+
+  it("should close a referral once a judge has directed it, and clear the case's state with it", async () => {
+    const { caseId: id, referralId } = await decidedReferral();
+
+    const result = await closeReferral(id, referralId, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The direction survives the close: closing records that the office actioned it, not that it is undone.
+    expect(result.data).toMatchObject({ state: "Closed", decision: "Approved", publishToGazette: true });
+    const after = await getCase(id, config);
+    expect(after.ok && after.data.currentReferralState).toBe(null);
+  });
+
+  it("should report conflict when closing a referral no judge has directed", async () => {
+    const id = await caseId();
+    const referralId = await referralOn(id);
+
+    const result = await closeReferral(id, referralId, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("conflict");
+  });
+});
+
 describe("saved queries", () => {
   const A_QUERY = { name: "Enroled this month", conditions: ["state:is:Enroled"], filter: "enroled", sortDirection: "desc" } as const;
 
@@ -695,6 +840,153 @@ describe("saved queries", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.kind).toBe("not-found");
+  });
+});
+
+/**
+ * The four judicial operations, which have no caller in this app until the judicial screen is built.
+ *
+ * A judge is the token's subject here, because that is what the mock reads and what api's `claimedBy` holds.
+ * The `caseworker-deedpoll-judicial` role gate is api's and is not arranged: nothing in this adapter differs
+ * with a role, so there is nothing here it could pin.
+ */
+describe("the judicial surface", () => {
+  const JUDGE = "judge.a@example.com";
+  const ANOTHER_JUDGE = "judge.b@example.com";
+
+  it("should offer the Open referrals of every case in one shared pool, urgent first", async () => {
+    await referralOn(await caseId(), { reasons: ["Minor"] });
+    const urgent = await referralOn(await caseId(), { reasons: ["DomesticAbuse"], urgency: "Urgent", urgencyReason: "Risk to the applicant" });
+
+    const result = await getJudicialPool({}, judge(JUDGE));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.referrals[0]?.id).toBe(urgent);
+    // Ten rather than the case list's twenty-five, and a page size rather than a cap — `total` says how much
+    // work is waiting behind the page.
+    expect(result.data).toMatchObject({ page: 1, size: 10, total: 2, totalPages: 1 });
+  });
+
+  it("should page the pool, reporting the whole pool's total rather than the page's", async () => {
+    await referralOn(await caseId());
+    await referralOn(await caseId());
+
+    const result = await getJudicialPool({ page: 2, size: 1 }, judge(JUDGE));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.referrals).toHaveLength(1);
+    expect(result.data).toMatchObject({ page: 2, size: 1, total: 2, totalPages: 2 });
+  });
+
+  it("should answer one referral with the narrow application view and the application's timeline", async () => {
+    const id = await caseId({ newForename: "Jo", newSurname: "Bloggs" });
+    await createNote(id, "Signature received", config);
+    const referralId = await referralOn(id);
+
+    const result = await getJudicialReferral(referralId, judge(JUDGE));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.application).toMatchObject({ newForename: "Jo", newSurname: "Bloggs" });
+    expect(result.data.caseNotes.map((note) => note.note)).toEqual(["Signature received"]);
+    expect(result.data.caseNotes[0]?.createdOn).toBeInstanceOf(Date);
+  });
+
+  it("should report not-found for a referral another judge holds, so no referral is discoverable", async () => {
+    const referralId = await referralOn(await caseId());
+    await claimJudicialReferral(referralId, judge(JUDGE));
+
+    const result = await getJudicialReferral(referralId, judge(ANOTHER_JUDGE));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("not-found");
+  });
+
+  it("should claim a referral out of the pool, recording the holder from the token", async () => {
+    const referralId = await referralOn(await caseId());
+
+    const result = await claimJudicialReferral(referralId, judge(JUDGE));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toMatchObject({ state: "Claimed", claimedBy: JUDGE });
+    expect(result.data.claimedAt).toBeInstanceOf(Date);
+    // Out of the pool as well as claimed: the pool is what the other judges are shown.
+    const pool = await getJudicialPool({}, judge(ANOTHER_JUDGE));
+    expect(pool.ok && pool.data.referrals).toEqual([]);
+  });
+
+  it("should report conflict when claiming a referral that is not Open, which is what a second judge gets", async () => {
+    const referralId = await referralOn(await caseId());
+    await claimJudicialReferral(referralId, judge(JUDGE));
+
+    const result = await claimJudicialReferral(referralId, judge(JUDGE));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("conflict");
+  });
+
+  it("should record a direction on a referral this judge holds, stamping the decision date and the decider", async () => {
+    const referralId = await referralOn(await caseId());
+    await claimJudicialReferral(referralId, judge(JUDGE));
+
+    const result = await directJudicialReferral(
+      referralId,
+      { decision: "Rejected", publishToGazette: false, directionsText: "Insufficient evidence" },
+      judge(JUDGE)
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toMatchObject({
+      state: "Decided",
+      decision: "Rejected",
+      publishToGazette: false,
+      directionsText: "Insufficient evidence",
+      decidedBy: JUDGE
+    });
+    expect(result.data.decisionDate).toBeInstanceOf(Date);
+  });
+
+  it("should report conflict for a direction on a referral this judge can see but does not hold", async () => {
+    // An Open referral is in the pool, so it is visible — and directing one nobody has claimed is the
+    // conflict, not a 404.
+    const referralId = await referralOn(await caseId());
+
+    const result = await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("conflict");
+  });
+
+  it("should report not-found for a direction on a referral claimed by another judge, not conflict", async () => {
+    // The visibility check runs first, so a referral this judge may not see is absent rather than contested —
+    // otherwise a 409 would tell them somebody else holds it.
+    const referralId = await referralOn(await caseId());
+    await claimJudicialReferral(referralId, judge(JUDGE));
+
+    const result = await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judge(ANOTHER_JUDGE));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("not-found");
+  });
+
+  it("should report a decision api does not publish as a validation failure against the field", async () => {
+    const referralId = await referralOn(await caseId());
+    await claimJudicialReferral(referralId, judge(JUDGE));
+
+    const result = await directJudicialReferral(referralId, { decision: "Maybe" as never, publishToGazette: true }, judge(JUDGE));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("validation");
+    expect(result.error.fieldErrors?.map((error) => error.field)).toContain("decision");
   });
 });
 
@@ -1063,6 +1355,43 @@ async function enrollableCaseId(): Promise<string> {
   }
 
   return id;
+}
+
+/** A referral raised over the contract, which is where every referral journey starts. */
+async function referralOn(id: string, body: ReferralCreate = { reasons: ["Minor"] }): Promise<string> {
+  const created = await createReferral(id, body, config);
+  if (!created.ok) throw new Error(`referral was not created: ${created.error.message}`);
+
+  return created.data.id;
+}
+
+/**
+ * A referral a judge has directed, which is the only state a caseworker may close.
+ *
+ * Driven through the judicial surface rather than seeded, because the two halves are how a case reaches
+ * `Decided` at all — a seeded state would let a close test pass over a transition api does not allow.
+ */
+async function decidedReferral(): Promise<{ caseId: string; referralId: string }> {
+  const id = await caseId();
+  const referralId = await referralOn(id);
+  const judgeConfig = judge("judge.a@example.com");
+
+  const claimed = await claimJudicialReferral(referralId, judgeConfig);
+  if (!claimed.ok) throw new Error(`referral was not claimed: ${claimed.error.message}`);
+  const directed = await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judgeConfig);
+  if (!directed.ok) throw new Error(`referral was not directed: ${directed.error.message}`);
+
+  return { caseId: id, referralId };
+}
+
+/**
+ * The same config with a named caller's token.
+ *
+ * The mock takes a name out of the token's subject and no roles, exactly as api takes the audit author from
+ * it, so this is what tells one judge's claim from another's.
+ */
+function judge(subject: string): ApiConfig {
+  return { ...config, accessToken: `x.${Buffer.from(JSON.stringify({ sub: subject }), "utf8").toString("base64url")}.signature` };
 }
 
 /**

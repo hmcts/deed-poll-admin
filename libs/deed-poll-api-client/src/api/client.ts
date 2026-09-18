@@ -25,7 +25,15 @@ import {
   type WireDocument,
   type WireDocumentType,
   type WireFieldRules,
+  type WireJudicialCaseNote,
+  type WireJudicialCaseView,
+  type WireJudicialDirection,
+  type WireJudicialPool,
+  type WireJudicialReferralDetail,
+  type WireJudicialReferralSummary,
   type WireNote,
+  type WireReferral,
+  type WireReferralCreate,
   type WireSavedCase,
   type WireSavedQuery,
   type WireSavedQueryCreate,
@@ -58,6 +66,11 @@ export {
   POST_COUNTER,
   PRIVACY,
   REFER_TO_MASTER,
+  // The two referral vocabularies, for the same reason as the option sets above: the referral form renders a
+  // checkbox per reason and a page reads a referral's state, and both come from api's published members rather
+  // than from a list typed out again here.
+  REFERRAL_REASON,
+  REFERRAL_STATE,
   SORT_DIRECTION,
   URGENCY
 } from "./wire.js";
@@ -316,6 +329,53 @@ export function listDocumentTypes(config: ApiConfig): Promise<ApiResult<Document
 }
 
 /**
+ * A case's referrals to the judiciary, newest first — the order api's domain fetched them in.
+ *
+ * Every referral the case has ever had, not only the live one: a case may be referred many times over its
+ * life, and the tab renders the history. Which of them is live is `state`, and api publishes the same answer
+ * on the case itself as `currentReferralState`, so a page holding the case does not compute it.
+ */
+export function listReferrals(caseId: string, config: ApiConfig): Promise<ApiResult<Referral[]>> {
+  return request(config, "GET", `/caseworker/cases/${encodeURIComponent(caseId)}/referrals`, WIRE_SCHEMAS.ReferralResponse.array());
+}
+
+/** One referral of one case. A referral id under the wrong case is api's 404, not a check made here. */
+export function getReferral(caseId: string, referralId: string, config: ApiConfig): Promise<ApiResult<Referral>> {
+  return request(config, "GET", referralPath(caseId, referralId), WIRE_SCHEMAS.ReferralResponse);
+}
+
+/**
+ * Raise a referral, unclaimed into the shared pool. 201.
+ *
+ * `conflict` when the case already has a referral that is neither closed nor withdrawn — api allows many
+ * referrals over a case's life but only one live at a time, and it answers 409 rather than 400 because a
+ * second live referral is a state, not a malformed body. The author comes from the caller's token.
+ */
+export function createReferral(caseId: string, referral: ReferralCreate, config: ApiConfig): Promise<ApiResult<Referral>> {
+  return request(config, "POST", `/caseworker/cases/${encodeURIComponent(caseId)}/referrals`, WIRE_SCHEMAS.ReferralResponse, referral);
+}
+
+/**
+ * Withdraw a referral — the caseworker's way of taking one back before the judiciary has finished with it.
+ *
+ * **No body**, which is api's shape and not an omission: the sub-resource names the transition, so there is
+ * nothing left to state. `conflict` when the referral is already terminal.
+ */
+export function withdrawReferral(caseId: string, referralId: string, config: ApiConfig): Promise<ApiResult<Referral>> {
+  return request(config, "POST", `${referralPath(caseId, referralId)}/withdrawal`, WIRE_SCHEMAS.ReferralResponse);
+}
+
+/**
+ * Close a referral once its direction has been actioned. No body, as the withdrawal has none.
+ *
+ * `conflict` unless the referral is `Decided`: closing is what records that the office has carried out the
+ * judge's direction, so there has to be one to carry out.
+ */
+export function closeReferral(caseId: string, referralId: string, config: ApiConfig): Promise<ApiResult<Referral>> {
+  return request(config, "POST", `${referralPath(caseId, referralId)}/closure`, WIRE_SCHEMAS.ReferralResponse);
+}
+
+/**
  * The caller's saved-query library: every shared query plus their own, each flagged `selected` and
  * `editable`.
  *
@@ -391,6 +451,62 @@ export function deselectSavedQuery(id: string, config: ApiConfig): Promise<ApiRe
 }
 
 /**
+ * One page of the shared judicial pool: the referrals waiting to be picked up, urgent first then
+ * longest-waiting.
+ *
+ * The four judicial operations are a sibling namespace to the caseworker surface rather than a section of it,
+ * which is why none of them takes a case id: api keys the judicial surface on the referral so a judge cannot
+ * name an application, and the case is resolved from the referral at api's end. The role that reaches these
+ * routes is api's to enforce — this adapter presents the same bearer token it presents everywhere.
+ *
+ * `page` and `size` publish as strings, because api binds both as `String` and parses them itself: it refuses
+ * what it cannot understand and clamps an over-cap `size` rather than refusing it. Omitting either lets api
+ * apply its own default, as the case list does.
+ */
+export function getJudicialPool(query: JudicialPoolQuery, config: ApiConfig): Promise<ApiResult<JudicialPool>> {
+  const parameters = new URLSearchParams();
+  if (query.page !== undefined) parameters.set("page", String(query.page));
+  if (query.size !== undefined) parameters.set("size", String(query.size));
+
+  const search = parameters.toString();
+
+  return request(config, "GET", `/judicial/referrals${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.JudicialPoolResponse);
+}
+
+/**
+ * One referral as the judge who may see it reads it: the referral, the narrow application view and the
+ * application's timeline, in one call because they are one screen.
+ *
+ * `not-found` for a referral this judge may not see — an `Open` one is visible to any of them, a claimed or
+ * decided one only to its holder — and indistinguishable from an id that never existed, so no referral is
+ * discoverable by watching status codes.
+ */
+export function getJudicialReferral(referralId: string, config: ApiConfig): Promise<ApiResult<JudicialReferralDetail>> {
+  return request(config, "GET", judicialReferralPath(referralId), WIRE_SCHEMAS.JudicialReferralDetail);
+}
+
+/**
+ * Pick a referral up out of the pool. No body — the sub-resource names the transition and the holder comes
+ * from the token.
+ *
+ * `conflict` when the referral is not `Open`, which is what a second judge gets for claiming one that has just
+ * been taken: the pool is shared, so two judges reading the same page is ordinary rather than exceptional.
+ */
+export function claimJudicialReferral(referralId: string, config: ApiConfig): Promise<ApiResult<JudicialReferralDetail>> {
+  return request(config, "POST", `${judicialReferralPath(referralId)}/claim`, WIRE_SCHEMAS.JudicialReferralDetail);
+}
+
+/**
+ * Record the direction on a referral this judge holds. One call and complete: api has no draft and no patch.
+ *
+ * `conflict` when the caller is not the current holder, which covers a referral withdrawn under them and one
+ * taken back by api's inactivity sweep — both are a referral that moved on, not a late direction.
+ */
+export function directJudicialReferral(referralId: string, direction: JudicialDirection, config: ApiConfig): Promise<ApiResult<JudicialReferralDetail>> {
+  return request(config, "POST", `${judicialReferralPath(referralId)}/direction`, WIRE_SCHEMAS.JudicialReferralDetail, direction);
+}
+
+/**
  * Whether api is answering.
  *
  * `/health/liveness` and not the ungrouped `/health`, deliberately. api's `application.yaml` restricts
@@ -416,6 +532,15 @@ function notePath(caseId: string, noteId: string): string {
 
 function witnessPath(caseId: string, witnessId: string): string {
   return `/caseworker/cases/${encodeURIComponent(caseId)}/witnesses/${encodeURIComponent(witnessId)}`;
+}
+
+function referralPath(caseId: string, referralId: string): string {
+  return `/caseworker/cases/${encodeURIComponent(caseId)}/referrals/${encodeURIComponent(referralId)}`;
+}
+
+/** No case id, because api's judicial routes take none — see {@link getJudicialPool}. */
+function judicialReferralPath(referralId: string): string {
+  return `/judicial/referrals/${encodeURIComponent(referralId)}`;
 }
 
 function savedQueryPath(id: string): string {
@@ -710,6 +835,19 @@ export type CaseWrite = WireCaseWrite;
 export type SavedQuery = WireSavedQuery;
 export type SavedQueryCreate = WireSavedQueryCreate;
 export type SavedQueryPatch = WireSavedQueryUpdate;
+export type Referral = WireReferral;
+export type ReferralCreate = WireReferralCreate;
+/**
+ * The judicial read types, which are a separate vocabulary from the caseworker ones rather than narrower
+ * versions of them — api publishes different records, and `JudicialCaseView` is deliberately not a subset of a
+ * case (see `wire.ts`).
+ */
+export type JudicialPool = WireJudicialPool;
+export type JudicialReferralSummary = WireJudicialReferralSummary;
+export type JudicialReferralDetail = WireJudicialReferralDetail;
+export type JudicialCaseView = WireJudicialCaseView;
+export type JudicialCaseNote = WireJudicialCaseNote;
+export type JudicialDirection = WireJudicialDirection;
 
 /**
  * The option sets, as the member unions a caller annotates with.
@@ -729,6 +867,15 @@ export type NationalitySection = NonNullable<SavedCase["nationalitySection"]>;
 export type MasterDecision = NonNullable<SavedCase["masterDecision"]>;
 export type ReferToMaster = NonNullable<SavedCase["referToMasterChoice"]>;
 export type DocumentDirection = NonNullable<Document["direction"]>;
+export type ReferralState = NonNullable<Referral["state"]>;
+/**
+ * Derived from the create body rather than the response: api publishes a referral's stored `reasons` as plain
+ * strings, because the column is a JSON array it validates on write, so the membership is only declared on the
+ * way in. A page rendering a stored reason is therefore rendering a string, and one offering the choices is
+ * offering these.
+ */
+export type ReferralReason = ReferralCreate["reasons"][number];
+export type ReferralDecision = JudicialDirection["decision"];
 
 /**
  * What to ask the case list for, in api's own vocabulary.
@@ -757,6 +904,20 @@ export interface CaseListQuery {
   /** 1-based. */
   page?: number;
   /** Rows per page. api defaults to 25 and clamps anything above 100 to 100. */
+  size?: number;
+}
+
+/**
+ * Which page of the shared pool to read.
+ *
+ * No filter, no sort and no search: the pool is one queue in one order, which api fixes — urgent first, then
+ * longest-waiting — so a judge choosing their next piece of work is choosing from the top rather than
+ * composing a query.
+ */
+export interface JudicialPoolQuery {
+  /** 1-based. */
+  page?: number;
+  /** Rows per page. api defaults to 10 and clamps an over-cap value rather than refusing it. */
   size?: number;
 }
 
