@@ -21,7 +21,31 @@ It maps exactly onto api-1's four operations:
 The dashboard "returned — action needed" count is **admin-2**; the judicial screen is **admin-3**. This plan
 adds no judicial anything and no alerts — it is create/list/view/withdraw on the case, in the caseworker UI.
 
-## The hard block — this plan is written ahead of its contract, exactly like plans 11 and 12
+## AMENDED 2026-09-18 — the gate fired, and the adapter is now admin-0's
+
+**What follows in this section is history. Read it, then read the amendment.** The original block said this
+plan could not run until api-1 was merged and `openapi.json` refreshed, and that Task 1 must **stop** if the
+refreshed spec's delta was anything other than api-1's four operations. **On 2026-09-18 it was run and it
+stopped, correctly:** api had merged all four referral plans — api-1 (`#19`), api-2 (`#22`), api-2b (`#23`)
+and api-3 (`#24`) — so the delta is **nine operations and eight schemas**, plus `currentReferralState` on
+three case schemas. The gate did its job.
+
+**The consequence: this plan no longer owns the spec, the adapter or the mock.** Because
+`contract.test.ts` asserts set equality in both directions, a refreshed document obliges the adapter to carry
+the whole current api in one commit — there is no api-1-shaped subset. That work is now
+**[`referrals-admin-0-spec-and-adapter.md`](referrals-admin-0-spec-and-adapter.md)**, and this plan shrinks to
+**domain + pages**.
+
+**So the single precondition is now: admin-0 has landed on `master`.** Not "api-1 is merged", not "the spec is
+refreshed" — admin-0 does both, for the whole referral surface, and its own Task 1 carries the reconciliation
+gate. Task 1 here is now a *verification* that admin-0's adapter is present, and still a stop if it is not.
+
+**What did not change:** every decision below, the tab decision, the four caseworker interactions this plan
+builds, and the deliberate exclusion of close/judicial/dashboard-count. The UI scope was always api-1's four
+operations and still is — the adapter simply knows about more than this plan uses, which is the normal state
+of an adapter that tracks a whole api.
+
+### The original hard block — superseded, kept for the reasoning
 
 **This plan cannot be *run* until three things are true, and its Task 1 is a reconciliation gate that stops
 if they are not.** This is the same discipline as `11-saved-queries-ui.md` and `12-case-search-ui.md`, for
@@ -57,18 +81,26 @@ are not yet in. In that case **stop and report** — do not implement extra oper
 and do not hand-trim the spec. The whole point of the gate is that the client tracks the *whole* current api,
 so a scope surprise is a planning fact to surface, not an obstacle to code around.
 
+*(Preconditions 1 and 2 are admin-0's now. Precondition 3 is satisfied — 11 and 12 are both merged and in
+`docs/plans/completed/`.)*
+
 ## The three layers this repo enforces
 
 `.claude/rules/backend.md` fixes a strict adapter → domain → pages architecture. A new sub-resource touches
 all three, plus the mock and the spec, in this order (SPEC-PROVENANCE.md + backend.md "Reaching api"):
 
-1. **Spec** — refresh `openapi.json` (precondition 2 above).
-2. **Adapter** — `libs/deed-poll-api-client`: Zod schemas in `wire.ts` registered in `WIRE_SCHEMAS`
+**Layers 1–3 are admin-0's and are DONE before this plan starts. This plan is layers 4 and 5 only.** They are
+kept below because knowing what the adapter offers is how the domain layer is written correctly — but do not
+edit `openapi.json`, `wire.ts`, `client.ts`, `contract.test.ts` or `mock/server.ts` here. If one of them
+needs changing, that is a finding about admin-0, not work for this plan.
+
+1. ~~**Spec** — refresh `openapi.json` (precondition 2 above).~~ **admin-0.**
+2. **Adapter — admin-0.** `libs/deed-poll-api-client`: Zod schemas in `wire.ts` registered in `WIRE_SCHEMAS`
    (`wire.ts:502`) and `STRICT_RESPONSE_PROPERTIES` (`wire.ts:549`); four HTTP ops + path helpers in
    `client.ts` (mirror `listNotes`/`getNote`/`createNote` `client.ts:159-170` and `notePath`
    `client.ts:406`); ops registered in `contract.test.ts`'s `IMPLEMENTED_OPERATIONS` (`contract.test.ts:35`).
    Auth is never per-call — it rides in `ApiConfig` and `send()` sets the bearer header (`client.ts:544`).
-3. **Mock** — `libs/deed-poll-api-client/src/mock/server.ts`: extend the collection regex (`server.ts:213`)
+3. **Mock — admin-0.** `libs/deed-poll-api-client/src/mock/server.ts`: extend the collection regex (`server.ts:213`)
    to reach `referrals` and its `…/{referralId}/withdrawal` sub-path, add a `referrals()` handler modelled on
    `notes()` (`server.ts:369`), and a `referrals` array on `MockCase` (`server.ts:1306`), seeded/reset
    (`server.ts:656`,`:683`). The mock derives request/response shapes from `WIRE_SCHEMAS`.
@@ -111,9 +143,11 @@ and the tab only lists.
 
 ## Decisions taken — implement these, do not revisit
 
-1. **Consumes api-1 only.** Four operations, no more. No claim, no direction, no close, no judicial, no
-   dashboard count — those are api-2/api-3/admin-2/admin-3. If the refreshed spec offers more (the gate),
-   stop; do not implement ahead.
+1. **Builds the UI over api-1's four operations only.** No claim, no direction, no close, no judicial, no
+   dashboard count — those are admin-2 and admin-3. **Amended 2026-09-18:** the adapter admin-0 landed *does*
+   offer more (all nine referral operations, because it tracks the whole api), and that is expected, not a
+   gate failure. The rule is now about what this plan *calls*: a domain service or page here that touches
+   `close` or any `/judicial/**` function is out of scope, even though the function exists.
 2. **Reasons are a multi-select of the six api enum members**, rendered as GOV.UK checkboxes:
    `Minor`, `DomesticAbuse`, `NonPublication`, `DeclarantRequirementsNotMet`, `SeparatedOrEstranged`,
    `Other`. At least one required. **Display labels are an admin concern** — render human text ("Applicant is
@@ -211,37 +245,39 @@ slow; re-run before investigating a "timeout"/"worker terminated" error rather t
 
 ## Tasks
 
-### Task 1: Refresh the spec and bring the adapter + mock in line (the reconciliation gate)
+### Task 1: Verify admin-0's adapter is present, and stop if it is not (the gate)
 
-**Do the gate first and stop if it fails.** Refresh `libs/deed-poll-api-client/openapi.json` per
-`SPEC-PROVENANCE.md` from an api that has run api-1. Compute the delta over the committed `openapi.json`. It
-**must be exactly**: operations `POST /caseworker/cases/{id}/referrals`, `GET
-/caseworker/cases/{id}/referrals`, `GET /caseworker/cases/{id}/referrals/{referralId}`, `POST
-/caseworker/cases/{id}/referrals/{referralId}/withdrawal`; schemas `CreateReferralRequest`,
-`ReferralResponse`. If the delta is anything else — extra api-2/api-3 operations present, or saved-query /
-search schemas *missing* (11/12 not merged) — **stop and report**; do not proceed.
+**Amended 2026-09-18. This task used to refresh the spec and build the adapter; admin-0 does that now.** What
+is left is a verification, and it is still a real stop — running the domain layer against an adapter that does
+not carry referrals fails in a confusing place, several tasks later.
 
-Then, in the same task:
-- `wire.ts`: add `CreateReferralRequest` and `ReferralResponse` Zod schemas matching the refreshed spec
-  property-for-property (including `reasons` enum members, `state` enum members, nullability of `notes`/
-  `urgencyReason`, and `migrated`); register both in `WIRE_SCHEMAS` (`wire.ts:502`) and the response schema
-  in `STRICT_RESPONSE_PROPERTIES` (`wire.ts:549`).
-- `client.ts`: `listReferrals`, `getReferral`, `createReferral`, `withdrawReferral`, with `referralPath` and
-  `referralWithdrawalPath` helpers; auth via `ApiConfig` only. Alias exports at the bottom of `client.ts`
-  (`export type Referral = WireReferralResponse`, etc.).
-- `contract.test.ts`: add the four ops to `IMPLEMENTED_OPERATIONS` (`contract.test.ts:35`).
-- `mock/server.ts`: extend the collection regex (`server.ts:213`) to `referrals` and reach the
-  `…/{referralId}/withdrawal` POST; add a `referrals()` handler (model on `notes()`, `server.ts:369`) doing
-  list/create/get and a withdrawal state transition; add `referrals: []` to `MockCase` (`server.ts:1306`),
-  `seed()` (`server.ts:656`) and `reset()` (`server.ts:683`); parse `WIRE_SCHEMAS.CreateReferralRequest`.
-- `client.test.ts`: describe blocks for the four ops against the running mock (`startMockApi()`), including
-  the create-409-when-open and withdraw-409-when-terminal cases the mock models.
+**Change nothing in this task.** Confirm all four, from the tree you are on:
 
-- [ ] Gate passed: refreshed-spec delta over the committed `openapi.json` is exactly the four referral ops +
-      the two referral schemas, provenance table updated, schemas diffed property-by-property; `wire.ts`,
-      `client.ts`, `contract.test.ts`, `mock/server.ts`, `client.test.ts` all updated together;
-      `contract.test.ts` green (schema-key equality, op equality, strict-response pinning); `turbo test
-      test:app --concurrency=1` green; baseline test count recorded
+1. **`openapi.json` carries the referral surface** — nine referral operations and the eight referral schemas,
+   with `SPEC-PROVENANCE.md`'s top row naming api `ee37173` or later. A shortcut to check the operations:
+
+   ```bash
+   node -e 'const s=require("./libs/deed-poll-api-client/openapi.json");console.log(Object.keys(s.paths).filter(p=>/referral/i.test(p)))'
+   ```
+
+2. **The adapter implements the four this plan needs** — `listReferrals`, `getReferral`, `createReferral`,
+   `withdrawReferral` exported from `libs/deed-poll-api-client`, and the referral types with them. The other
+   five (`close` and the four judicial) will also be there; that is admin-0 tracking the whole api and is not
+   a problem to fix.
+3. **The mock answers them** — `mock/server.ts` routes `/caseworker/cases/{id}/referrals` and its
+   `withdrawal` sub-path, enforces one-non-terminal-per-case, and returns 409 on the two conflicts this plan
+   renders (decision 6). **Verify the 409s specifically**: a mock that returns 200 where api returns 409 is
+   how the conflict UI ships untested.
+4. **Both validation commands are green before any edit**, with the totals recorded as this plan's baseline.
+
+**If any of the four fails, stop and report — do not do admin-0's work here.** The likely cause is simply that
+admin-0 has not run or has not merged, in which case the fix is to run it, not to patch the adapter from
+inside this plan.
+
+- [ ] Gate passed: the nine referral operations and eight schemas present in `openapi.json` with provenance at
+      api `ee37173` or later; the four caseworker adapter functions and their types exported; the mock routing
+      both paths and returning 409 on already-open and on terminal-withdraw; both validation commands green
+      with the baseline totals recorded
 
 ### Task 2: The domain layer — schemas and service
 

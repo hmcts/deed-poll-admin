@@ -313,6 +313,15 @@ a shortcut here is a shortcut in three places.
    and admin-1 decision 6 makes those 409s first-class UI.
 5. The judge's pool is shared and ordered urgent-first then oldest (api-3 decision 3). Mirror it; a mock that
    orders by insertion teaches the pages the wrong thing.
+6. **Recompute `currentReferralState` on the case at every transition — recompute from the referrals, never
+   push a value per site.** api-2b's rule exactly: the field is "the state of the case's one non-terminal
+   referral, or null". A per-site push ("on close, set `Closed`") is the drift bug api-2b was designed to
+   avoid — close is terminal, so the case must go **null**. This is admin-0's because the mock cannot be
+   internally consistent without it, and **admin-2's Task 0 gate checks it**: admin-2's whole feature is a
+   count over this field, so a mock where the field and the referrals disagree makes that plan untestable.
+   `MockCase` inherits the property from `WireSavedCase` once Task 2b registers it, and the mock's
+   `QUERYABLE_FIELDS` derives from `SavedCaseResponse.shape` (`server.ts:803`), so the filter is accepted
+   automatically — what is *not* automatic is the value being right.
 
 - [ ] Task 3 complete
 

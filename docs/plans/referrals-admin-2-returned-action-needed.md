@@ -24,7 +24,33 @@ terminal and drop off the count; `Open`/`Claimed` are not yet actionable by the 
 one-non-terminal-referral-per-case rule (decision 11) means a case is in at most one such state, so this is a
 clean per-case count, not a fan-out.
 
-## The hard block — written ahead of its contract, exactly like admin-1 and plans 11/12
+## AMENDED 2026-09-18 — the spec and the adapter are admin-0's
+
+**admin-1's gate fired on 2026-09-18**: api had merged all four referral plans, not just the one each admin
+plan was written against, and `contract.test.ts`'s set equality means a refreshed document obliges the adapter
+to carry the whole api at once. So the spec refresh, the wire property and the mock mechanics moved into
+**[`referrals-admin-0-spec-and-adapter.md`](referrals-admin-0-spec-and-adapter.md)**, and this plan is
+**domain + pages** (plus the mock *data* it counts — see below).
+
+**The precondition is now: admin-0 has landed, and admin-1 has landed.** admin-0 for the adapter; admin-1
+because this plan's worklist links into the referrals tab admin-1 builds. Task 0 below becomes a verification
+rather than a spec refresh.
+
+**`currentReferralState` is a split responsibility, and the split is deliberate:**
+
+| | Owner |
+|---|---|
+| The nullable enum property on `CaseSummaryResponse`, `CaseDetailResponse`, `SavedCaseResponse` | **admin-0** |
+| The mock recomputing it as referrals transition | **admin-0** |
+| Registering it as **queryable** in admin's own `form-fields.ts` / `query-fields.ts` port | **this plan** |
+| Seeding enough mock cases in `Decided` to assert a real count against | **this plan** |
+
+The third row is the one that bites: admin's `QUERYABLE_FIELDS` is built from its own port of api's
+`FormFields`, and `caseQueryWhere` **silently drops** a condition whose field `queryableField()` does not know.
+So without this plan's domain edit the count condition never reaches the wire, and the failure is a silent
+zero rather than an error.
+
+### The original hard block — superseded, kept for the reasoning
 
 **This plan cannot be *run* until its upstream is merged and the spec is refreshed, and its Task 0 is a
 reconciliation gate that STOPS if not.** Same discipline and same reason as `admin-1`, `11-saved-queries-ui`
@@ -65,13 +91,18 @@ as planned.
 mock changes are almost entirely delivered by the spec refresh** — `currentReferralState` is a new *property*
 on two existing schemas, not a new operation — so the bulk of the work is domain + pages.
 
-1. **Spec** — refresh `openapi.json` (precondition 2).
-2. **Adapter** — `libs/deed-poll-api-client`: add `currentReferralState` (nullable enum) to
+**Layers 1–3 are admin-0's, with one exception: the mock's seeded *data* stays here** (layer 3's last
+sentence), because the number this plan asserts a count against is this plan's fixture, not the adapter's.
+Everything else below is kept for context — do not edit `openapi.json`, `wire.ts` or the mock's routing here.
+
+1. ~~**Spec** — refresh `openapi.json` (precondition 2).~~ **admin-0.**
+2. **Adapter — admin-0.** `libs/deed-poll-api-client`: add `currentReferralState` (nullable enum) to
    `caseSummarySchema` (`wire.ts:252`) **and** `savedCaseSchema` (the `SavedCaseResponse` schema — the fuller
    row the mock's queryable set derives from), keeping `WIRE_SCHEMAS`/`STRICT_RESPONSE_PROPERTIES` in step.
    **No new operation** — `listCases` already sends `where`/`size` and returns `total` (`client.ts:106-117`,
    `wire.ts:274-285`). `IMPLEMENTED_OPERATIONS` does not change.
-3. **Mock** — `libs/deed-poll-api-client/src/mock/server.ts`: `QUERYABLE_FIELDS` derives from
+3. **Mock — routing and recompute are admin-0's; the seeded data is this plan's.**
+   `libs/deed-poll-api-client/src/mock/server.ts`: `QUERYABLE_FIELDS` derives from
    `SavedCaseResponse.shape` (`server.ts:803`), so once the wire schema carries `currentReferralState` the
    mock accepts the filter automatically. What the mock needs *added* is **data**: seed some of its cases with
    `currentReferralState: 'Decided'` (and others `Open`/`Claimed`/`null`) so the count call returns a real,
@@ -176,34 +207,42 @@ yarn lint
 
 ## Tasks
 
-### Task 0: Reconciliation gate — STOP unless api-2b landed exactly as planned
+### Task 0: Verify admin-0 and admin-1 have landed — STOP if not
 
-Before any code, confirm the refreshed spec matches this plan's single assumption, and STOP otherwise:
+**Amended 2026-09-18. This task used to refresh the spec; admin-0 does that now.** Change nothing here;
+confirm four things and stop if any fails:
 
-- Refresh `openapi.json` (precondition 2) on a branch off a `master` that already has admin-1 (precondition 3).
-- The **only** new delta over admin-1's committed `openapi.json` is: `currentReferralState` (nullable enum,
-  members `Open`/`Claimed`/`Decided`/`Closed`/`Withdrawn`) added to **both** `CaseSummaryResponse` **and**
-  `SavedCaseResponse`, and present in the queryable-field surface. No new operation. No api-3 judicial
-  schemas/paths.
-- If the delta is anything else — the property on only one DTO, extra operations, judicial schemas, or
-  nothing at all — **STOP and report** which, and how reality differs. The property on `CaseSummaryResponse`
-  alone specifically means api-2b decision 7 was not honoured and the count will 400 in the mock; do not work
-  around it by special-casing the mock.
+- **`currentReferralState` is on all three wire schemas** — `caseSummarySchema` (`wire.ts:252`),
+  `caseDetailSchema` and `savedCaseSchema` — as a nullable enum with members
+  `Open`/`Claimed`/`Decided`/`Closed`/`Withdrawn`. **`savedCaseSchema` is the one that matters most**: the
+  mock's `QUERYABLE_FIELDS` derives from `SavedCaseResponse.shape` (`server.ts:803`), so if the property is
+  missing *there* the count 400s in process no matter what the other two carry. That was api-2b decision 7 and
+  admin-0 inherits it — if it is absent, stop; do not special-case the mock.
+- **The mock keeps it in step with referral transitions** (admin-0's recompute). Drive a referral to `Decided`
+  through the mock and confirm the case's `currentReferralState` follows. A mock where the two disagree makes
+  this plan's count untestable and its correctness unknowable.
+- **admin-1 has landed**, because the worklist links into its referrals tab.
+- **Both validation commands green**, totals recorded as this plan's baseline.
 
-- [ ] Spec refreshed off admin-1-merged master; delta is exactly `currentReferralState` on both DTOs + the
-      queryable set, nothing else; if not, STOPPED and reported — no spec hand-edits, no scope guesses
+- [ ] Verified: the property on all three wire schemas including `savedCaseSchema`; the mock recomputing it on
+      transition; admin-1 present; both validation commands green with baseline totals recorded — or STOPPED
+      and reported, with no adapter or mock-routing edits made here
 
-### Task 1: Adapter + mock — the field on the wire, and data to count
+### Task 1: Mock data — enough `Decided` cases to assert a real count
 
-Add `currentReferralState` (nullable enum) to `caseSummarySchema` (`wire.ts:252`) and `savedCaseSchema`,
-registered in `WIRE_SCHEMAS`/`STRICT_RESPONSE_PROPERTIES` as the pattern requires; `contract.test.ts` green.
-No `IMPLEMENTED_OPERATIONS` change. Seed the mock (`server.ts` seed/reset ~`:656`/`:683`) so a meaningful
-number of cases carry `currentReferralState: 'Decided'` and others `Open`/`Claimed`/`null`, so the count call
-returns an asserted non-zero.
+**Amended 2026-09-18: the wire property and the mock's routing are admin-0's; only the fixture is this
+plan's.** Seed the mock (`server.ts` seed/reset ~`:656`/`:683`) so a meaningful number of cases sit in
+`Decided` and others in `Open`/`Claimed`/`null`. Without this the count is always zero, and a zero count is
+indistinguishable from a condition that was silently dropped — which is the exact failure the domain task
+exists to prevent.
 
-- [ ] Both wire schemas carry the nullable enum; `contract.test.ts` green against the refreshed spec; mock
-      accepts `where=currentReferralState:is:Decided` and has seeded `Decided`/other cases; op set unchanged;
-      `turbo test test:app --concurrency=1` green
+Seed it through referrals where the mock allows it, so `currentReferralState` arrives by admin-0's recompute
+rather than being set behind its back. A fixture that contradicts the mock's own state machine teaches the
+pages something api will not do.
+
+- [ ] The mock has cases seeded across `Decided`, `Open`/`Claimed` and `null`, reached through its own
+      transitions where possible; `where=currentReferralState:is:Decided` returns an asserted non-zero
+      `total`; op set unchanged; `turbo test test:app --concurrency=1` green
 
 ### Task 2: Domain — the queryable field port and the count function
 

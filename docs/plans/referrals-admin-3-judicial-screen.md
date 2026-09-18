@@ -78,7 +78,29 @@ who reached `/judicial/**` gets api 403s — but the *UI* must not present the c
 nor the judge the caseworker chrome. That means this plan introduces the role-recognition and role-gating this
 repo has never had. **This is decision 1 below and it is the spine of the plan.**
 
-## The hard block — written ahead of its contract, exactly like admin-1/admin-2 and plans 11/12
+## AMENDED 2026-09-18 — the spec, the adapter and the judicial mock are admin-0's
+
+**admin-1's gate fired on 2026-09-18**: api had merged all four referral plans, and because
+`contract.test.ts` asserts set equality in both directions, a refreshed document obliges the adapter to carry
+the whole api — judicial operations included — in one commit. So the spec refresh, the four judicial client
+functions, the four judicial schemas and the `/judicial/**` **mock routing** all moved into
+**[`referrals-admin-0-spec-and-adapter.md`](referrals-admin-0-spec-and-adapter.md)**.
+
+**What this plan still owns, and it is the majority of it:** the **auth layer** (the role the repo drops
+today), the **role-gate middleware** the repo has never had, the **domain services**, every **page**, the
+**attestation flow**, and the **persona routing**. Layers 2, 3, 6, 7 and 8 below are untouched by the
+amendment.
+
+**The preconditions are now: admin-0, admin-1 and admin-2 have landed, and idam-1's role exists.** The idam
+dependency is unchanged and is still the one outside this repo — admin-0 deliberately does **not** depend on
+it, because the adapter looks identical whether or not the role has been provisioned.
+
+**One thing did not move, and must not be read as having moved.** The `JudicialCaseView` field-set check is
+still this plan's loudest stop. admin-0 registers whatever schema api publishes — that is its job — so it is
+**not** a filter on disclosure. If `JudicialCaseView` carries an admin-only field, the fix is in api-3, and
+Task 0 here still stops for it. A schema being present in the adapter says nothing about it being *right*.
+
+### The original hard block — superseded in part, kept for the reasoning
 
 **This plan cannot be *run* until its upstreams are merged and the spec is refreshed, and its Task 0 is a
 reconciliation gate that STOPS if not.** Same discipline and reason as `admin-1`, `admin-2`, `11-saved-queries-ui`
@@ -127,7 +149,13 @@ report** — do not hand-edit the spec, do not code around it. In particular:
 runs against. This plan touches all layers plus the auth layer (the new role) and the routing/layout layers (a
 new persona area):
 
-1. **Spec** — refresh `openapi.json` (precondition 3): four judicial operations, four judicial schemas.
+**Layers 1, 4 and 5 are admin-0's — the spec, the adapter and the judicial mock routing. Layers 2, 3, 6, 7
+and 8 are this plan's, and they are the bulk of it.** Do not edit `openapi.json`, `wire.ts`, `client.ts`,
+`contract.test.ts` or the mock's `/judicial/**` routes here; a change needed in any of them is a finding about
+admin-0.
+
+1. ~~**Spec** — refresh `openapi.json` (precondition 3): four judicial operations, four judicial schemas.~~
+   **admin-0.**
 2. **Auth** — `libs/deed-poll/src/auth/`: add `caseworker-deedpoll-judicial` to the `Role` union
    (`roles.ts`) and to `KNOWN_ROLES` (`idam-claims.ts`) so the token's judicial role survives into the session
    `CurrentUser`; add a capability accessor (an `isJudicial` alongside the existing `isAdmin`, or a small
@@ -138,13 +166,13 @@ new persona area):
    `ForbiddenError` → `src/errors.ts`, which already maps 403) for a user without the role, mounted for the
    `/judicial/**` area. Keep the allowlist polarity `.claude/rules/backend.md` fixes — this gate is *additive*
    to `requireAuth`, applied after it, never a replacement.
-4. **Adapter** — `libs/deed-poll-api-client`: four new operations on `client.ts` (`listJudicialReferrals`,
+4. **Adapter — admin-0.** `libs/deed-poll-api-client`: four new operations on `client.ts` (`listJudicialReferrals`,
    `getJudicialReferral`, `claimJudicialReferral`, `directJudicialReferral`) with `judicialReferralPath`
    helpers; four new zod schemas in `wire.ts` (`judicialReferralSummarySchema`, `judicialReferralDetailSchema`,
    `judicialCaseViewSchema`, `judicialDirectionRequestSchema`), registered in `WIRE_SCHEMAS`; the four ops in
    `IMPLEMENTED_OPERATIONS`. Follow the **saved-queries** shape (its own top-level fetches, not on the case
    payload) — the established template for a resource area that is not part of the case (Explore finding 8).
-5. **Mock** — `libs/deed-poll-api-client/src/mock/server.ts`: hand-rolled handlers for the four `/judicial/**`
+5. **Mock — admin-0.** `libs/deed-poll-api-client/src/mock/server.ts`: hand-rolled handlers for the four `/judicial/**`
    paths, enforcing the same rules as api — visibility (404 for a referral not visible to the mock's judge),
    the pool ordering (urgent-first then oldest), 409 on claiming a non-`Open` referral and on directing one not
    held, 400 on a bad direction. Seed the mock with a judge identity and a pool of referrals in mixed states so
@@ -316,14 +344,16 @@ yarn lint
 
 ## Tasks
 
-### Task 0: Reconciliation gate — STOP unless api-3 and idam-1 landed exactly as planned
+### Task 0: Verify the judicial contract and the IDAM role — STOP if either is wrong
 
-Before any code, confirm the refreshed spec and the IDAM role match this plan's assumptions, and STOP
-otherwise:
+**Amended 2026-09-18. This task used to refresh the spec; admin-0 does that now.** What remains is a
+verification, and it is the most important gate in the referrals feature: **the field-set check is a
+disclosure check, and admin-0 does not perform it.** admin-0 registers whatever api publishes, so the
+adapter carrying `JudicialCaseView` proves only that api published it — not that it is safe.
 
-- Refresh `openapi.json` (precondition 3) on a branch off a `master` that already has admin-1 and admin-2
-  (precondition 4).
-- The **only** new delta over admin-2's committed `openapi.json` is: the four `/judicial/**` operations
+Change nothing here. Read the *committed* `openapi.json` (no refresh) and confirm:
+
+- The four `/judicial/**` operations
   (`GET /judicial/referrals`, `GET /judicial/referrals/{referralId}`,
   `POST /judicial/referrals/{referralId}/claim`, `POST /judicial/referrals/{referralId}/direction`) and the
   four judicial schemas (`JudicialReferralSummary`, `JudicialReferralDetail`, `JudicialCaseView`,
@@ -332,16 +362,20 @@ otherwise:
   payment/fee reference, no privacy-editability field, no internal audit field.
 - Confirm `caseworker-deedpoll-judicial` exists as an assignable IDAM role (idam-1) and matches api-3's gate
   string.
-- If the delta is anything else — a different judicial DTO shape, `decision` not `MasterDecision`,
-  `JudicialCaseView` carrying an admin-only field, a missing `publishToGazette`, extra caseworker changes, or
-  the judicial ops absent — **STOP and report** which, and how reality differs. Do not hand-edit the spec, do
+- **admin-0, admin-1 and admin-2 have all landed**, and both validation commands are green with the totals
+  recorded as this plan's baseline.
+- If anything is otherwise — a different judicial DTO shape, `decision` not `MasterDecision`,
+  `JudicialCaseView` carrying an admin-only field, a missing `publishToGazette`, or the judicial ops absent —
+  **STOP and report** which, and how reality differs. Do not hand-edit the spec, do
   not filter a leaked field in the client (that is an api-3 fix), do not guess. **`JudicialCaseView` with an
-  admin field is the disclosure bug api-3 flag 1 exists to prevent — the loudest STOP.**
+  admin field is the disclosure bug api-3 flag 1 exists to prevent — the loudest STOP, and the one thing here
+  that admin-0 landing cleanly does *not* rule out.**
 
-- [ ] Spec refreshed off admin-2-merged master; delta is exactly the four judicial ops + four judicial schemas
-      with the shapes above; `decision` is `MasterDecision`; `JudicialCaseView` carries no admin-only field;
-      idam-1's role confirmed and string-matched; if not, STOPPED and reported — no spec hand-edits, no client
-      field-filtering, no scope guesses
+- [ ] Verified against the committed `openapi.json`: the four judicial ops and four judicial schemas present
+      with the shapes above; `decision` is `MasterDecision`; **`JudicialCaseView` carries no admin-only
+      field**; idam-1's role confirmed and string-matched; admin-0/1/2 all landed; both validation commands
+      green with baseline totals recorded — or STOPPED and reported, with no spec edits and no client
+      field-filtering
 
 ### Task 1: Auth — recognise and gate the judicial role
 
@@ -358,22 +392,32 @@ registered in `WIRE_SCHEMAS` and `IMPLEMENTED_OPERATIONS`; `contract.test.ts` gr
       (tested both directions); four judicial ops in `IMPLEMENTED_OPERATIONS`, four schemas in `WIRE_SCHEMAS`;
       `decision` schema = `MasterDecision`; `contract.test.ts` green; `turbo test test:app --concurrency=1` green
 
-### Task 2: Mock + domain — the judicial surface in process
+### Task 2: Domain — the judicial services over admin-0's adapter
 
-`libs/deed-poll-api-client/src/mock/server.ts`: handlers for the four `/judicial/**` paths enforcing api's
+**Amended 2026-09-18: the mock is admin-0's. This task is the domain layer only.** First *verify* what
+admin-0 built, because every page above depends on it behaving like api: the mock must enforce visibility
+(404 for a referral not visible to the mock's judge, indistinguishable from non-existent), pool ordering
+(urgent-first then oldest) + total, 409 on claiming a non-`Open` referral and on directing one not held, and
+400 on a bad direction, with a judge identity and a mixed-state pool seeded
+(Open/Claimed-by-me/Claimed-by-other/Decided/Withdrawn/Closed). **If any of those is missing, stop and report
+it as an admin-0 gap** — do not add it here, because a rule implemented twice in two plans is a rule that will
+diverge. The original text follows, as the specification of what to check.
+
+~~`libs/deed-poll-api-client/src/mock/server.ts`: handlers for the four `/judicial/**` paths enforcing api's
 rules — visibility (404 for a referral not visible to the mock's judge, indistinguishable from non-existent),
 pool ordering (urgent-first then oldest) + total, 409 on claiming a non-`Open` referral and on directing one
 not held, 400 on a bad direction. Seed a judge identity and a mixed-state pool (Open/Claimed-by-me/
-Claimed-by-other/Decided/Withdrawn/Closed). `libs/deed-poll/src/judicial/` (new area, mirroring
+Claimed-by-other/Decided/Withdrawn/Closed).~~ **admin-0 — verify, do not build.** `libs/deed-poll/src/judicial/` (new area, mirroring
 `saved-queries/`): `listPool`, `getReferral`, `claimReferral`, `recordDirection`, each `callApi(caller, …)`;
 the direction zod schema (decision + `directionsText` + required `publishToGazette`), colocated. Export the
 services from `libs/deed-poll/src/index.ts` (services only, never `callApi`/`ApiConfig`). Unit-test each
 against the mock, including the 404/409/400 paths and visibility.
 
-- [ ] Mock implements pool (ordered, total), read (404-on-invisible), claim (409-on-taken), direct
-      (409-on-not-held, 400-on-bad); judge + mixed-state pool seeded; domain services thin over `callApi`,
-      exported service-only; direction schema rejects missing `decision`/`publishToGazette`; unit tests cover
-      happy + 404/409/400 + visibility; `turbo test test:app --concurrency=1` green
+- [ ] admin-0's mock **verified** to implement pool (ordered, total), read (404-on-invisible), claim
+      (409-on-taken), direct (409-on-not-held, 400-on-bad) with a judge and mixed-state pool seeded — or the
+      gap reported rather than filled here; domain services thin over `callApi`, exported service-only;
+      direction schema rejects missing `decision`/`publishToGazette`; unit tests cover happy + 404/409/400 +
+      visibility; `turbo test test:app --concurrency=1` green
 
 ### Task 3: Pages — the pool, the referral view, claim
 
