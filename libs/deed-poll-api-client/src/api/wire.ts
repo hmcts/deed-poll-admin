@@ -195,6 +195,11 @@ const savedCaseSchema = z.object({
   referralNotes: z.string().nullish(),
   publishToLondonGazette: z.boolean(),
 
+  // The state of the case's one referral that is not terminal, or null when it has none — api's own
+  // denormalisation, never recomputed from the referrals here. Null is the ordinary value: most cases have
+  // never been referred, and a case whose referral closed has none live either.
+  currentReferralState: z.enum(REFERRAL_STATE).nullish(),
+
   returnReason: z.string().nullish(),
   refundAmount: z.number().nullish(),
   dateOfRefund: wireDateTime.nullish(),
@@ -262,9 +267,6 @@ const documentSchema = z.object({
  * because the caller named the case in the path, the second because it is the inactivity sweep's
  * bookkeeping rather than a fact about the referral.
  *
- * Exported alongside the registry, temporarily, because `client.ts` parses with it before Task 2b registers
- * it in {@link WIRE_SCHEMAS}. Fold these back into the registry reference when it does.
- *
  * `reasons` is the stored strings and not `REFERRAL_REASON` members: the column is a JSON array api
  * validates on write, so a backfilled or hand-corrected row is published as it stands. It is **empty for a
  * migrated referral** — the source store had no such field — which is what `migrated` explains, and never
@@ -273,7 +275,7 @@ const documentSchema = z.object({
  * `publishToGazette` is nullable where `migrated` is not: api boxes it deliberately, because a referral with
  * no direction has not been asked the question and absent is not false.
  */
-export const referralSchema = z.object({
+const referralSchema = z.object({
   id: z.string(),
   state: z.enum(REFERRAL_STATE).nullish(),
   reasons: z.array(z.string()),
@@ -316,7 +318,10 @@ const caseSummarySchema = z.object({
   // On a list row so a search matching on surname can show the surname it matched — otherwise a `q` of
   // "Smith" answers with a table of forenames. Nullish because api publishes it as a plain string with no
   // `required` entry: a case that has not been given a new surname has none.
-  newSurname: z.string().nullish()
+  newSurname: z.string().nullish(),
+  // On the summary as well as the detail so a worklist can show which rows are with the judiciary without a
+  // read per row. Same value and same rule as `savedCaseSchema`'s.
+  currentReferralState: z.enum(REFERRAL_STATE).nullish()
 });
 
 /**
@@ -480,7 +485,7 @@ const updateWitnessSchema = createWitnessSchema.partial();
  * No `state`, no `migrated` and no assignee: the state of a new referral is always `Open`, there is no target
  * judge — who picks a referral up is a later transition — and api ignores all three rather than refusing them.
  */
-export const createReferralSchema = z.object({
+const createReferralSchema = z.object({
   reasons: z.array(z.enum(REFERRAL_REASON)).min(1),
   notes: z.string().max(1000).optional(),
   urgency: z.enum(URGENCY).optional(),
@@ -573,7 +578,7 @@ const updateSavedQuerySchema = z.object({
  * name — showing the first and last parts of "John Peter Smith" to "John Peter Smyth" would hide the only part
  * that moved.
  */
-export const judicialCaseViewSchema = z.object({
+const judicialCaseViewSchema = z.object({
   displayReference: z.string().nullish(),
   type: z.enum(DEED_POLL_TYPE).nullish(),
   oldForename: z.string().nullish(),
@@ -591,7 +596,7 @@ export const judicialCaseViewSchema = z.object({
  * because the amendment audit trail is the office's record-keeping rather than the timeline. `createdBy` stays
  * — an unattributed timeline is one a judge cannot weigh.
  */
-export const judicialCaseNoteSchema = z.object({
+const judicialCaseNoteSchema = z.object({
   note: z.string(),
   createdBy: z.string().nullish(),
   createdOn: wireDateTime.nullish()
@@ -608,7 +613,7 @@ export const judicialCaseNoteSchema = z.object({
  * `createdOn` rather than an age in days, for the reason the case list publishes raw dates: it is the pool's
  * second sort key, and a computed age cannot be sorted or re-rendered tomorrow.
  */
-export const judicialReferralSummarySchema = z.object({
+const judicialReferralSummarySchema = z.object({
   id: z.string(),
   state: z.enum(REFERRAL_STATE).nullish(),
   reasons: z.array(z.string()),
@@ -633,7 +638,7 @@ export const judicialReferralSummarySchema = z.object({
  * referral, which has no holder, or a `Claimed`/`Decided` one only when the caller is the judge on it. So a
  * page rendering them cannot disclose who else holds anything.
  */
-export const judicialReferralDetailSchema = judicialReferralSummarySchema.extend({
+const judicialReferralDetailSchema = judicialReferralSummarySchema.extend({
   claimedBy: z.string().nullish(),
   claimedAt: wireDateTime.nullish(),
   decision: z.enum(MASTER_DECISION).nullish(),
@@ -653,7 +658,7 @@ export const judicialReferralDetailSchema = judicialReferralSummarySchema.extend
  * api APPLIED — it clamps an over-cap value rather than refusing it — so a caller that asked for a thousand
  * rows and got a hundred can tell, instead of reading a full page as the whole pool and stopping.
  */
-export const judicialPoolSchema = z.object({
+const judicialPoolSchema = z.object({
   referrals: z.array(judicialReferralSummarySchema),
   page: z.number(),
   size: z.number(),
@@ -671,7 +676,7 @@ export const judicialPoolSchema = z.object({
  * `directionsText` is optional, because an approval that needs no comment is a real answer. The state, the
  * decider and the decision date come from the transition, the token and api's clock, so none of them is here.
  */
-export const judicialDirectionSchema = z.object({
+const judicialDirectionSchema = z.object({
   decision: z.enum(MASTER_DECISION),
   publishToGazette: z.boolean(),
   directionsText: z.string().max(4000).optional()
@@ -711,7 +716,15 @@ export const WIRE_SCHEMAS = {
   FieldRulesResponse: fieldRulesSchema,
   SavedQueryResponse: savedQuerySchema,
   CreateSavedQueryRequest: createSavedQuerySchema,
-  UpdateSavedQueryRequest: updateSavedQuerySchema
+  UpdateSavedQueryRequest: updateSavedQuerySchema,
+  CreateReferralRequest: createReferralSchema,
+  ReferralResponse: referralSchema,
+  JudicialDirectionRequest: judicialDirectionSchema,
+  JudicialPoolResponse: judicialPoolSchema,
+  JudicialReferralSummary: judicialReferralSummarySchema,
+  JudicialReferralDetail: judicialReferralDetailSchema,
+  JudicialCaseView: judicialCaseViewSchema,
+  JudicialCaseNote: judicialCaseNoteSchema
 } as const;
 
 /**
@@ -764,7 +777,24 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   FieldRulesResponse: ["rules"],
   // `shared`, `selected` and `editable` are Java booleans at source, and `conditions` is a List api always
   // sends — empty for a query that narrows nothing, never null. `name` is NOT NULL in the schema.
-  SavedQueryResponse: ["id", "name", "shared", "conditions", "selected", "editable"]
+  SavedQueryResponse: ["id", "name", "shared", "conditions", "selected", "editable"],
+  // `migrated` is a `boolean` primitive on api's record and `reasons` a `List.copyOf` — empty for a migrated
+  // referral, never null. `publishToGazette` is a boxed `Boolean` and `decision` a nullable enum, so neither
+  // is here: a referral with no direction has not been asked either question.
+  ReferralResponse: ["id", "migrated", "reasons"],
+  JudicialReferralSummary: ["id", "reasons"],
+  // `caseNotes` joins them: api builds it with `stream().toList()`, so an application with no notes arrives
+  // as `[]`. `application` does not, despite api always building one — a nested record is neither a
+  // primitive, a collection nor an id.
+  JudicialReferralDetail: ["id", "reasons", "caseNotes"],
+  // `page`, `size` and `totalPages` are `int` and `total` is `long`, as `CaseListResponse`'s already are.
+  JudicialPoolResponse: ["referrals", "page", "size", "total", "totalPages"],
+  // `note` for the reason `NoteResponse.note` is pinned: the column is NOT NULL. No id, because no judicial
+  // route accepts one.
+  JudicialCaseNote: ["note"],
+  // Empty, and correctly so: no id, no primitive and no collection. Every one of the eight fields is a
+  // nullable column of the application.
+  JudicialCaseView: []
 };
 
 export type WireSavedCase = z.infer<typeof savedCaseSchema>;

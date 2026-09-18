@@ -17,9 +17,6 @@ import { Readable } from "node:stream";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import type { z } from "zod";
 import {
-  judicialPoolSchema,
-  judicialReferralDetailSchema,
-  referralSchema,
   UNSPECIFIED_SCHEMAS,
   WIRE_SCHEMAS,
   type WireCaseDetail,
@@ -339,12 +336,12 @@ export function listDocumentTypes(config: ApiConfig): Promise<ApiResult<Document
  * on the case itself as `currentReferralState`, so a page holding the case does not compute it.
  */
 export function listReferrals(caseId: string, config: ApiConfig): Promise<ApiResult<Referral[]>> {
-  return request(config, "GET", `/caseworker/cases/${encodeURIComponent(caseId)}/referrals`, referralSchema.array());
+  return request(config, "GET", `/caseworker/cases/${encodeURIComponent(caseId)}/referrals`, WIRE_SCHEMAS.ReferralResponse.array());
 }
 
 /** One referral of one case. A referral id under the wrong case is api's 404, not a check made here. */
 export function getReferral(caseId: string, referralId: string, config: ApiConfig): Promise<ApiResult<Referral>> {
-  return request(config, "GET", referralPath(caseId, referralId), referralSchema);
+  return request(config, "GET", referralPath(caseId, referralId), WIRE_SCHEMAS.ReferralResponse);
 }
 
 /**
@@ -355,7 +352,7 @@ export function getReferral(caseId: string, referralId: string, config: ApiConfi
  * second live referral is a state, not a malformed body. The author comes from the caller's token.
  */
 export function createReferral(caseId: string, referral: ReferralCreate, config: ApiConfig): Promise<ApiResult<Referral>> {
-  return request(config, "POST", `/caseworker/cases/${encodeURIComponent(caseId)}/referrals`, referralSchema, referral);
+  return request(config, "POST", `/caseworker/cases/${encodeURIComponent(caseId)}/referrals`, WIRE_SCHEMAS.ReferralResponse, referral);
 }
 
 /**
@@ -365,7 +362,7 @@ export function createReferral(caseId: string, referral: ReferralCreate, config:
  * nothing left to state. `conflict` when the referral is already terminal.
  */
 export function withdrawReferral(caseId: string, referralId: string, config: ApiConfig): Promise<ApiResult<Referral>> {
-  return request(config, "POST", `${referralPath(caseId, referralId)}/withdrawal`, referralSchema);
+  return request(config, "POST", `${referralPath(caseId, referralId)}/withdrawal`, WIRE_SCHEMAS.ReferralResponse);
 }
 
 /**
@@ -375,7 +372,7 @@ export function withdrawReferral(caseId: string, referralId: string, config: Api
  * judge's direction, so there has to be one to carry out.
  */
 export function closeReferral(caseId: string, referralId: string, config: ApiConfig): Promise<ApiResult<Referral>> {
-  return request(config, "POST", `${referralPath(caseId, referralId)}/closure`, referralSchema);
+  return request(config, "POST", `${referralPath(caseId, referralId)}/closure`, WIRE_SCHEMAS.ReferralResponse);
 }
 
 /**
@@ -473,7 +470,7 @@ export function getJudicialPool(query: JudicialPoolQuery, config: ApiConfig): Pr
 
   const search = parameters.toString();
 
-  return request(config, "GET", `/judicial/referrals${search === "" ? "" : `?${search}`}`, judicialPoolSchema);
+  return request(config, "GET", `/judicial/referrals${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.JudicialPoolResponse);
 }
 
 /**
@@ -485,7 +482,7 @@ export function getJudicialPool(query: JudicialPoolQuery, config: ApiConfig): Pr
  * discoverable by watching status codes.
  */
 export function getJudicialReferral(referralId: string, config: ApiConfig): Promise<ApiResult<JudicialReferralDetail>> {
-  return request(config, "GET", judicialReferralPath(referralId), judicialReferralDetailSchema);
+  return request(config, "GET", judicialReferralPath(referralId), WIRE_SCHEMAS.JudicialReferralDetail);
 }
 
 /**
@@ -496,7 +493,7 @@ export function getJudicialReferral(referralId: string, config: ApiConfig): Prom
  * been taken: the pool is shared, so two judges reading the same page is ordinary rather than exceptional.
  */
 export function claimJudicialReferral(referralId: string, config: ApiConfig): Promise<ApiResult<JudicialReferralDetail>> {
-  return request(config, "POST", `${judicialReferralPath(referralId)}/claim`, judicialReferralDetailSchema);
+  return request(config, "POST", `${judicialReferralPath(referralId)}/claim`, WIRE_SCHEMAS.JudicialReferralDetail);
 }
 
 /**
@@ -506,7 +503,7 @@ export function claimJudicialReferral(referralId: string, config: ApiConfig): Pr
  * taken back by api's inactivity sweep — both are a referral that moved on, not a late direction.
  */
 export function directJudicialReferral(referralId: string, direction: JudicialDirection, config: ApiConfig): Promise<ApiResult<JudicialReferralDetail>> {
-  return request(config, "POST", `${judicialReferralPath(referralId)}/direction`, judicialReferralDetailSchema, direction);
+  return request(config, "POST", `${judicialReferralPath(referralId)}/direction`, WIRE_SCHEMAS.JudicialReferralDetail, direction);
 }
 
 /**

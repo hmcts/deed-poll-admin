@@ -6,15 +6,58 @@ one of them rather than licence to invent.
 
 | | |
 |---|---|
-| **api commit** | `3b2579ab14e8c073aa27999e0f477d1d6bc4aa92` — "Publish the sortable fields in a fixed order (#18)", 2026-09-17. **Not `19fbb39` (#17)**, though this file was captured before #18 merged: #18 only fixed the order of four names in the `sort` description, and the captured document already carries the fixed order, so `3b2579a` is the commit that reproduces this file byte-for-byte and `19fbb39` is not. |
-| **Taken on** | 2026-09-17 |
+| **api commit** | `ee3717313d3cd841608b05a38f4b9a9598f84a30` — "Merge pull request #24 from hmcts/referrals-api-3", 2026-09-18, the tip of `origin/master`. Regenerated from a detached worktree rather than by switching the shared clone's branch. |
+| **Taken on** | 2026-09-18 |
 | **How** | `GET /v3/api-docs`, as api's `OpenAPIPublisherTest` captures it for the `hmcts/cnp-api-docs` publish workflow. Reformatted (2-space JSON) and otherwise unmodified. |
-| **Operations** | **25 caseworker operations** across 13 paths, plus Spring Boot's `GET /` — 26 in total. 19 schemas. The refresh added the seven `/caseworker/saved-queries*` operations, three schemas (`SavedQueryResponse`, `CreateSavedQueryRequest`, `UpdateSavedQueryRequest`), a `q` parameter on the case list, and two response properties: `CaseListResponse.referenceMatch` and `CaseSummaryResponse.newSurname`. |
+| **Operations** | **30 caseworker operations** across 17 paths, **4 judicial** across 4 paths, plus Spring Boot's `GET /` — 35 in total, across 22 paths. 27 schemas. The refresh added the whole referrals surface: five `/caseworker/cases/{id}/referrals*` operations, four `/judicial/referrals*` ones, and eight schemas (`CreateReferralRequest`, `ReferralResponse`, `JudicialDirectionRequest`, `JudicialPoolResponse`, `JudicialReferralSummary`, `JudicialReferralDetail`, `JudicialCaseView`, `JudicialCaseNote`). It is four api plans' worth in one step — api-1, api-2, api-2b and api-3 — because admin's spec had not been refreshed since api-1 merged. `#21` between them is documents only, with nothing under `src/main/`. |
+| **Before that** | `3b2579ab14e8c073aa27999e0f477d1d6bc4aa92` — "Publish the sortable fields in a fixed order (#18)", 2026-09-17. **Not `19fbb39` (#17)**, though the document was captured before #18 merged: #18 only fixed the order of four names in the `sort` description, and the captured document already carried the fixed order, so `3b2579a` is the commit that reproduced it byte-for-byte and `19fbb39` is not. **25 caseworker operations** across 13 paths, plus `GET /` — 26 in total. 19 schemas. That refresh added the seven `/caseworker/saved-queries*` operations, three schemas (`SavedQueryResponse`, `CreateSavedQueryRequest`, `UpdateSavedQueryRequest`), a `q` parameter on the case list, and two response properties: `CaseListResponse.referenceMatch` and `CaseSummaryResponse.newSurname`. |
 | **Before that** | `fd4fe3a61bf33c0cdea7066cf884dc87fd1df71f` — "Field-level case query, sorting and paging (#14)", 2026-09-14. 18 caseworker operations. It added no operation: the query surface **extended** `GET /caseworker/cases` with `where`, `sort`, `page` and `size`, and added `page`, `size`, `total` and `totalPages` to `CaseListResponse`. A `POST .../search` was deliberately not what api built — decision 1 of `deed-poll-api/docs/plans/completed/case-query-and-paging.md`: a query has to be bookmarkable and survive the back button. |
 | **Before that** | `051f3b49d101a4e0cefc9477de9ea4f618ad1bf9` — "Allow Administrators to delete a witness (#9)", which added `DELETE /caseworker/cases/{id}/witnesses/{witnessId}`. It carries an **Administrator gate api enforces in the domain** — `WitnessService.removeWitness` calls `requireAnyRole` before it resolves the witness — and the document says nothing about that, because springdoc has no vocabulary for it. api's own tests are its authority; nothing here re-checks a role. |
 
 Every operation count above is right and none is a bug: api's `OpenAPIPublisherTest` asserts the caseworker
-count outright, and the extra path is the welcome route.
+count and the judicial count separately and outright — `isEqualTo(30)` and `isEqualTo(4)`, with a
+`doesNotContainAnyElementsOf` between the two lists — and the extra path is the welcome route. So the counts
+here are not an independent measurement that happens to agree; they agree with numbers api's own build fails on.
+
+The actuator and query facts the document cannot carry were re-checked at this refresh, as the closing section
+says to: api's `application.yaml` still has `management.endpoints.web.base-path: /`, the health probes enabled
+and the `liveness` group including `livenessState`; `SecurityConfiguration.PUBLIC_PATHS` still allowlists
+`/health` and `/health/**`; and the `where` parameter's operator table is byte-identical, so the only
+description that moved is `sort`'s.
+
+## What the 2026-09-18 refresh changed that was not an addition
+
+Three things, each accounted for property by property against `3b2579a`. Nothing was removed on either axis,
+and no pre-existing schema was retyped:
+
+1. **`currentReferralState` on three case schemas** — `CaseSummaryResponse`, `CaseDetailResponse` and
+   `SavedCaseResponse`, identically: `{"type":"string","enum":["Open","Claimed","Decided","Closed",
+   "Withdrawn"]}`. api's denormalisation of "the state of the case's one non-terminal referral, or null". A
+   deep diff of all 19 pre-existing schemas found these three properties and nothing else.
+2. **One `operationId` shift** — `POST /caseworker/cases/{id}/notes` went `create_3` → `create_4`, because the
+   new `POST …/referrals` took `create_3`. The collision-by-shape churn described below; nothing here keys off
+   an `operationId`. One moved, against eight last refresh.
+3. **`currentReferralState` appended to the `sort` parameter's sortable-field list** on `GET /caseworker/cases`
+   — 69 names to 70, inserted at index 15, directly after `state`. **Not the determinism bug returning**, and
+   that was checked rather than eyeballed: the 69 shared names are in byte-identical order and
+   `createdOn, modifiedOn, createdBy, modifiedBy` are still the last four in #18's pinned order, so the
+   `List.of` fix holds. Registering the field as *queryable* in
+   `libs/deed-poll/src/deed-poll/query-fields.ts` is a later plan's work; the adapter reads no parameter
+   description.
+
+**Both keyed write bodies published properly**, which is the check the 2026-09-17 defect below made mandatory:
+`CreateReferralRequest` carries four properties (`reasons` required, `minItems: 1`, an items-level enum of six;
+`notes` capped at 1000; `urgency`; `urgencyReason` capped at 500) and `JudicialDirectionRequest` three
+(`decision` and `publishToGazette` required, `directionsText` capped at 4000). Neither is `{}`, so
+`OpenAPIWriteBodies`'s `describeReferralBody`/`describeDirectionBody` did their job and there is nothing to
+raise upstream. One shared quirk, checked rather than assumed new: **every hand-registered write body omits
+`type: object`** — `CreateSavedQueryRequest`, `UpdateSavedQueryRequest`, `CreateNoteRequest` and
+`CreateCaseRequest` all publish `type: undefined` with their properties present, and the two referral bodies
+match them.
+
+**`CreateReferralRequest.reasons` is the one enum the drift test cannot pin**: api publishes the six members on
+the array's *items*, and `contract.test.ts` reads `properties[x].enum`. `REFERRAL_REASON` in `wire.ts` is
+therefore checked by hand at each refresh — a member added at api's end fails at the wire, not in the suite.
 
 ## What the 2026-09-17 refresh changed that was not an addition
 

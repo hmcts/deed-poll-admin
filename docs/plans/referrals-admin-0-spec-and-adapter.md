@@ -460,7 +460,27 @@ worth its dead code. Totals should rise only by whatever the per-schema comparis
 
 **Pass 1 ends here.** Stop, report the measured figures, and do not begin Task 3 in the same run.
 
-- [ ] Task 2b complete
+- [x] Task 2b complete — the document is at api `ee37173` (35 operations, 27 schemas), the eight schemas are
+      registered, `currentReferralState` is on the three case schemas, strictness is pinned per schema, the
+      nine operations are in `IMPLEMENTED_OPERATIONS`, and `SPEC-PROVENANCE.md` carries a new row with
+      `3b2579a` pushed down rather than overwritten.
+      **Measured:** lint exit 0, 306 files, 2 warnings and 2 infos — unchanged. `1,975 passed, 3 skipped,
+      8 of 8 tasks`, up 22 from 1,953, and **all 22 in `@hmcts/deed-poll-api-client` (242 → 264)** with every
+      other package's figure identical. That is the per-schema comparison arriving and nothing else moving.
+      **It did not go red on the way**, which is the one prediction above that did not hold: every shape 2a
+      guessed from api's records — all five strictness sets, the eight property lists, the six enum
+      comparisons — matched the document first time, so the split bought localisation it turned out not to
+      need. Worth recording as evidence that reading api's Java records beats inferring from the document,
+      not as an argument that the split was unnecessary.
+      **A sixth edit the task's five did not list**, and it is not optional: `contract.test.ts`'s
+      `requests` array (`:135`) is what excludes a write body from "should pin strictness for every response
+      schema", so `CreateReferralRequest` and `JudicialDirectionRequest` had to join it. Left out, that test
+      demands a `STRICT_RESPONSE_PROPERTIES` entry for two request schemas — the opposite of what the list
+      means. Task 2a's follow-up is also done: the three parse sites now read `WIRE_SCHEMAS.*` and all eight
+      schemas have lost their `export`, so the registry is the single reference again.
+      Two refresh obligations `SPEC-PROVENANCE.md` sets were discharged rather than skipped: api's actuator
+      config and `PUBLIC_PATHS` still put the liveness probe where `checkApiReachable` looks, and the `where`
+      parameter's operator table is byte-identical — `sort`'s is the only description that moved.
 
 ### Task 3: The in-memory mock
 

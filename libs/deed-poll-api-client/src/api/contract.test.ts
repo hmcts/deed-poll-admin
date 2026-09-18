@@ -51,6 +51,11 @@ const IMPLEMENTED_OPERATIONS = [
   "DELETE /caseworker/cases/{id}/witnesses/{witnessId}",
   "POST /caseworker/cases/{id}/documents",
   "GET /caseworker/cases/{id}/documents/{documentId}/file",
+  "GET /caseworker/cases/{id}/referrals",
+  "POST /caseworker/cases/{id}/referrals",
+  "GET /caseworker/cases/{id}/referrals/{referralId}",
+  "POST /caseworker/cases/{id}/referrals/{referralId}/withdrawal",
+  "POST /caseworker/cases/{id}/referrals/{referralId}/closure",
   "GET /caseworker/document-types",
   "GET /caseworker/saved-queries",
   "POST /caseworker/saved-queries",
@@ -58,7 +63,11 @@ const IMPLEMENTED_OPERATIONS = [
   "PATCH /caseworker/saved-queries/{id}",
   "DELETE /caseworker/saved-queries/{id}",
   "PUT /caseworker/saved-queries/{id}/selection",
-  "DELETE /caseworker/saved-queries/{id}/selection"
+  "DELETE /caseworker/saved-queries/{id}/selection",
+  "GET /judicial/referrals",
+  "GET /judicial/referrals/{referralId}",
+  "POST /judicial/referrals/{referralId}/claim",
+  "POST /judicial/referrals/{referralId}/direction"
 ];
 
 describe("openapi.json and the wire schemas", () => {
@@ -135,7 +144,9 @@ describe("openapi.json and the wire schemas", () => {
       "CreateWitnessRequest",
       "UpdateWitnessRequest",
       "CreateSavedQueryRequest",
-      "UpdateSavedQueryRequest"
+      "UpdateSavedQueryRequest",
+      "CreateReferralRequest",
+      "JudicialDirectionRequest"
     ];
     const responses = Object.keys(WIRE_SCHEMAS).filter((name) => !requests.includes(name));
 
