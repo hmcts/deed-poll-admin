@@ -88,6 +88,10 @@ describe("the login page", () => {
     it.each([
       ["an absolute URL", "https://evil.example"],
       ["a protocol-relative URL, which browsers read as absolute", "//evil.example"],
+      // Rooted, so the `//` check passes it — but the URL parser reads `\` as `/` in a special scheme and
+      // `encodeurl` does not escape it, so the browser resolves this off-site just the same.
+      ["a backslash-relative URL, which resolves off-site because `\\` parses as `/`", "/\\evil.example"],
+      ["a backslash-relative URL written with a trailing slash", "/\\/evil.example"],
       ["a scheme-only URL", "javascript:alert(1)"],
       ["a relative path that is not rooted", "deed-polls"],
       ["an array, as a repeated query parameter arrives", ["/deed-polls", "https://evil.example"] as unknown as string],
@@ -98,12 +102,15 @@ describe("the login page", () => {
       expect(beginLogin).toHaveBeenCalledWith(expect.anything(), "/");
     });
 
-    it("refuses an off-site destination for someone already signed in, too", async () => {
-      // The same check has to hold on this branch: it redirects without going near IDAM, so a hole
-      // here is an open redirect that needs no login at all.
+    // The same check has to hold on this branch: it redirects without going near IDAM, so a hole here is an
+    // open redirect that needs no login at all.
+    it.each([
+      ["a protocol-relative URL", "//evil.example"],
+      ["a backslash-relative URL", "/\\evil.example"]
+    ])("refuses %s for someone already signed in, too", async (_case, returnTo) => {
       const res = pageResponse();
 
-      await GET(pageRequest({ query: { returnTo: "//evil.example" } }), res);
+      await GET(pageRequest({ query: { returnTo } }), res);
 
       expect(res.redirect).toHaveBeenCalledWith("/");
     });
