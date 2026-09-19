@@ -13,10 +13,14 @@
  * **The source is parsed, not imported.** These are page modules: importing one pulls in the domain and
  * therefore Prisma, so reading the AST keeps this a text operation with no database and no build step.
  *
- * **Scope is the deed-poll pages plus the shared locale files.** `pages/onboarding/**` is template demo
- * content that nothing in this service links to, and `pages/(footer)/**` arrived already translated —
- * paying to translate either would be waste. That boundary is a judgement call, so it is stated here
- * rather than buried in a glob.
+ * **Scope is the service's own page areas plus the shared locale files** — today `pages/deed-polls/**` (the
+ * caseworker) and `pages/judicial/**` (the judge). `pages/onboarding/**` is template demo content that nothing
+ * in this service links to, and `pages/(footer)/**` arrived already translated — paying to translate either
+ * would be waste. That boundary is a judgement call, so it is stated here rather than buried in a glob.
+ *
+ * **A new page area must be added to `INCLUDE`, and nothing fails if it is not.** The judicial pages carry
+ * `en`/`cy` pairs like every other page, so the omission is invisible in the code and shows only as a
+ * translation request that silently lacks a persona — which is what happened when `pages/judicial/**` shipped.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -46,7 +50,7 @@ const DRAFTS = path.join(ROOT, ".business_context", "welsh-draft.csv");
  */
 const NOT_PROSE = /^(https?:\/\/|\/|mailto:)|^[\w.-]+@[\w.-]+$|^[\d\s+()]{7,}$|^(GOV\.UK|beta)$/;
 
-const INCLUDE = [path.join(ROOT, "src/pages/deed-polls"), path.join(ROOT, "src/locales")];
+const INCLUDE = [path.join(ROOT, "src/pages/deed-polls"), path.join(ROOT, "src/pages/judicial"), path.join(ROOT, "src/locales")];
 
 const checkOnly = process.argv.includes("--check");
 
@@ -171,16 +175,38 @@ function collect(file) {
       const name = ts.isIdentifier(decl.name) ? decl.name.text : undefined;
       if (!decl.initializer || !ts.isObjectLiteralExpression(decl.initializer)) continue;
 
-      // `locales/en.ts` and `locales/cy.ts` both export `content`, so the locale comes from the filename.
-      const which = name === "content" ? (path.basename(relative, ".ts") === "cy" ? "cy" : "en") : name;
-      if (which !== "en" && which !== "cy") continue;
+      const pair = localeOf(name, relative);
+      if (!pair) continue;
 
-      if (which === "cy" && spreadsEn(decl.initializer)) entry.cyMirrorsEn = true;
-      entry[which] = { ...(entry[which] ?? {}), ...flatten(decl.initializer, "", relative) };
+      if (pair.which === "cy" && spreadsEn(decl.initializer)) entry.cyMirrorsEn = true;
+      entry[pair.which] = { ...(entry[pair.which] ?? {}), ...flatten(decl.initializer, pair.prefix, relative) };
     }
   });
 
   groups.set(group, entry);
+}
+
+/**
+ * Which locale a content object holds, and the key prefix its strings are reported under — or nothing for a
+ * declaration that is not content at all.
+ *
+ * Three shapes, because the service has three:
+ *
+ * - `locales/{en,cy}.ts` both export `content`, so there the locale comes from the filename.
+ * - `const en` / `const cy` is the page norm, and its keys are reported unprefixed.
+ * - `const <name>En` / `const <name>Cy` is a page's *second* pair — a handler that renders one of two content
+ *   sets from one file, as the judicial referral's "no longer available" page does. The prefix is what keeps
+ *   those keys apart: both pairs have a `title` and a `heading` with different words, and reporting them
+ *   unprefixed would merge into the group and silently drop one of each.
+ */
+function localeOf(name, relative) {
+  if (name === "content") return { which: path.basename(relative, ".ts") === "cy" ? "cy" : "en", prefix: "" };
+  if (name === "en" || name === "cy") return { which: name, prefix: "" };
+
+  const suffixed = /^(.+)(En|Cy)$/.exec(name);
+  if (suffixed) return { which: suffixed[2].toLowerCase(), prefix: suffixed[1] };
+
+  return undefined;
 }
 
 /** True for `const cy = { ...en }`, with or without explicit overrides alongside the spread. */

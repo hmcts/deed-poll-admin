@@ -158,7 +158,12 @@ export const GET = async (req: Request, res: Response) => {
     // because they are the same fact arriving by two doors — the referral is visible and the write it was asked
     // for does not apply to its state — and a page cannot be arrived at through both at once. An unrecognised
     // value says nothing at all, since a hand-typed `?direction=`/`?claim=` pins no state.
-    directionRecorded: req.query.direction === DIRECTION_RECORDED ? content.directionRecordedMessage : "",
+    //
+    // The success banner is checked against what api sent as well as against the query, because it asserts a
+    // *write*: `?direction=recorded` on a referral api holds no direction for would announce one that does not
+    // exist, beside a status of `Open` and a "Claim this referral" button. A refusal needs no such check — one
+    // that no longer applies is only over-cautious.
+    directionRecorded: req.query.direction === DIRECTION_RECORDED && view.direction !== null ? content.directionRecordedMessage : "",
     refused: refusal(req.query, content),
     en,
     cy

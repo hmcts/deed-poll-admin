@@ -41,6 +41,19 @@ const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferr
     ...overrides
   }) as JudicialReferralDetail;
 
+/** A referral this judge has already directed — what the success banner is checked against. */
+const decided = (): JudicialReferralDetail =>
+  detail({
+    state: "Decided",
+    claimedBy: "judge-1",
+    claimedAt: new Date("2026-09-03T09:00:00Z"),
+    decision: "Approved",
+    directionsText: "Grant the application",
+    publishToGazette: true,
+    decisionDate: new Date("2026-09-03T10:00:00Z"),
+    decidedBy: "judge-1"
+  } as Partial<JudicialReferralDetail>);
+
 function request(referralId = "ref-1", query: Record<string, unknown> = {}) {
   return pageRequest({ params: { referralId }, query, judicial: true, accessToken: "judge-token" });
 }
@@ -189,12 +202,23 @@ describe("the judicial referral page", () => {
   // and two sources for the refusal, since api's 409 on a claim lands here too.
   describe("what a redirect comes back with", () => {
     it("should say the direction was recorded when it has just been", async () => {
+      vi.mocked(getReferral).mockResolvedValue(decided() as never);
       const res = pageResponse();
 
       await GET(request("ref-1", { direction: "recorded" }), res);
 
       expect(res.render.mock.calls[0][1].directionRecorded).toBe("Your direction has been recorded.");
       expect(res.render.mock.calls[0][1].refused).toBe("");
+    });
+
+    // The banner asserts a write, so the query alone must not be enough to show it: a stale or shared
+    // `?direction=recorded` would otherwise announce a direction beside a status of `Open` and a claim button.
+    it("should say nothing when the query claims a direction api holds none for", async () => {
+      const res = pageResponse();
+
+      await GET(request("ref-1", { direction: "recorded" }), res);
+
+      expect(res.render.mock.calls[0][1].directionRecorded).toBe("");
     });
 
     // api's 409: visible, but not in this judge's hands — it went back to the pool, or they have already directed

@@ -147,6 +147,18 @@ single file:
   a user typing the URL. The gate admits them, so this is a missing route rather than a refusal; it is the plan's
   flagged open question, and the fix if the business confirms such a user is a conditional link on the case list,
   not a change to the landing.
+- **The pool is `Open` only, so claiming a referral takes it off the only list that links to it.** api filters
+  `GET /judicial/referrals` to `Open` — the plan's "plus the judge's own `Claimed`/`Decided`" describes decision
+  3's *read* visibility, not its list — and there is no query for a judge's own claims. A judge who claims one and
+  then follows "Back to referrals" cannot reach it again until api's inactivity sweep returns it. Do not try to fix
+  that here by re-listing or by filtering client-side: the missing query is api's, and it is recorded as an open
+  question on `referrals-admin-3`.
+- **A new page area must be added to `scripts/extract-welsh-strings.mjs`'s `INCLUDE`.** The script's scope is a
+  list of directories, so a page area that is not on it contributes nothing to
+  `.business_context/welsh-translation-request.csv` and nothing to `yarn welsh:check` — with no failure anywhere,
+  because the pages still carry their `en`/`cy` pairs. `src/pages/judicial/**` shipped that way and was invisible
+  to the translation request until the directory was added. A page whose *second* content pair is named
+  `<name>En`/`<name>Cy` is picked up too, under a `<name>.` key prefix.
 
 ## Deployment and sessions
 

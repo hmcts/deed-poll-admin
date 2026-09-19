@@ -323,6 +323,17 @@ admin-0.
 - **A judge's "my decided referrals" history view** — api-3's visibility already permits a judge to read their
   own `Decided` referrals, so the data is reachable, but a dedicated history list is additive and not asked for
   (api-3 "deliberately not in this plan"). Out of scope here.
+- **A referral a judge has claimed but not yet directed has no route back to it, and that is api's to fix, not
+  this screen's.** Item 1 above says the pool carries "the judge's own `Claimed`/`Decided` referrals"; that
+  conflates api-3 decision 3's *read* visibility with its list, and Task 0's verification of the contract found
+  what api actually does — `GET /judicial/referrals` filters to `Open`. So a claim takes the referral off the
+  only list that links to it, and the referral view's own "Back to referrals" leads to a page it is not on.
+  A judge who claims one and then navigates away is left with the browser's history or a remembered URL until
+  api's inactivity sweep returns it to the pool. Not fixable here: api's four judicial operations offer no
+  query for a judge's own `Claimed` referrals, so the fix is a state filter or a "mine" query on
+  `GET /judicial/referrals` in api first, and a second list (or a section on the pool) here afterwards. Worth
+  raising with api-3 before a judge meets it, because the claim is what creates the gap and claiming is the
+  point of the screen.
 - **A session-backed direction wizard** vs the request-carried approach (decision 7) — recommended
   request-carried (repo norm); flagged in case a reviewer prefers session.
 
