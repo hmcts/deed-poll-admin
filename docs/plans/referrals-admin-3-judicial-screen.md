@@ -336,11 +336,16 @@ to this plan:
 **These run after every task, so everything here must be green after every task — not only at the end.**
 
 ```bash
-turbo test test:app --concurrency=1
+yarn turbo test test:app --concurrency=1
 yarn lint
 ```
 
-(`turbo test test:app --concurrency=1`, never bare `yarn test` — [[deed-poll-admin-yarn-test-false-red]].)
+(Never bare `yarn test`, which reports a false failure here — [[deed-poll-admin-yarn-test-false-red]].)
+
+**Corrected 2026-09-19: the `yarn` prefix is required and was missing.** `turbo` is not on PATH in this
+devcontainer — only at `node_modules/.bin/turbo`, which `yarn` puts on PATH and a bare shell does not. Without
+it this block starts **red with `command not found`**, which is not a signal about the code at all. See the
+same correction in `referrals-admin-2`.
 
 ## Tasks
 

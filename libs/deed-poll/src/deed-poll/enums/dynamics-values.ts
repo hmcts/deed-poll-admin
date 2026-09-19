@@ -11,6 +11,7 @@
  * are derived for import. Keying by `Record<DeedPollType, number>` is what makes a
  * member added to api's option set a compile error here rather than a missing label.
  */
+import { REFERRAL_STATE, type ReferralState } from "@hmcts/deed-poll-api-client";
 import type {
   DeedPollState,
   DeedPollType,
@@ -184,6 +185,40 @@ export const DOCUMENT_DIRECTION_LABEL: Record<DocumentDirection, string> = {
 };
 
 /**
+ * The two states a referral cannot leave, as api's `ReferralState` documents them.
+ *
+ * The **only** referral-state rule this repo keeps, and it decides two display questions and nothing else:
+ * whether the withdraw control is offered (`../../referrals/referrals-view.ts`) and which states the
+ * `currentReferralState` filter can usefully ask for (below). Anything beyond "is this state terminal" — who
+ * may claim, what a decision permits — is api's and stays there. Lives here rather than beside the withdraw
+ * rule because the option set below is built from it and `referrals-view.ts` cannot be imported from this file
+ * without a cycle through `detail-view.ts`.
+ */
+export const TERMINAL_REFERRAL_STATES: readonly ReferralState[] = ["Closed", "Withdrawn"];
+
+/**
+ * The states the *case field* `currentReferralState` can hold, for the query builder's value chooser
+ * (`NON_FORM_QUERYABLE_FIELDS`). Not a Dynamics option set — referrals are api's own — but a queryable `enum`
+ * with no entry here renders a value chooser holding nothing, so the condition the dashboard's worklist link
+ * carries could not be shown or resubmitted.
+ *
+ * **Narrower than `ReferralState` on purpose: the terminal members are absent.** api derives this field from
+ * the case's *live* referral, so a case whose only referral is `Closed` or `Withdrawn` carries `null`, not the
+ * terminal state — offering either as a filter value would be offering a condition that can only ever answer
+ * an empty list, and "0 applications" reads as "no case has a closed referral" when the truth is that this
+ * field never records one. A caseworker reading a case's own referral history reads it on the referrals tab,
+ * where every state including the terminal two is tagged (`REFERRAL_STATE_TAG`).
+ *
+ * Each member's label is its own name, because that is what the referrals tab prints (it tags `referral.state`
+ * raw) and two wordings for one state is the divergence `REFERRAL_URGENCY_LABEL`'s docblock is careful about.
+ * Built by filtering api's member array rather than typed out, per the "option sets are built, never restated"
+ * rule: a state added at api's end reaches the builder without an edit here.
+ */
+export const CURRENT_REFERRAL_STATE_LABEL: Record<string, string> = Object.fromEntries(
+  REFERRAL_STATE.filter((state) => !TERMINAL_REFERRAL_STATES.includes(state)).map((state) => [state, state])
+);
+
+/**
  * Multiselect option sets — stored as Int[] on the record, so these maps are
  * keyed by the Dynamics integer value (mirrors deedpoll_ishall etc.).
  */
@@ -223,6 +258,7 @@ export const LABELS = {
   masterDecision: MASTER_DECISION_LABEL,
   referToMaster: REFER_TO_MASTER_LABEL,
   documentDirection: DOCUMENT_DIRECTION_LABEL,
+  currentReferralState: CURRENT_REFERRAL_STATE_LABEL,
   iShall: I_SHALL_LABEL,
   iHaveSubscribed: I_HAVE_SUBSCRIBED_LABEL,
   andAlsoMyOld: AND_ALSO_MY_OLD_LABEL

@@ -1022,6 +1022,40 @@ describe("the case's currentReferralState", () => {
     expect(listed.cases.map((summary: { id: string }) => summary.id)).toEqual([caseId]);
   });
 
+  it("should count only the Decided cases, which is the total a returned-for-action count reads", async () => {
+    // The fixture the dashboard's count is asserted against, driven through the mock's own transitions
+    // rather than written behind them: three cases returned for action, and four that must not be counted —
+    // one still Open, one Claimed, one Closed (terminal, so null again) and one never referred. A count
+    // that cannot tell the seven apart is indistinguishable from a condition silently dropped on the way to
+    // the wire.
+    await decidedReferral("judge@example.com");
+    await decidedReferral("judge@example.com");
+    await decidedReferral("other.judge@example.com");
+    await referredCase();
+    await claimedReferral("judge@example.com");
+    const actioned = await decidedReferral("judge@example.com");
+    await post(`/caseworker/cases/${actioned.caseId}/referrals/${actioned.referralId}/closure`);
+    mock.seed(null);
+
+    // `size=1`, as the count asks for it: the number is api's `total` across every page, never the rows.
+    const counted = await get("/caseworker/cases?where=currentReferralState:is:Decided&size=1");
+
+    expect(counted.total).toBe(3);
+    expect(counted.cases).toHaveLength(1);
+  });
+
+  it("should list exactly the counted cases when the same filter is followed as a worklist", async () => {
+    // The count and the worklist are one query run twice, so the ids behind the number are asserted too: a
+    // total of three over a list of something else would make the banner lie about where it leads.
+    const returned = [await decidedReferral("judge@example.com"), await decidedReferral("other.judge@example.com")];
+    await claimedReferral("judge@example.com");
+    mock.seed(null);
+
+    const worklist = await get("/caseworker/cases?where=currentReferralState:is:Decided");
+
+    expect(worklist.cases.map((summary: { id: string }) => summary.id).sort()).toEqual(returned.map(({ caseId }) => caseId).sort());
+  });
+
   it("should be derived from the referrals a case is seeded with, rather than left to disagree with them", async () => {
     // The arrangement a page test starts from: a case already with the judiciary, without driving the
     // transitions that got it there.

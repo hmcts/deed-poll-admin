@@ -30,6 +30,7 @@ import {
   type CaseListSort,
   caseListSearch,
   conditionsFromBuilder,
+  countReturnedForAction,
   type FieldError,
   fieldControlName,
   filterFor,
@@ -46,6 +47,7 @@ import {
   type QueryScriptLabels,
   queryBuilderMetadata,
   queryErrors,
+  returnedForActionConditions,
   serialiseConditions,
   serialiseSort,
   unusedConditionRows
@@ -57,6 +59,16 @@ const LIST_PATH = "/deed-polls";
 
 /** Where the saved-query pages live: the library, and `new` beneath it — plan 11's decision 9. */
 const QUERIES_PATH = "/deed-polls/queries";
+
+/**
+ * The "returned — action needed" worklist: the condition the count is read with, as a link.
+ *
+ * Built from `returnedForActionConditions()` rather than written out, so clicking the number runs the query
+ * that produced it — decision 3, and the reason the field had to be genuinely queryable rather than a bespoke
+ * aggregate. It deliberately carries no filter, term, order or page: the count is global (decision 5), so its
+ * worklist is the same query for every caseworker on every tab.
+ */
+const RETURNED_FOR_ACTION_PATH = `${LIST_PATH}${caseListSearch({ conditions: returnedForActionConditions() })}`;
 
 const en = {
   title: "Deed poll cases",
@@ -77,6 +89,18 @@ const en = {
   // The second group's label, rendered only when the caseworker has queries in their own list.
   savedQueryGroupLabel: "Saved queries",
   empty: "No cases match this filter.",
+  // "Returned — action needed" — decisions 4 and 7. Count-sensitive because "1 applications have" is the
+  // kind of thing a caseworker stops trusting a service over, and the number is the whole of the message.
+  bannerTitle: "Important",
+  returnedForActionFor: (count: number) =>
+    count === 1 ? "1 application has a returned direction needing action" : `${count} applications have a returned direction needing action`,
+  returnedForActionLink: "View these applications",
+  // Shown when the count could not be read. Worded so it cannot be mistaken for "nothing needs action", which
+  // is precisely what its silent absence used to say — see `returnedForActionCount`.
+  returnedForActionUnavailable:
+    "The number of applications with a returned direction could not be loaded, so this page cannot say whether any need action. Try again shortly.",
+  // GOV.UK's own fallback for the warning icon, which is decorative and needs a text equivalent.
+  warningIcon: "Warning",
   newCase: "New case",
   privateTag: "Private",
   builderHeading: "Filter these cases",
@@ -186,10 +210,13 @@ export const GET = async (req: Request, res: Response) => {
 async function runQuery(req: Request, res: Response, view: ListView, rowErrors: QueryRowError[] = [], submitted?: Record<string, unknown>) {
   const { filter, q, conditions, sort, page } = view;
   const caller = callerFromRequest(req);
-  // Started before the list call and awaited after it: the table and the nav are two things this page
-  // needs, and one waiting on the other's round trip would put a second api latency in front of every
-  // case list for the sake of a navigation bar.
+  // Started before the list call and awaited after it: the table, the nav and the count are three things
+  // this page needs, and one waiting on the other's round trip would put a second api latency in front of
+  // every case list for the sake of a navigation bar.
   const savedQueries = savedQueryEntries(caller, view);
+  // A third query, and a different one from the list on screen — decisions 2 and 5. Not narrowed by this
+  // request: "N need action" is a fact about the service rather than about the tab being looked at.
+  const returnedForAction = returnedForActionCount(caller);
 
   try {
     const results = await findDeedPolls({ filter: filter.key, q, conditions, sort: serialiseSort(sort), page }, caller);
@@ -203,7 +230,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
     // inferred from the rows this one holds — decision 9.
     const paging = buildPaging(results, (wanted) => listHref({ filter: filter.key, q, conditions, sort, page: wanted }));
 
-    return render(res, view, await savedQueries, buildCaseList(results.cases), paging, rowErrors, [], submitted);
+    return render(res, view, await savedQueries, await returnedForAction, buildCaseList(results.cases), paging, rowErrors, [], submitted);
   } catch (error) {
     if (!(error instanceof InvalidInputError)) throw error;
 
@@ -211,8 +238,9 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
     if (refusals.unaddressed.length > 0) console.error(`case query refused: ${error.message}`);
     res.status(400);
 
-    // No paging: a refused query has no page of results to be one of.
-    return render(res, view, await savedQueries, [], null, [...rowErrors, ...refusals.rows], refusals.unaddressed, submitted);
+    // No paging: a refused query has no page of results to be one of. The count survives, because the
+    // query it reads is not the one that was refused — decision 5.
+    return render(res, view, await savedQueries, await returnedForAction, [], null, [...rowErrors, ...refusals.rows], refusals.unaddressed, submitted);
   }
 }
 
@@ -242,10 +270,36 @@ async function savedQueryEntries(caller: Caller, { filter, conditions, sort }: L
   }
 }
 
+/**
+ * How many cases have a returned direction needing action, or `null` if the count could not be read.
+ *
+ * **A failure here must not cost anyone their case list.** The list is load-bearing and the count is one
+ * element above it, so the rule `[id].ts` states for its referrals tab applies: an additive second query
+ * degrades rather than taking the page with it. `countReturnedForAction` reads a `where` on a field the
+ * caseworker did not choose, so a refusal of it is this app's own bug and not theirs to correct — which is
+ * why every failure is caught here rather than only the unreachable ones.
+ *
+ * Logged **and** said on the page. "The count is the alert" has exactly one failure mode nobody would notice —
+ * a silently absent banner looks identical to nothing needing action — and a log fixes that for an engineer
+ * reading logs, not for the caseworker deciding whether there is work. So `null` is carried through to the
+ * template as its own state rather than folded into the zero: three outcomes, three renderings. Same rule as
+ * `[id].ts`'s referrals panel, where an unreadable panel says so instead of rendering "None recorded".
+ */
+async function returnedForActionCount(caller: Caller): Promise<number | null> {
+  try {
+    return await countReturnedForAction(caller);
+  } catch (error) {
+    console.error(`returned-for-action count unavailable: ${error instanceof Error ? error.message : String(error)}`);
+
+    return null;
+  }
+}
+
 function render(
   res: Response,
   view: ListView,
   savedQueries: NavEntry[],
+  returnedForAction: number | null,
   cases: CaseListRow[],
   paging: CaseListPaging | null,
   rowErrors: QueryRowError[],
@@ -262,6 +316,14 @@ function render(
 
   res.render("deed-polls/index", {
     cases,
+    // Empty rather than a zero, so the template asks "is there something to say" rather than holding the
+    // decision that a zero is not worth saying — decision 4: an alert with a zero in it is not an alert.
+    returnedForAction: returnedForAction === null || returnedForAction === 0 ? "" : content.returnedForActionFor(returnedForAction),
+    // The third state, and not folded into the empty one: a count that could not be read is not a count of
+    // zero, and the template must be able to tell them apart to say so. `returnedForActionCount` has already
+    // logged it; this is what the caseworker is told.
+    returnedForActionFailed: returnedForAction === null,
+    returnedForActionHref: RETURNED_FOR_ACTION_PATH,
     filterGroups: filterGroups(view, content, savedQueries),
     // The builder's own copy of the tab, and deliberately not the nav's: the hidden control is what carries
     // the filter through a GET submission, where a nav entry's `current` is what the bar draws. One value

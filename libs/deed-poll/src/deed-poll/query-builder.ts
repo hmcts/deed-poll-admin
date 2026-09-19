@@ -32,6 +32,7 @@ import { enumOptions, type FieldDef, type FieldKind } from "./form-fields.js";
 import { collectDateErrors } from "./form-validation.js";
 import {
   CHOOSABLE_FIELD_GROUPS,
+  CHOOSABLE_FIELDS,
   isOperatorValidFor,
   OPERATOR_LABELS,
   operatorsFor,
@@ -313,6 +314,7 @@ function buildRow(condition: CaseCondition, index: number, labels: QueryLabels, 
       // Above the groups rather than in one: a placeholder inside an `<optgroup>` is announced as a member
       // of that section, and "Choose a case field" belongs to no section.
       placeholder: { value: "", text: labels.chooseField, selected: definition === undefined, checked: false },
+      applied: appliedOption(definition),
       groups: CHOOSABLE_FIELD_GROUPS.map((group) => ({
         label: group.label,
         options: group.fields.map((candidate) => option(candidate.name, candidate.label, candidate.name === condition.field))
@@ -370,6 +372,25 @@ function valueControl(kind: FieldKind | undefined, arity: ValueArity): ValueCont
     default:
       return "text";
   }
+}
+
+/**
+ * The condition's own field as an option, for a field the chooser does not offer.
+ *
+ * **Without it the row cannot submit the filter it is showing.** `queryableField` resolves every field api
+ * answers a condition on, which is deliberately wider than the chooser (`CHOOSABLE_FIELD_GROUPS` curates it,
+ * and `NON_FORM_QUERYABLE_FIELDS` sits outside the tabs it is grouped by). A select with no option for the
+ * field submits the placeholder's empty value, so `readRow` resolves no definition, the condition comes back
+ * blank and Apply — or Add condition, or Remove — silently answers the *whole* list. The dashboard's
+ * "returned — action needed" link carries exactly such a condition, so that is not a hand-edited-URL edge
+ * case: it is the worklist a caseworker is sent to, still claiming a count it no longer filters by.
+ *
+ * `null` for a field a group already holds, because two selected options in one select is no better than none.
+ */
+function appliedOption(definition: FieldDef | undefined): QueryOption | null {
+  if (definition === undefined || CHOOSABLE_FIELDS.some((candidate) => candidate.name === definition.name)) return null;
+
+  return option(definition.name, definition.label, true);
 }
 
 /** One typed-in value: a text box, a number box, or the three parts of a date. */
@@ -507,6 +528,11 @@ export interface QueryFieldSelect {
   name: string;
   /** The "Choose a case field" entry, which belongs to no group. */
   placeholder: QueryOption;
+  /**
+   * The field this condition names, when no group offers it — see `appliedOption`. Ungrouped for the same
+   * reason the placeholder is: it belongs to no section of the form.
+   */
+  applied: QueryOption | null;
   groups: QueryOptionGroup[];
 }
 

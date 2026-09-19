@@ -199,11 +199,18 @@ process). Additional to this plan:
 **These run after every task, so everything here must be green after every task — not only at the end.**
 
 ```bash
-turbo test test:app --concurrency=1
+yarn turbo test test:app --concurrency=1
 yarn lint
 ```
 
-(`turbo test test:app --concurrency=1`, never bare `yarn test` — [[deed-poll-admin-yarn-test-false-red]].)
+(Never bare `yarn test`, which reports a false failure here — [[deed-poll-admin-yarn-test-false-red]].)
+
+**Corrected 2026-09-19: the `yarn` prefix is required and was missing.** `turbo` is not on PATH in this
+devcontainer — only at `node_modules/.bin/turbo`, which `yarn` puts on PATH and a bare shell does not. Written
+without it, this block starts **red with `command not found`**, which is worse than a failing test: it is not a
+signal about the code at all. admin-1 shipped the same mistake and its run survived only because the agent
+silently substituted `yarn turbo` at every call site — luck, not design. `referrals-admin-0` had it right and
+says so in its own notes.
 
 ## Tasks
 
@@ -224,9 +231,28 @@ confirm four things and stop if any fails:
 - **admin-1 has landed**, because the worklist links into its referrals tab.
 - **Both validation commands green**, totals recorded as this plan's baseline.
 
-- [ ] Verified: the property on all three wire schemas including `savedCaseSchema`; the mock recomputing it on
+- [x] Verified: the property on all three wire schemas including `savedCaseSchema`; the mock recomputing it on
       transition; admin-1 present; both validation commands green with baseline totals recorded — or STOPPED
       and reported, with no adapter or mock-routing edits made here
+
+**Gate passed 2026-09-19. No files changed by this task.** What was confirmed:
+
+- **All three wire schemas carry it** as `z.enum(REFERRAL_STATE).nullish()` with the five members:
+  `savedCaseSchema` (`wire.ts:201` — the one the mock's `QUERYABLE_FIELDS` derives from, `server.ts:1092`),
+  `caseSummarySchema` (`wire.ts:324`), and `caseDetailSchema` by extension of `savedCaseSchema`
+  (`wire.ts:304`) rather than a third restatement. Absent from `STRICT_RESPONSE_PROPERTIES` on all three,
+  which is right: null is the ordinary value.
+- **The mock recomputes it on transition** — `server.ts:1535` derives it from the case's first non-terminal
+  referral, and `server.test.ts:979` drives `Open → Claimed → Decided → null` through the real endpoints and
+  asserts the case follows, with `Closed`/`Withdrawn` landing on null. `server.test.ts:1019` already proves
+  `where=currentReferralState:is:Open` filters, so the mock accepts the filter shape this plan counts with.
+- **admin-1 has landed** — `docs/plans/completed/referrals-admin-1-caseworker-referrals-tab.md`, merged at
+  `52db3fc`, with `libs/deed-poll/src/referrals/` and the referral pages on disk. admin-0 is completed too.
+- **Baseline, both commands green:** `yarn turbo test test:app --concurrency=1` → 8 successful, 8 total;
+  `//:test:app` 48 files / 715 tests, `@hmcts/deed-poll` 48 / 827, `@hmcts/deed-poll-api-client` 4 / 325,
+  `express-govuk-starter` 12 / 127, `cloud-native-platform` 10 / 140, `simple-router` 4 / 41,
+  `express-session-postgres` 2 / 23, `express-session-redis` 1 / 7 — **2205 tests, 129 files**.
+  `yarn lint` exits 0 (2 warnings, 2 infos, all pre-existing).
 
 ### Task 1: Mock data — enough `Decided` cases to assert a real count
 
@@ -240,9 +266,30 @@ Seed it through referrals where the mock allows it, so `currentReferralState` ar
 rather than being set behind its back. A fixture that contradicts the mock's own state machine teaches the
 pages something api will not do.
 
-- [ ] The mock has cases seeded across `Decided`, `Open`/`Claimed` and `null`, reached through its own
+- [x] The mock has cases seeded across `Decided`, `Open`/`Claimed` and `null`, reached through its own
       transitions where possible; `where=currentReferralState:is:Decided` returns an asserted non-zero
       `total`; op set unchanged; `turbo test test:app --concurrency=1` green
+
+**Done 2026-09-19. The seed the plan named is in two places, because the mock has two callers:**
+
+- **`server.ts` has no baked-in dataset to edit** — it starts with an empty case store in every scenario
+  (`fixtures.ts` fixes document types and nothing else), so the `:656`/`:683` line references were to `seed`
+  and `reset` themselves, not to a fixture list. `seed` already recomputes `currentReferralState` from a case
+  seeded with referrals (`server.ts:958`), which is all the routing this task needed. **No mock-server edit.**
+- **The suite's fixture is in `server.test.ts`**: two tests in the `currentReferralState` describe. The first
+  drives seven cases through the mock's own transitions — three `Decided`, one `Open`, one `Claimed`, one
+  `Closed` (terminal, so null again), one never referred — and asserts
+  `where=currentReferralState:is:Decided&size=1` answers `total: 3` with one row, which is the shape
+  `countReturnedForAction` will read in Task 2. The second asserts the same filter without `size` lists
+  exactly those ids, so the count and the worklist it links to are pinned as one query.
+- **The dev fixture is `scripts/seed-local-cases.mjs`** (`yarn mock:seed`), which is what makes the count
+  non-zero for `yarn dev` and for a manual look at the banner. A referral phase now drives 9 of the 26
+  Received cases through raise → claim → direct → close: 4 `Decided`, 2 `Claimed`, 2 `Open`, 1 `Closed`. It
+  reads the count back through the same `where` and reports a mismatch, because a `where` the mock did not
+  recognise answers the case total and a dropped condition answers zero — both look like a working seed
+  otherwise. Verified against a live mock: "Referred 9, of which 4 are returned and need action."
+- **Op set unchanged**; no `openapi.json`, `wire.ts` or mock-routing edit. **2207 tests / 129 files, 8 of 8
+  tasks successful** (baseline 2205 plus the two new); `yarn lint` exits 0 with the same 2 warnings / 2 infos.
 
 ### Task 2: Domain — the queryable field port and the count function
 
@@ -255,10 +302,35 @@ export it from `libs/deed-poll/src/index.ts` (service only, never `callApi`/`Api
 the mock: with N seeded `Decided` cases it returns N; with none it returns 0; a domain test that the condition
 survives serialisation (is not dropped).
 
-- [ ] `currentReferralState` is a queryable field admin-side (mirrors `state`, read-only); `caseQueryWhere`
+- [x] `currentReferralState` is a queryable field admin-side (mirrors `state`, read-only); `caseQueryWhere`
       serialises `currentReferralState:is:Decided` (proven by test, not dropped); `countReturnedForAction`
       returns api's `total` for the fixed filter; unit-tested N and 0 against the mock; `turbo test test:app
       --concurrency=1` green
+
+**Done 2026-09-19.** Two departures from the task's wording, both deliberate:
+
+- **The field is queryable without being on a form tab.** `QUERYABLE_FIELDS` derives from `FORM_TABS`, so
+  "mirroring `state`" literally would have put a disabled control on the Application tab and a row in the
+  detail card — a display change decision 8 does not make. So `form-fields.ts` gains
+  `NON_FORM_QUERYABLE_FIELDS` (one entry, read-only, `kind: "enum"`, `queryable: false`) and
+  `QUERYABLE_FIELDS` is the form **then** that list. The drift guard is untouched: every form field is still
+  queryable with no second edit, and `query-fields.test.ts` now pins the concatenation rather than equality.
+  It is not in `FIELD_BY_NAME`, which answers "is this a form field", nor choosable — the chooser is grouped
+  by tab and section and a non-form field has no group, which is why the banner link is the route to the
+  worklist. No `enumSet`: api's members are already display words, and a label set nothing offers is
+  five entries to maintain for a select only a hand-edited URL can reach.
+- **The count lives in `libs/deed-poll/src/referrals/returned-for-action.ts`**, not in `deed-poll/service.ts`:
+  it is the referrals feature asking a case question, and `service.ts` is deliberately "thin functions and no
+  rules of their own". The file holds the frozen `RETURNED_FOR_ACTION_CONDITIONS` beside the count, so Task 3's
+  worklist href and this count are one condition written down once (decision 3) — `caseListSearch` can build
+  the link from the same constant. Exported from `libs/deed-poll/src/index.ts`; `callApi` stays private.
+- **The domain test mocks the adapter**, per `.claude/rules/testing.md`, and asserts the `where` array reaching
+  `listCases` — that is what proves the condition was not silently dropped, which is the failure this task
+  exists to prevent. The N-against-real-data proof is Task 1's `server.test.ts`, which drives seven cases
+  through the mock's own transitions and asserts `total: 3`; the test file's docblock says so.
+- **2217 tests / 130 files, 8 of 8 tasks successful** (Task 1 left 2207/129: +8 in
+  `returned-for-action.test.ts`, +2 in `query-fields.test.ts`); `yarn lint` exits 0 with the same 2 warnings /
+  2 infos.
 
 ### Task 3: Pages — the count element and its worklist link
 
@@ -271,10 +343,38 @@ independent of the current filter (decision 5). Test (`index.test.ts` / `index.n
 shows with the right count and link when there are `Decided` cases; is absent when there are none; the link
 target is the `where` filter; the count does not change with the current tab.
 
-- [ ] Dashboard fetches the count in parallel; banner renders with correct count + worklist link when >0 and
+- [x] Dashboard fetches the count in parallel; banner renders with correct count + worklist link when >0 and
       is absent at 0; text is singular/plural and has `cy`; clicking the link lands on the `where`-filtered
       list (the worklist); count is filter-independent; page tests cover present/absent/link; `turbo test
       test:app --concurrency=1` green
+
+**Done 2026-09-19.** Three decisions the task's wording left open, and one departure:
+
+- **The count degrades rather than failing the page.** `returnedForActionCount` in `index.ts` catches every
+  failure, logs `returned-for-action count unavailable` and returns `null`, which renders as no banner. The
+  task did not say, but CLAUDE.md's "a second call for one panel must not be able to lose the page" does: the
+  list is load-bearing and the count is one element above it, so this follows `savedQueryEntries` and
+  `[id].ts`'s referrals tab. It catches *everything* rather than naming `unavailable` because the `where` it
+  sends is this app's, not the caseworker's — an `InvalidInputError` there is our bug and there is no field to
+  render it against. It is logged because "the count is the alert" has exactly one unnoticeable failure mode: a
+  silently absent banner looks identical to nothing needing action.
+- **The banner sits at the top of the content, above the `<h1>`**, not immediately above the table. "Above the
+  list" taken literally puts it below a search box, a filter bar and a 40-line query builder, where a thing
+  whose only job is to be seen is not seen. Same position and same `type: "important"` as `detail.njk`'s
+  privacy banner, which is also GOV.UK's own guidance for the component.
+- **The worklist href is built from `RETURNED_FOR_ACTION_CONDITIONS` through `caseListSearch`**, as the module
+  const `RETURNED_FOR_ACTION_PATH` — `/deed-polls?where=currentReferralState%3Ais%3ADecided`. Percent-encoded
+  because that is what every other link on the page does; it is the same URL the plan's prose writes
+  unencoded. It carries no filter, term, sort or page, which is decision 5 made mechanical: there is no code
+  path by which the tab on screen can narrow the worklist.
+- **The view model passes the resolved sentence, not the number** — `returnedForAction` is `""` when there is
+  nothing to say (0, or a count that could not be read), matching `unusedConditions` and keeping decision 4 in
+  the handler rather than as an `> 0` in the template.
+- **2231 tests / 130 files, 8 of 8 tasks successful** (Task 2 left 2217/130: +9 in `index.test.ts`, +5 in
+  `index.njk.test.ts`); `yarn lint` exits 0 with the same 2 warnings / 2 infos. The page tests pin the count's
+  own call (caller only, once), singular/plural, absent-at-0, the href, survival of a refused list query and of
+  an unreachable count; the template tests pin that the banner is above the search form, is a plain link, is an
+  `aria-labelledby` region, and is absent entirely at 0.
 
 ### Task 4: E2E and full validation
 
@@ -282,9 +382,53 @@ A Playwright journey (`e2e-tests/tests/`, mirror an existing dashboard spec): wi
 cases, the caseworker lands on the dashboard, sees the count banner, clicks it, and arrives at the filtered
 worklist of exactly those cases. Happy path only.
 
-- [ ] E2E: dashboard → count banner → click → filtered worklist; `turbo test test:app --concurrency=1` and
+- [x] E2E: dashboard → count banner → click → filtered worklist; `turbo test test:app --concurrency=1` and
       `yarn lint` green; the six pipeline scripts still present (do not delete `lint`/`test`/`test:coverage`/
       `test:a11y`/`test:smoke`/`test:functional`); a11y check on the new banner passes
+
+**Done 2026-09-19.** One test added to `e2e-tests/tests/deed-polls.spec.ts` rather than a spec of its own — the
+dashboard journeys live there and so do the seeding and axe helpers this one reuses. What the decisions cost:
+
+- **The count is asserted as a baseline plus this journey's two cases, not as an absolute.** It is global
+  (decision 5) and the mock's store outlives a run — `reuseExistingServer`, and `yarn mock:seed` leaves four
+  `Decided` cases behind — so `returnedForActionTotal` reads the same `where` through the mock *before*
+  seeding and the banner is expected to say `baseline + 2`. An absolute number would have passed on a fresh CI
+  mock and gone red on any developer who had run `yarn dev`. Nothing else in the suite drives a referral past
+  `Claimed`, so the baseline cannot move while the test runs.
+- **The judge's two transitions are driven through api's routes, not a UI, because there is no judicial UI
+  yet** (admin-3). `referTo` raises through `POST /caseworker/cases/{id}/referrals` and then claims and directs
+  as `e2e.judge@example.com` with a hand-built bearer token, exactly as `scripts/seed-local-cases.mjs` does —
+  the mock reads a subject from the token and models no roles. The referral state is never written onto the
+  seed body: the mock recomputes it, and a fixture that contradicted its state machine would teach the
+  dashboard a number api cannot produce.
+- **A third case is left `Claimed`**, so the worklist is asserted to exclude it: a journey seeding nothing but
+  `Decided` would pass against a link whose condition was dropped, which is this plan's whole failure mode.
+  The rows are found by this run's surname *and* display reference — five digits is only 10,000 serials and
+  the mock's store outlives the run, so a reference alone could be matched by an earlier run's `Decided` row
+  while the new ones were missing — and the two seeded ones are at the top of page 1 whatever the baseline,
+  because the mock's default order is `createdOn` descending.
+- **axe runs at both points** — the dashboard carrying the banner and the worklist it links to — with no
+  waivers, and the count is re-read on the Enroled tab so decision 5 is checked where a caseworker would
+  notice it.
+- **Green:** the whole Playwright suite `30 passed` (not just the new journey — the new cases join a shared
+  store, so the other journeys' totals are the thing worth re-running); `yarn turbo test test:app
+  --concurrency=1` → 8 of 8 tasks, **2231 tests / 130 files**, unchanged from Task 3 because an E2E spec is not
+  in the vitest suite; `yarn lint` exits 0 with the same 2 warnings / 2 infos. All six pipeline scripts still
+  in `package.json`.
+- **Flagged, then fixed in review (2026-09-19).** The first of the two options below was not needed: the field
+  stays out of the chooser (decision 8 holds), and `buildRow` now renders a resolved-but-unchoosable field as an
+  ungrouped option of its own (`appliedOption`), so the row shows the filter in effect and **submits it back**.
+  `currentReferralState` also gained an `enumSet` (`REFERRAL_STATE_LABEL`, built from api's member array), so its
+  value select offers the states rather than only "Choose a value". Pinned by `query-builder.test.ts` (the row,
+  and a resubmission composed from what a browser would send), `index.njk.test.ts` (the markup) and an Apply
+  round trip in the Playwright journey. What was flagged:
+- **Flagged, not fixed:** the worklist page renders its query-builder row with the field chooser reading
+  "Choose a case field" and the value select holding only "Choose a value", because `currentReferralState` is
+  deliberately not choosable (Task 2, decision 8) while `queryableField` still resolves it. axe is clean and
+  the rows are right, but pressing **Apply filters** on the worklist drops the condition and shows the whole
+  list. That is the known cost of a non-form queryable field; fixing it means either offering the field in the
+  chooser or rendering an applied-but-unchoosable condition as a removable summary, and both are display
+  decisions this plan does not make.
 
 ## Deliberately not in this plan
 

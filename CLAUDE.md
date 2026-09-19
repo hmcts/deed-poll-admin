@@ -22,7 +22,14 @@ yarn format                     # Format code with Biome
 
 # deed-poll-api
 yarn mock:api                   # The in-memory api the pages develop against, on port 3200
+yarn mock:seed                  # Seed the running mock: ~32 cases across every tab plus nine referrals, four
+                                # of them Decided so the dashboard's returned-for-action count is non-zero.
+                                # Resets the store unless given `--keep`, and exits non-zero on a mismatch
 ```
+
+The mock starts **empty**, so a page whose data comes from a list — the case list, its filter tabs, the
+dashboard's count — shows nothing until `yarn mock:seed` has run. An empty store is indistinguishable from a
+broken feature, which is why the seeder reads its own numbers back (`scripts/seed-local-cases.mjs`).
 
 There are **no database commands**, and the `yarn db:*` family that used to be listed here is gone rather
 than renamed. See "No data access layer" below.
@@ -234,6 +241,17 @@ Follow these strict naming conventions throughout the project:
   which way a given call goes is **load-bearing versus additive**: `findDeedPoll` is the case and
   `getCaseFieldRules` decides which fields exist at all, so both stay fatal. The degraded state must be
   distinguishable from an empty one — see `unavailableReferralsView`'s docblock for why
+- **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its two
+  additive calls — the saved-query nav and the returned-for-action count — *before* the list read and awaits each
+  inside a helper that catches everything, logs, and returns a sentinel (`[]`, `null`); only the list read is
+  fatal. Reach for that shape on a page with one load-bearing call rather than `Promise.allSettled`, which is
+  `[id].ts`'s answer to two.
+- **A log is not a way of telling the caseworker.** Both degraded states must be distinguishable from empty
+  ones *on the page*: a silently absent count banner reads as "nothing needs action", so the returned-for-action
+  count carries its `null` through as its own state and the page says the number could not be loaded. Log it as
+  well, for whoever is asked why — but the log answers an engineer's question, not the caseworker's. An earlier
+  version of this rule offered the log line *as* the resolution, which was circular: it asserted the states were
+  distinguishable while leaving the two renderings identical
 - Ask api to filter, sort and page. It resolves a filter key; do not fetch a list and narrow it here
 - Consider caching for expensive computations
 - Every call carries an `AbortSignal.timeout`, so a slow api degrades pages rather than hanging them

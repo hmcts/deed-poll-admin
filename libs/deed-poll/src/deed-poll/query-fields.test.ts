@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FIELD_BY_NAME, type FieldKind, FORM_TABS } from "./form-fields.js";
+import { FIELD_BY_NAME, type FieldKind, FORM_TABS, NON_FORM_QUERYABLE_FIELDS } from "./form-fields.js";
 import {
   CHOOSABLE_FIELD_GROUPS,
   CHOOSABLE_FIELDS,
@@ -30,7 +30,18 @@ describe("deed-poll/query-fields", () => {
       // The drift guard: enumerating the queryable fields separately is what this test exists to prevent.
       const formFields = FORM_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields)).map((field) => field.name);
 
-      expect(QUERYABLE_FIELDS.map((field) => field.name)).toEqual(formFields);
+      expect(QUERYABLE_FIELDS.map((field) => field.name)).toEqual([...formFields, ...NON_FORM_QUERYABLE_FIELDS.map((field) => field.name)]);
+    });
+
+    it("should carry the case properties api answers conditions on that no form tab holds a control for", () => {
+      // `currentReferralState` is derived by api from the case's live referral, so it has nothing to type
+      // into — and a condition on a field this list lacks is dropped by `caseQueryWhere` without a word.
+      const referralState = queryableField("currentReferralState");
+
+      expect(NON_FORM_QUERYABLE_FIELDS.map((field) => field.name)).toEqual(["currentReferralState"]);
+      expect(referralState).toBe(NON_FORM_QUERYABLE_FIELDS[0]);
+      expect(referralState?.kind).toBe("enum");
+      expect(referralState?.readOnly).toBe(true);
     });
 
     it("should still carry the fields the chooser declines to offer, because api answers a condition on them", () => {
@@ -40,13 +51,13 @@ describe("deed-poll/query-fields", () => {
 
       expect(names).toContain("feeReference");
       expect(names).toContain("iShall");
-      expect(QUERYABLE_FIELDS).toHaveLength(70);
+      expect(QUERYABLE_FIELDS).toHaveLength(71);
     });
 
     it("should include the read-only fields, because reference number and state are the most useful to query", () => {
       const readOnly = QUERYABLE_FIELDS.filter((field) => field.readOnly).map((field) => field.name);
 
-      expect(readOnly).toEqual(["referencenumber", "displayReference", "state", "daysReceivedToEnroled", "daysReceivedToReturned"]);
+      expect(readOnly).toEqual(["referencenumber", "displayReference", "state", "daysReceivedToEnroled", "daysReceivedToReturned", "currentReferralState"]);
     });
 
     it("should carry the label and enum set from the form, not a restatement of them", () => {
@@ -81,10 +92,29 @@ describe("deed-poll/query-fields", () => {
       expect(names).not.toContain("applicantAddress1");
     });
 
+    // Derived from `FORM_TABS` and **not** from `QUERYABLE_FIELDS`, which is the form *plus*
+    // `NON_FORM_QUERYABLE_FIELDS`. Deriving it from the wider list made the expectation claim the chooser
+    // should offer non-form fields, and it passed only because `currentReferralState` happened to carry
+    // `queryable: false` — a flag that does nothing in production, since `isChoosable` is never applied
+    // outside the tabs. So the flag was masking a stale premise here rather than documenting a mechanism.
     it("should offer everything else queryable, in form order, so it tracks the form as the queryable list does", () => {
-      const expected = QUERYABLE_FIELDS.filter((field) => field.queryable !== false && !field.name.startsWith("daysReceivedTo")).map((field) => field.name);
+      const formFields = FORM_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields));
+      const expected = formFields.filter((field) => field.queryable !== false && !field.name.startsWith("daysReceivedTo")).map((field) => field.name);
 
       expect(CHOOSABLE_FIELDS.map((field) => field.name)).toEqual(expected);
+    });
+
+    // The property the removed flag looked like it was enforcing, now actually enforced: a field api answers
+    // conditions on but no tab holds a control for is queryable and *not* choosable. Without this, appending
+    // to `NON_FORM_QUERYABLE_FIELDS` could leak a field into the chooser with nothing failing.
+    it("should offer no field that is queryable without being on the form, the chooser being grouped by tab", () => {
+      const choosable = CHOOSABLE_FIELDS.map((field) => field.name);
+      const queryable = QUERYABLE_FIELDS.map((field) => field.name);
+
+      for (const field of NON_FORM_QUERYABLE_FIELDS) {
+        expect(queryable, field.name).toContain(field.name);
+        expect(choosable, field.name).not.toContain(field.name);
+      }
     });
 
     it("should offer the 43 curated fields, so a cut or an addition to the table is a deliberate edit here", () => {
@@ -102,6 +132,14 @@ describe("deed-poll/query-fields", () => {
       expect(names).toContain("masterName");
       expect(names).toContain("representativeName");
       expect(names).toContain("representativeCompany");
+    });
+
+    it("should leave out the non-form fields, since the chooser is grouped by tab and section and they sit in neither", () => {
+      const names = CHOOSABLE_FIELDS.map((field) => field.name);
+
+      // A caseworker reaches this filter by the dashboard's returned-action link, which carries the condition.
+      expect(names).not.toContain("currentReferralState");
+      expect(queryableField("currentReferralState")).toBeDefined();
     });
 
     it("should still keep the derived pair queryable, so a hand-edited URL naming one renders its refusal", () => {

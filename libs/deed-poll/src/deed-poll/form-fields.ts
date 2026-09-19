@@ -363,6 +363,44 @@ export const FORM_TABS: TabDef[] = [
   { id: "referrals", label: "Referrals", sections: [], subgrid: "referrals" }
 ];
 
+/**
+ * Case properties api publishes and answers conditions on that have **no control on any form tab**.
+ *
+ * `QUERYABLE_FIELDS` is otherwise the whole form, and that derivation is the drift guard `query-fields.ts`
+ * is built around — but the guard only reaches fields a caseworker types into. `currentReferralState` is
+ * neither typed nor stored: api derives it from the case's live referral (`CaseSummaryResponse`,
+ * `SavedCaseResponse`) and registers it as queryable, so a condition naming it is one api resolves. Without
+ * a def here `queryableField` would not know it and `caseQueryWhere` would **silently drop** the condition —
+ * a dropped condition answers the whole list, which for a count reads as a zero rather than as a failure.
+ *
+ * Read-only for the same reason `state` is: api computes it. Not on a tab because putting it there would add
+ * a disabled control to the case form and a row to the detail card, which is a display decision this plan
+ * does not make (`docs/plans/completed/referrals-admin-2-returned-action-needed.md`, decision 8) — the
+ * referrals tab is where a case's referral state is read.
+ */
+export const NON_FORM_QUERYABLE_FIELDS: FieldDef[] = [
+  {
+    name: "currentReferralState",
+    label: "Current referral state",
+    kind: "enum",
+    // The states are api's, so the value chooser is built from its member array like every other option set.
+    // An `enum` with no set renders a chooser holding only "Choose a value", which for the one condition the
+    // app itself links to would mean a filter the page could neither show nor resubmit. The set is api's
+    // members minus the terminal two, which this field never holds — see `CURRENT_REFERRAL_STATE_LABEL`.
+    enumSet: "currentReferralState",
+    readOnly: true
+    // **No `queryable: false` here, and adding one would say nothing.** That flag is how a field *on the form*
+    // is curated out of the chooser: `isChoosable` is only ever applied to `FORM_TABS` sections
+    // (`query-fields.ts`), and this list is appended after them, so a non-form field is absent from the
+    // chooser by construction — there is no group it could sit in. Setting the flag here would read as the
+    // mechanism and be inert, which is worse than saying so.
+    //
+    // A caseworker reaches this filter by the dashboard's "returned — action needed" link, which carries the
+    // condition, and `buildRow` renders a resolved-but-unchoosable field as an option of its own so that
+    // link's condition survives the next Apply rather than widening the list.
+  }
+];
+
 /** Every editable (non-readOnly) field across all data-entry sections. */
 export const EDITABLE_FIELDS: FieldDef[] = FORM_TABS.flatMap((t) => t.sections.flatMap((s) => s.fields)).filter((f) => !f.readOnly);
 

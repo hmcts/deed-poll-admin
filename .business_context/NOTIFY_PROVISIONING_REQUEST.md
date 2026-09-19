@@ -48,9 +48,9 @@ Template IDs are UUIDs minted in the Notify UI by whoever authors the content. E
 them, and notify-1 carries a placeholder until they exist.
 
 - [ ] `application-rejected` authored — **the only one notify-1 needs**
-- [ ] `request-confirmation-to-proceed` authored (notify-2)
-- [ ] `forms-for-completion-adult` authored (notify-3, also needs document generation)
-- [ ] `forms-for-completion-minor` authored (notify-3, same)
+- [ ] `request-confirmation-to-proceed` authored (notify-3)
+- [ ] `forms-for-completion-adult` authored (notify-4, also needs document generation)
+- [ ] `forms-for-completion-minor` authored (notify-4, same)
 - [ ] Each template's UUID recorded per environment and added to `application.yaml` under `notify.templates.*`
       — these are **not secrets** and belong in config, not the key vault
 

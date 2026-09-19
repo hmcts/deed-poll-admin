@@ -19,17 +19,7 @@
 import { REFERRAL_REASON, type Referral, type ReferralReason, type ReferralState, URGENCY, type Urgency } from "@hmcts/deed-poll-api-client";
 import { formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
 import { NOT_PROVIDED } from "../deed-poll/detail-view.js";
-
-/**
- * The two states a referral cannot leave, as api's `ReferralState` documents them.
- *
- * The **only** state rule this repo keeps, and it decides a control's visibility and nothing else: a
- * withdraw of a terminal referral is api's 409, which the page renders as a message. Offering the button and
- * letting api refuse it would be honest but would put the refusal after the click on the one path a
- * caseworker can see is pointless before it. Anything beyond "is this state terminal" — who may claim, what a
- * decision permits — is api's and stays there.
- */
-const TERMINAL_STATES: readonly ReferralState[] = ["Closed", "Withdrawn"];
+import { TERMINAL_REFERRAL_STATES } from "../deed-poll/enums/dynamics-values.js";
 
 /** Why a case is referred, in the words the business uses for each of api's members. */
 export const REFERRAL_REASON_LABEL: Record<ReferralReason, string> = {
@@ -100,9 +90,11 @@ export function buildReferralDetail(referral: Referral): ReferralView {
     createdOn: formatTimestamp(referral.createdOn),
     modifiedBy: orPlaceholder(referral.modifiedBy, NOT_RECORDED),
     modifiedOn: formatTimestamp(referral.modifiedOn),
-    // Unknown counts as not terminal, so the control is offered and api gets the final word. The alternative
-    // hides a withdraw a caseworker is entitled to because a field did not arrive.
-    terminal: referral.state !== null && referral.state !== undefined && TERMINAL_STATES.includes(referral.state)
+    // A withdraw of a terminal referral is api's 409, which the page renders as a message; the button is
+    // hidden rather than offered-and-refused only on the one path a caseworker can see is pointless before
+    // the click. Unknown counts as not terminal, so the control is offered and api gets the final word — the
+    // alternative hides a withdraw a caseworker is entitled to because a field did not arrive.
+    terminal: referral.state !== null && referral.state !== undefined && TERMINAL_REFERRAL_STATES.includes(referral.state)
   };
 }
 
@@ -186,7 +178,7 @@ export interface ReferralView {
   createdOn: string;
   modifiedBy: string;
   modifiedOn: string;
-  /** Closed or withdrawn, so there is nothing left to withdraw. See `TERMINAL_STATES`. */
+  /** Closed or withdrawn, so there is nothing left to withdraw. See `TERMINAL_REFERRAL_STATES`. */
   terminal: boolean;
 }
 

@@ -10,8 +10,43 @@
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
 {% from "govuk/components/inset-text/macro.njk" import govukInsetText %}
 {% from "govuk/components/pagination/macro.njk" import govukPagination %}
+{% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
+{% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
 
 {% block content %}
+  {#
+    "Returned — action needed": the count IS the alert — this app has no push infrastructure, so a caseworker
+    learns a judicial direction has come back on page load rather than by watching a mailbox.
+
+    Rendered **only when there is something to action** — decision 4. A banner carrying a zero is not an alert,
+    and one that is always there is one the eye learns to ignore.
+
+    At the top of the content rather than immediately above the table: the table sits below a search box, a
+    filter bar and the query builder, so a banner down there is prominent in the source and invisible on
+    screen. Same component and same `type: "important"` as the privacy banner on detail.njk.
+
+    `html` rather than `text` because the banner carries the way to the work, and the link is the same
+    condition the count was read with — clicking the number is the worklist, decision 3.
+  #}
+  {#
+    Three states, not two — and `returnedForActionFailed` is checked first because it is the one the other two
+    cannot express. A count of zero renders nothing, so a count that could not be *read* rendering nothing too
+    would tell a caseworker there is no work when the page has no idea either way. Warning text rather than
+    another "Important" banner: the same component, and the same reasoning, as the referrals panel on
+    detail.njk — no worklist link, because there is no count to stand behind it.
+  #}
+  {% if returnedForActionFailed %}
+    {{ govukWarningText({ text: returnedForActionUnavailable, iconFallbackText: warningIcon }) }}
+  {% elif returnedForAction %}
+    {% set returnedForActionHtml %}
+      <p class="govuk-notification-banner__heading">{{ returnedForAction }}</p>
+      <p class="govuk-body">
+        <a class="govuk-notification-banner__link" href="{{ returnedForActionHref }}">{{ returnedForActionLink }}</a>
+      </p>
+    {% endset %}
+    {{ govukNotificationBanner({ titleText: bannerTitle, html: returnedForActionHtml, type: "important" }) }}
+  {% endif %}
+
   <h1 class="govuk-heading-xl">{{ heading }}</h1>
 
   {% if errorSummary and errorSummary.length > 0 %}
@@ -147,6 +182,15 @@
               <label class="govuk-label govuk-visually-hidden" for="{{ row.field.name }}">{{ fieldLabel }} {{ row.number }}</label>
               <select class="govuk-select" id="{{ row.field.name }}" name="{{ row.field.name }}" data-query-field{% if rowDescribedBy %} aria-describedby="{{ rowDescribedBy }}"{% endif %}>
                 <option value="{{ row.field.placeholder.value }}"{% if row.field.placeholder.selected %} selected{% endif %}>{{ row.field.placeholder.text }}</option>
+                {#
+                  The condition's own field, when the chooser offers no option for it — the worklist the
+                  dashboard's count links to is filtered by one such field. Ungrouped beside the placeholder,
+                  and what makes the select submit the filter back rather than an empty value: see
+                  `appliedOption` for what a select with no option for its own field costs.
+                #}
+                {% if row.field.applied %}
+                  <option value="{{ row.field.applied.value }}" selected>{{ row.field.applied.text }}</option>
+                {% endif %}
                 {% for group in row.field.groups %}
                   <optgroup label="{{ group.label }}">
                     {% for option in group.options %}

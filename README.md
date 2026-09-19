@@ -155,7 +155,13 @@ yarn format                     # Format code with Biome
 
 # deed-poll-api
 yarn mock:api                   # The in-memory api, on port 3200 (yarn dev starts it too)
+yarn mock:seed                  # Fill the running mock with cases: every tab, a page of results, and nine
+                                # referrals (four Decided, so the dashboard's "returned — action needed"
+                                # banner is non-zero). Resets the store first; `--keep` adds to it
 ```
+
+The mock starts **empty**, so `yarn mock:seed` is what makes the list page, its filters and the dashboard's
+count show anything at all. An empty store looks the same as a feature that is not working.
 
 There are no database commands: this repo has no database.
 

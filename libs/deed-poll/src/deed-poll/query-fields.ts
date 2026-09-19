@@ -9,14 +9,16 @@
  *
  *   - **The queryable list is derived from `FORM_TABS`, never enumerated.** A field added to the form
  *     becomes queryable with no second edit, so the builder cannot fall behind the case tabs. It is
- *     every field including the five `readOnly` ones: `referencenumber` and `state` are among the most
- *     useful things to query, and read-only means "api computes it", not "api cannot filter on it".
+ *     every field including the six `readOnly` ones: `referencenumber` and `state` are among the most
+ *     useful things to query, and read-only means "api computes it", not "api cannot filter on it". The
+ *     one addition to the form is `NON_FORM_QUERYABLE_FIELDS` — case properties api answers conditions on
+ *     that have no control to add to a tab; it is a named list, not an exception to the derivation.
  *   - **Operators come from `kind`, in one place.** A per-field mapping of 70 entries would drift from
  *     api's table on the first field anyone added. api re-validates every condition against its own
  *     `FormFields` and api wins any disagreement — this list exists to keep obviously-wrong requests
  *     off the wire and to offer a caseworker only comparisons that can succeed.
  */
-import { type FieldDef, type FieldKind, FORM_TABS } from "./form-fields.js";
+import { type FieldDef, type FieldKind, FORM_TABS, NON_FORM_QUERYABLE_FIELDS } from "./form-fields.js";
 
 /**
  * Mirrors api's operator table exactly (`deed-poll-api`'s query surface). Kinds share lists where api
@@ -75,16 +77,21 @@ export const OPERATOR_LABELS: Record<QueryOperator, string> = {
  * meets them on the case tabs. Derived — see the file docblock. Subgrid tabs contribute nothing because
  * they carry no data-entry sections; notes, witnesses and documents are child entities, and a condition
  * on one is a different question from a condition on the case.
+ *
+ * The form, **then** the case properties api answers conditions on that no form tab holds a control for —
+ * `NON_FORM_QUERYABLE_FIELDS`. Appended rather than mixed in, so "the form in form order" is still the
+ * whole of the first part of this list and the drift guard is untouched.
  */
-export const QUERYABLE_FIELDS: FieldDef[] = FORM_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields));
+export const QUERYABLE_FIELDS: FieldDef[] = [...FORM_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields)), ...NON_FORM_QUERYABLE_FIELDS];
 
 /**
  * The two fields api computes at read time and refuses a condition on: *"is derived, not stored"*. They
  * have no column to compare, so no operator can be asked of them.
  *
- * Named here rather than removed from `QUERYABLE_FIELDS`, which stays the whole form: that list is the
- * drift guard — a field added to a case tab becomes queryable with no second edit — and narrowing it
- * would turn "every form field" into "every form field except the ones someone remembered".
+ * Named here rather than removed from `QUERYABLE_FIELDS`, which stays the whole form plus
+ * `NON_FORM_QUERYABLE_FIELDS`: that list is the drift guard — a field added to a case tab becomes queryable
+ * with no second edit — and narrowing it would turn "every form field" into "every form field except the
+ * ones someone remembered".
  */
 const DERIVED_FIELD_NAMES = ["daysReceivedToEnroled", "daysReceivedToReturned"];
 
@@ -107,9 +114,11 @@ const DERIVED_FIELD_NAMES = ["daysReceivedToEnroled", "daysReceivedToReturned"];
  *     merely **not worth offering** — per-case identifiers, narrative prose, address components. 68
  *     options in one list is a list nobody reads; the reason for each cut is a comment on the field.
  *
- * Still derived from the form either way. api answers a condition on anything excluded here — a
- * hand-edited URL can name one, and `queryableField` resolves it so the row renders with whatever api
- * says about it.
+ * Still derived from the form either way. api answers a condition on anything excluded here — a hand-edited
+ * URL can name one, and so does the dashboard's "returned — action needed" link — and `queryableField`
+ * resolves it, so the row renders with whatever api says about it. `appliedOption` is what then keeps such a
+ * row **submittable**: a chooser missing an option for its own field would drop the condition on the next
+ * Apply and answer the whole list.
  */
 export const CHOOSABLE_FIELD_GROUPS: ChoosableFieldGroup[] = FORM_TABS.flatMap((tab) =>
   tab.sections

@@ -45,6 +45,15 @@ const ADULT_CASES_TO_QUERY = 26;
 /** And the Minor ones, which share the forename and are what the second condition has to exclude. */
 const MINOR_CASES_TO_QUERY = 3;
 
+/**
+ * The judge a claim and a direction are attributed to in the returned-for-action seed.
+ *
+ * Not a signed-in session: there is no judicial UI yet (admin-3), so the two transitions that put a referral
+ * in `Decided` are driven through the routes api publishes, as `scripts/seed-local-cases.mjs` drives them. The
+ * mock reads a subject out of the bearer token and models no roles, so a hand-built token is all a claim needs.
+ */
+const SEED_JUDGE = "e2e.judge@example.com";
+
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
 test.use({ storageState: ADMIN_STORAGE_STATE });
 
@@ -423,6 +432,81 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   await page.getByRole("link", { name: /view this referral/ }).click();
   await expect(page.getByRole("button", { name: "Withdraw this referral" })).toHaveCount(0);
   await expect(page.getByText("Withdrawn")).toBeVisible();
+});
+
+/**
+ * The "returned — action needed" count and the worklist behind it —
+ * `docs/plans/completed/referrals-admin-2-returned-action-needed.md`.
+ *
+ * **The count IS the alert**, so what a browser has to show is that it is *seen and followable*: the number is
+ * on the dashboard a caseworker lands on, and clicking it arrives at exactly the cases it counted. The page
+ * tests pin the sentence, the singular, the absence at zero and the href against a stubbed domain; what only
+ * this can pin is that the href is a query api answers with those rows — the count and the worklist being one
+ * query (decision 3) is a claim about two round trips agreeing, and a stub cannot disagree with itself.
+ *
+ * **The count is read as a baseline plus this journey's cases, not as an absolute.** It is global by design
+ * (decision 5) and the mock's store outlives a run — `reuseExistingServer` — so `yarn mock:seed` or an earlier
+ * run leaves `Decided` cases that are legitimately part of the number. Nothing else in the suite drives a
+ * referral past `Claimed`, so the baseline cannot move underneath this test while it runs.
+ *
+ * Either role, so this file's administrator serves: the dashboard is every caseworker's and nothing here is
+ * deleted.
+ */
+test("caseworker sees how many applications have a returned direction, and follows the count to that worklist", async ({ page, request }) => {
+  // Arrange: two cases whose referral a judge has decided, and one still with the judge — the third is what
+  // makes the worklist a filter rather than a list of everything referred.
+  const seeded = await seedReturnedForActionCases(request);
+
+  await page.goto("/deed-polls");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Deed poll cases");
+
+  // A notification banner and not a bespoke tile (decision 4), above the search box rather than immediately
+  // above the table: a thing whose only job is to be seen is not seen below a 40-line query builder.
+  const banner = page.getByRole("region", { name: "Important" });
+  await expect(banner).toContainText(`${seeded.total} applications have a returned direction needing action`);
+  await expectNoAccessibilityViolations(page);
+
+  // Decision 5, where a caseworker would notice it: the count is a fact about the service, so another tab —
+  // whose own list holds none of these cases — does not narrow it.
+  await page.getByRole("link", { name: "Enroled" }).click();
+  await expect(banner).toContainText(`${seeded.total} applications have a returned direction needing action`);
+
+  await banner.getByRole("link", { name: "View these applications" }).click();
+
+  // The same condition the count was read with, and no filter, term, order or page — so the worklist is not
+  // narrowed by the tab it was clicked from.
+  await expect(page).toHaveURL("/deed-polls?where=currentReferralState%3Ais%3ADecided");
+  // api's total for the query, which is the number the banner had: the count and the worklist are one query.
+  await expect(page.getByText(new RegExp(`of ${seeded.total} applications`))).toBeVisible();
+
+  // The rows, newest first — the mock's default order is `createdOn` descending, so this journey's two are at
+  // the top of the first page however many Decided cases were already in the store.
+  //
+  // **A row is matched on this run's surname as well as the reference.** The store outlives the run, and a
+  // reference is five digits in a shape api also allocates, so a reference on its own is unique only by
+  // arithmetic — an earlier run whose clock landed on the same serial left `Decided` rows carrying it, and
+  // those rows would satisfy "the seeded cases are displayed" while the new ones were missing. The surname
+  // carries milliseconds, which no earlier run shares, so the pair identifies the row this journey created.
+  const rows = page.locator("tbody");
+  const seededRow = (reference: string) => rows.locator("tr").filter({ hasText: seeded.surname }).filter({ hasText: reference });
+  for (const reference of seeded.decided) await expect(seededRow(reference)).toHaveCount(1);
+  // And the one a judge is still holding is absent: `Claimed` is not the caseworker's turn.
+  await expect(seededRow(seeded.claimed)).toHaveCount(0);
+  await expectNoAccessibilityViolations(page);
+
+  // The builder above the table says what the rows were filtered by, and — the part only a browser can show —
+  // **submitting it keeps the filter**. `currentReferralState` is on no form tab and so is not in the chooser
+  // (decision 8), which is exactly the row that used to come back blank: Apply then answered the whole
+  // caseload under a banner still claiming a filtered count. See `appliedOption` in `query-builder.ts`.
+  await expect(page.getByLabel("Case field for condition 1")).toHaveValue("currentReferralState");
+  await expect(page.getByLabel("Value for condition 1")).toHaveValue("Decided");
+
+  await page.getByRole("button", { name: "Apply filters" }).click();
+
+  await expect(page).toHaveURL("/deed-polls?where=currentReferralState%3Ais%3ADecided");
+  await expect(page.getByText(new RegExp(`of ${seeded.total} applications`))).toBeVisible();
+  await expect(seededRow(seeded.claimed)).toHaveCount(0);
+  for (const reference of seeded.decided) await expect(seededRow(reference)).toHaveCount(1);
 });
 
 /**
@@ -1059,6 +1143,111 @@ async function seedCasesToSearch(request: APIRequestContext): Promise<{ surname:
   }
 
   return { surname, otherSurname, reference };
+}
+
+/**
+ * The cases the returned-for-action journey counts: two driven to `Decided`, one left `Claimed`.
+ *
+ * **The referrals are driven through the contract routes, never written onto the seed body.** api derives
+ * `currentReferralState` from the case's live referral and the mock recomputes it on every transition, so a
+ * fixture that set the column directly would teach the dashboard a number api's own state machine cannot
+ * produce — the failure would then be wrong in one direction here and another deployed. Same reasoning as
+ * `scripts/seed-local-cases.mjs`, which this mirrors.
+ *
+ * The case bodies go through `POST /__mock/cases` because what a create does is not what is being tested here,
+ * and each carries a display reference of its own: the Reference cell is a link, and one with no text is both
+ * useless to a caseworker and an accessibility violation on every list page the rest of the run renders.
+ * Received in June so the dates collide with no other seed's.
+ *
+ * **Each reference is `KBDPYYYY-` and five digits, because that is the only shape api allocates** — the same
+ * shape this file asserts a created case's heading holds (`expectWelshKeysResolve`), and the only one the mock
+ * re-prefixes when a case's type changes. A fixture carrying digits-and-letters would have the journey pass
+ * against case data no environment can produce.
+ *
+ * **Five digits is only 10,000 serials, so the reference cannot carry this run's identity — the surname
+ * does.** Four digits off the clock in seconds cycle every 10,000s, so a run starting an exact multiple of
+ * ~2.8 hours after an earlier one reuses its references, and the store holds every earlier run's `Decided`
+ * cases. Were the worklist rows matched on reference alone, that stale row would satisfy "the seeded cases are
+ * displayed" with the new ones absent, so the caller matches on `surname` *and* reference; the surname carries
+ * base-36 milliseconds, which no earlier run shares. Within the run the three references still have to differ
+ * from each other and from the rest of the suite's, which is what the leading digit is for: `9`, `5` and `4`
+ * are what the other seeders' `1`/`2`/`3`/`6`/`7`/`8` and the `0000n` serials the mock allocates on a real
+ * create leave free.
+ *
+ * `total` is what the banner should say — the baseline the store already held plus the two this adds.
+ */
+async function seedReturnedForActionCases(request: APIRequestContext): Promise<{ total: number; surname: string; decided: string[]; claimed: string }> {
+  const leads = ["9", "5", "4"];
+  const baseline = await returnedForActionTotal(request);
+  const surname = `Returnedby${Date.now().toString(36)}`;
+  const serial = String(Math.floor(Date.now() / 1000)).slice(-4);
+
+  const seed = async (n: number): Promise<{ id: string; reference: string }> => {
+    const reference = `KBDP2026-${leads[n - 1]}${serial}`;
+    const response = await request.post(`${MOCK_API_URL}/__mock/cases`, {
+      data: {
+        type: "Adult",
+        state: "Received",
+        newForename: "Ada",
+        newSurname: surname,
+        displayReference: reference,
+        dateReceived: `2026-06-0${n}T00:00:00.000`
+      }
+    });
+    // Asserted, because a rejected seed leaves the journey counting fewer cases than it means to and the
+    // failure surfaces later as a banner one short, which reads as a bug in the count.
+    expect(response.status(), await response.text()).toBe(201);
+
+    return { id: (await response.json()).id, reference };
+  };
+
+  const decided = [await seed(1), await seed(2)];
+  for (const { id } of decided) await referTo(request, id, "Decided");
+
+  const claimed = await seed(3);
+  await referTo(request, claimed.id, "Claimed");
+
+  return { total: baseline + decided.length, surname, decided: decided.map((one) => one.reference), claimed: claimed.reference };
+}
+
+/**
+ * How many cases api counts as needing action right now — the query the dashboard's banner reads.
+ *
+ * Read before seeding because the count is global (decision 5) and the mock's store outlives the run, so an
+ * earlier run's or `yarn mock:seed`'s `Decided` cases belong in the number the banner shows. `size=1` for the
+ * reason the dashboard uses it: the total is api's across every page and the rows are not wanted here.
+ */
+async function returnedForActionTotal(request: APIRequestContext): Promise<number> {
+  const response = await request.get(`${MOCK_API_URL}/caseworker/cases?where=currentReferralState:is:Decided&size=1`);
+  expect(response.status(), await response.text()).toBe(200);
+
+  return (await response.json()).total;
+}
+
+/**
+ * Raise a referral on a case and transition it as far as `upTo`.
+ *
+ * Every step is checked: a refusal part-way leaves the referral in whatever state it reached, and the only
+ * symptom is a count that is quietly short — which is indistinguishable from the condition being dropped on
+ * the way to the wire, the failure this whole feature's tests exist to tell apart.
+ */
+async function referTo(request: APIRequestContext, caseId: string, upTo: "Claimed" | "Decided"): Promise<void> {
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor"] } });
+  expect(raised.status(), await raised.text()).toBe(201);
+  const referralId = (await raised.json()).id;
+
+  const judge = { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: SEED_JUDGE }), "utf8").toString("base64url")}.signature` };
+  const claimed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/claim`, { headers: judge });
+  expect(claimed.status(), await claimed.text()).toBe(200);
+  if (upTo === "Claimed") return;
+
+  // The direction is what makes it the caseworker's turn again: `Claimed → Decided`, and the caseworker's
+  // `close` has not happened, which is the whole of "returned — action needed".
+  const directed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/direction`, {
+    headers: judge,
+    data: { decision: "Approved", publishToGazette: true }
+  });
+  expect(directed.status(), await directed.text()).toBe(200);
 }
 
 /**
