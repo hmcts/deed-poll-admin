@@ -49,7 +49,8 @@ them, and notify-1 carries a placeholder until they exist.
 
 - [ ] `application-rejected` authored — **the only one notify-1 needs**
 - [ ] `request-confirmation-to-proceed` authored (notify-3)
-- [ ] `forms-for-completion-adult` authored (notify-4, also needs document generation)
+- [ ] `forms-for-completion-adult` authored (notify-4; also needs the five static forms sourced, and *send a
+      file by email* enabled below)
 - [ ] `forms-for-completion-minor` authored (notify-4, same)
 - [ ] Each template's UUID recorded per environment and added to `application.yaml` under `notify.templates.*`
       — these are **not secrets** and belong in config, not the key vault
@@ -62,10 +63,39 @@ Content notes for whoever authors them, from the taxonomy:
   its `XX/YY/ZZZZ` literal becomes a real placeholder fed from the referral's `decisionDate`.
 - **The forms emails must be reworded.** They currently say *"we have attached three forms"*. Notify does not
   attach files; it inserts a time-limited secure link. Confirmed approach (Steve, 2026-09-18): reword to a
-  download. The link expiry needs choosing — the default is short relative to how long an applicant may take to
-  print, sign in front of two witnesses and post.
+  download. **The wording should also say the link expires**, rather than leaving an applicant to find out.
+- **①② have no caseworker slots** (taxonomy §6, corrected 2026-09-19). Neither supplied document has an
+  `[Enter …]` marker, so unlike ③ and ④ there is nothing to curate. If the business wants a notes box, the
+  template has to gain a placeholder **before** the api gains a slot — a slot with no placeholder makes
+  Notify refuse the send.
+- **`type` has four members**, so `[child's]` in ④ is `Minor || MinorTransgender`, not a two-way test. The
+  same distinction picks *which template* for ①②, where getting it wrong sends an applicant an email about
+  their child.
 - Placeholder names must match the api's personalisation keys exactly, or Notify rejects the send with a 400.
   The api's keys are the contract; list them alongside each template once written.
+
+### Send a file by email — **blocking for templates ① ②**
+
+The two forms emails carry documents, and Notify's *send a file by email* is how they get there: the api
+calls `NotificationClient.prepareUpload(...)` and puts the result in the personalisation, and Notify hosts
+the file and renders a link. **This is a per-service setting and may not be on by default** — if it is off,
+every send fails in a way that looks like an api bug.
+
+- [ ] *Send a file by email* enabled on the service
+- [ ] **Retention period chosen and recorded.** The api passes `RetentionPeriodDuration(int, ChronoUnit)`.
+      Choose it deliberately and generously: this email starts a slow process — print, sign in front of two
+      witnesses, find a commissioner of oaths, post back — so a short expiry guarantees calls to the Deed
+      Poll office number in the email's own footer. **The platform default was not verified from here**
+      (`docs.notifications.service.gov.uk` is blocked from the devcontainer), so read it off the Notify docs
+      or UI rather than trusting any figure in this file
+- [ ] **Confirm whether recipients must confirm their email address before downloading.** notify-4's decision
+      10 sets `confirm_email_before_download` to `true` for every document, on the grounds that deed poll
+      data is sensitive — `DeedPollType` has `AdultTransgender` and `MinorTransgender` members — and an
+      unconfirmed link is retrievable by anyone the email is forwarded to. Worth the business confirming,
+      since it costs the applicant a screen
+- [ ] Note the **2 MB per-file limit** — enforced client-side by the Notify Java client, which throws rather
+      than sending. A two-page deed will not come close, but the five static forms have not been sourced yet
+      and have not been measured
 
 **The contract for `application-rejected`, which notify-1 implements.** Two of these are filled by the
 caseworker in the Email tab; the rest are resolved from case data and cannot be edited.
@@ -138,3 +168,13 @@ Notify sends from a no-reply address unless a reply-to is registered and verifie
    nothing supplied covers it.
 5. **Is there a template for the Gazette notice email?** Two of the supplied templates promise the applicant
    one.
+6. **Where do the five blank forms come from?** The forms emails name LOC021, LOC023, LOC024, LOC027 and
+   LOC028, and **none of them is in `doc_templates/`** — only the two change-of-name deeds are. They carry no
+   case data, so they are files to be sourced and stored rather than generated, but notify-4 cannot ship
+   without them. Presumably published HMCTS forms; somebody needs to confirm which version is current.
+7. **Should sending ① or ② set `signatureRequestedDate`?** That column is what `CaseState.deriveState` reads
+   to produce `AwaitingSignature`, so the send and the state change are the same event in everything but
+   code. Setting it automatically is tidy, but it couples a communication to a case-state transition, a
+   failed send would leave the case claiming otherwise, and a re-send would need a date cleared that a
+   caseworker can also edit by hand. **A business decision**, and it should be taken together with the
+   equivalent question in `notify-3b` about what an applicant's confirmation does to the case dates.
