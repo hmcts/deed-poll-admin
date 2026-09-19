@@ -363,6 +363,34 @@ export const FORM_TABS: TabDef[] = [
   { id: "referrals", label: "Referrals", sections: [], subgrid: "referrals" }
 ];
 
+/**
+ * Case properties api publishes and answers conditions on that have **no control on any form tab**.
+ *
+ * `QUERYABLE_FIELDS` is otherwise the whole form, and that derivation is the drift guard `query-fields.ts`
+ * is built around — but the guard only reaches fields a caseworker types into. `currentReferralState` is
+ * neither typed nor stored: api derives it from the case's live referral (`CaseSummaryResponse`,
+ * `SavedCaseResponse`) and registers it as queryable, so a condition naming it is one api resolves. Without
+ * a def here `queryableField` would not know it and `caseQueryWhere` would **silently drop** the condition —
+ * a dropped condition answers the whole list, which for a count reads as a zero rather than as a failure.
+ *
+ * Read-only for the same reason `state` is: api computes it. Not on a tab because putting it there would add
+ * a disabled control to the case form and a row to the detail card, which is a display decision this plan
+ * does not make (`docs/plans/referrals-admin-2-returned-action-needed.md`, decision 8) — the referrals tab is
+ * where a case's referral state is read.
+ */
+export const NON_FORM_QUERYABLE_FIELDS: FieldDef[] = [
+  {
+    name: "currentReferralState",
+    label: "Current referral state",
+    kind: "enum",
+    readOnly: true,
+    // Not offered by the builder's chooser, which is grouped by form tab and section and so has no group a
+    // non-form field could sit in. A caseworker reaches this filter by the dashboard's "returned — action
+    // needed" link, which carries the condition; a hand-edited URL naming it still renders (`queryableField`).
+    queryable: false
+  }
+];
+
 /** Every editable (non-readOnly) field across all data-entry sections. */
 export const EDITABLE_FIELDS: FieldDef[] = FORM_TABS.flatMap((t) => t.sections.flatMap((s) => s.fields)).filter((f) => !f.readOnly);
 

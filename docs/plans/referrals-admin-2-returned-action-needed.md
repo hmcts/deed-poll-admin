@@ -302,10 +302,35 @@ export it from `libs/deed-poll/src/index.ts` (service only, never `callApi`/`Api
 the mock: with N seeded `Decided` cases it returns N; with none it returns 0; a domain test that the condition
 survives serialisation (is not dropped).
 
-- [ ] `currentReferralState` is a queryable field admin-side (mirrors `state`, read-only); `caseQueryWhere`
+- [x] `currentReferralState` is a queryable field admin-side (mirrors `state`, read-only); `caseQueryWhere`
       serialises `currentReferralState:is:Decided` (proven by test, not dropped); `countReturnedForAction`
       returns api's `total` for the fixed filter; unit-tested N and 0 against the mock; `turbo test test:app
       --concurrency=1` green
+
+**Done 2026-09-19.** Two departures from the task's wording, both deliberate:
+
+- **The field is queryable without being on a form tab.** `QUERYABLE_FIELDS` derives from `FORM_TABS`, so
+  "mirroring `state`" literally would have put a disabled control on the Application tab and a row in the
+  detail card — a display change decision 8 does not make. So `form-fields.ts` gains
+  `NON_FORM_QUERYABLE_FIELDS` (one entry, read-only, `kind: "enum"`, `queryable: false`) and
+  `QUERYABLE_FIELDS` is the form **then** that list. The drift guard is untouched: every form field is still
+  queryable with no second edit, and `query-fields.test.ts` now pins the concatenation rather than equality.
+  It is not in `FIELD_BY_NAME`, which answers "is this a form field", nor choosable — the chooser is grouped
+  by tab and section and a non-form field has no group, which is why the banner link is the route to the
+  worklist. No `enumSet`: api's members are already display words, and a label set nothing offers is
+  five entries to maintain for a select only a hand-edited URL can reach.
+- **The count lives in `libs/deed-poll/src/referrals/returned-for-action.ts`**, not in `deed-poll/service.ts`:
+  it is the referrals feature asking a case question, and `service.ts` is deliberately "thin functions and no
+  rules of their own". The file holds the frozen `RETURNED_FOR_ACTION_CONDITIONS` beside the count, so Task 3's
+  worklist href and this count are one condition written down once (decision 3) — `caseListSearch` can build
+  the link from the same constant. Exported from `libs/deed-poll/src/index.ts`; `callApi` stays private.
+- **The domain test mocks the adapter**, per `.claude/rules/testing.md`, and asserts the `where` array reaching
+  `listCases` — that is what proves the condition was not silently dropped, which is the failure this task
+  exists to prevent. The N-against-real-data proof is Task 1's `server.test.ts`, which drives seven cases
+  through the mock's own transitions and asserts `total: 3`; the test file's docblock says so.
+- **2217 tests / 130 files, 8 of 8 tasks successful** (Task 1 left 2207/129: +8 in
+  `returned-for-action.test.ts`, +2 in `query-fields.test.ts`); `yarn lint` exits 0 with the same 2 warnings /
+  2 infos.
 
 ### Task 3: Pages — the count element and its worklist link
 

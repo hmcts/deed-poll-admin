@@ -10,13 +10,15 @@
  *   - **The queryable list is derived from `FORM_TABS`, never enumerated.** A field added to the form
  *     becomes queryable with no second edit, so the builder cannot fall behind the case tabs. It is
  *     every field including the five `readOnly` ones: `referencenumber` and `state` are among the most
- *     useful things to query, and read-only means "api computes it", not "api cannot filter on it".
+ *     useful things to query, and read-only means "api computes it", not "api cannot filter on it". The
+ *     one addition to the form is `NON_FORM_QUERYABLE_FIELDS` — case properties api answers conditions on
+ *     that have no control to add to a tab; it is a named list, not an exception to the derivation.
  *   - **Operators come from `kind`, in one place.** A per-field mapping of 70 entries would drift from
  *     api's table on the first field anyone added. api re-validates every condition against its own
  *     `FormFields` and api wins any disagreement — this list exists to keep obviously-wrong requests
  *     off the wire and to offer a caseworker only comparisons that can succeed.
  */
-import { type FieldDef, type FieldKind, FORM_TABS } from "./form-fields.js";
+import { type FieldDef, type FieldKind, FORM_TABS, NON_FORM_QUERYABLE_FIELDS } from "./form-fields.js";
 
 /**
  * Mirrors api's operator table exactly (`deed-poll-api`'s query surface). Kinds share lists where api
@@ -75,8 +77,12 @@ export const OPERATOR_LABELS: Record<QueryOperator, string> = {
  * meets them on the case tabs. Derived — see the file docblock. Subgrid tabs contribute nothing because
  * they carry no data-entry sections; notes, witnesses and documents are child entities, and a condition
  * on one is a different question from a condition on the case.
+ *
+ * The form, **then** the case properties api answers conditions on that no form tab holds a control for —
+ * `NON_FORM_QUERYABLE_FIELDS`. Appended rather than mixed in, so "the form in form order" is still the
+ * whole of the first part of this list and the drift guard is untouched.
  */
-export const QUERYABLE_FIELDS: FieldDef[] = FORM_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields));
+export const QUERYABLE_FIELDS: FieldDef[] = [...FORM_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields)), ...NON_FORM_QUERYABLE_FIELDS];
 
 /**
  * The two fields api computes at read time and refuses a condition on: *"is derived, not stored"*. They
