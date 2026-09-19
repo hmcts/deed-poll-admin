@@ -24,6 +24,14 @@ applicant when a state changes; a person composes part of what the applicant rea
 written ahead of the api *existing*. So every schema name, property name and response shape below is an
 **expectation, not a fact**, and is marked `[PROVISIONAL]` where it is load-bearing.
 
+**Update 2026-09-19.** notify-1 is now partly built — tasks 1 to 4 are committed on an unpushed api branch
+and task 5 is in flight — so this plan is closer than it was, but **nothing has been published**: no spec
+refresh has happened and no `openapi.json` in this repo has moved. Task 0 remains the gate and remains
+unrunnable. What *has* changed is that the api side of this plan's biggest open question is now designed:
+decision 8's `[PROVISIONAL]` is lifted and flag 1 is answered, both by api's
+[`notify-5`](../../../deed-poll-api/docs/plans/notify-5-case-correspondence-history.md). Decisions 12 to 15
+and Task 5a are written against notify-5 and are **conditional on it having shipped** — Task 0 decides.
+
 **Task 0 is the reconciliation gate and it is not a formality.** It cannot run until notify-1 is merged and
 `openapi.json` refreshed. Until then this plan is a design document.
 
@@ -77,6 +85,12 @@ Two consequences worth stating plainly, because they have bitten this repo befor
    styles cannot leak into the admin page or inherit from it — so what the caseworker sees is closer to what
    the applicant will see. Do not "simplify" this to `| safe` later; the reason is written here.
 
+   **Note 2026-09-19 — the HTML is optional at source.** `TemplatePreview.getHtml()` returns
+   `Optional<String>`, so a preview can legitimately arrive with no HTML. The preview page needs a fallback
+   that shows the text body rather than an empty iframe, rendered the way decision 12 renders history. Task 0
+   should confirm whether api's preview response makes the field optional; if it does not, that is worth
+   raising rather than assuming Notify will always populate it.
+
 4. **`libs/deed-poll-api-client` is the only thing that speaks HTTP, and it still never throws.** Three
    functions returning `ApiResult<T>`, wire types as aliases of the document's schemas rather than
    restatements, and neither the wire types nor the mock exported from the package index. An unreachable api
@@ -104,6 +118,16 @@ Two consequences worth stating plainly, because they have bitten this repo befor
    applicability, and the compose page must not call preview merely to discover a default.
    **[PROVISIONAL] — see flag 1. notify-1 as written does not return history or slot defaults.**
 
+   **Resolved 2026-09-19 — `[PROVISIONAL]` lifted, and flag 1 is answered in full.** Rather than widening
+   notify-1 mid-flight, api took the amendment as its own plan:
+   [`notify-5-case-correspondence-history.md`](../../../deed-poll-api/docs/plans/notify-5-case-correspondence-history.md).
+   Its **decision 5** extends this exact endpoint with history alongside availability, quoting this decision's
+   performance rule as the reason; its **decision 6** adds the slot defaults, quoting decision 9 below —
+   because preview costs a Notify call and a default is a value api already computes. Both halves of flag 1
+   are therefore delivered, in the shape this plan asked for, and **the change is additive**: notify-5's task
+   3 keeps the availability list's existing shape precisely so this plan's work is not invalidated. Task 0
+   still reconciles against the published document rather than against this paragraph.
+
 9. **Preview costs a Notify call, so it happens on an explicit action only.** Never on keystroke, blur or
    autosave. Notify's rate limit is shared with real sends, and a tab that previewed as the caseworker typed
    would spend the service's allowance on drafts and start failing real sends with a 429. The journey in
@@ -114,9 +138,62 @@ Two consequences worth stating plainly, because they have bitten this repo befor
     the state, the template, when, and which caseworker sent it. **Do not** show a retry button — retry is
     the outbox's job and a second send is what decision 2 of notify-1 has a unique index to prevent.
 
+    **Addition 2026-09-19 — the words are constrained, not free.** api knows only that **Notify accepted**
+    the send; it does not know the email arrived, and it can never know whether the applicant opened or
+    downloaded anything. notify-5's decision 9 settles this on the api side and **decision 10 records that
+    download tracking is impossible rather than deferred** — there is no download concept anywhere in the
+    Notify Java client. So: **do not render the word "Delivered"**, do not add a "viewed" or "downloaded"
+    column, and do not let a designer add one later. "Sent" here means *accepted by GOV.UK Notify*, and the
+    tab should say something a caseworker cannot misread as proof of receipt. A caseworker who concludes from
+    this screen that an applicant has their deed poll, when the email bounced, is the failure this tab exists
+    to prevent.
+
 11. **No email content is stored or rendered from this repo.** The subject and body exist in Notify and in
     api's outbox row. The tab lists metadata. A caseworker who needs to know exactly what was sent is a later
     plan, and it is api's data to serve.
+
+    **Superseded 2026-09-19 — that later plan is notify-5, and the first sentence stays true while the third
+    no longer does.** Nothing is stored *in this repo*; that rule is unchanged and load-bearing. But api now
+    serves the rendered subject and body, captured at send time from `SendEmailResponse`, so **the tab may
+    render content it is given** and decision 14 says how. The original reasoning is kept because the
+    boundary it draws — content is api's, not admin's — is exactly why this is a rendering change here and
+    not a storage one.
+
+12. **Content is text, and it must not go anywhere near decision 3's renderer.** notify-5's decision 2
+    carries the correction: `SendEmailResponse` exposes only a plain-text body, and **`getHtml()` exists on
+    `TemplatePreview` alone**. So the two content surfaces in this feature are genuinely different things:
+
+    | | Source | Form | How it renders |
+    |---|---|---|---|
+    | Preview (step 3) | `TemplatePreview` | **HTML** | Sandboxed `iframe` + `srcdoc` — decision 3 |
+    | History | `SendEmailResponse` | **Plain text** | Nunjucks autoescaping, newlines preserved with CSS |
+
+    **Do not reuse the iframe for history and do not reach for `| safe`.** Autoescaping is correct for text
+    and the sandbox buys nothing here. Notify's body is Markdown-flavoured, so bullets arrive as `*` — render
+    them as they are rather than passing caseworker free text through a Markdown renderer, which would
+    recreate the escaping problem decision 3 exists to avoid.
+
+13. **The history screen says what it is showing, because it is not what the applicant saw.** The applicant
+    received Notify's branded HTML; the stored body is the text rendering of the same template with the same
+    values. Label it as **the wording that was sent**, not as a copy of the email. Getting this wrong invites
+    "that is not what they got" from the one person who might have to defend it.
+
+14. **Content lives on a per-email page, not in the tab's table.** The table stays a table — template, when,
+    who, state. A row links to `GET /deed-polls/{id}/emails/{notificationId}`, which shows the subject, the
+    body, the recipient, the state and the documents that email carried. Two reasons: a body is several
+    paragraphs and would destroy a `govukTable`'s scannability, and the tab is the thing a caseworker loads
+    every time whereas the content is the thing they occasionally need.
+
+    **It needs no extra api call** — decision 8's single response already carries it, so the page reads from
+    the same payload the tab did. A 404 for a notification id that is not this case's, which api enforces by
+    scoping rather than this repo by filtering.
+
+15. **An email with no content renders as explained, never as blank.** Three cases produce no body, and they
+    are not the same thing: a `Pending` email has not been sent yet; a permanently `Failed` one never was;
+    and anything sent **before notify-5 shipped** has no stored text and never will, because api refuses to
+    fetch it back from Notify (notify-5's constraint on backfill, and its flag 1). Each needs its own
+    sentence. A blank panel reads as a bug, and "sent before we started keeping the text" is a different
+    reassurance from "this has not gone yet".
 
 ---
 
@@ -131,12 +208,25 @@ After notify-1: **33 caseworker operations across 20 paths — 38 across 25 path
 
 | Operation | Expected |
 |---|---|
-| `GET /caseworker/cases/{id}/emails` | What was sent, what may be sent, slots with defaults |
+| `GET /caseworker/cases/{id}/emails` | What was sent **with its rendered subject, text body and documents**, what may be sent, slots with defaults |
 | `POST /caseworker/cases/{id}/emails/{template}/preview` | Notify-rendered subject, HTML, template version |
 | `POST /caseworker/cases/{id}/emails/{template}` | Send; answers with the outbox row |
 
 Schema names are **guesses** — notify-1's plan says "DTOs under `api/caseworker/dto`" without naming them.
 Task 0 replaces this table with what api actually published.
+
+**The counts above are notify-1's, and notify-5 does not move them.** notify-5 adds *fields* to the `GET`
+rather than operations — its task 3 says so and asks api to confirm rather than assume — so the expected 38
+operations stands, while the schema count will rise by however many response types the history needed. If
+Task 0 finds the operation count has moved, something was built differently from both plans: stop and
+reconcile rather than adjusting the number.
+
+**Whether notify-5 has shipped changes what Task 0 will find**, and both outcomes are workable:
+
+| notify-5 state | What `GET …/emails` returns | This plan |
+|---|---|---|
+| Shipped | Availability, history, slot defaults | Decisions 8 and 12–15 all buildable |
+| Not shipped | Availability only | Decisions 12–15 are dead code; build the tab without them and say so, as Task 4's contingency already directs |
 
 ---
 
@@ -214,14 +304,28 @@ Then, against the published document rather than against this plan:
 
 - Replace the **Expected contract** table with the real operation and schema names.
 - Resolve every `[PROVISIONAL]` marker, and **flag 1 in particular**: does `GET …/emails` return send history
-  and slot defaults? If it does not, this plan's decision 8 is unbuildable as written and the choice is to
-  amend notify-1 or to split the tab's history into a later plan. **Record which, and why, in this file.**
+  and slot defaults? **notify-5 is the plan that makes them return, so the real question is whether it has
+  shipped.** Check the published document rather than the plan:
+
+  ```bash
+  # History and slot defaults — present only if notify-5 shipped.
+  yq -p json -o json '.components.schemas | keys | map(select(test("(?i)email|notification"))) ' \
+    libs/deed-poll-api-client/openapi.json
+  ```
+
+  If they are absent, decisions 12 to 15 are unbuildable and **that is a legitimate outcome, not a blocker**
+  — build the metadata tab, take Task 4's contingency, and **record in this file that content is pending
+  notify-5** rather than inventing a second call or an empty page.
+- **Check whether the body field is typed as text or HTML.** notify-5's decision 2 says text, and decisions
+  12 and 13 depend on it. If api published HTML instead, decision 12's table is wrong and the renderer
+  changes — reconcile before building, not after.
 - Confirm the slot names and their validation rules (required, max length) from the document.
 - Note anything api did differently from notify-1's plan, since notify-1 may have been amended while running.
 
 - [ ] notify-1 merged and its spec published, the three operations present in `openapi.json` with their real
-      names, every `[PROVISIONAL]` marker in this file resolved, flag 1 answered in writing, and the
-      validation commands green with no changes made
+      names, every `[PROVISIONAL]` marker in this file resolved, flag 1 answered in writing, whether notify-5
+      has shipped recorded along with what follows from it, and the validation commands green with no changes
+      made
 
 ### Task 1: The contract — atomically
 
@@ -257,7 +361,10 @@ Read first: `libs/deed-poll-api-client/src/api/client.ts` for the `ApiResult` id
   the others do.
 - Mock handlers for all three, with fixtures covering: a case with a rejected referral (the template is
   sendable), a case without one (it is not), a case with no `applicantEmail` (send is refused), and a case
-  with one `Sent` and one `Failed` email in its history.
+  with one `Sent` and one `Failed` email in its history. **If notify-5 has shipped, the history fixtures
+  carry content**: one `Sent` row with a subject and a multi-paragraph body, one `Sent` row with **no** body
+  (sent before the text was kept), one `Pending` and one `Failed` — the four states decision 15 needs a
+  sentence for, so Task 5a's tests have something to render.
 - Tests: the happy path for each function, a 4xx surfacing as a failed `ApiResult` rather than a throw, and a
   parse failure on an unexpected payload.
 
@@ -289,15 +396,46 @@ Read first: `libs/deed-poll/src/deed-poll/form-fields.ts` (`FORM_TABS`), `src/pa
 - The `emails` entry in `FORM_TABS`, last (decision 1).
 - The `{% elif tab.subgrid == "emails" %}` branch: a `govukTable` of what has been sent with its state, and a
   "Send an email" button. Empty state when nothing has been sent, matching how the other subgrids read when
-  empty.
+  empty. Each row links to the per-email page of Task 5a (decision 14); the table itself carries no content.
+- **The state column's wording is decision 10's addition, and it is a test, not a preference.** Assert that
+  the rendered tab contains no occurrence of "Delivered", "Viewed", "Opened" or "Downloaded", so that a later
+  well-meaning wording change fails a test rather than telling a caseworker something the service cannot
+  know.
 - **Contingency:** if Task 0 found that history is not available, render only the button and say in the
-  template comment that the history is pending notify-1's amendment — do not invent a second api call.
+  template comment that the history is pending **notify-5** — do not invent a second api call.
 - Tests: the tab appears for every case; the table renders both states; the empty state renders; the button
   is absent when nothing is sendable, with a hint saying why (an applicant with no email address is the
   common case and a silent missing button would read as a bug).
 
-- [ ] The tab renders last with sent emails and their states, an empty state, and a button that is absent with
-      a reason when nothing can be sent; `[id].test.ts` and the `njk` tests cover all of it; validation green
+- [ ] The tab renders last with sent emails and their states, rows linking to the per-email page, an empty
+      state, a button that is absent with a reason when nothing can be sent, and no word implying receipt;
+      `[id].test.ts` and the `njk` tests cover all of it; validation green
+
+### Task 5a: The per-email page
+
+**Skip this task entirely if Task 0 found notify-5 has not shipped**, and record that it was skipped. It
+renders data that would not exist.
+
+Read first: decisions 12, 13, 14 and 15, and Task 4's view model to extend.
+
+- `GET /deed-polls/{id}/emails/{notificationId}` — subject, body, recipient, state, when, who sent it, and
+  the documents that email carried. Read from the same payload the tab uses (decision 14), so no new adapter
+  function and no new api call.
+- **The body renders as text through autoescaping, with newlines preserved in CSS** — not `| safe`, not the
+  iframe, not a Markdown renderer. Decision 12 has the table and the reasoning.
+- A heading or caption labelling it as the wording that was sent rather than as the email (decision 13).
+- The three no-content cases each get their own sentence (decision 15): not sent yet, failed and never sent,
+  and sent before the text was kept.
+- A `notificationId` that is not this case's is a 404 — it is user input in a path, exactly as Task 5's
+  template parameter is.
+- Tests: a sent email renders its subject and body; **a body containing `<script>` appears as visible text
+  and not as an element**, asserted in the `njk` test because decision 12 is the whole reason this page does
+  not reuse the iframe; each of the three no-content cases renders its own wording rather than a blank; an
+  unknown id is a 404; and the page makes no second api call.
+
+- [ ] One email's content renders as escaped text with its documents, markup in the body is inert and proven
+      so by test, all three no-content cases are explained rather than blank, an unknown id is a 404, and the
+      validation commands green
 
 ### Task 5: The journey
 
@@ -324,7 +462,8 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
   `GatewayExceptionResponse`, not slowness. Symlink a cached chromium build to the version Playwright wants
   rather than retrying the download.
 - Full validation: `yarn lint`, `npx turbo test test:app --concurrency=1`, `yarn test:coverage` (the plan aims
-  at >90%), and `yarn test:e2e`. Record the test count against the baseline measured before Task 1.
+  at >90%), and `yarn test:e2e`. Record the test count against the baseline measured before Task 1, **and say
+  whether Task 5a ran**, so a lower count is explained rather than looking like lost tests.
 - Re-read this file's `[PROVISIONAL]` markers and confirm none survived.
 
 - [ ] The journey passes end to end with axe clean, coverage above 90% on the new code, every `[PROVISIONAL]`
@@ -342,7 +481,12 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
 - **The other three templates.** The tab is built to list what api says is sendable, so a template added in
   notify-3 or notify-4 should appear with no change here. **That is the design intent and Task 4's test should
   prove it** — a fixture with two sendable templates must render two radios without a code change.
-- **Showing the sent email's content.** Decision 11.
+- **Showing the sent email's content.** Decision 11. **No longer true as of 2026-09-19** — notify-5 serves it
+  and decisions 12 to 15 render it on a per-email page. What is still not here: any *storage* of content in
+  this repo, which decision 11's first sentence keeps.
+- **Anything implying the applicant received or read the email.** Not deferred — **impossible**. notify-5's
+  decision 10: there is no download concept anywhere in the Notify client, and delivery status needs
+  callbacks that are a joint plan with `deed-poll-infra`. Decision 10's addition makes it a test.
 - **A retry button.** Decision 10.
 - **Welsh.** Bilingual templates are Notify's business; `src/locales/` covers the tab's own labels when the
   time comes.
@@ -364,6 +508,16 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
    performance rule. **That is a small amendment to notify-1's decision 9 and its Task 4, and it is cheaper to
    make before notify-1 runs than after.** Say the word and I will amend it.
 
+   **ANSWERED 2026-09-19 — both halves, and not by amending notify-1.** By the time this was picked up
+   notify-1 was already at task 5, so widening it mid-flight would have meant editing a plan under
+   construction. Instead api took it as its own plan, `notify-5`, whose decisions 5 and 6 add history and
+   slot defaults to this exact endpoint and cite this flag as the reason. **The outcome is what this flag
+   asked for and the cost is lower**: additive to the response, no change to a plan in flight, and notify-5
+   also solves the harder half nobody had costed — *what did the email actually say* — because
+   `SendEmailResponse` turns out to return the rendered subject and body in the send acceptance, free. See
+   decisions 8 and 12 to 15. **The one thing that did not survive the round trip:** the body is plain text,
+   not HTML, so history cannot reuse decision 3's renderer.
+
 2. **The preview renders HTML from Notify inside the admin page, and I have deliberately made that awkward.**
    A sandboxed `iframe` rather than `| safe`. It is slightly more work and it is the right default: that HTML
    carries text a caseworker typed, and it has passed through two services. If someone later "simplifies" it
@@ -375,6 +529,14 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
    planning the sprint: there is no way to parallelise notify-2 against notify-1, because the contract test's
    set equality means the spec refresh cannot be staged.
 
+   **Updated 2026-09-19 — the chain gained a link, and it is worth the wait.** It is now
+   **notify-0 → notify-1 → notify-5 → notify-2**. notify-5 is api-side and needs nothing from notify-0, so it
+   can run while template authoring is still outstanding — it is the one plan in the series that can. Waiting
+   for it buys this plan its content half and closes flag 1 properly. **Starting before it is still
+   legitimate**: Task 0 records that notify-5 has not shipped, Task 5a is skipped, and Task 4's contingency
+   covers the tab. The cost of that route is a second spec refresh later, which the contract test's set
+   equality makes a whole task rather than a tidy-up — so if notify-5 is close, wait.
+
 4. **api's Jenkins job could not build PR #24 or #25**, both times reporting *"This commit cannot be built"* —
    and #25 changed one markdown file, so it is not the content. notify-1 is the plan that will actually need
    a working CI signal. Worth fixing before it runs rather than during.
@@ -383,3 +545,12 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
    Options were their name from the token, a fixed team signature, or a typed field. I have not designed for
    it, because it is a content decision that changes the Notify template rather than this repo — but whoever
    authors `application-rejected` needs an answer, and the tab may need a third slot if it is typed.
+
+   **More urgent than it was.** With decisions 12 to 15 the stored body goes on a screen, so a template
+   ending `Kind regards,` followed by nothing is now something a caseworker will read back and query.
+   notify-5's flag 6 raises the same point from the api side.
+
+6. **Task 6's coverage target and the Task 5a addition.** This plan aimed at >90% and now has an extra page.
+   That is a reason to check the target is still met, not a reason to move it — but if Task 0 skipped Task 5a
+   because notify-5 had not shipped, the baseline comparison in Task 6 should say so rather than appearing to
+   have lost tests.
