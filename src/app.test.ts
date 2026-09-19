@@ -239,3 +239,66 @@ describe("createApp when Redis is unreachable", () => {
     await expect(createApp()).resolves.toBeDefined();
   });
 });
+
+/**
+ * That the judicial role gate is actually mounted, and mounted on the right prefix and in the right place.
+ *
+ * Pinned here for the same reason the session store is: nothing about running the app reveals the failure.
+ * An unmounted gate leaves every judicial page open to any signed-in caseworker, and the pages themselves
+ * look identical either way — they never ask about the role. A gate mounted *before* `requireAuth` would be
+ * worse than useless in the other direction: an anonymous visitor would be refused with a 403 instead of
+ * being sent to log in, so the ordering is asserted rather than assumed.
+ *
+ * The two auth middlewares are doubled with named functions only so the mounted layers can be identified —
+ * their behaviour is `require-auth.test.ts`'s and `require-role.test.ts`'s subject, not this file's.
+ */
+const gates = vi.hoisted(() => ({
+  auth: function requireAuthDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
+  judicial: function requireJudicialDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  }
+}));
+
+vi.mock("./auth/require-auth.js", () => ({ requireAuth: () => gates.auth, isPublicPath: () => false }));
+vi.mock("./auth/require-role.js", () => ({ requireRole: () => gates.judicial, requireJudicial: () => gates.judicial }));
+
+describe("createApp's judicial gate", () => {
+  let stack: MountedLayer[];
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+  });
+
+  it("should mount the judicial role gate", () => {
+    expect(stack.filter((layer) => layer.handle === gates.judicial)).toHaveLength(1);
+  });
+
+  it("should mount it on the judicial prefix and nowhere else, so a page added under it is gated by where it lives", () => {
+    const layer = stack.find((entry) => entry.handle === gates.judicial) as MountedLayer;
+
+    for (const path of ["/judicial", "/judicial/referrals", "/judicial/referrals/abc/direction"]) {
+      expect(
+        layer.matchers.some((matches) => matches(path) !== false),
+        path
+      ).toBe(true);
+    }
+    for (const path of ["/deed-polls", "/deed-polls/abc", "/login", "/"]) {
+      expect(
+        layer.matchers.every((matches) => matches(path) === false),
+        path
+      ).toBe(true);
+    }
+  });
+
+  it("should mount it after requireAuth, so an anonymous visitor is sent to log in rather than refused", () => {
+    expect(stack.findIndex((layer) => layer.handle === gates.judicial)).toBeGreaterThan(stack.findIndex((layer) => layer.handle === gates.auth));
+  });
+});
+
+/** The part of an Express layer this file reads: what was mounted, and the paths it answers for. */
+type MountedLayer = { handle: unknown; matchers: ((path: string) => unknown)[] };

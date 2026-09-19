@@ -14,10 +14,18 @@
  * library.
  */
 import { type CurrentUser, currentUser } from "./current-user.js";
-import { DEEDPOLL_ADMIN, type Role } from "./roles.js";
+import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL, type Role } from "./roles.js";
 
-/** Every role this service acts on. Anything IDAM asserts that is not here is ignored. */
-const KNOWN_ROLES: readonly string[] = [DEEDPOLL_ADMIN];
+/**
+ * Every role this service acts on. Anything IDAM asserts that is not here is ignored.
+ *
+ * **A role missing from here is not a smaller permission, it is no role at all** — `rolesFrom` filters
+ * against this list, so an unlisted role is dropped and the judge it belonged to resolves to an empty
+ * `roles` and is refused their own area. That fails closed, which is right, but it presents as a
+ * permissions bug rather than a missing list entry. Adding a role to `Role` without adding it here is
+ * therefore silent and total.
+ */
+const KNOWN_ROLES: readonly string[] = [DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL];
 
 /**
  * The subset of an IDAM ID token this service reads.

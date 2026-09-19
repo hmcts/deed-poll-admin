@@ -452,11 +452,35 @@ rather than restating the string — the script's own comment records a copied s
 e2e admin journey silently signing in unprivileged as a result. This is what makes Task 5's e2e possible without
 `idam-access-config#995`.
 
-- [ ] Judicial role in `Role` + `KNOWN_ROLES`; a judicial token yields a `CurrentUser` with the role (tested);
+- [x] Judicial role in `Role` + `KNOWN_ROLES`; a judicial token yields a `CurrentUser` with the role (tested);
       `isJudicial` accessor added; `requireJudicial` admits a judge and 403s an authenticated caseworker
       (tested both directions); judicial test user seeded from the imported constant; adapter coverage
       **verified unchanged** rather than re-added; `contract.test.ts` green;
       `yarn turbo test test:app --concurrency=1` green
+
+**DONE 2026-09-19.** `DEEDPOLL_JUDICIAL` in `roles.ts` widens `Role` to a union for the first time; it is in
+`KNOWN_ROLES`, and `currentUser` now sets `isJudicial` beside `isAdmin` — **as an alternative, not a level**,
+which is asserted in both directions (an admin is not judicial, a judge is not an admin). `requireRole(role)` /
+`requireJudicial()` is new in `src/auth/require-role.ts`, refusing by `next(new ForbiddenError(...))` so the
+403 goes through the single mapping in `src/errors.ts` — whose "this is unreachable today" comment was true
+until this commit and has been corrected rather than left to mislead.
+
+Two things the checkbox did not ask for and the next task needs:
+
+- **The mount is pinned, not just the middleware.** `app.use("/judicial", requireJudicial())` sits after
+  `requireAuth`, and `src/app.test.ts` now asserts all three of: that it is mounted, that its layer matches
+  `/judicial/**` and *not* `/deed-polls`, and that it is mounted **after** `requireAuth`. An unmounted gate
+  leaves every judicial page open to any signed-in caseworker and the pages look identical either way, since
+  they never ask about the role; a gate mounted *before* `requireAuth` would 403 an anonymous visitor instead
+  of sending them to log in. Neither failure shows up in running the app.
+- **`pageRequest({ judicial: true })`** in `src/express-doubles.ts`, independent of `admin`, so Task 3/4's page
+  tests can express the persona without knowing the session shape.
+
+Verified unchanged, as the amendment requires: `git status` shows no edit to `openapi.json`, `wire.ts`,
+`client.ts`, `contract.test.ts` or the mock. Totals **2,261 tests** (up 16 from the 2,245 baseline: +12 app,
++4 `libs/deed-poll`), 8/8 turbo tasks; `yarn lint` 0 errors, 2 warnings + 2 infos — baseline exactly. The root
+`tsconfig.json` project carries 49 pre-existing type errors in unrelated test files; confirmed against a
+stash that this task adds none.
 
 ### Task 2: Domain — the judicial services over admin-0's adapter
 

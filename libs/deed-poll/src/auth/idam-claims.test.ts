@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SERVICE_ACCOUNT_NAME } from "./current-user.js";
 import { userFromClaims } from "./idam-claims.js";
-import { DEEDPOLL_ADMIN } from "./roles.js";
+import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL } from "./roles.js";
 
 describe("auth/idam-claims", () => {
   it("keeps a role this service recognises", () => {
@@ -9,6 +9,30 @@ describe("auth/idam-claims", () => {
 
     expect(user.roles).toEqual([DEEDPOLL_ADMIN]);
     expect(user.isAdmin).toBe(true);
+  });
+
+  it("keeps the judicial role, which the whole judicial screen depends on surviving into the session", () => {
+    // The role was dropped here before it was listed in KNOWN_ROLES, which fails closed and so presents
+    // as a judge being refused their own area rather than as a missing list entry.
+    const user = userFromClaims({ roles: [DEEDPOLL_JUDICIAL] });
+
+    expect(user.roles).toEqual([DEEDPOLL_JUDICIAL]);
+    expect(user.isJudicial).toBe(true);
+  });
+
+  it("does not make a judge an admin, or an admin a judge", () => {
+    // Alternatives, not a ladder: the judicial api surface returns a narrower view of an application
+    // than any caseworker sees, so neither role implies the other.
+    expect(userFromClaims({ roles: [DEEDPOLL_JUDICIAL] }).isAdmin).toBe(false);
+    expect(userFromClaims({ roles: [DEEDPOLL_ADMIN] }).isJudicial).toBe(false);
+  });
+
+  it("keeps both roles for a caller who holds both", () => {
+    const user = userFromClaims({ roles: [DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL] });
+
+    expect(user.roles).toEqual([DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL]);
+    expect(user.isAdmin).toBe(true);
+    expect(user.isJudicial).toBe(true);
   });
 
   it("drops roles from other CFT services rather than carrying them", () => {
@@ -25,6 +49,15 @@ describe("auth/idam-claims", () => {
 
     expect(user.roles).toEqual([]);
     expect(user.isAdmin).toBe(false);
+    expect(user.isJudicial).toBe(false);
+  });
+
+  it("does not mistake another service's judicial-sounding role for this one", () => {
+    // IDAM issues `judiciary` and per-service judicial roles across the estate; only this service's own
+    // string reaches a judicial screen here.
+    for (const role of ["judiciary", "caseworker-judicial", "caseworker-deedpoll-judge"]) {
+      expect(userFromClaims({ roles: [role] }).isJudicial, role).toBe(false);
+    }
   });
 
   it("accepts roles as a comma-separated string, which some IDAM configurations send", () => {

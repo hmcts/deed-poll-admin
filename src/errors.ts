@@ -33,9 +33,10 @@ export function domainErrorHandler(): ErrorRequestHandler {
     }
 
     if (err instanceof ForbiddenError) {
-      // No page mounts a role guard yet, so this is unreachable today. It is here because the
-      // alternative — a 500 the first time one is added — is exactly the failure this file exists to
-      // stop, and 403 has no view of its own in the starter.
+      // Reached by `requireJudicial` (./auth/require-role.ts), which refuses an authenticated
+      // non-judge this way rather than rendering its own page. The 404 **view** on a 403 status is
+      // deliberate twice over: the starter has no 403 view, and telling a caseworker who guessed a
+      // judicial URL that there is something there to be refused from is more than they need to know.
       return res.status(403).render("errors/404");
     }
 

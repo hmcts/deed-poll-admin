@@ -16,7 +16,11 @@ describe("userFromRequest", () => {
   });
 
   it("gives a caller with no roles no admin", () => {
-    expect(userFromRequest(pageRequest({ name: "A Caseworker" }))).toMatchObject({ isAdmin: false });
+    expect(userFromRequest(pageRequest({ name: "A Caseworker" }))).toMatchObject({ isAdmin: false, isJudicial: false });
+  });
+
+  it("carries the judicial role through from the session, which is what the judicial gate reads", () => {
+    expect(userFromRequest(pageRequest({ judicial: true, name: "A Judge" }))).toMatchObject({ isJudicial: true, isAdmin: false });
   });
 
   it("falls back to no roles at all when there is no session user", () => {

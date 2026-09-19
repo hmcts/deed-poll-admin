@@ -12,7 +12,7 @@
  *
  * Excluded from the build in `tsconfig.json`: it imports `vitest`, so it must not reach `dist`.
  */
-import { currentUser, DEEDPOLL_ADMIN } from "@hmcts/deed-poll";
+import { currentUser, DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL, type Role } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { vi } from "vitest";
 
@@ -24,6 +24,14 @@ export interface PageRequestOptions {
   signedIn?: boolean;
   /** Signed in holding the privileged role. */
   admin?: boolean;
+  /**
+   * Signed in holding the judicial role — the persona `/judicial/**` is for.
+   *
+   * Independent of `admin` rather than a level above it, because the two are separate personas: a
+   * judicial test user who also passed as an admin would make "a caseworker is refused the judicial
+   * area" untestable in the direction that matters.
+   */
+  judicial?: boolean;
   /** Display name recorded in the audit columns. */
   name?: string;
   /** An in-flight login, as `startFlow` leaves it. Only the three flow endpoints care. */
@@ -47,13 +55,15 @@ export function pageRequest({
   body,
   signedIn = true,
   admin = false,
+  judicial = false,
   name,
   flow,
   idToken,
   accessToken,
   originalUrl
 }: PageRequestOptions = {}): RequestDouble {
-  const user = signedIn ? currentUser(admin ? [DEEDPOLL_ADMIN] : [], name) : undefined;
+  const roles = [admin ? DEEDPOLL_ADMIN : undefined, judicial ? DEEDPOLL_JUDICIAL : undefined].filter((role): role is Role => role !== undefined);
+  const user = signedIn ? currentUser(roles, name) : undefined;
 
   const req = {
     params: params ?? {},
