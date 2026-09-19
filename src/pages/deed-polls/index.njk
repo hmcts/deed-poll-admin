@@ -10,8 +10,33 @@
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
 {% from "govuk/components/inset-text/macro.njk" import govukInsetText %}
 {% from "govuk/components/pagination/macro.njk" import govukPagination %}
+{% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
 
 {% block content %}
+  {#
+    "Returned — action needed": the count IS the alert — this app has no push infrastructure, so a caseworker
+    learns a judicial direction has come back on page load rather than by watching a mailbox.
+
+    Rendered **only when there is something to action** — decision 4. A banner carrying a zero is not an alert,
+    and one that is always there is one the eye learns to ignore.
+
+    At the top of the content rather than immediately above the table: the table sits below a search box, a
+    filter bar and the query builder, so a banner down there is prominent in the source and invisible on
+    screen. Same component and same `type: "important"` as the privacy banner on detail.njk.
+
+    `html` rather than `text` because the banner carries the way to the work, and the link is the same
+    condition the count was read with — clicking the number is the worklist, decision 3.
+  #}
+  {% if returnedForAction %}
+    {% set returnedForActionHtml %}
+      <p class="govuk-notification-banner__heading">{{ returnedForAction }}</p>
+      <p class="govuk-body">
+        <a class="govuk-notification-banner__link" href="{{ returnedForActionHref }}">{{ returnedForActionLink }}</a>
+      </p>
+    {% endset %}
+    {{ govukNotificationBanner({ titleText: bannerTitle, html: returnedForActionHtml, type: "important" }) }}
+  {% endif %}
+
   <h1 class="govuk-heading-xl">{{ heading }}</h1>
 
   {% if errorSummary and errorSummary.length > 0 %}

@@ -343,10 +343,38 @@ independent of the current filter (decision 5). Test (`index.test.ts` / `index.n
 shows with the right count and link when there are `Decided` cases; is absent when there are none; the link
 target is the `where` filter; the count does not change with the current tab.
 
-- [ ] Dashboard fetches the count in parallel; banner renders with correct count + worklist link when >0 and
+- [x] Dashboard fetches the count in parallel; banner renders with correct count + worklist link when >0 and
       is absent at 0; text is singular/plural and has `cy`; clicking the link lands on the `where`-filtered
       list (the worklist); count is filter-independent; page tests cover present/absent/link; `turbo test
       test:app --concurrency=1` green
+
+**Done 2026-09-19.** Three decisions the task's wording left open, and one departure:
+
+- **The count degrades rather than failing the page.** `returnedForActionCount` in `index.ts` catches every
+  failure, logs `returned-for-action count unavailable` and returns `null`, which renders as no banner. The
+  task did not say, but CLAUDE.md's "a second call for one panel must not be able to lose the page" does: the
+  list is load-bearing and the count is one element above it, so this follows `savedQueryEntries` and
+  `[id].ts`'s referrals tab. It catches *everything* rather than naming `unavailable` because the `where` it
+  sends is this app's, not the caseworker's — an `InvalidInputError` there is our bug and there is no field to
+  render it against. It is logged because "the count is the alert" has exactly one unnoticeable failure mode: a
+  silently absent banner looks identical to nothing needing action.
+- **The banner sits at the top of the content, above the `<h1>`**, not immediately above the table. "Above the
+  list" taken literally puts it below a search box, a filter bar and a 40-line query builder, where a thing
+  whose only job is to be seen is not seen. Same position and same `type: "important"` as `detail.njk`'s
+  privacy banner, which is also GOV.UK's own guidance for the component.
+- **The worklist href is built from `RETURNED_FOR_ACTION_CONDITIONS` through `caseListSearch`**, as the module
+  const `RETURNED_FOR_ACTION_PATH` — `/deed-polls?where=currentReferralState%3Ais%3ADecided`. Percent-encoded
+  because that is what every other link on the page does; it is the same URL the plan's prose writes
+  unencoded. It carries no filter, term, sort or page, which is decision 5 made mechanical: there is no code
+  path by which the tab on screen can narrow the worklist.
+- **The view model passes the resolved sentence, not the number** — `returnedForAction` is `""` when there is
+  nothing to say (0, or a count that could not be read), matching `unusedConditions` and keeping decision 4 in
+  the handler rather than as an `> 0` in the template.
+- **2231 tests / 130 files, 8 of 8 tasks successful** (Task 2 left 2217/130: +9 in `index.test.ts`, +5 in
+  `index.njk.test.ts`); `yarn lint` exits 0 with the same 2 warnings / 2 infos. The page tests pin the count's
+  own call (caller only, once), singular/plural, absent-at-0, the href, survival of a refused list query and of
+  an unreachable count; the template tests pin that the banner is above the search form, is a plain link, is an
+  `aria-labelledby` region, and is absent entirely at 0.
 
 ### Task 4: E2E and full validation
 

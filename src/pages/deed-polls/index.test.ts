@@ -1,12 +1,17 @@
-import { findDeedPolls, findSavedQueries, InvalidInputError } from "@hmcts/deed-poll";
+import { countReturnedForAction, findDeedPolls, findSavedQueries, InvalidInputError } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET } from "./index.js";
 
 // The filters and the row formatting are the domain's, and tested there. Only the api calls are
 // replaced, so this exercises the page against the real filter, nav and view-model logic.
+//
+// `countReturnedForAction` is stubbed alongside them rather than left to the spread original, which would
+// reach its own module-internal `findDeedPolls` and so the real api — the count is a third round trip, not a
+// pure function of the two mocked here.
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  countReturnedForAction: vi.fn(),
   findDeedPolls: vi.fn(),
   findSavedQueries: vi.fn()
 }));
@@ -58,6 +63,7 @@ describe("deed-polls list page", () => {
     vi.clearAllMocks();
     vi.mocked(findDeedPolls).mockResolvedValue(page([]) as never);
     vi.mocked(findSavedQueries).mockResolvedValue([] as never);
+    vi.mocked(countReturnedForAction).mockResolvedValue(0);
   });
 
   it("renders its own template, qualified by directory so it cannot be shadowed by pages/index.njk", async () => {
@@ -247,6 +253,111 @@ describe("deed-polls list page", () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.render.mock.calls[0][1].filterGroups).toHaveLength(1);
       expect(logged).toHaveBeenCalledWith(expect.stringContaining("saved queries unavailable"));
+    });
+  });
+
+  /**
+   * The "returned — action needed" count: the alert that replaced the shared-mailbox poll.
+   *
+   * What the count IS is the domain's and api's (`returned-for-action.test.ts`, and the mock's own
+   * `server.test.ts`, which drives seven cases through their transitions and asserts the total). What this
+   * page owns is that the number reaches the screen, that it is read as its own query rather than the one on
+   * screen, and that it links to the worklist it counted.
+   */
+  describe("the returned-for-action count", () => {
+    /** The worklist as the URL states it: the same condition the count is read with — decision 3. */
+    const WORKLIST_HREF = "/deed-polls?where=currentReferralState%3Ais%3ADecided";
+
+    it("reads the count with the caseworker's own token, once per page", async () => {
+      await GET(pageRequest({ accessToken: "caseworker-token" }), pageResponse());
+
+      expect(countReturnedForAction).toHaveBeenCalledTimes(1);
+      expect(countReturnedForAction).toHaveBeenCalledWith({ accessToken: "caseworker-token" });
+    });
+
+    it("states the count and links to the worklist when there is work needing action", async () => {
+      vi.mocked(countReturnedForAction).mockResolvedValue(4);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.returnedForAction).toBe("4 applications have a returned direction needing action");
+      expect(model.returnedForActionHref).toBe(WORKLIST_HREF);
+    });
+
+    it("states a single application in the singular, since '1 applications have' is not English", async () => {
+      vi.mocked(countReturnedForAction).mockResolvedValue(1);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].returnedForAction).toBe("1 application has a returned direction needing action");
+    });
+
+    it("says nothing at all when nothing needs action, because an alert with a zero in it is not an alert", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].returnedForAction).toBe("");
+    });
+
+    it("reads the same count whatever the request asks the list for, since it is a fact about the service", async () => {
+      vi.mocked(countReturnedForAction).mockResolvedValue(4);
+      const res = pageResponse();
+
+      await GET(pageRequest({ accessToken: "caseworker-token", query: { filter: "enroled", q: "Smith", where: "type:is:Adult" } }), res);
+
+      // Decision 5: the caller and nothing else — not the tab, not the term, not the conditions on screen.
+      expect(vi.mocked(countReturnedForAction).mock.calls).toEqual([[{ accessToken: "caseworker-token" }]]);
+      expect(res.render.mock.calls[0][1].returnedForAction).toBe("4 applications have a returned direction needing action");
+    });
+
+    it("keeps the worklist link global, so it is not narrowed by the tab it was clicked from", async () => {
+      vi.mocked(countReturnedForAction).mockResolvedValue(2);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "enroled", q: "Smith", sort: "state:desc", page: "2" } }), res);
+
+      expect(res.render.mock.calls[0][1].returnedForActionHref).toBe(WORKLIST_HREF);
+    });
+
+    it("still counts when api refuses the caseworker's own query, which is a different query", async () => {
+      vi.mocked(countReturnedForAction).mockResolvedValue(3);
+      vi.mocked(findDeedPolls).mockRejectedValue(new InvalidInputError("Case query is not valid", [{ field: "where.0", message: "names no case field" }]));
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: "nonsense:is:1" } }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].returnedForAction).toBe("3 applications have a returned direction needing action");
+    });
+
+    it("still renders the cases when the count cannot be read, and logs it, since a missing banner looks like no work", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(findDeedPolls).mockResolvedValue(page([record]) as never);
+      vi.mocked(countReturnedForAction).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].cases).toHaveLength(1);
+      expect(res.render.mock.calls[0][1].returnedForAction).toBe("");
+      expect(res.status).not.toHaveBeenCalled();
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("returned-for-action count unavailable"));
+    });
+
+    it("names the count in both content objects, so the banner is translatable", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.en.returnedForActionFor(2)).toBeTruthy();
+      expect(model.cy.returnedForActionFor(2)).toBeTruthy();
+      expect(model.cy.returnedForActionLink).toBeTruthy();
+      expect(model.cy.bannerTitle).toBeTruthy();
     });
   });
 

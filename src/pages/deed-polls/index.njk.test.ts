@@ -14,7 +14,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { findDeedPolls, findSavedQueries, InvalidInputError } from "@hmcts/deed-poll";
+import { countReturnedForAction, findDeedPolls, findSavedQueries, InvalidInputError } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
@@ -22,6 +22,7 @@ import { GET } from "./index.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  countReturnedForAction: vi.fn(),
   findDeedPolls: vi.fn(),
   findSavedQueries: vi.fn()
 }));
@@ -74,6 +75,7 @@ describe("deed-polls list template", () => {
     vi.clearAllMocks();
     vi.mocked(findDeedPolls).mockResolvedValue({ filter: "all", cases: [], page: 1, size: 25, total: 0, totalPages: 0 } as never);
     vi.mocked(findSavedQueries).mockResolvedValue([] as never);
+    vi.mocked(countReturnedForAction).mockResolvedValue(0);
   });
 
   it("submits the builder as a GET, because the URL is the query and a POST could not be bookmarked", async () => {
@@ -323,6 +325,64 @@ describe("deed-polls list template", () => {
     const markup = await render({ where: "newSurname:is:Lovelace" });
 
     expect(markup).toMatch(/<optgroup label="Application: Names">[\s\S]*?<option value="newSurname" selected>New surname<\/option>/);
+  });
+
+  /**
+   * The "returned — action needed" banner, which is the one part of this page whose whole purpose is to be
+   * seen: the count replaces a shared-mailbox poll, so where it sits and whether it is reachable by keyboard
+   * are the properties that decide whether it works at all.
+   */
+  describe("the returned-for-action banner", () => {
+    /** The banner on its own, so "it carries the worklist link" cannot be satisfied by the rest of the page. */
+    const banner = (markup: string): string => markup.match(/<div class="govuk-notification-banner[\s\S]*?<\/div>\s*<\/div>/)?.[0] ?? "";
+
+    it("renders nothing when nothing needs action, so there is no permanent banner to learn to ignore", async () => {
+      const markup = await render();
+
+      expect(markup).not.toContain("govuk-notification-banner");
+      expect(markup).not.toContain("needing action");
+    });
+
+    it("states the count above everything else on the page, since a banner below the builder is not an alert", async () => {
+      vi.mocked(countReturnedForAction).mockResolvedValue(4);
+
+      const markup = await render();
+
+      expect(markup).toContain("4 applications have a returned direction needing action");
+      expect(markup.indexOf("govuk-notification-banner")).toBeLessThan(markup.indexOf("<h1"));
+      expect(markup.indexOf("govuk-notification-banner")).toBeLessThan(markup.indexOf('role="search"'));
+    });
+
+    it("carries the worklist as a plain link, so clicking the count runs the query that produced it", async () => {
+      vi.mocked(countReturnedForAction).mockResolvedValue(4);
+
+      const markup = await render();
+
+      // A link and not a control: no script runs on this page, and the worklist is a URL that can be
+      // bookmarked and shared like every other set of results.
+      expect(banner(markup)).toContain(
+        '<a class="govuk-notification-banner__link" href="/deed-polls?where=currentReferralState%3Ais%3ADecided">View these applications</a>'
+      );
+    });
+
+    it("announces itself as a region with the banner's own title, rather than as an unlabelled div", async () => {
+      vi.mocked(countReturnedForAction).mockResolvedValue(1);
+
+      const markup = await render();
+
+      expect(banner(markup)).toContain('role="region"');
+      expect(banner(markup)).toContain('aria-labelledby="govuk-notification-banner-title"');
+      expect(banner(markup)).toContain('<p class="govuk-notification-banner__heading">1 application has a returned direction needing action</p>');
+    });
+
+    it("keeps the count out of the list's own filter, so the banner reads the same on every tab", async () => {
+      vi.mocked(countReturnedForAction).mockResolvedValue(2);
+
+      const markup = await render({ filter: "enroled", where: "type:is:Adult" });
+
+      expect(banner(markup)).toContain("2 applications have a returned direction needing action");
+      expect(banner(markup)).toContain('href="/deed-polls?where=currentReferralState%3Ais%3ADecided"');
+    });
   });
 
   describe("the search form", () => {
