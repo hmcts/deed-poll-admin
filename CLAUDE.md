@@ -159,6 +159,13 @@ single file:
   because the pages still carry their `en`/`cy` pairs. `src/pages/judicial/**` shipped that way and was invisible
   to the translation request until the directory was added. A page whose *second* content pair is named
   `<name>En`/`<name>Cy` is picked up too, under a `<name>.` key prefix.
+- **The same silence applies one level down, to a content *shape* the extractor cannot parse.** An unparsed key is
+  not reported as unparsed — it is simply absent, and a page whose other twenty keys are present looks complete. All
+  three shapes `.claude/rules/frontend.md` documents are handled now (string, nested object, and a **function** that
+  interpolates a runtime value), but a fourth would need adding: `const en = (m) => ({ … })`, the whole-object
+  function form, is not read, and a page written that way would contribute nothing. Function entries are reported
+  one row per sentence (`returnedForActionFor.1`, `.2`) because English needs a singular and a plural where Welsh
+  needs more, so which sentence covers which count is a translator briefing rather than a string.
 
 ## Deployment and sessions
 

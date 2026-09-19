@@ -21,6 +21,12 @@
  * **A new page area must be added to `INCLUDE`, and nothing fails if it is not.** The judicial pages carry
  * `en`/`cy` pairs like every other page, so the omission is invisible in the code and shows only as a
  * translation request that silently lacks a persona — which is what happened when `pages/judicial/**` shipped.
+ *
+ * **Every content shape the service uses must be read here, for the same reason.** A key this script cannot
+ * parse is not reported as unparsed: it is absent, and a page whose other twenty keys are present looks
+ * complete. So the three shapes in `.claude/rules/frontend.md` — a string, a nested object, and a **function**
+ * that interpolates a runtime value — are all handled. The function shape was the gap: both list pages' paging
+ * summaries and the accessible name of every row link on the judicial pool were missing.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -230,8 +236,45 @@ function flatten(objectLiteral, prefix, relative) {
       // Carries a runtime value, so a translator needs the shape and what substitutes in, not the text.
       out[full] = prop.initializer.getText();
       needsHuman.push(`${relative} → ${full}`);
+    } else if (ts.isArrowFunction(prop.initializer) || ts.isFunctionExpression(prop.initializer)) {
+      Object.assign(out, sentencesOf(prop.initializer, full, relative));
     }
   }
+  return out;
+}
+
+/**
+ * The words inside a function-shaped content entry, keyed so a translator sees each of them.
+ *
+ * `.claude/rules/frontend.md` documents a function as *the* way a content entry interpolates a runtime value,
+ * so these are ordinary prose, not an exotic shape: `viewHintFor` is the visually-hidden accessible name of
+ * every row link on the judicial pool, and `pagingSummaryFor` is the total under both list pages. Reading only
+ * the literal initializers above left all of them out of the request, with nothing failing — the same silence
+ * `INCLUDE` produces for a whole page area, one level down.
+ *
+ * **Each sentence gets its own row**, because the reason one of these is a function is usually that English
+ * needs more than one: `returnedForActionFor` has a singular and a plural, and reporting either alone would
+ * hide the other. They go on `needsHuman` for the same reason a template entry does, and more urgently —
+ * Welsh has plural forms English does not, so which sentence covers which count is a briefing, not a string.
+ */
+function sentencesOf(fn, key, relative) {
+  const found = [];
+
+  const visit = (node) => {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) found.push(node.text);
+    else if (ts.isTemplateExpression(node)) found.push(node.getText());
+    else ts.forEachChild(node, visit);
+  };
+  visit(fn.body);
+
+  const out = {};
+  for (const [index, sentence] of found.entries()) {
+    // Unsuffixed while there is one sentence, so the common case reads as the key the page wrote.
+    const full = found.length === 1 ? key : `${key}.${index + 1}`;
+    out[full] = sentence;
+    needsHuman.push(`${relative} → ${full}`);
+  }
+
   return out;
 }
 

@@ -22,8 +22,9 @@ describe("service root", () => {
       expect(res.redirect).toHaveBeenCalledWith("/judicial/referrals");
     });
 
-    // Caseworker-first, deliberately: the caseworker surface is the richer one and the judicial area is one
-    // link away from it, where the reverse leaves a caseworker on a screen with no case list.
+    // Caseworker-first, deliberately: the caseworker surface is the richer one, where the reverse leaves a
+    // caseworker on a screen with no case list. It is not free — there is no judicial navigation to reach the
+    // pool from, so such a user types the URL. See the `landingPath` docblock, which states the cost.
     it("should redirect a user holding both roles to the case list", async () => {
       const res = pageResponse();
 
