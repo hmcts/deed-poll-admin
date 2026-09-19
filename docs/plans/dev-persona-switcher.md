@@ -129,7 +129,7 @@ role-rewrite design this plan rejected would have needed one, or would simply no
 
 | # | Dependency | Owner | State 2026-09-19 |
 |---|---|---|---|
-| 1 | `password` added to the aat client overlay | `hmcts/idam-access-config` | **not raised** — Task 5a |
+| 1 | `password` added to the aat client overlay | `hmcts/idam-access-config` | **not raised** — separate work after this plan, deliberately |
 | 2 | `caseworker-deedpoll-judicial` role exists in AAT | `hmcts/idam-access-config#995` | **open** |
 | 3 | admin can deploy to AAT at all | running-order step 5f | **unraised** |
 | 4 | `deed-poll-api` deployed to AAT behind that address | `deed-poll-api` master | not building |
@@ -164,10 +164,22 @@ yarn lint
 
 ### Task 0: Record the baseline and confirm the findings still hold — STOP if not
 
-- [ ] `yarn turbo test test:app --concurrency=1` and `yarn lint` green, totals recorded as this plan's
+- [x] `yarn turbo test test:app --concurrency=1` and `yarn lint` green, totals recorded as this plan's
       baseline; `/o/userinfo` still returns roles for a `grant_type=password` token against the local
       simulator; the three personas are still seeded; `package.json`'s `start` still sets
       `NODE_ENV=production` — or STOPPED and reported with what differs
+
+**Baseline, 2026-09-19.** Every finding this plan rests on still holds; nothing differs, so Task 1 proceeds.
+
+| Check | Result |
+|---|---|
+| `yarn turbo test test:app --concurrency=1` | 8/8 tasks, **143 files / 2458 tests, all passing** — app 58/892, `@hmcts/deed-poll` 52/901, api-client 4/327, cloud-native-platform 10/140, starter 12/127, simple-router 4/41, session-postgres 2/23, session-redis 1/7 |
+| `yarn lint` | exit **0** — 345 files checked, 2 warnings and 2 infos, all pre-existing (`noUndeclaredEnvVars` on `IDAM_SIMULATOR_URL` / `REDIS_URL`, both a test's or a script's own knob). Biome does not fail on warnings, so **a green lint here is exit 0 and not a clean report** — do not "fix" these two |
+| `POST /o/token`, `grant_type=password`, judge | returns `access_token`, `id_token` **and `refresh_token`** — so the password grant supplies the replacement refresh token Task 3 needs, rather than Task 3 having to source one elsewhere |
+| `GET /o/userinfo` with it | `{"sub":"judge@example.com","roles":["caseworker-deedpoll-judicial"],…}` — userinfo is still the authority |
+| Access token claims | `sub, auth_level, …, grant_type, scope, realm, exp` — **no `roles`**, confirming a local role rewrite cannot reach api |
+| `yarn idam:users` | all three seeded — `admin@example.com` = `caseworker-deedpoll-admin`, `caseworker@example.com` = **none**, `judge@example.com` = `caseworker-deedpoll-judicial` |
+| `package.json` `start` | still `NODE_ENV=production node dist/server.js` — `NODE_ENV` still cannot gate this |
 
 ### Task 1: The environment gate, and the pipeline check that keeps production safe
 
@@ -209,30 +221,32 @@ The point of the feature, and the thing a role rewrite would have failed: after 
 - [ ] An e2e journey switches caseworker → judge → caseworker-admin and asserts on each that a
       persona-specific api-backed page loads and a persona-forbidden one refuses; both validation commands green
 
-### Task 5a — RUN BEFORE TASK 5: raise the IDAM change the AAT path needs, in another team's repo
+## The IDAM registration change is NOT a task in this plan — removed 2026-09-19 on Steve's call
 
-**Added 2026-09-19. This is not optional and not in this repo**, so raise it early: it joins the same review
-queue as `#995` and nothing in Task 5 can be exercised until it merges.
+It was briefly Task 5a. **It is out, and it happens after this plan**, for a reason worth keeping: it is a PR
+into `hmcts/idam-access-config`, another team's repo and another team's review queue, and an agent run should
+not open one. It also carries two traps that want a human reading the diff rather than a checkbox:
 
-`hmcts/idam-access-config`, adding `password` to the `deed-poll-admin` client's `grant_types`:
-
-- **In `apps/deed-poll/aat/services.yaml`, NOT `base`** — base covers production, and ROPC on the production
-  client is not a thing this feature is entitled to ask for.
+- **`apps/deed-poll/aat/services.yaml`, NOT `base`** — base covers production, and ROPC on the production
+  client is not something a test tool is entitled to ask for.
 - **Restate all three grant types** (`authorization_code`, `refresh_token`, `password`). An overlay replaces
-  a list rather than appending to it, so omitting `authorization_code` breaks normal sign-in in AAT.
-- Cite the precedent in the PR body — `apps/pcs`, `apps/ia` and `apps/probate` all register `password` — and
-  say plainly what it is for, so the reviewer is not guessing why a service wants ROPC.
+  a list rather than appending to it, so omitting `authorization_code` **breaks normal sign-in in AAT**.
 
-- [ ] PR raised against `hmcts/idam-access-config` with `password` in the **aat overlay only** and all three
-      grant types restated; precedent and purpose stated in the body; PR number recorded here
+Precedent to cite when it is raised: `apps/pcs`, `apps/ia` and `apps/probate` all register `password`, and
+pcs's first client uses it as its only grant type.
+
+**What this means for the tasks below:** Task 5 still builds the AAT path in *this* repo's code, because that
+is admin's work and nothing about it is blocked. What it cannot do is *work* in AAT until the registration
+lands, so Task 5 must degrade visibly rather than fail, and Task 6's verification stays open until then.
+Do not raise the IDAM PR from this plan, and do not treat its absence as a reason to skip Task 5.
 
 ### Task 5: The AAT path
 
-Create-on-demand persona users through `test-users.ts`, plus the token exchange Task 5a enables. Handle the
+Create-on-demand persona users through `test-users.ts`, plus the token exchange the IDAM registration change enables. Handle the
 three-hour cleanup and the judicial role's absence before `#995` by degrading the affected option with a
 reason shown, never by offering a persona that cannot work.
 
-**Degrade the same way when Task 5a has not merged**: if the client is not registered for `password`, the
+**Degrade the same way while the IDAM registration change is outstanding**: if the client is not registered for `password`, the
 switcher must say so rather than offering options that fail at IDAM.
 
 - [ ] Personas resolve in AAT without fixed accounts; an unavailable persona is disabled with its reason
@@ -247,10 +261,10 @@ switcher must say so rather than offering options that fail at IDAM.
 ## Open questions — flagged, NOT answered here
 
 1. ~~**If AAT refuses `grant_type=password`, what replaces it?**~~ **Answered 2026-09-19 and promoted to
-   Task 5a** — it is refused, because the client is registered for `authorization_code` and `refresh_token`
+   separate follow-up work** — it is refused, because the client is registered for `authorization_code` and `refresh_token`
    only, and the fix is a named PR in `hmcts/idam-access-config`. The question that remains is narrower:
    **if IdAM declines to register `password` for this client**, the options are a browser-driven flow the
-   tester completes once per persona, or accepting local-only and dropping Task 5. Worth asking in the Task 5a
+   tester completes once per persona, or accepting local-only and dropping Task 5. Worth asking in that
    PR body rather than after a refusal.
 2. **Should the switcher offer a fourth "no session" option** to test the anonymous path, now that `/` routes
    personas? Cheap to add, easy to forget.
