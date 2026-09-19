@@ -46,6 +46,15 @@ export interface PageRequestOptions {
    * true whether or not the page passed one on.
    */
   accessToken?: string;
+  /**
+   * The IDAM subject the session was established for.
+   *
+   * Only the persona switcher reads it — it is how the strip marks which persona you currently are — and it
+   * is deliberately not derived from `admin`/`judicial`, because the two answer different questions: those
+   * say what the session may do, this says who IDAM authenticated. A session whose subject matches no
+   * persona is the ordinary case for a real user, not an error.
+   */
+  subject?: string;
   originalUrl?: string;
 }
 
@@ -60,6 +69,7 @@ export function pageRequest({
   flow,
   idToken,
   accessToken,
+  subject,
   originalUrl
 }: PageRequestOptions = {}): RequestDouble {
   const roles = [admin ? DEEDPOLL_ADMIN : undefined, judicial ? DEEDPOLL_JUDICIAL : undefined].filter((role): role is Role => role !== undefined);
@@ -74,7 +84,8 @@ export function pageRequest({
       ...(user ? { user } : {}),
       ...(flow ? { flow } : {}),
       ...(idToken ? { idToken } : {}),
-      ...(accessToken ? { accessToken } : {})
+      ...(accessToken ? { accessToken } : {}),
+      ...(subject ? { subject } : {})
     })
   } as unknown as RequestDouble;
 

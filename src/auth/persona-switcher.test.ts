@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PERSONA_SWITCHER_ENVIRONMENTS, personaSwitcherEnabled } from "./persona-switcher.js";
+import { pageRequest, pageResponse } from "../express-doubles.js";
+import { PERSONA_SWITCH_PATH, PERSONA_SWITCHER_ENVIRONMENTS, PERSONAS, personaSwitcherEnabled, personaSwitcherLocals } from "./persona-switcher.js";
 
 /**
  * `config` resolves the environment once, when it is first imported, so the real package cannot be steered
@@ -58,5 +59,88 @@ describe("personaSwitcherEnabled", () => {
     settings.set("environmentName", "aat");
 
     expect(personaSwitcherEnabled()).toBe(false);
+  });
+});
+
+/**
+ * What the layout renders from, and the properties of it that are decisions rather than details.
+ *
+ * The markup is `src/pages/layouts/app.njk.test.ts`'s subject. This is about what reaches it: nothing at all
+ * when the gate is shut or nobody is signed in, and — when it is open — the same three personas for every
+ * persona, since a switcher only on the caseworker chrome is a trap door with no way back out (decision 7).
+ */
+describe("personaSwitcherLocals", () => {
+  beforeEach(() => {
+    settings.clear();
+    settings.set("personaSwitcher.enabled", true);
+    settings.set("environmentName", "aat");
+  });
+
+  const locals = (options: Parameters<typeof pageRequest>[0] = {}): Record<string, unknown> => {
+    const res = pageResponse();
+    personaSwitcherLocals()(pageRequest(options), res, vi.fn());
+    return res.locals as Record<string, unknown>;
+  };
+
+  it("should offer every persona to a caseworker", () => {
+    expect(locals({ subject: "caseworker@example.com" }).personaSwitcher).toMatchObject({
+      action: PERSONA_SWITCH_PATH,
+      personas: [
+        { id: "caseworker", name: "Caseworker", isCurrent: true },
+        { id: "admin", name: "Caseworker with admin", isCurrent: false },
+        { id: "judge", name: "Judge", isCurrent: false }
+      ]
+    });
+  });
+
+  // Decision 7 in the only place it can be pinned: the judge gets the same three options, so the way back to
+  // the caseworker screens exists.
+  it("should offer every persona to a judge too, so the judicial chrome is not a one-way door", () => {
+    const view = locals({ judicial: true, subject: "judge@example.com" }).personaSwitcher as { personas: { id: string; isCurrent: boolean }[] };
+
+    expect(view.personas.map((persona) => persona.id)).toEqual(PERSONAS.map((persona) => persona.id));
+    expect(view.personas.filter((persona) => persona.isCurrent)).toEqual([{ id: "judge", name: "Judge", isCurrent: true }]);
+  });
+
+  it("should offer every persona to an admin", () => {
+    const view = locals({ admin: true, subject: "admin@example.com" }).personaSwitcher as { personas: { id: string }[] };
+
+    expect(view.personas.map((persona) => persona.id)).toEqual(PERSONAS.map((persona) => persona.id));
+  });
+
+  // The ordinary case in AAT and for anyone who signed in as themselves rather than as a fixture. No persona
+  // is marked, and the switcher is still offered — nothing here decides what may be switched *to*.
+  it("should mark no persona as current when the subject is not one of them", () => {
+    const view = locals({ subject: "a.real.caseworker@justice.gov.uk" }).personaSwitcher as { personas: { isCurrent: boolean }[] };
+
+    expect(view.personas.some((persona) => persona.isCurrent)).toBe(false);
+  });
+
+  // The strip's `{% if personaSwitcher %}` is the whole of the render-time gate, so "off" has to mean absent
+  // rather than empty: an assigned-but-falsy value would be one refactor away from rendering.
+  it("should assign nothing when the chart flag is off", () => {
+    settings.set("personaSwitcher.enabled", false);
+
+    expect(locals({ subject: "judge@example.com" })).toEqual({});
+  });
+
+  it("should assign nothing in an environment outside the allowlist", () => {
+    settings.set("environmentName", "production");
+
+    expect(locals({ subject: "judge@example.com" })).toEqual({});
+  });
+
+  // `/login` and the footer pages are on `requireAuth`'s public allowlist, so they render with no session at
+  // all — and offering to change a persona nobody holds yet is an invitation to a 401 from api.
+  it("should assign nothing for an anonymous visitor, since there is no persona to change", () => {
+    expect(locals({ signedIn: false })).toEqual({});
+  });
+
+  it("should always call next, so a shut gate cannot hang a page", () => {
+    const next = vi.fn();
+
+    personaSwitcherLocals()(pageRequest({ signedIn: false }), pageResponse(), next);
+
+    expect(next).toHaveBeenCalledOnce();
   });
 });

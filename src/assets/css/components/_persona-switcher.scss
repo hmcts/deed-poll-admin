@@ -1,0 +1,71 @@
+/*
+ * The persona switcher strip — a development tool, and it has to look like one.
+ *
+ * Decision 5: "visually obvious, never mistakable for part of the service in a screenshot." That is the
+ * whole brief for this file, and it is why the strip is black rather than styled to fit in. A screenshot of
+ * a caseworker page reaches people who were not in the room, and one that showed a discreet control for
+ * becoming a judge would be read as the service having one.
+ *
+ * Black background with `govuk-button--inverse`, which is the Design System's own supported pairing for a
+ * button on a dark surface — so the contrast is GDS's answer rather than one invented here.
+ *
+ * `base` and not `index`, so this file gets the settings, tools and helpers and emits only the rules below.
+ */
+@use "govuk-frontend/dist/govuk/base" as *;
+
+.app-persona-switcher {
+  @include govuk-font($size: 16);
+  background-color: govuk-colour("black");
+  color: govuk-colour("white");
+  padding: govuk-spacing(2) govuk-spacing(3);
+  /*
+   * Sits in `beforeContent`, so inside `govuk-width-container` rather than full-bleed. Escaping the
+   * container would mean a negative-margin trick that breaks at every breakpoint the container changes at,
+   * for a tool nobody screenshots on purpose.
+   */
+  @include govuk-responsive-margin(4, "bottom");
+}
+
+.app-persona-switcher__tag {
+  vertical-align: middle;
+  margin-right: govuk-spacing(2);
+}
+
+.app-persona-switcher__label {
+  @include govuk-typography-weight-bold;
+  vertical-align: middle;
+  margin-right: govuk-spacing(2);
+}
+
+.app-persona-switcher__list {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-persona-switcher__item {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: govuk-spacing(2);
+}
+
+/*
+ * govuk-button carries a 0 0 govuk-spacing(6) bottom margin for stacked form buttons, which inside a
+ * one-line strip is 30px of black under every one of them.
+ */
+.app-persona-switcher__button {
+  margin-bottom: 0;
+}
+
+/*
+ * The persona you already are. Not a disabled button: a disabled control invites a click that does nothing,
+ * and this is a statement rather than an option. The parenthesised word carries the state in text, so it is
+ * not conveyed by position alone.
+ */
+.app-persona-switcher__current {
+  @include govuk-typography-weight-bold;
+  display: inline-block;
+  padding: govuk-spacing(1) 0;
+  border-bottom: 3px solid govuk-colour("yellow");
+}

@@ -10,6 +10,7 @@ import cookieParser from "cookie-parser";
 import type { Express } from "express";
 import express from "express";
 import { createClient } from "redis";
+import { personaSwitcherLocals } from "./auth/persona-switcher.js";
 import { refreshMiddleware } from "./auth/refresh-middleware.js";
 import { requireAuth } from "./auth/require-auth.js";
 import { requireJudicial } from "./auth/require-role.js";
@@ -172,6 +173,13 @@ export async function createApp(): Promise<Express> {
   // an anonymous visitor is still sent to log in, and only an authenticated non-judge is refused here.
   // See ./auth/require-role.ts — and note that api gates the same routes itself; this is the UI boundary.
   app.use("/judicial", requireJudicial());
+
+  // The non-production persona switcher, put on `res.locals` for `src/pages/layouts/app.njk` to render.
+  // Global and before the router, which is the only shape that puts it on *every* page — decision 7, a
+  // switcher the judge cannot see is a trap door with no way back out. After `refreshMiddleware` so it reads
+  // a settled session rather than one mid-renewal, and it assigns nothing at all unless both halves of the
+  // gate agree. See ./auth/persona-switcher.ts.
+  app.use(personaSwitcherLocals());
 
   app.use(await createSimpleRouter({ path: `${__dirname}/pages` }));
   app.use(notFoundHandler());

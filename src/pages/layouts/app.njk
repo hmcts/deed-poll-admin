@@ -1,0 +1,29 @@
+{#
+  The app's own layout, and what every page extends instead of the starter's.
+
+  **The starter is template-provided and a re-scaffold overwrites it** (decision 4), so nothing
+  app-specific goes in `libs/express-govuk-starter` — an edit there is lost silently, at whatever
+  point somebody re-runs the scaffold, and the symptom is a control that used to be on every page
+  quietly not being. This file is the seam: it inherits the starter's whole template and adds one
+  block.
+
+  Paired with `app-full-width.njk`, which does the same to `layouts/full-width.njk`. Nunjucks has no
+  multiple inheritance, so two starter layouts means two files here; both include the one partial, so
+  the strip itself is not duplicated.
+
+  **The switcher goes above `super()`, not below it.** `super()` is the starter's phase banner and
+  back link, and a development toolbar belongs at the top of the page under the GOV.UK header rather
+  than between the back link and the h1. Calling `super()` rather than restating the parent block also
+  leaves the nested `backLink` block intact for any page that wants to override it.
+
+  The 404 and 500 pages are the one exception and cannot be brought in: their views live in the
+  starter (`errors/404.njk`, `errors/500.njk`) and nunjucks resolves the starter's view paths before
+  this one, so a local copy would not even be reached. `errors/403.njk` is this app's own and does
+  extend this layout.
+#}
+{% extends "layouts/default.njk" %}
+
+{% block beforeContent %}
+  {% include "layouts/persona-switcher.njk" %}
+  {{ super() }}
+{% endblock %}

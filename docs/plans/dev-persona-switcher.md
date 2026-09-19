@@ -221,8 +221,43 @@ warnings.
 `src/pages/layouts/app.njk` extending the starter layouts, rendering the switcher in `beforeContent`; page
 templates repointed. No edit to `libs/express-govuk-starter`.
 
-- [ ] Every page renders through the app layout; the starter library is untouched; the switcher is absent
+- [x] Every page renders through the app layout; the starter library is untouched; the switcher is absent
       when the flag is off, on every page and for every persona when it is on; both validation commands green
+
+**Done 2026-09-19.** `src/pages/layouts/app.njk` and `app-full-width.njk` extend the starter's two layouts and
+render `layouts/persona-switcher.njk` in `beforeContent`; all 25 page templates were repointed, including
+`errors/403.njk`. Four things worth knowing before Task 3:
+
+- **There are two app layouts, not one.** The starter ships `default.njk` *and* `full-width.njk` (the case list
+  and the case detail use the latter), and nunjucks has no multiple inheritance. Both new files are four lines
+  and include the same partial, so the strip itself is not duplicated.
+- **The switcher goes *above* `{{ super() }}`.** `super()` is the starter's phase banner and back link, and
+  `super()` rather than a restatement of the parent block is what keeps the nested `backLink` block overridable
+  — verified by rendering, not assumed, because a silently lost back link on every form page would be a real
+  regression.
+- **The strip reaches the template on `res.locals`, from `personaSwitcherLocals()` mounted globally in
+  `app.ts`.** That is the only shape that satisfies "every page for every persona": a per-page view-model entry
+  would be missing from the next page somebody writes, and the judicial pages deliberately never ask about the
+  role. Nothing is assigned when the gate is shut *or when nobody is signed in*, so `{% if personaSwitcher %}`
+  is the whole render-time condition.
+- **The copy is English only and deliberately not in `src/locales`.** `scripts/extract-welsh-strings.mjs` scans
+  that directory, so putting it there would bill a translator for a dev tool — and `yarn welsh:check` fails on
+  a `cy` value identical to its `en` one, so the alternative is a red check with no defect behind it. It lives
+  in `persona-switcher.ts` as `COPY` instead, which keeps English out of the markup.
+
+**The 404 and 500 pages are the one exception, and it cannot be closed here.** Their views are the starter's
+(`errors/404.njk`, `errors/500.njk`) and nunjucks resolves the starter's view paths *before* `src/pages`, so
+even a local copy would not be reached. Editing the starter is what decision 4 forbids.
+
+**Checked against the built output, since this is the failure class with no local symptom.** `vite.build.ts`
+copies templates to a doubly-nested path (`dist/pages/src/pages/<dir>/<dir>/…`), which resolves only because
+`collectViewPaths` adds every directory as a search path. `yarn build` puts the layouts at
+`dist/pages/src/pages/layouts/layouts/app.njk`, and rendering `judicial/referrals/index.njk` from `dist` with
+the deployed search paths produces both the strip and the phase banner. Had that not held, every page would
+500 in a pod with nothing failing locally.
+
+Suite: 143 files / 2502 tests passing (app 60/936; +21 across `app.njk.test.ts`, `persona-switcher.test.ts` and
+`app.test.ts`). `yarn lint` exit 0 with the same two pre-existing warnings.
 
 ### Task 3: The switch itself, locally
 

@@ -60,7 +60,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("redis", () => ({ createClient: mocks.createClient }));
 vi.mock("@hmcts-cft/express-session-redis", () => ({ expressSessionRedis: mocks.expressSessionRedis }));
 vi.mock("@hmcts-cft/express-session-postgres", () => ({ expressSessionPostgres: mocks.expressSessionPostgres }));
-vi.mock("@hmcts-cft/simple-router", () => ({ createSimpleRouter: vi.fn(async () => mocks.passthrough) }));
+vi.mock("@hmcts-cft/simple-router", () => ({ createSimpleRouter: vi.fn(async () => gates.router) }));
 vi.mock("@hmcts-cft/express-govuk-starter", () => ({
   configureCookieManager: vi.fn(async () => undefined),
   configureGovuk: vi.fn(async () => undefined),
@@ -261,11 +261,19 @@ const gates = vi.hoisted(() => ({
   },
   judicial: function requireJudicialDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
+  },
+  persona: function personaSwitcherLocalsDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
+  /** Named, unlike the other doubles in this file, only so the layer it mounts as can be told apart. */
+  router: function simpleRouterDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
   }
 }));
 
 vi.mock("./auth/require-auth.js", () => ({ requireAuth: () => gates.auth, isPublicPath: () => false }));
 vi.mock("./auth/require-role.js", () => ({ requireRole: () => gates.judicial, requireJudicial: () => gates.judicial }));
+vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gates.persona }));
 
 describe("createApp's judicial gate", () => {
   let stack: MountedLayer[];
@@ -328,6 +336,46 @@ describe("createApp's judicial gate", () => {
 });
 
 /**
+ * That the persona switcher's locals middleware is mounted, globally and before the router.
+ *
+ * Here for the same reason as the judicial gate: nothing about running the app reveals the failure. An
+ * unmounted middleware leaves every page rendering without the strip — which is also exactly what a correctly
+ * mounted one does when the gate is shut — so no page test and no screenshot can tell the two apart. Mounted
+ * *after* the router it would be dead code, since the router answers the request.
+ *
+ * Global rather than per area is decision 7: the judge needs the same control the caseworker has, or the
+ * judicial chrome is a door that only opens one way.
+ */
+describe("createApp's persona switcher", () => {
+  let stack: MountedLayer[];
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+  });
+
+  it("should mount the locals middleware before the router, so every page can render the strip", () => {
+    const mounted = stack.findIndex((layer) => layer.handle === gates.persona);
+
+    expect(mounted).toBeGreaterThanOrEqual(0);
+    expect(mounted).toBeLessThan(stack.findIndex((layer) => layer.handle === gates.router));
+  });
+
+  // `match` rather than `matchers`, unlike the judicial assertions above: a layer mounted at `/` without a
+  // path takes the router's `slash` fast path and never consults its matchers, so reading those directly
+  // reports `false` for every path but `/` and the test would pass for the wrong reason inverted.
+  it("should mount it for every path rather than one area, so the judge gets the same control as the caseworker", () => {
+    const layer = stack.find((entry) => entry.handle === gates.persona) as MountedLayer;
+
+    for (const path of ["/", "/deed-polls", "/deed-polls/abc", "/judicial/referrals"]) {
+      expect(layer.match(path), path).toBe(true);
+    }
+  });
+});
+
+/**
  * The URL of every judicial page, derived from the page files the way `simple-router` derives its routes: the
  * `pages` root is stripped, an `index` is the directory itself, and a `[param]` segment stands for any value.
  */
@@ -347,4 +395,4 @@ function judicialPagePaths(): string[] {
 }
 
 /** The part of an Express layer this file reads: what was mounted, and the paths it answers for. */
-type MountedLayer = { handle: unknown; matchers: ((path: string) => unknown)[] };
+type MountedLayer = { handle: unknown; matchers: ((path: string) => unknown)[]; match: (path: string) => boolean };

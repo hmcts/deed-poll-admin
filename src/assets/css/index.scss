@@ -5,6 +5,11 @@
 // globs `css/*.scss` into build entries, so a partial as a sibling would become a stylesheet of its own.
 @use "components/filter-nav";
 
+// The non-production persona switcher strip, rendered in `src/pages/layouts/persona-switcher.njk`. In the
+// global stylesheet because the layout renders it on every page; inert wherever the gate keeps the markup
+// away, since every rule is scoped to a class only that partial emits.
+@use "components/persona-switcher";
+
 /*
  * Caseworker case-detail styles, ported from the prototype's app.css.
  *

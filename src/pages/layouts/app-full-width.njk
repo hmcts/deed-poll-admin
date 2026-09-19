@@ -1,0 +1,10 @@
+{#
+  `app.njk` for the pages that want the full width of the container — the case list and the case
+  detail. See that file for why the app owns these at all and why there are two of them.
+#}
+{% extends "layouts/full-width.njk" %}
+
+{% block beforeContent %}
+  {% include "layouts/persona-switcher.njk" %}
+  {{ super() }}
+{% endblock %}

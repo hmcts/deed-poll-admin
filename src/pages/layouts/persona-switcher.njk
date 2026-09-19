@@ -1,0 +1,40 @@
+{#
+  The persona switcher strip.
+
+  `personaSwitcher` is put on `res.locals` by `personaSwitcherLocals()` (`src/auth/persona-switcher.ts`)
+  and is absent unless both halves of the gate agree, so the `if` below is the whole of the render-time
+  condition — there is no page-level flag to forget and no way for a page to show a control this process
+  would refuse to honour.
+
+  **One submit button per persona, and no `<select>`.** Decision 6 requires a real submit rather than a
+  `GET` link, and three named buttons need no JavaScript, no `onchange` enhancement and no progressive
+  -enhancement story at all: each button carries its own `value`, which is what a browser posts. The
+  current persona is text rather than a button, since there is nothing to switch to.
+
+  The visually-hidden "Switch to" prefixes the accessible name so the three buttons do not all announce
+  as "Switch", while the visible label stays the persona's name — the strip has to stay one line.
+
+  Deliberately **not** `govukServiceNavigation`: this must never read as part of the service in a
+  screenshot (decision 5). Adopting service navigation properly is loose end 15 and separate work.
+#}
+{% if personaSwitcher %}
+  <div class="app-persona-switcher">
+    <form method="post" action="{{ personaSwitcher.action }}" novalidate>
+      <strong class="govuk-tag govuk-tag--red app-persona-switcher__tag">{{ personaSwitcher.tag }}</strong>
+      <span class="app-persona-switcher__label">{{ personaSwitcher.label }}</span>
+      <ul class="app-persona-switcher__list">
+        {% for persona in personaSwitcher.personas %}
+          <li class="app-persona-switcher__item">
+            {% if persona.isCurrent %}
+              <span class="app-persona-switcher__current">{{ persona.name }} ({{ personaSwitcher.current }})</span>
+            {% else %}
+              <button type="submit" name="persona" value="{{ persona.id }}" class="govuk-button govuk-button--inverse app-persona-switcher__button" data-module="govuk-button">
+                <span class="govuk-visually-hidden">{{ personaSwitcher.switchTo }} </span>{{ persona.name }}
+              </button>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </form>
+  </div>
+{% endif %}
