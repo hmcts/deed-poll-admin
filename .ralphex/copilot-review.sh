@@ -69,6 +69,33 @@ fi
 # the model what it was.
 #
 # `copilot help config` lists the valid identifiers.
+# `.ralphex/progress/**` must not be read, and this is the second failure mode after the model pin.
+#
+# On 2026-09-19 (admin-3, 5,933 lines) the review did everything right — diffed against master by area, read
+# every changed page, ran biome, tsc and the relevant vitest suites — and then viewed
+# `progress-…-review.txt` **ten times, more than any source file**, before answering NO ISSUES FOUND in 94
+# seconds on its first iteration. That file is the transcript of the internal Claude review that had just
+# concluded "no critical or major issues found in this iteration": the answer sheet. Whether or not it
+# changed the verdict, a second opinion that has read the first opinion is not independent, which is the only
+# thing this phase exists to provide.
+#
+# Instruction rather than a tool denial, deliberately. The deny syntax is tool-shaped (`shell(git push)`), so
+# any path-pattern guard here would be trivially sidestepped by `view`, `grep`, a glob or a subagent — a guard
+# that looks structural and is not is worse than an honest instruction. The output rules below are obeyed
+# exactly (the CLI returned the literal `NO ISSUES FOUND` as specified), so this file has evidence the model
+# follows rules in this block. **If a future run reads the log anyway, escalate to `--excluded-tools` and
+# accept losing `view`, rather than leaving this comment as the only control.**
+#
+# **Named files, not `.ralphex/**`.** The first version of this rule blocked the whole directory and was wrong:
+# ralphex's own prompt points the reviewer at `progress-<plan>-codex.txt`, which is *its own* history across
+# this loop's iterations and what stops it repeating findings round after round. Blocking that made the rule
+# fight the tool. It cost nothing on the 2026-09-19 re-run only because that file was 381 bytes — luck, not
+# design. So the two Claude-authored logs are named and the reviewer's own is explicitly permitted.
+#
+# **Measured effect of this block, same diff and same model, first run vs re-run:** reads of the internal
+# review transcript 10 → 0; `git diff` invocations 4 → 32; duration 94s → 5m+; findings none → two valid
+# defects, both of which five internal review rounds had seen and dismissed on reasoning that turned out to be
+# factually wrong. That is the whole argument for this phase existing, so do not weaken these rules.
 exec "$copilot_bin" \
   --model gpt-5.6-sol \
   --prompt "$(cat "$prompt_file")
@@ -77,7 +104,19 @@ Output rules, which override any conflicting instruction above:
 - Report each finding on its own line, formatted exactly as: file:line - description
 - If you find no issues, output exactly: NO ISSUES FOUND
 - Do not modify, create or delete any file. Report only.
-- Do not print a preamble, a summary, or anything other than the findings." \
+- Do not print a preamble, a summary, or anything other than the findings.
+
+Independence rules, which also override any conflicting instruction above:
+- Do NOT read, search, glob or summarise these two files, which hold ANOTHER reviewer's findings and
+  conclusions about this very diff:
+    .ralphex/progress/progress-<plan>-review.txt   (the internal reviewer's transcript)
+    .ralphex/progress/progress-<plan>.txt          (the implementer's own task log)
+  Your entire value here is an opinion formed independently of those. If you have already read either,
+  say so on its own line as: .ralphex - read another reviewer's conclusions, this review is not independent
+- You MAY read .ralphex/progress/progress-<plan>-codex.txt. That one is your own history across the
+  iterations of this loop, and an instruction above may point you at it so you do not repeat yourself.
+- Do not treat the absence of findings by a previous reviewer as evidence there are none.
+- Review the diff and the code it changes. Judge the change on what it does, not on what anyone said about it." \
   --silent \
   --no-color \
   --log-level none \

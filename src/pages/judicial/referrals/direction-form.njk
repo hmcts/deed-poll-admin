@@ -1,0 +1,73 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/radios/macro.njk" import govukRadios %}
+{% from "govuk/components/character-count/macro.njk" import govukCharacterCount %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{#
+  The direction form: two questions a judge must answer and one they may.
+
+  Radios for both required questions, and **neither has a default** — the items arrive with their checked state
+  worked out from what was submitted, so an untouched form posts nothing for either and the schema rejects it.
+  A pre-selected Gazette answer would be this page deciding publication on the judge's behalf, which is the one
+  thing api-2 decision 6 puts in their hands.
+
+  A character count rather than `maxlength` on the directions, the call `witness-form.njk` records: a browser
+  that silently stops accepting characters gives no reason for having done so, and 4,000 is api's bound.
+
+  Cancel is a link, so it acts on nothing. The only submit continues to the check step — nothing on this page
+  records anything.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if errorList.length %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+    {% endif %}
+
+    {# Empty when api sent no application with the referral; there is nothing to caption it with then. #}
+    {% if reference %}
+      <span class="govuk-caption-l">{{ reference }}</span>
+    {% endif %}
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+    <form method="post" action="{{ directionHref }}" novalidate>
+
+      {{ govukRadios({
+        idPrefix: "decision",
+        name: "decision",
+        fieldset: { legend: { text: decisionLegend, classes: "govuk-fieldset__legend--m" } },
+        hint: { text: decisionHint },
+        items: decisionItems,
+        errorMessage: { text: errors.decision } if errors.decision
+      }) }}
+
+      {{ govukCharacterCount({
+        id: "directionsText",
+        name: "directionsText",
+        rows: 8,
+        maxlength: directionsTextMax,
+        value: values.directionsText,
+        label: { text: directionsLabel, classes: "govuk-label--m" },
+        hint: { text: directionsHint },
+        errorMessage: { text: errors.directionsText } if errors.directionsText
+      }) }}
+
+      {{ govukRadios({
+        idPrefix: "publishToGazette",
+        name: "publishToGazette",
+        fieldset: { legend: { text: gazetteLegend, classes: "govuk-fieldset__legend--m" } },
+        hint: { text: gazetteHint },
+        items: gazetteItems,
+        errorMessage: { text: errors.publishToGazette } if errors.publishToGazette
+      }) }}
+
+      <div class="govuk-button-group">
+        {{ govukButton({ text: continueLabel }) }}
+        <a class="govuk-link" href="{{ referralHref }}">{{ cancel }}</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

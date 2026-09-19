@@ -15,6 +15,9 @@
  * Everything `createApp` mounts that touches the filesystem or a network is doubled — this is a test of
  * the wiring, not of Nunjucks, Vite or api.
  */
+import { readdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { deedPollApiStatus } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
@@ -239,3 +242,109 @@ describe("createApp when Redis is unreachable", () => {
     await expect(createApp()).resolves.toBeDefined();
   });
 });
+
+/**
+ * That the judicial role gate is actually mounted, and mounted on the right prefix and in the right place.
+ *
+ * Pinned here for the same reason the session store is: nothing about running the app reveals the failure.
+ * An unmounted gate leaves every judicial page open to any signed-in caseworker, and the pages themselves
+ * look identical either way — they never ask about the role. A gate mounted *before* `requireAuth` would be
+ * worse than useless in the other direction: an anonymous visitor would be refused with a 403 instead of
+ * being sent to log in, so the ordering is asserted rather than assumed.
+ *
+ * The two auth middlewares are doubled with named functions only so the mounted layers can be identified —
+ * their behaviour is `require-auth.test.ts`'s and `require-role.test.ts`'s subject, not this file's.
+ */
+const gates = vi.hoisted(() => ({
+  auth: function requireAuthDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
+  judicial: function requireJudicialDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  }
+}));
+
+vi.mock("./auth/require-auth.js", () => ({ requireAuth: () => gates.auth, isPublicPath: () => false }));
+vi.mock("./auth/require-role.js", () => ({ requireRole: () => gates.judicial, requireJudicial: () => gates.judicial }));
+
+describe("createApp's judicial gate", () => {
+  let stack: MountedLayer[];
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+  });
+
+  it("should mount the judicial role gate", () => {
+    expect(stack.filter((layer) => layer.handle === gates.judicial)).toHaveLength(1);
+  });
+
+  it("should mount it on the judicial prefix and nowhere else, so a page added under it is gated by where it lives", () => {
+    const layer = stack.find((entry) => entry.handle === gates.judicial) as MountedLayer;
+
+    for (const path of ["/judicial", "/judicial/referrals", "/judicial/referrals/abc/direction"]) {
+      expect(
+        layer.matchers.some((matches) => matches(path) !== false),
+        path
+      ).toBe(true);
+    }
+    for (const path of ["/deed-polls", "/deed-polls/abc", "/login", "/"]) {
+      expect(
+        layer.matchers.every((matches) => matches(path) === false),
+        path
+      ).toBe(true);
+    }
+  });
+
+  it("should mount it after requireAuth, so an anonymous visitor is sent to log in rather than refused", () => {
+    expect(stack.findIndex((layer) => layer.handle === gates.judicial)).toBeGreaterThan(stack.findIndex((layer) => layer.handle === gates.auth));
+  });
+
+  /**
+   * Every judicial page, read off the filesystem rather than listed.
+   *
+   * This is where "a caseworker is refused the judicial area" is actually pinned: the pages themselves never ask
+   * about the role, so no page test can show it, and a hand-written list of URLs would go stale the moment a page
+   * is added — which is the failure that matters, since an ungated judicial page looks identical to a gated one.
+   * `require-role.test.ts` proves the gate refuses a caseworker and admits a judge; this proves it is in front of
+   * all of them.
+   */
+  it("should cover every page under src/pages/judicial, including ones added after this test was written", () => {
+    const layer = stack.find((entry) => entry.handle === gates.judicial) as MountedLayer;
+    const paths = judicialPagePaths();
+
+    // A guard against the glob silently finding nothing and the loop below passing vacuously.
+    expect(paths.length).toBeGreaterThanOrEqual(3);
+
+    for (const path of paths) {
+      expect(
+        layer.matchers.some((matches) => matches(path) !== false),
+        path
+      ).toBe(true);
+    }
+  });
+});
+
+/**
+ * The URL of every judicial page, derived from the page files the way `simple-router` derives its routes: the
+ * `pages` root is stripped, an `index` is the directory itself, and a `[param]` segment stands for any value.
+ */
+function judicialPagePaths(): string[] {
+  const root = path.join(fileURLToPath(import.meta.url), "../pages/judicial");
+
+  return readdirSync(root, { recursive: true, encoding: "utf8" })
+    .filter((entry) => entry.endsWith(".ts") && !entry.endsWith(".test.ts"))
+    .map(
+      (entry) =>
+        `/judicial/${entry
+          .replace(/\.ts$/, "")
+          .replace(/(^|\/)index$/, "")
+          .replace(/\[[^\]]+\]/g, "a-sample-id")}`
+    )
+    .map((path) => (path.endsWith("/") ? path.slice(0, -1) : path));
+}
+
+/** The part of an Express layer this file reads: what was mounted, and the paths it answers for. */
+type MountedLayer = { handle: unknown; matchers: ((path: string) => unknown)[] };

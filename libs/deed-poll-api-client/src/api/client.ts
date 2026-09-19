@@ -489,8 +489,10 @@ export function getJudicialReferral(referralId: string, config: ApiConfig): Prom
  * Pick a referral up out of the pool. No body — the sub-resource names the transition and the holder comes
  * from the token.
  *
- * `conflict` when the referral is not `Open`, which is what a second judge gets for claiming one that has just
- * been taken: the pool is shared, so two judges reading the same page is ordinary rather than exceptional.
+ * `conflict` when the referral is not `Open` — but api checks visibility first, so this is **not** what a second
+ * judge gets for claiming one that has just been taken: that is a `not-found`, indistinguishable from withdrawn,
+ * closed and never-there. The only referral a caller can see and not claim is one they hold or have decided
+ * themselves, so a `conflict` here says "already yours" and never "somebody else's".
  */
 export function claimJudicialReferral(referralId: string, config: ApiConfig): Promise<ApiResult<JudicialReferralDetail>> {
   return request(config, "POST", `${judicialReferralPath(referralId)}/claim`, WIRE_SCHEMAS.JudicialReferralDetail);

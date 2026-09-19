@@ -12,6 +12,7 @@ import express from "express";
 import { createClient } from "redis";
 import { refreshMiddleware } from "./auth/refresh-middleware.js";
 import { requireAuth } from "./auth/require-auth.js";
+import { requireJudicial } from "./auth/require-role.js";
 import { assertRedisUrl, assertSessionSecret } from "./auth/session.js";
 import { assertIdamSettings, idamSettings } from "./auth/settings.js";
 import { domainErrorHandler } from "./errors.js";
@@ -165,6 +166,12 @@ export async function createApp(): Promise<Express> {
   // After requireAuth, so it only fires for authenticated users. Refreshes tokens before they expire,
   // keeping sessions alive without forcing re-authentication. See ./auth/refresh-middleware.ts.
   app.use(refreshMiddleware);
+
+  // The judicial area is gated on the role for the whole prefix rather than page by page, so a judicial
+  // page added later is covered by where it lives. Additive to `requireAuth` above and mounted after it:
+  // an anonymous visitor is still sent to log in, and only an authenticated non-judge is refused here.
+  // See ./auth/require-role.ts — and note that api gates the same routes itself; this is the UI boundary.
+  app.use("/judicial", requireJudicial());
 
   app.use(await createSimpleRouter({ path: `${__dirname}/pages` }));
   app.use(notFoundHandler());

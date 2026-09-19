@@ -21,9 +21,12 @@ import { sessionUser } from "./session.js";
  * `/health` is probed by Kubernetes, which has no session. The footer pages are statutory content
  * (accessibility statement, privacy policy, cookies) that must be readable before login.
  *
- * `/` is here even though the case list behind it is **not** public: it only redirects to
- * `/deed-polls`, so allowing it makes an anonymous visitor's `returnTo` the list rather than the
- * redirect, saving a hop after sign-in. Nothing is disclosed — the redirect target does the refusing.
+ * `/` is here even though neither home behind it is public: it resolves which persona's home a
+ * signed-in user gets and sends an anonymous one to `/login?returnTo=%2F` itself, which is the same
+ * place this gate would send them. The entry is therefore behaviourally neutral, and it is kept so the
+ * routing decision stays in one readable handler rather than being split between that handler and this
+ * allowlist. Nothing is disclosed either way — the redirect target does the refusing. See
+ * `src/pages/index.ts`, which owns the reasoning.
  *
  * Asset paths are matched by prefix because Vite serves them under `/@vite`, `/@fs` and `/src` in
  * development and the built bundles live under `/assets`.

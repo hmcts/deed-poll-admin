@@ -223,11 +223,17 @@ admin-0.
    admin-only field. Notes render read-only (no add-note control on this screen — a judge does not write notes,
    api-3 decision: writes are exactly claim + direct).
 
-5. **Claim is a single POST from the referral view or the pool row; its 409 is "someone else took it".** A
-   judge claims a pool referral with one action; the api re-checks `Open` and 409s if another judge claimed it
-   first (api-3/api-2). The screen renders that 409 as a plain message ("This referral has already been claimed")
-   and returns the judge to the pool — not a stack trace, not a generic error. A claim that succeeds lands the
-   judge on the referral view, now theirs to direct.
+5. **Claim is a single POST from the referral view; a refusal is a plain message and never an error page.** A
+   judge claims a pool referral with one action and api re-checks `Open`. **This decision's original wording —
+   "its 409 is 'someone else took it'" — was wrong, and Task 2's pre-flight found out why:** api checks
+   *visibility before state*, so a referral another judge claimed first is a **404**, indistinguishable from
+   withdrawn, closed and never-there. That is the refusal a beaten judge gets, and it returns them to the pool
+   with decision 10's "no longer available". The **409** is the narrow remainder — a referral the judge can see
+   and cannot claim, which visibility narrows to one they already hold or have already directed — so it goes to
+   the *referral*, not the pool, with a sentence that names the state ("not waiting to be claimed"). Rendering it
+   as "This referral has already been claimed" would tell a judge somebody else has work that is in fact theirs,
+   and send them to a list it has left. A claim that succeeds lands the judge on the referral view, now theirs to
+   direct.
 
 6. **The direction is a multi-step flow ending in a GOV.UK check-your-answers attestation — built fresh,
    because the repo has neither a CYA-before-submit pattern nor a session wizard.** The flow is: referral view
@@ -279,9 +285,18 @@ admin-0.
     "This referral is no longer available" (or equivalent), returning the judge to the pool — it must never say
     or imply another judge holds it. This is the client half of api-3's non-enumeration guarantee.
 
-11. **Welsh throughout, from `locales/`.** Every judge-facing string — pool headings, the direction form
-    labels, the attestation copy, the 404/409 messages — lives in the `en`/`cy` locale files like every other
-    string, following the existing pattern. The judicial persona is not exempt from bilingual delivery.
+11. **Welsh throughout, in the same shape as every other page.** Every judge-facing string — pool headings,
+    the direction form labels, the attestation copy, the 404/409 messages — reaches its template as an
+    `en`/`cy` pair, following the existing pattern. The judicial persona is not exempt from bilingual
+    delivery.
+
+    **Amended on delivery (2026-09-19):** this decision originally said "from `locales/`", which is not this
+    repo's convention and is not what shipped. Page copy lives in **page-local `en`/`cy` content objects**
+    (`src/locales/` holds only app-level strings), with `const cy = { ...en }` — English in the Welsh shape —
+    pending the translation pass, as `src/pages/deed-polls/index.ts` states. Do not go looking for judicial
+    strings in `src/locales/`. The one thing this costs: a string the *handler* resolves rather than handing
+    to the template as a pair must read `res.locals.locale` itself, and while `cy` is a copy of `en` no test
+    can see that it did not — which is why `direction.ts` has a `content(res)` helper and a comment saying so.
 
 ## Open questions — flagged, NOT answered here
 
@@ -297,10 +312,28 @@ admin-0.
 - **The exact attestation wording** (decision 6 — "I confirm this is my direction") and the direction form
   labels — working text; a judicial-facing wording/Welsh pass can revise. Display-only.
 - **Dual-role users** (decision 2 — a user with both caseworker and judicial roles) — defaulted to
-  caseworker-first landing; confirm the business has no such user, or wants a chooser. Flagged.
+  caseworker-first landing; confirm the business has no such user, or wants a chooser. Flagged. **What that
+  default actually costs, now that decision 8 has shipped no judicial navigation:** such a user has *no* control
+  anywhere in the UI that reaches `/judicial/referrals` — they must type it. `requireRole` admits them, so it is
+  a missing route into a permitted area rather than a refusal, and `src/pages/index.ts`'s docblock says so
+  plainly (an earlier version claimed the judge's area was "one link away", which was never true). If the
+  business confirms such a user exists, the fix is one conditional link on the case list rendered when
+  `isJudicial`, which stays inside decision 8 — and `judicial.spec.ts`'s "no judicial link" assertion would then
+  need scoping to the admin-only fixture.
 - **A judge's "my decided referrals" history view** — api-3's visibility already permits a judge to read their
   own `Decided` referrals, so the data is reachable, but a dedicated history list is additive and not asked for
   (api-3 "deliberately not in this plan"). Out of scope here.
+- **A referral a judge has claimed but not yet directed has no route back to it, and that is api's to fix, not
+  this screen's.** Item 1 above says the pool carries "the judge's own `Claimed`/`Decided` referrals"; that
+  conflates api-3 decision 3's *read* visibility with its list, and Task 0's verification of the contract found
+  what api actually does — `GET /judicial/referrals` filters to `Open`. So a claim takes the referral off the
+  only list that links to it, and the referral view's own "Back to referrals" leads to a page it is not on.
+  A judge who claims one and then navigates away is left with the browser's history or a remembered URL until
+  api's inactivity sweep returns it to the pool. Not fixable here: api's four judicial operations offer no
+  query for a judge's own `Claimed` referrals, so the fix is a state filter or a "mine" query on
+  `GET /judicial/referrals` in api first, and a second list (or a section on the pool) here afterwards. Worth
+  raising with api-3 before a judge meets it, because the claim is what creates the gap and claiming is the
+  point of the screen.
 - **A session-backed direction wizard** vs the request-carried approach (decision 7) — recommended
   request-carried (repo norm); flagged in case a reviewer prefers session.
 
@@ -362,23 +395,70 @@ Change nothing here. Read the *committed* `openapi.json` (no refresh) and confir
   (`GET /judicial/referrals`, `GET /judicial/referrals/{referralId}`,
   `POST /judicial/referrals/{referralId}/claim`, `POST /judicial/referrals/{referralId}/direction`) and the
   four judicial schemas (`JudicialReferralSummary`, `JudicialReferralDetail`, `JudicialCaseView`,
-  `JudicialDirectionRequest`). `JudicialDirectionRequest` carries exactly `decision` (a `MasterDecision`
-  reference — `Approved`/`Rejected`), `directionsText`, `publishToGazette`. `JudicialCaseView` carries **no**
+  `JudicialDirectionRequest`). `JudicialDirectionRequest` carries exactly `decision`
+  (`Approved`/`Rejected`), `directionsText`, `publishToGazette`. `JudicialCaseView` carries **no**
   payment/fee reference, no privacy-editability field, no internal audit field.
-- Confirm `caseworker-deedpoll-judicial` exists as an assignable IDAM role (idam-1) and matches api-3's gate
-  string.
+
+  **Amended 2026-09-19: do not look for a `MasterDecision` *schema*.** There is no such component and there is
+  no bug — **springdoc inlines every enum**, so the spec has 27 named schemas and **zero** named enum schemas.
+  The case's own `masterDecision` is inlined identically. What api-2 decision 5 actually requires is the same
+  *members*, and the adapter already expresses the reuse: `judicialDirectionSchema.decision` is
+  `z.enum(MASTER_DECISION)` (`wire.ts:680`). So check the members, not a `$ref`.
+
+  **Also amended: the spec carries six judicial schemas, not four** — `JudicialCaseNote` and
+  `JudicialPoolResponse` in addition to the four named above. Both are supporting DTOs (a note projection and
+  a paging envelope) and neither changes the shape of the four. Not a stop.
+- **The IDAM role: check the string, not its provisioning.** `idam-access-config#995` is **open as at
+  2026-09-19**, so the role is not yet assignable in a real environment — and that does **not** block this
+  plan. Verified: `#995` declares `name: caseworker-deedpoll-judicial` and api's gate is
+  `JUDICIAL("caseworker-deedpoll-judicial")` (`domain/auth/Role.java:40` on api master) — **an exact match, so
+  the one risk this gate exists to catch is retired.** Local build and e2e do not touch `idam-access-config` at
+  all: `scripts/seed-idam-users.mjs` seeds the `rse-idam-simulator` directly, so add the judicial test user
+  there (importing the role constant, never restating it — that script's own comment records a copied string
+  drifting once). `#995` gates a judge signing in to **AAT**, which is downstream of this plan.
 - **admin-0, admin-1 and admin-2 have all landed**, and both validation commands are green with the totals
   recorded as this plan's baseline.
-- If anything is otherwise — a different judicial DTO shape, `decision` not `MasterDecision`,
-  `JudicialCaseView` carrying an admin-only field, a missing `publishToGazette`, or the judicial ops absent —
-  **STOP and report** which, and how reality differs. Do not hand-edit the spec, do
+- If anything is otherwise — a different judicial DTO shape, `decision` carrying members other than
+  `Approved`/`Rejected`, `JudicialCaseView` carrying an admin-only field, a missing `publishToGazette`, or the
+  judicial ops absent — **STOP and report** which, and how reality differs. Do not hand-edit the spec, do
   not filter a leaked field in the client (that is an api-3 fix), do not guess. **`JudicialCaseView` with an
   admin field is the disclosure bug api-3 flag 1 exists to prevent — the loudest STOP, and the one thing here
   that admin-0 landing cleanly does *not* rule out.**
 
-- [ ] Verified against the committed `openapi.json`: the four judicial ops and four judicial schemas present
-      with the shapes above; `decision` is `MasterDecision`; **`JudicialCaseView` carries no admin-only
-      field**; idam-1's role confirmed and string-matched; admin-0/1/2 all landed; both validation commands
+**PRE-FLIGHT DONE 2026-09-19, by hand, before this plan was run. Every condition below was checked and the
+gate passes — re-check rather than trust, but do not spend a task rediscovering it:**
+
+| Condition | Result |
+|---|---|
+| Four `/judicial/**` ops in the committed `openapi.json` | ✅ all four |
+| Judicial schemas | ✅ **six** (the four, plus `JudicialCaseNote` and `JudicialPoolResponse`) |
+| `JudicialDirectionRequest` shape | ✅ `decision` enum `[Approved,Rejected]`, `directionsText`, `publishToGazette`; `required: [decision, publishToGazette]` |
+| **`JudicialCaseView` disclosure check** | ✅ **PASSES** — `displayReference`, `new{Forename,MiddleName,Surname}`, `old{Forename,MiddleName,Surname}`, `type`. No fee, no payment, no privacy-editability, no audit field |
+| `decision` reuses the existing decision enum | ✅ in substance — `z.enum(MASTER_DECISION)` at `wire.ts:680`. There is no `MasterDecision` schema to reference; see the amendment above |
+| IDAM role string | ✅ `#995` = `caseworker-deedpoll-judicial` = api's `Role.java:40`. PR **open**, which does not block this plan |
+| admin-0 / admin-1 / admin-2 landed | ✅ `#112`, `#114`, `#115` — master at `a39a6d4` |
+| Baseline | ✅ **2,245 tests**, 8/8 turbo tasks; `yarn lint` 0 errors, 2 warnings + 2 infos |
+
+**RE-VERIFIED 2026-09-19 when the task ran**, every row above independently and against the committed
+`openapi.json` — nothing hand-edited, nothing filtered. The judicial `$ref` graph is worth recording because
+the four-vs-six question above only half-answers it: `JudicialReferralDetail` *extends* the summary and `$ref`s
+`JudicialCaseView` (as `application`) and `JudicialCaseNote[]` (as `caseNotes`), and `JudicialPoolResponse`
+wraps `JudicialReferralSummary[]` with `page`/`size`/`total`/`totalPages`. So the pool page reads its total off
+the envelope rather than counting rows, and the referral view's three panels are one payload — decision 4 with
+no second call available even in principle. The disclosure check re-ran against the live document, not the
+table: `JudicialCaseView` is exactly `displayReference`, `new{Forename,MiddleName,Surname}`,
+`old{Forename,MiddleName,Surname}`, `type`. Baseline reproduced to the test: 844 + 736 + 327 + 140 + 127 + 41
++ 23 + 7 = **2,245**.
+
+One thing the table's ✅ does not say and the pages will need: **`JudicialDirectionRequest.required` is
+`[decision, publishToGazette]` and `directionsText` is NOT required** ("an approval that needs no comment is a
+real answer"), with `maxLength: 4000`. Decision 6 lists all three as form fields, which is right, but the
+colocated zod schema in Task 4 must make the textarea **optional** and cap it at 4000 — a required-textarea
+validation here would refuse a direction api accepts.
+
+- [x] Verified (or re-verified) against the committed `openapi.json`: the judicial ops and schemas present with
+      the shapes above; `decision`'s members are `Approved`/`Rejected`; **`JudicialCaseView` carries no
+      admin-only field**; the role string matches api's gate; admin-0/1/2 all landed; both validation commands
       green with baseline totals recorded — or STOPPED and reported, with no spec edits and no client
       field-filtering
 
@@ -389,13 +469,51 @@ Change nothing here. Read the *committed* `openapi.json` (no refresh) and confir
 `CurrentUser` mirroring `isAdmin` (`current-user.ts`). Add the role-gate middleware `requireJudicial`/
 `requireRole` in `src/auth/` (mirror `require-auth`'s shape; render 403 via `ForbiddenError` → `src/errors.ts`
 for an authenticated non-judicial user), applied to `/judicial/**` — additive to `requireAuth`, allowlist
-polarity untouched. Adapter: add the four judicial operations to `client.ts` and the four schemas to `wire.ts`,
-registered in `WIRE_SCHEMAS` and `IMPLEMENTED_OPERATIONS`; `contract.test.ts` green against the refreshed spec.
+polarity untouched.
 
-- [ ] Judicial role in `Role` + `KNOWN_ROLES`; a judicial token yields a `CurrentUser` with the role (tested);
+**Amended 2026-09-19: the adapter clause is already done — verify it, do not build it.** This task used to say
+"add the four judicial operations to `client.ts` and the four schemas to `wire.ts`", which contradicts this
+plan's own AMENDED section: admin-0 owns the adapter and has landed. Confirmed by hand at `a39a6d4` — four
+client functions (`getJudicialPool`, `getJudicialReferral`, `claimJudicialReferral`, `directJudicialReferral`,
+`client.ts:466-505`), six judicial schemas in `WIRE_SCHEMAS` (`wire.ts:722-727`), four judicial ops in
+`IMPLEMENTED_OPERATIONS` (**which lives in `contract.test.ts:35`, not `client.ts`**), and `/judicial/**` mock
+routing. So **this task is auth only**; adding any of it again is duplicate work, and editing `wire.ts` risks
+turning `contract.test.ts`'s two-way set equality red for no gain.
+
+**Also amended: add the judicial test user to `scripts/seed-idam-users.mjs`**, importing the new role constant
+rather than restating the string — the script's own comment records a copied string drifting once and every
+e2e admin journey silently signing in unprivileged as a result. This is what makes Task 5's e2e possible without
+`idam-access-config#995`.
+
+- [x] Judicial role in `Role` + `KNOWN_ROLES`; a judicial token yields a `CurrentUser` with the role (tested);
       `isJudicial` accessor added; `requireJudicial` admits a judge and 403s an authenticated caseworker
-      (tested both directions); four judicial ops in `IMPLEMENTED_OPERATIONS`, four schemas in `WIRE_SCHEMAS`;
-      `decision` schema = `MasterDecision`; `contract.test.ts` green; `turbo test test:app --concurrency=1` green
+      (tested both directions); judicial test user seeded from the imported constant; adapter coverage
+      **verified unchanged** rather than re-added; `contract.test.ts` green;
+      `yarn turbo test test:app --concurrency=1` green
+
+**DONE 2026-09-19.** `DEEDPOLL_JUDICIAL` in `roles.ts` widens `Role` to a union for the first time; it is in
+`KNOWN_ROLES`, and `currentUser` now sets `isJudicial` beside `isAdmin` — **as an alternative, not a level**,
+which is asserted in both directions (an admin is not judicial, a judge is not an admin). `requireRole(role)` /
+`requireJudicial()` is new in `src/auth/require-role.ts`, refusing by `next(new ForbiddenError(...))` so the
+403 goes through the single mapping in `src/errors.ts` — whose "this is unreachable today" comment was true
+until this commit and has been corrected rather than left to mislead.
+
+Two things the checkbox did not ask for and the next task needs:
+
+- **The mount is pinned, not just the middleware.** `app.use("/judicial", requireJudicial())` sits after
+  `requireAuth`, and `src/app.test.ts` now asserts all three of: that it is mounted, that its layer matches
+  `/judicial/**` and *not* `/deed-polls`, and that it is mounted **after** `requireAuth`. An unmounted gate
+  leaves every judicial page open to any signed-in caseworker and the pages look identical either way, since
+  they never ask about the role; a gate mounted *before* `requireAuth` would 403 an anonymous visitor instead
+  of sending them to log in. Neither failure shows up in running the app.
+- **`pageRequest({ judicial: true })`** in `src/express-doubles.ts`, independent of `admin`, so Task 3/4's page
+  tests can express the persona without knowing the session shape.
+
+Verified unchanged, as the amendment requires: `git status` shows no edit to `openapi.json`, `wire.ts`,
+`client.ts`, `contract.test.ts` or the mock. Totals **2,261 tests** (up 16 from the 2,245 baseline: +12 app,
++4 `libs/deed-poll`), 8/8 turbo tasks; `yarn lint` 0 errors, 2 warnings + 2 infos — baseline exactly. The root
+`tsconfig.json` project carries 49 pre-existing type errors in unrelated test files; confirmed against a
+stash that this task adds none.
 
 ### Task 2: Domain — the judicial services over admin-0's adapter
 
@@ -418,11 +536,46 @@ the direction zod schema (decision + `directionsText` + required `publishToGazet
 services from `libs/deed-poll/src/index.ts` (services only, never `callApi`/`ApiConfig`). Unit-test each
 against the mock, including the 404/409/400 paths and visibility.
 
-- [ ] admin-0's mock **verified** to implement pool (ordered, total), read (404-on-invisible), claim
+- [x] admin-0's mock **verified** to implement pool (ordered, total), read (404-on-invisible), claim
       (409-on-taken), direct (409-on-not-held, 400-on-bad) with a judge and mixed-state pool seeded — or the
       gap reported rather than filled here; domain services thin over `callApi`, exported service-only;
       direction schema rejects missing `decision`/`publishToGazette`; unit tests cover happy + 404/409/400 +
       visibility; `turbo test test:app --concurrency=1` green
+
+**DONE 2026-09-19.** The mock verification passes on every clause, so nothing was filled in here:
+`judicialPool` filters to `Open`, sorts by `poolOrder` (urgent-first by *position in `URGENCY`*, then oldest)
+and publishes `page`/`size`/`total`/`totalPages`; `judicialReferral` runs `visibleToJudge` before anything else
+and 404s otherwise; claim 409s on any non-`Open` state including the judge's own claim; direction 400s on the
+wire schema and 409s when visible-but-not-held. The judge identity is the token's `sub` via `auditName`, and the
+mixed-state pool is arranged per test (`mock.seed` with chosen `createdOn`, plus `referredCase`/
+`claimedReferral`/`decidedReferral`) rather than baked into a global seed — which is what lets one test pin an
+order three same-millisecond creates could not. Adapter-level coverage of all of it already exists in
+`client.test.ts:853-990` and `server.test.ts:1080-1249`.
+
+**One api behaviour the plan's prose does not state, and both Task 3 and Task 4 need it.** Directing a referral
+is a **404, not a 409, when another judge now holds it** — visibility is checked before the hold, so "taken out
+from under me" and "never existed" stay indistinguishable; the 409 is only for a referral the judge *can* see
+but does not hold (still `Open`, or already `Decided` by them). So the direction page needs both branches and
+they say different things: the 409 is "this referral is no longer yours to direct" beside the control, the 404
+is decision 10's "no longer available". Reading the 409 as the only lapse case would render a 404 page for the
+commonest lapse there is.
+
+Two deviations from the task text, both deliberate:
+
+- **`listPool(paging, caller)`, not `listPool(caller, paging)`.** Every service in this repo takes the caller
+  last — `findDeedPolls(query, caller)`, `findReferrals(deedPollId, caller)` — and one function inverting it is
+  a trap at the call site that no test would catch, because both parameters are objects.
+- **The domain tests mock the adapter; they do not drive the mock.** `.claude/rules/backend.md` states nothing
+  above the adapter imports the mock, and `.claude/rules/testing.md` makes the adapter the seam at this layer.
+  The mock-driven 404/409/400/visibility coverage the task asks for is real and was verified — it lives one
+  layer down, where the mock *is* the contract, and duplicating it here would assert the mock twice and the
+  error mapping nowhere.
+
+`getReferral` is exported under the plan's name, which reads bare next to the caseworker `findReferral` on the
+flat index; the docblock says which surface it belongs to and that it takes no case id. Totals **2,288 tests**
+(up 27: all in `libs/deed-poll`), 8/8 turbo tasks; `yarn lint` 0 errors, 2 warnings + 2 infos — baseline
+exactly. `tsc -p libs/deed-poll/tsconfig.json` clean, which is what pins `DirectionInput` as assignable to the
+adapter's `JudicialDirection` rather than a parallel restatement of it.
 
 ### Task 3: Pages — the pool, the referral view, claim
 
@@ -437,10 +590,55 @@ the pool (decision 5), success → the referral view. Route `/` and login for a 
 referral view shows only the DTO fields and read-only notes; invisible referral → "no longer available"; claim
 success and 409; a caseworker is 403'd from every judicial page.
 
-- [ ] Pool page renders api's order + total, gated `requireJudicial`; referral view shows `JudicialCaseView` +
+- [x] Pool page renders api's order + total, gated `requireJudicial`; referral view shows `JudicialCaseView` +
       referral + read-only notes and nothing more, 404 as "no longer available"; claim POST works and renders
       409 as "already claimed"; judicial user lands on `/judicial/referrals` from `/`/login; caseworker 403'd
       on every judicial page (tested); Welsh present; `turbo test test:app --concurrency=1` green
+
+**DONE 2026-09-19.** Three pages and three templates under `src/pages/judicial/referrals/`, and the router
+discovers exactly `get /judicial/referrals`, `get /judicial/referrals/:referralId` and
+`post /judicial/referrals/:referralId/claim` — verified against a real `createSimpleRouter` over `src/pages`,
+because every one of them is gated by *where it lives* and a page the router did not find would be untested
+rather than failing.
+
+Four things the checkbox did not ask for, and the next task needs each of them:
+
+- **The landing redirect could not be done at `/` alone, and the fix is in `login.ts`.** Decision 2 reads as one
+  page's change, but `/` is on `requireAuth`'s allowlist, so an anonymous judge was redirected to `/deed-polls`
+  *before* anyone knew who was arriving — which pinned the caseworker's list as the `returnTo` and landed them on
+  a list api answers 403 to. So `/` now sends an anonymous visitor to `/login?returnTo=%2F` and resolves the
+  persona on the way back, and `safeReturnTo`'s fallback moved from `/deed-polls` to `/` for the same reason:
+  which home is right depends on roles that do not exist until the token comes back. This costs the hop the old
+  docblock avoided deliberately; the docblocks on both files now say so rather than leaving the next reader to
+  rediscover the trade.
+- **Claiming has two refusals, they say different things, and they land in different places.** api checks
+  visibility before the hold, so a referral taken out from under this judge is a **404**, not a 409 — the finding
+  Task 2 recorded. `?claim=unavailable` is decision 10's "no longer available", on the pool. The 409 is only
+  reachable for a referral this judge already holds or has already directed, so it redirects to the referral as
+  `?claim=held` and says "not waiting to be claimed": the pool has no "already claimed" sentence, because the only
+  409 it could have shown it for is the judge's own work. Neither sentence mentions another judge.
+- **"A caseworker is 403'd on every judicial page" is pinned in `src/app.test.ts`, derived from the filesystem.**
+  No page test can show it — the pages never ask about the role — and a hand-written list of URLs goes stale the
+  moment a page is added, which is the failure that matters since an ungated judicial page looks identical to a
+  gated one. The test reads `src/pages/judicial` recursively, maps each file to its route the way `simple-router`
+  does, and asserts the mounted gate matches all of them; `require-role.test.ts` still owns the both-directions
+  behaviour.
+- **The view models are `libs/deed-poll/src/judicial/view.ts`, not the pages.** The task text says "pages", but a
+  template cannot format a timestamp here and the disclosure question has to be answerable in one place: the pool
+  row and the referral view are two renderings of the same referral, and a field that must not be shown is the one
+  added to one of them and missed on the other. `referralReasonLabel` is now exported from
+  `referrals/referrals-view.ts` and shared, because the caseworker picks the reasons and the judge reads them —
+  two wordings would have the two personas discussing different lists.
+
+The direction control links to `/judicial/referrals/:referralId/direction`, which **Task 4 builds** — it 404s
+until then, deliberately rather than by omission: hiding it would have meant a second state rule to remove.
+
+Totals **2,375 tests** (up 87 from Task 2's 2,288: +63 app, +24 `libs/deed-poll`), 8/8 turbo tasks; `yarn lint`
+0 errors, 2 warnings + 2 infos — baseline exactly. `tsc -p tsconfig.app.json` and `tsc -p
+libs/deed-poll/tsconfig.json` are both clean; the root project's pre-existing errors are **44 before and 44
+after**, measured against a stash rather than against the 49 recorded in Task 1. One fixture lesson worth
+keeping: `wireDateTime` decodes to a `Date`, so a test that passes an ISO **string** for `createdOn`/`claimedAt`/
+`decisionDate` type-checks only in the outer cast and fails at every override site.
 
 ### Task 4: Pages — the direction flow with check-your-answers attestation
 
@@ -456,10 +654,52 @@ and 400 (bad direction) as user messages (decision 5/10); success returns the ju
 `Decided`) or the pool. Welsh throughout. Page tests: validation errors re-render with values; CYA shows the
 entered direction; confirm records it; a lapsed-referral 409 is handled; radios do not default.
 
-- [ ] Direction form validates (zod, no-default radios) and re-renders errors with values; CYA step shows the
+- [x] Direction form validates (zod, no-default radios) and re-renders errors with values; CYA step shows the
       entered direction + attestation, state request-carried with no persisted draft; confirm POSTs one atomic
       `recordDirection`; 409 (lapsed/not-held) and 400 (bad direction) rendered as messages; success →
       `Decided`; Welsh present; `turbo test test:app --concurrency=1` green
+
+**DONE 2026-09-19.** One route (`[referralId]/direction.ts`) with three steps and two templates
+(`direction-form.njk`, `direction-check.njk`): GET renders the form, a POST without the confirm literal renders
+check-your-answers from the values it was posted, and a POST carrying `action=confirm` calls `recordDirection`
+once. Nothing is written anywhere until that call — `direction.test.ts` asserts the session holds no draft, which
+is decision 7's "an abandoned direction leaves nothing behind" made testable rather than stated.
+
+Five things the checkbox did not ask for, and four of them are decisions the next reader would otherwise have to
+re-make:
+
+- **"Change your answers" is a submit, not a link, and that is what carries the state.** The Design System's
+  change links are `GET`s, which only work when the answers are stored somewhere to come back to; here they are
+  in the request, so a link would silently empty the form. It posts `action=change` and re-renders the form
+  **without validating** — a judge going back to fix an answer is not submitting one, and marking up the half
+  they were already on their way to correcting is noise.
+- **The attestation is a declaration above the submit, not a tick box.** Pressing the button is the attestation,
+  which is what the check-answers pattern says; a confirm checkbox in front of a button that already confirms is
+  the thing it warns against. The plan's "I confirm this is my direction" is therefore a sentence
+  (`declaration`) plus `irreversible`, and the wording stays flagged as display-only. A tick box is a policy
+  call, not a code one, and adding one later is one field and one schema line.
+- **The GET reads the referral, and both reasons are load-bearing.** A judge must see *which* application they
+  are directing before they attest to it — `displayReference` is on `JudicialCaseView`, so it is theirs — and a
+  referral not in their hands has no direction to take, so they are redirected rather than shown a form whose
+  submit can only be refused. This is not the scoping pre-read `.claude/rules/backend.md` forbids: the confirm
+  step reads nothing at all and api re-checks the hold itself.
+- **The referral view gained the two messages the flow sends back**, mirroring the pool's `?claim=`: a success
+  banner for `?direction=recorded` and an error summary for `?direction=notheld`. The 404 renders
+  `unavailable.njk` directly instead, because "no longer available" is a page and not a message on a page that
+  no longer exists — Task 2's finding that api answers a referral taken out from under a judge as a **404, not a
+  409**, is what makes those two separate renderings rather than one.
+- **The content key is named apart from the model key** (`directionRecordedMessage` vs `directionRecorded`), as
+  the pool's `noLongerAvailable` is from its `claimRefused`. Production's render interceptor lets the model win a
+  collision and the njk test harness spreads content last, so a shared name works in the app and inverts in the
+  test — a trap worth not leaving behind. `DIRECTION_DECISION_CHOICES` is in `libs/deed-poll/src/judicial/view.ts`
+  and built from `MASTER_DECISION` through the label map, so decision 9's reuse is expressed rather than retyped.
+
+Totals **2,437 tests** (up 62 from Task 3's 2,375: +60 app, +2 `libs/deed-poll`), 8/8 turbo tasks; `yarn lint`
+0 errors, 2 warnings + 2 infos — baseline exactly. `tsc -p tsconfig.app.json` and `tsc -p
+libs/deed-poll/tsconfig.json` both clean (the app project resolves `@hmcts/deed-poll` to `dist`, so the library
+has to be rebuilt before that check means anything); the root project's pre-existing errors are **44 before and
+44 after**. `openapi.json`, `wire.ts`, `client.ts`, `contract.test.ts` and the mock are untouched, as the
+amendment requires.
 
 ### Task 5: E2E and full validation
 
@@ -468,10 +708,56 @@ pool, opens a referral, reads the application view + notes, claims it, fills the
 check-your-answers, and sees the referral recorded — and a caseworker is refused the judicial area. Happy path
 + the caseworker-refused assertion.
 
-- [ ] E2E: judge → pool → open → claim → direction form → CYA confirm → recorded; caseworker refused
+- [x] E2E: judge → pool → open → claim → direction form → CYA confirm → recorded; caseworker refused
       `/judicial/**`; `turbo test test:app --concurrency=1` and `yarn lint` green; the six pipeline scripts
       still present (do not delete `lint`/`test`/`test:coverage`/`test:a11y`/`test:smoke`/`test:functional`);
       a11y check on the new pages (pool, referral view, direction form, CYA) passes
+
+**DONE 2026-09-19.** Two tests in `e2e-tests/tests/judicial.spec.ts` — the judge's whole day, and the caseworker
+who must not have it — plus a third IDAM fixture (`judge@example.com`, `JUDGE_STORAGE_STATE`) in
+`auth.setup.ts`/`idam-session.ts`. Run for real against the local stack: **33/33 Playwright tests pass**, the
+judicial spec five times in a row over a mock store that outlives the run. The a11y sweep covers all six
+renderings this plan added — the pool, the pool carrying a refused claim, the "no longer available" page, the
+referral view before and after a direction, the direction form empty and in error, and check-your-answers.
+
+Six things the checkbox did not ask for, and four are decisions rather than extras:
+
+- **The landing redirect is asserted inside `signInAsJudge`, not in the journey.** `signIn` now takes the path
+  each persona *claims* its roles produce, because decision 2 is a property of the login flow and not of any
+  page: `/login`'s fallback `returnTo` is `/`, and `/` resolves the persona on the way back. A journey that
+  restored the session and then visited the pool directly could not tell a working redirect from a hard-coded
+  one — so the claim is made where the round trip happens, and a wrong one fails in `setup` rather than three
+  files away.
+- **The refusal test signs in as the administrator, not the roleless caseworker.** `caseworker-deedpoll-admin`
+  is the most privileged account this service has, and the mistake worth pinning is that it is a *superset* —
+  `isJudicial` is an alternative to `isAdmin`, not a level below it. The roleless caseworker is refused a
+  fortiori and both directions are unit-tested in `require-role.test.ts`; what needed a browser is that the gate
+  is **mounted**, since a page never asks about the role and an ungated judicial page renders identically.
+- **Pool rows are located by their link's `href`, and that is the actual key rather than a fallback.** api's
+  pool row carries no reference and no applicant (api-3 decision 2), and its other three cells — an urgency, a
+  set of reasons, a formatted minute — are shared with every row this file seeds. **The page a row is on comes
+  from api**, because the pool is global and shared: `yarn mock:seed` and every earlier local run leave
+  referrals in it, so page 1 is not where a new referral is.
+- **Both seeded referrals are Urgent, which is what makes the journey safe under `fullyParallel`.** The pool is
+  ordered urgent-first then longest-waiting and no other spec raises an urgent referral, so nothing another
+  worker does can move these rows relative to the rest of the queue mid-test.
+- **The disclosure boundary is asserted from outside the view model.** Each seeded case carries a unique
+  `feeReference`, and the referral page's whole body must not contain it. `view.ts`'s tests show the model omits
+  it; this shows the *rendered page* does, which is the assertion whose failure would be a disclosure bug rather
+  than a display one.
+- **The Welsh check runs early in the journey, and the position is load-bearing.** The pool's column headers
+  exist only while something is waiting, and by the end the journey has taken both of its own referrals out —
+  leaving a page whose `cy` keys are the empty state's rather than the table's. Discovered by it failing there.
+
+Two locator traps worth not leaving behind, both found by a green assertion that was green for the wrong reason:
+`govukButton` given an `href` renders `<a role="button">`, so "Record a direction" is `getByRole("button")` and a
+`link` locator finds nothing — which made every `toHaveCount(0)` on it pass vacuously. And `hasText` is a
+case-insensitive substring over the whole element, so a summary-list row whose *value* is the tag "Claimed"
+answers to a key of "Claimed"; `summaryRow` therefore filters on the `__key` cell, not the row.
+
+The six pipeline scripts are untouched and `src/pipeline.test.ts` still passes. Totals **2,437 tests** (unchanged
+— this task adds only e2e specs, which the vitest suite does not run), 8/8 turbo tasks; `yarn lint` 0 errors, 2
+warnings + 2 infos — baseline exactly. Nothing under `src/`, `libs/` or `openapi.json` was touched.
 
 ## Deliberately not in this plan
 

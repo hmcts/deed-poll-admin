@@ -32,8 +32,24 @@ export const ADMIN_EMAIL = "admin@example.com";
  */
 export const CASEWORKER_EMAIL = "caseworker@example.com";
 
+/**
+ * The third fixture, holding `caseworker-deedpoll-judicial` and **not** the admin role.
+ *
+ * Judicial only on purpose: a judge who also held the admin role would pass `/judicial/**`'s gate for the wrong
+ * reason, and `landingPath` in `src/pages/index.ts` sends a dual-role user to the case list — so the pool
+ * landing could not be asserted at all. `scripts/seed-idam-users.mjs` says the same at the seed.
+ *
+ * Exported for the reason `ADMIN_EMAIL` is: it is also the audit author the mock attributes a claim and a
+ * direction to, since it stamps the token's `sub`.
+ */
+export const JUDGE_EMAIL = "judge@example.com";
+
 /** Whatever `scripts/seed-idam-users.mjs` set. The simulator does not check it — see below. */
 const PASSWORD = "Pa55word11";
+
+/** Where each persona's day starts — `landingPath` in `src/pages/index.ts`, which `/` resolves after sign-in. */
+const CASE_LIST = "/deed-polls";
+const JUDICIAL_POOL = "/judicial/referrals";
 
 /**
  * Where the signed-in session is parked between the setup project and the journeys.
@@ -66,6 +82,13 @@ export const ADMIN_STORAGE_STATE = path.join(path.dirname(fileURLToPath(import.m
 export const CASEWORKER_STORAGE_STATE = path.join(path.dirname(fileURLToPath(import.meta.url)), "../.auth/caseworker.json");
 
 /**
+ * And for the judge, for the same reasons again — a third file rather than a third login per test, and a
+ * separate one because restoring either caseworker's cookie would make the judicial assertions pass or fail for
+ * the wrong reason.
+ */
+export const JUDGE_STORAGE_STATE = path.join(path.dirname(fileURLToPath(import.meta.url)), "../.auth/judge.json");
+
+/**
  * True when the suite is pointed at a deployed environment instead of the local stack.
  *
  * The same variable `playwright.config.ts` reads to decide whether to start a `webServer`, and the one
@@ -81,7 +104,7 @@ export const DEPLOYED_STACK_SKIP_REASON =
 
 /** Sign in as the caseworker holding the privileged role, through the whole authorization-code flow. */
 export async function signInAsAdmin(page: Page): Promise<void> {
-  await signIn(page, ADMIN_EMAIL);
+  await signIn(page, ADMIN_EMAIL, CASE_LIST);
 }
 
 /**
@@ -89,20 +112,32 @@ export async function signInAsAdmin(page: Page): Promise<void> {
  * in a browser rather than only in a unit test.
  */
 export async function signInAsCaseworker(page: Page): Promise<void> {
-  await signIn(page, CASEWORKER_EMAIL);
+  await signIn(page, CASEWORKER_EMAIL, CASE_LIST);
+}
+
+/**
+ * The same, as the judge — and the landing path is the assertion rather than arrangement.
+ *
+ * A judge signing in lands on the pool and not the case list (`referrals-admin-3` decision 2), which is a
+ * property of the *login flow* and not of any page: `/login`'s fallback `returnTo` is `/`, and `/` is where the
+ * persona is resolved. Nothing but a real sign-in exercises that pair, so this call is where it is pinned.
+ */
+export async function signInAsJudge(page: Page): Promise<void> {
+  await signIn(page, JUDGE_EMAIL, JUDICIAL_POOL);
 }
 
 /**
  * `/login` builds the authorization URL and redirects to the simulator, which — given no
  * `login_hint` — redirects again to its own login form. Submitting that comes back to
- * `/oauth2/callback` with a code, which the app exchanges before landing on `/deed-polls`
- * (`safeReturnTo`'s default).
+ * `/oauth2/callback` with a code, which the app exchanges before landing on `safeReturnTo`'s default of
+ * `/` — which redirects again, to whichever home the roles in the token make right.
  *
- * One flow for both fixtures, because the account is the only thing that differs: the simulator asks for
+ * One flow for all three fixtures, because the account is the only thing that differs: the simulator asks for
  * a username on the same form either way, and it is the roles behind that username — not anything here —
- * that decide what the app then shows.
+ * that decide what the app then shows. `landsOn` is therefore what each caller *claims* those roles produce,
+ * and a wrong claim fails here rather than in the journey that restores the session.
  */
-async function signIn(page: Page, email: string): Promise<void> {
+async function signIn(page: Page, email: string, landsOn: string): Promise<void> {
   await page.goto("/login");
 
   // The simulator's own form, so its markup is not ours to fix: its `<label>Username :</label>` has
@@ -121,5 +156,5 @@ async function signIn(page: Page, email: string): Promise<void> {
   // A longer timeout than the 5s default, deliberately. This is a cross-origin round trip — callback,
   // token exchange, JWKS fetch, userinfo — against a JVM that several workers hit at once, and it does
   // exceed 5s under load. The flake it caused looked like a broken login rather than a slow one.
-  await expect(page).toHaveURL("/deed-polls", { timeout: 30_000 });
+  await expect(page).toHaveURL(landsOn, { timeout: 30_000 });
 }

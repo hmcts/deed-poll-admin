@@ -78,7 +78,7 @@ export function updateNote(deedPollId: string, id: string, dto: UpdateNoteInput,
 |---|---|---|
 | `not-found` | `NotFoundError` | 404 page |
 | `validation` | `InvalidInputError`, carrying api's field errors | the page handler catches it and re-renders its form with the errors against the fields. Reaching `domainErrorHandler` means a handler did not, which is a bug in that handler |
-| `forbidden` | `ForbiddenError` | 403, on the 404 template — a caseworker learns no more from it than that the case is not theirs |
+| `forbidden` | `ForbiddenError` | 403, on the 404 template — a caseworker learns no more from it than that the case is not theirs. Also raised **locally** by `requireJudicial` for an authenticated non-judge, which is the second reason for the 404 view: it keeps `/judicial/**` non-enumerable, so a caseworker who guesses a judicial URL is not told there is something behind it. `src/errors.ts` logs the message before rendering, because that render is the end of the chain |
 | `unauthorized` | `UnauthorizedError` | **500**, deliberately unmapped. `requireAuth` and `refreshMiddleware` own re-authentication; a redirect to `/login` from an error handler loops when the session is valid and only api rejected the token |
 | `conflict` | `ConflictError` | the page handler's own message, not the 500 page. api answers 409 for a referral raised while one is already open and for a withdraw of one that is already terminal — states two caseworkers can reach between them, so `referrals/new.ts` re-renders at 409 with a link to the open referral and `referrals/[referralId]/withdraw.ts` redirects to the referral view with `?withdraw=conflict`. Reaching `domainErrorHandler` means a handler did not catch it, which is a bug in that handler |
 | `unavailable`, `timeout`, `invalid-response`, `unknown` | plain `Error` | 500 page, the same as a database outage did before |
@@ -134,6 +134,14 @@ export function requireAuth(): RequestHandler {
 allowlist**, so a new page is protected unless it asks to be public. A denylist makes a forgotten page
 silently anonymous. Read the docblock in `src/auth/require-auth.ts` before changing either it or
 `plain-http.ts`.
+
+A **role** gate is the other shape, and it is deliberately not global. `requireRole(role)` / `requireJudicial()`
+(`src/auth/require-role.ts`) is mounted on an area prefix in `app.ts` — `app.use("/judicial", requireJudicial())`
+— and **after** `requireAuth`, so an anonymous visitor is sent to log in rather than refused. Area-mounted rather
+than per-page for the same reason `requireAuth` is global: a page added under that prefix is gated by where it
+lives, and `src/app.test.ts` reads `src/pages/judicial/` off the filesystem and fails if the mount stops covering
+one. It refuses with `next(new ForbiddenError(...))` and renders nothing, so the status and the disclosure
+decision both stay in `src/errors.ts`.
 
 ## File Organization
 

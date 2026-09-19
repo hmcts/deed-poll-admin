@@ -81,7 +81,7 @@ export function buildReferralDetail(referral: Referral): ReferralView {
     // maintain. Absent means api did not publish one, which is a claim about the read rather than the data.
     state: referral.state ?? NOT_RECORDED,
     stateTagClasses: referral.state ? REFERRAL_STATE_TAG[referral.state] : "govuk-tag--grey",
-    reasons: referral.reasons.map(reasonLabel),
+    reasons: referral.reasons.map(referralReasonLabel),
     migrated: referral.migrated,
     notes: orPlaceholder(referral.notes, NOT_PROVIDED),
     urgency: referral.urgency ? REFERRAL_URGENCY_LABEL[referral.urgency] : NOT_PROVIDED,
@@ -145,8 +145,12 @@ export function unavailableReferralsView(): ReferralsView {
  * `"constructor"`, `"toString"` — would otherwise resolve to a function off `Object.prototype` and reach the
  * page as a reason. The same backfilled-or-hand-corrected row the docblock above anticipates is exactly where
  * an arbitrary string comes from.
+ *
+ * **Exported for `../judicial/view.ts`**, which renders the same reasons on the judge's side of the referral.
+ * The caseworker chose them and the judge reads them, so two wordings for one list would have the two personas
+ * discussing different reasons — the drift this file's label maps exist to prevent, one layer out.
  */
-function reasonLabel(reason: string): string {
+export function referralReasonLabel(reason: string): string {
   return Object.hasOwn(REFERRAL_REASON_LABEL, reason) ? REFERRAL_REASON_LABEL[reason as ReferralReason] : reason;
 }
 

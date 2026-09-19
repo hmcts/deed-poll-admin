@@ -2,7 +2,8 @@
 
 ## Executive Summary
 
-`deed-poll-admin` is the caseworker application for HMCTS deed poll applications: a server-rendered
+`deed-poll-admin` is the caseworker **and judiciary** application for HMCTS deed poll applications: a
+server-rendered
 Express 5.x / TypeScript app on the GOV.UK Design System, scaffolded from
 [hmcts/expressjs-monorepo-template](https://github.com/hmcts/expressjs-monorepo-template).
 
@@ -58,7 +59,7 @@ deed-poll-admin/
 ├── src/                        # THE application — no apps/ directory
 │   ├── pages/                  # File-based page routes (auto-discovered)
 │   ├── assets/                 # SCSS/TS bundles, compiled by vite
-│   ├── auth/                   # IDAM OIDC: login, session, require-auth
+│   ├── auth/                   # IDAM OIDC: login, session, require-auth, require-role
 │   ├── locales/                # App-level translations
 │   └── app.ts, server.ts       # createApp(), and the entrypoint that loads secrets first
 ├── config/                     # `config` defaults + custom-environment-variables
@@ -106,7 +107,8 @@ The application uses Simple Router for automatic route discovery from the `src/p
 
 ### 1. The application (`src/`, the root package)
 
-**Purpose**: caseworker-facing web application with GOV.UK Design System
+**Purpose**: caseworker- and judiciary-facing web application with GOV.UK Design System — two personas in one
+deployable, separated by routing and a single role gate
 
 **Key Technologies**:
 - Express 5.x server
@@ -123,6 +125,14 @@ The application uses Simple Router for automatic route discovery from the `src/p
 - Content Security Policy (CSP) with nonces
 - Cookie consent management
 - Progressive enhancement
+
+**Authorization**: `requireAuth` is mounted globally with a public allowlist and decides only
+authenticated-or-not. `requireJudicial()` (`src/auth/require-role.ts`) is mounted on the `/judicial` prefix in
+`src/app.ts`, **after** `requireAuth`, and is the only place the app refuses a request on a role — a page under
+`src/pages/judicial/` is gated by where it lives, and `src/app.test.ts` pins that from the filesystem. It
+refuses with `next(new ForbiddenError(...))`; `src/errors.ts` logs it and answers 403 on the **404** view, so
+the area stays non-enumerable. api gates the same routes itself, so this is the UI boundary and not the data
+one.
 
 **Architecture Decisions**:
 - File-based routing using Simple Router

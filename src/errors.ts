@@ -33,9 +33,17 @@ export function domainErrorHandler(): ErrorRequestHandler {
     }
 
     if (err instanceof ForbiddenError) {
-      // No page mounts a role guard yet, so this is unreachable today. It is here because the
-      // alternative — a 500 the first time one is added — is exactly the failure this file exists to
-      // stop, and 403 has no view of its own in the starter.
+      // Logged here rather than passed on, because the render below is the end of the road: the starter's
+      // handler is the only thing in the chain that logs, and it is never reached. `requireJudicial` puts
+      // the path and the role it wanted in the message for exactly this line — a refusal on the app's one
+      // authorization boundary that left no trace anywhere is a question nobody could answer later.
+      console.error(`forbidden: ${err.message}`);
+
+      // Reached by `requireJudicial` (./auth/require-role.ts), which refuses an authenticated non-judge this
+      // way rather than rendering its own page, and by api's own 403. The 404 **view** on a 403 status keeps
+      // the area non-enumerable: telling a caseworker who guessed a judicial URL that there is something
+      // there to be refused from is more than they need to know. `src/pages/errors/403.njk` does exist, but
+      // it is the login flow's — there the user already knows who they are and what was refused.
       return res.status(403).render("errors/404");
     }
 

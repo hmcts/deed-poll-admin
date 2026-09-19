@@ -1,0 +1,148 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/tag/macro.njk" import govukTag %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
+
+{#
+  One referral, its application and its timeline — read-only apart from the two controls a judge has.
+
+  Three things this template deliberately does not have. No link to the case: api's judicial surface takes no
+  case id, so there is nowhere to link to. No "add note" control: a judge's writes are exactly claim and direct.
+  And no field that is not on the view model — the application panel is `JudicialCaseView` and nothing else,
+  which is the disclosure boundary made visual (decision 4).
+
+  The claim control is a form because it changes something; "Record a direction" is a link because it opens a
+  page. Each appears only in the state it belongs to, and api re-checks both regardless.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {#
+      What a redirect sent the judge back with. A success banner for a recorded direction — it is not a correction
+      to anything on the page, which is what a banner is for — and an error summary for a write api refused
+      because of the state below: a direction on a referral no longer theirs, or a claim on one already theirs.
+      Both refusals are one `refused` key, since a judge arrives through one door or the other and never both.
+    #}
+    {% if directionRecorded %}
+      {% set recordedHtml %}<p class="govuk-notification-banner__heading">{{ directionRecorded }}</p>{% endset %}
+      {{ govukNotificationBanner({ type: "success", titleText: successTitle, html: recordedHtml }) }}
+    {% endif %}
+    {% if refused %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [{ text: refused }] }) }}
+    {% endif %}
+
+    <span class="govuk-caption-l">{{ referral.application.reference if referral.application else "" }}</span>
+    <h1 class="govuk-heading-xl govuk-!-margin-bottom-6">{{ heading }}</h1>
+
+    <h2 class="govuk-heading-m">{{ applicationHeading }}</h2>
+    {% if referral.application %}
+      {{ govukSummaryList({
+        rows: [
+          { key: { text: referenceLabel }, value: { text: referral.application.reference } },
+          { key: { text: typeLabel }, value: { text: referral.application.type } },
+          { key: { text: oldNameLabel }, value: { text: referral.application.oldName } },
+          { key: { text: newNameLabel }, value: { text: referral.application.newName } }
+        ]
+      }) }}
+    {% else %}
+      <p class="govuk-body">{{ applicationMissing }}</p>
+    {% endif %}
+
+    <h2 class="govuk-heading-m">{{ referralHeading }}</h2>
+
+    {% set reasonsCell %}
+      {% if referral.reasons.length %}
+        <ul class="govuk-list govuk-!-margin-bottom-0">
+          {% for reason in referral.reasons %}<li>{{ reason }}</li>{% endfor %}
+        </ul>
+      {% else %}
+        {{ noneRecorded }}
+      {% endif %}
+    {% endset %}
+
+    {# The urgency tag reinforces the word it sits beside; the word is always printed. #}
+    {% set urgencyCell %}
+      {% if referral.isUrgent %}{{ govukTag({ text: referral.urgency, classes: "govuk-tag--red" }) }}{% else %}{{ referral.urgency }}{% endif %}
+    {% endset %}
+
+    {% set referralRows = [
+      { key: { text: stateLabel }, value: { html: govukTag({ text: referral.state, classes: referral.stateTagClasses }) } },
+      { key: { text: reasonsLabel }, value: { html: reasonsCell } },
+      { key: { text: notesLabel }, value: { text: referral.notes } },
+      { key: { text: urgencyLabel }, value: { html: urgencyCell } },
+      { key: { text: urgencyReasonLabel }, value: { text: referral.urgencyReason } },
+      { key: { text: waitingLabel }, value: { text: referral.waitingSince } }
+    ] %}
+    {# Only once it is in this judge's hands — api's visibility means a claimed referral is theirs or invisible. #}
+    {% if referral.claimedOn %}
+      {% set referralRows = (referralRows.push({ key: { text: claimedLabel }, value: { text: referral.claimedOn } }), referralRows) %}
+    {% endif %}
+
+    {{ govukSummaryList({ rows: referralRows }) }}
+
+    {#
+      The direction already recorded, which is how a judge re-reads a referral they have decided. Absent until
+      api holds one, rather than rendered empty: a decision row saying nothing would read as an undecided
+      referral that had been through this page.
+
+      `gazetteAnswer` is resolved by the handler rather than read off the model with a ternary here, and that is
+      not only convention: api's `publishToGazette` is nullish and this panel is keyed on `decision`, so it has
+      three states. `{{ yes if … else no }}` would print "No" for a direction api recorded no answer for —
+      telling the judge they directed against publication, which is the one answer on this screen that cannot be
+      taken back.
+    #}
+    {% if referral.direction %}
+      <h2 class="govuk-heading-m">{{ directionHeading }}</h2>
+      {{ govukSummaryList({
+        rows: [
+          { key: { text: decisionLabel }, value: { text: referral.direction.decision } },
+          { key: { text: directionsLabel }, value: { text: referral.direction.directionsText } },
+          { key: { text: gazetteLabel }, value: { text: gazetteAnswer } },
+          { key: { text: decidedLabel }, value: { text: referral.direction.decidedOn } }
+        ]
+      }) }}
+    {% endif %}
+
+    {#
+      The application's timeline, read-only. A list rather than a table: each entry is a paragraph of prose with
+      an attribution, which is not a row of comparable cells.
+    #}
+    <h2 class="govuk-heading-m">{{ timelineHeading }}</h2>
+    {% if referral.caseNotes.length %}
+      <ul class="govuk-list">
+        {% for note in referral.caseNotes %}
+          <li class="govuk-!-margin-bottom-4">
+            <p class="govuk-body govuk-!-margin-bottom-1">{{ note.note }}</p>
+            <p class="govuk-caption-m">{{ note.createdBy }}, {{ note.createdOn }}</p>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="govuk-body">{{ timelineEmpty }}</p>
+    {% endif %}
+
+    {#
+      `preventDoubleClick` because the second of two rapid clicks is what the judge is left looking at: api records
+      the first and 409s the second, so a claim that succeeded would render as "not waiting to be claimed". The
+      sentence stays true — it is theirs now — but it arrives in an error summary, which reads as a refusal. The
+      server side is the guard (api refuses, and the 409 lands on the referral rather than the pool); this only
+      stops the judge seeing the refusal in the first place, so the flow is unchanged without JavaScript.
+    #}
+    {% if referral.claimable %}
+      <form method="post" action="{{ claimHref }}" novalidate>
+        <p class="govuk-body">{{ claimHint }}</p>
+        {{ govukButton({ text: claim, preventDoubleClick: true }) }}
+      </form>
+    {% elif referral.directable %}
+      {{ govukButton({ text: direct, href: directionHref }) }}
+    {% endif %}
+
+    <p class="govuk-body">
+      <a class="govuk-link" href="{{ poolPath }}">{{ backToPool }}</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

@@ -1,5 +1,5 @@
 import type { Role } from "./roles.js";
-import { DEEDPOLL_ADMIN } from "./roles.js";
+import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL } from "./roles.js";
 
 /**
  * Fallback author for a write with no identified user. Matches the service account the
@@ -24,6 +24,16 @@ export const SERVICE_ACCOUNT_NAME = "# svc_HMCTS_LCPT_Dev";
 export interface CurrentUser {
   roles: Role[];
   isAdmin: boolean;
+  /**
+   * Whether this caller is a judge, and so may reach `/judicial/**`.
+   *
+   * Alongside `isAdmin` rather than derived from it, because the two personas are alternatives: a judge
+   * is not a privileged caseworker (the judicial api surface returns a *narrower* view of an application
+   * than any caseworker sees), so neither flag implies the other and a caller may hold both, one or
+   * neither. The gate this feeds is a UI boundary — api gates every `/judicial/**` route on the same role
+   * itself — so a wrong value here shows the wrong chrome, never the wrong data.
+   */
+  isJudicial: boolean;
   name: string;
 }
 
@@ -33,6 +43,7 @@ export function currentUser(roles: Role[], name?: string | null): CurrentUser {
   return {
     roles,
     isAdmin: roles.includes(DEEDPOLL_ADMIN),
+    isJudicial: roles.includes(DEEDPOLL_JUDICIAL),
     name: trimmed.length > 0 ? trimmed : SERVICE_ACCOUNT_NAME
   };
 }

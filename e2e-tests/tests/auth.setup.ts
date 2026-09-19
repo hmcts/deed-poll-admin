@@ -13,9 +13,11 @@ import {
   ADMIN_STORAGE_STATE,
   CASEWORKER_STORAGE_STATE,
   DEPLOYED_STACK_SKIP_REASON,
+  JUDGE_STORAGE_STATE,
   RUNS_AGAINST_DEPLOYED_STACK,
   signInAsAdmin,
-  signInAsCaseworker
+  signInAsCaseworker,
+  signInAsJudge
 } from "./idam-session.js";
 
 setup("sign in as a caseworker holding the admin role", async ({ page }) => {
@@ -32,4 +34,15 @@ setup("sign in as a caseworker holding no roles", async ({ page }) => {
 
   await signInAsCaseworker(page);
   await page.context().storageState({ path: CASEWORKER_STORAGE_STATE });
+});
+
+// The judge, and a third session rather than a login inside the judicial journey — same reasoning again. The
+// **landing path is asserted inside `signInAsJudge`** rather than in the journey, because it is the login
+// flow's behaviour: `/login`'s fallback is `/`, and `/` resolves the persona. A journey that restored this
+// session and then visited the pool directly could not tell the two apart.
+setup("sign in as a judge", async ({ page }) => {
+  setup.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
+
+  await signInAsJudge(page);
+  await page.context().storageState({ path: JUDGE_STORAGE_STATE });
 });

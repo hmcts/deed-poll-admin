@@ -41,7 +41,7 @@ deed-poll-admin/
 ├── src/                        # THE application (Express 5.x + Nunjucks) — the root package
 │   ├── pages/                  # File-based routes, discovered by simple-router
 │   ├── assets/                 # SCSS/TS bundles, compiled by vite
-│   ├── auth/                   # IDAM OIDC: login, session, require-auth
+│   ├── auth/                   # IDAM OIDC: login, session, require-auth, require-role
 │   ├── locales/                # App-level translations
 │   ├── app.ts, server.ts       # createApp(), and the entrypoint that loads secrets first
 │   └── secrets.ts              # Reads charts/deed-poll-admin/values.yaml for the vault alias map
@@ -99,6 +99,73 @@ writing any query-shaped code:
 - **`DEED_POLL_API_URL`** is the base URL, defaulting to the mock at `http://localhost:3200`. Deployed
   environments set it in `charts/deed-poll-admin/values.yaml`, resolved per environment from
   `global.environment`; preview overrides it to AAT's api, so **preview writes land in AAT's data**.
+
+## Personas and role gating
+
+**Two personas, one deployable.** A caseworker works `/deed-polls/**`; a judge works `/judicial/**` — the
+shared referral pool, one referral, the claim, and the direction flow. Facts that are not derivable from a
+single file:
+
+- **`/judicial` is gated on the area, not the page.** `src/app.ts` mounts `requireJudicial()`
+  (`src/auth/require-role.ts`) on the `/judicial` prefix, *after* `requireAuth` so an anonymous visitor still
+  gets sent to log in rather than refused. A page added under `src/pages/judicial/` is gated because of where
+  it lives; `src/app.test.ts` reads that directory off the filesystem and fails if the mount stops covering
+  one. **Do not add a per-page role check** — the pages deliberately never ask about the role, which is also
+  why no page test can show the boundary.
+- **This is a persona boundary, not the data boundary.** Every role rule before it was presentational
+  (`canDeleteWitness` hides a button). api gates the same `/judicial/**` routes on the same role, so a
+  caseworker who defeated this gate would see a screen of 403s, not a judge's referrals. The gate decides which
+  chrome a signed-in user gets.
+- **It refuses with `next(new ForbiddenError(...))` and renders nothing.** `src/errors.ts` answers 403 on the
+  **404** view, so a guessed judicial URL discloses nothing, and logs the message the gate built — that render
+  is the end of the chain, and the starter's handler (the only thing that logs) is never reached.
+  `src/pages/errors/403.njk` exists but belongs to the login flow, where the user already knows who they are.
+- **`isAdmin` and `isJudicial` are alternatives, not a ladder.** An admin is refused `/judicial/**`. A user may
+  hold both, one, or neither.
+- **A new role must be added to `KNOWN_ROLES`** (`libs/deed-poll/src/auth/idam-claims.ts`) as well as to `Role`.
+  `rolesFrom` filters against that list, so an unlisted role is dropped silently and its holder resolves to no
+  roles — it fails closed, and presents as a permissions bug rather than a missing list entry.
+- **`/` is where each persona's home is decided, and the only place it can be.** A judge's home is
+  `/judicial/referrals`, a caseworker's is `/deed-polls`, and a user holding both lands on the case list.
+  `/login`'s `returnTo` fallback is therefore `/` and **not** a concrete list path: the roles do not exist until
+  the token has been exchanged, so hard-coding `/deed-polls` there strands every judge on a list api answers
+  403 to, with nothing in the logs to say why.
+- **Judicial page copy must never name or imply a holder.** api answers withdrawn, closed, another judge's and
+  never-there as one indistinguishable 404 on purpose, so the "no longer available" wording has to stay true of
+  all four — it does not enumerate the causes either, since a hedged "may already be with another judge" is the
+  implication the rule forbids.
+- **api checks visibility before state, so no 409 on the judicial surface can mean "somebody else has it".** By
+  the time a 409 is possible the caller can already see the referral, which api's visibility narrows to their own:
+  a claim 409 means they hold it or have already directed it, a direction 409 means they can see it but do not
+  hold it. So both name a *state* ("not waiting to be claimed", "not waiting for a direction from you") and the
+  claim's 409 redirects to the **referral** rather than the pool — "This referral has already been claimed" plus a
+  bounce to the list would tell a judge somebody else has work that is in fact theirs. The pool therefore carries
+  one refusal, not two. A caseworker's 409s are a different thing entirely (two caseworkers racing), which is why
+  `referrals/new.ts` re-renders at 409 instead.
+- **A user holding both roles has no link to `/judicial/**`.** Decision 8 builds no judicial navigation and the
+  shared chrome renders no service-navigation, so the caseworker-first landing in `src/pages/index.ts` leaves such
+  a user typing the URL. The gate admits them, so this is a missing route rather than a refusal; it is the plan's
+  flagged open question, and the fix if the business confirms such a user is a conditional link on the case list,
+  not a change to the landing.
+- **The pool is `Open` only, so claiming a referral takes it off the only list that links to it.** api filters
+  `GET /judicial/referrals` to `Open` — the plan's "plus the judge's own `Claimed`/`Decided`" describes decision
+  3's *read* visibility, not its list — and there is no query for a judge's own claims. A judge who claims one and
+  then follows "Back to referrals" cannot reach it again until api's inactivity sweep returns it. Do not try to fix
+  that here by re-listing or by filtering client-side: the missing query is api's, and it is recorded as an open
+  question on `referrals-admin-3`.
+- **A new page area must be added to `scripts/extract-welsh-strings.mjs`'s `INCLUDE`.** The script's scope is a
+  list of directories, so a page area that is not on it contributes nothing to
+  `.business_context/welsh-translation-request.csv` and nothing to `yarn welsh:check` — with no failure anywhere,
+  because the pages still carry their `en`/`cy` pairs. `src/pages/judicial/**` shipped that way and was invisible
+  to the translation request until the directory was added. A page whose *second* content pair is named
+  `<name>En`/`<name>Cy` is picked up too, under a `<name>.` key prefix.
+- **The same silence applies one level down, to a content *shape* the extractor cannot parse.** An unparsed key is
+  not reported as unparsed — it is simply absent, and a page whose other twenty keys are present looks complete. All
+  three shapes `.claude/rules/frontend.md` documents are handled now (string, nested object, and a **function** that
+  interpolates a runtime value), but a fourth would need adding: `const en = (m) => ({ … })`, the whole-object
+  function form, is not read, and a page written that way would contribute nothing. Function entries are reported
+  one row per sentence (`returnedForActionFor.1`, `.2`) because English needs a singular and a plural where Welsh
+  needs more, so which sentence covers which count is a translator briefing rather than a string.
 
 ## Deployment and sessions
 

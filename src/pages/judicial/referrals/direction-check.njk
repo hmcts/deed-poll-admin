@@ -1,0 +1,67 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+
+{#
+  Check your direction — the attestation step, and the only page in this repo that has one.
+
+  **The answers are in the page twice, and both copies are needed.** The summary list is what the judge reads
+  back; the three hidden fields are what the confirm carries to api. Nothing is stored between the form and this
+  page — no draft, client or server (decision 7) — so the request is the only place the direction exists until
+  it is recorded.
+
+  **Change is a submit, not a link.** A `GET` back to the form would arrive with nothing in it, because there is
+  no stored answer to re-read; re-posting the same three fields is what makes the form come back filled in. It
+  is styled as a secondary button so it does not compete with the confirm.
+
+  **The declaration sits above the submit rather than in a tick box.** Pressing the button *is* the attestation,
+  which is the Design System's check-answers pattern; the sentence beside it says so, and the one below says
+  what cannot be undone.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if reference %}
+      <span class="govuk-caption-l">{{ reference }}</span>
+    {% endif %}
+    <h1 class="govuk-heading-xl">{{ checkHeading }}</h1>
+
+    {#
+      No change links on the rows, for the reason the docblock gives: every way back to the form has to carry the
+      answers with it, and a summary-list action is a link. The one Change control is the button below, so there
+      is one way back rather than three that behave differently.
+    #}
+    {{ govukSummaryList({
+      rows: [
+        { key: { text: decisionLabel }, value: { text: answers.decision } },
+        { key: { text: directionsSummaryLabel }, value: { text: answers.directionsText if answers.directionsText else noneGiven } },
+        { key: { text: gazetteLabel }, value: { text: yes if answers.publishToGazette else no } }
+      ]
+    }) }}
+
+    <form method="post" action="{{ directionHref }}" novalidate>
+      <input type="hidden" name="decision" value="{{ values.decision }}">
+      <input type="hidden" name="directionsText" value="{{ values.directionsText }}">
+      <input type="hidden" name="publishToGazette" value="{{ values.publishToGazette }}">
+
+      <p class="govuk-body">{{ declaration }}</p>
+      <p class="govuk-body">{{ irreversible }}</p>
+
+      {#
+        `preventDoubleClick` on the confirm only. It is the one submit here that records something, and a second
+        one cannot record it again: api 409s it, so the response the judge is left looking at is
+        "not waiting for a direction from you" rather than the success banner beside the direction they just
+        recorded. Both sentences are true of a judge who has already directed it, which is why the server side
+        needs no change — this stops the refusal being shown for a direction that went in. Change re-renders and
+        is safe to press twice.
+      #}
+      <div class="govuk-button-group">
+        {{ govukButton({ text: confirm, name: "action", value: "confirm", preventDoubleClick: true }) }}
+        {{ govukButton({ text: change, name: "action", value: "change", classes: "govuk-button--secondary" }) }}
+        <a class="govuk-link" href="{{ referralHref }}">{{ cancel }}</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
