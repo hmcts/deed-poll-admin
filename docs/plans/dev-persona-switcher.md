@@ -90,8 +90,24 @@ rests on one assumption this devcontainer **cannot test**, and the plan must not
 
 - **AAT IDAM is unreachable from the devcontainer.** Probed 2026-09-19:
   `idam-web-public.aat.platform.hmcts.net` answers **504** through the proxy and `idam-api.aat…` fails to
-  connect — the same wall as `build.hmcts.net`. So whether `grant_type=password` is permitted there can only
-  be established by deploying and trying.
+  connect — the same wall as `build.hmcts.net`. So the *runtime* behaviour can only be established by
+  deploying and trying.
+- **AMENDED 2026-09-19: `grant_type=password` will be REFUSED in AAT as the client is registered today, and
+  this is a cross-repo change, not an unknown.** `idam-access-config`'s
+  `apps/deed-poll/base/services.yaml:42` registers exactly two grant types for `deed-poll-admin`:
+  `authorization_code` and `refresh_token`. The earlier version of this section called ROPC "unverified"
+  because the network probe failed — but the registration was readable all along in the clone at
+  `platops/idam-access-config`. **Check the registration before blaming the network.**
+
+  It is a well-trodden request rather than an exotic one: `apps/pcs`, `apps/ia` and `apps/probate` all
+  register `password`, and pcs's first client uses it as its *only* grant type. **Two traps in making the
+  change, both stated by the files' own comments:**
+
+  1. **It must go in `apps/deed-poll/aat/services.yaml`, not `base`.** The base file's comment says it
+     "also covers production", so adding `password` there would enable ROPC on the **production** client.
+  2. **An overlay replaces a list rather than appending to it** — the aat file says so explicitly about
+     `redirect_uris`. So an overlay adding `grant_types: [password]` alone would *remove*
+     `authorization_code`, and **normal sign-in in AAT would break entirely.** All three must be restated.
 - **The seeded users are local fixtures.** AAT needs real test users. `src/auth/test-users.ts` can create,
   read and delete them via `idam-testing-support-api` — but it **obtains no user token**, so it is half the
   mechanism. AAT test users are also **cleaned up after three hours**, so AAT cannot use fixed persona
@@ -103,8 +119,24 @@ rests on one assumption this devcontainer **cannot test**, and the plan must not
 
 **Consequence for this plan:** Task 5 builds the AAT path and Task 6 verifies it *in AAT*, after a successful
 deploy. Task 6 cannot be completed from a development machine and must not be ticked on the basis of unit
-tests. If ROPC turns out to be refused in AAT, the fallback is recorded in Open Questions rather than guessed
-at here.
+tests.
+
+**Nothing in `deed-poll-api` changes, and that is a property of the design rather than an omission.** api
+already derives roles from userinfo, so a genuine persona token authorises correctly with no api change. The
+role-rewrite design this plan rejected would have needed one, or would simply not have worked.
+
+**The AAT dependency chain is four items, two of them in the same review queue:**
+
+| # | Dependency | Owner | State 2026-09-19 |
+|---|---|---|---|
+| 1 | `password` added to the aat client overlay | `hmcts/idam-access-config` | **not raised** — Task 5a |
+| 2 | `caseworker-deedpoll-judicial` role exists in AAT | `hmcts/idam-access-config#995` | **open** |
+| 3 | admin can deploy to AAT at all | running-order step 5f | **unraised** |
+| 4 | `deed-poll-api` deployed to AAT behind that address | `deed-poll-api` master | not building |
+
+So expect Tasks 0–4 to complete and Task 6 to stay open for some time. "Done" for this feature means "local
+half done, AAT half pending" until all four clear, and status reports should say it that way rather than
+implying the feature is finished.
 
 ## Security posture — state it plainly
 
@@ -177,14 +209,35 @@ The point of the feature, and the thing a role rewrite would have failed: after 
 - [ ] An e2e journey switches caseworker → judge → caseworker-admin and asserts on each that a
       persona-specific api-backed page loads and a persona-forbidden one refuses; both validation commands green
 
+### Task 5a — RUN BEFORE TASK 5: raise the IDAM change the AAT path needs, in another team's repo
+
+**Added 2026-09-19. This is not optional and not in this repo**, so raise it early: it joins the same review
+queue as `#995` and nothing in Task 5 can be exercised until it merges.
+
+`hmcts/idam-access-config`, adding `password` to the `deed-poll-admin` client's `grant_types`:
+
+- **In `apps/deed-poll/aat/services.yaml`, NOT `base`** — base covers production, and ROPC on the production
+  client is not a thing this feature is entitled to ask for.
+- **Restate all three grant types** (`authorization_code`, `refresh_token`, `password`). An overlay replaces
+  a list rather than appending to it, so omitting `authorization_code` breaks normal sign-in in AAT.
+- Cite the precedent in the PR body — `apps/pcs`, `apps/ia` and `apps/probate` all register `password` — and
+  say plainly what it is for, so the reviewer is not guessing why a service wants ROPC.
+
+- [ ] PR raised against `hmcts/idam-access-config` with `password` in the **aat overlay only** and all three
+      grant types restated; precedent and purpose stated in the body; PR number recorded here
+
 ### Task 5: The AAT path
 
-Create-on-demand persona users through `test-users.ts`, plus whatever token exchange AAT permits. Handle the
+Create-on-demand persona users through `test-users.ts`, plus the token exchange Task 5a enables. Handle the
 three-hour cleanup and the judicial role's absence before `#995` by degrading the affected option with a
 reason shown, never by offering a persona that cannot work.
 
+**Degrade the same way when Task 5a has not merged**: if the client is not registered for `password`, the
+switcher must say so rather than offering options that fail at IDAM.
+
 - [ ] Personas resolve in AAT without fixed accounts; an unavailable persona is disabled with its reason
-      stated; no real user's credentials are read anywhere; both validation commands green
+      stated; an unregistered grant type is reported as such rather than surfacing as a login failure; no real
+      user's credentials are read anywhere; both validation commands green
 
 ### Task 6: Verify in AAT — CANNOT be completed locally
 
@@ -193,9 +246,12 @@ reason shown, never by offering a persona that cannot work.
 
 ## Open questions — flagged, NOT answered here
 
-1. **If AAT refuses `grant_type=password`, what replaces it?** Options are an IDAM-side change, a browser-
-   driven flow the user completes once per persona, or accepting local-only and reverting Task 5. Not
-   guessable from here — it needs one AAT attempt.
+1. ~~**If AAT refuses `grant_type=password`, what replaces it?**~~ **Answered 2026-09-19 and promoted to
+   Task 5a** — it is refused, because the client is registered for `authorization_code` and `refresh_token`
+   only, and the fix is a named PR in `hmcts/idam-access-config`. The question that remains is narrower:
+   **if IdAM declines to register `password` for this client**, the options are a browser-driven flow the
+   tester completes once per persona, or accepting local-only and dropping Task 5. Worth asking in the Task 5a
+   PR body rather than after a refusal.
 2. **Should the switcher offer a fourth "no session" option** to test the anonymous path, now that `/` routes
    personas? Cheap to add, easy to forget.
 3. **Preview environments point their api at AAT** (`values.preview.template.yaml`), so a preview switcher
