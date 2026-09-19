@@ -25,6 +25,10 @@ import { callerFromRequest } from "../../../auth/current-user.js";
 
 const POOL_PATH = "/judicial/referrals";
 
+/** What `[referralId]/direction.ts` redirects back with: the direction was recorded, or the referral is not this judge's to direct. */
+const DIRECTION_RECORDED = "recorded";
+const DIRECTION_NOT_HELD = "notheld";
+
 const en = {
   title: "Referral to the judiciary",
   heading: "Referral to the judiciary",
@@ -62,7 +66,21 @@ const en = {
   // judge to look will not see it.
   claimHint: "Claiming takes this referral out of the shared list so you can record a direction on it.",
   direct: "Record a direction",
-  backToPool: "Back to referrals"
+  backToPool: "Back to referrals",
+  errorSummaryTitle: "There is a problem",
+  successTitle: "Success",
+  // The direction has just been recorded. Said on the referral rather than on a confirmation page of its own,
+  // because the recorded direction is on this page: the banner explains why the state has changed and the
+  // summary list below is the direction itself.
+  //
+  // Named apart from the `directionRecorded` the model carries, as the pool's `alreadyClaimed` is from its
+  // `claimRefused`: the content is the sentence, the model is whether it applies. They are one key in the
+  // template, and a content key of the same name would answer "did it happen?" with "here are the words".
+  directionRecordedMessage: "Your direction has been recorded.",
+  // api's 409: the referral is still visible to this judge but is not in their hands — it went back to the pool,
+  // or they have already directed it. It must stay true of both, and it names no other judge: a referral taken
+  // by someone else is a 404, which reads as "no longer available" instead.
+  directionNotHeldMessage: "This referral is not waiting for a direction from you. Check its status below."
 };
 
 // English content in the cy shape — see the note in ../../deed-polls/index.ts.
@@ -102,6 +120,8 @@ export const GET = async (req: Request, res: Response) => {
     return res.status(404).render("judicial/referrals/unavailable", { poolPath: POOL_PATH, en: unavailableEn, cy: unavailableCy });
   }
 
+  const content = res.locals.locale === "cy" ? cy : en;
+
   res.render("judicial/referrals/referral", {
     referral: buildJudicialReferral(referral),
     // Both built here rather than in the template, so the one path shape lives in one place — and so the
@@ -109,6 +129,11 @@ export const GET = async (req: Request, res: Response) => {
     claimHref: `${POOL_PATH}/${encodeURIComponent(referralId)}/claim`,
     directionHref: `${POOL_PATH}/${encodeURIComponent(referralId)}/direction`,
     poolPath: POOL_PATH,
+    // What the direction flow sent the judge back with, if anything. Two outcomes and two shapes: a success is
+    // a banner, a refusal is an error summary — the split the pool page makes for a claim. An unrecognised
+    // value says nothing at all, since a hand-typed `?direction=` pins no state.
+    directionRecorded: req.query.direction === DIRECTION_RECORDED ? content.directionRecordedMessage : "",
+    directionRefused: req.query.direction === DIRECTION_NOT_HELD ? content.directionNotHeldMessage : "",
     en,
     cy
   });

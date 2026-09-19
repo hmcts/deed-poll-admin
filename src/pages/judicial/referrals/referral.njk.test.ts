@@ -66,10 +66,10 @@ const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferr
   }) as JudicialReferralDetail;
 
 /** The screen as a browser receives it, for the referral api answers with. */
-const render = async (referral: JudicialReferralDetail): Promise<string> => {
+const render = async (referral: JudicialReferralDetail, query: Record<string, unknown> = {}): Promise<string> => {
   vi.mocked(getReferral).mockResolvedValue(referral as never);
   const res = pageResponse();
-  await GET(pageRequest({ params: { referralId: "ref-1" }, judicial: true, accessToken: "judge-token" }), res);
+  await GET(pageRequest({ params: { referralId: "ref-1" }, query, judicial: true, accessToken: "judge-token" }), res);
   const model = res.render.mock.calls[0][1];
 
   return environment.render("judicial/referrals/referral.njk", { ...model, ...model.en });
@@ -179,5 +179,29 @@ describe("judicial referral template", () => {
     const html = await render(detail());
 
     expect(html).toContain('href="/judicial/referrals"');
+  });
+
+  // A recorded direction is not a correction to anything on the page, which is what distinguishes the banner from
+  // the summary the refusal below gets.
+  it("should announce a direction it has just recorded in a success banner", async () => {
+    const html = await render(detail({ state: "Decided", decision: "Approved", decisionDate: new Date("2026-09-05T16:05:00Z") }), { direction: "recorded" });
+
+    expect(html).toContain("govuk-notification-banner--success");
+    expect(html).toContain("Your direction has been recorded.");
+  });
+
+  it("should show a refused direction as an error summary, naming no other judge", async () => {
+    const html = await render(detail({ state: "Open" }), { direction: "notheld" });
+
+    expect(html).toContain("govuk-error-summary");
+    expect(html).toContain("This referral is not waiting for a direction from you.");
+    expect(html).not.toMatch(/another judge|claimed by/i);
+  });
+
+  it("should show neither message on a referral opened straight from the pool", async () => {
+    const html = await render(detail());
+
+    expect(html).not.toContain("govuk-notification-banner");
+    expect(html).not.toContain("govuk-error-summary");
   });
 });

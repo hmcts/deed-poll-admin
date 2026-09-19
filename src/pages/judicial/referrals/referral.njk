@@ -2,6 +2,8 @@
 {% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
 {% from "govuk/components/tag/macro.njk" import govukTag %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
 
 {#
   One referral, its application and its timeline — read-only apart from the two controls a judge has.
@@ -17,6 +19,19 @@
 {% block content %}
 <div class="govuk-grid-row">
   <div class="govuk-grid-column-two-thirds">
+
+    {#
+      What the direction flow sent the judge back with. A success banner for a recorded direction — it is not a
+      correction to anything on the page, which is what a banner is for — and an error summary for a referral
+      that is no longer theirs to direct, matching the pool's refused claim.
+    #}
+    {% if directionRecorded %}
+      {% set recordedHtml %}<p class="govuk-notification-banner__heading">{{ directionRecorded }}</p>{% endset %}
+      {{ govukNotificationBanner({ type: "success", titleText: successTitle, html: recordedHtml }) }}
+    {% endif %}
+    {% if directionRefused %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [{ text: directionRefused }] }) }}
+    {% endif %}
 
     <span class="govuk-caption-l">{{ referral.application.reference if referral.application else "" }}</span>
     <h1 class="govuk-heading-xl govuk-!-margin-bottom-6">{{ heading }}</h1>

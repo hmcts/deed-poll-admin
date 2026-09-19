@@ -19,11 +19,31 @@
  * words for the reasons a caseworker picked is the drift those maps exist to prevent. That is the opposite of
  * sharing a *record*: `JudicialCaseView` stays its own type all the way to the template.
  */
-import type { JudicialCaseNote, JudicialCaseView, JudicialReferralDetail, JudicialReferralSummary } from "@hmcts/deed-poll-api-client";
+import {
+  type JudicialCaseNote,
+  type JudicialCaseView,
+  type JudicialReferralDetail,
+  type JudicialReferralSummary,
+  MASTER_DECISION
+} from "@hmcts/deed-poll-api-client";
 import { formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
 import { NOT_PROVIDED } from "../deed-poll/detail-view.js";
 import { DEED_POLL_TYPE_LABEL, MASTER_DECISION_LABEL } from "../deed-poll/enums/dynamics-values.js";
+import type { MasterDecision } from "../deed-poll/enums/option-sets.js";
 import { REFERRAL_STATE_TAG, REFERRAL_URGENCY_LABEL, referralReasonLabel } from "../referrals/referrals-view.js";
+
+/**
+ * The decision radios on the direction form, in api's published order.
+ *
+ * Built from the client's member array through the label map, exactly as `REFERRAL_REASON_CHOICES` is, so a
+ * member added at api's end reaches the form without an edit here. **The members are `MasterDecision`'s and
+ * never a judicial enum of their own** (`referrals-api-2` decision 5): the same two words a case's own
+ * `masterDecision` column carries, which is what lets a direction recorded here be read back off the case.
+ */
+export const DIRECTION_DECISION_CHOICES: { value: MasterDecision; text: string }[] = MASTER_DECISION.map((decision) => ({
+  value: decision,
+  text: MASTER_DECISION_LABEL[decision]
+}));
 
 /**
  * The pool's rows, in api's order.

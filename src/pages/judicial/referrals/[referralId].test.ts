@@ -41,8 +41,8 @@ const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferr
     ...overrides
   }) as JudicialReferralDetail;
 
-function request(referralId = "ref-1") {
-  return pageRequest({ params: { referralId }, judicial: true, accessToken: "judge-token" });
+function request(referralId = "ref-1", query: Record<string, unknown> = {}) {
+  return pageRequest({ params: { referralId }, query, judicial: true, accessToken: "judge-token" });
 }
 
 describe("the judicial referral page", () => {
@@ -180,6 +180,47 @@ describe("the judicial referral page", () => {
     vi.mocked(getReferral).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
 
     await expect(GET(request(), pageResponse())).rejects.toThrow("unavailable");
+  });
+
+  // What the direction flow sends the judge back with. Two outcomes, two shapes — the split the pool makes for a
+  // refused claim.
+  describe("what the direction flow comes back with", () => {
+    it("should say the direction was recorded when it has just been", async () => {
+      const res = pageResponse();
+
+      await GET(request("ref-1", { direction: "recorded" }), res);
+
+      expect(res.render.mock.calls[0][1].directionRecorded).toBe("Your direction has been recorded.");
+      expect(res.render.mock.calls[0][1].directionRefused).toBe("");
+    });
+
+    // api's 409: visible, but not in this judge's hands — it went back to the pool, or they have already directed
+    // it. The sentence has to stay true of both, and must name no other judge.
+    it("should say the referral is not waiting for this judge's direction when api refused it", async () => {
+      const res = pageResponse();
+
+      await GET(request("ref-1", { direction: "notheld" }), res);
+
+      expect(res.render.mock.calls[0][1].directionRefused).toBe("This referral is not waiting for a direction from you. Check its status below.");
+      expect(res.render.mock.calls[0][1].directionRecorded).toBe("");
+    });
+
+    it("should name no other judge in the refusal, because api does not say who holds it", async () => {
+      const res = pageResponse();
+
+      await GET(request("ref-1", { direction: "notheld" }), res);
+
+      expect(res.render.mock.calls[0][1].directionRefused).not.toMatch(/claimed by|belongs to|held by|another judge/i);
+    });
+
+    it("should say nothing at all for a hand-typed value, which pins no state", async () => {
+      const res = pageResponse();
+
+      await GET(request("ref-1", { direction: "whatever" }), res);
+
+      expect(res.render.mock.calls[0][1].directionRecorded).toBe("");
+      expect(res.render.mock.calls[0][1].directionRefused).toBe("");
+    });
   });
 
   it("should carry both locales for both renderings", async () => {

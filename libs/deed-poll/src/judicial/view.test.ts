@@ -1,6 +1,6 @@
-import type { JudicialReferralDetail, JudicialReferralSummary } from "@hmcts/deed-poll-api-client";
+import { type JudicialReferralDetail, type JudicialReferralSummary, MASTER_DECISION } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
-import { buildJudicialReferral, buildPoolRows } from "./view.js";
+import { buildJudicialReferral, buildPoolRows, DIRECTION_DECISION_CHOICES } from "./view.js";
 
 const summary = (overrides: Partial<JudicialReferralSummary> = {}): JudicialReferralSummary =>
   ({
@@ -220,5 +220,22 @@ describe("judicial/view", () => {
 
       expect(view.direction).toMatchObject({ directionsText: "Not provided", publishToGazette: null });
     });
+  });
+});
+
+describe("DIRECTION_DECISION_CHOICES", () => {
+  // Built from the client's member array rather than typed out, so a member added at api's end reaches the
+  // direction form without an edit here.
+  it("should offer every decision api publishes, in its order", () => {
+    expect(DIRECTION_DECISION_CHOICES).toEqual([
+      { value: "Approved", text: "Approved" },
+      { value: "Rejected", text: "Rejected" }
+    ]);
+  });
+
+  // api-2 decision 5 reuses `MasterDecision` rather than minting a judicial enum, which is what lets a direction
+  // recorded here be read back off the case's own decision column.
+  it("should carry the same members the case's own decision column does", () => {
+    expect(DIRECTION_DECISION_CHOICES.map((choice) => choice.value)).toEqual(MASTER_DECISION as unknown as string[]);
   });
 });

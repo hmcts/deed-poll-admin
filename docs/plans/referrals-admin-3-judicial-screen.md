@@ -620,10 +620,52 @@ and 400 (bad direction) as user messages (decision 5/10); success returns the ju
 `Decided`) or the pool. Welsh throughout. Page tests: validation errors re-render with values; CYA shows the
 entered direction; confirm records it; a lapsed-referral 409 is handled; radios do not default.
 
-- [ ] Direction form validates (zod, no-default radios) and re-renders errors with values; CYA step shows the
+- [x] Direction form validates (zod, no-default radios) and re-renders errors with values; CYA step shows the
       entered direction + attestation, state request-carried with no persisted draft; confirm POSTs one atomic
       `recordDirection`; 409 (lapsed/not-held) and 400 (bad direction) rendered as messages; success →
       `Decided`; Welsh present; `turbo test test:app --concurrency=1` green
+
+**DONE 2026-09-19.** One route (`[referralId]/direction.ts`) with three steps and two templates
+(`direction-form.njk`, `direction-check.njk`): GET renders the form, a POST without the confirm literal renders
+check-your-answers from the values it was posted, and a POST carrying `action=confirm` calls `recordDirection`
+once. Nothing is written anywhere until that call — `direction.test.ts` asserts the session holds no draft, which
+is decision 7's "an abandoned direction leaves nothing behind" made testable rather than stated.
+
+Five things the checkbox did not ask for, and four of them are decisions the next reader would otherwise have to
+re-make:
+
+- **"Change your answers" is a submit, not a link, and that is what carries the state.** The Design System's
+  change links are `GET`s, which only work when the answers are stored somewhere to come back to; here they are
+  in the request, so a link would silently empty the form. It posts `action=change` and re-renders the form
+  **without validating** — a judge going back to fix an answer is not submitting one, and marking up the half
+  they were already on their way to correcting is noise.
+- **The attestation is a declaration above the submit, not a tick box.** Pressing the button is the attestation,
+  which is what the check-answers pattern says; a confirm checkbox in front of a button that already confirms is
+  the thing it warns against. The plan's "I confirm this is my direction" is therefore a sentence
+  (`declaration`) plus `irreversible`, and the wording stays flagged as display-only. A tick box is a policy
+  call, not a code one, and adding one later is one field and one schema line.
+- **The GET reads the referral, and both reasons are load-bearing.** A judge must see *which* application they
+  are directing before they attest to it — `displayReference` is on `JudicialCaseView`, so it is theirs — and a
+  referral not in their hands has no direction to take, so they are redirected rather than shown a form whose
+  submit can only be refused. This is not the scoping pre-read `.claude/rules/backend.md` forbids: the confirm
+  step reads nothing at all and api re-checks the hold itself.
+- **The referral view gained the two messages the flow sends back**, mirroring the pool's `?claim=`: a success
+  banner for `?direction=recorded` and an error summary for `?direction=notheld`. The 404 renders
+  `unavailable.njk` directly instead, because "no longer available" is a page and not a message on a page that
+  no longer exists — Task 2's finding that api answers a referral taken out from under a judge as a **404, not a
+  409**, is what makes those two separate renderings rather than one.
+- **The content key is named apart from the model key** (`directionRecordedMessage` vs `directionRecorded`), as
+  the pool's `alreadyClaimed` is from its `claimRefused`. Production's render interceptor lets the model win a
+  collision and the njk test harness spreads content last, so a shared name works in the app and inverts in the
+  test — a trap worth not leaving behind. `DIRECTION_DECISION_CHOICES` is in `libs/deed-poll/src/judicial/view.ts`
+  and built from `MASTER_DECISION` through the label map, so decision 9's reuse is expressed rather than retyped.
+
+Totals **2,437 tests** (up 62 from Task 3's 2,375: +60 app, +2 `libs/deed-poll`), 8/8 turbo tasks; `yarn lint`
+0 errors, 2 warnings + 2 infos — baseline exactly. `tsc -p tsconfig.app.json` and `tsc -p
+libs/deed-poll/tsconfig.json` both clean (the app project resolves `@hmcts/deed-poll` to `dist`, so the library
+has to be rebuilt before that check means anything); the root project's pre-existing errors are **44 before and
+44 after**. `openapi.json`, `wire.ts`, `client.ts`, `contract.test.ts` and the mock are untouched, as the
+amendment requires.
 
 ### Task 5: E2E and full validation
 
