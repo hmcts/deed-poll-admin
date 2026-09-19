@@ -11,10 +11,12 @@
  * rather than a count of the rows on screen. Ten is a page size, not a cap, so a row count would read as
  * "there are ten" on a pool of a hundred.
  *
- * **Both claim failures land here, as a message rather than an error page**, because a referral that has been
- * taken or has gone is not a referral to stay on: the judge needs the next one. Neither message names another
- * judge — api's 404 is deliberately indistinguishable between "withdrawn", "closed", "somebody else's" and
- * "never existed" (decision 10), and a message that guessed would enumerate exactly what that hides.
+ * **A claim api answered 404 to lands here, as a message rather than an error page**, because a referral that has
+ * gone is not a referral to stay on: the judge needs the next one. The message names no other judge — api's 404
+ * is deliberately indistinguishable between "withdrawn", "closed", "somebody else's" and "never existed"
+ * (decision 10), and a message that guessed would enumerate exactly what that hides. A claim's **409** does not
+ * land here: api checks visibility before state, so the only 409 it can give is a referral this judge already
+ * holds, and that one belongs on the referral rather than on a list it has left.
  *
  * Gated by `requireJudicial`, mounted on `/judicial` in `app.ts`. Nothing in this file asks about the role: the
  * gate is the area's, not the page's, so a page added under it is covered by where it lives.
@@ -26,8 +28,12 @@ import { callerFromRequest } from "../../../auth/current-user.js";
 /** The pool's own path, and the one every judicial URL hangs off. */
 const POOL_PATH = "/judicial/referrals";
 
-/** What `[referralId]/claim.ts` redirects back with: api refused the claim, or the referral has gone. */
-const CLAIM_TAKEN = "taken";
+/**
+ * What `[referralId]/claim.ts` redirects back with: the referral is not visible to this judge at all.
+ *
+ * The only claim refusal that reaches the pool. There is no `taken` counterpart, and adding one would be
+ * unreachable code with misleading copy: a referral another judge has taken is api's 404, not its 409.
+ */
 const CLAIM_UNAVAILABLE = "unavailable";
 
 const en = {
@@ -49,11 +55,9 @@ const en = {
   pagingLabel: "Pages of referrals",
   pagingSummaryFor: (first: number, last: number, total: number) => `${first} to ${last} of ${total} referrals`,
   errorSummaryTitle: "There is a problem",
-  // Decision 5's wording, and decision 10's constraint: "already been claimed" and never "claimed by
-  // Judge X" — api does not say who, and this page must not imply it knows.
-  alreadyClaimed: "This referral has already been claimed. Choose another referral from the list.",
   // The 404 from a claim, which covers a referral withdrawn, closed, taken by another judge, or never there.
-  // One sentence for all four, because api answers all four identically on purpose.
+  // One sentence for all four, because api answers all four identically on purpose — and decision 10's
+  // constraint: it does not say who has it, and does not enumerate the causes either.
   noLongerAvailable: "This referral is no longer available. Choose another referral from the list."
 };
 
@@ -88,13 +92,10 @@ export const GET = async (req: Request, res: Response) => {
 /**
  * The message for a claim api refused, or nothing if the judge did not arrive from one.
  *
- * Two outcomes and two sentences, because they are different facts: one referral is in somebody's hands and
- * another is gone. Neither is rendered as a fault — the pool is shared, so two judges opening the same page is
- * ordinary — and an unrecognised value says nothing at all, since a hand-typed `?claim=` pins no state.
+ * One outcome, not two: the referral is gone, and the pool is the honest place to say so. It is not rendered as a
+ * fault — the pool is shared, so two judges opening the same page is ordinary — and an unrecognised value says
+ * nothing at all, since a hand-typed `?claim=` pins no state.
  */
 function claimRefusal(raw: unknown, content: typeof en): string {
-  if (raw === CLAIM_TAKEN) return content.alreadyClaimed;
-  if (raw === CLAIM_UNAVAILABLE) return content.noLongerAvailable;
-
-  return "";
+  return raw === CLAIM_UNAVAILABLE ? content.noLongerAvailable : "";
 }

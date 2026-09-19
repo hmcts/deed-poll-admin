@@ -130,7 +130,9 @@ describe("judicial/service", () => {
       expect(vi.mocked(claimJudicialReferral).mock.calls[0]).toHaveLength(2);
     });
 
-    it("should throw ConflictError when another judge claimed it first", async () => {
+    // Not "another judge got there first" — that is the 404 below. api checks visibility before state, so the
+    // only referral a judge can see and cannot claim is one they already hold or have already decided.
+    it("should throw ConflictError when the judge can see the referral but it is no longer Open", async () => {
       vi.mocked(claimJudicialReferral).mockResolvedValue(conflict("Referral ref-1 is Claimed and can only be claimed while it is Open") as never);
 
       await expect(claimReferral("ref-1", CALLER)).rejects.toBeInstanceOf(ConflictError);
@@ -147,7 +149,9 @@ describe("judicial/service", () => {
       expect(getJudicialPool).not.toHaveBeenCalled();
     });
 
-    it("should throw NotFoundError for a referral this judge may not see", async () => {
+    // Including the commonest race there is: a referral another judge claimed a moment ago is invisible, so
+    // being beaten to it is this branch and not the conflict above.
+    it("should throw NotFoundError for a referral this judge may not see, which is what being beaten to one is", async () => {
       vi.mocked(claimJudicialReferral).mockResolvedValue(notFound as never);
 
       await expect(claimReferral("ref-1", CALLER)).rejects.toBeInstanceOf(NotFoundError);

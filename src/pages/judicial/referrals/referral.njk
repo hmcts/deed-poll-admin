@@ -21,16 +21,17 @@
   <div class="govuk-grid-column-two-thirds">
 
     {#
-      What the direction flow sent the judge back with. A success banner for a recorded direction — it is not a
-      correction to anything on the page, which is what a banner is for — and an error summary for a referral
-      that is no longer theirs to direct, matching the pool's refused claim.
+      What a redirect sent the judge back with. A success banner for a recorded direction — it is not a correction
+      to anything on the page, which is what a banner is for — and an error summary for a write api refused
+      because of the state below: a direction on a referral no longer theirs, or a claim on one already theirs.
+      Both refusals are one `refused` key, since a judge arrives through one door or the other and never both.
     #}
     {% if directionRecorded %}
       {% set recordedHtml %}<p class="govuk-notification-banner__heading">{{ directionRecorded }}</p>{% endset %}
       {{ govukNotificationBanner({ type: "success", titleText: successTitle, html: recordedHtml }) }}
     {% endif %}
-    {% if directionRefused %}
-      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [{ text: directionRefused }] }) }}
+    {% if refused %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [{ text: refused }] }) }}
     {% endif %}
 
     <span class="govuk-caption-l">{{ referral.application.reference if referral.application else "" }}</span>

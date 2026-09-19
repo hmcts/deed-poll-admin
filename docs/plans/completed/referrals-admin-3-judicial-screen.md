@@ -223,11 +223,17 @@ admin-0.
    admin-only field. Notes render read-only (no add-note control on this screen — a judge does not write notes,
    api-3 decision: writes are exactly claim + direct).
 
-5. **Claim is a single POST from the referral view or the pool row; its 409 is "someone else took it".** A
-   judge claims a pool referral with one action; the api re-checks `Open` and 409s if another judge claimed it
-   first (api-3/api-2). The screen renders that 409 as a plain message ("This referral has already been claimed")
-   and returns the judge to the pool — not a stack trace, not a generic error. A claim that succeeds lands the
-   judge on the referral view, now theirs to direct.
+5. **Claim is a single POST from the referral view; a refusal is a plain message and never an error page.** A
+   judge claims a pool referral with one action and api re-checks `Open`. **This decision's original wording —
+   "its 409 is 'someone else took it'" — was wrong, and Task 2's pre-flight found out why:** api checks
+   *visibility before state*, so a referral another judge claimed first is a **404**, indistinguishable from
+   withdrawn, closed and never-there. That is the refusal a beaten judge gets, and it returns them to the pool
+   with decision 10's "no longer available". The **409** is the narrow remainder — a referral the judge can see
+   and cannot claim, which visibility narrows to one they already hold or have already directed — so it goes to
+   the *referral*, not the pool, with a sentence that names the state ("not waiting to be claimed"). Rendering it
+   as "This referral has already been claimed" would tell a judge somebody else has work that is in fact theirs,
+   and send them to a list it has left. A claim that succeeds lands the judge on the referral view, now theirs to
+   direct.
 
 6. **The direction is a multi-step flow ending in a GOV.UK check-your-answers attestation — built fresh,
    because the repo has neither a CYA-before-submit pattern nor a session wizard.** The flow is: referral view
@@ -306,7 +312,14 @@ admin-0.
 - **The exact attestation wording** (decision 6 — "I confirm this is my direction") and the direction form
   labels — working text; a judicial-facing wording/Welsh pass can revise. Display-only.
 - **Dual-role users** (decision 2 — a user with both caseworker and judicial roles) — defaulted to
-  caseworker-first landing; confirm the business has no such user, or wants a chooser. Flagged.
+  caseworker-first landing; confirm the business has no such user, or wants a chooser. Flagged. **What that
+  default actually costs, now that decision 8 has shipped no judicial navigation:** such a user has *no* control
+  anywhere in the UI that reaches `/judicial/referrals` — they must type it. `requireRole` admits them, so it is
+  a missing route into a permitted area rather than a refusal, and `src/pages/index.ts`'s docblock says so
+  plainly (an earlier version claimed the judge's area was "one link away", which was never true). If the
+  business confirms such a user exists, the fix is one conditional link on the case list rendered when
+  `isJudicial`, which stays inside decision 8 — and `judicial.spec.ts`'s "no judicial link" assertion would then
+  need scoping to the admin-only fixture.
 - **A judge's "my decided referrals" history view** — api-3's visibility already permits a judge to read their
   own `Decided` referrals, so the data is reachable, but a dedicated history list is additive and not asked for
   (api-3 "deliberately not in this plan"). Out of scope here.
@@ -587,11 +600,12 @@ Four things the checkbox did not ask for, and the next task needs each of them:
   which home is right depends on roles that do not exist until the token comes back. This costs the hop the old
   docblock avoided deliberately; the docblocks on both files now say so rather than leaving the next reader to
   rediscover the trade.
-- **Claiming has two refusals and they say different things.** api checks visibility before the hold, so a
-  referral taken out from under this judge is a **404**, not a 409 — the finding Task 2 recorded, now rendered:
-  `?claim=taken` is "already claimed", `?claim=unavailable` is decision 10's "no longer available", and neither
-  sentence mentions another judge. Reading the 409 as the only lapse case would have rendered the commonest one
-  as a fault.
+- **Claiming has two refusals, they say different things, and they land in different places.** api checks
+  visibility before the hold, so a referral taken out from under this judge is a **404**, not a 409 — the finding
+  Task 2 recorded. `?claim=unavailable` is decision 10's "no longer available", on the pool. The 409 is only
+  reachable for a referral this judge already holds or has already directed, so it redirects to the referral as
+  `?claim=held` and says "not waiting to be claimed": the pool has no "already claimed" sentence, because the only
+  409 it could have shown it for is the judge's own work. Neither sentence mentions another judge.
 - **"A caseworker is 403'd on every judicial page" is pinned in `src/app.test.ts`, derived from the filesystem.**
   No page test can show it — the pages never ask about the role — and a hand-written list of URLs goes stale the
   moment a page is added, which is the failure that matters since an ungated judicial page looks identical to a
@@ -664,7 +678,7 @@ re-make:
   no longer exists — Task 2's finding that api answers a referral taken out from under a judge as a **404, not a
   409**, is what makes those two separate renderings rather than one.
 - **The content key is named apart from the model key** (`directionRecordedMessage` vs `directionRecorded`), as
-  the pool's `alreadyClaimed` is from its `claimRefused`. Production's render interceptor lets the model win a
+  the pool's `noLongerAvailable` is from its `claimRefused`. Production's render interceptor lets the model win a
   collision and the njk test harness spreads content last, so a shared name works in the app and inverts in the
   test — a trap worth not leaving behind. `DIRECTION_DECISION_CHOICES` is in `libs/deed-poll/src/judicial/view.ts`
   and built from `MASTER_DECISION` through the label map, so decision 9's reuse is expressed rather than retyped.

@@ -19,13 +19,15 @@
  * "somebody else has it" — saying so would enumerate for a judge exactly what the shared 404 exists to hide.
  * `claimedBy` and `decidedBy` on a response can therefore only ever name this caller or nobody.
  *
- * **The 409s and the 404 divide by visibility, not by the action.** Claiming a referral that is not `Open` is a
- * 409 — including one this judge already holds, because two judges each shown "claimed by me" for different
- * reasons is worse than one being told plainly that somebody got there first. Directing one is a 409 when the
- * judge can see it but does not hold it (it was `Open`, or they have already directed it) and a **404** when they
- * cannot see it at all (another judge claimed it out from under them, or a caseworker withdrew it). Both reach a
- * page as expected states rather than faults: `ConflictError` is a message beside the control, `NotFoundError`
- * is "no longer available", and reaching the 500 page with either means a handler did not catch it.
+ * **The 409s and the 404 divide by visibility, not by the action.** Visibility is checked first, so a `409` only
+ * ever describes a referral the caller can still see. For a claim that leaves exactly one case — they already
+ * hold it, or they have already directed it — because a referral in *another* judge's hands is invisible and so a
+ * 404. For a direction it is the referral they can see but do not hold (it went back to the pool, or they have
+ * already directed it), and the 404 is again the one that moved out of sight. **So no `ConflictError` from either
+ * call can mean "somebody else has it", and a page that renders one as "already claimed" is saying something api
+ * cannot have said.** Both reach a page as expected states rather than faults: `ConflictError` is a message
+ * beside the state it describes, `NotFoundError` is "no longer available", and reaching the 500 page with either
+ * means a handler did not catch it.
  *
  * **No role check here, and no author.** api gates every one of these routes on the judicial role and takes the
  * holder and the decider from the token, so a `Caller` is `{ accessToken }` as it is everywhere else. The
@@ -86,8 +88,9 @@ export function getReferral(referralId: string, caller: Caller): Promise<Judicia
  *
  * **Nothing here checks that it is still `Open` first.** The pool a judge is looking at is shared, so a referral
  * open when the page rendered may have been taken since, and only api can say: a pre-read would be a second
- * round trip whose answer was stale by the time it arrived. api re-checks and 409s, which the page renders as
- * "already claimed" (`referrals-admin-3` decision 5).
+ * round trip whose answer was stale by the time it arrived. api re-checks, and its answer for "taken since" is a
+ * **404** — visibility before state (`referrals-admin-3` decision 5). The 409 is the narrow remainder: a referral
+ * this judge can see and cannot claim, meaning they already hold it or have already directed it.
  */
 export function claimReferral(referralId: string, caller: Caller): Promise<JudicialReferralDetail> {
   return callApi(caller, (config) => claimJudicialReferral(referralId, config));

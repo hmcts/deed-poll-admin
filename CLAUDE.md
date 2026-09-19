@@ -133,7 +133,20 @@ single file:
 - **Judicial page copy must never name or imply a holder.** api answers withdrawn, closed, another judge's and
   never-there as one indistinguishable 404 on purpose, so the "no longer available" wording has to stay true of
   all four — it does not enumerate the causes either, since a hedged "may already be with another judge" is the
-  implication the rule forbids. The 409 (visible but not held) is the separate case, and it names a state.
+  implication the rule forbids.
+- **api checks visibility before state, so no 409 on the judicial surface can mean "somebody else has it".** By
+  the time a 409 is possible the caller can already see the referral, which api's visibility narrows to their own:
+  a claim 409 means they hold it or have already directed it, a direction 409 means they can see it but do not
+  hold it. So both name a *state* ("not waiting to be claimed", "not waiting for a direction from you") and the
+  claim's 409 redirects to the **referral** rather than the pool — "This referral has already been claimed" plus a
+  bounce to the list would tell a judge somebody else has work that is in fact theirs. The pool therefore carries
+  one refusal, not two. A caseworker's 409s are a different thing entirely (two caseworkers racing), which is why
+  `referrals/new.ts` re-renders at 409 instead.
+- **A user holding both roles has no link to `/judicial/**`.** Decision 8 builds no judicial navigation and the
+  shared chrome renders no service-navigation, so the caseworker-first landing in `src/pages/index.ts` leaves such
+  a user typing the URL. The gate admits them, so this is a missing route rather than a refusal; it is the plan's
+  flagged open question, and the fix if the business confirms such a user is a conditional link on the case list,
+  not a change to the landing.
 
 ## Deployment and sessions
 

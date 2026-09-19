@@ -185,16 +185,16 @@ describe("the judicial referral page", () => {
     await expect(GET(request(), pageResponse())).rejects.toThrow("unavailable");
   });
 
-  // What the direction flow sends the judge back with. Two outcomes, two shapes — the split the pool makes for a
-  // refused claim.
-  describe("what the direction flow comes back with", () => {
+  // What a redirect sends the judge back with. Two shapes — a banner for a success, a summary for a refusal —
+  // and two sources for the refusal, since api's 409 on a claim lands here too.
+  describe("what a redirect comes back with", () => {
     it("should say the direction was recorded when it has just been", async () => {
       const res = pageResponse();
 
       await GET(request("ref-1", { direction: "recorded" }), res);
 
       expect(res.render.mock.calls[0][1].directionRecorded).toBe("Your direction has been recorded.");
-      expect(res.render.mock.calls[0][1].directionRefused).toBe("");
+      expect(res.render.mock.calls[0][1].refused).toBe("");
     });
 
     // api's 409: visible, but not in this judge's hands — it went back to the pool, or they have already directed
@@ -204,25 +204,39 @@ describe("the judicial referral page", () => {
 
       await GET(request("ref-1", { direction: "notheld" }), res);
 
-      expect(res.render.mock.calls[0][1].directionRefused).toBe("This referral is not waiting for a direction from you. Check its status below.");
+      expect(res.render.mock.calls[0][1].refused).toBe("This referral is not waiting for a direction from you. Check its status below.");
       expect(res.render.mock.calls[0][1].directionRecorded).toBe("");
     });
 
-    it("should name no other judge in the refusal, because api does not say who holds it", async () => {
+    // api's 409 on a *claim*, which its visibility narrows to a referral this judge already holds or has already
+    // directed — a referral another judge took is a 404 and never gets here. So the sentence names the state and
+    // not a holder: "already been claimed" would tell a judge somebody else has work that is theirs.
+    it("should say the referral is not waiting to be claimed when api 409s a claim", async () => {
       const res = pageResponse();
 
-      await GET(request("ref-1", { direction: "notheld" }), res);
+      await GET(request("ref-1", { claim: "held" }), res);
 
-      expect(res.render.mock.calls[0][1].directionRefused).not.toMatch(/claimed by|belongs to|held by|another judge/i);
+      expect(res.render.mock.calls[0][1].refused).toBe("This referral is not waiting to be claimed. Check its status below.");
+      expect(res.render.mock.calls[0][1].directionRecorded).toBe("");
+    });
+
+    it("should name no other judge in either refusal, because api does not say who holds it", async () => {
+      for (const query of [{ direction: "notheld" }, { claim: "held" }]) {
+        const res = pageResponse();
+
+        await GET(request("ref-1", query), res);
+
+        expect(res.render.mock.calls[0][1].refused).not.toMatch(/claimed by|belongs to|held by|another judge|already been claimed/i);
+      }
     });
 
     it("should say nothing at all for a hand-typed value, which pins no state", async () => {
       const res = pageResponse();
 
-      await GET(request("ref-1", { direction: "whatever" }), res);
+      await GET(request("ref-1", { direction: "whatever", claim: "whatever" }), res);
 
       expect(res.render.mock.calls[0][1].directionRecorded).toBe("");
-      expect(res.render.mock.calls[0][1].directionRefused).toBe("");
+      expect(res.render.mock.calls[0][1].refused).toBe("");
     });
   });
 

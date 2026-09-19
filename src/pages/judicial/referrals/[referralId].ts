@@ -29,6 +29,15 @@ const POOL_PATH = "/judicial/referrals";
 const DIRECTION_RECORDED = "recorded";
 const DIRECTION_NOT_HELD = "notheld";
 
+/**
+ * What `[referralId]/claim.ts` redirects back with when api 409s the claim.
+ *
+ * The *only* 409 a claim can produce, because api checks visibility before state: a referral another judge holds
+ * is a 404 and never reaches here. So it means this judge already has it — or has already directed it — which is
+ * why it lands on the referral rather than the pool the referral has left.
+ */
+const CLAIM_HELD = "held";
+
 const en = {
   title: "Referral to the judiciary",
   heading: "Referral to the judiciary",
@@ -76,14 +85,19 @@ const en = {
   // because the recorded direction is on this page: the banner explains why the state has changed and the
   // summary list below is the direction itself.
   //
-  // Named apart from the `directionRecorded` the model carries, as the pool's `alreadyClaimed` is from its
+  // Named apart from the `directionRecorded` the model carries, as the pool's `noLongerAvailable` is from its
   // `claimRefused`: the content is the sentence, the model is whether it applies. They are one key in the
   // template, and a content key of the same name would answer "did it happen?" with "here are the words".
   directionRecordedMessage: "Your direction has been recorded.",
   // api's 409: the referral is still visible to this judge but is not in their hands — it went back to the pool,
   // or they have already directed it. It must stay true of both, and it names no other judge: a referral taken
   // by someone else is a 404, which reads as "no longer available" instead.
-  directionNotHeldMessage: "This referral is not waiting for a direction from you. Check its status below."
+  directionNotHeldMessage: "This referral is not waiting for a direction from you. Check its status below.",
+  // api's 409 on a claim, which its visibility narrows to a referral this judge already holds or has already
+  // directed. It says the referral is not waiting to be claimed rather than that it "has already been claimed":
+  // the second sentence is true but reads as somebody else's, which is the implication decision 10 forbids — and
+  // the judge is being shown the referral precisely because it is theirs.
+  claimNotOpenMessage: "This referral is not waiting to be claimed. Check its status below."
 };
 
 // English content in the cy shape — see the note in ../../deed-polls/index.ts.
@@ -139,15 +153,30 @@ export const GET = async (req: Request, res: Response) => {
     claimHref: `${POOL_PATH}/${encodeURIComponent(referralId)}/claim`,
     directionHref: `${POOL_PATH}/${encodeURIComponent(referralId)}/direction`,
     poolPath: POOL_PATH,
-    // What the direction flow sent the judge back with, if anything. Two outcomes and two shapes: a success is
-    // a banner, a refusal is an error summary — the split the pool page makes for a claim. An unrecognised
-    // value says nothing at all, since a hand-typed `?direction=` pins no state.
+    // What a redirect sent the judge back with, if anything. Two shapes rather than two sources: a success is a
+    // banner, a refusal is an error summary. One `refused` key for both the direction's 409 and the claim's,
+    // because they are the same fact arriving by two doors — the referral is visible and the write it was asked
+    // for does not apply to its state — and a page cannot be arrived at through both at once. An unrecognised
+    // value says nothing at all, since a hand-typed `?direction=`/`?claim=` pins no state.
     directionRecorded: req.query.direction === DIRECTION_RECORDED ? content.directionRecordedMessage : "",
-    directionRefused: req.query.direction === DIRECTION_NOT_HELD ? content.directionNotHeldMessage : "",
+    refused: refusal(req.query, content),
     en,
     cy
   });
 };
+
+/**
+ * The refusal a redirect arrived with, or nothing.
+ *
+ * Both sentences name a state and neither names a judge — api does not say who holds a referral, and the one it
+ * refuses *for* a holder is a 404 that never reaches this page.
+ */
+function refusal(query: Request["query"], content: typeof en): string {
+  if (query.direction === DIRECTION_NOT_HELD) return content.directionNotHeldMessage;
+  if (query.claim === CLAIM_HELD) return content.claimNotOpenMessage;
+
+  return "";
+}
 
 /**
  * The Gazette direction in words — three answers, because api's `publishToGazette` is nullish.

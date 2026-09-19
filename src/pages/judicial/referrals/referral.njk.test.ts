@@ -224,6 +224,16 @@ describe("judicial referral template", () => {
     expect(html).not.toMatch(/another judge|claimed by/i);
   });
 
+  // The claim's 409 renders through the same summary. api's visibility makes it a referral this judge already
+  // holds, so the sentence must not read as another judge's — and the state it points at is on the page.
+  it("should show a refused claim as an error summary on the referral, naming no other judge", async () => {
+    const html = await render(detail({ state: "Claimed", claimedBy: "judge@example.com", claimedAt: new Date("2026-09-04T09:00:00Z") }), { claim: "held" });
+
+    expect(html).toContain("govuk-error-summary");
+    expect(html).toContain("This referral is not waiting to be claimed.");
+    expect(html).not.toMatch(/another judge|already been claimed/i);
+  });
+
   it("should show neither message on a referral opened straight from the pool", async () => {
     const html = await render(detail());
 

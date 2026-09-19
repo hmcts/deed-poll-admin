@@ -56,19 +56,29 @@ describe("claiming a judicial referral", () => {
     expect(res.redirect).toHaveBeenCalledWith("/judicial/referrals/ref%201%2F..%2Fevil");
   });
 
-  // Decision 5: two judges reading the same shared page is ordinary, so the 409 is a message on the pool
-  // rather than an error page — and the judge is returned to where the next piece of work is.
-  it("should send the judge back to the pool with 'already claimed' when api refuses the claim", async () => {
-    vi.mocked(claimReferral).mockRejectedValue(new ConflictError("Referral ref-1 is not Open"));
+  // api checks visibility before state, so a 409 is only reachable for a referral this judge can still see and
+  // cannot claim: they hold it, or they have already directed it. Back to the *referral*, not the pool — it is
+  // theirs and no longer on the pool's list, so "choose another referral" would send them away from their work.
+  it("should send the judge to the referral when api 409s the claim, because the 409 means it is already theirs", async () => {
+    vi.mocked(claimReferral).mockRejectedValue(new ConflictError("Referral ref-1 is Claimed and can only be claimed while it is Open"));
     const res = pageResponse();
 
     await POST(request(), res);
 
-    expect(res.redirect).toHaveBeenCalledWith("/judicial/referrals?claim=taken");
+    expect(res.redirect).toHaveBeenCalledWith("/judicial/referrals/ref-1?claim=held");
   });
 
-  // Directing and claiming divide the same way: api checks visibility before the state, so a referral taken
-  // out from under this judge is a 404 and not a 409 — and it must read as "gone", never as "somebody's".
+  it("should escape the referral id in the URL it redirects a 409 to", async () => {
+    vi.mocked(claimReferral).mockRejectedValue(new ConflictError("Referral is Claimed"));
+    const res = pageResponse();
+
+    await POST(request("ref 1/../evil"), res);
+
+    expect(res.redirect).toHaveBeenCalledWith("/judicial/referrals/ref%201%2F..%2Fevil?claim=held");
+  });
+
+  // The pool is only for the refusal that means the referral has gone: api answers 404 for one another judge has
+  // taken, so this is the branch a beaten judge takes — and it must read as "gone", never as "somebody's".
   it("should send the judge back to the pool with 'no longer available' when the referral is not visible", async () => {
     vi.mocked(claimReferral).mockRejectedValue(new NotFoundError("Referral ref-1 not found"));
     const res = pageResponse();

@@ -745,8 +745,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (method === "GET" && action === undefined) return send(res, 200, toWireJudicialDetail(record, referral));
 
     if (method === "POST" && action === "claim") {
-      // A conflict even for the judge already holding it: two judges each shown "claimed by me" for different
-      // reasons is worse than one being told plainly that somebody got there first.
+      // State after visibility, which is what makes this 409 narrow: the caller has got past `visibleToJudge`, so
+      // a non-`Open` referral here is one they hold or have already decided. Another judge's is the 404 above.
       if (referral.state !== "Open") return send(res, 409, { error: `Referral ${referralId} is ${referral.state} and can only be claimed while it is Open` });
 
       const now = new Date();

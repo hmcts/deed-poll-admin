@@ -114,14 +114,14 @@ describe("judicial pool template", () => {
     expect(html).not.toContain("govuk-table");
   });
 
-  // Decision 5 and decision 10 in the rendering: the refusal is said on the page the judge is sent back to,
-  // and it names no other judge.
+  // Decision 10 in the rendering: the refusal is said on the page the judge is sent back to, and it names no
+  // other judge. The 404 is the only claim refusal that reaches the pool — a 409 goes to the referral.
   it("should show a refused claim as a message on the pool", async () => {
-    const html = await render({ referrals: [referral()], total: 1, totalPages: 1 }, { claim: "taken" });
+    const html = await render({ referrals: [referral()], total: 1, totalPages: 1 }, { claim: "unavailable" });
 
-    expect(html).toContain("This referral has already been claimed");
+    expect(html).toContain("This referral is no longer available");
     expect(html).toContain("govuk-error-summary");
-    expect(html).not.toMatch(/another judge|Judge /);
+    expect(html).not.toMatch(/another judge|Judge |already been claimed/);
   });
 
   it("should show no message on an ordinary visit", async () => {

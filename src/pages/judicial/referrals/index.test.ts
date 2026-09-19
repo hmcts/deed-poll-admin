@@ -129,15 +129,6 @@ describe("the judicial pool page", () => {
     expect(res.render.mock.calls[0][1]).toMatchObject({ rows: [], pagingSummary: "" });
   });
 
-  // Decision 5, and the wording is load-bearing: api does not say who claimed it, so neither does this.
-  it("should say a referral has already been claimed when the claim came back refused", async () => {
-    const res = pageResponse();
-
-    await GET(request({ claim: "taken" }), res);
-
-    expect(res.render.mock.calls[0][1].claimRefused).toBe("This referral has already been claimed. Choose another referral from the list.");
-  });
-
   // Decision 10: withdrawn, closed, another judge's and never-existed are one answer, so they get one
   // sentence — and it must not imply a holder.
   it("should say a referral is no longer available when api refused the claim with a 404", async () => {
@@ -155,6 +146,20 @@ describe("the judicial pool page", () => {
     await GET(request({ claim: "whatever" }), res);
 
     expect(res.render.mock.calls[0][1].claimRefused).toBe("");
+  });
+
+  // api checks visibility before state, so a claim 409 can only describe a referral this judge already holds —
+  // `claim.ts` sends that one to the referral. The pool must not grow an "already claimed" sentence for it: that
+  // reads as another judge's, which decision 10 forbids, about work that is in fact theirs.
+  it("should say nothing for a claim 409, which never lands here and would read as another judge's if it did", async () => {
+    const res = pageResponse();
+
+    await GET(request({ claim: "held" }), res);
+
+    expect(res.render.mock.calls[0][1].claimRefused).toBe("");
+    expect(Object.values(res.render.mock.calls[0][1].en as Record<string, unknown>)).not.toContain(
+      "This referral has already been claimed. Choose another referral from the list."
+    );
   });
 
   it("should say nothing about a claim on an ordinary visit", async () => {
@@ -179,9 +184,9 @@ describe("the judicial pool page", () => {
     const res = pageResponse();
     res.locals.locale = "cy";
 
-    await GET(request({ claim: "taken" }), res);
+    await GET(request({ claim: "unavailable" }), res);
 
-    expect(res.render.mock.calls[0][1].claimRefused).toBe("This referral has already been claimed. Choose another referral from the list.");
+    expect(res.render.mock.calls[0][1].claimRefused).toBe("This referral is no longer available. Choose another referral from the list.");
   });
 
   // The pool is the whole page: there is no additive panel to degrade, so an unreadable pool is not a page.

@@ -184,6 +184,26 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   await expect(claimButton(page)).toHaveCount(0);
   await expect(directButton(page)).toBeVisible();
 
+  // **Claiming twice — two tabs, or back-then-resubmit — and the one 409 a claim can produce.** api checks
+  // visibility before state, so a referral another judge took is the 404 above; this judge can still see this one
+  // and cannot claim it, which leaves only "it is already theirs". Posted through the app with the browser's
+  // session rather than driven through the button, which is gone the moment the claim succeeds. It must land on
+  // the referral and not the pool — the referral has left that list — and the sentence must name the state: an
+  // "already been claimed" bounce to the pool would tell a judge somebody else has work that is in fact theirs.
+  const reclaim = await page.request.post(`${POOL_PATH}/${mine.referralId}/claim`, { maxRedirects: 0 });
+  expect(reclaim.status()).toBe(302);
+  expect(reclaim.headers().location).toBe(`${POOL_PATH}/${mine.referralId}?claim=held`);
+
+  await page.goto(`${POOL_PATH}/${mine.referralId}?claim=held`);
+  const reclaimRefusal = page.getByRole("alert");
+  await expect(reclaimRefusal).toContainText("This referral is not waiting to be claimed.");
+  await expect(reclaimRefusal).not.toContainText("already been claimed");
+  await expect(reclaimRefusal).not.toContainText("another judge");
+  // Still theirs, and still directable: the refusal is a correction to the request, not to the state below it.
+  await expect(summaryRow(page, "Status")).toContainText("Claimed");
+  await expect(directButton(page)).toBeVisible();
+  await expectNoAccessibilityViolations(page);
+
   await directButton(page).click();
   await expect(page).toHaveURL(`${POOL_PATH}/${mine.referralId}/direction`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Record a direction");
