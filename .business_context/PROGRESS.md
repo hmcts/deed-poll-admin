@@ -1079,6 +1079,14 @@ they would sign in, return to `/`, and be redirected a second time. The refusing
 redirect *target*, which is guarded. Verified: `/` → 302 `/deed-polls` → 302
 `/login?returnTo=%2Fdeed-polls` → 302 IDAM.
 
+> **Superseded 2026-09-19 (referrals-admin-3).** Both the rationale and the trace above are now inverted.
+> `/` resolves the persona: an anonymous visitor is sent to `/login?returnTo=%2F` by the handler itself,
+> and where a signed-in one lands depends on the roles in the token (`/judicial/referrals` for a judge,
+> `/deed-polls` otherwise). Pinning the caseworker's list as the `returnTo` before anyone knew who was
+> arriving was the bug — a judge signed in and landed on a list api answers 403 to. `/` is still on the
+> allowlist, but for the opposite reason: it does the sending itself, and gating it would produce the
+> same redirect by a route `src/pages/index.ts` could not see.
+
 `/` needed a handler rather than just deleting the page: it is what anyone hitting the bare hostname or
 a bookmarked root gets, and the onboarding confirmation page's return button points at it.
 

@@ -86,6 +86,12 @@
       The direction already recorded, which is how a judge re-reads a referral they have decided. Absent until
       api holds one, rather than rendered empty: a decision row saying nothing would read as an undecided
       referral that had been through this page.
+
+      `gazetteAnswer` is resolved by the handler rather than read off the model with a ternary here, and that is
+      not only convention: api's `publishToGazette` is nullish and this panel is keyed on `decision`, so it has
+      three states. `{{ yes if … else no }}` would print "No" for a direction api recorded no answer for —
+      telling the judge they directed against publication, which is the one answer on this screen that cannot be
+      taken back.
     #}
     {% if referral.direction %}
       <h2 class="govuk-heading-m">{{ directionHeading }}</h2>
@@ -93,7 +99,7 @@
         rows: [
           { key: { text: decisionLabel }, value: { text: referral.direction.decision } },
           { key: { text: directionsLabel }, value: { text: referral.direction.directionsText } },
-          { key: { text: gazetteLabel }, value: { text: yes if referral.direction.publishToGazette else no } },
+          { key: { text: gazetteLabel }, value: { text: gazetteAnswer } },
           { key: { text: decidedLabel }, value: { text: referral.direction.decidedOn } }
         ]
       }) }}

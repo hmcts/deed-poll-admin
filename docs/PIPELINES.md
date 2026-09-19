@@ -166,12 +166,11 @@ resolves.
      mechanically. `charts/deed-poll-admin/` uses `${SERVICE_FQDN}` in AAT and preview —
      `deed-poll-admin-staging.aat.platform.hmcts.net` in AAT — and
      `deed-poll-admin.{{ .Values.global.environment }}.platform.hmcts.net` elsewhere.
-     [`hmcts/idam-access-config#993`](https://github.com/hmcts/idam-access-config/pull/993) now states
-     exactly that, but **it is still open and unmerged**, so nothing is registered yet: a deploy that
-     otherwise succeeded fails at sign-in, on IDAM's own page *after* a successful login, where no request
-     reaches this app and nothing here logs. Once it merges, changing either host needs a second PR there,
-     so a change to the two chart files above is a change to `apps/deed-poll/{base,aat}/services.yaml` in
-     the same breath.
+     [`hmcts/idam-access-config#993`](https://github.com/hmcts/idam-access-config/pull/993) states exactly
+     that and **merged on 2026-09-16**. Had it not, a deploy that otherwise succeeded would fail at sign-in on
+     IDAM's own page *after* a successful login, where no request reaches this app and nothing here logs.
+     Changing either host now needs a second PR there, so a change to the two chart files above is a change
+     to `apps/deed-poll/{base,aat}/services.yaml` in the same breath.
 
      Three things on #993 were corrected on its branch on 2026-09-10 rather than left for review to catch,
      because all three fail the same silent way: the AAT host, which was the old hand-rolled
@@ -187,6 +186,18 @@ resolves.
      and `idam-access-config` registers nothing for `pcs-frontend`'s previews either. #993's description
      asks IDAM directly; do not invent a wildcard in a values file, which cannot register anything in any
      case.
+
+   - **The judicial role is a second, separate registration, and it is not raised yet.** `/judicial/**` is
+     gated on `caseworker-deedpoll-judicial` (`libs/deed-poll/src/auth/roles.ts`), which needs its own PR
+     against `apps/deed-poll/base/roles.yaml` in `idam-access-config` — #993 covered the client and the admin
+     role only. As at **2026-09-19** the change exists only as a local branch in the gitignored
+     `platops/idam-access-config` clone, so nothing is registered. Until it merges, a judge signs in to a
+     deployed environment **successfully** and then resolves to no roles — `KNOWN_ROLES` drops what IDAM does
+     not assert — so every judicial URL answers the "Page not found" view at 403 and nothing in this repo is at
+     fault. Local development and the e2e suite are unaffected: `scripts/seed-idam-users.mjs` seeds
+     `judge@example.com` straight into the simulator. The exact YAML, the claim-string constraint and the
+     push instructions are in
+     [`.business_context/JUDICIAL_ROLE_REGISTRATION.md`](../.business_context/JUDICIAL_ROLE_REGISTRATION.md).
 6. **`deed-poll-api` is not deployed.** Not a defect in this repo and not fixable here: every case page
    needs it, so a deploy that otherwise succeeded would come up with readiness DOWN until api's own
    pipeline cutover lands — and `yarn test:smoke` asserts readiness, so **the post-deploy gate stays red

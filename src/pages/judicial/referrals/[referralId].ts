@@ -57,6 +57,9 @@ const en = {
   decidedLabel: "Recorded",
   yes: "Yes",
   no: "No",
+  // The third state of api's nullish `publishToGazette`, said rather than collapsed into "No": a direction it
+  // recorded no answer for must not read as one directed against publication.
+  gazetteNotRecorded: "Not recorded",
   timelineHeading: "Case notes",
   // The timeline is the office's record of the application, read-only here. Said rather than left blank,
   // because an application with no notes and a notes panel that failed to arrive must not look alike.
@@ -96,8 +99,10 @@ const unavailableEn = {
   title: "This referral is no longer available",
   heading: "This referral is no longer available",
   // The whole of decision 10 in one sentence. It must stay true of all four causes api refuses for, which is
-  // why it says nothing about who holds the referral or whether it ever existed.
-  body: "It may have been withdrawn, or it may already be with another judge. Choose another referral from the list.",
+  // why it says nothing about who holds the referral or whether it ever existed — and why it does not
+  // enumerate the causes either: naming "another judge" as one of them is the implication decision 10
+  // forbids, however hedged.
+  body: "This referral is no longer in the shared list. Choose another referral from the list.",
   backToPool: "Back to referrals"
 };
 
@@ -121,9 +126,14 @@ export const GET = async (req: Request, res: Response) => {
   }
 
   const content = res.locals.locale === "cy" ? cy : en;
+  const view = buildJudicialReferral(referral);
 
   res.render("judicial/referrals/referral", {
-    referral: buildJudicialReferral(referral),
+    referral: view,
+    // The boolean as this page's words, resolved here because `buildDirectionView` deliberately leaves it a
+    // boolean for the page's own `en`/`cy` to name — and because the three states are one decision worth
+    // making somewhere testable rather than in a template ternary.
+    gazetteAnswer: gazetteAnswer(view.direction?.publishToGazette, content),
     // Both built here rather than in the template, so the one path shape lives in one place — and so the
     // direction page's URL is stated by the page that offers it rather than assembled from fragments.
     claimHref: `${POOL_PATH}/${encodeURIComponent(referralId)}/claim`,
@@ -138,3 +148,17 @@ export const GET = async (req: Request, res: Response) => {
     cy
   });
 };
+
+/**
+ * The Gazette direction in words — three answers, because api's `publishToGazette` is nullish.
+ *
+ * A direction with no recorded answer says so. Collapsing `null` onto "No" would assert the judge directed
+ * against publication, which is both a claim api never made and the one answer on this screen that cannot be
+ * taken back.
+ */
+function gazetteAnswer(publishToGazette: boolean | null | undefined, content: typeof en): string {
+  if (publishToGazette === true) return content.yes;
+  if (publishToGazette === false) return content.no;
+
+  return content.gazetteNotRecorded;
+}

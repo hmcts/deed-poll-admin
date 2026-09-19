@@ -279,9 +279,18 @@ admin-0.
     "This referral is no longer available" (or equivalent), returning the judge to the pool — it must never say
     or imply another judge holds it. This is the client half of api-3's non-enumeration guarantee.
 
-11. **Welsh throughout, from `locales/`.** Every judge-facing string — pool headings, the direction form
-    labels, the attestation copy, the 404/409 messages — lives in the `en`/`cy` locale files like every other
-    string, following the existing pattern. The judicial persona is not exempt from bilingual delivery.
+11. **Welsh throughout, in the same shape as every other page.** Every judge-facing string — pool headings,
+    the direction form labels, the attestation copy, the 404/409 messages — reaches its template as an
+    `en`/`cy` pair, following the existing pattern. The judicial persona is not exempt from bilingual
+    delivery.
+
+    **Amended on delivery (2026-09-19):** this decision originally said "from `locales/`", which is not this
+    repo's convention and is not what shipped. Page copy lives in **page-local `en`/`cy` content objects**
+    (`src/locales/` holds only app-level strings), with `const cy = { ...en }` — English in the Welsh shape —
+    pending the translation pass, as `src/pages/deed-polls/index.ts` states. Do not go looking for judicial
+    strings in `src/locales/`. The one thing this costs: a string the *handler* resolves rather than handing
+    to the template as a pair must read `res.locals.locale` itself, and while `cy` is a copy of `en` no test
+    can see that it did not — which is why `direction.ts` has a `content(res)` helper and a comment saying so.
 
 ## Open questions — flagged, NOT answered here
 

@@ -91,7 +91,6 @@ describe("the judicial pool page", () => {
         reasons: ["Applicant is a minor"],
         urgency: "Standard",
         isUrgent: false,
-        urgencyReason: "Not provided",
         waitingSince: "3 September 2026 at 9:44am",
         viewHint: "the referral waiting since 3 September 2026 at 9:44am"
       }

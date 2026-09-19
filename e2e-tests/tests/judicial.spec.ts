@@ -1,5 +1,5 @@
 /**
- * The judicial persona, end to end in a browser — `docs/plans/referrals-admin-3-judicial-screen.md`.
+ * The judicial persona, end to end in a browser — `docs/plans/completed/referrals-admin-3-judicial-screen.md`.
  *
  * **Two tests: the judge's whole day, and the caseworker who must not have it.** The journey is one story —
  * land on the pool, open a referral, read the application, claim it, direct it through check-your-answers — so
@@ -79,7 +79,20 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   await expect(page.getByText("The most urgent referrals are first, then those waiting longest.")).toBeVisible();
   await expect(page.getByRole("searchbox")).toHaveCount(0);
   // api's count off the paging envelope, not a count of the ten rows on screen.
-  await expect(page.getByText(new RegExp(`of ${await poolTotal(request)} referrals`))).toBeVisible();
+  //
+  // Re-read on each attempt rather than compared once, because the pool is shared and global: `deed-polls.spec`
+  // raises and withdraws referrals in a parallel worker, so api's total can move either way between a render and
+  // an assertion about it. Reloading inside the poll makes the two sides of the comparison the same moment.
+  // The two numbers are compared by backreference rather than by equality so a failure prints both of them, and
+  // so the assertion does not pin a page size or a total this journey does not control.
+  await expect
+    .poll(async () => {
+      await page.reload();
+      const summary = (await page.getByText(/of \d+ referrals/).textContent())?.trim();
+
+      return `${summary} / api total ${await poolTotal(request)}`;
+    })
+    .toMatch(/of (\d+) referrals \/ api total \1$/);
   await expectNoAccessibilityViolations(page);
 
   // Checked here rather than at the end of the journey, and the position is load-bearing: the pool's column

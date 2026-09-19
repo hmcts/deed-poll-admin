@@ -64,7 +64,6 @@ export function buildPoolRows(referrals: JudicialReferralSummary[]): PoolRow[] {
     reasons: referral.reasons.map(referralReasonLabel),
     urgency: referral.urgency ? REFERRAL_URGENCY_LABEL[referral.urgency] : NOT_PROVIDED,
     isUrgent: referral.urgency === "Urgent",
-    urgencyReason: orPlaceholder(referral.urgencyReason),
     // api's `createdOn`, formatted — not an age in days. The wait is what the pool is ordered by and a
     // computed "3 days" cannot be re-read tomorrow.
     waitingSince: formatTimestamp(referral.createdOn)
@@ -206,7 +205,6 @@ export interface PoolRow {
   urgency: string;
   /** For the tag's colour. The word is printed too, so urgency is never carried by colour alone. */
   isUrgent: boolean;
-  urgencyReason: string;
   /** The referral's `createdOn`, formatted. api's second sort key, shown as the wait it is. */
   waitingSince: string;
 }

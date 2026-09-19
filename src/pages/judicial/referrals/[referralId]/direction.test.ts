@@ -103,6 +103,21 @@ describe("recording a judicial direction", () => {
       expect(model.gazetteItems.every((item: { checked: boolean }) => item.checked === false)).toBe(true);
     });
 
+    // The Gazette labels are the only strings on this page the handler resolves itself — the items are built here,
+    // so unlike everything else they do not reach the template as a pair for it to choose from. Pinned against the
+    // model's own `cy` rather than against two literals, so it is the resolution being asserted and not the
+    // wording; while `cy` is English in the Welsh shape the two agree, and when Welsh lands this fails if the
+    // handler went back to reading `en`.
+    it("should resolve the Gazette labels for the request's language rather than always in English", async () => {
+      const res = pageResponse();
+      res.locals.locale = "cy";
+
+      await GET(request(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.gazetteItems.map((item: { text: string }) => item.text)).toEqual([model.cy.yes, model.cy.no]);
+    });
+
     it("should offer the two decisions api publishes, in its order", async () => {
       const res = pageResponse();
 
@@ -261,6 +276,19 @@ describe("recording a judicial direction", () => {
       expect(recordDirection).not.toHaveBeenCalled();
     });
 
+    // The layout renders `title` in the `<title>` element, and one content pair serves both steps — so without
+    // this the check step announces the form's name over a page headed "Check your direction", which is the
+    // title-matches-h1 rule broken with nothing on screen to show it.
+    it("should title the check step after the heading it shows, not after the form", async () => {
+      const res = pageResponse();
+
+      await POST(request(posted()), res);
+
+      const { en, cy } = res.render.mock.calls[0][1];
+      expect(en.title).toBe("Check your direction");
+      expect(cy.title).toBe(cy.checkTitle);
+    });
+
     // Decision 7: no draft anywhere, client or server. An abandoned direction must leave nothing behind.
     it("should persist no draft in the session", async () => {
       const req = request(posted());
@@ -389,6 +417,33 @@ describe("recording a judicial direction", () => {
 
       expect(res.render.mock.calls[0][1].errorList[0]).toEqual({ text: "The direction could not be recorded. Check your answers and try again." });
       expect(error).toHaveBeenCalled();
+      error.mockRestore();
+    });
+
+    // The mixed rejection, which is neither of the two cases above: api named one control this form renders and
+    // one it does not. The placeable message must still reach its field — dropping it would leave the judge with
+    // a page-level sentence and no indication which answer to change — and the stand-in must lead the summary,
+    // because something was refused that the rows below cannot account for.
+    it("should show both the field it can place and its own message when api rejects a control this form does not render", async () => {
+      vi.mocked(recordDirection).mockRejectedValue(
+        new InvalidInputError("400", [
+          { field: "directionsText", message: "Directions are too long" },
+          { field: "referralState", message: "Referral is not Claimed" }
+        ])
+      );
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = pageResponse();
+
+      await POST(request({ ...posted(), action: "confirm" }), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(model.errors).toEqual({ directionsText: "Directions are too long" });
+      expect(model.errorList).toEqual([
+        { text: "The direction could not be recorded. Check your answers and try again." },
+        { text: "Directions are too long", href: "#directionsText" }
+      ]);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("referralState"));
       error.mockRestore();
     });
 

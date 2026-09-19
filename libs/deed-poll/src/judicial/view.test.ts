@@ -86,13 +86,16 @@ describe("judicial/view", () => {
     it("should carry no application field, because the pool row is about the referral only", () => {
       const rows = buildPoolRows([summary()]);
 
-      expect(Object.keys(rows[0])).toEqual(["id", "reasons", "urgency", "isUrgent", "urgencyReason", "waitingSince"]);
+      expect(Object.keys(rows[0])).toEqual(["id", "reasons", "urgency", "isUrgent", "waitingSince"]);
     });
 
-    it("should say a missing urgency reason was not provided rather than leaving a blank cell", () => {
-      const rows = buildPoolRows([summary({ urgencyReason: "   " })]);
+    // The reason behind an urgency is on the referral view, not in the queue: the pool's four columns are what a
+    // judge chooses a row by, and a field the row carried but no template read would be a disclosure nobody had
+    // decided on, sitting one `{{ }}` away from the page.
+    it("should carry no urgency reason, because the pool has no column for one", () => {
+      const rows = buildPoolRows([summary({ urgencyReason: "Hearing on Friday" })]);
 
-      expect(rows[0].urgencyReason).toBe("Not provided");
+      expect(rows[0]).not.toHaveProperty("urgencyReason");
     });
   });
 

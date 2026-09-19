@@ -45,7 +45,6 @@ const en = {
   // page. The wait is what distinguishes one row from another here — there is no case reference to name, by
   // api's decision 2.
   viewHintFor: (waitingSince: string) => `the referral waiting since ${waitingSince}`,
-  noUrgencyReason: "Not provided",
   empty: "There are no referrals waiting for a direction.",
   pagingLabel: "Pages of referrals",
   pagingSummaryFor: (first: number, last: number, total: number) => `${first} to ${last} of ${total} referrals`,

@@ -1,11 +1,14 @@
-import { ConflictError, claimReferral, NotFoundError } from "@hmcts/deed-poll";
+import { ConflictError, claimReferral, getReferral, NotFoundError } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../express-doubles.js";
 import { POST } from "./claim.js";
 
+// `getReferral` is stubbed although this page never calls it — that is the point: the "no pre-read" test below
+// asserts the absence, which needs a spy to assert against.
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
-  claimReferral: vi.fn()
+  claimReferral: vi.fn(),
+  getReferral: vi.fn()
 }));
 
 const CALLER = { accessToken: "judge-token" };
@@ -28,9 +31,12 @@ describe("claiming a judicial referral", () => {
   });
 
   // Nothing is read first — the pool is shared, so a pre-read's answer is stale before it can be acted on.
+  // Asserted against `getReferral`, which is the read a pre-check would make: counting `claimReferral`'s calls
+  // says only that the write happened once, which a handler that read the referral first would also satisfy.
   it("should not read the referral before claiming it", async () => {
     await POST(request(), pageResponse());
 
+    expect(getReferral).not.toHaveBeenCalled();
     expect(claimReferral).toHaveBeenCalledTimes(1);
   });
 

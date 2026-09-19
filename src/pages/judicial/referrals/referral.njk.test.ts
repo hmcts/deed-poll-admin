@@ -75,6 +75,14 @@ const render = async (referral: JudicialReferralDetail, query: Record<string, un
   return environment.render("judicial/referrals/referral.njk", { ...model, ...model.en });
 };
 
+/**
+ * The Gazette row's value on its own.
+ *
+ * Read off the row rather than off the page because "No" is a substring of "Notes from the court", two rows
+ * above it: a page-wide `toContain("No")` cannot tell a correct rendering of the boolean from an inverted one.
+ */
+const gazetteRow = (html: string): string => html.match(/Published in the Gazette\s*<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1].trim() ?? "";
+
 describe("judicial referral template", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -145,6 +153,9 @@ describe("judicial referral template", () => {
     expect(html).not.toContain("Record a direction");
   });
 
+  // The Gazette answer is asserted against its own row rather than against the page: "No" is a substring of
+  // "Notes from the court", which is two rows above it, so a page-wide `toContain("No")` passed whatever the
+  // template did with the boolean — including inverting it.
   it("should show the direction already recorded, with the Gazette answer in words", async () => {
     const html = await render(
       detail({ state: "Decided", decision: "Approved", directionsText: "Satisfied", publishToGazette: false, decisionDate: new Date("2026-09-05T16:05:00Z") })
@@ -153,7 +164,22 @@ describe("judicial referral template", () => {
     expect(html).toContain("Direction recorded");
     expect(html).toContain("Approved");
     expect(html).toContain("Satisfied");
-    expect(html).toContain("No");
+    expect(gazetteRow(html)).toBe("No");
+  });
+
+  it("should show the Gazette answer as Yes when the judge directed publication", async () => {
+    const html = await render(detail({ state: "Decided", decision: "Approved", publishToGazette: true, decisionDate: new Date("2026-09-05T16:05:00Z") }));
+
+    expect(gazetteRow(html)).toBe("Yes");
+  });
+
+  // api's `publishToGazette` is nullish and the panel is keyed on `decision`, so this shape is reachable. "No"
+  // here would tell the judge they directed against publication — a claim api never made, about the one answer
+  // on this screen that cannot be taken back.
+  it("should say the Gazette answer was not recorded rather than reading it as a No", async () => {
+    const html = await render(detail({ state: "Decided", decision: "Approved", publishToGazette: null, decisionDate: new Date("2026-09-05T16:05:00Z") }));
+
+    expect(gazetteRow(html)).toBe("Not recorded");
   });
 
   it("should leave the direction panel out entirely while a referral is awaiting one", async () => {

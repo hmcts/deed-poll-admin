@@ -161,8 +161,11 @@ describe("the judicial referral page", () => {
 
     await GET(request(), res);
 
+    // `another judge` is in the pattern deliberately: decision 10 forbids implying a holder as well as naming
+    // one, and an earlier wording hedged its way past a narrower pattern than this with "it may already be with
+    // another judge".
     const { en } = res.render.mock.calls[0][1];
-    expect(`${en.heading} ${en.body}`).not.toMatch(/claimed by|belongs to|held by/i);
+    expect(`${en.heading} ${en.body}`).not.toMatch(/claimed by|belongs to|held by|another judge|someone else/i);
   });
 
   it("should offer the way back to the pool from the unavailable page", async () => {

@@ -114,7 +114,7 @@ const cy = { ...en };
 const unavailableEn = {
   title: "This referral is no longer available",
   heading: "This referral is no longer available",
-  body: "It may have been withdrawn, or it may already be with another judge. Choose another referral from the list.",
+  body: "This referral is no longer in the shared list. Choose another referral from the list.",
   backToPool: "Back to referrals"
 };
 
@@ -164,8 +164,11 @@ export const POST = async (req: Request, res: Response) => {
       values: values(body),
       directionHref: directionHref(referral.id),
       referralHref: referralHref(referral.id),
-      en,
-      cy
+      // The check step's own `title`, because the layout puts `title` in the `<title>` element: one content pair
+      // for both steps means the form's name would otherwise be announced over a page headed "Check your
+      // direction", which is the accessibility rule this file could break with nothing to show it.
+      en: checkStep(en),
+      cy: checkStep(cy)
     });
   }
 
@@ -187,6 +190,21 @@ export const POST = async (req: Request, res: Response) => {
 
   res.redirect(`${referralHref(req.params.referralId)}?direction=recorded`);
 };
+
+/**
+ * The words for this request's language.
+ *
+ * Needed only for the strings this handler resolves itself — the two Gazette labels and api's stand-in refusal.
+ * Everything else reaches the template as the `en`/`cy` pair it picks from.
+ */
+function content(res: Response): typeof en {
+  return res.locals.locale === "cy" ? cy : en;
+}
+
+/** One content pair as the check step's, so the `title` the layout renders matches the heading on the page. */
+function checkStep(content: typeof en): typeof en {
+  return { ...content, title: content.checkTitle };
+}
 
 /**
  * The referral this judge is directing, or nothing — having already rendered or redirected.
@@ -230,7 +248,7 @@ function apiRefused(req: Request, res: Response, error: InvalidInputError) {
 
   if (unplaceable.length > 0 || placed.length === 0) {
     console.error(`direction refused with rejections this form cannot place (${unplaceable.join(", ") || "no field named"}): ${error.message}`);
-    return rerender(req, res, 400, values(body), Object.fromEntries(placed.map((field) => [field, messages[field]])), en.directionRefused);
+    return rerender(req, res, 400, values(body), Object.fromEntries(placed.map((field) => [field, messages[field]])), content(res).directionRefused);
   }
 
   return rerender(req, res, 400, values(body), messages);
@@ -308,14 +326,19 @@ function render(
   errors: Record<string, string>,
   formError?: string
 ) {
+  const words = content(res);
+
   res.render("judicial/referrals/direction-form", {
     reference: referral.reference,
     // The values are api's enum members and go on the wire unchanged; the words are this repo's. Checked state
     // is worked out here rather than in the template, so it is computed once in something testable.
     decisionItems: DIRECTION_DECISION_CHOICES.map((choice) => ({ ...choice, checked: submittedValues.decision === choice.value })),
+    // Resolved against the request's locale, not taken from `en`: the items are built here rather than in the
+    // template, so unlike every other string on this page they do not reach the template as an `en`/`cy` pair
+    // for it to pick from — and these two label the one answer that cannot be taken back.
     gazetteItems: [
-      { value: "true", text: en.yes, checked: submittedValues.publishToGazette === "true" },
-      { value: "false", text: en.no, checked: submittedValues.publishToGazette === "false" }
+      { value: "true", text: words.yes, checked: submittedValues.publishToGazette === "true" },
+      { value: "false", text: words.no, checked: submittedValues.publishToGazette === "false" }
     ],
     values: submittedValues,
     errors,

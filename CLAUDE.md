@@ -41,7 +41,7 @@ deed-poll-admin/
 ├── src/                        # THE application (Express 5.x + Nunjucks) — the root package
 │   ├── pages/                  # File-based routes, discovered by simple-router
 │   ├── assets/                 # SCSS/TS bundles, compiled by vite
-│   ├── auth/                   # IDAM OIDC: login, session, require-auth
+│   ├── auth/                   # IDAM OIDC: login, session, require-auth, require-role
 │   ├── locales/                # App-level translations
 │   ├── app.ts, server.ts       # createApp(), and the entrypoint that loads secrets first
 │   └── secrets.ts              # Reads charts/deed-poll-admin/values.yaml for the vault alias map
@@ -99,6 +99,41 @@ writing any query-shaped code:
 - **`DEED_POLL_API_URL`** is the base URL, defaulting to the mock at `http://localhost:3200`. Deployed
   environments set it in `charts/deed-poll-admin/values.yaml`, resolved per environment from
   `global.environment`; preview overrides it to AAT's api, so **preview writes land in AAT's data**.
+
+## Personas and role gating
+
+**Two personas, one deployable.** A caseworker works `/deed-polls/**`; a judge works `/judicial/**` — the
+shared referral pool, one referral, the claim, and the direction flow. Facts that are not derivable from a
+single file:
+
+- **`/judicial` is gated on the area, not the page.** `src/app.ts` mounts `requireJudicial()`
+  (`src/auth/require-role.ts`) on the `/judicial` prefix, *after* `requireAuth` so an anonymous visitor still
+  gets sent to log in rather than refused. A page added under `src/pages/judicial/` is gated because of where
+  it lives; `src/app.test.ts` reads that directory off the filesystem and fails if the mount stops covering
+  one. **Do not add a per-page role check** — the pages deliberately never ask about the role, which is also
+  why no page test can show the boundary.
+- **This is a persona boundary, not the data boundary.** Every role rule before it was presentational
+  (`canDeleteWitness` hides a button). api gates the same `/judicial/**` routes on the same role, so a
+  caseworker who defeated this gate would see a screen of 403s, not a judge's referrals. The gate decides which
+  chrome a signed-in user gets.
+- **It refuses with `next(new ForbiddenError(...))` and renders nothing.** `src/errors.ts` answers 403 on the
+  **404** view, so a guessed judicial URL discloses nothing, and logs the message the gate built — that render
+  is the end of the chain, and the starter's handler (the only thing that logs) is never reached.
+  `src/pages/errors/403.njk` exists but belongs to the login flow, where the user already knows who they are.
+- **`isAdmin` and `isJudicial` are alternatives, not a ladder.** An admin is refused `/judicial/**`. A user may
+  hold both, one, or neither.
+- **A new role must be added to `KNOWN_ROLES`** (`libs/deed-poll/src/auth/idam-claims.ts`) as well as to `Role`.
+  `rolesFrom` filters against that list, so an unlisted role is dropped silently and its holder resolves to no
+  roles — it fails closed, and presents as a permissions bug rather than a missing list entry.
+- **`/` is where each persona's home is decided, and the only place it can be.** A judge's home is
+  `/judicial/referrals`, a caseworker's is `/deed-polls`, and a user holding both lands on the case list.
+  `/login`'s `returnTo` fallback is therefore `/` and **not** a concrete list path: the roles do not exist until
+  the token has been exchanged, so hard-coding `/deed-polls` there strands every judge on a list api answers
+  403 to, with nothing in the logs to say why.
+- **Judicial page copy must never name or imply a holder.** api answers withdrawn, closed, another judge's and
+  never-there as one indistinguishable 404 on purpose, so the "no longer available" wording has to stay true of
+  all four — it does not enumerate the causes either, since a hedged "may already be with another judge" is the
+  implication the rule forbids. The 409 (visible but not held) is the separate case, and it names a state.
 
 ## Deployment and sessions
 
