@@ -135,6 +135,15 @@ describe("judicial referral template", () => {
     expect(html).not.toContain("Record a direction");
   });
 
+  // Claiming is not repeatable: api takes the first request and 409s the second, so a double click would show a
+  // judge "not waiting to be claimed" for a claim of their own that succeeded. api stays the guard — this stops
+  // the refusal being rendered at all.
+  it("should debounce the claim control against a double click", async () => {
+    const html = await render(detail({ state: "Open" }));
+
+    expect(html).toContain('data-prevent-double-click="true"');
+  });
+
   // Hidden rather than disabled, for the reason `witness-edit.njk` gives: a disabled control still reads as
   // something the judge could do, and here it would invite them to take work they do not hold.
   it("should offer the direction control and not the claim one on a referral this judge holds", async () => {

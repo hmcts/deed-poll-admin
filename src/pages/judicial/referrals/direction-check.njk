@@ -48,8 +48,16 @@
       <p class="govuk-body">{{ declaration }}</p>
       <p class="govuk-body">{{ irreversible }}</p>
 
+      {#
+        `preventDoubleClick` on the confirm only. It is the one submit here that records something, and a second
+        one cannot record it again: api 409s it, so the response the judge is left looking at is
+        "not waiting for a direction from you" rather than the success banner beside the direction they just
+        recorded. Both sentences are true of a judge who has already directed it, which is why the server side
+        needs no change — this stops the refusal being shown for a direction that went in. Change re-renders and
+        is safe to press twice.
+      #}
       <div class="govuk-button-group">
-        {{ govukButton({ text: confirm, name: "action", value: "confirm" }) }}
+        {{ govukButton({ text: confirm, name: "action", value: "confirm", preventDoubleClick: true }) }}
         {{ govukButton({ text: change, name: "action", value: "change", classes: "govuk-button--secondary" }) }}
         <a class="govuk-link" href="{{ referralHref }}">{{ cancel }}</a>
       </div>

@@ -143,6 +143,16 @@ describe("direction check-your-answers template", () => {
     expect(html).not.toContain('type="checkbox"');
   });
 
+  // A double click records the direction once and 409s the second request, so without this the judge is left on
+  // "not waiting for a direction from you" — true, but shown as a refusal for a direction that went in. Change
+  // re-renders and is safe to press twice, so it is deliberately not debounced.
+  it("should debounce the confirm against a double click, but not the Change submit", async () => {
+    const html = await renderCheck(DIRECTION);
+
+    expect(html).toMatch(/data-prevent-double-click="true"[^>]*value="confirm"|value="confirm"[^>]*data-prevent-double-click="true"/);
+    expect(html).not.toMatch(/data-prevent-double-click="true"[^>]*value="change"|value="change"[^>]*data-prevent-double-click="true"/);
+  });
+
   it("should escape a value that would otherwise close its own hidden field", async () => {
     const html = await renderCheck({ ...DIRECTION, directionsText: '"><script>alert(1)</script>' });
 

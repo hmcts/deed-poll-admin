@@ -124,10 +124,17 @@
       <p class="govuk-body">{{ timelineEmpty }}</p>
     {% endif %}
 
+    {#
+      `preventDoubleClick` because the second of two rapid clicks is what the judge is left looking at: api records
+      the first and 409s the second, so a claim that succeeded would render as "not waiting to be claimed". The
+      sentence stays true — it is theirs now — but it arrives in an error summary, which reads as a refusal. The
+      server side is the guard (api refuses, and the 409 lands on the referral rather than the pool); this only
+      stops the judge seeing the refusal in the first place, so the flow is unchanged without JavaScript.
+    #}
     {% if referral.claimable %}
       <form method="post" action="{{ claimHref }}" novalidate>
         <p class="govuk-body">{{ claimHint }}</p>
-        {{ govukButton({ text: claim }) }}
+        {{ govukButton({ text: claim, preventDoubleClick: true }) }}
       </form>
     {% elif referral.directable %}
       {{ govukButton({ text: direct, href: directionHref }) }}
