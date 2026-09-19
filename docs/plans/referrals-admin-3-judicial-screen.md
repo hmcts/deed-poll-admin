@@ -557,10 +557,54 @@ the pool (decision 5), success → the referral view. Route `/` and login for a 
 referral view shows only the DTO fields and read-only notes; invisible referral → "no longer available"; claim
 success and 409; a caseworker is 403'd from every judicial page.
 
-- [ ] Pool page renders api's order + total, gated `requireJudicial`; referral view shows `JudicialCaseView` +
+- [x] Pool page renders api's order + total, gated `requireJudicial`; referral view shows `JudicialCaseView` +
       referral + read-only notes and nothing more, 404 as "no longer available"; claim POST works and renders
       409 as "already claimed"; judicial user lands on `/judicial/referrals` from `/`/login; caseworker 403'd
       on every judicial page (tested); Welsh present; `turbo test test:app --concurrency=1` green
+
+**DONE 2026-09-19.** Three pages and three templates under `src/pages/judicial/referrals/`, and the router
+discovers exactly `get /judicial/referrals`, `get /judicial/referrals/:referralId` and
+`post /judicial/referrals/:referralId/claim` — verified against a real `createSimpleRouter` over `src/pages`,
+because every one of them is gated by *where it lives* and a page the router did not find would be untested
+rather than failing.
+
+Four things the checkbox did not ask for, and the next task needs each of them:
+
+- **The landing redirect could not be done at `/` alone, and the fix is in `login.ts`.** Decision 2 reads as one
+  page's change, but `/` is on `requireAuth`'s allowlist, so an anonymous judge was redirected to `/deed-polls`
+  *before* anyone knew who was arriving — which pinned the caseworker's list as the `returnTo` and landed them on
+  a list api answers 403 to. So `/` now sends an anonymous visitor to `/login?returnTo=%2F` and resolves the
+  persona on the way back, and `safeReturnTo`'s fallback moved from `/deed-polls` to `/` for the same reason:
+  which home is right depends on roles that do not exist until the token comes back. This costs the hop the old
+  docblock avoided deliberately; the docblocks on both files now say so rather than leaving the next reader to
+  rediscover the trade.
+- **Claiming has two refusals and they say different things.** api checks visibility before the hold, so a
+  referral taken out from under this judge is a **404**, not a 409 — the finding Task 2 recorded, now rendered:
+  `?claim=taken` is "already claimed", `?claim=unavailable` is decision 10's "no longer available", and neither
+  sentence mentions another judge. Reading the 409 as the only lapse case would have rendered the commonest one
+  as a fault.
+- **"A caseworker is 403'd on every judicial page" is pinned in `src/app.test.ts`, derived from the filesystem.**
+  No page test can show it — the pages never ask about the role — and a hand-written list of URLs goes stale the
+  moment a page is added, which is the failure that matters since an ungated judicial page looks identical to a
+  gated one. The test reads `src/pages/judicial` recursively, maps each file to its route the way `simple-router`
+  does, and asserts the mounted gate matches all of them; `require-role.test.ts` still owns the both-directions
+  behaviour.
+- **The view models are `libs/deed-poll/src/judicial/view.ts`, not the pages.** The task text says "pages", but a
+  template cannot format a timestamp here and the disclosure question has to be answerable in one place: the pool
+  row and the referral view are two renderings of the same referral, and a field that must not be shown is the one
+  added to one of them and missed on the other. `referralReasonLabel` is now exported from
+  `referrals/referrals-view.ts` and shared, because the caseworker picks the reasons and the judge reads them —
+  two wordings would have the two personas discussing different lists.
+
+The direction control links to `/judicial/referrals/:referralId/direction`, which **Task 4 builds** — it 404s
+until then, deliberately rather than by omission: hiding it would have meant a second state rule to remove.
+
+Totals **2,375 tests** (up 87 from Task 2's 2,288: +63 app, +24 `libs/deed-poll`), 8/8 turbo tasks; `yarn lint`
+0 errors, 2 warnings + 2 infos — baseline exactly. `tsc -p tsconfig.app.json` and `tsc -p
+libs/deed-poll/tsconfig.json` are both clean; the root project's pre-existing errors are **44 before and 44
+after**, measured against a stash rather than against the 49 recorded in Task 1. One fixture lesson worth
+keeping: `wireDateTime` decodes to a `Date`, so a test that passes an ISO **string** for `createdOn`/`claimedAt`/
+`decisionDate` type-checks only in the outer cast and fails at every override site.
 
 ### Task 4: Pages — the direction flow with check-your-answers attestation
 

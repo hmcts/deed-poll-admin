@@ -15,6 +15,9 @@
  * Everything `createApp` mounts that touches the filesystem or a network is doubled — this is a test of
  * the wiring, not of Nunjucks, Vite or api.
  */
+import { readdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { deedPollApiStatus } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
@@ -298,7 +301,50 @@ describe("createApp's judicial gate", () => {
   it("should mount it after requireAuth, so an anonymous visitor is sent to log in rather than refused", () => {
     expect(stack.findIndex((layer) => layer.handle === gates.judicial)).toBeGreaterThan(stack.findIndex((layer) => layer.handle === gates.auth));
   });
+
+  /**
+   * Every judicial page, read off the filesystem rather than listed.
+   *
+   * This is where "a caseworker is refused the judicial area" is actually pinned: the pages themselves never ask
+   * about the role, so no page test can show it, and a hand-written list of URLs would go stale the moment a page
+   * is added — which is the failure that matters, since an ungated judicial page looks identical to a gated one.
+   * `require-role.test.ts` proves the gate refuses a caseworker and admits a judge; this proves it is in front of
+   * all of them.
+   */
+  it("should cover every page under src/pages/judicial, including ones added after this test was written", () => {
+    const layer = stack.find((entry) => entry.handle === gates.judicial) as MountedLayer;
+    const paths = judicialPagePaths();
+
+    // A guard against the glob silently finding nothing and the loop below passing vacuously.
+    expect(paths.length).toBeGreaterThanOrEqual(3);
+
+    for (const path of paths) {
+      expect(
+        layer.matchers.some((matches) => matches(path) !== false),
+        path
+      ).toBe(true);
+    }
+  });
 });
+
+/**
+ * The URL of every judicial page, derived from the page files the way `simple-router` derives its routes: the
+ * `pages` root is stripped, an `index` is the directory itself, and a `[param]` segment stands for any value.
+ */
+function judicialPagePaths(): string[] {
+  const root = path.join(fileURLToPath(import.meta.url), "../pages/judicial");
+
+  return readdirSync(root, { recursive: true, encoding: "utf8" })
+    .filter((entry) => entry.endsWith(".ts") && !entry.endsWith(".test.ts"))
+    .map(
+      (entry) =>
+        `/judicial/${entry
+          .replace(/\.ts$/, "")
+          .replace(/(^|\/)index$/, "")
+          .replace(/\[[^\]]+\]/g, "a-sample-id")}`
+    )
+    .map((path) => (path.endsWith("/") ? path.slice(0, -1) : path));
+}
 
 /** The part of an Express layer this file reads: what was mounted, and the paths it answers for. */
 type MountedLayer = { handle: unknown; matchers: ((path: string) => unknown)[] };

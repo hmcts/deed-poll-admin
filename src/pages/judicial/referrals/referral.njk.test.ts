@@ -1,0 +1,183 @@
+/**
+ * The referral screen's markup, rendered rather than asserted through the view model.
+ *
+ * The model is `[referralId].test.ts`'s subject. What this file exists for is what a model cannot show, and on
+ * this screen it is the disclosure question: that the page renders **only** the judicial DTO's fields, that the
+ * two write controls are absent rather than disabled in the states they do not belong to, and that no caseworker
+ * control — an add-note button, a link to the case — is on the page at all.
+ *
+ * The model comes from the page handler rather than being hand-built here, so a name the handler stops passing
+ * fails this test too.
+ */
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { getReferral } from "@hmcts/deed-poll";
+import type { JudicialReferralDetail } from "@hmcts/deed-poll-api-client";
+import nunjucks from "nunjucks";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { GET } from "./[referralId].js";
+
+vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  getReferral: vi.fn()
+}));
+
+// The three roots `configureGovuk` mounts, minus the assets — the same set as the other njk tests.
+const STARTER_VIEWS = path.join(fileURLToPath(import.meta.url), "../../../../../libs/express-govuk-starter/src");
+const environment = nunjucks.configure(
+  [
+    path.join(fileURLToPath(import.meta.resolve("govuk-frontend")), "..", ".."),
+    path.join(STARTER_VIEWS, "govuk-frontend/views"),
+    path.join(STARTER_VIEWS, "cookies/views"),
+    path.join(fileURLToPath(import.meta.url), "../../../..", "pages")
+  ],
+  { autoescape: true }
+);
+
+const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferralDetail =>
+  ({
+    id: "ref-1",
+    state: "Open",
+    reasons: ["Minor", "DomesticAbuse"],
+    notes: "Applicant is 15",
+    urgency: "Urgent",
+    urgencyReason: "Hearing on Friday",
+    createdOn: new Date("2026-09-03T08:44:00Z"),
+    claimedBy: null,
+    claimedAt: null,
+    decision: null,
+    directionsText: null,
+    publishToGazette: null,
+    decisionDate: null,
+    decidedBy: null,
+    application: {
+      displayReference: "KBDP2026-00001",
+      type: "Minor",
+      oldForename: "John",
+      oldMiddleName: "Peter",
+      oldSurname: "Smith",
+      newForename: "John",
+      newMiddleName: "Peter",
+      newSurname: "Smyth"
+    },
+    caseNotes: [{ note: "Chased the declarant", createdBy: "A Caseworker", createdOn: new Date("2026-09-02T14:30:00Z") }],
+    ...overrides
+  }) as JudicialReferralDetail;
+
+/** The screen as a browser receives it, for the referral api answers with. */
+const render = async (referral: JudicialReferralDetail): Promise<string> => {
+  vi.mocked(getReferral).mockResolvedValue(referral as never);
+  const res = pageResponse();
+  await GET(pageRequest({ params: { referralId: "ref-1" }, judicial: true, accessToken: "judge-token" }), res);
+  const model = res.render.mock.calls[0][1];
+
+  return environment.render("judicial/referrals/referral.njk", { ...model, ...model.en });
+};
+
+describe("judicial referral template", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should show the application's reference, type and both names in full", async () => {
+    const html = await render(detail());
+
+    expect(html).toContain("KBDP2026-00001");
+    expect(html).toContain("John Peter Smith");
+    expect(html).toContain("John Peter Smyth");
+    expect(html).toContain("Minor");
+  });
+
+  it("should list the reasons the caseworker chose, in the business's words", async () => {
+    const html = await render(detail());
+
+    expect(html).toContain("Applicant is a minor");
+    expect(html).toContain("Domestic abuse considerations");
+  });
+
+  it("should print the urgency as a word beside its tag, never as colour alone", async () => {
+    const html = await render(detail({ urgency: "Urgent" }));
+
+    expect(html).toContain("govuk-tag--red");
+    expect(html).toContain("Urgent");
+  });
+
+  it("should show the application's timeline with each note attributed", async () => {
+    const html = await render(detail());
+
+    expect(html).toContain("Chased the declarant");
+    expect(html).toContain("A Caseworker, 2 September 2026 at 3:30pm");
+  });
+
+  // A judge's writes are exactly claim and direct (api-3), so there is no note control to hide — and no link to
+  // the case, because api's judicial surface takes no case id and there is nowhere for one to point.
+  it("should offer no note control and no way into the caseworker's case pages", async () => {
+    const html = await render(detail());
+
+    expect(html).not.toContain("/deed-polls");
+    expect(html).not.toMatch(/Add note|Amend|notes\/new/);
+  });
+
+  it("should offer the claim control on a pool referral, as a form because it changes something", async () => {
+    const html = await render(detail({ state: "Open" }));
+
+    expect(html).toContain('action="/judicial/referrals/ref-1/claim"');
+    expect(html).toContain("Claim this referral");
+    expect(html).not.toContain("Record a direction");
+  });
+
+  // Hidden rather than disabled, for the reason `witness-edit.njk` gives: a disabled control still reads as
+  // something the judge could do, and here it would invite them to take work they do not hold.
+  it("should offer the direction control and not the claim one on a referral this judge holds", async () => {
+    const html = await render(detail({ state: "Claimed", claimedAt: new Date("2026-09-04T10:00:00Z") }));
+
+    expect(html).toContain('href="/judicial/referrals/ref-1/direction"');
+    expect(html).toContain("Record a direction");
+    expect(html).not.toContain("Claim this referral");
+    expect(html).not.toContain("disabled");
+  });
+
+  it("should offer neither control on a referral that has been directed", async () => {
+    const html = await render(detail({ state: "Decided", decision: "Approved", publishToGazette: true, decisionDate: new Date("2026-09-05T16:05:00Z") }));
+
+    expect(html).not.toContain("Claim this referral");
+    expect(html).not.toContain("Record a direction");
+  });
+
+  it("should show the direction already recorded, with the Gazette answer in words", async () => {
+    const html = await render(
+      detail({ state: "Decided", decision: "Approved", directionsText: "Satisfied", publishToGazette: false, decisionDate: new Date("2026-09-05T16:05:00Z") })
+    );
+
+    expect(html).toContain("Direction recorded");
+    expect(html).toContain("Approved");
+    expect(html).toContain("Satisfied");
+    expect(html).toContain("No");
+  });
+
+  it("should leave the direction panel out entirely while a referral is awaiting one", async () => {
+    const html = await render(detail({ state: "Open" }));
+
+    expect(html).not.toContain("Direction recorded");
+  });
+
+  it("should say the application details were not returned rather than showing an unnamed applicant", async () => {
+    const html = await render(detail({ application: null }));
+
+    expect(html).toContain("The application details were not returned with this referral");
+    expect(html).not.toContain("Not provided");
+  });
+
+  it("should say the application has no notes rather than rendering an empty list", async () => {
+    const html = await render(detail({ caseNotes: [] }));
+
+    expect(html).toContain("There are no notes on this application");
+  });
+
+  it("should offer the way back to the pool", async () => {
+    const html = await render(detail());
+
+    expect(html).toContain('href="/judicial/referrals"');
+  });
+});

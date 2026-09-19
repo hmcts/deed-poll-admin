@@ -1,10 +1,10 @@
 /**
- * The service root, which is the case list.
+ * The service root, which is where each persona's home is decided.
  *
- * **A redirect rather than a second copy of the list.** `/deed-polls` is the collection's canonical
- * URL because everything nested hangs off it — `/deed-polls/:id`, `/deed-polls/:id/notes/…` — and the
- * list's own filter links are absolute (`/deed-polls?filter=…`), so rendering the list here would
- * produce a page whose every link navigates away from itself.
+ * **A redirect rather than a second copy of any list.** `/deed-polls` is the case collection's canonical URL
+ * because everything nested hangs off it — `/deed-polls/:id`, `/deed-polls/:id/notes/…` — and the list's own
+ * filter links are absolute (`/deed-polls?filter=…`), so rendering the list here would produce a page whose
+ * every link navigates away from itself. The same is true of `/judicial/referrals`.
  *
  * This replaced the template's marketing home page, which described `hmcts/expressjs-monorepo-template`
  * rather than this service. `/` needs a handler rather than nothing: it is what anyone visiting the
@@ -15,14 +15,51 @@
  * `govukServiceNavigation`, so both options are silently ignored and no service-name link is rendered.
  * See loose end 15 — when that is fixed, the header becomes a second consumer of this redirect.
  *
- * **Still on `requireAuth`'s public allowlist, deliberately** — not because the case list is public, it
- * is not, but so that an anonymous visitor's `returnTo` becomes `/deed-polls` rather than `/`. Off the
- * allowlist they would sign in, come back to `/`, and be redirected again.
+ * **Judicial routing, and why this file is the only place it can happen** (`referrals-admin-3` decision 2). A
+ * judge's home is `/judicial/referrals`, and their role is only knowable once they have signed in — so `/` is
+ * the hinge: an anonymous visitor is sent to log in and *back here*, and the persona is resolved on the second
+ * pass. This costs a hop that the previous version of this file deliberately avoided by redirecting anonymous
+ * visitors straight to `/deed-polls`, which is exactly the bug: it pinned the caseworker's list as the
+ * `returnTo` before anyone knew who was arriving, so a judge signed in and landed on a list api answers 403 to.
+ *
+ * **Still on `requireAuth`'s public allowlist, and now for a second reason.** It was there so an anonymous
+ * visitor's `returnTo` was resolved here rather than at `/`; it stays there because this handler now does the
+ * sending itself, and a gate in front of it would send them to `/login?returnTo=%2F` — the same place, by a
+ * route this file could no longer see. Nothing is disclosed either way: the redirect target does the refusing.
  */
+import type { CurrentUser } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
+import { userFromRequest } from "../auth/current-user.js";
+import { sessionUser } from "../auth/session.js";
 
-export const GET = async (_req: Request, res: Response) => {
+const CASE_LIST_PATH = "/deed-polls";
+
+const JUDICIAL_POOL_PATH = "/judicial/referrals";
+
+export const GET = async (req: Request, res: Response) => {
+  // Back here after signing in, not to either home: which one is right is not knowable yet, and `/login`'s own
+  // fallback is this path for the same reason.
+  if (!sessionUser(req)) {
+    return res.redirect(`/login?returnTo=${encodeURIComponent("/")}`);
+  }
+
   // 302, not 301: a permanent redirect is cached hard by browsers, and the root of a service is
-  // exactly the URL you might later want to point somewhere else.
-  res.redirect("/deed-polls");
+  // exactly the URL you might later want to point somewhere else — here it is also *per user*, which a
+  // cached 301 would get wrong for the next person on a shared machine.
+  res.redirect(landingPath(userFromRequest(req)));
 };
+
+/**
+ * Where a signed-in user's day starts.
+ *
+ * **Caseworker-first for a user holding both roles** (decision 2): the caseworker surface is the richer one, and
+ * a judge's area is one link away from it, where the reverse would leave a caseworker on a screen with no case
+ * list. Whether such a user exists is flagged as an open question rather than answered here.
+ *
+ * A user with neither role also lands on the case list. It is not a privilege — `requireAuth` has already said
+ * they are signed in and api enforces what they may read — and the alternative, a chooser or a third page, would
+ * be a page built for a state no role assignment produces.
+ */
+function landingPath(user: CurrentUser): string {
+  return user.isJudicial && !user.isAdmin ? JUDICIAL_POOL_PATH : CASE_LIST_PATH;
+}

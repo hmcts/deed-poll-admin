@@ -29,11 +29,16 @@ export const GET = async (req: Request, res: Response) => {
  * makes `/login?returnTo=https://evil.example` an open redirect that borrows this service's domain to
  * launder a phishing link. Only a rooted path is accepted, and `//host` is rejected too because
  * browsers read a protocol-relative URL as absolute.
+ *
+ * **The fallback is `/` and not the case list** (`referrals-admin-3` decision 2). Which home is right depends on
+ * the roles in the token, which do not exist yet at the point this is read — so the fallback is the one path that
+ * decides that question after sign-in (`./index.ts`). Naming `/deed-polls` here, as this did, landed a judge on
+ * the caseworker's list whenever they reached `/login` without a `returnTo`.
  */
 function safeReturnTo(req: Request): string {
   const raw = req.query.returnTo;
   if (typeof raw !== "string" || !raw.startsWith("/") || raw.startsWith("//")) {
-    return "/deed-polls";
+    return "/";
   }
   return raw;
 }

@@ -74,10 +74,12 @@ describe("the login page", () => {
       expect(beginLogin).toHaveBeenCalledWith(expect.anything(), "/deed-polls/case-1");
     });
 
-    it("defaults to the case list when absent", async () => {
+    // The service root and not the case list, because which home is right depends on roles that do not
+    // exist until the token comes back — `pages/index.ts` resolves the persona on the way through.
+    it("defaults to the service root when absent, so the persona decides the landing page", async () => {
       await GET(pageRequest({ signedIn: false }), pageResponse());
 
-      expect(beginLogin).toHaveBeenCalledWith(expect.anything(), "/deed-polls");
+      expect(beginLogin).toHaveBeenCalledWith(expect.anything(), "/");
     });
 
     // `returnTo` arrives in a query string, so it is attacker-controlled. Sending the user to it
@@ -90,10 +92,10 @@ describe("the login page", () => {
       ["a relative path that is not rooted", "deed-polls"],
       ["an array, as a repeated query parameter arrives", ["/deed-polls", "https://evil.example"] as unknown as string],
       ["an empty string", ""]
-    ])("refuses %s and falls back to the case list", async (_case, returnTo) => {
+    ])("refuses %s and falls back to the service root", async (_case, returnTo) => {
       await GET(pageRequest({ signedIn: false, query: { returnTo } }), pageResponse());
 
-      expect(beginLogin).toHaveBeenCalledWith(expect.anything(), "/deed-polls");
+      expect(beginLogin).toHaveBeenCalledWith(expect.anything(), "/");
     });
 
     it("refuses an off-site destination for someone already signed in, too", async () => {
@@ -103,7 +105,7 @@ describe("the login page", () => {
 
       await GET(pageRequest({ query: { returnTo: "//evil.example" } }), res);
 
-      expect(res.redirect).toHaveBeenCalledWith("/deed-polls");
+      expect(res.redirect).toHaveBeenCalledWith("/");
     });
   });
 });
