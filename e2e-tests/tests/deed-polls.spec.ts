@@ -481,10 +481,17 @@ test("caseworker sees how many applications have a returned direction, and follo
 
   // The rows, newest first — the mock's default order is `createdOn` descending, so this journey's two are at
   // the top of the first page however many Decided cases were already in the store.
+  //
+  // **A row is matched on this run's surname as well as the reference.** The store outlives the run, and a
+  // reference is five digits in a shape api also allocates, so a reference on its own is unique only by
+  // arithmetic — an earlier run whose clock landed on the same serial left `Decided` rows carrying it, and
+  // those rows would satisfy "the seeded cases are displayed" while the new ones were missing. The surname
+  // carries milliseconds, which no earlier run shares, so the pair identifies the row this journey created.
   const rows = page.locator("tbody");
-  for (const reference of seeded.decided) await expect(rows).toContainText(reference);
+  const seededRow = (reference: string) => rows.locator("tr").filter({ hasText: seeded.surname }).filter({ hasText: reference });
+  for (const reference of seeded.decided) await expect(seededRow(reference)).toHaveCount(1);
   // And the one a judge is still holding is absent: `Claimed` is not the caseworker's turn.
-  await expect(rows).not.toContainText(seeded.claimed);
+  await expect(seededRow(seeded.claimed)).toHaveCount(0);
   await expectNoAccessibilityViolations(page);
 
   // The builder above the table says what the rows were filtered by, and — the part only a browser can show —
@@ -498,7 +505,8 @@ test("caseworker sees how many applications have a returned direction, and follo
 
   await expect(page).toHaveURL("/deed-polls?where=currentReferralState%3Ais%3ADecided");
   await expect(page.getByText(new RegExp(`of ${seeded.total} applications`))).toBeVisible();
-  await expect(rows).not.toContainText(seeded.claimed);
+  await expect(seededRow(seeded.claimed)).toHaveCount(0);
+  for (const reference of seeded.decided) await expect(seededRow(reference)).toHaveCount(1);
 });
 
 /**
@@ -1148,19 +1156,34 @@ async function seedCasesToSearch(request: APIRequestContext): Promise<{ surname:
  *
  * The case bodies go through `POST /__mock/cases` because what a create does is not what is being tested here,
  * and each carries a display reference of its own: the Reference cell is a link, and one with no text is both
- * useless to a caseworker and an accessibility violation on every list page the rest of the run renders. The
- * `9` prefix keeps them clear of the other seeders' `1`/`2`/`3`/`6`/`7`/`8` and of the serials the mock
- * allocates on a real create. Received in June for the same reason: no collision with any other seed's dates.
+ * useless to a caseworker and an accessibility violation on every list page the rest of the run renders.
+ * Received in June so the dates collide with no other seed's.
+ *
+ * **Each reference is `KBDPYYYY-` and five digits, because that is the only shape api allocates** — the same
+ * shape this file asserts a created case's heading holds (`expectWelshKeysResolve`), and the only one the mock
+ * re-prefixes when a case's type changes. A fixture carrying digits-and-letters would have the journey pass
+ * against case data no environment can produce.
+ *
+ * **Five digits is only 10,000 serials, so the reference cannot carry this run's identity — the surname
+ * does.** Four digits off the clock in seconds cycle every 10,000s, so a run starting an exact multiple of
+ * ~2.8 hours after an earlier one reuses its references, and the store holds every earlier run's `Decided`
+ * cases. Were the worklist rows matched on reference alone, that stale row would satisfy "the seeded cases are
+ * displayed" with the new ones absent, so the caller matches on `surname` *and* reference; the surname carries
+ * base-36 milliseconds, which no earlier run shares. Within the run the three references still have to differ
+ * from each other and from the rest of the suite's, which is what the leading digit is for: `9`, `5` and `4`
+ * are what the other seeders' `1`/`2`/`3`/`6`/`7`/`8` and the `0000n` serials the mock allocates on a real
+ * create leave free.
  *
  * `total` is what the banner should say — the baseline the store already held plus the two this adds.
  */
-async function seedReturnedForActionCases(request: APIRequestContext): Promise<{ total: number; decided: string[]; claimed: string }> {
+async function seedReturnedForActionCases(request: APIRequestContext): Promise<{ total: number; surname: string; decided: string[]; claimed: string }> {
+  const leads = ["9", "5", "4"];
   const baseline = await returnedForActionTotal(request);
-  const serial = String(Math.floor(Date.now() / 1000)).slice(-3);
   const surname = `Returnedby${Date.now().toString(36)}`;
+  const serial = String(Math.floor(Date.now() / 1000)).slice(-4);
 
   const seed = async (n: number): Promise<{ id: string; reference: string }> => {
-    const reference = `KBDP2026-9${serial}${n}`;
+    const reference = `KBDP2026-${leads[n - 1]}${serial}`;
     const response = await request.post(`${MOCK_API_URL}/__mock/cases`, {
       data: {
         type: "Adult",
@@ -1184,7 +1207,7 @@ async function seedReturnedForActionCases(request: APIRequestContext): Promise<{
   const claimed = await seed(3);
   await referTo(request, claimed.id, "Claimed");
 
-  return { total: baseline + decided.length, decided: decided.map((one) => one.reference), claimed: claimed.reference };
+  return { total: baseline + decided.length, surname, decided: decided.map((one) => one.reference), claimed: claimed.reference };
 }
 
 /**

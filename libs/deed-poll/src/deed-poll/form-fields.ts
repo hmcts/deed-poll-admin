@@ -385,8 +385,9 @@ export const NON_FORM_QUERYABLE_FIELDS: FieldDef[] = [
     kind: "enum",
     // The states are api's, so the value chooser is built from its member array like every other option set.
     // An `enum` with no set renders a chooser holding only "Choose a value", which for the one condition the
-    // app itself links to would mean a filter the page could neither show nor resubmit.
-    enumSet: "referralState",
+    // app itself links to would mean a filter the page could neither show nor resubmit. The set is api's
+    // members minus the terminal two, which this field never holds — see `CURRENT_REFERRAL_STATE_LABEL`.
+    enumSet: "currentReferralState",
     readOnly: true,
     // Not offered by the builder's chooser, which is grouped by form tab and section and so has no group a
     // non-form field could sit in. A caseworker reaches this filter by the dashboard's "returned — action

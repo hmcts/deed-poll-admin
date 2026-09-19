@@ -403,8 +403,10 @@ dashboard journeys live there and so do the seeding and axe helpers this one reu
   dashboard a number api cannot produce.
 - **A third case is left `Claimed`**, so the worklist is asserted to exclude it: a journey seeding nothing but
   `Decided` would pass against a link whose condition was dropped, which is this plan's whole failure mode.
-  The rows are found by display reference and the two seeded ones are at the top of page 1 whatever the
-  baseline, because the mock's default order is `createdOn` descending.
+  The rows are found by this run's surname *and* display reference — five digits is only 10,000 serials and
+  the mock's store outlives the run, so a reference alone could be matched by an earlier run's `Decided` row
+  while the new ones were missing — and the two seeded ones are at the top of page 1 whatever the baseline,
+  because the mock's default order is `createdOn` descending.
 - **axe runs at both points** — the dashboard carrying the banner and the worklist it links to — with no
   waivers, and the count is re-read on the Enroled tab so decision 5 is checked where a caseworker would
   notice it.

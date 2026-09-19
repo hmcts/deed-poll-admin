@@ -463,6 +463,29 @@ describe("deed-poll/query-builder", () => {
       expect(row.valueOptions.filter((option) => option.selected).map((option) => option.value)).toEqual(["Decided"]);
     });
 
+    it("should offer no terminal referral state as a filter value, since the case field never holds one", () => {
+      const row = rowFor({ field: "currentReferralState", operator: "is", values: ["Decided"] });
+
+      // api derives the field from the case's *live* referral, so a case whose referral is closed or withdrawn
+      // carries `null`. Offering either state would offer a condition that can only answer an empty list, and
+      // "0 applications" reads as "no case has a closed referral" rather than "this field never records one".
+      expect(row.valueOptions.map((option) => option.value)).toEqual(["", "Open", "Claimed", "Decided"]);
+    });
+
+    it("should treat a hand-edited terminal state as a row the query ran without, so the omission is stated rather than silent", () => {
+      const row = rowFor({ field: "currentReferralState", operator: "is", values: ["Closed"] });
+
+      // A hand-edited URL is the only way to reach the value: the chooser does not offer the field at all and
+      // the dashboard's link carries `Decided`. So it gets the answer any value the set does not hold gets —
+      // the row comes back asking for a value, and `unusedConditionRows` is what has the page say above the
+      // table that the query ran without it. Carrying the state instead would resubmit a condition that can
+      // only ever answer an empty list, which is the reading `CURRENT_REFERRAL_STATE_LABEL` excludes it for.
+      expect(row.valueOptions.filter((option) => option.selected).map((option) => option.value)).toEqual([""]);
+      const conditions = conditionsFromBuilder(resubmission(row), { kind: "apply" });
+      expect(conditions).toEqual([{ field: "currentReferralState", operator: "is", values: [""] }]);
+      expect(unusedConditionRows(conditions)).toEqual([0]);
+    });
+
     it("should resubmit a condition the chooser does not offer, because Apply would otherwise widen the worklist to every case", () => {
       const row = rowFor({ field: "currentReferralState", operator: "is", values: ["Decided"] });
 
