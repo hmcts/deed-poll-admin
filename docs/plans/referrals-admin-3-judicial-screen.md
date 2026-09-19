@@ -362,23 +362,53 @@ Change nothing here. Read the *committed* `openapi.json` (no refresh) and confir
   (`GET /judicial/referrals`, `GET /judicial/referrals/{referralId}`,
   `POST /judicial/referrals/{referralId}/claim`, `POST /judicial/referrals/{referralId}/direction`) and the
   four judicial schemas (`JudicialReferralSummary`, `JudicialReferralDetail`, `JudicialCaseView`,
-  `JudicialDirectionRequest`). `JudicialDirectionRequest` carries exactly `decision` (a `MasterDecision`
-  reference — `Approved`/`Rejected`), `directionsText`, `publishToGazette`. `JudicialCaseView` carries **no**
+  `JudicialDirectionRequest`). `JudicialDirectionRequest` carries exactly `decision`
+  (`Approved`/`Rejected`), `directionsText`, `publishToGazette`. `JudicialCaseView` carries **no**
   payment/fee reference, no privacy-editability field, no internal audit field.
-- Confirm `caseworker-deedpoll-judicial` exists as an assignable IDAM role (idam-1) and matches api-3's gate
-  string.
+
+  **Amended 2026-09-19: do not look for a `MasterDecision` *schema*.** There is no such component and there is
+  no bug — **springdoc inlines every enum**, so the spec has 27 named schemas and **zero** named enum schemas.
+  The case's own `masterDecision` is inlined identically. What api-2 decision 5 actually requires is the same
+  *members*, and the adapter already expresses the reuse: `judicialDirectionSchema.decision` is
+  `z.enum(MASTER_DECISION)` (`wire.ts:680`). So check the members, not a `$ref`.
+
+  **Also amended: the spec carries six judicial schemas, not four** — `JudicialCaseNote` and
+  `JudicialPoolResponse` in addition to the four named above. Both are supporting DTOs (a note projection and
+  a paging envelope) and neither changes the shape of the four. Not a stop.
+- **The IDAM role: check the string, not its provisioning.** `idam-access-config#995` is **open as at
+  2026-09-19**, so the role is not yet assignable in a real environment — and that does **not** block this
+  plan. Verified: `#995` declares `name: caseworker-deedpoll-judicial` and api's gate is
+  `JUDICIAL("caseworker-deedpoll-judicial")` (`domain/auth/Role.java:40` on api master) — **an exact match, so
+  the one risk this gate exists to catch is retired.** Local build and e2e do not touch `idam-access-config` at
+  all: `scripts/seed-idam-users.mjs` seeds the `rse-idam-simulator` directly, so add the judicial test user
+  there (importing the role constant, never restating it — that script's own comment records a copied string
+  drifting once). `#995` gates a judge signing in to **AAT**, which is downstream of this plan.
 - **admin-0, admin-1 and admin-2 have all landed**, and both validation commands are green with the totals
   recorded as this plan's baseline.
-- If anything is otherwise — a different judicial DTO shape, `decision` not `MasterDecision`,
-  `JudicialCaseView` carrying an admin-only field, a missing `publishToGazette`, or the judicial ops absent —
-  **STOP and report** which, and how reality differs. Do not hand-edit the spec, do
+- If anything is otherwise — a different judicial DTO shape, `decision` carrying members other than
+  `Approved`/`Rejected`, `JudicialCaseView` carrying an admin-only field, a missing `publishToGazette`, or the
+  judicial ops absent — **STOP and report** which, and how reality differs. Do not hand-edit the spec, do
   not filter a leaked field in the client (that is an api-3 fix), do not guess. **`JudicialCaseView` with an
   admin field is the disclosure bug api-3 flag 1 exists to prevent — the loudest STOP, and the one thing here
   that admin-0 landing cleanly does *not* rule out.**
 
-- [ ] Verified against the committed `openapi.json`: the four judicial ops and four judicial schemas present
-      with the shapes above; `decision` is `MasterDecision`; **`JudicialCaseView` carries no admin-only
-      field**; idam-1's role confirmed and string-matched; admin-0/1/2 all landed; both validation commands
+**PRE-FLIGHT DONE 2026-09-19, by hand, before this plan was run. Every condition below was checked and the
+gate passes — re-check rather than trust, but do not spend a task rediscovering it:**
+
+| Condition | Result |
+|---|---|
+| Four `/judicial/**` ops in the committed `openapi.json` | ✅ all four |
+| Judicial schemas | ✅ **six** (the four, plus `JudicialCaseNote` and `JudicialPoolResponse`) |
+| `JudicialDirectionRequest` shape | ✅ `decision` enum `[Approved,Rejected]`, `directionsText`, `publishToGazette`; `required: [decision, publishToGazette]` |
+| **`JudicialCaseView` disclosure check** | ✅ **PASSES** — `displayReference`, `new{Forename,MiddleName,Surname}`, `old{Forename,MiddleName,Surname}`, `type`. No fee, no payment, no privacy-editability, no audit field |
+| `decision` reuses the existing decision enum | ✅ in substance — `z.enum(MASTER_DECISION)` at `wire.ts:680`. There is no `MasterDecision` schema to reference; see the amendment above |
+| IDAM role string | ✅ `#995` = `caseworker-deedpoll-judicial` = api's `Role.java:40`. PR **open**, which does not block this plan |
+| admin-0 / admin-1 / admin-2 landed | ✅ `#112`, `#114`, `#115` — master at `a39a6d4` |
+| Baseline | ✅ **2,245 tests**, 8/8 turbo tasks; `yarn lint` 0 errors, 2 warnings + 2 infos |
+
+- [ ] Verified (or re-verified) against the committed `openapi.json`: the judicial ops and schemas present with
+      the shapes above; `decision`'s members are `Approved`/`Rejected`; **`JudicialCaseView` carries no
+      admin-only field**; the role string matches api's gate; admin-0/1/2 all landed; both validation commands
       green with baseline totals recorded — or STOPPED and reported, with no spec edits and no client
       field-filtering
 
@@ -389,13 +419,27 @@ Change nothing here. Read the *committed* `openapi.json` (no refresh) and confir
 `CurrentUser` mirroring `isAdmin` (`current-user.ts`). Add the role-gate middleware `requireJudicial`/
 `requireRole` in `src/auth/` (mirror `require-auth`'s shape; render 403 via `ForbiddenError` → `src/errors.ts`
 for an authenticated non-judicial user), applied to `/judicial/**` — additive to `requireAuth`, allowlist
-polarity untouched. Adapter: add the four judicial operations to `client.ts` and the four schemas to `wire.ts`,
-registered in `WIRE_SCHEMAS` and `IMPLEMENTED_OPERATIONS`; `contract.test.ts` green against the refreshed spec.
+polarity untouched.
+
+**Amended 2026-09-19: the adapter clause is already done — verify it, do not build it.** This task used to say
+"add the four judicial operations to `client.ts` and the four schemas to `wire.ts`", which contradicts this
+plan's own AMENDED section: admin-0 owns the adapter and has landed. Confirmed by hand at `a39a6d4` — four
+client functions (`getJudicialPool`, `getJudicialReferral`, `claimJudicialReferral`, `directJudicialReferral`,
+`client.ts:466-505`), six judicial schemas in `WIRE_SCHEMAS` (`wire.ts:722-727`), four judicial ops in
+`IMPLEMENTED_OPERATIONS` (**which lives in `contract.test.ts:35`, not `client.ts`**), and `/judicial/**` mock
+routing. So **this task is auth only**; adding any of it again is duplicate work, and editing `wire.ts` risks
+turning `contract.test.ts`'s two-way set equality red for no gain.
+
+**Also amended: add the judicial test user to `scripts/seed-idam-users.mjs`**, importing the new role constant
+rather than restating the string — the script's own comment records a copied string drifting once and every
+e2e admin journey silently signing in unprivileged as a result. This is what makes Task 5's e2e possible without
+`idam-access-config#995`.
 
 - [ ] Judicial role in `Role` + `KNOWN_ROLES`; a judicial token yields a `CurrentUser` with the role (tested);
       `isJudicial` accessor added; `requireJudicial` admits a judge and 403s an authenticated caseworker
-      (tested both directions); four judicial ops in `IMPLEMENTED_OPERATIONS`, four schemas in `WIRE_SCHEMAS`;
-      `decision` schema = `MasterDecision`; `contract.test.ts` green; `turbo test test:app --concurrency=1` green
+      (tested both directions); judicial test user seeded from the imported constant; adapter coverage
+      **verified unchanged** rather than re-added; `contract.test.ts` green;
+      `yarn turbo test test:app --concurrency=1` green
 
 ### Task 2: Domain — the judicial services over admin-0's adapter
 
