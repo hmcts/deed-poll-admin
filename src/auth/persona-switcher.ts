@@ -49,8 +49,10 @@ export const PERSONA_SWITCHER_ENVIRONMENTS = new Set(["development", "test", "aa
  * Where the switcher posts.
  *
  * A `POST` and never a `GET` link (decision 6): a crafted URL — in an email, in an `<img>` on another page —
- * must not be able to change somebody's persona, and a switch is not a navigation. The route itself is task
- * 3's; this constant is here so the form's action and the handler cannot disagree about the path.
+ * must not be able to change somebody's persona, and a switch is not a navigation. `src/pages/switch-persona.ts`
+ * exports `POST` and nothing else, so `simple-router` registers no `GET` at all and one is a 404 rather than a
+ * handler that refuses. This constant is here so the form's action and the route file cannot disagree about the
+ * path — `switch-persona.test.ts` pins them against each other.
  */
 export const PERSONA_SWITCH_PATH = "/switch-persona";
 
@@ -106,6 +108,30 @@ export function personaSwitcherEnabled(): boolean {
 }
 
 /**
+ * The credentials to obtain a token with, for a persona id that arrived in a form body — or `undefined`.
+ *
+ * **This is where "never mint a token for a user it was not explicitly configured to offer" is enforced.**
+ * The id is `unknown` because that is what a request body is, and the only thing done with it is a lookup in
+ * `PERSONAS`: there is no path from a request to an arbitrary username, and an id that matches nothing gets
+ * no credentials rather than a guess. The caller answers 404 to that, so the route discloses nothing about
+ * which ids exist either.
+ *
+ * **The password is one value for the whole fixture set, and it is configuration rather than a secret.**
+ * `scripts/seed-idam-users.mjs` creates all three local users with the same one, so a value here that drifted
+ * from the seeder's would fail every switch at IDAM with a 400 and nothing to say why. It is read from
+ * `config` — `config/default.json` carries the local fixture value and `PERSONA_SWITCHER_PASSWORD` overrides
+ * it — because AAT's personas cannot be fixed accounts at all (its test users are cleaned up after three
+ * hours), so task 5 creates them on demand and has to be able to say what it created them with. Nothing here
+ * ever reads a *real* user's credentials, which is the security posture's first prohibition.
+ */
+export function personaCredentials(id: unknown): PersonaCredentials | undefined {
+  const persona = PERSONAS.find((candidate) => candidate.id === id);
+  if (!persona) return undefined;
+
+  return { username: persona.username, password: config.get<string>("personaSwitcher.password") };
+}
+
+/**
  * Put the strip on `res.locals`, so `src/pages/layouts/app.njk` renders it on every page without any page
  * knowing it exists.
  *
@@ -151,6 +177,11 @@ export interface Persona {
   id: string;
   name: string;
   username: string;
+}
+
+interface PersonaCredentials {
+  username: string;
+  password: string;
 }
 
 interface PersonaSwitcherView {

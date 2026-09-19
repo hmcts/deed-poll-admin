@@ -2,7 +2,8 @@
   "port": 3000,
   "environmentName": "development",
   "personaSwitcher": {
-    "enabled": false
+    "enabled": false,
+    "password": "Pa55word11"
   },
   "redis": {
     "url": "redis://localhost:6379"

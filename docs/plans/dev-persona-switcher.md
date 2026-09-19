@@ -268,9 +268,47 @@ replaces the session's tokens **including the refresh token**, and redirects to 
 token alone means the next renewal silently reverts the session to the original user mid-test, and it presents
 as the app randomly losing your persona.
 
-- [ ] Switching yields a `CurrentUser` with the persona's real roles from userinfo; the refresh token is
+- [x] Switching yields a `CurrentUser` with the persona's real roles from userinfo; the refresh token is
       replaced too and a forced refresh keeps the new persona (tested); the route 404s when the flag is off;
       `GET` is not accepted; both validation commands green
+
+**Done 2026-09-19.** `src/auth/password-grant.ts` obtains the token and `src/pages/switch-persona.ts` is the
+route; `personaCredentials()` in `persona-switcher.ts` is the only thing that turns a form value into a
+username. **Verified live against the running simulator, not only against stubs** — all three personas return
+an access token, an id token *and* a refresh token, and userinfo gives `caseworker@example.com` no roles,
+`admin@example.com` `caseworker-deedpoll-admin`, `judge@example.com` `caseworker-deedpoll-judicial`. Five
+things worth knowing before Task 4:
+
+- **`signIn`, not `updateTokens`, and that is the whole task.** It replaces the refresh token *and* `subject`.
+  `updateTokens` deliberately leaves `subject` alone, so the half-measure fails both ways round: keep the old
+  refresh token and `refreshMiddleware` silently restores the previous user five minutes before expiry; keep
+  the old subject and `refreshTokens` refuses the response as a changed identity and signs the tester out. It
+  regenerates the session id as well, which any change of authenticated identity should.
+- **`genericGrantRequest`, because `openid-client` publishes no `password` helper** (the grant is dropped in
+  OAuth 2.1). It is not a raw request in the way that would matter: the response goes through
+  `processGenericTokenEndpointResponse`, so an ID token in it is validated against the issuer's JWKS before
+  `claims()` returns anything — the subject `fetchUserInfo` is checked against is a verified one.
+- **The refresh path cannot be proven locally by *running* it.** The simulator answers `expires_in: 28800000`
+  — eight hours in milliseconds, so ~333 days as seconds — which puts every local session far outside the
+  five-minute window, and it does not implement the refresh grant either (`idam.test.ts` records that). So
+  `switch-persona.test.ts` drives the real `refreshMiddleware` over the switched session instead, and asserts
+  it renews with the *judge's* refresh token and subject.
+- **A refusal is `next()` to the not-found handler**, for the shut gate and for an unknown persona id alike —
+  same non-enumerability argument as `/judicial/**`'s 404, and it means an environment outside the allowlist
+  answers exactly as one where the route does not exist. `GET` is not refused by a handler: the module exports
+  only `POST`, so `simple-router` registers no `GET` at all.
+- **`yarn dev` now opts in** (`PERSONA_SWITCHER_ENABLED=true` on `dev:app` and `dev:nowatch:web`), which is
+  what the Task 1 note left outstanding. The persona password is `config`'s
+  (`personaSwitcher.password`, `PERSONA_SWITCHER_PASSWORD`), defaulting to the local fixture value
+  `scripts/seed-idam-users.mjs` seeds with — a hardcoded copy here had already drifted once in that script's
+  history, and AAT cannot use fixed accounts at all, so Task 5 needs to be able to say what it created.
+
+A token request that fails still reaches the 500 page. That is deliberate and it is Task 5's to close:
+locally the causes are the simulator being down or `yarn idam:users` not having run, in AAT there is a third —
+the client is not registered for `password` — and a message written here would have to be wrong about AAT.
+
+Suite: 147 files / 2526 tests passing (app 62/960; +24 across `password-grant.test.ts` and
+`switch-persona.test.ts`). `yarn lint` exit 0 with the same two pre-existing warnings.
 
 ### Task 4: End-to-end proof that permissions actually changed
 
