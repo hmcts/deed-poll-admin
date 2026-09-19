@@ -176,8 +176,8 @@ Inferred process. `DeedPollState` members are in **bold**.
 
 | # | Template | Trigger (caseworker action) | Likely state | Confidence |
 |---|---|---|---|---|
-| ① | forms for completion — adult | Application checked, `type` = adult | AwaitingSignature | Medium-high |
-| ② | forms for completion — minor | Application checked, `type` = minor | AwaitingSignature | Medium-high |
+| ① | forms for completion — adult | Application checked, `type` is `Adult` or `AdultTransgender` | AwaitingSignature | **High** — `AwaitingSignature` is derived from `signatureRequestedDate`, so this send *is* the signature request |
+| ② | forms for completion — minor | Application checked, `type` is `Minor` or `MinorTransgender` | AwaitingSignature | **High** — same derivation |
 | ③ | Application Rejected | Judge's direction actioned, enrolment refused | Returned | High |
 | ④ | Request confirmation to proceed | Judge's direction actioned, `NonPublication` refused | Returned | High |
 | ⑤ | Gazette notice PDF | Notice published | Enroled | **Template missing** |
@@ -229,18 +229,38 @@ Four templates, not six, and the branching mechanised rather than deleted by han
 
 | Notify template | Replaces | Conditionals needed | Caseworker slots |
 |---|---|---|---|
-| `forms-for-completion-adult` | ① | Gazette sentence, from `publishToLondonGazette` | notes |
-| `forms-for-completion-minor` | ② | Gazette sentence | notes |
+| `forms-for-completion-adult` | ① | Gazette sentence, from `publishToLondonGazette` | **none** |
+| `forms-for-completion-minor` | ② | Gazette sentence | **none** |
 | `application-rejected` | ③ | online vs paper refund text, from `postCounter` | judge's reason, notes |
 | `request-confirmation-to-proceed` | ④ | online vs paper refund text; `[child's]`, from `type` | judge's reason, notes |
+
+**`type` has four members, not two.** `DeedPollType` is `Adult, AdultTransgender, Minor, MinorTransgender`,
+so "adult" means `Adult || AdultTransgender` and "minor" means `Minor || MinorTransgender` everywhere this
+document says `type`. It matters differently in each row: in ④ it picks the `[child's]` **wording**, but in
+①/② it picks **which template is sent**, so an `AdultTransgender` case falling through to the minor branch
+would send an applicant an email about their child.
+
+**①② have no caseworker slots, corrected 2026-09-19.** An earlier version of this table gave both "notes".
+Neither supplied `.docx` contains an `[Enter …]` marker anywhere — unlike ③ and ④, which have two each — so
+there is nothing for a caseworker to curate: the email is identical for every applicant of a given type.
+Adding a slot the template has no placeholder for makes Notify refuse the send, so if the business does want
+a notes box it is a **template change first**, not an api change.
 
 Adult and minor stay two templates rather than one conditionalised pair, because they differ in *which* forms
 and *which* exhibits, not in a sentence — one template with that much conditional content is harder to
 proofread than two, and a content designer owns these.
 
-Two kept separate rather than conditionalised, because the adult and minor forms differ in *which* forms and
-*which* exhibits, not in a sentence — one template with that much conditional content is harder to proofread
-than two, and a content designer owns these.
+**`LOC020` and `LOC022` document generation is now decided** — `deed-poll-api/docs/plans/notify-4-forms-for-completion.md`.
+In summary: generated **in-process** rather than through `doc-assembly`/Docmosis, because `DocAssemblyResponse`
+returns a document-store location rather than bytes and its request needs a `caseTypeId` and `jurisdictionId`
+this service does not have; and because the two supplied `.docx` files are **Dynamics 365 Word templates**
+(30 `w:sdt` content controls bound by XPath against `urn:microsoft-crm/document-template/deedpoll_deedpoll/10740/`),
+so they are machine-readable as supplied but would have to be retyped for Docmosis.
 
-Plus, out of scope for Notify and needing a decision: `LOC020` and `LOC022` document generation, and the
-missing ⑤ Gazette notice.
+**Only two of the seven documents are generated.** The adult email carries LOC020, LOC021 and LOC027; the
+minor email carries LOC022, LOC023, LOC024 and LOC028. Only the two change-of-name deeds carry case data —
+*"This form contains the information you provided in your online application"* — and the other five are blank
+forms for a declarant and a commissioner of oaths to complete. They are **static files to be sourced and
+stored**, and none of them is in `doc_templates/` today.
+
+Still out of scope for Notify and still needing a decision: the missing ⑤ Gazette notice.
