@@ -406,7 +406,24 @@ gate passes — re-check rather than trust, but do not spend a task rediscoverin
 | admin-0 / admin-1 / admin-2 landed | ✅ `#112`, `#114`, `#115` — master at `a39a6d4` |
 | Baseline | ✅ **2,245 tests**, 8/8 turbo tasks; `yarn lint` 0 errors, 2 warnings + 2 infos |
 
-- [ ] Verified (or re-verified) against the committed `openapi.json`: the judicial ops and schemas present with
+**RE-VERIFIED 2026-09-19 when the task ran**, every row above independently and against the committed
+`openapi.json` — nothing hand-edited, nothing filtered. The judicial `$ref` graph is worth recording because
+the four-vs-six question above only half-answers it: `JudicialReferralDetail` *extends* the summary and `$ref`s
+`JudicialCaseView` (as `application`) and `JudicialCaseNote[]` (as `caseNotes`), and `JudicialPoolResponse`
+wraps `JudicialReferralSummary[]` with `page`/`size`/`total`/`totalPages`. So the pool page reads its total off
+the envelope rather than counting rows, and the referral view's three panels are one payload — decision 4 with
+no second call available even in principle. The disclosure check re-ran against the live document, not the
+table: `JudicialCaseView` is exactly `displayReference`, `new{Forename,MiddleName,Surname}`,
+`old{Forename,MiddleName,Surname}`, `type`. Baseline reproduced to the test: 844 + 736 + 327 + 140 + 127 + 41
++ 23 + 7 = **2,245**.
+
+One thing the table's ✅ does not say and the pages will need: **`JudicialDirectionRequest.required` is
+`[decision, publishToGazette]` and `directionsText` is NOT required** ("an approval that needs no comment is a
+real answer"), with `maxLength: 4000`. Decision 6 lists all three as form fields, which is right, but the
+colocated zod schema in Task 4 must make the textarea **optional** and cap it at 4000 — a required-textarea
+validation here would refuse a direction api accepts.
+
+- [x] Verified (or re-verified) against the committed `openapi.json`: the judicial ops and schemas present with
       the shapes above; `decision`'s members are `Approved`/`Rejected`; **`JudicialCaseView` carries no
       admin-only field**; the role string matches api's gate; admin-0/1/2 all landed; both validation commands
       green with baseline totals recorded — or STOPPED and reported, with no spec edits and no client
