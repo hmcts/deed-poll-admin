@@ -266,9 +266,30 @@ Seed it through referrals where the mock allows it, so `currentReferralState` ar
 rather than being set behind its back. A fixture that contradicts the mock's own state machine teaches the
 pages something api will not do.
 
-- [ ] The mock has cases seeded across `Decided`, `Open`/`Claimed` and `null`, reached through its own
+- [x] The mock has cases seeded across `Decided`, `Open`/`Claimed` and `null`, reached through its own
       transitions where possible; `where=currentReferralState:is:Decided` returns an asserted non-zero
       `total`; op set unchanged; `turbo test test:app --concurrency=1` green
+
+**Done 2026-09-19. The seed the plan named is in two places, because the mock has two callers:**
+
+- **`server.ts` has no baked-in dataset to edit** — it starts with an empty case store in every scenario
+  (`fixtures.ts` fixes document types and nothing else), so the `:656`/`:683` line references were to `seed`
+  and `reset` themselves, not to a fixture list. `seed` already recomputes `currentReferralState` from a case
+  seeded with referrals (`server.ts:958`), which is all the routing this task needed. **No mock-server edit.**
+- **The suite's fixture is in `server.test.ts`**: two tests in the `currentReferralState` describe. The first
+  drives seven cases through the mock's own transitions — three `Decided`, one `Open`, one `Claimed`, one
+  `Closed` (terminal, so null again), one never referred — and asserts
+  `where=currentReferralState:is:Decided&size=1` answers `total: 3` with one row, which is the shape
+  `countReturnedForAction` will read in Task 2. The second asserts the same filter without `size` lists
+  exactly those ids, so the count and the worklist it links to are pinned as one query.
+- **The dev fixture is `scripts/seed-local-cases.mjs`** (`yarn mock:seed`), which is what makes the count
+  non-zero for `yarn dev` and for a manual look at the banner. A referral phase now drives 9 of the 26
+  Received cases through raise → claim → direct → close: 4 `Decided`, 2 `Claimed`, 2 `Open`, 1 `Closed`. It
+  reads the count back through the same `where` and reports a mismatch, because a `where` the mock did not
+  recognise answers the case total and a dropped condition answers zero — both look like a working seed
+  otherwise. Verified against a live mock: "Referred 9, of which 4 are returned and need action."
+- **Op set unchanged**; no `openapi.json`, `wire.ts` or mock-routing edit. **2207 tests / 129 files, 8 of 8
+  tasks successful** (baseline 2205 plus the two new); `yarn lint` exits 0 with the same 2 warnings / 2 infos.
 
 ### Task 2: Domain — the queryable field port and the count function
 

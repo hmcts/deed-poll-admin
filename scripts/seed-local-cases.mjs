@@ -21,6 +21,12 @@
  * cases may hold combinations api would reject. That is the point — it makes 30-odd cases cheap — but it
  * means **this data is evidence about querying and paging, never about validation.** Drive the create form
  * for that.
+ *
+ * The referral phase is the exception and deliberately slower: `currentReferralState` is recomputed by the
+ * mock from a case's referrals, so it is driven through the contract routes — raise, claim, direct, close —
+ * rather than set on the seed body. A fixture that wrote the column directly would teach the dashboard a
+ * number api's own state machine cannot produce, and the "returned — action needed" count is exactly the
+ * thing that would then be wrong in one direction locally and another deployed.
  */
 
 // Imported, not restated. `seed-idam-users.mjs` records what a copied constant cost last time: a role
@@ -118,6 +124,27 @@ const GROUPS = [
   }
 ];
 
+/**
+ * The referral states some of the seeded cases are driven into, and how many of each.
+ *
+ * `Decided` is the one the dashboard counts — a referral the judge has directed and the caseworker has not
+ * yet closed. The other three rows exist to make the count a count rather than a case total: `Open` and
+ * `Claimed` are not yet the caseworker's to action, and a `Closed` one is back to null, so a fixture of
+ * nothing but `Decided` would pass a query that ignored the value entirely.
+ */
+const REFERRAL_PLAN = [
+  { label: "Returned - action needed (Decided)", count: 4, upTo: "Decided" },
+  { label: "With a judge (Claimed)", count: 2, upTo: "Claimed" },
+  { label: "Awaiting a judge (Open)", count: 2, upTo: "Open" },
+  { label: "Actioned and closed (null again)", count: 1, upTo: "Closed" }
+];
+
+/** How many of the seeded cases the plan above expects to find `Decided` when it reads the count back. */
+const EXPECTED_RETURNED_FOR_ACTION = REFERRAL_PLAN.find((phase) => phase.upTo === "Decided").count;
+
+/** The judge a claim and a direction are attributed to. The mock reads a subject out of the token, no roles. */
+const SEED_JUDGE = "seed.judge@example.com";
+
 /** A date in January-to-June 2026, one per case, as the wire's local-date-time string. */
 function dayInMonth(month, n) {
   return `2026-${month}-${String(n).padStart(2, "0")}T00:00:00.000`;
@@ -140,6 +167,8 @@ if (!KEEP) {
 }
 
 let seeded = 0;
+/** The ids the referral phase drives, in seeding order. Only the Received group is drawn from. */
+const referrable = [];
 
 for (const group of GROUPS) {
   for (let n = 1; n <= group.count; n++) {
@@ -160,10 +189,67 @@ for (const group of GROUPS) {
       process.exit(1);
     }
 
+    // Referrals are only raised on cases that are still open — an Enroled or Returned case has been
+    // finished, and referring one would put the dashboard's worklist somewhere a caseworker cannot act.
+    if (group.label.startsWith("Received (")) referrable.push((await response.json()).id);
     seeded++;
   }
 
   console.log(`${group.label.padEnd(28)} ${String(group.count).padStart(2)} case(s)`);
+}
+
+console.log("");
+
+let referred = 0;
+
+for (const phase of REFERRAL_PLAN) {
+  for (let n = 1; n <= phase.count; n++) {
+    const caseId = referrable[referred];
+    if (caseId === undefined) {
+      console.error(`Ran out of open cases to refer: the plan wants ${REFERRAL_PLAN.reduce((sum, p) => sum + p.count, 0)}, ${referrable.length} were seeded.`);
+      process.exit(1);
+    }
+
+    await refer(caseId, phase.upTo, `${phase.label} #${n}`);
+    referred++;
+  }
+
+  console.log(`${phase.label.padEnd(36)} ${String(phase.count).padStart(2)} case(s)`);
+}
+
+/**
+ * Raise a referral on `caseId` and transition it as far as `upTo`, through the routes api publishes.
+ *
+ * Each step is checked, because a refusal part-way leaves the case in whatever state it reached and the
+ * only symptom is a count that is quietly short.
+ */
+async function refer(caseId, upTo, what) {
+  const referral = await step("POST", `/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] }, {}, `raise ${what}`);
+  if (upTo === "Open") return;
+
+  const judge = { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: SEED_JUDGE }), "utf8").toString("base64url")}.signature` };
+  await step("POST", `/judicial/referrals/${referral.id}/claim`, undefined, judge, `claim ${what}`);
+  if (upTo === "Claimed") return;
+
+  await step("POST", `/judicial/referrals/${referral.id}/direction`, { decision: "Approved", publishToGazette: true }, judge, `direct ${what}`);
+  if (upTo === "Decided") return;
+
+  await step("POST", `/caseworker/cases/${caseId}/referrals/${referral.id}/closure`, undefined, {}, `close ${what}`);
+}
+
+async function step(method, path, body, headers, what) {
+  const response = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", ...headers },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    console.error(`Failed to ${what}: ${response.status} ${await response.text()}`);
+    process.exit(1);
+  }
+
+  return response.json();
 }
 
 // Read back rather than trusting the count above: the totals are what the page shows, and a seed that
@@ -172,6 +258,18 @@ for (const group of GROUPS) {
 const list = await fetch(`${BASE}/caseworker/cases`);
 const { total, totalPages } = await list.json();
 
+// The same query the dashboard's count runs, read back for the same reason: a `where` the mock did not
+// recognise narrows nothing and answers the case total, and a condition dropped on the way to the wire
+// answers zero. Both look like a working seed from here unless the number is asserted.
+const worklist = await fetch(`${BASE}/caseworker/cases?where=currentReferralState:is:Decided&size=1`);
+const returnedForAction = (await worklist.json()).total;
+
 console.log(`\nSeeded ${seeded}. The list reports total=${total} across ${totalPages} page(s).`);
 if (total !== seeded) console.error(`Mismatch: seeded ${seeded} but the list reports ${total}.`);
+console.log(`Referred ${referred}, of which ${returnedForAction} are returned and need action.`);
+// `--keep` adds to whatever was already there, so an earlier run's Decided cases are counted too and the
+// number is only expected to match on a run that reset first.
+if (!KEEP && returnedForAction !== EXPECTED_RETURNED_FOR_ACTION) {
+  console.error(`Mismatch: expected ${EXPECTED_RETURNED_FOR_ACTION} Decided case(s) but the filter reports ${returnedForAction}.`);
+}
 console.log(`Every case has the forename "Filterby". Open http://127.0.0.1:3000/deed-polls`);
