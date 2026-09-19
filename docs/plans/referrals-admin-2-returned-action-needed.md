@@ -382,9 +382,44 @@ A Playwright journey (`e2e-tests/tests/`, mirror an existing dashboard spec): wi
 cases, the caseworker lands on the dashboard, sees the count banner, clicks it, and arrives at the filtered
 worklist of exactly those cases. Happy path only.
 
-- [ ] E2E: dashboard → count banner → click → filtered worklist; `turbo test test:app --concurrency=1` and
+- [x] E2E: dashboard → count banner → click → filtered worklist; `turbo test test:app --concurrency=1` and
       `yarn lint` green; the six pipeline scripts still present (do not delete `lint`/`test`/`test:coverage`/
       `test:a11y`/`test:smoke`/`test:functional`); a11y check on the new banner passes
+
+**Done 2026-09-19.** One test added to `e2e-tests/tests/deed-polls.spec.ts` rather than a spec of its own — the
+dashboard journeys live there and so do the seeding and axe helpers this one reuses. What the decisions cost:
+
+- **The count is asserted as a baseline plus this journey's two cases, not as an absolute.** It is global
+  (decision 5) and the mock's store outlives a run — `reuseExistingServer`, and `yarn mock:seed` leaves four
+  `Decided` cases behind — so `returnedForActionTotal` reads the same `where` through the mock *before*
+  seeding and the banner is expected to say `baseline + 2`. An absolute number would have passed on a fresh CI
+  mock and gone red on any developer who had run `yarn dev`. Nothing else in the suite drives a referral past
+  `Claimed`, so the baseline cannot move while the test runs.
+- **The judge's two transitions are driven through api's routes, not a UI, because there is no judicial UI
+  yet** (admin-3). `referTo` raises through `POST /caseworker/cases/{id}/referrals` and then claims and directs
+  as `e2e.judge@example.com` with a hand-built bearer token, exactly as `scripts/seed-local-cases.mjs` does —
+  the mock reads a subject from the token and models no roles. The referral state is never written onto the
+  seed body: the mock recomputes it, and a fixture that contradicted its state machine would teach the
+  dashboard a number api cannot produce.
+- **A third case is left `Claimed`**, so the worklist is asserted to exclude it: a journey seeding nothing but
+  `Decided` would pass against a link whose condition was dropped, which is this plan's whole failure mode.
+  The rows are found by display reference and the two seeded ones are at the top of page 1 whatever the
+  baseline, because the mock's default order is `createdOn` descending.
+- **axe runs at both points** — the dashboard carrying the banner and the worklist it links to — with no
+  waivers, and the count is re-read on the Enroled tab so decision 5 is checked where a caseworker would
+  notice it.
+- **Green:** the whole Playwright suite `30 passed` (not just the new journey — the new cases join a shared
+  store, so the other journeys' totals are the thing worth re-running); `yarn turbo test test:app
+  --concurrency=1` → 8 of 8 tasks, **2231 tests / 130 files**, unchanged from Task 3 because an E2E spec is not
+  in the vitest suite; `yarn lint` exits 0 with the same 2 warnings / 2 infos. All six pipeline scripts still
+  in `package.json`.
+- **Flagged, not fixed:** the worklist page renders its query-builder row with the field chooser reading
+  "Choose a case field" and the value select holding only "Choose a value", because `currentReferralState` is
+  deliberately not choosable (Task 2, decision 8) while `queryableField` still resolves it. axe is clean and
+  the rows are right, but pressing **Apply filters** on the worklist drops the condition and shows the whole
+  list. That is the known cost of a non-form queryable field; fixing it means either offering the field in the
+  chooser or rendering an applied-but-unchoosable condition as a removable summary, and both are display
+  decisions this plan does not make.
 
 ## Deliberately not in this plan
 
