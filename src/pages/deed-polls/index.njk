@@ -11,6 +11,7 @@
 {% from "govuk/components/inset-text/macro.njk" import govukInsetText %}
 {% from "govuk/components/pagination/macro.njk" import govukPagination %}
 {% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
+{% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
 
 {% block content %}
   {#
@@ -27,7 +28,16 @@
     `html` rather than `text` because the banner carries the way to the work, and the link is the same
     condition the count was read with — clicking the number is the worklist, decision 3.
   #}
-  {% if returnedForAction %}
+  {#
+    Three states, not two — and `returnedForActionFailed` is checked first because it is the one the other two
+    cannot express. A count of zero renders nothing, so a count that could not be *read* rendering nothing too
+    would tell a caseworker there is no work when the page has no idea either way. Warning text rather than
+    another "Important" banner: the same component, and the same reasoning, as the referrals panel on
+    detail.njk — no worklist link, because there is no count to stand behind it.
+  #}
+  {% if returnedForActionFailed %}
+    {{ govukWarningText({ text: returnedForActionUnavailable, iconFallbackText: warningIcon }) }}
+  {% elif returnedForAction %}
     {% set returnedForActionHtml %}
       <p class="govuk-notification-banner__heading">{{ returnedForAction }}</p>
       <p class="govuk-body">

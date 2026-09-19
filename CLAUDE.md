@@ -245,8 +245,13 @@ Follow these strict naming conventions throughout the project:
   additive calls — the saved-query nav and the returned-for-action count — *before* the list read and awaits each
   inside a helper that catches everything, logs, and returns a sentinel (`[]`, `null`); only the list read is
   fatal. Reach for that shape on a page with one load-bearing call rather than `Promise.allSettled`, which is
-  `[id].ts`'s answer to two. Both degraded states must still be distinguishable from empty ones: a silently
-  absent count banner reads as "nothing needs action", which is why it is logged
+  `[id].ts`'s answer to two.
+- **A log is not a way of telling the caseworker.** Both degraded states must be distinguishable from empty
+  ones *on the page*: a silently absent count banner reads as "nothing needs action", so the returned-for-action
+  count carries its `null` through as its own state and the page says the number could not be loaded. Log it as
+  well, for whoever is asked why — but the log answers an engineer's question, not the caseworker's. An earlier
+  version of this rule offered the log line *as* the resolution, which was circular: it asserted the states were
+  distinguishable while leaving the two renderings identical
 - Ask api to filter, sort and page. It resolves a filter key; do not fetch a list and narrow it here
 - Consider caching for expensive computations
 - Every call carries an `AbortSignal.timeout`, so a slow api degrades pages rather than hanging them

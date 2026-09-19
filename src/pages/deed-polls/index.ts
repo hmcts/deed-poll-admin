@@ -95,6 +95,12 @@ const en = {
   returnedForActionFor: (count: number) =>
     count === 1 ? "1 application has a returned direction needing action" : `${count} applications have a returned direction needing action`,
   returnedForActionLink: "View these applications",
+  // Shown when the count could not be read. Worded so it cannot be mistaken for "nothing needs action", which
+  // is precisely what its silent absence used to say — see `returnedForActionCount`.
+  returnedForActionUnavailable:
+    "The number of applications with a returned direction could not be loaded, so this page cannot say whether any need action. Try again shortly.",
+  // GOV.UK's own fallback for the warning icon, which is decorative and needs a text equivalent.
+  warningIcon: "Warning",
   newCase: "New case",
   privateTag: "Private",
   builderHeading: "Filter these cases",
@@ -273,8 +279,11 @@ async function savedQueryEntries(caller: Caller, { filter, conditions, sort }: L
  * caseworker did not choose, so a refusal of it is this app's own bug and not theirs to correct — which is
  * why every failure is caught here rather than only the unreachable ones.
  *
- * Logged, because "the count is the alert" has exactly one failure mode nobody would notice: a banner that is
- * silently absent looks identical to nothing needing action.
+ * Logged **and** said on the page. "The count is the alert" has exactly one failure mode nobody would notice —
+ * a silently absent banner looks identical to nothing needing action — and a log fixes that for an engineer
+ * reading logs, not for the caseworker deciding whether there is work. So `null` is carried through to the
+ * template as its own state rather than folded into the zero: three outcomes, three renderings. Same rule as
+ * `[id].ts`'s referrals panel, where an unreadable panel says so instead of rendering "None recorded".
  */
 async function returnedForActionCount(caller: Caller): Promise<number | null> {
   try {
@@ -309,8 +318,11 @@ function render(
     cases,
     // Empty rather than a zero, so the template asks "is there something to say" rather than holding the
     // decision that a zero is not worth saying — decision 4: an alert with a zero in it is not an alert.
-    // A count that could not be read says nothing either; `returnedForActionCount` has already logged it.
     returnedForAction: returnedForAction === null || returnedForAction === 0 ? "" : content.returnedForActionFor(returnedForAction),
+    // The third state, and not folded into the empty one: a count that could not be read is not a count of
+    // zero, and the template must be able to tell them apart to say so. `returnedForActionCount` has already
+    // logged it; this is what the caseworker is told.
+    returnedForActionFailed: returnedForAction === null,
     returnedForActionHref: RETURNED_FOR_ACTION_PATH,
     filterGroups: filterGroups(view, content, savedQueries),
     // The builder's own copy of the tab, and deliberately not the nav's: the hidden control is what carries

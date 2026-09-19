@@ -301,6 +301,8 @@ describe("deed-polls list page", () => {
       await GET(pageRequest(), res);
 
       expect(res.render.mock.calls[0][1].returnedForAction).toBe("");
+      // And it is a real zero, not a failure: the two render differently, so the flag must not be set here.
+      expect(res.render.mock.calls[0][1].returnedForActionFailed).toBe(false);
     });
 
     it("reads the same count whatever the request asks the list for, since it is a fact about the service", async () => {
@@ -346,6 +348,29 @@ describe("deed-polls list page", () => {
       expect(res.render.mock.calls[0][1].returnedForAction).toBe("");
       expect(res.status).not.toHaveBeenCalled();
       expect(logged).toHaveBeenCalledWith(expect.stringContaining("returned-for-action count unavailable"));
+      logged.mockRestore();
+    });
+
+    // The log alone told an engineer and left the caseworker with a blank page element meaning "no work".
+    it("tells the page the count failed, so the caseworker is told rather than only the log", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(countReturnedForAction).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].returnedForActionFailed).toBe(true);
+      expect(res.render.mock.calls[0][1].en.returnedForActionUnavailable).toContain("could not be loaded");
+      logged.mockRestore();
+    });
+
+    it.each([0, 4])("does not claim a failure when the count read fine and answered %i", async (total) => {
+      vi.mocked(countReturnedForAction).mockResolvedValue(total);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].returnedForActionFailed).toBe(false);
     });
 
     // The banner's keys being in `cy` as well as `en` is covered by the key-parity test above, which is all an

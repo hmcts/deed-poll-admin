@@ -355,6 +355,49 @@ describe("deed-polls list template", () => {
 
       expect(markup).not.toContain("govuk-notification-banner");
       expect(markup).not.toContain("needing action");
+      // And no warning either: a zero is an answer, so there is nothing to apologise for.
+      expect(markup).not.toContain("govuk-warning-text");
+    });
+
+    describe("when the count could not be read", () => {
+      /** Suppressed here; the handler's log line is asserted in `index.test.ts`, which owns that side. */
+      const failedRender = async (): Promise<string> => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        vi.mocked(countReturnedForAction).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+        const markup = await render();
+        logged.mockRestore();
+
+        return markup;
+      };
+
+      // The whole point of the change: silence and zero used to be the same rendering.
+      it("says the count could not be loaded, rather than rendering the nothing a zero renders", async () => {
+        const markup = await failedRender();
+
+        expect(markup).toContain("govuk-warning-text");
+        expect(markup).toContain("could not be loaded");
+        expect(markup).toContain("cannot say whether any need action");
+      });
+
+      it("does not claim a count, since it has none — no banner and no number", async () => {
+        const markup = await failedRender();
+
+        expect(markup).not.toContain("govuk-notification-banner");
+        expect(markup).not.toContain("needing action");
+      });
+
+      it("offers no worklist link, which would lead to a list nothing said was the right one", async () => {
+        const markup = await failedRender();
+
+        expect(markup).not.toContain("View these applications");
+      });
+
+      it("still renders the page around it, the count being one element and not the page", async () => {
+        const markup = await failedRender();
+
+        expect(markup).toContain("<h1");
+        expect(markup).toContain('role="search"');
+      });
     });
 
     it("states the count above everything else on the page, since a banner below the builder is not an alert", async () => {
