@@ -503,11 +503,46 @@ the direction zod schema (decision + `directionsText` + required `publishToGazet
 services from `libs/deed-poll/src/index.ts` (services only, never `callApi`/`ApiConfig`). Unit-test each
 against the mock, including the 404/409/400 paths and visibility.
 
-- [ ] admin-0's mock **verified** to implement pool (ordered, total), read (404-on-invisible), claim
+- [x] admin-0's mock **verified** to implement pool (ordered, total), read (404-on-invisible), claim
       (409-on-taken), direct (409-on-not-held, 400-on-bad) with a judge and mixed-state pool seeded — or the
       gap reported rather than filled here; domain services thin over `callApi`, exported service-only;
       direction schema rejects missing `decision`/`publishToGazette`; unit tests cover happy + 404/409/400 +
       visibility; `turbo test test:app --concurrency=1` green
+
+**DONE 2026-09-19.** The mock verification passes on every clause, so nothing was filled in here:
+`judicialPool` filters to `Open`, sorts by `poolOrder` (urgent-first by *position in `URGENCY`*, then oldest)
+and publishes `page`/`size`/`total`/`totalPages`; `judicialReferral` runs `visibleToJudge` before anything else
+and 404s otherwise; claim 409s on any non-`Open` state including the judge's own claim; direction 400s on the
+wire schema and 409s when visible-but-not-held. The judge identity is the token's `sub` via `auditName`, and the
+mixed-state pool is arranged per test (`mock.seed` with chosen `createdOn`, plus `referredCase`/
+`claimedReferral`/`decidedReferral`) rather than baked into a global seed — which is what lets one test pin an
+order three same-millisecond creates could not. Adapter-level coverage of all of it already exists in
+`client.test.ts:853-990` and `server.test.ts:1080-1249`.
+
+**One api behaviour the plan's prose does not state, and both Task 3 and Task 4 need it.** Directing a referral
+is a **404, not a 409, when another judge now holds it** — visibility is checked before the hold, so "taken out
+from under me" and "never existed" stay indistinguishable; the 409 is only for a referral the judge *can* see
+but does not hold (still `Open`, or already `Decided` by them). So the direction page needs both branches and
+they say different things: the 409 is "this referral is no longer yours to direct" beside the control, the 404
+is decision 10's "no longer available". Reading the 409 as the only lapse case would render a 404 page for the
+commonest lapse there is.
+
+Two deviations from the task text, both deliberate:
+
+- **`listPool(paging, caller)`, not `listPool(caller, paging)`.** Every service in this repo takes the caller
+  last — `findDeedPolls(query, caller)`, `findReferrals(deedPollId, caller)` — and one function inverting it is
+  a trap at the call site that no test would catch, because both parameters are objects.
+- **The domain tests mock the adapter; they do not drive the mock.** `.claude/rules/backend.md` states nothing
+  above the adapter imports the mock, and `.claude/rules/testing.md` makes the adapter the seam at this layer.
+  The mock-driven 404/409/400/visibility coverage the task asks for is real and was verified — it lives one
+  layer down, where the mock *is* the contract, and duplicating it here would assert the mock twice and the
+  error mapping nowhere.
+
+`getReferral` is exported under the plan's name, which reads bare next to the caseworker `findReferral` on the
+flat index; the docblock says which surface it belongs to and that it takes no case id. Totals **2,288 tests**
+(up 27: all in `libs/deed-poll`), 8/8 turbo tasks; `yarn lint` 0 errors, 2 warnings + 2 infos — baseline
+exactly. `tsc -p libs/deed-poll/tsconfig.json` clean, which is what pins `DirectionInput` as assignable to the
+adapter's `JudicialDirection` rather than a parallel restatement of it.
 
 ### Task 3: Pages — the pool, the referral view, claim
 
