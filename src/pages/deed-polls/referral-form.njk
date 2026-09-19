@@ -1,0 +1,126 @@
+{% extends "layouts/default.njk" %}
+{% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
+{% from "govuk/components/radios/macro.njk" import govukRadios %}
+{% from "govuk/components/character-count/macro.njk" import govukCharacterCount %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{#
+  Raise-a-referral form. Two controls and two conditionally-revealed ones.
+
+  The reasons are checkboxes because api takes several: a case can be with the judiciary for more than one
+  thing at once, and forcing a single choice would make the caseworker pick which of two true reasons to
+  record. The items come from the handler with their checked state already worked out — the values are api's
+  enum members, the labels are this repo's.
+
+  `notes` is revealed by Other and `urgencyReason` by Urgent, both GOV.UK conditional reveals rather than
+  always-visible fields. The reveal is the only thing that explains why one of them is suddenly mandatory,
+  and a field that is required only sometimes reads as a bug when it is shown all the time. Each keeps its own
+  error message inside the reveal, and because a re-render puts the submitted choices back, the reveal that
+  holds an error is open when the page returns.
+
+  Character counts rather than `maxlength`: both limits are api's and are stated in the schema's messages, and
+  a browser that silently stops accepting characters gives no reason for having done so — the same call
+  `witness-form.njk` records.
+
+  **The urgency reveal carries one waived axe finding, and it is govuk-frontend's.** `radios.mjs` sets
+  `aria-expanded` on the radio that owns a reveal, which ARIA 1.2 does not allow on `role="radio"` (it does on
+  `role="checkbox"`, so the Other → notes reveal above is clean). Nothing here produces it and nothing here can
+  suppress it, so the journey in `e2e-tests/tests/deed-polls.spec.ts` waives that rule for that one element and
+  keeps every other check on this page live. If a future govuk-frontend drops the attribute, delete the waiver.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {#
+      The conflict leads the summary. It is not a field error — nothing that was typed is wrong — so it
+      carries no `href` of its own and holds the link to the referral already open instead.
+    #}
+    {% set summaryRows = [] %}
+    {% if conflictHref %}
+      {% set conflictRow %}{{ alreadyOpen }} <a class="govuk-link" href="{{ conflictHref }}">{{ viewOpenReferral }}</a>{% endset %}
+      {% set summaryRows = (summaryRows.push({ html: conflictRow }), summaryRows) %}
+    {% endif %}
+    {% for row in errorList %}
+      {% set summaryRows = (summaryRows.push(row), summaryRows) %}
+    {% endfor %}
+
+    {% if summaryRows.length %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: summaryRows }) }}
+    {% endif %}
+
+    <span class="govuk-caption-l">{{ case.displayReference }}</span>
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+    <form method="post" action="/deed-polls/{{ case.id }}/referrals/new" novalidate>
+
+      {% set notesHtml %}
+        {{ govukCharacterCount({
+          id: "notes",
+          name: "notes",
+          rows: 5,
+          maxlength: notesMax,
+          value: values.notes,
+          label: { text: notesLabel },
+          hint: { text: notesHint },
+          errorMessage: { text: errors.notes } if errors.notes
+        }) }}
+      {% endset %}
+
+      {% set reasonRows = [] %}
+      {% for item in reasonItems %}
+        {% if item.value == "Other" %}
+          {% set reasonRows = (reasonRows.push({ value: item.value, text: item.text, checked: item.checked, conditional: { html: notesHtml } }), reasonRows) %}
+        {% else %}
+          {% set reasonRows = (reasonRows.push({ value: item.value, text: item.text, checked: item.checked }), reasonRows) %}
+        {% endif %}
+      {% endfor %}
+
+      {{ govukCheckboxes({
+        idPrefix: "reasons",
+        name: "reasons",
+        fieldset: { legend: { text: reasonsLegend, classes: "govuk-fieldset__legend--m" } },
+        hint: { text: reasonsHint },
+        items: reasonRows,
+        errorMessage: { text: errors.reasons } if errors.reasons
+      }) }}
+
+      {% set urgencyReasonHtml %}
+        {{ govukCharacterCount({
+          id: "urgencyReason",
+          name: "urgencyReason",
+          rows: 3,
+          maxlength: urgencyReasonMax,
+          value: values.urgencyReason,
+          label: { text: urgencyReasonLabel },
+          hint: { text: urgencyReasonHint },
+          errorMessage: { text: errors.urgencyReason } if errors.urgencyReason
+        }) }}
+      {% endset %}
+
+      {% set urgencyRows = [] %}
+      {% for item in urgencyItems %}
+        {% if item.value == "Urgent" %}
+          {% set urgencyRows = (urgencyRows.push({ value: item.value, text: item.text, checked: item.checked, conditional: { html: urgencyReasonHtml } }), urgencyRows) %}
+        {% else %}
+          {% set urgencyRows = (urgencyRows.push({ value: item.value, text: item.text, checked: item.checked }), urgencyRows) %}
+        {% endif %}
+      {% endfor %}
+
+      {{ govukRadios({
+        idPrefix: "urgency",
+        name: "urgency",
+        fieldset: { legend: { text: urgencyLegend, classes: "govuk-fieldset__legend--m" } },
+        items: urgencyRows,
+        errorMessage: { text: errors.urgency } if errors.urgency
+      }) }}
+
+      <div class="govuk-button-group">
+        {{ govukButton({ text: submit }) }}
+        <a class="govuk-link" href="/deed-polls/{{ case.id }}#referrals">{{ cancel }}</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

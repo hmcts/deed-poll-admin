@@ -277,6 +277,19 @@ describe("buildDetailTabs — empty states", () => {
     expect(tabs.find((t) => t.id === "documents")?.empty).toBe(true);
   });
 
+  it("counts referrals off the record the same way, since the page merges its second call in under that name", () => {
+    // The one subgrid whose rows are not on the case payload. A caller that does not merge them gets the
+    // absent case above — an empty tab — which is why the page's own test pins the merge.
+    const tabs = buildDetailTabs(
+      { type: DeedPollType.Adult, referrals: [{ id: "ref-1" }] },
+      rulesFor(DeedPollType.Adult),
+      presentationFor({ type: DeedPollType.Adult })
+    );
+
+    expect(tabs.find((t) => t.id === "referrals")?.empty).toBe(false);
+    expect(tabs.find((t) => t.id === "referrals")?.subgrid).toBe("referrals");
+  });
+
   it("carries the subgrid marker so the template can render child records", () => {
     const tabs = buildDetailTabs({ type: DeedPollType.Adult }, rulesFor(DeedPollType.Adult), presentationFor({ type: DeedPollType.Adult }));
     expect(tabs.find((t) => t.id === "documents")?.subgrid).toBe("documents");

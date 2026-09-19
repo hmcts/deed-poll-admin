@@ -75,8 +75,15 @@ export interface TabDef {
   label: string;
   /** Data-entry sections. Empty when the tab is a subgrid (see `subgrid`). */
   sections: SectionDef[];
-  /** Present when the tab is a child-entity subgrid rather than fields. */
-  subgrid?: "notes" | "witnesses" | "documents";
+  /**
+   * Present when the tab is a child-entity subgrid rather than fields.
+   *
+   * `referrals` is the one whose rows are **not** on the case payload — `GET /caseworker/cases/{id}` carries
+   * notes, witnesses and documents, and a case's referral history is a second call. So the page hands
+   * `buildDetailTabs` a record with the fetched referrals merged in; see `../referrals/service.ts` for why the
+   * second call is the right answer here and not for the other three.
+   */
+  subgrid?: "notes" | "witnesses" | "documents" | "referrals";
 }
 
 /** Build govuk select items ({value,text}) for an enum LABELS set. */
@@ -349,7 +356,11 @@ export const FORM_TABS: TabDef[] = [
   RETURN_TAB,
   REFUND_TAB,
   { id: "witnesses", label: "Witnesses", sections: [], subgrid: "witnesses" },
-  { id: "documents", label: "Supporting documents", sections: [], subgrid: "documents" }
+  { id: "documents", label: "Supporting documents", sections: [], subgrid: "documents" },
+  // `referrals` is not `referral`: REFERRAL_TAB above holds the case's own "Refer to Master?" fields, ported
+  // from the Dynamics form, while this lists the referrals actually raised against the case. Both ids are
+  // URL slugs (`/deed-polls/{id}/edit/referral`) so neither can be renamed to tell them apart.
+  { id: "referrals", label: "Referrals", sections: [], subgrid: "referrals" }
 ];
 
 /** Every editable (non-readOnly) field across all data-entry sections. */

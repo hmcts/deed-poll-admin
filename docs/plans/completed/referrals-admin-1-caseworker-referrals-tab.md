@@ -274,10 +274,53 @@ not carry referrals fails in a confusing place, several tasks later.
 admin-0 has not run or has not merged, in which case the fix is to run it, not to patch the adapter from
 inside this plan.
 
-- [ ] Gate passed: the nine referral operations and eight schemas present in `openapi.json` with provenance at
+- [x] Gate passed: the nine referral operations and eight schemas present in `openapi.json` with provenance at
       api `ee37173` or later; the four caseworker adapter functions and their types exported; the mock routing
       both paths and returning 409 on already-open and on terminal-withdraw; both validation commands green
       with the baseline totals recorded
+
+**Gate result 2026-09-18 — passed on all four. admin-0 has landed; proceed to Task 2.**
+
+1. **Spec** — `openapi.json` carries **9 referral operations** across 8 paths (5 caseworker:
+   `GET`+`POST …/referrals`, `GET …/{referralId}`, `POST …/withdrawal`, `POST …/closure`; 4 judicial:
+   `GET /judicial/referrals`, `GET …/{referralId}`, `POST …/claim`, `POST …/direction`) and all **8 referral
+   schemas** (`CreateReferralRequest`, `ReferralResponse`, `JudicialDirectionRequest`, `JudicialPoolResponse`,
+   `JudicialReferralSummary`, `JudicialReferralDetail`, `JudicialCaseView`, `JudicialCaseNote`). Document
+   totals: 35 operations across 22 paths, 27 schemas. `SPEC-PROVENANCE.md`'s top row is api
+   `ee3717313d3cd841608b05a38f4b9a9598f84a30` — exactly the gate's floor. All nine are registered in
+   `contract.test.ts` (`:54-58`, `:67-70`).
+2. **Adapter** — the four this plan calls are exported from `client.ts`: `listReferrals` (`:338`), `getReferral`
+   (`:343`), `createReferral` (`:354`), `withdrawReferral` (`:364`), with `referralPath` as the shared helper.
+   Types alongside them: `Referral` (`:838`), `ReferralCreate` (`:839`), `ReferralState` (`:870`),
+   `ReferralReason` (`:877`). `closeReferral` (`:374`) and the four judicial functions (`:484-506`) are also
+   there — expected, and **out of scope per decision 1**: nothing this plan writes may call them. The package
+   index re-exports only `./api/client.js`, so `wire.ts` and the mock stay private as the constraints require.
+3. **Mock** — one regex reaches all three sub-resources plus the `withdrawal`/`closure` actions
+   (`server.ts:266`), dispatching to `referrals()` (`:603`); `referrals: []` is on `MockCase` and seeded
+   (`:399`). Both 409s this plan renders are real, not 200s: **already-open on create** —
+   `record.referrals.some(candidate => !isTerminal(candidate.state))` → 409 (`:661-662`), ordered *after* the
+   body checks as api orders them; **terminal withdraw** — `isTerminal(referral.state)` → 409 (`:629`). Each is
+   covered twice over, at mock level (`server.test.ts:870`, `:898`) and through the adapter
+   (`client.test.ts:632`, `:701`), so the conflict UI has a contract to test against.
+4. **Baseline (this branch, before any edit)** — `yarn install --frozen-lockfile` clean; `yarn lint` **exit 0**
+   (2 pre-existing `noUndeclaredEnvVars` warnings in `src/server.test.ts` / `src/session-store.test.ts`, no
+   errors); `turbo test test:app --concurrency=1` **8 successful, 8 total** — not the false-green "0
+   successful" the constraints warn about.
+
+   | Workspace | Files | Tests |
+   |---|---|---|
+   | `//` (the app, `test:app`) | 42 | 621 passed, 3 skipped (624) |
+   | `@hmcts/deed-poll` | 45 | 752 |
+   | `@hmcts/deed-poll-api-client` | 4 | 325 |
+   | `@hmcts-cft/cloud-native-platform` | 10 | 140 |
+   | `@hmcts-cft/express-govuk-starter` | 12 | 127 |
+   | `@hmcts-cft/simple-router` | 4 | 41 |
+   | `@hmcts-cft/express-session-postgres` | 2 | 23 |
+   | `@hmcts-cft/express-session-redis` | 1 | 7 |
+   | **Baseline total** | **120** | **2,036 passed, 3 skipped (2,039)** |
+
+   Task 4 records the final count against this. Note the baseline is higher than plans 11/12 would suggest
+   because admin-0's adapter work added to `@hmcts/deed-poll-api-client` — quote this table, not theirs.
 
 ### Task 2: The domain layer — schemas and service
 
@@ -294,11 +337,35 @@ inside this plan.
 - Export the service (not schemas' internals, not `callApi`) from `libs/deed-poll/src/index.ts` (witnesses at
   `index.ts:59`).
 
-- [ ] `createReferralSchema` enforces ≥1 reason, notes-when-Other, urgencyReason-when-Urgent, each as a
+- [x] `createReferralSchema` enforces ≥1 reason, notes-when-Other, urgencyReason-when-Urgent, each as a
       field-scoped error; service has dedicated `findReferrals`/`findReferral` calls and `createReferral`/
       `withdrawReferral` wrappers; api 409/400 surface as `ConflictError`/`InvalidInputError` via `callApi`;
       service exported from the domain index; unit tests mock `@hmcts/deed-poll-api-client` and cover each
       validation rule and each classified failure; `turbo test test:app --concurrency=1` green
+
+**Done 2026-09-18.** `libs/deed-poll/src/referrals/{schemas,service}.ts` plus their colocated tests, and two
+lines added to `libs/deed-poll/src/index.ts` (schemas + service; no `callApi`, no `ApiConfig`).
+
+Three decisions worth knowing before Task 3 writes the pages against these:
+
+- **`urgency` is required in this schema although api publishes it as optional.** A narrowing, not a
+  disagreement: the form always renders both radios so "no answer" is not a body it can send, and the
+  `urgencyReason` rule hinges on the answer. Its message is "Select how urgent this referral is".
+- **The messages live in the schema, not the page** — `../saved-queries/schemas.ts`'s split rather than
+  `../witnesses/schemas.ts`'s. `notes` has two different things to say about it (required-because-`Other`,
+  too-long) and a page mapping one message per field cannot say both. The *labels* are still the page's
+  (decision 2). So Task 3's POST handler feeds `zodErrorToFieldErrors(parsed.error)` straight to the summary
+  rather than re-wording it: `reasons` → "Select at least one reason for referring this case", `notes` →
+  "Enter the other reason for referring this case", `urgencyReason` → "Enter why this referral is urgent".
+- **Both bounds and both member sets are read off api, never restated.** `MAX_REFERRAL_NOTES` (1000) and
+  `MAX_REFERRAL_URGENCY_REASON` (500) are exported for the form's hints; `reasons`/`urgency` are built from the
+  client's `REFERRAL_REASON`/`URGENCY` arrays, so the checkbox list Task 3 renders should map over the array
+  rather than typing six values out again.
+
+Whitespace-only `notes`/`urgencyReason` are trimmed to `undefined`, so "   " fails the conditional rule rather
+than satisfying it. `@hmcts/deed-poll` went 752 → **789** tests (45 → 47 files); `yarn lint` unchanged at the
+baseline's 2 pre-existing warnings; `yarn turbo build` clean, so the DTO type-checks against the adapter's
+`ReferralCreate`.
 
 ### Task 3: The pages — raise, view, withdraw
 
@@ -321,10 +388,60 @@ missing reason → 400 with summary; `Other` without notes → 400; `Urgent` wit
 one open → the 409 message with the link; view of an open vs terminal referral (withdraw action present/
 absent); withdraw success → redirect; withdraw of terminal → the 409 message.
 
-- [ ] Raise/view/withdraw pages live and route correctly (static-before-dynamic ordering holds); conditional
+- [x] Raise/view/withdraw pages live and route correctly (static-before-dynamic ordering holds); conditional
       reveals for notes and urgency reason; error summary + inline errors + preserved values; both 409s render
       as page messages not error pages; migrated referral renders honestly; page tests cover each path;
       `turbo test test:app --concurrency=1` green
+
+**Done 2026-09-18.** Three routes, two templates and a view model:
+
+| File | What it is |
+|---|---|
+| `src/pages/deed-polls/[id]/referrals/new.ts` + `deed-polls/referral-form.njk` | raise |
+| `src/pages/deed-polls/[id]/referrals/[referralId].ts` + `deed-polls/referral-detail.njk` | view |
+| `src/pages/deed-polls/[id]/referrals/[referralId]/withdraw.ts` | withdraw (POST only) |
+| `libs/deed-poll/src/referrals/referrals-view.ts` | the labels and one referral formatted, exported from the domain index |
+
+Templates sit beside `witness-form.njk` in `src/pages/deed-polls/`, which is where this app keeps them — any
+`.ts` under `src/pages/` is a route, so a shared non-route module cannot live there.
+
+Five decisions Task 4 should know about:
+
+- **A fourth file, `referrals-view.ts`, holds the labels.** The reason wording is needed by the raise form, the
+  referral view **and** Task 4's tab, and three copies of "Applicant is a minor" is three places for the
+  business's wording to drift. It follows `documents-view.ts` exactly: maps keyed by api's member arrays (so a
+  member added at api's end is a type error, not a blank cell), `REFERRAL_REASON_CHOICES` /
+  `REFERRAL_URGENCY_CHOICES` for the controls, `REFERRAL_STATE_TAG` for the tags, and `buildReferralDetail`.
+  **Task 4's panel should render rows through it rather than reading `referral.*` in the template.**
+  `REFERRAL_URGENCY_LABEL.Normal` is deliberately `"Standard"` where `URGENCY_LABEL.Normal` is `"Normal"` —
+  same api enum, two questions.
+- **`terminal` is the only state rule, and it lives on the view model.** Decision 10 holds: it governs whether
+  a control is rendered and nothing else, an unpublished `state` counts as *not* terminal so api gets the final
+  word, and the refusal itself is api's 409. Task 4's raise button can ask the same question of the list.
+- **The create-409 costs one extra read, on that path only.** api's 409 says *a* referral is open, not which,
+  and "view the open referral" needs an id — so `openReferralHref` calls `findReferrals` and links to the
+  non-terminal one, falling back to `…#referrals` if it has gone in between. Status is **409**, not 400.
+- **The withdraw-409 is a redirect, not a render.** `withdraw.ts` sends the caseworker to
+  `…/referrals/{id}?withdraw=conflict` and the referral view says "This referral has already been closed or
+  withdrawn." The forms' objection to `?error=` is about losing typed input; a withdrawal has none, and the
+  state shown beside the message has to be re-read to be true. It also keeps the wording in the one page that
+  owns it instead of copying ~18 content keys into a POST-only route.
+- **Zod's messages go straight to the summary**, per Task 2's note — no `en.fieldErrors` map like the witness
+  forms have. `fieldMessages` keys on the path's first segment so a `reasons.0` issue lands on the group.
+
+Route ordering verified by running `sortRoutes(discoverRoutes("src/pages"))`: `…/referrals/new` →
+`…/referrals/:referralId` → `…/referrals/:referralId/withdraw`, so the static file beats the sibling dynamic
+one and the `[referralId].ts` file and `[referralId]/` directory coexist (routes are keyed by URL path). Not
+asserted in a test — `discoverRoutes`/`sortRoutes` are not exported from `@hmcts-cft/simple-router`'s index, and
+notes/witnesses/documents document the same ordering in a docblock rather than pinning it.
+
+Two `.njk.test.ts` files render the templates through `nunjucks.configure` (the `index.njk.test.ts` pattern),
+because the conditional reveal is markup a view model cannot show: they assert the checkbox's
+`data-aria-controls` actually names the div holding `notes`, that `Normal` reveals nothing, that withdraw is a
+form that disappears on a terminal referral, and that a migrated referral says so.
+
+The app went 42 → **47** test files and 621 → **678** passing; `@hmcts/deed-poll` 47 → **48** files and 789 →
+**809**. `yarn lint` unchanged at the baseline's 2 pre-existing warnings; `yarn turbo build` clean.
 
 ### Task 4: The tab, and full validation
 
@@ -345,10 +462,177 @@ Then:
   call, shows the raise button only when none is open, and links to a referral view.
 - Confirm the tab's `empty` state (no referrals) renders cleanly.
 
-- [ ] Referrals tab renders in `govukTabs` with list, tags, labels, per-referral links and a
+- [x] Referrals tab renders in `govukTabs` with list, tags, labels, per-referral links and a
       conditionally-shown raise button; `[id].ts` makes the second call and the panel is populated; empty
       state clean; detail-page test covers the tab; `yarn lint` clean; `turbo test test:app --concurrency=1`
       green; final test count recorded next to the baseline
+
+**Done 2026-09-18.** Option (a) as decided — referrals are the fourth subgrid tab inside the one `govukTabs`
+the detail page already renders, not a standalone page.
+
+| File | Change |
+|---|---|
+| `libs/deed-poll/src/deed-poll/form-fields.ts` | `referrals` in the `TabDef.subgrid` union; `FORM_TABS` entry, last |
+| `libs/deed-poll/src/deed-poll/detail-view.ts` | `DetailTab.subgrid` now derives from `TabDef["subgrid"]` rather than restating it |
+| `libs/deed-poll/src/referrals/referrals-view.ts` | `buildReferralsView` — the tab's rows, count and `anyOpen` |
+| `src/pages/deed-polls/[id].ts` | the `findReferrals` call, merged into the record and passed as a view model |
+| `src/pages/deed-polls/detail.njk` | the `subgrid == "referrals"` panel |
+| `src/pages/deed-polls/detail.njk.test.ts` | new — the panel's markup |
+
+Four things worth knowing:
+
+- **`referrals` and `referral` are different tabs.** `REFERRAL_TAB` holds the case's own "Refer to Master?"
+  fields, ported from the Dynamics form and conditionally visible; the new one lists the referrals actually
+  raised. Both ids are edit-route slugs (`/deed-polls/{id}/edit/referral`), so neither could be renamed to tell
+  them apart — hence the comment at the `FORM_TABS` entry. `tabVisible`'s `case "referral"` is untouched and
+  still means the old one.
+- **The merge is the whole mechanism, and it is one line.** `subgridCount` reads `record[subgrid]`, so
+  `buildDetailTabs({ ...found, referrals }, …)` is what makes the tab non-empty; without it the tab renders
+  "None recorded" on a referred case and nothing fails. `detail-view.test.ts` pins the count and `[id].test.ts`
+  pins the merge, because the two halves can break independently.
+- **`anyOpen` is on the view model, not in the template.** It is `terminal` asked of the list (Task 3's note),
+  and it decides whether the panel offers "Refer this case to the judiciary" — with the sentence
+  "This case is with the judiciary. Withdraw the open referral before raising another." in its place. api still
+  owns the rule; the button is withheld so its 409 does not arrive after a 1,000-character form is filled in.
+
+  **Superseded by the second-pass amendment below:** the template reads `offerRaise`, not `anyOpen`, because
+  there are now two reasons to withhold the button and only one of them has a message.
+- **The second call is `Promise.all`'d with `findDeedPoll`**, as `referrals/[referralId].ts` already does:
+  neither answer depends on the other, the tab is on every case, and a 404 for the case rejects both.
+
+  **Superseded by the second-pass amendment below:** it is `Promise.allSettled`, so the case read stays fatal
+  and the referrals read degrades. `referrals/[referralId].ts` is unchanged — there, the referral *is* the
+  page.
+
+Final counts against Task 1's baseline. The app's `//#test:app` gained the 6 model tests in `[id].test.ts` and
+the 9 template tests in the new `detail.njk.test.ts`; `@hmcts/deed-poll` gained `buildReferralsView`'s 9 and one
+`detail-view` test.
+
+| Workspace | Files (baseline → final) | Tests (baseline → final) |
+|---|---|---|
+| `//` (the app, `test:app`) | 42 → **48** | 621 → **693** passed, 3 skipped |
+| `@hmcts/deed-poll` | 45 → **48** | 752 → **818** |
+| `@hmcts/deed-poll-api-client` | 4 → 4 | 325 → 325 |
+| `@hmcts-cft/cloud-native-platform` | 10 → 10 | 140 → 140 |
+| `@hmcts-cft/express-govuk-starter` | 12 → 12 | 127 → 127 |
+| `@hmcts-cft/simple-router` | 4 → 4 | 41 → 41 |
+| `@hmcts-cft/express-session-postgres` | 2 → 2 | 23 → 23 |
+| `@hmcts-cft/express-session-redis` | 1 → 1 | 7 → 7 |
+| **Total** | **120 → 129** | **2,036 → 2,174 passed, 3 skipped (2,177)** |
+
+`turbo test test:app --concurrency=1` **8 successful, 8 total**; `yarn lint` unchanged at the baseline's 2
+pre-existing `noUndeclaredEnvVars` warnings; `yarn build` clean, so the merged record and the new view model
+type-check.
+
+### Code review, 2026-09-18 — what changed after the four tasks
+
+Two behaviour fixes, one accessibility finding, and the journey test that found it.
+
+- **A value left inside a closed conditional reveal is no longer sent.** GOV.UK's reveal only *hides* its
+  input, so a caseworker who typed a reason for urgency and then chose Standard was posting both, and api
+  stored both — a referral reading "Standard" beside a reason for being urgent, with decision 10 leaving no
+  edit page to correct it. `submitted()` in `referrals/new.ts` now drops `urgencyReason` unless `Urgent` is
+  chosen and `notes` unless `Other` is ticked, and `submittedValues()` still keeps both on screen so re-ticking
+  the box does not mean typing it again. That also removes the path where an over-long value's error message
+  rendered inside a closed reveal with a summary link to an invisible field.
+- **The create-409's extra read can no longer turn a rendered 409 into a 500.** `openReferralHref` runs inside
+  the handler's `catch`; an unreachable api there took the whole form with it. It now falls back to
+  `…#referrals`.
+- **An api 400 naming a field this form has no control for now shows the page's own message** instead of
+  nothing at all (Spring addresses a collection member as `reasons[0]`, which no control is keyed by).
+- **Decision 7 says "a POST with a confirmation" and the implementation has none**, following the note and
+  witness deletes as the same decision's second sentence directs. The decision text is self-contradictory;
+  the code and `withdraw.ts`'s docblock are the record, and no confirmation step is a deliberate choice rather
+  than an omission.
+- **The journey test the repo's conventions asked for is now in `e2e-tests/tests/deed-polls.spec.ts`** — raise,
+  the two conditional reveals, both 409s, view and withdraw, with axe at five points. It immediately earned its
+  keep: govuk-frontend 6.5.0's `radios.mjs` sets `aria-expanded` on the radio owning a reveal, which ARIA 1.2
+  does not allow on `role="radio"` (it does on `role="checkbox"`, so the Other → notes reveal is clean). That
+  one finding is waived by rule **and** element, with the reasoning at both the waiver and in
+  `referral-form.njk`; everything else on the page stays live. **Worth a decision from Steve:** accept the
+  upstream finding, or drop the reveal on urgency and show the reason field always.
+
+### Code review, second pass — one validation fix
+
+- **A missing urgency no longer hides the other reason's message.** zod skips an object's refinements once a
+  field has failed its own parse, so `urgency` as a required enum meant a caseworker who ticked `Other`, left
+  the revealed textarea blank and skipped the radios saw only "Select how urgent this referral is", then
+  learned about the missing reason on the *next* submission — two round trips for two things the form already
+  knew, which is both what `createReferralSchema`'s docblock claims to prevent and what GOV.UK's validation
+  pattern requires. `urgency` is now optional in the shape with its requirement stated in the `superRefine`
+  alongside the two conditional rules, so one parse yields every message. The narrowing is unchanged in
+  substance — a referral with no urgency is still rejected — and api's create body has `urgency` optional, so
+  the inferred DTO still fits the wire. Pinned at both levels: `schemas.test.ts` for the two issues in one
+  parse, `referrals/new.test.ts` for the two rows in one error summary.
+- **Not changed, again: the detail page's `Promise.all` makes a referrals failure fatal to the whole case
+  page.** Flagged by both review agents in this pass as well. It is the plan's stated decision (Task 4's note),
+  it matches the third call `getCaseFieldRules` already makes, and the trade-off is documented at the call
+  site — but the blast radius is worth knowing: a `403` on the referrals endpoint renders the 404 template for
+  a case that exists, and an api without the endpoint would 404 every case page. Degrading the tab instead is a
+  small change (`Promise.allSettled`, a load-failure flag on the view model, no raise button in that state) if
+  you decide the tab is worth less than the page.
+
+  **Steve's call, 19 September: changed, and the tab now degrades.** Made before the PR rather than as a
+  follow-up, because the third fatal call is what this branch introduces — landing it and fixing it later
+  would ship a regression in page availability and then need its own justification against a plan that
+  records the decision as declined twice.
+
+  The reasoning that settled it, having verified the mapping rather than assumed it: `client.ts:746`
+  classifies by **status**, so *every* referrals failure lost the page and in three disguises — a 404 (absent
+  endpoint or absent case) became `NotFoundError` and rendered "Page not found" for a case that exists, a 5xx
+  or timeout became `unavailable` and the 500 page, a 403 rendered the 404 template. None mentions referrals,
+  so the support cost lands on whoever is asked why a case vanished. `client.ts:793` already classifies
+  `unavailable`/`timeout` as "nobody's fault; try again shortly", and `client.ts:516` already warns about this
+  exact coupling — the taxonomy was built and then discarded at the call site.
+
+  Two things the earlier passes had right and one they had wrong. Right: the objection that failing loudly is
+  safer for case data than for nav chrome is real, and it is answered by `unavailable` being a **third state**
+  rather than an empty list — the danger was always a caseworker inferring "not referred" from a blank panel,
+  so the panel says it could not find out and withholds the button. Right: `savedQueryEntries` is the
+  precedent. Wrong: citing it alone was cherry-picking, since `getCaseFieldRules` is a counter-precedent ten
+  lines below. The principle that carries it is **load-bearing versus additive** — `findDeedPoll` is the case
+  and `getCaseFieldRules` decides which fields exist at all, so neither has a page without it; referrals are
+  one panel of several.
+
+  One deviation from the sketch above: the flag is `offerRaise` on the view model, not the template reading
+  `unavailable` and `anyOpen` in the right order. `canRaise` was the first name and was wrong —
+  `referrals-view.ts` is explicit that it holds no authorisation-shaped state ("who may claim, what a decision
+  permits — is api's and stays there"), and `offerRaise` is about what the panel displays.
+
+### Code review, third pass — the mixed api 400
+
+- **A 400 that names a field this form renders *and* one it does not no longer hides half of itself.** The
+  earlier fix asked "did api name any control this page has?" and, if so, rendered api's messages as they
+  arrived — but a Spring 400 carries every field error at once, so a rejection naming `notes` and `reasons[0]`
+  together showed the notes message and dropped the other. The caseworker would fix what they were shown and
+  be refused a second time for a half that had never been on the page. The test is now per rejection rather
+  than per response: whatever lands on a control is rendered there, and anything left over adds the page's
+  own `referralRefused` row to the summary and a line to the log. The two ends of the range are unchanged —
+  all fields placeable renders api's words alone, none placeable renders the page's copy alone — so only the
+  mixed case moves. Pinned by a third case in `referrals/new.test.ts`.
+- **The form-level summary row no longer links to `#reasons`.** `referralRefused` stands in for a rejection that
+  named no control this page renders, so the `href` was a guess — and following it moved a keyboard or
+  screen-reader user's focus to a checkbox group that may be entirely valid. It is now rendered without one, the
+  same call the conflict row in `referral-form.njk` already made and for the same stated reason; field rows stay
+  linked. The wording stays generic: api's own text is written for whoever reads api's logs, and `backend.md`
+  forbids putting it in front of a caseworker, so an unplaceable message is logged and not rendered.
+
+Counts after the review fixes: `//` (the app) **48 files / 706 tests**, `@hmcts/deed-poll` **48 / 822** — 2,191
+across the eight workspaces, `turbo test test:app --concurrency=1` 8 successful. `yarn lint` still the
+baseline's 2 pre-existing warnings. The Playwright suite passes serially (28 of 29; the saved-queries journey
+times out on this devcontainer's filesystem under load, which predates this branch and is why CI retries).
+
+### Code review, fourth pass — a rejected reason now lands on the checkbox group
+
+- **`reasons[0]` is placeable after all.** `fieldMessages` split the field path on `.` only, so zod's
+  `reasons.0` reached the checkbox group and Spring's `reasons[0]` — the same fact, spelled the way the other
+  end spells it — was classified unplaceable, logged, and replaced by the generic `referralRefused` row. The
+  docblock always claimed a member's issue lands on the group; only the dotted spelling actually did. It now
+  splits on the first `.` or `[`, so an api rejection naming a reason renders api's message against the
+  `reasons` group with a working summary link, and the unplaceable path keeps its meaning: a field this form
+  genuinely has no control for (api-allocated `state`, or no field at all). The two tests that used
+  `reasons[0]` as their example of "no control for this" now use `state`, and a new case pins the bracketed
+  member onto the group.
 
 ## Deliberately not in this plan
 

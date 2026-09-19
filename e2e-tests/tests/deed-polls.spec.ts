@@ -300,6 +300,132 @@ test("administrator adds a witness, amends it, and deletes it", async ({ page })
 });
 
 /**
+ * Referring a case to the judiciary, and taking it back — `docs/plans/referrals-admin-1-caseworker-referrals-tab.md`.
+ *
+ * One journey covering the four api-1 operations the caseworker UI offers, because they are one story: a
+ * referral is raised, the tab lists it, the case will not take a second while it is live, and withdrawing it
+ * puts the case back where it started.
+ *
+ * **The conditional reveals are why this journey earns its keep.** Everything else here is asserted in the
+ * page and template tests; what only a browser shows is that ticking Other actually reveals the notes field
+ * and choosing Standard actually hides the reason for urgency — and, with the reveal doing the hiding rather
+ * than the server, that a value left inside a closed one is not stored against the referral.
+ *
+ * Either role, so this file's administrator serves: api gates neither raising nor withdrawing on the admin
+ * role, and nothing here is deleted.
+ */
+test("caseworker refers a case to the judiciary, is refused a second referral, and withdraws the first", async ({ page }) => {
+  /**
+   * The one waived axe finding in this file, and it is govuk-frontend's rather than this page's.
+   *
+   * `radios.mjs` promotes `data-aria-controls` to `aria-controls` and then sets `aria-expanded` on the radio
+   * itself (`syncConditionalRevealWithInputState`, govuk-frontend 6.5.0). ARIA 1.2 does not list
+   * `aria-expanded` as supported on `role="radio"` — it does on `role="checkbox"`, which is why the
+   * Other → notes reveal on the same form passes and only the urgency radio is reported. Nothing in this
+   * repo's markup produces it and nothing here can suppress it without dropping the conditional reveal the
+   * plan chose, so it is waived by rule *and* element: `aria-allowed-attr` anywhere else on this page, or on
+   * the other radio, still fails the journey.
+   */
+  const UPSTREAM_RADIO_REVEAL = ["aria-allowed-attr: #urgency-2"];
+
+  // Arrange: a case with nothing else on it. Driven, not asserted — the create journey is the first test.
+  await page.goto("/deed-polls/new");
+  await fillNewCaseForm(page, { forename: "Ines", surname: "Kowalski" });
+  await page.getByRole("button", { name: "Create case" }).click();
+  await expect(page).toHaveURL(CASE_URL);
+  const caseUrl = page.url();
+  const referrals = page.locator("#referrals");
+
+  // "Referrals" and not "Referral": the tab beside it holds the case's own Refer-to-Master fields, so the
+  // exact name is load-bearing rather than tidiness.
+  await page.getByRole("tab", { name: "Referrals", exact: true }).click();
+  await expect(referrals).toContainText("None recorded.");
+  await page.getByRole("button", { name: "Refer this case to the judiciary" }).click();
+  await expect(page).toHaveURL(`${caseUrl}/referrals/new`);
+
+  // Nothing chosen: two questions, two messages, both linked from the summary. The unanswered urgency is the
+  // one worth pinning — the schema requires it where api leaves it optional, so a form that silently sent
+  // nothing would be accepted by api and recorded as a referral nobody said was ordinary.
+  await page.getByRole("button", { name: "Raise referral" }).click();
+  await expect(page.getByRole("alert")).toContainText("There is a problem");
+  await expect(page.getByRole("link", { name: "Select at least one reason for referring this case" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Select how urgent this referral is" })).toBeVisible();
+  await expectNoAccessibilityViolations(page, UPSTREAM_RADIO_REVEAL);
+
+  // The reveals, which is what a browser is here for. Both are hidden until their trigger is chosen, so the
+  // conditional requirement below is one a caseworker can see the reason for.
+  await expect(page.getByLabel("Give the other reason")).toBeHidden();
+  await expect(page.getByLabel("Why is this referral urgent?")).toBeHidden();
+  await page.getByLabel("Other", { exact: true }).check();
+  await page.getByLabel("Urgent", { exact: true }).check();
+  await expect(page.getByLabel("Give the other reason")).toBeVisible();
+  await expect(page.getByLabel("Why is this referral urgent?")).toBeVisible();
+
+  // Revealed and left empty: api requires both for these answers and so does the form, one round trip earlier.
+  await page.getByRole("button", { name: "Raise referral" }).click();
+  await expect(page.getByRole("link", { name: "Enter the other reason for referring this case" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Enter why this referral is urgent" })).toBeVisible();
+  // The reveal holding the error is open when the page comes back, because the re-render puts the choices
+  // back — an error message inside a closed reveal would be a summary link to a field nobody can see.
+  await expect(page.getByLabel("Give the other reason")).toBeVisible();
+  await expectNoAccessibilityViolations(page, UPSTREAM_RADIO_REVEAL);
+
+  // Typed into the urgency reveal, then Standard chosen instead. The textarea is only hidden, so the browser
+  // still posts it — and it must not reach api, or the referral would read "Standard" beside a reason for
+  // being urgent with no edit page to correct it.
+  await page.getByLabel("Give the other reason").fill("The declarant is abroad until June.");
+  await page.getByLabel("Why is this referral urgent?").fill("Hearing listed on Friday.");
+  await page.getByLabel("Standard", { exact: true }).check();
+  await expect(page.getByLabel("Why is this referral urgent?")).toBeHidden();
+  await page.getByLabel("Applicant is a minor").check();
+  await page.getByRole("button", { name: "Raise referral" }).click();
+
+  await expect(page).toHaveURL(`${caseUrl}#referrals`);
+  // The labels, not api's members — the wire values are api's and the words are this repo's.
+  await expect(referrals).toContainText("Applicant is a minor");
+  await expect(referrals).toContainText("Other");
+  await expect(referrals).toContainText("Standard");
+  await expect(referrals.locator(".govuk-tag")).toHaveText("Open");
+  // The raise button is withheld while one is live, with the reason in its place rather than a button that
+  // could only fail.
+  await expect(page.getByRole("button", { name: "Refer this case to the judiciary" })).toHaveCount(0);
+  await expect(referrals).toContainText("Withdraw the open referral before raising another.");
+  await expectNoAccessibilityViolations(page);
+
+  // The withheld button is not the rule — api's 409 is, and the form is reachable by URL. It renders as a
+  // message with a link to the referral already open, not as an error page.
+  await page.goto(`${caseUrl}/referrals/new`);
+  await page.getByLabel("Applicant is a minor").check();
+  await page.getByLabel("Standard", { exact: true }).check();
+  await page.getByRole("button", { name: "Raise referral" }).click();
+  await expect(page.getByRole("alert")).toContainText("This case already has an open referral.");
+  await expectNoAccessibilityViolations(page, UPSTREAM_RADIO_REVEAL);
+
+  await page.getByRole("link", { name: "View the open referral" }).click();
+  await expect(page).toHaveURL(/\/referrals\/[0-9a-f-]{36}$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to the judiciary");
+  await expect(page.getByText("The declarant is abroad until June.")).toBeVisible();
+  // Nothing was stored for the urgency it no longer has: the value the closed reveal still held was not an
+  // answer, and this is the assertion that says so from outside the handler.
+  await expect(urgencyReasonRow(page)).toContainText("Not provided");
+  await expectNoAccessibilityViolations(page);
+
+  await page.getByRole("button", { name: "Withdraw this referral" }).click();
+  await expect(page).toHaveURL(`${caseUrl}#referrals`);
+  await expect(referrals.locator(".govuk-tag")).toHaveText("Withdrawn");
+  // The history keeps the withdrawn one — a case can be referred again, and what the judiciary has already
+  // been asked is the point of the list.
+  await expect(referrals).toContainText("Applicant is a minor");
+  await expect(page.getByRole("button", { name: "Refer this case to the judiciary" })).toBeVisible();
+
+  // The withdraw control is gone from a terminal referral, absent from the markup rather than disabled — the
+  // same shape as the note and witness deletes above.
+  await page.getByRole("link", { name: /view this referral/ }).click();
+  await expect(page.getByRole("button", { name: "Withdraw this referral" })).toHaveCount(0);
+  await expect(page.getByText("Withdrawn")).toBeVisible();
+});
+
+/**
  * The two-witness gate on enrolment, from the caseworker's side — `docs/plans/07-witness-count-feedback.md`.
  *
  * The one journey that proves the proactive and the reactive halves are the same story: the count on the
@@ -1024,6 +1150,14 @@ function declarantRow(witnesses: Locator): Locator {
 }
 
 /**
+ * A referral's Reason for urgency row, for the same reason `declarantRow` is scoped: "Not provided" appears
+ * against every field a referral does not carry, so the assertion has to name the row it is about.
+ */
+function urgencyReasonRow(page: Page): Locator {
+  return page.locator(".govuk-summary-list__row", { hasText: "Reason for urgency" });
+}
+
+/**
  * The case header above the tabs — the summary list `case-header.ts` builds.
  *
  * Scoped, and by position rather than by role: Type and State also appear as rows inside the
@@ -1041,13 +1175,15 @@ function caseHeader(page: Page): Locator {
  * **No exclusions, deliberately.** The template's own specs excluded `.govuk-footer__link` and
  * `.language` as known issues, and both are in the shared layout these pages also render — but every
  * deed-poll page passes without them, so adding them here would suppress findings that do not exist and
- * hide any that appear later. Reinstate one only with evidence.
+ * hide any that appear later. Reinstate one only with evidence, as `allowed` below requires: a waiver names
+ * the rule **and** the element, so the same rule anywhere else on the page still fails.
  *
  * Reported as `id: selector` strings rather than raw violation objects so a failure names the rule and
  * the element instead of printing an unreadable object graph.
  */
-async function expectNoAccessibilityViolations(page: Page): Promise<void> {
+async function expectNoAccessibilityViolations(page: Page, allowed: string[] = []): Promise<void> {
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  const findings = results.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target).join(", ")}`);
 
-  expect(results.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target).join(", ")}`)).toEqual([]);
+  expect(findings.filter((finding) => !allowed.includes(finding))).toEqual([]);
 }

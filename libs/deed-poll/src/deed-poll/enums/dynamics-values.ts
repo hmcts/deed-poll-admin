@@ -133,6 +133,13 @@ export const PRIVACY_LABEL: Record<Privacy, string> = {
   Private: "Private"
 };
 
+/**
+ * The **case's** urgency, in the Dynamics form's words.
+ *
+ * A referral's urgency is api's same `Urgency` enum asked as a different question, and the business calls its
+ * `Normal` "Standard" — see `REFERRAL_URGENCY_LABEL` in `../../referrals/referrals-view.ts`. Two wordings on
+ * purpose: aligning one to the other does not align the other to it.
+ */
 export const URGENCY_LABEL: Record<Urgency, string> = {
   Normal: "Normal",
   Urgent: "Urgent"
