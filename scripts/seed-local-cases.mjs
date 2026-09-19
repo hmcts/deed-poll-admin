@@ -14,8 +14,8 @@
  * The store is in memory, so **everything here is lost when the mock restarts** — including when the OS
  * kills it under memory pressure, which happens in this devcontainer. Re-run rather than reconstruct.
  *
- *   yarn seed:cases              # reset, then seed
- *   yarn seed:cases --keep       # add to whatever is already there
+ *   yarn mock:seed               # reset, then seed
+ *   yarn mock:seed --keep        # add to whatever is already there
  *
  * `POST /__mock/cases` is outside the contract and skips the refusals a real create applies, so these
  * cases may hold combinations api would reject. That is the point — it makes 30-odd cases cheap — but it

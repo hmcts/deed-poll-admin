@@ -388,12 +388,16 @@ export const NON_FORM_QUERYABLE_FIELDS: FieldDef[] = [
     // app itself links to would mean a filter the page could neither show nor resubmit. The set is api's
     // members minus the terminal two, which this field never holds — see `CURRENT_REFERRAL_STATE_LABEL`.
     enumSet: "currentReferralState",
-    readOnly: true,
-    // Not offered by the builder's chooser, which is grouped by form tab and section and so has no group a
-    // non-form field could sit in. A caseworker reaches this filter by the dashboard's "returned — action
-    // needed" link, which carries the condition, and `buildRow` renders a resolved-but-unchoosable field as
-    // an option of its own so that link's condition survives the next Apply rather than widening the list.
-    queryable: false
+    readOnly: true
+    // **No `queryable: false` here, and adding one would say nothing.** That flag is how a field *on the form*
+    // is curated out of the chooser: `isChoosable` is only ever applied to `FORM_TABS` sections
+    // (`query-fields.ts`), and this list is appended after them, so a non-form field is absent from the
+    // chooser by construction — there is no group it could sit in. Setting the flag here would read as the
+    // mechanism and be inert, which is worse than saying so.
+    //
+    // A caseworker reaches this filter by the dashboard's "returned — action needed" link, which carries the
+    // condition, and `buildRow` renders a resolved-but-unchoosable field as an option of its own so that
+    // link's condition survives the next Apply rather than widening the list.
   }
 ];
 
