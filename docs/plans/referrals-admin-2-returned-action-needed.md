@@ -231,9 +231,28 @@ confirm four things and stop if any fails:
 - **admin-1 has landed**, because the worklist links into its referrals tab.
 - **Both validation commands green**, totals recorded as this plan's baseline.
 
-- [ ] Verified: the property on all three wire schemas including `savedCaseSchema`; the mock recomputing it on
+- [x] Verified: the property on all three wire schemas including `savedCaseSchema`; the mock recomputing it on
       transition; admin-1 present; both validation commands green with baseline totals recorded — or STOPPED
       and reported, with no adapter or mock-routing edits made here
+
+**Gate passed 2026-09-19. No files changed by this task.** What was confirmed:
+
+- **All three wire schemas carry it** as `z.enum(REFERRAL_STATE).nullish()` with the five members:
+  `savedCaseSchema` (`wire.ts:201` — the one the mock's `QUERYABLE_FIELDS` derives from, `server.ts:1092`),
+  `caseSummarySchema` (`wire.ts:324`), and `caseDetailSchema` by extension of `savedCaseSchema`
+  (`wire.ts:304`) rather than a third restatement. Absent from `STRICT_RESPONSE_PROPERTIES` on all three,
+  which is right: null is the ordinary value.
+- **The mock recomputes it on transition** — `server.ts:1535` derives it from the case's first non-terminal
+  referral, and `server.test.ts:979` drives `Open → Claimed → Decided → null` through the real endpoints and
+  asserts the case follows, with `Closed`/`Withdrawn` landing on null. `server.test.ts:1019` already proves
+  `where=currentReferralState:is:Open` filters, so the mock accepts the filter shape this plan counts with.
+- **admin-1 has landed** — `docs/plans/completed/referrals-admin-1-caseworker-referrals-tab.md`, merged at
+  `52db3fc`, with `libs/deed-poll/src/referrals/` and the referral pages on disk. admin-0 is completed too.
+- **Baseline, both commands green:** `yarn turbo test test:app --concurrency=1` → 8 successful, 8 total;
+  `//:test:app` 48 files / 715 tests, `@hmcts/deed-poll` 48 / 827, `@hmcts/deed-poll-api-client` 4 / 325,
+  `express-govuk-starter` 12 / 127, `cloud-native-platform` 10 / 140, `simple-router` 4 / 41,
+  `express-session-postgres` 2 / 23, `express-session-redis` 1 / 7 — **2205 tests, 129 files**.
+  `yarn lint` exits 0 (2 warnings, 2 infos, all pre-existing).
 
 ### Task 1: Mock data — enough `Decided` cases to assert a real count
 
