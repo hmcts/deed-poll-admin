@@ -674,10 +674,56 @@ pool, opens a referral, reads the application view + notes, claims it, fills the
 check-your-answers, and sees the referral recorded — and a caseworker is refused the judicial area. Happy path
 + the caseworker-refused assertion.
 
-- [ ] E2E: judge → pool → open → claim → direction form → CYA confirm → recorded; caseworker refused
+- [x] E2E: judge → pool → open → claim → direction form → CYA confirm → recorded; caseworker refused
       `/judicial/**`; `turbo test test:app --concurrency=1` and `yarn lint` green; the six pipeline scripts
       still present (do not delete `lint`/`test`/`test:coverage`/`test:a11y`/`test:smoke`/`test:functional`);
       a11y check on the new pages (pool, referral view, direction form, CYA) passes
+
+**DONE 2026-09-19.** Two tests in `e2e-tests/tests/judicial.spec.ts` — the judge's whole day, and the caseworker
+who must not have it — plus a third IDAM fixture (`judge@example.com`, `JUDGE_STORAGE_STATE`) in
+`auth.setup.ts`/`idam-session.ts`. Run for real against the local stack: **33/33 Playwright tests pass**, the
+judicial spec five times in a row over a mock store that outlives the run. The a11y sweep covers all six
+renderings this plan added — the pool, the pool carrying a refused claim, the "no longer available" page, the
+referral view before and after a direction, the direction form empty and in error, and check-your-answers.
+
+Six things the checkbox did not ask for, and four are decisions rather than extras:
+
+- **The landing redirect is asserted inside `signInAsJudge`, not in the journey.** `signIn` now takes the path
+  each persona *claims* its roles produce, because decision 2 is a property of the login flow and not of any
+  page: `/login`'s fallback `returnTo` is `/`, and `/` resolves the persona on the way back. A journey that
+  restored the session and then visited the pool directly could not tell a working redirect from a hard-coded
+  one — so the claim is made where the round trip happens, and a wrong one fails in `setup` rather than three
+  files away.
+- **The refusal test signs in as the administrator, not the roleless caseworker.** `caseworker-deedpoll-admin`
+  is the most privileged account this service has, and the mistake worth pinning is that it is a *superset* —
+  `isJudicial` is an alternative to `isAdmin`, not a level below it. The roleless caseworker is refused a
+  fortiori and both directions are unit-tested in `require-role.test.ts`; what needed a browser is that the gate
+  is **mounted**, since a page never asks about the role and an ungated judicial page renders identically.
+- **Pool rows are located by their link's `href`, and that is the actual key rather than a fallback.** api's
+  pool row carries no reference and no applicant (api-3 decision 2), and its other three cells — an urgency, a
+  set of reasons, a formatted minute — are shared with every row this file seeds. **The page a row is on comes
+  from api**, because the pool is global and shared: `yarn mock:seed` and every earlier local run leave
+  referrals in it, so page 1 is not where a new referral is.
+- **Both seeded referrals are Urgent, which is what makes the journey safe under `fullyParallel`.** The pool is
+  ordered urgent-first then longest-waiting and no other spec raises an urgent referral, so nothing another
+  worker does can move these rows relative to the rest of the queue mid-test.
+- **The disclosure boundary is asserted from outside the view model.** Each seeded case carries a unique
+  `feeReference`, and the referral page's whole body must not contain it. `view.ts`'s tests show the model omits
+  it; this shows the *rendered page* does, which is the assertion whose failure would be a disclosure bug rather
+  than a display one.
+- **The Welsh check runs early in the journey, and the position is load-bearing.** The pool's column headers
+  exist only while something is waiting, and by the end the journey has taken both of its own referrals out —
+  leaving a page whose `cy` keys are the empty state's rather than the table's. Discovered by it failing there.
+
+Two locator traps worth not leaving behind, both found by a green assertion that was green for the wrong reason:
+`govukButton` given an `href` renders `<a role="button">`, so "Record a direction" is `getByRole("button")` and a
+`link` locator finds nothing — which made every `toHaveCount(0)` on it pass vacuously. And `hasText` is a
+case-insensitive substring over the whole element, so a summary-list row whose *value* is the tag "Claimed"
+answers to a key of "Claimed"; `summaryRow` therefore filters on the `__key` cell, not the row.
+
+The six pipeline scripts are untouched and `src/pipeline.test.ts` still passes. Totals **2,437 tests** (unchanged
+— this task adds only e2e specs, which the vitest suite does not run), 8/8 turbo tasks; `yarn lint` 0 errors, 2
+warnings + 2 infos — baseline exactly. Nothing under `src/`, `libs/` or `openapi.json` was touched.
 
 ## Deliberately not in this plan
 
