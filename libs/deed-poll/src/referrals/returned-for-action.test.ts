@@ -1,7 +1,7 @@
 import { listCases } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { caseQueryWhere } from "../deed-poll/case-query.js";
-import { countReturnedForAction, RETURNED_FOR_ACTION_CONDITIONS } from "./returned-for-action.js";
+import { countReturnedForAction, returnedForActionConditions } from "./returned-for-action.js";
 
 // The adapter is the seam, as everywhere in this layer. What is worth pinning here is not that api can count
 // — `libs/deed-poll-api-client/src/mock/server.test.ts` drives seven cases through the mock's own referral
@@ -28,20 +28,23 @@ describe("referrals/returned-for-action", () => {
     process.env.DEED_POLL_API_URL = "http://api.test";
   });
 
-  describe("RETURNED_FOR_ACTION_CONDITIONS", () => {
+  describe("returnedForActionConditions", () => {
     it("should serialise onto the wire rather than being dropped, because an unqueryable field is silently lost", () => {
-      const where = caseQueryWhere([...RETURNED_FOR_ACTION_CONDITIONS]);
+      const where = caseQueryWhere(returnedForActionConditions());
 
       expect(where).toEqual(["currentReferralState:is:Decided"]);
     });
 
     it("should name Decided and nothing else, since that is the one state a caseworker has still to close", () => {
-      expect([...RETURNED_FOR_ACTION_CONDITIONS]).toEqual([{ field: "currentReferralState", operator: "is", values: ["Decided"] }]);
+      expect(returnedForActionConditions()).toEqual([{ field: "currentReferralState", operator: "is", values: ["Decided"] }]);
     });
 
-    it("should be frozen, so a caller cannot narrow the count and every link to the worklist with it", () => {
-      expect(Object.isFrozen(RETURNED_FOR_ACTION_CONDITIONS)).toBe(true);
-      expect(Object.isFrozen(RETURNED_FOR_ACTION_CONDITIONS[0])).toBe(true);
+    it("should hand every caller its own copy, so mutating one cannot narrow the count and every worklist link", () => {
+      const mine = returnedForActionConditions();
+      mine[0].values.push("Closed");
+      mine.push({ field: "type", operator: "is", values: ["Adult"] });
+
+      expect(returnedForActionConditions()).toEqual([{ field: "currentReferralState", operator: "is", values: ["Decided"] }]);
     });
   });
 

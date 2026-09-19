@@ -348,17 +348,9 @@ describe("deed-polls list page", () => {
       expect(logged).toHaveBeenCalledWith(expect.stringContaining("returned-for-action count unavailable"));
     });
 
-    it("names the count in both content objects, so the banner is translatable", async () => {
-      const res = pageResponse();
-
-      await GET(pageRequest(), res);
-
-      const model = res.render.mock.calls[0][1];
-      expect(model.en.returnedForActionFor(2)).toBeTruthy();
-      expect(model.cy.returnedForActionFor(2)).toBeTruthy();
-      expect(model.cy.returnedForActionLink).toBeTruthy();
-      expect(model.cy.bannerTitle).toBeTruthy();
-    });
+    // The banner's keys being in `cy` as well as `en` is covered by the key-parity test above, which is all an
+    // assertion can pin while `cy` is a copy of `en`: a `toBeTruthy` on each of the new keys passes for any
+    // string, including the English one, so it read as coverage of a bilingual path and verified nothing.
   });
 
   describe("the query", () => {

@@ -72,6 +72,11 @@ const GROUPS = [
   {
     label: "Received (also fills Open)",
     count: RECEIVED_CASES,
+    // Referrals are only raised on cases that are still open — an Enroled or Returned case has been finished,
+    // and referring one would put the dashboard's worklist somewhere a caseworker cannot act. Declared here
+    // rather than sniffed from the label below: a label is there to be printed, and reading which group gets
+    // referrals out of one means renaming a log line changes the fixture.
+    referrable: true,
     build: (n) => ({
       type: must(DeedPollType, "DeedPollType", "Adult"),
       state: must(DeedPollState, "DeedPollState", "Received"),
@@ -189,9 +194,7 @@ for (const group of GROUPS) {
       process.exit(1);
     }
 
-    // Referrals are only raised on cases that are still open — an Enroled or Returned case has been
-    // finished, and referring one would put the dashboard's worklist somewhere a caseworker cannot act.
-    if (group.label.startsWith("Received (")) referrable.push((await response.json()).id);
+    if (group.referrable) referrable.push((await response.json()).id);
     seeded++;
   }
 
@@ -262,14 +265,28 @@ const { total, totalPages } = await list.json();
 // recognise narrows nothing and answers the case total, and a condition dropped on the way to the wire
 // answers zero. Both look like a working seed from here unless the number is asserted.
 const worklist = await fetch(`${BASE}/caseworker/cases?where=currentReferralState:is:Decided&size=1`);
-const returnedForAction = (await worklist.json()).total;
+const returnedForAction = worklist.ok ? (await worklist.json()).total : undefined;
 
 console.log(`\nSeeded ${seeded}. The list reports total=${total} across ${totalPages} page(s).`);
-if (total !== seeded) console.error(`Mismatch: seeded ${seeded} but the list reports ${total}.`);
 console.log(`Referred ${referred}, of which ${returnedForAction} are returned and need action.`);
-// `--keep` adds to whatever was already there, so an earlier run's Decided cases are counted too and the
-// number is only expected to match on a run that reset first.
-if (!KEEP && returnedForAction !== EXPECTED_RETURNED_FOR_ACTION) {
-  console.error(`Mismatch: expected ${EXPECTED_RETURNED_FOR_ACTION} Decided case(s) but the filter reports ${returnedForAction}.`);
+
+// Every mismatch **exits non-zero**, like every other check in this script: a seed whose numbers are wrong is
+// a seed to fix, and a message among 30 lines of output that still exits 0 is one a developer scrolls past —
+// then meets as a dashboard banner that never appears.
+//
+// `--keep` adds to whatever was already there, so an earlier run's cases are counted too and neither total is
+// expected to match on a run that did not reset first.
+const mismatches = [
+  worklist.ok ? null : `the filtered read-back was refused with ${worklist.status} — has \`currentReferralState\` stopped being queryable?`,
+  KEEP || total === seeded ? null : `seeded ${seeded} but the list reports ${total}.`,
+  KEEP || returnedForAction === EXPECTED_RETURNED_FOR_ACTION
+    ? null
+    : `expected ${EXPECTED_RETURNED_FOR_ACTION} Decided case(s) but the filter reports ${returnedForAction}.`
+].filter((mismatch) => mismatch !== null);
+
+if (mismatches.length > 0) {
+  for (const mismatch of mismatches) console.error(`Mismatch: ${mismatch}`);
+  process.exit(1);
 }
+
 console.log(`Every case has the forename "Filterby". Open http://127.0.0.1:3000/deed-polls`);

@@ -436,7 +436,7 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
 
 /**
  * The "returned — action needed" count and the worklist behind it —
- * `docs/plans/referrals-admin-2-returned-action-needed.md`.
+ * `docs/plans/completed/referrals-admin-2-returned-action-needed.md`.
  *
  * **The count IS the alert**, so what a browser has to show is that it is *seen and followable*: the number is
  * on the dashboard a caseworker lands on, and clicking it arrives at exactly the cases it counted. The page
@@ -486,6 +486,19 @@ test("caseworker sees how many applications have a returned direction, and follo
   // And the one a judge is still holding is absent: `Claimed` is not the caseworker's turn.
   await expect(rows).not.toContainText(seeded.claimed);
   await expectNoAccessibilityViolations(page);
+
+  // The builder above the table says what the rows were filtered by, and — the part only a browser can show —
+  // **submitting it keeps the filter**. `currentReferralState` is on no form tab and so is not in the chooser
+  // (decision 8), which is exactly the row that used to come back blank: Apply then answered the whole
+  // caseload under a banner still claiming a filtered count. See `appliedOption` in `query-builder.ts`.
+  await expect(page.getByLabel("Case field for condition 1")).toHaveValue("currentReferralState");
+  await expect(page.getByLabel("Value for condition 1")).toHaveValue("Decided");
+
+  await page.getByRole("button", { name: "Apply filters" }).click();
+
+  await expect(page).toHaveURL("/deed-polls?where=currentReferralState%3Ais%3ADecided");
+  await expect(page.getByText(new RegExp(`of ${seeded.total} applications`))).toBeVisible();
+  await expect(rows).not.toContainText(seeded.claimed);
 });
 
 /**

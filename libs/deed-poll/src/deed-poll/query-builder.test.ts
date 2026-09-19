@@ -57,11 +57,33 @@ const submission = (index: number, field: string, operator: string, values: Reco
 
 const rowFor = (condition: Partial<CaseCondition>): QueryRow => buildQueryRows([{ field: "", operator: "", values: [], ...condition }], LABELS)[0];
 
-/** Every option of the field chooser, placeholder first: the chooser is grouped, so its options are nested. */
-const fieldOptions = (row: QueryRow): QueryOption[] => [row.field.placeholder, ...row.field.groups.flatMap((group) => group.options)];
+/**
+ * Every option of the field chooser, in the order the select renders them: the placeholder, the condition's
+ * own field where no group offers it, then the groups.
+ */
+const fieldOptions = (row: QueryRow): QueryOption[] => [
+  row.field.placeholder,
+  ...(row.field.applied === null ? [] : [row.field.applied]),
+  ...row.field.groups.flatMap((group) => group.options)
+];
 
 const chosen = (row: QueryRow, part: "field" | "operator") =>
   (part === "field" ? fieldOptions(row) : row.operator.options).filter((option) => option.selected).map((option) => option.value);
+
+/** A select's selected option, which is the value a browser submits for it. */
+const selectedValue = (options: QueryOption[]) => options.find((option) => option.selected)?.value ?? "";
+
+/**
+ * What a browser would submit for an already-rendered row, untouched: each select's selected option.
+ *
+ * The round trip this composes is the one that matters for a condition the *app* links to rather than one a
+ * caseworker built — Apply, Add condition and Remove all resubmit every row, so a row that cannot describe
+ * itself back loses its condition.
+ */
+const resubmission = (row: QueryRow) => ({
+  ...submission(row.index, selectedValue(fieldOptions(row)), selectedValue(row.operator.options)),
+  [valueControlName(row.index, 0)]: selectedValue(row.valueOptions)
+});
 
 describe("deed-poll/query-builder", () => {
   describe("builderAction", () => {
@@ -418,11 +440,41 @@ describe("deed-poll/query-builder", () => {
       expect(groups[0].options.filter((option) => option.selected).map((option) => option.text)).toEqual(["Date received"]);
     });
 
-    it("should render a field the chooser does not offer, so a hand-edited URL is visible rather than silently dropped", () => {
+    it("should render a field the chooser does not offer as an option of its own, so the row is visible rather than silently dropped", () => {
       const row = rowFor({ field: "daysReceivedToEnroled", operator: "is", values: ["4"] });
 
       expect(row.control).toBe("number");
-      expect(chosen(row, "field")).toEqual([]);
+      // In no group, because the chooser curates it out — and selected all the same, because a select with no
+      // option for its own field submits the placeholder's empty value and loses the condition.
+      expect(row.field.groups.flatMap((group) => group.options).some((option) => option.value === "daysReceivedToEnroled")).toBe(false);
+      expect(chosen(row, "field")).toEqual(["daysReceivedToEnroled"]);
+      expect(row.field.placeholder.selected).toBe(false);
+    });
+
+    it("should show the returned-for-action worklist's condition in full, since the dashboard links a caseworker straight to it", () => {
+      const row = rowFor({ field: "currentReferralState", operator: "is", values: ["Decided"] });
+
+      // Every part of the filter in effect: the field, the comparison, and the state — a row reading "Choose a
+      // case field / is / Choose a value" over correctly filtered rows tells a caseworker nothing about why
+      // they are looking at these cases.
+      expect(chosen(row, "field")).toEqual(["currentReferralState"]);
+      expect(chosen(row, "operator")).toEqual(["is"]);
+      expect(row.control).toBe("select");
+      expect(row.valueOptions.filter((option) => option.selected).map((option) => option.value)).toEqual(["Decided"]);
+    });
+
+    it("should resubmit a condition the chooser does not offer, because Apply would otherwise widen the worklist to every case", () => {
+      const row = rowFor({ field: "currentReferralState", operator: "is", values: ["Decided"] });
+
+      // The dashboard's count says "N need action" beside a list its link filtered; an Apply that dropped the
+      // condition would leave the sentence over the whole caseload, with no error and no unused-condition
+      // notice — the condition arrives back *complete*, just blank.
+      expect(conditionsFromBuilder(resubmission(row), { kind: "apply" })).toEqual([{ field: "currentReferralState", operator: "is", values: ["Decided"] }]);
+    });
+
+    it("should offer no applied option for a field the chooser already holds, since two selected options is no better than none", () => {
+      expect(rowFor({ field: "type", operator: "is", values: ["Adult"] }).field.applied).toBeNull();
+      expect(rowFor({}).field.applied).toBeNull();
     });
 
     it("should put a refusal against the row it belongs to and no other", () => {
@@ -564,6 +616,16 @@ describe("deed-poll/query-builder", () => {
     it("should carry an option set's members, which is what a select or a checkbox set is built from", () => {
       expect(metadata.fields.type.options).toEqual(expect.arrayContaining([{ value: "Adult", text: "Adult" }]));
       expect(metadata.fields.newForename.options).toEqual([]);
+    });
+
+    it("should leave no queryable enum without members, since a chooser holding only its placeholder cannot answer", () => {
+      // The invariant rather than a field-by-field list: `currentReferralState` shipped as an `enum` with no
+      // `enumSet`, which renders a value select offering nothing and a condition that cannot be resubmitted.
+      // Every kind whose control is a select, a checkbox set or radios is built from the set's members.
+      const chooserKinds: FieldKind[] = ["enum", "multiselect"];
+      const empty = QUERYABLE_FIELDS.filter((field) => chooserKinds.includes(field.kind) && metadata.fields[field.name].options.length === 0);
+
+      expect(empty.map((field) => field.name)).toEqual([]);
     });
 
     it("should name a kind for every field, so no field leaves the browser without a control to ask with", () => {

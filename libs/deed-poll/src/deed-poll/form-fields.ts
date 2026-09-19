@@ -375,18 +375,23 @@ export const FORM_TABS: TabDef[] = [
  *
  * Read-only for the same reason `state` is: api computes it. Not on a tab because putting it there would add
  * a disabled control to the case form and a row to the detail card, which is a display decision this plan
- * does not make (`docs/plans/referrals-admin-2-returned-action-needed.md`, decision 8) — the referrals tab is
- * where a case's referral state is read.
+ * does not make (`docs/plans/completed/referrals-admin-2-returned-action-needed.md`, decision 8) — the
+ * referrals tab is where a case's referral state is read.
  */
 export const NON_FORM_QUERYABLE_FIELDS: FieldDef[] = [
   {
     name: "currentReferralState",
     label: "Current referral state",
     kind: "enum",
+    // The states are api's, so the value chooser is built from its member array like every other option set.
+    // An `enum` with no set renders a chooser holding only "Choose a value", which for the one condition the
+    // app itself links to would mean a filter the page could neither show nor resubmit.
+    enumSet: "referralState",
     readOnly: true,
     // Not offered by the builder's chooser, which is grouped by form tab and section and so has no group a
     // non-form field could sit in. A caseworker reaches this filter by the dashboard's "returned — action
-    // needed" link, which carries the condition; a hand-edited URL naming it still renders (`queryableField`).
+    // needed" link, which carries the condition, and `buildRow` renders a resolved-but-unchoosable field as
+    // an option of its own so that link's condition survives the next Apply rather than widening the list.
     queryable: false
   }
 ];

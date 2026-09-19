@@ -47,7 +47,7 @@ import {
   type QueryScriptLabels,
   queryBuilderMetadata,
   queryErrors,
-  RETURNED_FOR_ACTION_CONDITIONS,
+  returnedForActionConditions,
   serialiseConditions,
   serialiseSort,
   unusedConditionRows
@@ -63,12 +63,12 @@ const QUERIES_PATH = "/deed-polls/queries";
 /**
  * The "returned — action needed" worklist: the condition the count is read with, as a link.
  *
- * Built from `RETURNED_FOR_ACTION_CONDITIONS` rather than written out, so clicking the number runs the query
+ * Built from `returnedForActionConditions()` rather than written out, so clicking the number runs the query
  * that produced it — decision 3, and the reason the field had to be genuinely queryable rather than a bespoke
  * aggregate. It deliberately carries no filter, term, order or page: the count is global (decision 5), so its
  * worklist is the same query for every caseworker on every tab.
  */
-const RETURNED_FOR_ACTION_PATH = `${LIST_PATH}${caseListSearch({ conditions: [...RETURNED_FOR_ACTION_CONDITIONS] })}`;
+const RETURNED_FOR_ACTION_PATH = `${LIST_PATH}${caseListSearch({ conditions: returnedForActionConditions() })}`;
 
 const en = {
   title: "Deed poll cases",

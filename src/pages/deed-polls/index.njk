@@ -172,6 +172,15 @@
               <label class="govuk-label govuk-visually-hidden" for="{{ row.field.name }}">{{ fieldLabel }} {{ row.number }}</label>
               <select class="govuk-select" id="{{ row.field.name }}" name="{{ row.field.name }}" data-query-field{% if rowDescribedBy %} aria-describedby="{{ rowDescribedBy }}"{% endif %}>
                 <option value="{{ row.field.placeholder.value }}"{% if row.field.placeholder.selected %} selected{% endif %}>{{ row.field.placeholder.text }}</option>
+                {#
+                  The condition's own field, when the chooser offers no option for it — the worklist the
+                  dashboard's count links to is filtered by one such field. Ungrouped beside the placeholder,
+                  and what makes the select submit the filter back rather than an empty value: see
+                  `appliedOption` for what a select with no option for its own field costs.
+                #}
+                {% if row.field.applied %}
+                  <option value="{{ row.field.applied.value }}" selected>{{ row.field.applied.text }}</option>
+                {% endif %}
                 {% for group in row.field.groups %}
                   <optgroup label="{{ group.label }}">
                     {% for option in group.options %}

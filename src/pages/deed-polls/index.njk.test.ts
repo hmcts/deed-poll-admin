@@ -327,6 +327,20 @@ describe("deed-polls list template", () => {
     expect(markup).toMatch(/<optgroup label="Application: Names">[\s\S]*?<option value="newSurname" selected>New surname<\/option>/);
   });
 
+  it("selects a field no group offers above the groups, so the worklist the count links to shows and resubmits its filter", async () => {
+    // The URL the dashboard's "returned — action needed" link produces. `currentReferralState` is deliberately
+    // not in the chooser (it sits on no form tab), so without an option of its own the select would submit the
+    // placeholder's empty value and the next Apply would answer the whole caseload under a count that says it
+    // is filtered.
+    const markup = await render({ where: "currentReferralState:is:Decided" });
+    const chooser = markup.slice(markup.indexOf('name="field-0"'));
+
+    expect(chooser).toContain('<option value="currentReferralState" selected>Current referral state</option>');
+    expect(chooser.indexOf('value="currentReferralState"')).toBeLessThan(chooser.indexOf("<optgroup"));
+    // And the state itself, from the option set rather than from a blank chooser.
+    expect(markup).toMatch(/<select[^>]*name="value-0-0"[\s\S]*?<option value="Decided" selected>Decided<\/option>/);
+  });
+
   /**
    * The "returned — action needed" banner, which is the one part of this page whose whole purpose is to be
    * seen: the count replaces a shared-mailbox poll, so where it sits and whether it is reachable by keyboard

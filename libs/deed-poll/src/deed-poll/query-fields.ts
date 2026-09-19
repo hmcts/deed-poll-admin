@@ -9,7 +9,7 @@
  *
  *   - **The queryable list is derived from `FORM_TABS`, never enumerated.** A field added to the form
  *     becomes queryable with no second edit, so the builder cannot fall behind the case tabs. It is
- *     every field including the five `readOnly` ones: `referencenumber` and `state` are among the most
+ *     every field including the six `readOnly` ones: `referencenumber` and `state` are among the most
  *     useful things to query, and read-only means "api computes it", not "api cannot filter on it". The
  *     one addition to the form is `NON_FORM_QUERYABLE_FIELDS` — case properties api answers conditions on
  *     that have no control to add to a tab; it is a named list, not an exception to the derivation.
@@ -88,9 +88,10 @@ export const QUERYABLE_FIELDS: FieldDef[] = [...FORM_TABS.flatMap((tab) => tab.s
  * The two fields api computes at read time and refuses a condition on: *"is derived, not stored"*. They
  * have no column to compare, so no operator can be asked of them.
  *
- * Named here rather than removed from `QUERYABLE_FIELDS`, which stays the whole form: that list is the
- * drift guard — a field added to a case tab becomes queryable with no second edit — and narrowing it
- * would turn "every form field" into "every form field except the ones someone remembered".
+ * Named here rather than removed from `QUERYABLE_FIELDS`, which stays the whole form plus
+ * `NON_FORM_QUERYABLE_FIELDS`: that list is the drift guard — a field added to a case tab becomes queryable
+ * with no second edit — and narrowing it would turn "every form field" into "every form field except the
+ * ones someone remembered".
  */
 const DERIVED_FIELD_NAMES = ["daysReceivedToEnroled", "daysReceivedToReturned"];
 
@@ -113,9 +114,11 @@ const DERIVED_FIELD_NAMES = ["daysReceivedToEnroled", "daysReceivedToReturned"];
  *     merely **not worth offering** — per-case identifiers, narrative prose, address components. 68
  *     options in one list is a list nobody reads; the reason for each cut is a comment on the field.
  *
- * Still derived from the form either way. api answers a condition on anything excluded here — a
- * hand-edited URL can name one, and `queryableField` resolves it so the row renders with whatever api
- * says about it.
+ * Still derived from the form either way. api answers a condition on anything excluded here — a hand-edited
+ * URL can name one, and so does the dashboard's "returned — action needed" link — and `queryableField`
+ * resolves it, so the row renders with whatever api says about it. `appliedOption` is what then keeps such a
+ * row **submittable**: a chooser missing an option for its own field would drop the condition on the next
+ * Apply and answer the whole list.
  */
 export const CHOOSABLE_FIELD_GROUPS: ChoosableFieldGroup[] = FORM_TABS.flatMap((tab) =>
   tab.sections

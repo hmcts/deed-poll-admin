@@ -11,6 +11,7 @@
  * are derived for import. Keying by `Record<DeedPollType, number>` is what makes a
  * member added to api's option set a compile error here rather than a missing label.
  */
+import { REFERRAL_STATE, type ReferralState } from "@hmcts/deed-poll-api-client";
 import type {
   DeedPollState,
   DeedPollType,
@@ -184,6 +185,22 @@ export const DOCUMENT_DIRECTION_LABEL: Record<DocumentDirection, string> = {
 };
 
 /**
+ * A referral's lifecycle state, for the one place a *case field* carries it: `currentReferralState`, which the
+ * query builder filters on (`NON_FORM_QUERYABLE_FIELDS`). Not a Dynamics option set — referrals are api's own
+ * — but a queryable `enum` with no entry here renders a value chooser holding nothing, so the condition the
+ * dashboard's worklist link carries could not be shown or resubmitted.
+ *
+ * Each member's label is its own name, because that is what the referrals tab prints (`REFERRAL_STATE_TAG`
+ * tags `referral.state` raw) and two wordings for one state is the divergence `REFERRAL_URGENCY_LABEL`'s
+ * docblock is careful about. Built from api's member array rather than typed out, per the "option sets are
+ * built, never restated" rule: a state added at api's end reaches the builder without an edit here.
+ */
+export const REFERRAL_STATE_LABEL: Record<ReferralState, string> = Object.fromEntries(REFERRAL_STATE.map((state) => [state, state])) as Record<
+  ReferralState,
+  string
+>;
+
+/**
  * Multiselect option sets — stored as Int[] on the record, so these maps are
  * keyed by the Dynamics integer value (mirrors deedpoll_ishall etc.).
  */
@@ -223,6 +240,7 @@ export const LABELS = {
   masterDecision: MASTER_DECISION_LABEL,
   referToMaster: REFER_TO_MASTER_LABEL,
   documentDirection: DOCUMENT_DIRECTION_LABEL,
+  referralState: REFERRAL_STATE_LABEL,
   iShall: I_SHALL_LABEL,
   iHaveSubscribed: I_HAVE_SUBSCRIBED_LABEL,
   andAlsoMyOld: AND_ALSO_MY_OLD_LABEL

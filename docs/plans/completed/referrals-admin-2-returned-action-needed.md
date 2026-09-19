@@ -413,6 +413,13 @@ dashboard journeys live there and so do the seeding and axe helpers this one reu
   --concurrency=1` → 8 of 8 tasks, **2231 tests / 130 files**, unchanged from Task 3 because an E2E spec is not
   in the vitest suite; `yarn lint` exits 0 with the same 2 warnings / 2 infos. All six pipeline scripts still
   in `package.json`.
+- **Flagged, then fixed in review (2026-09-19).** The first of the two options below was not needed: the field
+  stays out of the chooser (decision 8 holds), and `buildRow` now renders a resolved-but-unchoosable field as an
+  ungrouped option of its own (`appliedOption`), so the row shows the filter in effect and **submits it back**.
+  `currentReferralState` also gained an `enumSet` (`REFERRAL_STATE_LABEL`, built from api's member array), so its
+  value select offers the states rather than only "Choose a value". Pinned by `query-builder.test.ts` (the row,
+  and a resubmission composed from what a browser would send), `index.njk.test.ts` (the markup) and an Apply
+  round trip in the Playwright journey. What was flagged:
 - **Flagged, not fixed:** the worklist page renders its query-builder row with the field chooser reading
   "Choose a case field" and the value select holding only "Choose a value", because `currentReferralState` is
   deliberately not choosable (Task 2, decision 8) while `queryableField` still resolves it. axe is clean and
