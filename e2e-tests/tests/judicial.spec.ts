@@ -505,9 +505,16 @@ function directButton(page: Page): Locator {
  * Restated rather than imported: `e2e-tests` is its own workspace and does not depend on `@hmcts/deed-poll`,
  * deliberately — a journey that imported the app's own formatter would agree with it by construction and could
  * not catch a change of format. Two implementations disagreeing is the failure worth having here.
+ *
+ * The zone handling is the one part that must *not* be restated independently. api's timestamps are
+ * Jackson-serialised `LocalDateTime`, so they are zoneless, and `new Date("2026-07-01T14:23:45.123")` reads a
+ * zoneless string as **local** time where the app's `toUtcDate` (`libs/deed-poll-api-client/src/api/wire.ts`)
+ * pins it to UTC. Formatting both in Europe/London then agrees only when the runner's TZ happens to be UTC:
+ * on a UK machine in BST this helper was an hour behind the page and the pool's "Waiting since" assertion
+ * failed. Pinning `timezoneId` in the Playwright config would have hidden that rather than fixed it.
  */
 function formatTimestamp(raw: string): string {
-  const when = new Date(raw);
+  const when = new Date(/^\d{4}-\d{2}-\d{2}T[\d:.]+$/.test(raw) ? `${raw}Z` : raw);
   const date = when.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" });
   const time = when
     .toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Europe/London" })
