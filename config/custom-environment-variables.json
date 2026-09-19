@@ -1,5 +1,12 @@
 {
   "port": "PORT",
+  "environmentName": "ENVIRONMENT_NAME",
+  "personaSwitcher": {
+    "enabled": {
+      "__name": "PERSONA_SWITCHER_ENABLED",
+      "__format": "json"
+    }
+  },
   "redis": {
     "url": "REDIS_URL"
   },

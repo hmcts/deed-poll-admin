@@ -40,6 +40,16 @@ nodejs:
     # there. If this line changes, change that file in the same breath. See
     # `.business_context/IDAM_REGISTRATION_REQUEST.md`.
     IDAM_REDIRECT_URI: https://${SERVICE_FQDN}/oauth2/callback
+    # The dev persona switcher, on in AAT and off in `values.yaml`. This is the deliberate opt-in the gate is
+    # built around: nothing enables it by not being production, so a demo or prod deploy inheriting the base
+    # gets no switcher even by accident. `ENVIRONMENT_NAME` is not restated here — `values.yaml` resolves it
+    # from `global.environment`, which `helmInstall` passes with `--set`, and `aat` is in
+    # `PERSONA_SWITCHER_ENVIRONMENTS` (`src/auth/persona-switcher.ts`), which is the second half of the gate.
+    #
+    # It is a privilege-escalation mechanism in a shared environment, and that is Steve's call
+    # (2026-09-19) for a test environment with no live data — see `docs/plans/dev-persona-switcher.md`,
+    # "Security posture".
+    PERSONA_SWITCHER_ENABLED: "true"
     # `DEED_POLL_API_URL` is deliberately not restated here, unlike the redirect URI above. `values.yaml`
     # already resolves it per environment from `global.environment`, and api's host is api's to decide — a
     # second spelling of it in this file is the drift the comment above describes, without the constraint

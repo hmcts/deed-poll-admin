@@ -79,6 +79,24 @@ nodejs:
     # template and the redirect URI in the subchart, so the two drifted and the subchart's value applied
     # nowhere it was deployed. Both overrides below restate the pair together for the same reason.
     IDAM_REDIRECT_URI: https://deed-poll-admin.{{ .Values.global.environment }}.platform.hmcts.net/oauth2/callback
+    # Which environment this pod is, for the app rather than for Helm. **`NODE_ENV` cannot answer this**:
+    # `package.json`'s `start` is `NODE_ENV=production node dist/server.js`, so every deployed pod — aat and
+    # preview included — runs as `NODE_ENV=production`. Anything that has to differ between aat and prod has
+    # to read this instead. `src/auth/persona-switcher.ts` is the first such thing.
+    #
+    # Named `ENVIRONMENT_NAME` and not `ENVIRONMENT` deliberately: the per-environment templates are run
+    # through `envsubst`, which would expand a bare `${ENVIRONMENT}` to the empty string — see the
+    # `ingressHost` comment above for what that cost last time. This is a Helm value, resolved here and
+    # nowhere else.
+    ENVIRONMENT_NAME: "{{ .Values.global.environment }}"
+    # The dev persona switcher, which signs a tester in as another persona's real IDAM user so the three
+    # personas can be exercised without logging out. **Off here, and this file is what a future production
+    # deploy inherits** — the aat and preview templates turn it on explicitly, and nothing turns it on by
+    # being merely "not production". It is a privilege-escalation mechanism by design, so its gate is an
+    # allowlist at both ends: this flag and `PERSONA_SWITCHER_ENVIRONMENTS` in
+    # `src/auth/persona-switcher.ts`, which refuses an environment name it does not recognise even with this
+    # set. `src/deployment-chart.test.ts` fails if this file ever enables it.
+    PERSONA_SWITCHER_ENABLED: "false"
   # Exactly four secrets, and the names are fixed by `hmcts/deed-poll-infra`'s `key-vault.tf`, `redis.tf`
   # and `app-insights.tf` — do not rename them here. The vault is `{product}-{env}`, so the key below is the
   # product and not a component.

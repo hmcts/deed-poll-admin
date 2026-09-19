@@ -1,11 +1,12 @@
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: `${IMAGE_NAME}`, `${SERVICE_FQDN}` and
 // `values.${environment}.template.yaml` are what `envsubst` and `helmInstall` read out of the chart, so the
 // literal `${…}` in a plain string is the value under test rather than a template literal written by mistake.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { load as yamlLoad } from "js-yaml";
 import { describe, expect, it } from "vitest";
+import { PERSONA_SWITCHER_ENVIRONMENTS } from "./auth/persona-switcher.js";
 
 // `src/secrets.ts` resolves this path relative to its own directory, and `getPropertiesVolumeSecrets`
 // swallows a missing or unparseable chart: the aliases below are silently dropped and every secret arrives
@@ -15,6 +16,7 @@ const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
 const CHART_DIR = path.join(APP_DIR, "../charts/deed-poll-admin");
 const VAULT = "deed-poll";
 const TEMPLATES = ["values.aat.template.yaml", "values.preview.template.yaml"];
+const PERSONA_SWITCHER_FLAG = "PERSONA_SWITCHER_ENABLED";
 
 describe("charts/deed-poll-admin", () => {
   it("should live at the path helmInstall requires, since it throws before it does anything else", () => {
@@ -205,6 +207,48 @@ describe("charts/deed-poll-admin", () => {
     expect(preview.redis?.enabled).toBe(true);
     expect(preview.redis?.master?.persistence?.enabled).toBe(false);
     expect(preview.nodejs.environment?.REDIS_URL).toBe("redis://{{ .Release.Name }}-redis-master:6379");
+  });
+
+  it("should leave the persona switcher off in values.yaml, which is what a production deploy inherits", () => {
+    // The switcher signs a tester in as another persona's real IDAM user, so it is a privilege-escalation
+    // mechanism by design. `NODE_ENV` cannot keep it out of production — `package.json`'s `start` sets
+    // `NODE_ENV=production` in *every* deployed pod, aat and preview included — so this file being off, and
+    // only the aat and preview templates turning it on, is the whole control. A future production deploy
+    // gets `values.yaml` plus no template, which must mean off.
+    const base = readValues("values.yaml").nodejs.environment?.[PERSONA_SWITCHER_FLAG];
+
+    expect(base ?? "false", "values.yaml enables the persona switcher, so production would inherit it").toBe("false");
+  });
+
+  it("should enable the persona switcher only in environments the runtime allowlist also permits", () => {
+    // Both halves of the gate, asserted against each other rather than restated: a template enabling the flag
+    // for an environment `PERSONA_SWITCHER_ENVIRONMENTS` does not name would ship a control that silently
+    // does nothing, and a template for `prod` enabling it fails here rather than at a deploy. Read off the
+    // directory rather than from `TEMPLATES`, so a values file added later is covered without an edit.
+    const templates = readdirSync(CHART_DIR).filter((file) => /^values\..+\.template\.yaml$/.test(file));
+    const enabled = templates.filter((file) => readValues(file).nodejs.environment?.[PERSONA_SWITCHER_FLAG] === "true");
+
+    expect(enabled.sort()).toEqual(["values.aat.template.yaml", "values.preview.template.yaml"]);
+    for (const file of enabled) {
+      const environment = file.replace(/^values\.(.+)\.template\.yaml$/, "$1");
+
+      expect(PERSONA_SWITCHER_ENVIRONMENTS.has(environment), `${file} enables the persona switcher for an environment persona-switcher.ts refuses`).toBe(true);
+    }
+  });
+
+  it("should tell the application which environment it is, since NODE_ENV says production in all of them", () => {
+    // `ENVIRONMENT_NAME` is resolved here, from the `global.environment` `helmInstall` passes with `--set`,
+    // and read through `config`. A chart that set a variable `custom-environment-variables.json` does not map
+    // would leave the app on `config/default.json`'s `development` in every environment — which the persona
+    // switcher's allowlist permits, so the mapping is load-bearing rather than tidy.
+    const readByConfig = readFileSync(path.join(APP_DIR, "../config/custom-environment-variables.json"), "utf8");
+
+    expect(readValues("values.yaml").nodejs.environment?.ENVIRONMENT_NAME).toBe("{{ .Values.global.environment }}");
+    expect(readByConfig).toContain('"ENVIRONMENT_NAME"');
+    // `__format: "json"` is what makes the flag arrive as a boolean. Without it config hands back the string
+    // `"false"`, which is truthy.
+    expect(readByConfig).toContain(`"${PERSONA_SWITCHER_FLAG}"`);
+    expect(readByConfig).toContain('"__format": "json"');
   });
 
   it("should give the preview redis a probe budget that survives Dynatrace instrumentation", () => {

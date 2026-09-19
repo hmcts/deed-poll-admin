@@ -1,4 +1,7 @@
 {
+  "personaSwitcher": {
+    "enabled": false
+  },
   "gtm": {
     "enabled": true
   },

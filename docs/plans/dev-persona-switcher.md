@@ -188,9 +188,33 @@ Config flag through `config/` (`default.json` off, `custom-environment-variables
 `plain-http.ts`'s shape, keyed on the chart-injected environment name rather than `NODE_ENV`. Chart: off in
 `values.yaml`, on in the aat and preview templates.
 
-- [ ] Flag defaults off; allowlist is a named set with a docblock saying why it is not a negation; `values.yaml`
+- [x] Flag defaults off; allowlist is a named set with a docblock saying why it is not a negation; `values.yaml`
       does not enable it; aat and preview do; `deployment-chart.test.ts` fails if the base ever enables it or a
       production template appears that does; both validation commands green
+
+**Done 2026-09-19.** `src/auth/persona-switcher.ts` holds the gate: `PERSONA_SWITCHER_ENVIRONMENTS`
+(`development`, `test`, `aat`, `preview`) **and** `personaSwitcher.enabled`, both of which must agree. Two
+things worth knowing before Task 2 uses it:
+
+- **The environment name needed inventing.** Nothing carried it, so `values.yaml` now sets
+  `ENVIRONMENT_NAME: "{{ .Values.global.environment }}"` and `config` maps it, defaulting to `development`.
+  It is deliberately not `ENVIRONMENT`: the per-environment templates go through `envsubst`, which would
+  expand a bare `${ENVIRONMENT}` to the empty string — the accident `values.yaml`'s `ingressHost` comment
+  records.
+- **`__format: "json"` in `custom-environment-variables.json` is load-bearing, and the flag is checked
+  `=== true`.** Without the format, config hands back the *string* `"false"` from
+  `PERSONA_SWITCHER_ENABLED: "false"` — truthy, so the values file that turns the switcher off would turn it
+  on. Verified against the real package: `PERSONA_SWITCHER_ENABLED=true` arrives as a boolean.
+- **The flag is still off in `development`,** so `yarn dev` shows no switcher until Task 3 opts the dev
+  script in. `config/production.json` pins it off as well, which changes nothing on its own — an env var
+  beats any config file — but keeps the intent readable next to the other production pins.
+
+`src/deployment-chart.test.ts` (now 20 tests) asserts the base is off, and cross-checks the templates against
+the allowlist imported from `persona-switcher.ts` rather than restating it: a `values.prod.template.yaml`
+enabling the flag fails, and so does a template enabling it for an environment the runtime would refuse. It
+reads the chart directory rather than the `TEMPLATES` list, so a values file added later is covered without an
+edit. Suite: 143 files / 2481 tests passing (app 59/915); `yarn lint` exit 0 with the same two pre-existing
+warnings.
 
 ### Task 2: The app-owned layout
 
