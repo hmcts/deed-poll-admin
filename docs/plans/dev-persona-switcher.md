@@ -315,8 +315,47 @@ Suite: 147 files / 2526 tests passing (app 62/960; +24 across `password-grant.te
 The point of the feature, and the thing a role rewrite would have failed: after switching to the judge,
 `/judicial/referrals` must return **200 with data from api**, not a 403.
 
-- [ ] An e2e journey switches caseworker → judge → caseworker-admin and asserts on each that a
+- [x] An e2e journey switches caseworker → judge → caseworker-admin and asserts on each that a
       persona-specific api-backed page loads and a persona-forbidden one refuses; both validation commands green
+
+**Done 2026-09-19.** `e2e-tests/tests/persona-switcher.spec.ts` — one test, because the feature is one sitting.
+It signs in as the roleless caseworker, searches the case list for a case seeded for the run, is refused
+`/judicial/**`, switches to the judge, switches to the administrator, and switches back. Run with
+`yarn test:e2e` (34 tests pass, the new one alongside the rest in parallel workers); **the plan's two
+validation commands do not cover it** — vitest and Biome say nothing about a Playwright spec, so the suite was
+run explicitly. Five things worth knowing:
+
+- **The discriminating assertion is a referral claimed by `judge@example.com` *before* the switch.** Everything
+  else in the journey would also pass against the role-rewrite implementation this plan rejected: both put
+  `caseworker-deedpoll-judicial` on `CurrentUser`, so the gate opens and the pool renders either way. api shows
+  a `Claimed` referral **to its holder alone, resolved from the token**, so the judge persona reads it (200)
+  where a forged role list arrives with the caseworker's subject and is answered 404 — on the page its own
+  chrome had just invited it onto. The spec seeds a second referral claimed by a *different* judge and asserts
+  the 404 there, so both directions of the rule are in one test and the premise is not taken on trust.
+- **The third switch is proved by one URL answering differently.** The same note-edit page carries no
+  **Delete note** button as the roleless caseworker and does carry one as the administrator, with nothing
+  between them but the switch. That is `canDeleteNote` reading a role list api derived from the new token; an
+  assertion about the judicial area could not show it, since **both** caseworker personas are refused there —
+  `isAdmin` and `isJudicial` are alternatives, not a ladder.
+- **The refusal page carries no strip, and the journey has to navigate away before it can switch.** Found by
+  the test failing: the 403 renders the starter's `errors/404.njk`, which nunjucks resolves before `src/pages`,
+  so it extends the starter's layout rather than the app's — task 2's recorded exception, met in practice. A
+  tester who guesses a judicial URL must go back to a service page to change persona. It is asserted
+  (`expect(personaStrip(page)).toHaveCount(0)`) rather than worked around silently, because the alternative
+  reading is that the strip had gone missing. The judicial "no longer available" page *is* app-owned, so
+  switching out of a judge's dead end does work.
+- **It signs itself in and must keep doing so.** Giving it `ADMIN_STORAGE_STATE` or `CASEWORKER_STORAGE_STATE`
+  would be a live fault, not a tidy-up: a switch calls `signIn`, which regenerates the session id and destroys
+  the session behind the restored cookie, so every spec sharing that state would be signed out mid-run and the
+  symptom would be a timeout in an unrelated file. The file's docblock says so at the top.
+- **Its fixtures stay out of the other specs' way.** Both referrals are claimed at seed time, so neither enters
+  the `Open` pool `judicial.spec.ts` counts and polls, and they are Standard rather than Urgent so that spec's
+  "no other spec raises an urgent referral" still holds. The searched surname carries `Date.now()` in base 36,
+  because the mock's store is shared and outlives the run, and every seeded case carries a display reference —
+  a reference cell with no text is an accessibility violation on every list page the rest of the run renders.
+
+Suite unchanged at 147 files / 2526 tests passing (no vitest file added); `yarn lint` exit 0 with the same two
+pre-existing warnings.
 
 ## The IDAM registration change is NOT a task in this plan — removed 2026-09-19 on Steve's call
 
