@@ -149,6 +149,11 @@ function tabVisible(tab: TabDef, presentation: FormPresentation): boolean {
  * (`referrals.count`, `notes.count`, `case.witnesses.length`, `documents.length`) rather than from `empty`,
  * which the template reads for field tabs only. So `empty` is a property of this model that has to be true,
  * not the switch the message hangs off — do not rely on it to hide a populated list.
+ *
+ * That is also why `referrals` being `null` — the read failed, see `src/pages/deed-polls/[id].ts` — is left
+ * counting as 0 rather than given a third `empty: unknown` state: `[]` would say the same thing, and no
+ * template reads it for a subgrid. The panel's own `unavailable` is what a caseworker sees. If `empty` ever
+ * does drive subgrid copy, this is the line that has to change first.
  */
 function subgridCount(subgrid: NonNullable<TabDef["subgrid"]>, record: Record<string, unknown>): number {
   const list = record[subgrid];

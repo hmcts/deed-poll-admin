@@ -7,7 +7,8 @@ import {
   REFERRAL_REASON_LABEL,
   REFERRAL_STATE_TAG,
   REFERRAL_URGENCY_CHOICES,
-  REFERRAL_URGENCY_LABEL
+  REFERRAL_URGENCY_LABEL,
+  unavailableReferralsView
 } from "./referrals-view.js";
 
 const REFERRAL: Referral = {
@@ -174,11 +175,21 @@ describe("referrals/referrals-view", () => {
     it("should report a case with no referrals as an empty tab rather than failing", () => {
       const view = buildReferralsView([]);
 
-      expect(view).toEqual({ rows: [], count: 0, anyOpen: false });
+      expect(view).toEqual({ rows: [], count: 0, anyOpen: false, unavailable: false, offerRaise: true });
     });
 
     it.each(["Open", "Claimed", "Decided"] as const)("should count a %s referral as open, so no second one is offered", (state) => {
-      expect(buildReferralsView([{ ...REFERRAL, state }]).anyOpen).toBe(true);
+      const view = buildReferralsView([{ ...REFERRAL, state }]);
+
+      expect(view.anyOpen).toBe(true);
+      expect(view.offerRaise).toBe(false);
+    });
+
+    // A read that succeeded is a claim about the case, however it turned out — which is the distinction
+    // `unavailableReferralsView` exists to keep, so it is worth pinning from this side too.
+    it("should report a successful read as available, so an empty case is not confused with a failed one", () => {
+      expect(buildReferralsView([]).unavailable).toBe(false);
+      expect(buildReferralsView([REFERRAL]).unavailable).toBe(false);
     });
 
     it("should report no open referral when every one of them is closed or withdrawn", () => {
@@ -195,6 +206,34 @@ describe("referrals/referrals-view", () => {
       const view = buildReferralsView([REFERRAL, { ...REFERRAL, id: "ref-0", state: "Withdrawn" }]);
 
       expect(view.anyOpen).toBe(true);
+      expect(view.offerRaise).toBe(false);
+    });
+  });
+
+  describe("unavailableReferralsView", () => {
+    it("should be a state of its own rather than an empty list, since the two make opposite claims", () => {
+      const view = unavailableReferralsView();
+
+      expect(view.unavailable).toBe(true);
+      expect(view).not.toEqual(buildReferralsView([]));
+    });
+
+    // The failure mode this whole state exists to prevent: a caseworker reading an unreadable panel as
+    // "not referred" and raising a second referral. api answers 409, but they were told the wrong thing.
+    it("should withhold the raise control, because it cannot know whether one is already open", () => {
+      expect(unavailableReferralsView().offerRaise).toBe(false);
+    });
+
+    it("should carry no rows and claim no count, having read nothing", () => {
+      const view = unavailableReferralsView();
+
+      expect(view.rows).toEqual([]);
+      expect(view.count).toBe(0);
+    });
+
+    // Not shared state: the template is handed this object and Nunjucks is not required to leave it alone.
+    it("should answer a fresh object each time, not one shared between requests", () => {
+      expect(unavailableReferralsView()).not.toBe(unavailableReferralsView());
     });
   });
 });

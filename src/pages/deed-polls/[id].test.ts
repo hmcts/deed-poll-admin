@@ -181,7 +181,7 @@ describe("case detail page", () => {
 
     const tabs = res.render.mock.calls[0][1].tabs as { id: string; empty: boolean }[];
     expect(tabs.find((tab) => tab.id === "referrals")?.empty).toBe(true);
-    expect(res.render.mock.calls[0][1].referrals).toEqual({ rows: [], count: 0, anyOpen: false });
+    expect(res.render.mock.calls[0][1].referrals).toEqual({ rows: [], count: 0, anyOpen: false, unavailable: false, offerRaise: true });
   });
 
   it("reports an open referral so the tab can withhold the raise button api would refuse", async () => {
@@ -246,6 +246,59 @@ describe("case detail page", () => {
     await expect(GET(request(), res)).rejects.toThrow(NotFoundError);
 
     expect(res.render).not.toHaveBeenCalled();
+  });
+
+  // The other half of the decision above: the case read stays fatal, the referrals read does not. Both
+  // directions are pinned because the whole point is that they differ.
+  it("renders the case when the referrals read fails, rather than losing the page to one panel", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(findReferrals).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): nope"));
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render).toHaveBeenCalled();
+    expect(res.render.mock.calls[0][1].pageHeading).toBe("KBDP2026-00001");
+    expect(res.render.mock.calls[0][1].referrals).toEqual({ rows: [], count: 0, anyOpen: false, unavailable: true, offerRaise: false });
+    logged.mockRestore();
+  });
+
+  // A 404 on referrals is the case that made this worth changing: `classify` maps by status, so it used to
+  // become NotFoundError and render "Page not found" for a case sitting right there.
+  it("renders the case when the referrals endpoint answers 404, which used to 404 the whole page", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(findReferrals).mockRejectedValue(new NotFoundError("no such thing"));
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render).toHaveBeenCalled();
+    expect(res.render.mock.calls[0][1].referrals.unavailable).toBe(true);
+    logged.mockRestore();
+  });
+
+  it("logs a degrading referrals panel without the case id, so the logs say it is happening and not to whom", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(findReferrals).mockRejectedValue(new Error("deed-poll-api call failed (timeout): nope"));
+
+    await GET(request(), response());
+
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("referrals unavailable"));
+    expect(logged).not.toHaveBeenCalledWith(expect.stringContaining("case-1"));
+    logged.mockRestore();
+  });
+
+  // A mistyped id 404s both calls, since findReferrals answers api's 404 rather than an empty list. Logging
+  // the referrals leg before the case leg is known good would file a fault for every wrong URL.
+  it("does not log a referrals fault when the case itself is missing, which fails both reads", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(findDeedPoll).mockRejectedValue(new NotFoundError("DeedPoll nope not found"));
+    vi.mocked(findReferrals).mockRejectedValue(new NotFoundError("DeedPoll nope not found"));
+
+    await expect(GET(request(), response())).rejects.toThrow(NotFoundError);
+
+    expect(logged).not.toHaveBeenCalled();
+    logged.mockRestore();
   });
 
   it("carries the labels the witnesses subgrid renders, since a missing one is an empty link or button", async () => {

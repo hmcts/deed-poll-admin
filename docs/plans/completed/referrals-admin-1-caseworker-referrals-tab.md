@@ -491,11 +491,18 @@ Four things worth knowing:
   "None recorded" on a referred case and nothing fails. `detail-view.test.ts` pins the count and `[id].test.ts`
   pins the merge, because the two halves can break independently.
 - **`anyOpen` is on the view model, not in the template.** It is `terminal` asked of the list (Task 3's note),
-  and it only decides whether the panel offers "Refer this case to the judiciary" — with the sentence
+  and it decides whether the panel offers "Refer this case to the judiciary" — with the sentence
   "This case is with the judiciary. Withdraw the open referral before raising another." in its place. api still
   owns the rule; the button is withheld so its 409 does not arrive after a 1,000-character form is filled in.
+
+  **Superseded by the second-pass amendment below:** the template reads `offerRaise`, not `anyOpen`, because
+  there are now two reasons to withhold the button and only one of them has a message.
 - **The second call is `Promise.all`'d with `findDeedPoll`**, as `referrals/[referralId].ts` already does:
   neither answer depends on the other, the tab is on every case, and a 404 for the case rejects both.
+
+  **Superseded by the second-pass amendment below:** it is `Promise.allSettled`, so the case read stays fatal
+  and the referrals read degrades. `referrals/[referralId].ts` is unchanged — there, the referral *is* the
+  page.
 
 Final counts against Task 1's baseline. The app's `//#test:app` gained the 6 model tests in `[id].test.ts` and
 the 9 template tests in the new `detail.njk.test.ts`; `@hmcts/deed-poll` gained `buildReferralsView`'s 9 and one
@@ -564,6 +571,33 @@ Two behaviour fixes, one accessibility finding, and the journey test that found 
   a case that exists, and an api without the endpoint would 404 every case page. Degrading the tab instead is a
   small change (`Promise.allSettled`, a load-failure flag on the view model, no raise button in that state) if
   you decide the tab is worth less than the page.
+
+  **Steve's call, 19 September: changed, and the tab now degrades.** Made before the PR rather than as a
+  follow-up, because the third fatal call is what this branch introduces — landing it and fixing it later
+  would ship a regression in page availability and then need its own justification against a plan that
+  records the decision as declined twice.
+
+  The reasoning that settled it, having verified the mapping rather than assumed it: `client.ts:746`
+  classifies by **status**, so *every* referrals failure lost the page and in three disguises — a 404 (absent
+  endpoint or absent case) became `NotFoundError` and rendered "Page not found" for a case that exists, a 5xx
+  or timeout became `unavailable` and the 500 page, a 403 rendered the 404 template. None mentions referrals,
+  so the support cost lands on whoever is asked why a case vanished. `client.ts:793` already classifies
+  `unavailable`/`timeout` as "nobody's fault; try again shortly", and `client.ts:516` already warns about this
+  exact coupling — the taxonomy was built and then discarded at the call site.
+
+  Two things the earlier passes had right and one they had wrong. Right: the objection that failing loudly is
+  safer for case data than for nav chrome is real, and it is answered by `unavailable` being a **third state**
+  rather than an empty list — the danger was always a caseworker inferring "not referred" from a blank panel,
+  so the panel says it could not find out and withholds the button. Right: `savedQueryEntries` is the
+  precedent. Wrong: citing it alone was cherry-picking, since `getCaseFieldRules` is a counter-precedent ten
+  lines below. The principle that carries it is **load-bearing versus additive** — `findDeedPoll` is the case
+  and `getCaseFieldRules` decides which fields exist at all, so neither has a page without it; referrals are
+  one panel of several.
+
+  One deviation from the sketch above: the flag is `offerRaise` on the view model, not the template reading
+  `unavailable` and `anyOpen` in the right order. `canRaise` was the first name and was wrong —
+  `referrals-view.ts` is explicit that it holds no authorisation-shaped state ("who may claim, what a decision
+  permits — is api's and stays there"), and `offerRaise` is about what the panel displays.
 
 ### Code review, third pass — the mixed api 400
 

@@ -224,8 +224,16 @@ Follow these strict naming conventions throughout the project:
 - **One api call per thing a page needs, and no more.** A case's witnesses and documents arrive inside
   `GET /caseworker/cases/{id}`, so re-reading them is a second round trip for an answer already held — **but
   check the payload before assuming one carried it.** A case's *referrals* are not on it, so the referrals tab
-  is a justified second call, `Promise.all`'d with the case (`src/pages/deed-polls/[id].ts`). The rule forbids
+  is a justified second call, made alongside the case (`src/pages/deed-polls/[id].ts`). The rule forbids
   re-reading what the first call already answered, not calling for something it never held
+- **A second call for one panel must not be able to lose the page.** `[id].ts` reads the case and its
+  referrals with `Promise.allSettled`, not `Promise.all`: the case read stays fatal, the referrals read
+  degrades to `unavailableReferralsView()` and a log line. `client.ts` classifies by status, so under
+  `Promise.all` a referrals 404 rendered "Page not found" for a case that exists, a 5xx the 500 page, and a 403
+  the 404 template — three disguises for a failure the adapter itself calls "try again shortly". The test for
+  which way a given call goes is **load-bearing versus additive**: `findDeedPoll` is the case and
+  `getCaseFieldRules` decides which fields exist at all, so both stay fatal. The degraded state must be
+  distinguishable from an empty one — see `unavailableReferralsView`'s docblock for why
 - Ask api to filter, sort and page. It resolves a filter key; do not fetch a list and narrow it here
 - Consider caching for expensive computations
 - Every call carries an `AbortSignal.timeout`, so a slow api degrades pages rather than hanging them

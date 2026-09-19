@@ -85,6 +85,38 @@ async function page(referrals: Record<string, unknown>[]): Promise<string> {
   return html(res.render.mock.calls[0][1]);
 }
 
+/**
+ * The page with the referrals read failing, which the handler degrades to a panel rather than a 404.
+ *
+ * The `console.error` is the handler's own log line for the degradation, silenced so the suite output stays
+ * readable — asserted in `[id].test.ts`, which owns the handler's side of this.
+ */
+async function unavailablePage(): Promise<string> {
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.mocked(findReferrals).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): nope"));
+  const res = pageResponse();
+
+  await GET(pageRequest({ params: { id: "case-1" }, accessToken: "session-token" }), res);
+  logged.mockRestore();
+
+  return html(res.render.mock.calls[0][1]);
+}
+
+/**
+ * Just the referrals panel, for the assertions that a page-wide `toContain` would satisfy from another tab.
+ *
+ * "None recorded." is every empty panel's copy, so asserting its *absence* has to be scoped or it is really
+ * an assertion about notes, witnesses and documents. Referrals is the last of `FORM_TABS`, so this runs from
+ * its panel to the end of the document: if a tab is ever added after it the window widens and the assertion
+ * goes red rather than quietly green, which is the safe direction for a negative.
+ */
+function referralsPanel(rendered: string): string {
+  const start = rendered.indexOf('id="referrals"');
+  const next = rendered.indexOf("govuk-tabs__panel", start + 1);
+
+  return rendered.slice(start, next === -1 ? undefined : next);
+}
+
 describe("case detail template — the referrals tab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -159,5 +191,36 @@ describe("case detail template — the referrals tab", () => {
     // The row is still listed and still links to the referral — an empty reasons cell is not a reason to hide
     // a referral the case has.
     expect(rendered).toContain('href="/deed-polls/case-1/referrals/ref-1"');
+  });
+
+  describe("when the referrals read failed", () => {
+    it("should still render the case, the panel being one tab rather than the page", async () => {
+      const rendered = await unavailablePage();
+
+      expect(rendered).toContain("KBDP2026-00001");
+      expect(rendered).toContain('href="#referrals"');
+    });
+
+    // The distinction the whole degraded state exists for: "None recorded." is a claim about the case, and
+    // the page is not in a position to make it.
+    it("should say the information could not be loaded rather than that there are none", async () => {
+      const panel = referralsPanel(await unavailablePage());
+
+      expect(panel).toContain("Referral information could not be loaded");
+      expect(panel).not.toContain("None recorded.");
+    });
+
+    it("should withhold the raise button, since it cannot know whether one is already open", async () => {
+      const rendered = await unavailablePage();
+
+      expect(rendered).not.toContain('href="/deed-polls/case-1/referrals/new"');
+    });
+
+    // The open-referral message would be a second claim about a case nothing was read for.
+    it("should not claim the case is with the judiciary either", async () => {
+      const rendered = await unavailablePage();
+
+      expect(rendered).not.toContain("Withdraw the open referral before raising another.");
+    });
   });
 });

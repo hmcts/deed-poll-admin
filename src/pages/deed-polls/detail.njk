@@ -5,6 +5,7 @@
 {% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
 {% from "govuk/components/table/macro.njk" import govukTable %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
 {% from "deed-polls/two-column-card.njk" import twoColumnCard %}
 
 {#
@@ -212,7 +213,14 @@
         the row's handle and carries the link, the same shape as a note's code cell above.
       #}
       {% elif tab.subgrid == "referrals" %}
-        {% if referrals.count %}
+        {#
+          Three states, not two. `unavailable` is the read having failed, which is a different claim from a
+          case that has never been referred — rendering it as "None recorded." would tell a caseworker the
+          case is free of the judiciary when the page does not know. See referrals-view.ts.
+        #}
+        {% if referrals.unavailable %}
+          {{ govukWarningText({ text: referralsUnavailable, iconFallbackText: warningIcon }) }}
+        {% elif referrals.count %}
           <p class="govuk-caption-m">{{ referrals.count }} referral{{ "" if referrals.count == 1 else "s" }}</p>
           {% set referralRows = [] %}
           {% for r in referrals.rows %}
@@ -257,13 +265,18 @@
         {#
           Unlike the Add buttons above, this one is conditional: a case holds one live referral at a time and
           api answers 409 for a second, so offering the form while one is open would only fail after it was
-          filled in. `anyOpen` is the single state question this app asks of the list — api still enforces the
-          transition, which is why raising is a 409 rather than an impossibility.
+          filled in. api still enforces the transition, which is why raising is a 409 rather than an
+          impossibility.
+
+          `offerRaise` and not `not referrals.anyOpen`, because there are two reasons to withhold it and only
+          one of them has a message: an open referral says so, an unavailable read has already said so in the
+          warning above. referrals-view.ts owns which, so this template cannot get the order of two booleans
+          wrong and offer the form on a panel that knows nothing.
         #}
-        {% if referrals.anyOpen %}
-          <p class="govuk-body">{{ referralAlreadyOpen }}</p>
-        {% else %}
+        {% if referrals.offerRaise %}
           {{ govukButton({ text: raiseReferral, href: "/deed-polls/" + case.id + "/referrals/new", classes: "govuk-button--secondary" }) }}
+        {% elif referrals.anyOpen %}
+          <p class="govuk-body">{{ referralAlreadyOpen }}</p>
         {% endif %}
 
       {% else %}

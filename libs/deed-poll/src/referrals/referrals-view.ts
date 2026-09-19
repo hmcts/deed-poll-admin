@@ -114,15 +114,36 @@ export function buildReferralDetail(referral: Referral): ReferralView {
  * a second sort here would be this repo deciding something api has already decided — the mistake
  * `../notes/notes-view.ts` documents itself as *not* making only because its callers disagree on order.
  *
- * **`anyOpen` is `terminal` asked of the list, and nothing more.** It decides whether the tab offers "Raise a
- * referral", because a case holds at most one live referral and api answers 409 for the second — the button is
- * hidden so the refusal does not arrive after the form is filled in. It is not a claim about what else may
- * happen to those referrals: who may claim one, and whether a withdraw is allowed, stay api's (decision 10).
+ * **`anyOpen` is `terminal` asked of the list, and nothing more.** A case holds at most one live referral and
+ * api answers 409 for the second. It is not a claim about what else may happen to those referrals: who may
+ * claim one, and whether a withdraw is allowed, stay api's (decision 10).
+ *
+ * **`offerRaise` is the one the template reads**, and it is not `not anyOpen`: the button is also withheld
+ * when the read failed. Computed here rather than in the template because two booleans in the wrong order
+ * offer a control on a panel that knows nothing — see `unavailableReferralsView`.
  */
 export function buildReferralsView(referrals: Referral[]): ReferralsView {
   const rows = referrals.map(buildReferralDetail);
+  const anyOpen = rows.some((row) => !row.terminal);
 
-  return { rows, count: rows.length, anyOpen: rows.some((row) => !row.terminal) };
+  return { rows, count: rows.length, anyOpen, unavailable: false, offerRaise: !anyOpen };
+}
+
+/**
+ * The tab when the referrals read failed, so the panel degrades rather than the page — the decision is
+ * `src/pages/deed-polls/[id].ts`'s and its reasoning is there.
+ *
+ * **`unavailable` is a third state and deliberately not `count: 0`.** The two say opposite things to a
+ * caseworker: "this case has never been referred" is a fact, and "we could not find out" is the absence of
+ * one. Rendering the second as the first would tell someone a case is free of the judiciary when it may not
+ * be, on a page that otherwise looks normal — api's 409 stops a second referral being stored, so nothing is
+ * corrupted, but the caseworker would have been misinformed by the page rather than refused by api.
+ *
+ * `offerRaise` is false for the reason it is false while one is open, and one more: the raise form reads the
+ * same endpoint, so the button would lead to a page that cannot load either.
+ */
+export function unavailableReferralsView(): ReferralsView {
+  return { rows: [], count: 0, anyOpen: false, unavailable: true, offerRaise: false };
 }
 
 /**
@@ -173,8 +194,15 @@ export interface ReferralView {
 export interface ReferralsView {
   /** Newest first, as api answered them. */
   rows: ReferralView[];
-  /** Row count, shown as a caption above the list. */
+  /** Row count, shown as a caption above the list. Meaningless when `unavailable` — nothing was read. */
   count: number;
   /** True while one referral is still with the judiciary, so no second one can be raised. */
   anyOpen: boolean;
+  /**
+   * The read failed, so no field here is a claim about the case. The panel says so rather than rendering
+   * an empty list — see `unavailableReferralsView` for why the two cannot share a state.
+   */
+  unavailable: boolean;
+  /** Whether the panel shows "Raise a referral", the one control it offers. False when open, false when unavailable. */
+  offerRaise: boolean;
 }
