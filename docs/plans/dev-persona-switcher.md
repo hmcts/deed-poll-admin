@@ -129,7 +129,7 @@ role-rewrite design this plan rejected would have needed one, or would simply no
 
 | # | Dependency | Owner | State 2026-09-19 |
 |---|---|---|---|
-| 1 | `password` added to the aat client overlay | `hmcts/idam-access-config` | **not raised** — separate work after this plan, deliberately |
+| 1 | `password` **and `client_credentials`** added to the aat client overlay (amended 2026-09-20 — the second was missing from this table; `idam-testing-support-api` needs a service token, so persona *creation* depends on it) | `hmcts/idam-access-config` | **not raised** — separate work after this plan, deliberately |
 | 2 | `caseworker-deedpoll-judicial` role exists in AAT | `hmcts/idam-access-config#995` | **open** |
 | 3 | admin can deploy to AAT at all | running-order step 5f | **unraised** |
 | 4 | `deed-poll-api` deployed to AAT behind that address | `deed-poll-api` master | not building |
@@ -365,8 +365,15 @@ not open one. It also carries two traps that want a human reading the diff rathe
 
 - **`apps/deed-poll/aat/services.yaml`, NOT `base`** — base covers production, and ROPC on the production
   client is not something a test tool is entitled to ask for.
-- **Restate all three grant types** (`authorization_code`, `refresh_token`, `password`). An overlay replaces
-  a list rather than appending to it, so omitting `authorization_code` **breaks normal sign-in in AAT**.
+- **Restate all four grant types** (`authorization_code`, `refresh_token`, `password`, `client_credentials`).
+  An overlay replaces a list rather than appending to it, so omitting `authorization_code` **breaks normal
+  sign-in in AAT**.
+- **AMENDED 2026-09-20 by task 5: `client_credentials` is the fourth, and it was missing from this list.**
+  AAT's personas are created through `idam-testing-support-api`, which `src/auth/test-users.ts` authenticates
+  with a *service* token — so without that grant the AAT path fails one call earlier than this plan expected,
+  before any user token is asked for. Read from the clone, not inferred: `base/services.yaml` registers
+  `authorization_code` and `refresh_token` and nothing else. The two refusals are reported separately by
+  `persona-users.ts` because they name different fixes.
 
 Precedent to cite when it is raised: `apps/pcs`, `apps/ia` and `apps/probate` all register `password`, and
 pcs's first client uses it as its only grant type.
@@ -385,9 +392,63 @@ reason shown, never by offering a persona that cannot work.
 **Degrade the same way while the IDAM registration change is outstanding**: if the client is not registered for `password`, the
 switcher must say so rather than offering options that fail at IDAM.
 
-- [ ] Personas resolve in AAT without fixed accounts; an unavailable persona is disabled with its reason
+- [x] Personas resolve in AAT without fixed accounts; an unavailable persona is disabled with its reason
       stated; an unregistered grant type is reported as such rather than surfacing as a login failure; no real
       user's credentials are read anywhere; both validation commands green
+
+**Done 2026-09-20.** `src/auth/persona-users.ts` is the AAT half: who a persona is here, and why it may not be
+available. `persona-switcher.ts` keeps the gate, the persona list and the strip, and now renders whatever
+`personaState` reports; `src/pages/switch-persona.ts` answers a refusal with its reason on a page of its own
+(`switch-persona.njk`) instead of the 500 page task 3 left. Seven things worth knowing, and the first is a
+correction to this plan:
+
+- **The registration change needs TWO grant types, not one, and this plan said one.** Read from
+  `platops/idam-access-config/apps/deed-poll/base/services.yaml`: the client registers `authorization_code` and
+  `refresh_token`. `password` is what the token request needs — and **`client_credentials` is what
+  `createTestUser` authenticates with**, so without it the AAT path cannot even reach the point of being refused
+  a user token. The two fail at different calls and name different fixes, so they are classified and reported
+  separately rather than as one "IDAM said no". The dependency table and the registration section below are
+  amended.
+- **The seeded/created split is a second allowlist, not a test for "not local".**
+  `SEEDED_PERSONA_ENVIRONMENTS` is `development` and `test` — the environments `yarn idam:users` can have seeded
+  — and everything else creates users on demand. `test` is on it because a unit test must never be one mistake
+  away from posting to a real testing-support API.
+- **The three-hour sweep is handled by retrying once, and that is the whole handling.** A swept user makes IDAM
+  answer `invalid_grant`, which is indistinguishable from a password it never knew, so the only honest response
+  is to forget the account and make another. Capped at one retry: a refusing IDAM must not mint accounts in a
+  loop. Locally the same `invalid_grant` means something else entirely — the fixture is not there — so it says
+  `yarn idam:users` instead of creating anything.
+- **Only a refusal that cannot change without somebody else's merge or a redeploy is remembered.** An
+  unpublished role disables that persona; an unregistered grant type disables all three with one notice rather
+  than three copies of the same sentence. A testing-support 500, an unreachable IDAM or a 400 that names no
+  role is reported to whoever hit it and *not* recorded — "IDAM was briefly down" must not read as "this
+  persona does not exist here". The recorded ones last the process's lifetime, so a role that appears later
+  takes effect at the next deploy rather than never.
+- **No secret was added for AAT.** A created user's password is generated per user, used twice and written
+  nowhere; the configured `personaSwitcher.password` is only the local seeder's. So there is no key vault entry
+  to manage and nothing in a values file to leak, and the switcher still reads no real user's credentials — the
+  email is built from the persona's own id and the roles are the persona's own, so a created account can hold
+  nothing `PERSONAS` does not name.
+- **A refusal is a 503 rendering its reason, deliberately not a 404 and not a 500.** The two existing refusals
+  (shut gate, unknown persona id) stay 404s for non-enumerability; this one is the opposite problem — the
+  persona exists and the environment cannot provide it — and answering "no such thing here" would send a tester
+  looking for a bug in the switcher. The strip is on that page too, so "pick another" is a real instruction.
+- **Checked against the built output, since this is the failure class with no local symptom.**
+  `switch-persona.njk` is the first page template at the root of `src/pages`, and `vite.build.ts`'s copy doubles
+  directory segments — it lands at `dist/pages/src/pages/switch-persona.njk`, which `collectViewPaths` covers.
+  Rendered from `dist` with the deployed search paths it produces the h1, the reason and the starter's phase
+  banner, and the unavailable state renders on `deed-polls/index.njk` too. Had that not held, every refusal
+  would 500 in a pod with nothing failing locally.
+
+`PERSONA_SWITCHER_EMAIL_DOMAIN` (`config`, default `example.com`) exists because **no request from this
+devcontainer reaches AAT's IDAM**, so which email domains its testing-support API accepts is unverified; it is
+deliberately not set in any values file, so if `example.com` is refused the fix is a one-line chart edit rather
+than a release. Task 6 is what finds out.
+
+Suite: 148 files / 2567 tests passing (app 63/1001; +41 across `persona-users.test.ts`, `persona-switcher.test.ts`,
+`switch-persona.test.ts`, `app.njk.test.ts` and `test-users.test.ts`). `yarn lint` exit 0 with the same two
+pre-existing warnings. `yarn test:e2e --grep "one tester works"` still passes, which is what says the strip's
+markup change did not break task 4's journey.
 
 ### Task 6: Verify in AAT — CANNOT be completed locally
 

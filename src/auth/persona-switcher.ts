@@ -7,6 +7,11 @@
  * layout renders. They are one file because the first is what makes the other two safe, and a list of
  * identities to mint tokens for should not be readable without the paragraphs below next to it.
  *
+ * **Which IDAM user a persona actually is belongs to `./persona-users.ts`**, because that answer differs per
+ * environment: locally the seeded fixtures, in AAT a user created on demand because its test users are swept
+ * after three hours. That file also decides when a persona cannot be offered at all and what to say about it,
+ * and the strip below renders whatever it reports.
+ *
  * It is a **privilege-escalation mechanism by design**: it obtains a real IDAM token for another user, so
  * anyone who can reach it holds every persona it offers. Harmless locally, real in AAT, and unacceptable in
  * production — which is what the two independent conditions below are for.
@@ -38,8 +43,10 @@
  * `config/default.json` value applies — but note that the flag is still off by default there, so a test that
  * wants the switcher has to ask for it.
  */
+import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
 import config from "config";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
+import { type Persona, personaState, switcherUnavailableReason } from "./persona-users.js";
 import { sessionSubject, sessionUser } from "./session.js";
 
 /** The only environments in which the persona switcher may be offered. */
@@ -63,9 +70,17 @@ export const PERSONA_SWITCH_PATH = "/switch-persona";
  * configured to offer". An id arriving in a form body is looked up here and nothing else — there is no path
  * from a request to an arbitrary username.
  *
- * The usernames are the local fixtures `scripts/seed-idam-users.mjs` creates. AAT cannot use fixed accounts
- * at all (its test users are cleaned up after three hours), so task 5 resolves the same three personas
- * differently there; what stays is the shape — three named personas, each with one identity behind it.
+ * `fixtureUsername` is the local account `scripts/seed-idam-users.mjs` creates, and it is only the identity in
+ * the environments `SEEDED_PERSONA_ENVIRONMENTS` names. AAT cannot use fixed accounts at all — its test users
+ * are swept after about three hours — so there the same three personas are **created on demand** from
+ * `roleNames`; `./persona-users.ts` owns that half. What stays either way is the shape: three named personas,
+ * each with one identity behind it.
+ *
+ * **`roleNames` is what a persona *is*, and the roles are imported rather than spelled out.** A copy of one of
+ * these strings has already drifted once in this repo (`scripts/seed-idam-users.mjs` granted the pre-rename
+ * `deedpoll-admin` after `roles.ts` moved on), and it fails closed: the persona resolves to no roles, so it
+ * presents as a permissions bug rather than a typo. The caseworker's empty list is the point of the next
+ * paragraph and not an oversight.
  *
  * **The names are personas, not roles, and that is deliberate.** A plain caseworker holds *no* IDAM role —
  * "caseworker" is the absence of `caseworker-deedpoll-admin`, not a role of its own — so a control offering
@@ -73,9 +88,9 @@ export const PERSONA_SWITCH_PATH = "/switch-persona";
  * list, which is api's to derive from the token anyway.
  */
 export const PERSONAS: readonly Persona[] = [
-  { id: "caseworker", name: "Caseworker", username: "caseworker@example.com" },
-  { id: "admin", name: "Caseworker with admin", username: "admin@example.com" },
-  { id: "judge", name: "Judge", username: "judge@example.com" }
+  { id: "caseworker", name: "Caseworker", fixtureUsername: "caseworker@example.com", roleNames: [] },
+  { id: "admin", name: "Caseworker with admin", fixtureUsername: "admin@example.com", roleNames: [DEEDPOLL_ADMIN] },
+  { id: "judge", name: "Judge", fixtureUsername: "judge@example.com", roleNames: [DEEDPOLL_JUDICIAL] }
 ];
 
 /**
@@ -96,7 +111,15 @@ const COPY = {
   label: "Switch persona",
   /** Prefixes each button's accessible name, so "Judge" and "Caseworker" are not three links called "Switch". */
   switchTo: "Switch to",
-  current: "current"
+  current: "current",
+  /**
+   * The short state on the item itself, with the reason on its own line below it.
+   *
+   * Two parts because a reason is a sentence naming another team's repository: inline it would push the strip
+   * to three lines and bury which persona it was about. The word is in the item so the state is not carried by
+   * the absence of a button alone.
+   */
+  unavailable: "unavailable"
 };
 
 export function personaSwitcherEnabled(): boolean {
@@ -108,27 +131,21 @@ export function personaSwitcherEnabled(): boolean {
 }
 
 /**
- * The credentials to obtain a token with, for a persona id that arrived in a form body — or `undefined`.
+ * The persona a form body named, or `undefined`.
  *
  * **This is where "never mint a token for a user it was not explicitly configured to offer" is enforced.**
  * The id is `unknown` because that is what a request body is, and the only thing done with it is a lookup in
- * `PERSONAS`: there is no path from a request to an arbitrary username, and an id that matches nothing gets
- * no credentials rather than a guess. The caller answers 404 to that, so the route discloses nothing about
- * which ids exist either.
+ * `PERSONAS`: there is no path from a request to an identity this file does not name, and an id that matches
+ * nothing gets no persona rather than a guess. The caller answers 404 to that, so the route discloses nothing
+ * about which ids exist either.
  *
- * **The password is one value for the whole fixture set, and it is configuration rather than a secret.**
- * `scripts/seed-idam-users.mjs` creates all three local users with the same one, so a value here that drifted
- * from the seeder's would fail every switch at IDAM with a 400 and nothing to say why. It is read from
- * `config` — `config/default.json` carries the local fixture value and `PERSONA_SWITCHER_PASSWORD` overrides
- * it — because AAT's personas cannot be fixed accounts at all (its test users are cleaned up after three
- * hours), so task 5 creates them on demand and has to be able to say what it created them with. Nothing here
- * ever reads a *real* user's credentials, which is the security posture's first prohibition.
+ * Nothing about the *credentials* is decided here — `./persona-users.ts` resolves those, because which account
+ * a persona is depends on the environment and, in AAT, on a user this process creates. What matters for the
+ * security posture is that the set of personas it can be asked about is this constant and no request can widen
+ * it.
  */
-export function personaCredentials(id: unknown): PersonaCredentials | undefined {
-  const persona = PERSONAS.find((candidate) => candidate.id === id);
-  if (!persona) return undefined;
-
-  return { username: persona.username, password: config.get<string>("personaSwitcher.password") };
+export function personaFor(id: unknown): Persona | undefined {
+  return PERSONAS.find((candidate) => candidate.id === id);
 }
 
 /**
@@ -160,28 +177,35 @@ export function personaSwitcherLocals(): RequestHandler {
 function personaSwitcherView(req: Request): PersonaSwitcherView | undefined {
   if (!personaSwitcherEnabled() || !sessionUser(req)) return undefined;
 
-  // `sessionSubject` is the IDAM subject the session was established for, which is the persona's username
-  // locally. Matching it marks the current persona; **failing to match marks none**, which is the right answer
-  // for a real user who signed in through IDAM normally rather than a state to guard against. The switcher is
-  // usable either way — nothing here decides what may be switched to.
+  // One refusal and not three. When no persona at all can be obtained here — the client is registered for
+  // neither grant type — every persona carries the same sentence, so the strip states it once and offers no
+  // buttons. `personas` is empty rather than a list of three identical refusals: the tester needs the fact,
+  // not it repeated against each name.
+  const notice = switcherUnavailableReason();
+  if (notice) return { ...COPY, action: PERSONA_SWITCH_PATH, notice, personas: [] };
+
+  // `sessionSubject` is the IDAM subject the session was established for, and `personaState` knows which user
+  // each persona is *here* — the fixture locally, the account this pod created in AAT. Matching marks the
+  // current persona; **failing to match marks none**, which is the right answer both for a real user who
+  // signed in through IDAM normally and for an AAT persona nobody has switched to yet. The switcher is usable
+  // either way — nothing here decides what may be switched to.
   const subject = sessionSubject(req)?.toLowerCase();
 
   return {
     ...COPY,
     action: PERSONA_SWITCH_PATH,
-    personas: PERSONAS.map(({ id, name, username }) => ({ id, name, isCurrent: subject === username.toLowerCase() }))
+    personas: PERSONAS.map((persona) => {
+      const { username, isAvailable, unavailableReason } = personaState(persona);
+
+      return {
+        id: persona.id,
+        name: persona.name,
+        isCurrent: subject !== undefined && subject === username?.toLowerCase(),
+        isAvailable,
+        reason: unavailableReason
+      };
+    })
   };
-}
-
-export interface Persona {
-  id: string;
-  name: string;
-  username: string;
-}
-
-interface PersonaCredentials {
-  username: string;
-  password: string;
 }
 
 interface PersonaSwitcherView {
@@ -189,6 +213,9 @@ interface PersonaSwitcherView {
   label: string;
   switchTo: string;
   current: string;
+  unavailable: string;
   action: string;
-  personas: { id: string; name: string; isCurrent: boolean }[];
+  /** Present only when no persona can be switched to at all, in which case `personas` is empty. */
+  notice?: string;
+  personas: { id: string; name: string; isCurrent: boolean; isAvailable: boolean; reason?: string }[];
 }

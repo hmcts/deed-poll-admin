@@ -13,6 +13,27 @@
 import { getClientCredentialsToken } from "./client-credentials.js";
 import type { IdamConfig } from "./idam.js";
 
+/**
+ * A refusal from `idam-testing-support-api`, carrying the status and body rather than only a sentence.
+ *
+ * The message keeps the same shape it always had, so it still reads on its own. The two fields are there
+ * because the persona switcher has to tell one refusal from another: a 400 naming the persona's role means
+ * that role does not exist in this environment, which is a permanent state to report and disable the persona
+ * for, while a 500 is worth trying again. Classifying by matching the formatted message would have coupled
+ * that decision to this string.
+ */
+export class TestUserError extends Error {
+  status: number;
+  body: string;
+
+  constructor(message: string, status: number, body: string) {
+    super(message);
+    this.name = "TestUserError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
 export interface TestUser {
   id?: string;
   email: string;
@@ -72,7 +93,7 @@ export async function createTestUser(config: IdamConfig, request: CreateTestUser
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Failed to create test user: ${response.status} ${response.statusText} - ${text}`);
+    throw new TestUserError(`Failed to create test user: ${response.status} ${response.statusText} - ${text}`, response.status, text);
   }
 
   const created = (await response.json()) as TestUser;

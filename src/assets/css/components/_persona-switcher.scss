@@ -69,3 +69,24 @@
   padding: govuk-spacing(1) 0;
   border-bottom: 3px solid govuk-colour("yellow");
 }
+
+/*
+ * A persona this environment cannot offer — the judicial role before `idam-access-config#995` merges, or a
+ * user IDAM would not create. Text and not a disabled button, for the reason above: a disabled control says
+ * nothing about why. Deliberately **not** greyed: `govuk-colour("mid-grey")` on black fails contrast, and the
+ * parenthesised word already carries the state, so there is nothing for the colour to add.
+ */
+.app-persona-switcher__unavailable {
+  display: inline-block;
+  padding: govuk-spacing(1) 0;
+}
+
+/*
+ * The reason, on its own line under the strip. Full width rather than inline: these are sentences naming
+ * another team's repository, and inlining one would push the strip to three ragged lines and leave it unclear
+ * which persona it belonged to.
+ */
+.app-persona-switcher__reason {
+  @include govuk-font($size: 16);
+  margin: govuk-spacing(1) 0 0;
+}

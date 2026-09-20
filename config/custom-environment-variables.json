@@ -6,7 +6,8 @@
       "__name": "PERSONA_SWITCHER_ENABLED",
       "__format": "json"
     },
-    "password": "PERSONA_SWITCHER_PASSWORD"
+    "password": "PERSONA_SWITCHER_PASSWORD",
+    "emailDomain": "PERSONA_SWITCHER_EMAIL_DOMAIN"
   },
   "redis": {
     "url": "REDIS_URL"

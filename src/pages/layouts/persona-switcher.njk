@@ -11,6 +11,13 @@
   -enhancement story at all: each button carries its own `value`, which is what a browser posts. The
   current persona is text rather than a button, since there is nothing to switch to.
 
+  **A persona this environment cannot offer is text too, with its reason on the line below.** A disabled
+  button invites a click that does nothing and says nothing; the point of task 5 is that the tester learns
+  the judicial role is not published here rather than concluding the switcher is broken. And when *no*
+  persona can be obtained — the IDAM client is registered for neither grant type — `notice` replaces the
+  form entirely: there is nothing to post, so rendering a form would be an invitation to find that out the
+  hard way.
+
   The visually-hidden "Switch to" prefixes the accessible name so the three buttons do not all announce
   as "Switch", while the visible label stays the persona's name — the strip has to stay one line.
 
@@ -19,22 +26,33 @@
 #}
 {% if personaSwitcher %}
   <div class="app-persona-switcher">
-    <form method="post" action="{{ personaSwitcher.action }}" novalidate>
-      <strong class="govuk-tag govuk-tag--red app-persona-switcher__tag">{{ personaSwitcher.tag }}</strong>
-      <span class="app-persona-switcher__label">{{ personaSwitcher.label }}</span>
-      <ul class="app-persona-switcher__list">
-        {% for persona in personaSwitcher.personas %}
-          <li class="app-persona-switcher__item">
-            {% if persona.isCurrent %}
-              <span class="app-persona-switcher__current">{{ persona.name }} ({{ personaSwitcher.current }})</span>
-            {% else %}
-              <button type="submit" name="persona" value="{{ persona.id }}" class="govuk-button govuk-button--inverse app-persona-switcher__button" data-module="govuk-button">
-                <span class="govuk-visually-hidden">{{ personaSwitcher.switchTo }} </span>{{ persona.name }}
-              </button>
-            {% endif %}
-          </li>
-        {% endfor %}
-      </ul>
-    </form>
+    <strong class="govuk-tag govuk-tag--red app-persona-switcher__tag">{{ personaSwitcher.tag }}</strong>
+    <span class="app-persona-switcher__label">{{ personaSwitcher.label }}</span>
+    {% if personaSwitcher.notice %}
+      <p class="app-persona-switcher__reason">{{ personaSwitcher.notice }}</p>
+    {% else %}
+      <form method="post" action="{{ personaSwitcher.action }}" novalidate>
+        <ul class="app-persona-switcher__list">
+          {% for persona in personaSwitcher.personas %}
+            <li class="app-persona-switcher__item">
+              {% if persona.isCurrent %}
+                <span class="app-persona-switcher__current">{{ persona.name }} ({{ personaSwitcher.current }})</span>
+              {% elif not persona.isAvailable %}
+                <span class="app-persona-switcher__unavailable">{{ persona.name }} ({{ personaSwitcher.unavailable }})</span>
+              {% else %}
+                <button type="submit" name="persona" value="{{ persona.id }}" class="govuk-button govuk-button--inverse app-persona-switcher__button" data-module="govuk-button">
+                  <span class="govuk-visually-hidden">{{ personaSwitcher.switchTo }} </span>{{ persona.name }}
+                </button>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </form>
+      {% for persona in personaSwitcher.personas %}
+        {% if persona.reason %}
+          <p class="app-persona-switcher__reason">{{ persona.name }}: {{ persona.reason }}</p>
+        {% endif %}
+      {% endfor %}
+    {% endif %}
   </div>
 {% endif %}

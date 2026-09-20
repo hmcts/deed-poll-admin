@@ -1,0 +1,18 @@
+{% extends "layouts/app.njk" %}
+
+{#
+  What a switch that cannot happen looks like. Rendered by the `POST` at 503 with the reason
+  `loginAsPersona` classified — an unpublished role, an IDAM client registered for neither grant type, or
+  IDAM simply unreachable.
+
+  There is no `GET` for this path, so this page is only ever the answer to a switch that was attempted. It
+  carries the strip like every other page, which is why the guidance can tell the tester to pick another
+  persona rather than describing how to get back.
+#}
+{% block page_content %}
+  <h1 class="govuk-heading-l">{{ title }}</h1>
+
+  <p class="govuk-body">{{ personaName }}: {{ reason }}</p>
+
+  <p class="govuk-body">{{ guidance }}</p>
+{% endblock %}

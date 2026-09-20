@@ -1,6 +1,8 @@
+import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
-import { PERSONA_SWITCH_PATH, PERSONA_SWITCHER_ENVIRONMENTS, PERSONAS, personaSwitcherEnabled, personaSwitcherLocals } from "./persona-switcher.js";
+import { PERSONA_SWITCH_PATH, PERSONA_SWITCHER_ENVIRONMENTS, PERSONAS, personaFor, personaSwitcherEnabled, personaSwitcherLocals } from "./persona-switcher.js";
+import { personaState, switcherUnavailableReason } from "./persona-users.js";
 
 /**
  * `config` resolves the environment once, when it is first imported, so the real package cannot be steered
@@ -16,6 +18,20 @@ vi.mock("config", () => ({
       return settings.get(key);
     }
   }
+}));
+
+/**
+ * `persona-users.js` is stubbed at its two read-only functions, and only those.
+ *
+ * What a persona resolves to and why one is refused is that file's subject, pinned against real IDAM failures
+ * in `persona-users.test.ts`. What is worth pinning *here* is that the strip renders whatever it reports —
+ * including the two states no local environment produces, an unpublished role and an unregistered grant type.
+ * Driving those through the real classification would mean failing a mocked token request to assert on markup.
+ */
+vi.mock("./persona-users.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./persona-users.js")>()),
+  personaState: vi.fn(),
+  switcherUnavailableReason: vi.fn()
 }));
 
 describe("personaSwitcherEnabled", () => {
@@ -74,6 +90,10 @@ describe("personaSwitcherLocals", () => {
     settings.clear();
     settings.set("personaSwitcher.enabled", true);
     settings.set("environmentName", "aat");
+    // The ordinary state: every persona has a user here and none has been refused. Individual tests below
+    // replace this to describe an environment that cannot offer one.
+    vi.mocked(personaState).mockImplementation((persona) => ({ username: persona.fixtureUsername, isAvailable: true }));
+    vi.mocked(switcherUnavailableReason).mockReturnValue(undefined);
   });
 
   const locals = (options: Parameters<typeof pageRequest>[0] = {}): Record<string, unknown> => {
@@ -99,13 +119,65 @@ describe("personaSwitcherLocals", () => {
     const view = locals({ judicial: true, subject: "judge@example.com" }).personaSwitcher as { personas: { id: string; isCurrent: boolean }[] };
 
     expect(view.personas.map((persona) => persona.id)).toEqual(PERSONAS.map((persona) => persona.id));
-    expect(view.personas.filter((persona) => persona.isCurrent)).toEqual([{ id: "judge", name: "Judge", isCurrent: true }]);
+    expect(view.personas.filter((persona) => persona.isCurrent)).toEqual([
+      { id: "judge", name: "Judge", isCurrent: true, isAvailable: true, reason: undefined }
+    ]);
   });
 
   it("should offer every persona to an admin", () => {
     const view = locals({ admin: true, subject: "admin@example.com" }).personaSwitcher as { personas: { id: string }[] };
 
     expect(view.personas.map((persona) => persona.id)).toEqual(PERSONAS.map((persona) => persona.id));
+  });
+
+  // Task 5's visible half. The judicial role does not exist in AAT until `idam-access-config#995` merges, and
+  // a button that fails at IDAM looks exactly like a defect in the switcher — so the persona is stated as
+  // unavailable, with the reason, and carries no button to press.
+  it("should offer no button for a persona this environment cannot provide, and pass its reason through", () => {
+    vi.mocked(personaState).mockImplementation((persona) =>
+      persona.id === "judge"
+        ? { isAvailable: false, unavailableReason: "The judicial role does not exist in this environment." }
+        : { username: persona.fixtureUsername, isAvailable: true }
+    );
+
+    const view = locals({ subject: "caseworker@example.com" }).personaSwitcher as {
+      personas: { id: string; isAvailable: boolean; reason?: string }[];
+    };
+
+    expect(view.personas).toMatchObject([
+      { id: "caseworker", isAvailable: true, reason: undefined },
+      { id: "admin", isAvailable: true, reason: undefined },
+      { id: "judge", isAvailable: false, reason: "The judicial role does not exist in this environment." }
+    ]);
+  });
+
+  // One fact and not three. A client registered for neither grant type refuses every persona identically, so
+  // repeating the sentence against each name would bury which persona each line was about.
+  it("should state a switcher-wide refusal once and offer no personas at all", () => {
+    vi.mocked(switcherUnavailableReason).mockReturnValue("IDAM will not issue a token from a username and password for this client here.");
+
+    expect(locals({ subject: "caseworker@example.com" }).personaSwitcher).toMatchObject({
+      notice: "IDAM will not issue a token from a username and password for this client here.",
+      personas: []
+    });
+  });
+
+  // The strip still renders, because it is where the reason is said. An absent strip would report the same
+  // state as a shut gate, which is the one thing it must not be confused with.
+  it("should still render the strip when nothing can be switched to", () => {
+    vi.mocked(switcherUnavailableReason).mockReturnValue("A reason.");
+
+    expect(locals({ subject: "caseworker@example.com" }).personaSwitcher).toBeDefined();
+  });
+
+  // AAT before this pod has resolved anybody: `personaState` knows no username, so no persona is claimed to be
+  // the one signed in. The tester is themselves, which is neither a persona nor an error.
+  it("should mark no persona as current when none has a known user here", () => {
+    vi.mocked(personaState).mockImplementation(() => ({ isAvailable: true }));
+
+    const view = locals({ subject: "a.tester@justice.gov.uk" }).personaSwitcher as { personas: { isCurrent: boolean }[] };
+
+    expect(view.personas.some((persona) => persona.isCurrent)).toBe(false);
   });
 
   // The ordinary case in AAT and for anyone who signed in as themselves rather than as a fixture. No persona
@@ -142,5 +214,24 @@ describe("personaSwitcherLocals", () => {
     personaSwitcherLocals()(pageRequest({ signedIn: false }), pageResponse(), next);
 
     expect(next).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * The lookup a request body goes through, and the security property that rests on it: the set of identities
+ * this service will ever obtain a token for is `PERSONAS` and a request cannot widen it.
+ */
+describe("personaFor", () => {
+  it("should resolve each offered persona by its id, with the roles that define it", () => {
+    expect(personaFor("judge")).toMatchObject({ name: "Judge", roleNames: [DEEDPOLL_JUDICIAL] });
+    expect(personaFor("admin")).toMatchObject({ name: "Caseworker with admin", roleNames: [DEEDPOLL_ADMIN] });
+    // A plain caseworker holds no role at all, which is why the switcher names people rather than roles.
+    expect(personaFor("caseworker")).toMatchObject({ name: "Caseworker", roleNames: [] });
+  });
+
+  // Whatever arrives in a form body, including the shapes a crafted request uses. An id that matches nothing
+  // yields no persona rather than a guess, and the caller answers 404 — so nothing says which ids exist.
+  it.each([["root"], ["someone@example.com"], [["judge"]], [undefined], [{ id: "judge" }], [""]])("should refuse %o", (id) => {
+    expect(personaFor(id)).toBeUndefined();
   });
 });

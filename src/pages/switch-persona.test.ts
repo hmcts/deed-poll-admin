@@ -18,13 +18,13 @@ import { fileURLToPath } from "node:url";
 import { currentUser, DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { refreshTokens } from "../auth/idam.js";
-import { passwordGrantLogin } from "../auth/password-grant.js";
 import { PERSONA_SWITCH_PATH } from "../auth/persona-switcher.js";
+import { loginAsPersona } from "../auth/persona-users.js";
 import { refreshMiddleware } from "../auth/refresh-middleware.js";
 import { pageRequest, pageResponse, type RequestDouble } from "../express-doubles.js";
 import * as route from "./switch-persona.js";
 
-/** Every `config` key this route's graph reads: the gate's two, the persona password, and IDAM's settings. */
+/** Every `config` key this route's graph reads: the gate's two and IDAM's settings. */
 const settings = vi.hoisted(() => {
   const values = new Map<string, unknown>([
     ["personaSwitcher.enabled", true],
@@ -48,7 +48,14 @@ vi.mock("config", () => ({
   }
 }));
 
-vi.mock("../auth/password-grant.js", () => ({ passwordGrantLogin: vi.fn() }));
+/**
+ * The persona's identity is `persona-users.js`'s, so it is the seam here.
+ *
+ * Which user a persona is, and which refusals are permanent, differ between a seeded environment and AAT and
+ * are pinned in `persona-users.test.ts` against the real IDAM failures. What this file is about is the route:
+ * what reaches the session, where the browser goes, and the three ways it must not do either.
+ */
+vi.mock("../auth/persona-users.js", () => ({ loginAsPersona: vi.fn() }));
 // Partial, because `refreshMiddleware` is driven for real below and everything else it reaches should be real.
 vi.mock("../auth/idam.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../auth/idam.js")>()),
@@ -61,6 +68,9 @@ const JUDGE = {
   tokens: { idToken: "a-judge-id-token", accessToken: "a-judge-access-token", refreshToken: "a-judge-refresh-token", expiresAt: 1_800_000_000 }
 };
 
+/** A login for the judge persona, as `loginAsPersona` resolves it where the environment can provide one. */
+const SWITCHED = { ok: true as const, login: JUDGE };
+
 /** A caseworker part-way through a session, which is who every test here starts as. */
 function signedInCaseworker(body: unknown = { persona: "judge" }): RequestDouble {
   const req = pageRequest({ subject: "caseworker@example.com", accessToken: "a-caseworker-access-token", body });
@@ -72,15 +82,21 @@ function signedInCaseworker(body: unknown = { persona: "judge" }): RequestDouble
 describe("the persona switch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(passwordGrantLogin).mockResolvedValue(JUDGE);
+    vi.mocked(loginAsPersona).mockResolvedValue(SWITCHED);
   });
 
-  it("should obtain a real token for the persona's own user rather than rewriting the session's roles", async () => {
+  it("should obtain a real login for the persona the body named, rather than rewriting the session's roles", async () => {
     // The finding the feature rests on: api derives roles from userinfo with the token it is given, so a
     // synthesised role list would render the judicial chrome and then collect a 403 on every call behind it.
+    // What is passed on is the whole persona, roles included — in AAT they are what its user is created with.
     await route.POST(signedInCaseworker(), pageResponse(), vi.fn());
 
-    expect(passwordGrantLogin).toHaveBeenCalledWith(expect.anything(), "judge@example.com", "Pa55word11");
+    expect(loginAsPersona).toHaveBeenCalledWith(expect.objectContaining({ clientId: "deed-poll-admin" }), {
+      id: "judge",
+      name: "Judge",
+      fixtureUsername: "judge@example.com",
+      roleNames: [DEEDPOLL_JUDICIAL]
+    });
   });
 
   it("should put the persona's user, subject and tokens in the session", async () => {
@@ -152,7 +168,7 @@ describe("the persona switch", () => {
       }
 
       expect(next).toHaveBeenCalledWith();
-      expect(passwordGrantLogin).not.toHaveBeenCalled();
+      expect(loginAsPersona).not.toHaveBeenCalled();
       expect(req.session.deedPoll.accessToken).toBe("a-caseworker-access-token");
     });
 
@@ -169,7 +185,7 @@ describe("the persona switch", () => {
       }
 
       expect(next).toHaveBeenCalledWith();
-      expect(passwordGrantLogin).not.toHaveBeenCalled();
+      expect(loginAsPersona).not.toHaveBeenCalled();
     });
 
     it("should refuse a request carrying no body at all", async () => {
@@ -180,7 +196,7 @@ describe("the persona switch", () => {
       await route.POST(req, pageResponse(), next);
 
       expect(next).toHaveBeenCalledWith();
-      expect(passwordGrantLogin).not.toHaveBeenCalled();
+      expect(loginAsPersona).not.toHaveBeenCalled();
     });
 
     it.each([{ persona: "root" }, { persona: "someone@example.com" }, { persona: ["judge"] }, {}])(
@@ -195,10 +211,59 @@ describe("the persona switch", () => {
         await route.POST(req, pageResponse(), next);
 
         expect(next).toHaveBeenCalledWith();
-        expect(passwordGrantLogin).not.toHaveBeenCalled();
+        expect(loginAsPersona).not.toHaveBeenCalled();
         expect(req.session.deedPoll.user).toBeDefined();
       }
     );
+  });
+
+  /**
+   * The other kind of refusal, and the one task 5 adds: the persona exists and this environment cannot provide
+   * it. It must not be answered as a 404 — "no such thing here" sends a tester looking for a bug in the
+   * switcher — and it must not reach the 500 page, which is what task 3 left it doing.
+   */
+  describe("when the environment cannot provide the persona", () => {
+    const REASON = "The caseworker-deedpoll-judicial role does not exist in this environment.";
+
+    beforeEach(() => {
+      vi.mocked(loginAsPersona).mockResolvedValue({ ok: false, reason: REASON });
+    });
+
+    it("should render the reason rather than redirecting or failing", async () => {
+      const res = pageResponse();
+
+      await route.POST(signedInCaseworker(), res, vi.fn());
+
+      expect(res.render).toHaveBeenCalledWith("switch-persona", expect.objectContaining({ personaName: "Judge", reason: REASON }));
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+
+    it("should answer 503, since nothing the tester sent is wrong and nothing they retype fixes it", async () => {
+      const res = pageResponse();
+
+      await route.POST(signedInCaseworker(), res, vi.fn());
+
+      expect(res.status).toHaveBeenCalledWith(503);
+    });
+
+    it("should leave the session as whoever it already was", async () => {
+      // A failed switch is not a sign-out. The tester carries on as the persona they were, which is also why
+      // the page can tell them to pick another.
+      const req = signedInCaseworker();
+
+      await route.POST(req, pageResponse(), vi.fn());
+
+      expect(req.session.deedPoll).toMatchObject({ subject: "caseworker@example.com", accessToken: "a-caseworker-access-token" });
+      expect(req.session.regenerate).not.toHaveBeenCalled();
+    });
+
+    it("should not reach the not-found handler, which would report the wrong thing entirely", async () => {
+      const next = vi.fn();
+
+      await route.POST(signedInCaseworker(), pageResponse(), next);
+
+      expect(next).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -213,7 +278,7 @@ describe("the persona switch", () => {
 describe("a forced refresh after switching", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(passwordGrantLogin).mockResolvedValue(JUDGE);
+    vi.mocked(loginAsPersona).mockResolvedValue(SWITCHED);
     vi.mocked(refreshTokens).mockResolvedValue({
       idToken: "a-renewed-judge-id-token",
       accessToken: "a-renewed-judge-access-token",

@@ -40,11 +40,12 @@ const SWITCHER = {
   label: "Switch persona",
   switchTo: "Switch to",
   current: "current",
+  unavailable: "unavailable",
   action: "/switch-persona",
   personas: [
-    { id: "caseworker", name: "Caseworker", isCurrent: true },
-    { id: "admin", name: "Caseworker with admin", isCurrent: false },
-    { id: "judge", name: "Judge", isCurrent: false }
+    { id: "caseworker", name: "Caseworker", isCurrent: true, isAvailable: true },
+    { id: "admin", name: "Caseworker with admin", isCurrent: false, isAvailable: true },
+    { id: "judge", name: "Judge", isCurrent: false, isAvailable: true }
   ]
 };
 
@@ -102,6 +103,49 @@ describe("the app layout", () => {
 
     expect(html).toContain("Caseworker (current)");
     expect(html).not.toContain('value="caseworker"');
+  });
+
+  /**
+   * A persona this environment cannot provide — the judicial role before `idam-access-config#995` merges.
+   *
+   * The reason has to be *on the page*: a button that failed at IDAM, or a persona quietly missing from the
+   * strip, both read as a broken switcher. And it must not be a disabled button, which invites a click that
+   * does nothing and explains nothing.
+   */
+  it("should state an unavailable persona and its reason instead of offering a button", () => {
+    const html = environment.render("layouts/app.njk", {
+      personaSwitcher: {
+        ...SWITCHER,
+        personas: [
+          { id: "caseworker", name: "Caseworker", isCurrent: true, isAvailable: true },
+          { id: "admin", name: "Caseworker with admin", isCurrent: false, isAvailable: true },
+          { id: "judge", name: "Judge", isCurrent: false, isAvailable: false, reason: "The judicial role does not exist here." }
+        ]
+      }
+    });
+
+    expect(html).toContain("Judge (unavailable)");
+    expect(html).toContain("Judge: The judicial role does not exist here.");
+    expect(html).not.toContain('value="judge"');
+    // The personas that do work are untouched by another one's refusal.
+    expect(html).toContain('name="persona" value="admin"');
+  });
+
+  /**
+   * No persona at all, which is what an IDAM client registered for neither grant type produces.
+   *
+   * The form goes with the buttons: there is nothing to post, so leaving one would invite a tester to find
+   * that out by pressing something. The strip itself stays, because it is where the reason is.
+   */
+  it("should replace the form with the notice when nothing can be switched to", () => {
+    const html = environment.render("layouts/app.njk", {
+      personaSwitcher: { ...SWITCHER, notice: "IDAM will not issue a token for this client here.", personas: [] }
+    });
+
+    expect(html).toContain("app-persona-switcher");
+    expect(html).toContain("IDAM will not issue a token for this client here.");
+    expect(html).not.toContain("<form");
+    expect(html).not.toContain("/switch-persona");
   });
 
   // `{{ super() }}` rather than a restatement of the parent block, so everything the starter renders before
