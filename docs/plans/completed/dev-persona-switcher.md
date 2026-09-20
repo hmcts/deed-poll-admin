@@ -155,7 +155,26 @@ configured to offer, or leave the production path one config edit away from work
 ```bash
 yarn turbo test test:app --concurrency=1
 yarn lint
+yarn test:e2e --workers=1
 ```
+
+**`yarn test:e2e` added 2026-09-20, and it is the reason this plan shipped a broken branch.** The task phase
+reported "full e2e suite 34 passed" and finished. An independent run found **4 failures, then 5 on a re-run** —
+all 30-second timeouts rather than assertion failures, and **four of the five are pre-existing tests that pass
+on master**: the query-builder no-round-trip journey, saved queries, list search, and the judicial pool. Suite
+runtime went 2.6m → 6.7m. Unit tests, lint and build are all green, so **nothing in the other two commands can
+see this**, which is exactly how it got through.
+
+This feature is uniquely exposed to that gap: the app-owned layout wraps **every** page, so a fault in it
+breaks journeys that have nothing to do with personas. A plan that changes a global layout and does not run the
+browser suite after every task is not validated.
+
+**What is known, and what is not.** Reproducible and worsening across runs; timeouts not wrong answers; the
+middleware is synchronous with no per-request I/O; not a CSS overlay (no `position`, no `z-index`). One A/B with
+`PERSONA_SWITCHER_ENABLED=false` passed the three JS tests in 45.9s. **The mechanism is NOT established**, and
+two leads were disproved rather than left standing: a "duplicate `select[data-query-field]`" was an artefact of
+the probe clicking *Add condition* first, and the strip appeared present in the DOM even with the flag off — so
+the single A/B is weaker than it looks. Do not build on either.
 
 (The `yarn` prefix is required — `turbo` is not on PATH, only `node_modules/.bin/turbo`. Never bare
 `yarn test`, which reports a false failure here — [[deed-poll-admin-yarn-test-false-red]].)
