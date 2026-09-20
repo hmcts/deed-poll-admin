@@ -363,6 +363,18 @@ describe("createApp's persona switcher", () => {
     expect(mounted).toBeLessThan(stack.findIndex((layer) => layer.handle === gates.router));
   });
 
+  /**
+   * Before the judicial gate, because `requireJudicial` refuses with `next(err)`.
+   *
+   * An error `next()` skips every remaining non-error middleware, so mounted *after* the gate this would not
+   * run at all for the one request a refused judge or caseworker makes — and the strip is what tells them how
+   * to get back out. Nothing about the refusal reveals it either: the 403 renders on the 404 view, which is
+   * the starter's template and carries no strip in any case.
+   */
+  it("should mount it before the judicial gate, whose refusal skips the middleware after it", () => {
+    expect(stack.findIndex((layer) => layer.handle === gates.persona)).toBeLessThan(stack.findIndex((layer) => layer.handle === gates.judicial));
+  });
+
   // `match` rather than `matchers`, unlike the judicial assertions above: a layer mounted at `/` without a
   // path takes the router's `slash` fast path and never consults its matchers, so reading those directly
   // reports `false` for every path but `/` and the test would pass for the wrong reason inverted.

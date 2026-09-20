@@ -1,5 +1,5 @@
 /**
- * The persona switcher, end to end in a browser — `docs/plans/dev-persona-switcher.md`, task 4.
+ * The persona switcher, end to end in a browser — `docs/plans/completed/dev-persona-switcher.md`, task 4.
  *
  * **One test, because it is one sitting.** The whole point of the feature is that a single tester works as a
  * caseworker, a judge and an administrator without signing out, so a spec that used three sessions would be

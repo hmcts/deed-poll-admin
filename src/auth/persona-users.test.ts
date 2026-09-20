@@ -64,8 +64,9 @@ describe("resolving a persona", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
   });
 
-  // The split, and the allowlist that decides it. `test` is here because vitest sets no `ENVIRONMENT_NAME`, so
-  // a unit test must never be one mistake away from posting to a real testing-support API.
+  // The split, and the allowlist that decides it. `test` is here because `vitest.config.ts` sets
+  // `ENVIRONMENT_NAME=test`, so a unit test is never one mistake away from posting to a real
+  // testing-support API.
   it("should take the seeded fixtures in development and test, and create users everywhere else", () => {
     expect([...SEEDED_PERSONA_ENVIRONMENTS].sort()).toEqual(["development", "test"]);
   });

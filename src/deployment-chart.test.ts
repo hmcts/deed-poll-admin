@@ -238,17 +238,28 @@ describe("charts/deed-poll-admin", () => {
 
   it("should tell the application which environment it is, since NODE_ENV says production in all of them", () => {
     // `ENVIRONMENT_NAME` is resolved here, from the `global.environment` `helmInstall` passes with `--set`,
-    // and read through `config`. A chart that set a variable `custom-environment-variables.json` does not map
-    // would leave the app on `config/default.json`'s `development` in every environment — which the persona
-    // switcher's allowlist permits, so the mapping is load-bearing rather than tidy.
-    const readByConfig = readFileSync(path.join(APP_DIR, "../config/custom-environment-variables.json"), "utf8");
+    // and read through `config`. The mapping is asserted by *structure* and not by searching the file for the
+    // variable names: a mis-nested or renamed key leaves every name present while `config.get` silently falls
+    // back to `config/default.json`, and the symptom — no strip — is indistinguishable from the gate working.
+    const mapping = readMapping();
 
     expect(readValues("values.yaml").nodejs.environment?.ENVIRONMENT_NAME).toBe("{{ .Values.global.environment }}");
-    expect(readByConfig).toContain('"ENVIRONMENT_NAME"');
+    expect(mapping.environmentName).toBe("ENVIRONMENT_NAME");
     // `__format: "json"` is what makes the flag arrive as a boolean. Without it config hands back the string
     // `"false"`, which is truthy.
-    expect(readByConfig).toContain(`"${PERSONA_SWITCHER_FLAG}"`);
-    expect(readByConfig).toContain('"__format": "json"');
+    expect(mapping.personaSwitcher?.enabled).toEqual({ __name: PERSONA_SWITCHER_FLAG, __format: "json" });
+  });
+
+  it("should leave the persona switcher's allowlist no environment to match when ENVIRONMENT_NAME is unset", () => {
+    // The other half of the gate failing closed, and the reason this is asserted rather than left to the
+    // chart: `config/default.json` applies wherever the variable does not arrive, so a default that named a
+    // permitted environment — `development`, as this held until the review of the switcher — would reduce two
+    // independent conditions to the flag alone on any deploy path that does not render `ENVIRONMENT_NAME`.
+    const fallback = (JSON.parse(readFileSync(path.join(APP_DIR, "../config/default.json"), "utf8")) as { environmentName: string }).environmentName;
+
+    expect(PERSONA_SWITCHER_ENVIRONMENTS.has(fallback), `config/default.json's environmentName "${fallback}" opens the persona switcher's allowlist`).toBe(
+      false
+    );
   });
 
   it("should give the preview redis a probe budget that survives Dynatrace instrumentation", () => {
@@ -264,6 +275,11 @@ describe("charts/deed-poll-admin", () => {
 
 function readValues(file: string): Values {
   return yamlLoad(readFileSync(path.join(CHART_DIR, file), "utf8")) as Values;
+}
+
+/** The env-var map `config` reads, parsed rather than searched — see the assertion that uses it. */
+function readMapping(): EnvironmentMapping {
+  return JSON.parse(readFileSync(path.join(APP_DIR, "../config/custom-environment-variables.json"), "utf8")) as EnvironmentMapping;
 }
 
 /**
@@ -302,4 +318,9 @@ interface Values {
 
 interface Chart {
   dependencies: { name: string; repository: string }[];
+}
+
+interface EnvironmentMapping {
+  environmentName?: string;
+  personaSwitcher?: { enabled?: unknown };
 }

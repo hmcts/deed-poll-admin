@@ -168,6 +168,29 @@ nodejs:
       memory: 1Gi
 ```
 
+**Do not add `PERSONA_SWITCHER_ENABLED` to a production template.** `src/deployment-chart.test.ts` fails on
+any `values.*.template.yaml` that sets it `"true"` for an environment the runtime allowlist does not name, so
+a production template carrying it reds the build rather than shipping. See the next section for why.
+
+### The persona switcher's two environment variables
+
+The persona switcher (`src/auth/persona-switcher.ts`) signs a tester in as another persona's real IDAM user,
+which makes it a **privilege-escalation mechanism by design**: anyone who can reach it holds every persona it
+offers. `NODE_ENV` cannot gate it — `package.json`'s `start` is `NODE_ENV=production node dist/server.js`, so
+every deployed pod including AAT's and preview's runs as production — so the decision comes from the chart,
+per environment, through two conditions that must both hold.
+
+| Variable | Where it is set | Notes |
+|---|---|---|
+| `PERSONA_SWITCHER_ENABLED` | `"false"` in `charts/deed-poll-admin/values.yaml`, `"true"` in `values.aat.template.yaml` and `values.preview.template.yaml` | Mapped with `__format: "json"` so it arrives as a boolean and is compared `=== true`. Without that, config hands back the *string* `"false"` — which is truthy, i.e. a value meaning "off" that reads as "on". A production deploy inherits `values.yaml` plus no template, so it gets `false`. `config/production.json` restates the `false` but **cannot enforce** it: node-config applies `custom-environment-variables.json` after `{NODE_ENV}.json`, so the variable always wins |
+| `ENVIRONMENT_NAME` | `charts/deed-poll-admin/values.yaml`, as `{{ .Values.global.environment }}` | Checked against `PERSONA_SWITCHER_ENVIRONMENTS` — `development`, `test`, `aat`, `preview` — so a `demo` or `prod` deploy that somehow carried the flag still gets no switcher. **`config/default.json` leaves it empty on purpose**: an unset variable must match nothing, or a deploy path that does not render it (a Flux `HelmRelease`, a hand-rolled ConfigMap, a `--set` that dropped the key) collapses two independent conditions into one. `yarn dev` and `vitest.config.ts` are the two places that name their own environment, since neither has a chart |
+| `PERSONA_SWITCHER_EMAIL_DOMAIN` | Unset; defaults to `example.com` | Only the AAT path uses it, where persona users are **created on demand** through `idam-testing-support-api` (AAT's test users are swept after ~3h, so a fixed account in a values file would work until the first cleanup). A values-file override exists because no request from the devcontainer reaches AAT's IDAM, so which domains it accepts is unverified |
+| `PERSONA_SWITCHER_PASSWORD` | Unset; defaults to the local fixture password | Used **only** in the seeded environments (`development`, `test`), where it has to match `scripts/seed-idam-users.mjs` — pinned by a test in `src/auth/persona-switcher.test.ts`. A created AAT user's password is generated in-process and never written down, so the AAT path adds no secret to the vault |
+
+**AAT needs an IDAM registration change before the switcher can work there** — `password` and
+`client_credentials` grant types — and until it lands every persona refuses with a reason naming that PR
+rather than reaching the 500 page. See [`PIPELINES.md`](PIPELINES.md).
+
 ## deed-poll-api
 
 **This app serves no case page without api**, and api is a separate deployable in

@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
@@ -180,6 +183,16 @@ describe("personaSwitcherLocals", () => {
     expect(view.personas.some((persona) => persona.isCurrent)).toBe(false);
   });
 
+  // IDAM does not promise to hand back the subject in the case the account was created with, and the two
+  // failures either side of this are indistinguishable from legitimate renderings: without the
+  // normalisation the judge is offered a "Switch to Judge" button, which is also what a real user correctly
+  // sees, so nothing but this test says which happened.
+  it("should mark the persona current when the subject differs only in case", () => {
+    const view = locals({ subject: "Judge@Example.com" }).personaSwitcher as { personas: { id: string; isCurrent: boolean }[] };
+
+    expect(view.personas.filter((persona) => persona.isCurrent).map((persona) => persona.id)).toEqual(["judge"]);
+  });
+
   // The ordinary case in AAT and for anyone who signed in as themselves rather than as a fixture. No persona
   // is marked, and the switcher is still offered — nothing here decides what may be switched *to*.
   it("should mark no persona as current when the subject is not one of them", () => {
@@ -214,6 +227,32 @@ describe("personaSwitcherLocals", () => {
     personaSwitcherLocals()(pageRequest({ signedIn: false }), pageResponse(), next);
 
     expect(next).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * The local fixtures, pinned against the script that creates them.
+ *
+ * Three files name the same accounts — `PERSONAS` here, `personaSwitcher.password` in
+ * `config/default.json`, and `scripts/seed-idam-users.mjs` — and nothing relates them, which is how a copy
+ * of one of these strings has already drifted once in this repo. Drift fails closed and *lies about why*:
+ * IDAM answers `invalid_grant` for a renamed account and for a changed password alike, so a tester is told
+ * `yarn idam:users` has not been run when it has. Read as text rather than imported because the seeder is a
+ * script with top-level `await fetch`, which importing would execute.
+ */
+describe("the seeded fixtures", () => {
+  const seeder = readFileSync(path.join(fileURLToPath(import.meta.url), "../../../scripts/seed-idam-users.mjs"), "utf8");
+
+  it.each(PERSONAS.map((persona) => persona.fixtureUsername))("should be created by yarn idam:users (%s)", (username) => {
+    expect(seeder).toContain(username);
+  });
+
+  it("should be seeded with the password the switcher signs in with", () => {
+    const defaults = JSON.parse(readFileSync(path.join(fileURLToPath(import.meta.url), "../../../config/default.json"), "utf8")) as {
+      personaSwitcher: { password: string };
+    };
+
+    expect(seeder).toContain(defaults.personaSwitcher.password);
   });
 });
 

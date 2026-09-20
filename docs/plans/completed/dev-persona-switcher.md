@@ -169,7 +169,14 @@ This feature is uniquely exposed to that gap: the app-owned layout wraps **every
 breaks journeys that have nothing to do with personas. A plan that changes a global layout and does not run the
 browser suite after every task is not validated.
 
-**What is known, and what is not.** Reproducible and worsening across runs; timeouts not wrong answers; the
+**2026-09-20, review: it did not reproduce.** Three runs at HEAD during the code review of this plan — twice
+at the default 7 workers (34 passed, 1.0m and 1.1m) and once at `--workers=1` as commanded above (34 passed,
+3.0m) — were all green, including every one of the four specs named below. The 2.6m → 6.7m runtime did not
+reproduce either. That is three observations and **not a root cause**: the mechanism is still unestablished,
+so nothing here retracts the rule that a plan touching a global layout runs the browser suite after every
+task. Treat the failure as load- or environment-sensitive and still possible, not as fixed.
+
+**What was known, and what was not.** Reproducible and worsening across runs; timeouts not wrong answers; the
 middleware is synchronous with no per-request I/O; not a CSS overlay (no `position`, no `z-index`). One A/B with
 `PERSONA_SWITCHER_ENABLED=false` passed the three JS tests in 45.9s. **The mechanism is NOT established**, and
 two leads were disproved rather than left standing: a "duplicate `select[data-query-field]`" was an artefact of

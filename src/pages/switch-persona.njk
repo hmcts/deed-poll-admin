@@ -7,7 +7,8 @@
 
   There is no `GET` for this path, so this page is only ever the answer to a switch that was attempted. It
   carries the strip like every other page, which is why the guidance can tell the tester to pick another
-  persona rather than describing how to get back.
+  persona rather than describing how to get back — and the handler rebuilds it *after* the attempt, so the
+  persona that just failed is not still offered as a button here.
 #}
 {% block page_content %}
   <h1 class="govuk-heading-l">{{ title }}</h1>

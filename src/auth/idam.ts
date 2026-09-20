@@ -156,12 +156,25 @@ export async function completeLogin(config: IdamConfig, flow: AuthFlowState, cur
     expectedState: flow.state
   });
 
+  return loginFrom(configuration, tokens);
+}
+
+/**
+ * A token response turned into a session identity, shared by every grant this app performs.
+ *
+ * One function rather than a copy per grant because the two things it does are the security properties the
+ * grants have in common, and a divergence in either is silent: the `sub` check refuses a token response with
+ * no verifiable ID token (adopting one would log someone in as nobody), and the roles come from **userinfo**
+ * rather than from the thin CFT ID token, which `fetchUserInfo` checks against that same `sub`. The
+ * password grant in `./password-grant.ts` had its own copy of both, so a fix to one would have reached only
+ * the flow whose bug was noticed.
+ */
+export async function loginFrom(
+  configuration: client.Configuration,
+  tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers
+): Promise<LoginResult> {
   const claims = tokens.claims();
-  if (!claims?.sub) {
-    // A token response with no verifiable ID token is not an identity, and treating it as one would
-    // log someone in as nobody.
-    throw new Error("IDAM returned no ID token subject");
-  }
+  if (!claims?.sub) throw new Error("IDAM returned no ID token subject");
 
   const info = await client.fetchUserInfo(configuration, tokens.access_token, claims.sub);
 

@@ -35,32 +35,16 @@
  * **It never reads a real user's credentials.** The only usernames it is called with are the configured
  * personas in `./persona-switcher.ts`, and the password is that fixture set's own.
  */
-import { type IdamClaims, userFromClaims } from "@hmcts/deed-poll";
 import * as client from "openid-client";
-import { expiresAtFrom, type IdamConfig, idamConfiguration, type LoginResult } from "./idam.js";
+import { type IdamConfig, idamConfiguration, type LoginResult, loginFrom } from "./idam.js";
 
 export async function passwordGrantLogin(config: IdamConfig, username: string, password: string): Promise<LoginResult> {
   const configuration = await idamConfiguration(config);
 
   const tokens = await client.genericGrantRequest(configuration, "password", { username, password, scope: config.scope });
 
-  const claims = tokens.claims();
-  if (!claims?.sub) {
-    // A token response with no verifiable ID token is not an identity, and adopting it would replace the
-    // session's user with nobody. Same refusal as `completeLogin`'s, and for the same reason.
-    throw new Error("IDAM returned no ID token subject for the password grant");
-  }
-
-  const info = await client.fetchUserInfo(configuration, tokens.access_token, claims.sub);
-
-  return {
-    user: userFromClaims(info as IdamClaims),
-    subject: claims.sub,
-    tokens: {
-      idToken: tokens.id_token,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      expiresAt: expiresAtFrom(tokens)
-    }
-  };
+  // The identity is established by `loginFrom` and not here: the `sub` check and the userinfo read are the
+  // same two security properties `completeLogin` rests on, and a second copy of them is a place for one to
+  // be fixed and the other left.
+  return loginFrom(configuration, tokens);
 }

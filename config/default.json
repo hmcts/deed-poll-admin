@@ -1,6 +1,6 @@
 {
   "port": 3000,
-  "environmentName": "development",
+  "environmentName": "",
   "personaSwitcher": {
     "enabled": false,
     "password": "Pa55word11",

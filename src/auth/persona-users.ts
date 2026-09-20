@@ -3,7 +3,7 @@
  *
  * `./persona-switcher.ts` decides whether the control is offered at all and what the strip looks like; this
  * file answers the question that has a different answer in AAT than it does locally — **which IDAM user a
- * persona is**, and what to say when there cannot be one. See `docs/plans/dev-persona-switcher.md`, task 5.
+ * persona is**, and what to say when there cannot be one. See `docs/plans/completed/dev-persona-switcher.md`, task 5.
  *
  * **Two ways a persona resolves, and the split is an allowlist for the same reason the gate is.**
  * `SEEDED_PERSONA_ENVIRONMENTS` names the environments whose persona users are the fixtures
@@ -55,8 +55,10 @@ import { createTestUser, TestUserError } from "./test-users.js";
 /**
  * The environments whose personas are the local fixtures, and the only ones that do not create users.
  *
- * `test` is here because vitest sets no `ENVIRONMENT_NAME`, so `config/default.json`'s `development` applies
- * — and a unit test must never be one network hiccup away from posting to a testing-support API.
+ * `test` is here because `vitest.config.ts` sets `ENVIRONMENT_NAME=test` — and a unit test must never be one
+ * network hiccup away from posting to a testing-support API. An environment that names itself neither way,
+ * which is what an unset variable now produces, takes the create-on-demand path and is refused by the
+ * switcher's allowlist before it can.
  *
  * **Do not convert this to a test for "aat or preview".** The deciding question is whether
  * `yarn idam:users` has seeded this IDAM, and only these two environments are ones where it can have.

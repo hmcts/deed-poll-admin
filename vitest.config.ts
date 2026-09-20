@@ -10,6 +10,12 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     passWithNoTests: true,
+    // `config/default.json` leaves `environmentName` empty so that an unset `ENVIRONMENT_NAME` fails the
+    // persona switcher's allowlist closed rather than resolving to a permitted environment — see
+    // `src/auth/persona-switcher.ts`. The suite is one of the two places that has to say which environment it
+    // is, the other being `dev:app`; `test` is what `PERSONA_SWITCHER_ENVIRONMENTS` and
+    // `SEEDED_PERSONA_ENVIRONMENTS` both name.
+    env: { ENVIRONMENT_NAME: "test" },
     coverage: {
       reporter: ["lcov", "text"],
       reportsDirectory: "coverage"

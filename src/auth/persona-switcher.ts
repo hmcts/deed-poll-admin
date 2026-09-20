@@ -1,7 +1,7 @@
 /**
  * The persona switcher — the non-production control that signs the user in as a different test persona so one
  * person can exercise the caseworker, caseworker-admin and judicial screens in a single sitting. See
- * `docs/plans/dev-persona-switcher.md`.
+ * `docs/plans/completed/dev-persona-switcher.md`.
  *
  * Three things live here: whether this process may offer it at all, the personas it offers, and the strip the
  * layout renders. They are one file because the first is what makes the other two safe, and a list of
@@ -25,13 +25,23 @@
  *
  * So two conditions, each catching a different mistake:
  *
- *   - **The chart flag** (`PERSONA_SWITCHER_ENABLED`), default off in `config/default.json` and pinned off
- *     again in `config/production.json`. `charts/deed-poll-admin/values.yaml` — the base, which a future
- *     production deploy inherits — leaves it off; the aat and preview templates turn it on explicitly. This
- *     catches the switcher being deployed somewhere nobody asked for it.
+ *   - **The chart flag** (`PERSONA_SWITCHER_ENABLED`), default off in `config/default.json`.
+ *     `charts/deed-poll-admin/values.yaml` — the base, which a future production deploy inherits — leaves it
+ *     off; the aat and preview templates turn it on explicitly. This catches the switcher being deployed
+ *     somewhere nobody asked for it. **`config/production.json` restates the `false` and cannot enforce it**:
+ *     node-config applies `custom-environment-variables.json` *after* `{NODE_ENV}.json`, so the environment
+ *     variable always wins — as it must, since every deployed pod including AAT's runs `NODE_ENV=production`.
+ *     The values files are the only thing holding the flag; the allowlist below is the second control.
  *   - **The environment allowlist** below, keyed on `ENVIRONMENT_NAME`, which `values.yaml` renders from
  *     `global.environment`. This catches the flag being set in the wrong values file: a `demo` or `prod`
  *     deploy that somehow carried `PERSONA_SWITCHER_ENABLED=true` still gets no switcher.
+ *
+ * **`config/default.json` leaves `environmentName` empty, and that is the allowlist's half of failing
+ * closed.** It used to default to `development` — itself a permitted environment — so any deploy path that
+ * did not render `ENVIRONMENT_NAME` (a Flux `HelmRelease`, a hand-rolled ConfigMap, a `--set` that dropped
+ * the key) reduced two independent conditions to one. An unset variable now matches nothing here, so the
+ * two environments that legitimately have no chart behind them say which they are: `dev:app` exports
+ * `ENVIRONMENT_NAME=development` and `vitest.config.ts` sets `test`.
  *
  * **This is an allowlist, and it must not become a negation.**
  * `libs/deed-poll/src/auth/plain-http.ts` is the standing rule for this class of gate and gives the full
@@ -39,9 +49,8 @@
  * later, and under an unset variable — silently, because nothing fails. Naming the permitted environments
  * makes adding one a deliberate edit. **Do not "correct" this to `!== "production"`.**
  *
- * "test" is here because vitest sets `NODE_ENV=test` and nothing sets `ENVIRONMENT_NAME`, so the
- * `config/default.json` value applies — but note that the flag is still off by default there, so a test that
- * wants the switcher has to ask for it.
+ * "test" is here because `vitest.config.ts` sets `ENVIRONMENT_NAME=test` — but note that the flag is still
+ * off by default there, so a test that wants the switcher has to ask for it.
  */
 import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
 import config from "config";
@@ -173,8 +182,11 @@ export function personaSwitcherLocals(): RequestHandler {
  * **Absent for an anonymous visitor**, not merely empty. `/login` and the footer pages are on `requireAuth`'s
  * public allowlist, so they render for someone with no session — and a switcher there would offer to change a
  * persona that does not exist yet. Signing in is how you pick the first one.
+ *
+ * Exported for one caller and one reason: `src/pages/switch-persona.ts` renders its refusal *after* an attempt
+ * that may have recorded a new refusal, and the locals were built before the router ran. See the call site.
  */
-function personaSwitcherView(req: Request): PersonaSwitcherView | undefined {
+export function personaSwitcherView(req: Request): PersonaSwitcherView | undefined {
   if (!personaSwitcherEnabled() || !sessionUser(req)) return undefined;
 
   // One refusal and not three. When no persona at all can be obtained here — the client is registered for

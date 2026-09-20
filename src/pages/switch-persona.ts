@@ -33,7 +33,7 @@
  * looking for a bug in the switcher.
  */
 import type { NextFunction, Request, Response } from "express";
-import { personaFor, personaSwitcherEnabled } from "../auth/persona-switcher.js";
+import { personaFor, personaSwitcherEnabled, personaSwitcherView } from "../auth/persona-switcher.js";
 import { loginAsPersona } from "../auth/persona-users.js";
 import { signIn } from "../auth/session.js";
 import { idamSettings } from "../auth/settings.js";
@@ -65,7 +65,18 @@ export const POST = async (req: Request, res: Response, next: NextFunction) => {
   if (!switched.ok) {
     // 503 and not 400: nothing the tester sent is wrong, and nothing they can retype makes it work. It is also
     // not a 500 — this is a known state of a known environment, and the page names it.
-    return res.status(503).render("switch-persona", { ...COPY, personaName: persona.name, reason: switched.reason });
+    //
+    // The strip is rebuilt rather than taken from `res.locals`, and on this page only. `personaSwitcherLocals`
+    // ran before the router, so its snapshot predates the refusal `loginAsPersona` has just recorded: the page
+    // whose whole job is "pick another" would otherwise offer the persona that just failed as a pressable
+    // button, and — where the refusal is switcher-wide — offer all three instead of collapsing to the one
+    // notice. Render options win over `res.locals`, so this replaces it for this response.
+    return res.status(503).render("switch-persona", {
+      ...COPY,
+      personaName: persona.name,
+      reason: switched.reason,
+      personaSwitcher: personaSwitcherView(req)
+    });
   }
 
   await signIn(req, switched.login.user, switched.login.subject, switched.login.tokens);

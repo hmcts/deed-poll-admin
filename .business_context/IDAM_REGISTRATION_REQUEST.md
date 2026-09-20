@@ -3,6 +3,16 @@
 Updated 2026-09-03. Registration is via PR to `hmcts/idam-access-config`, not an email request. The
 configuration below follows the standard OIDC pattern from the CFT IDAM developer guide.
 
+> **2026-09-20: the `grant_types` below are the registered ones and the dev persona switcher needs two
+> more.** `password` (to obtain a token for a named test persona) and `client_credentials` (to create that
+> persona's user through `idam-testing-support-api`), both on the **aat** overlay, restating
+> `authorization_code` and `refresh_token` alongside them because an environment overlay *replaces*
+> `grant_types` rather than appending to it. Not raised as at 2026-09-20. The switcher is enabled only in aat
+> and preview and refuses with a reason naming this repository until then, so nothing else waits on it — see
+> `src/auth/persona-users.ts` and [`../docs/PIPELINES.md`](../docs/PIPELINES.md). **This is a non-production
+> registration**: the switcher is off in `values.yaml`, which is what a production deploy inherits, and its
+> runtime allowlist refuses `prod` outright.
+
 > **2026-09-17: #993 has since MERGED (2026-09-16), so the `deed-poll-admin` client and the
 > `caseworker-deedpoll-admin` role are now live upstream.** Everywhere below that says #993 is "open and
 > unmerged" is a 2026-09-10 snapshot and is stale. The merged `base/roles.yaml` also grew an

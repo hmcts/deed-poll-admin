@@ -43,7 +43,7 @@ nodejs:
     #
     # Note what the line above means for this one: a preview switcher writes to **AAT's** data as a judge,
     # because preview has no api of its own to point at. Accepted for an environment with no live data —
-    # and recorded as open question 3 in `docs/plans/dev-persona-switcher.md`, since excluding preview from
+    # and recorded as open question 3 in `docs/plans/completed/dev-persona-switcher.md`, since excluding preview from
     # the allowlist is a one-line change if that stops being acceptable.
     PERSONA_SWITCHER_ENABLED: "true"
   # The vault list is re-declared here, without `redis-url`, and that is what makes the `REDIS_URL` override

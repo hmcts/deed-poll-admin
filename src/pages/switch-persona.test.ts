@@ -24,9 +24,15 @@ import { refreshMiddleware } from "../auth/refresh-middleware.js";
 import { pageRequest, pageResponse, type RequestDouble } from "../express-doubles.js";
 import * as route from "./switch-persona.js";
 
-/** Every `config` key this route's graph reads: the gate's two and IDAM's settings. */
-const settings = vi.hoisted(() => {
-  const values = new Map<string, unknown>([
+/**
+ * Every `config` key this route's graph reads: the gate's two and IDAM's settings.
+ *
+ * `DEFAULTS` is the constant and `settings` is rebuilt from it in `beforeEach`, so a test that sets a key
+ * cannot become the next test's starting condition — the failure that reads as flake rather than as a defect,
+ * since the gate tests here set the very keys the rest depend on.
+ */
+const { DEFAULTS, settings } = vi.hoisted(() => ({
+  DEFAULTS: [
     ["personaSwitcher.enabled", true],
     ["personaSwitcher.password", "Pa55word11"],
     ["environmentName", "development"],
@@ -35,9 +41,14 @@ const settings = vi.hoisted(() => {
     ["idam.clientSecret", ""],
     ["idam.redirectUri", "http://localhost:3000/oauth2/callback"],
     ["idam.scope", "openid profile roles offline_access"]
-  ]);
-  return values;
-});
+  ] as [string, unknown][],
+  settings: new Map<string, unknown>()
+}));
+
+function resetSettings(): void {
+  settings.clear();
+  for (const [key, value] of DEFAULTS) settings.set(key, value);
+}
 
 vi.mock("config", () => ({
   default: {
@@ -55,7 +66,14 @@ vi.mock("config", () => ({
  * are pinned in `persona-users.test.ts` against the real IDAM failures. What this file is about is the route:
  * what reaches the session, where the browser goes, and the three ways it must not do either.
  */
-vi.mock("../auth/persona-users.js", () => ({ loginAsPersona: vi.fn() }));
+// `personaState` and `switcherUnavailableReason` are stubbed to the ordinary state rather than left out:
+// the refusal render rebuilds the strip, so the route reaches them too. What they report is
+// `persona-users.test.ts`'s subject, and which markup follows from it is `app.njk.test.ts`'s.
+vi.mock("../auth/persona-users.js", () => ({
+  loginAsPersona: vi.fn(),
+  personaState: vi.fn(() => ({ isAvailable: true })),
+  switcherUnavailableReason: vi.fn(() => undefined)
+}));
 // Partial, because `refreshMiddleware` is driven for real below and everything else it reaches should be real.
 vi.mock("../auth/idam.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../auth/idam.js")>()),
@@ -82,6 +100,7 @@ function signedInCaseworker(body: unknown = { persona: "judge" }): RequestDouble
 describe("the persona switch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetSettings();
     vi.mocked(loginAsPersona).mockResolvedValue(SWITCHED);
   });
 
@@ -161,11 +180,7 @@ describe("the persona switch", () => {
       const req = signedInCaseworker();
       const next = vi.fn();
 
-      try {
-        await route.POST(req, pageResponse(), next);
-      } finally {
-        settings.set("personaSwitcher.enabled", true);
-      }
+      await route.POST(req, pageResponse(), next);
 
       expect(next).toHaveBeenCalledWith();
       expect(loginAsPersona).not.toHaveBeenCalled();
@@ -178,11 +193,7 @@ describe("the persona switch", () => {
       settings.set("environmentName", "production");
       const next = vi.fn();
 
-      try {
-        await route.POST(signedInCaseworker(), pageResponse(), next);
-      } finally {
-        settings.set("environmentName", "development");
-      }
+      await route.POST(signedInCaseworker(), pageResponse(), next);
 
       expect(next).toHaveBeenCalledWith();
       expect(loginAsPersona).not.toHaveBeenCalled();
@@ -264,6 +275,29 @@ describe("the persona switch", () => {
 
       expect(next).not.toHaveBeenCalled();
     });
+
+    /**
+     * The strip on this page is rebuilt, not the snapshot `personaSwitcherLocals` left on `res.locals`.
+     *
+     * That middleware runs before the router, so its view predates the refusal this request has just
+     * recorded — and this is the one page whose entire purpose is to say "pick another". Offering the persona
+     * that just failed, or three buttons where the refusal was switcher-wide, is the "looks like a broken
+     * switcher" outcome the 503 exists to avoid.
+     */
+    it("should render the strip as it is after the attempt, not as it was before", async () => {
+      const res = pageResponse();
+      res.locals.personaSwitcher = { personas: [{ id: "judge", name: "Judge", isCurrent: false, isAvailable: true }] };
+
+      await route.POST(signedInCaseworker(), res, vi.fn());
+
+      // The real `personaSwitcherView` runs — `persona-switcher.js` is not mocked here — and reads the
+      // refusals `persona-users.js` holds, which the stub above has none of. What matters is that the value
+      // rendered is the freshly built one rather than the stale locals.
+      const rendered = vi.mocked(res.render).mock.calls[0][1] as { personaSwitcher?: { personas: { id: string }[] } };
+
+      expect(rendered.personaSwitcher).not.toBe(res.locals.personaSwitcher);
+      expect(rendered.personaSwitcher?.personas.map((persona) => persona.id)).toEqual(["caseworker", "admin", "judge"]);
+    });
   });
 });
 
@@ -278,6 +312,7 @@ describe("the persona switch", () => {
 describe("a forced refresh after switching", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetSettings();
     vi.mocked(loginAsPersona).mockResolvedValue(SWITCHED);
     vi.mocked(refreshTokens).mockResolvedValue({
       idToken: "a-renewed-judge-id-token",

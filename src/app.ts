@@ -168,18 +168,24 @@ export async function createApp(): Promise<Express> {
   // keeping sessions alive without forcing re-authentication. See ./auth/refresh-middleware.ts.
   app.use(refreshMiddleware);
 
-  // The judicial area is gated on the role for the whole prefix rather than page by page, so a judicial
-  // page added later is covered by where it lives. Additive to `requireAuth` above and mounted after it:
-  // an anonymous visitor is still sent to log in, and only an authenticated non-judge is refused here.
-  // See ./auth/require-role.ts — and note that api gates the same routes itself; this is the UI boundary.
-  app.use("/judicial", requireJudicial());
-
   // The non-production persona switcher, put on `res.locals` for `src/pages/layouts/app.njk` to render.
   // Global and before the router, which is the only shape that puts it on *every* page — decision 7, a
   // switcher the judge cannot see is a trap door with no way back out. After `refreshMiddleware` so it reads
   // a settled session rather than one mid-renewal, and it assigns nothing at all unless both halves of the
   // gate agree. See ./auth/persona-switcher.ts.
+  //
+  // Before the judicial gate, and that ordering is load-bearing rather than tidy: `requireJudicial` refuses
+  // with `next(err)`, which skips every remaining non-error middleware — so mounted after it, a refused
+  // `/judicial/**` request would reach the error views with no strip on locals, for a second reason nothing
+  // in the exception list records. The strip needs only a settled session, so there is nothing to gain by
+  // waiting for the role decision.
   app.use(personaSwitcherLocals());
+
+  // The judicial area is gated on the role for the whole prefix rather than page by page, so a judicial
+  // page added later is covered by where it lives. Additive to `requireAuth` above and mounted after it:
+  // an anonymous visitor is still sent to log in, and only an authenticated non-judge is refused here.
+  // See ./auth/require-role.ts — and note that api gates the same routes itself; this is the UI boundary.
+  app.use("/judicial", requireJudicial());
 
   app.use(await createSimpleRouter({ path: `${__dirname}/pages` }));
   app.use(notFoundHandler());

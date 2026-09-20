@@ -47,7 +47,7 @@ nodejs:
     # `PERSONA_SWITCHER_ENVIRONMENTS` (`src/auth/persona-switcher.ts`), which is the second half of the gate.
     #
     # It is a privilege-escalation mechanism in a shared environment, and that is Steve's call
-    # (2026-09-19) for a test environment with no live data — see `docs/plans/dev-persona-switcher.md`,
+    # (2026-09-19) for a test environment with no live data — see `docs/plans/completed/dev-persona-switcher.md`,
     # "Security posture".
     PERSONA_SWITCHER_ENABLED: "true"
     # `DEED_POLL_API_URL` is deliberately not restated here, unlike the redirect URI above. `values.yaml`
