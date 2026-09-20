@@ -52,8 +52,22 @@ describe("createTestUser", () => {
         "Content-Type": "application/json",
         Authorization: "Bearer service-token"
       },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
+      signal: expect.any(AbortSignal)
     });
+  });
+
+  // `fetch` has no timeout of its own, and the caller is a browser waiting on `POST /switch-persona`: a
+  // testing-support host that accepts the connection and never answers would hang that page for as long as
+  // the socket lived, rather than rendering the reason and offering a retry.
+  it("bounds the request, so a host that never answers fails rather than hanging the switch", async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ id: "user-id" }) } as Response);
+
+    await createTestUser(config, { password: "pass", user: { email: "a@b.com", forename: "A", surname: "B", roleNames: [] } });
+
+    const { signal } = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal?.aborted).toBe(false);
   });
 
   it("obtains a client credentials token with profile and roles scopes", async () => {
@@ -151,7 +165,8 @@ describe("getTestUser", () => {
       method: "GET",
       headers: {
         Authorization: "Bearer service-token"
-      }
+      },
+      signal: expect.any(AbortSignal)
     });
   });
 
@@ -198,7 +213,8 @@ describe("deleteTestUser", () => {
       method: "DELETE",
       headers: {
         Authorization: "Bearer service-token"
-      }
+      },
+      signal: expect.any(AbortSignal)
     });
   });
 

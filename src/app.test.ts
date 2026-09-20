@@ -265,6 +265,9 @@ const gates = vi.hoisted(() => ({
   persona: function personaSwitcherLocalsDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
+  sameOrigin: function requireSameOriginDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
   /** Named, unlike the other doubles in this file, only so the layer it mounts as can be told apart. */
   router: function simpleRouterDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
@@ -274,6 +277,7 @@ const gates = vi.hoisted(() => ({
 vi.mock("./auth/require-auth.js", () => ({ requireAuth: () => gates.auth, isPublicPath: () => false }));
 vi.mock("./auth/require-role.js", () => ({ requireRole: () => gates.judicial, requireJudicial: () => gates.judicial }));
 vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gates.persona }));
+vi.mock("./auth/same-origin.js", () => ({ requireSameOrigin: () => gates.sameOrigin }));
 
 describe("createApp's judicial gate", () => {
   let stack: MountedLayer[];
@@ -384,6 +388,47 @@ describe("createApp's persona switcher", () => {
     for (const path of ["/", "/deed-polls", "/deed-polls/abc", "/judicial/referrals"]) {
       expect(layer.match(path), path).toBe(true);
     }
+  });
+});
+
+/**
+ * That the cross-origin gate is mounted, globally and in front of everything that writes.
+ *
+ * Here for the same reason as the two gates above: nothing about running the app reveals its absence. Every
+ * page works, every form submits, and the hole only shows up as a write somebody's browser made from another
+ * site's page — `SameSite=Lax` does not stop one, because every CFT service in an environment is a subdomain
+ * of the same registrable domain. Mounted per route it would be missing from the next page somebody adds,
+ * which is why the assertion is that it covers every path.
+ */
+describe("createApp's cross-origin gate", () => {
+  let stack: MountedLayer[];
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+  });
+
+  // `match` rather than `matchers`, for the reason the persona switcher's equivalent gives.
+  it("should mount it for every path, so a page added later is covered by being a page", () => {
+    const layer = stack.find((entry) => entry.handle === gates.sameOrigin) as MountedLayer;
+
+    expect(layer).toBeDefined();
+    for (const path of ["/", "/switch-persona", "/deed-polls/new", "/judicial/referrals/abc/direction"]) {
+      expect(layer.match(path), path).toBe(true);
+    }
+  });
+
+  it("should mount it before the router, since the handler is what it has to run instead of", () => {
+    expect(stack.findIndex((layer) => layer.handle === gates.sameOrigin)).toBeLessThan(stack.findIndex((layer) => layer.handle === gates.router));
+  });
+
+  // Before `requireAuth` so a forged post is refused as forged. Mounted after it, a cross-site post with no
+  // session would be answered with a redirect to `/login` — which is not wrong, but it is an answer about
+  // authentication to a question about where the request came from, and the log line would say so.
+  it("should mount it before requireAuth", () => {
+    expect(stack.findIndex((layer) => layer.handle === gates.sameOrigin)).toBeLessThan(stack.findIndex((layer) => layer.handle === gates.auth));
   });
 });
 

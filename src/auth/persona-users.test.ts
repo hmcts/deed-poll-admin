@@ -168,6 +168,45 @@ describe("resolving a persona", () => {
       expect(createTestUser).toHaveBeenCalledOnce();
     });
 
+    // The same rule as the test above under concurrency, which is the case `resolved` alone cannot answer: a
+    // create is awaited, so two first switches both read an empty cache. Two accounts is one wasted and — since
+    // the later `resolved` entry wins — a strip that marks the persona current for only one of the two sessions,
+    // which reads as the switch not having worked.
+    it("should create one user when two switches to the same persona arrive together", async () => {
+      vi.mocked(passwordGrantLogin).mockImplementation(async (_config, username) => loginFor(username));
+
+      const [first, second] = await Promise.all([loginAsPersona(IDAM, JUDGE), loginAsPersona(IDAM, JUDGE)]);
+
+      expect(createTestUser).toHaveBeenCalledOnce();
+      const { email } = createRequest(0).user;
+      expect(first).toMatchObject({ ok: true, login: { subject: email } });
+      expect(second).toMatchObject({ ok: true, login: { subject: email } });
+      expect(personaState(JUDGE).username).toBe(email);
+    });
+
+    it("should still create separate users for two personas switched to at once", async () => {
+      vi.mocked(passwordGrantLogin).mockImplementation(async (_config, username) => loginFor(username));
+
+      await Promise.all([loginAsPersona(IDAM, JUDGE), loginAsPersona(IDAM, ADMIN)]);
+
+      expect(createTestUser).toHaveBeenCalledTimes(2);
+      expect(personaState(JUDGE).username).not.toBe(personaState(ADMIN).username);
+    });
+
+    it("should not remember a failed creation, so the next switch tries again", async () => {
+      // The shared promise is dropped when it settles: the classification in `createPersonaUser` decides what
+      // is permanent, and a joined failure must not become a second, accidental record of it.
+      vi.mocked(createTestUser)
+        .mockRejectedValueOnce(new TestUserError("Failed to create test user: 500", 500, ""))
+        .mockResolvedValue("created-user-id");
+      vi.mocked(passwordGrantLogin).mockImplementation(async (_config, username) => loginFor(username));
+
+      await expect(loginAsPersona(IDAM, JUDGE)).resolves.toMatchObject({ ok: false });
+
+      await expect(loginAsPersona(IDAM, JUDGE)).resolves.toMatchObject({ ok: true });
+      expect(createTestUser).toHaveBeenCalledTimes(2);
+    });
+
     it("should mark no persona as current until this process has resolved one", async () => {
       // The ordinary state of a fresh AAT pod: the tester signed in as themselves and is none of the personas.
       expect(personaState(JUDGE).username).toBeUndefined();

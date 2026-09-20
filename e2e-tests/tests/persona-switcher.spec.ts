@@ -166,6 +166,36 @@ test("one tester works as a caseworker, a judge and an administrator without sig
 });
 
 /**
+ * A second test, and the only reason for one: `requireSameOrigin` cannot be shown from the browser at all.
+ *
+ * A real page cannot set `Sec-Fetch-Site` — it is a forbidden header name — so the forged post has to come from
+ * `APIRequestContext`, which is not a page and therefore cannot be part of the journey above. It signs in of its
+ * own accord for the reason this file's docblock gives about shared storage state.
+ *
+ * Worth an end-to-end assertion rather than leaving it to `src/app.test.ts`, which doubles the middleware and so
+ * proves only that *something* is mounted: what is asserted here is the running app answering a same-site write
+ * the way `SameSite=Lax` alone would not. `/switch-persona` is the subject because it is the one route whose
+ * effect is a change of identity — but the gate is global, so any write would do.
+ */
+test("a write from a sibling service in the same environment is refused, which SameSite=Lax alone would permit", async ({ page }) => {
+  await signInAsCaseworker(page);
+  await expect(currentPersona(page)).toHaveText("Caseworker (current)");
+
+  // `page.request` carries the browser's cookies, so this is the session cookie a same-site post would arrive
+  // with — the whole of what Lax gives an attacker under `*.platform.hmcts.net`.
+  const forged = await page.request.post(SWITCH_PATH, {
+    headers: { "sec-fetch-site": "same-site" },
+    form: { persona: "judge" },
+    maxRedirects: 0
+  });
+
+  expect(forged.status()).toBe(403);
+  // And the session is untouched: the refusal happens before the switch, not after it.
+  await page.goto(CASE_LIST_PATH);
+  await expect(currentPersona(page)).toHaveText("Caseworker (current)");
+});
+
+/**
  * The judicial area refused to a persona without the role, on every URL under it.
  *
  * The gate is mounted on the prefix in `src/app.ts` and fires before anything is resolved, so a referral id

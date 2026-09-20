@@ -104,6 +104,24 @@ const refusals = new Map<string, string>();
 let switcherRefusal: string | undefined;
 
 /**
+ * The creation a switch is already waiting on, per persona — what makes "create it once" hold when two
+ * switches arrive together.
+ *
+ * `resolved` alone cannot: creating a user is `await`ed, so two first switches to the same persona both read
+ * an empty map, both create an account, and the second `resolved.set` wins. Neither tester is broken — each
+ * holds a real token for a real user with the persona's roles — but the pod has minted an account it will
+ * never use again, and the strip then marks the persona current for one of them and not the other, which
+ * reads as the switch not having worked. That is exactly what the cache above exists to prevent, and
+ * concurrency is the case it did not cover.
+ *
+ * A promise rather than a lock, because there is nothing to serialise: the second caller wants the first
+ * call's answer, not a turn of its own. Removed when it settles, so a failure is retried rather than
+ * remembered — the classification in `createPersonaUser` decides what is permanent, and this must not become
+ * a second, accidental record of it.
+ */
+const inFlight = new Map<string, Promise<CredentialsResult>>();
+
+/**
  * Obtain a real IDAM login for a persona, creating its user first where that is how this environment works.
  *
  * Never throws: every failure is a `reason` the caller renders, because the whole point of task 5 is that an
@@ -159,6 +177,7 @@ export function switcherUnavailableReason(): string | undefined {
 export function resetPersonaUsers(): void {
   resolved.clear();
   refusals.clear();
+  inFlight.clear();
   switcherRefusal = undefined;
 }
 
@@ -202,16 +221,28 @@ async function retryWithNewUser(idam: IdamConfig, persona: Persona): Promise<Per
  * The email is built from the persona's own id and nothing that arrived in a request, and the roles are the
  * persona's own, so a created account can hold nothing the configured persona does not.
  */
-async function resolveCredentials(idam: IdamConfig, persona: Persona): Promise<CredentialsResult> {
+function resolveCredentials(idam: IdamConfig, persona: Persona): Promise<CredentialsResult> {
   const remembered = resolved.get(persona.id);
-  if (remembered) return { ok: true, credentials: remembered };
+  if (remembered) return Promise.resolve({ ok: true, credentials: remembered });
 
   if (seededEnvironment()) {
     const fixture = { username: persona.fixtureUsername, password: config.get<string>("personaSwitcher.password") };
     resolved.set(persona.id, fixture);
-    return { ok: true, credentials: fixture };
+    return Promise.resolve({ ok: true, credentials: fixture });
   }
 
+  // Two switches to the same persona at once share one creation — see `inFlight`. Nothing to join in the
+  // seeded case above: it settles without awaiting anything, so no second caller can observe it half-done.
+  const existing = inFlight.get(persona.id);
+  if (existing) return existing;
+
+  const creation = createCredentials(idam, persona).finally(() => inFlight.delete(persona.id));
+  inFlight.set(persona.id, creation);
+
+  return creation;
+}
+
+async function createCredentials(idam: IdamConfig, persona: Persona): Promise<CredentialsResult> {
   const credentials = { username: personaEmail(persona), password: generatedPassword() };
   const created = await createPersonaUser(idam, persona, credentials);
   if (!created.ok) return created;
@@ -294,6 +325,10 @@ function detailOf(error: unknown): string {
     return error.error_description ? `${error.error}: ${error.error_description}` : error.error;
   }
   if (error instanceof TestUserError) return `${error.status} from idam-testing-support-api`;
+  // `createTestUser`'s `AbortSignal.timeout` — a host that accepted the connection and did not answer, which
+  // is a different thing to say than "could not be reached" and points at a slow environment rather than a
+  // missing one. Transient either way: neither is recorded, so the persona is still offered.
+  if (error instanceof DOMException && error.name === "TimeoutError") return "idam-testing-support-api did not respond in time";
 
   return "IDAM could not be reached";
 }
