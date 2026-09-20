@@ -455,6 +455,28 @@ markup change did not break task 4's journey.
 - [ ] After a successful AAT deploy: each available persona switches and api authorises accordingly; recorded
       with the date and the environment. **Do not tick this from a development machine.**
 
+**Still blocked as at 2026-09-20, and deliberately left unticked.** This task's only evidence is a running AAT
+deploy, so there is nothing here to implement and nothing a green local suite could say about it. Re-checked
+what *is* readable from the devcontainer, so the next person does not repeat the probe:
+
+| # | Dependency | State 2026-09-20 | How it was checked |
+|---|---|---|---|
+| 1 | `password` + `client_credentials` on the aat client overlay | **not raised** — `apps/deed-poll/aat/services.yaml` has no `grant_types` key at all, and `base` still registers `authorization_code` and `refresh_token` only | read from the `platops/idam-access-config` clone |
+| 2 | `caseworker-deedpoll-judicial` exists in AAT (`#995`) | **open** — the role is in `base/roles.yaml` on branch `deed-poll-judicial-role`, and `git merge-base --is-ancestor` says that commit is **not** in `origin/master` | same clone |
+| 3 | admin can deploy to AAT | unchanged — running-order step 5f still unraised | — |
+| 4 | `deed-poll-api` in AAT behind the `.internal` address | unchanged | — |
+
+Two things this leaves standing rather than resolves. **Dependency 2 being a local branch is not the same as
+`#995` being mergeable** — `origin/master` here is only as fresh as the last fetch, and no request from this
+devcontainer reaches AAT's IDAM either way, so "open" is the honest reading rather than "still open as of a
+fetch I did". And **the order matters**: without dependency 1 the AAT switcher reports an unregistered grant
+type on all three personas (task 5's classified refusal), so a deploy before that merge verifies the *refusal*
+path and not this checkbox. Verifying that degraded path is worth doing when admin first reaches AAT, but it is
+not what this item asks for.
+
+The rest of the feature is done: tasks 0–5 are ticked and the local half is verified in a browser (task 4).
+Status for this feature is **"local half done, AAT half pending"** — say it that way.
+
 ## Open questions — flagged, NOT answered here
 
 1. ~~**If AAT refuses `grant_type=password`, what replaces it?**~~ **Answered 2026-09-19 and promoted to
