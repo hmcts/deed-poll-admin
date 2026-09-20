@@ -1,5 +1,9 @@
 # Plan: referrals to the judiciary (admin 1 of 3) — the caseworker referrals tab
 
+> **Follow-up:** `../referrals-admin-4-caseworker-completion.md` consolidates the legacy “Referral to Master”
+> and live “Referrals” surfaces, displays the judicial direction, and replaces the terminal-only action
+> decision with explicit withdraw/close capabilities after business testing.
+
 ## Overview
 
 **First of three `deed-poll-admin` plans** in the seven-plan referrals feature (three api, three admin, one

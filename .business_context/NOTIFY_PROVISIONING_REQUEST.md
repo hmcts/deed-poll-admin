@@ -14,6 +14,11 @@ Nothing exists. Verified across all four deed-poll repos on 2026-09-18: no Notif
 `deed-poll-infra/key-vault.tf` holds secrets for app-insights, postgres and redis only. The two `notify` grep
 hits in `deed-poll-api` are `inotify` and Postgres `LISTEN`/`NOTIFY`.
 
+**Planning update, 2026-09-20:** Steve asked engineering to assume the missing-documents chase template is in
+place and requires caseworker text. That assumption unblocks writing notify-6; it does not mark any checklist
+item below complete or supersede the last operational verification. notify-6 Task 0 records the real template
+evidence before implementation.
+
 ## Checklist
 
 ### A GOV.UK Notify service — **blocking**
@@ -49,6 +54,7 @@ them, and notify-1 carries a placeholder until they exist.
 
 - [ ] `application-rejected` authored — **the only one notify-1 needs**
 - [ ] `request-confirmation-to-proceed` authored (notify-3)
+- [ ] `chase-missing-documents` authored (notify-6; assumed available for planning, verify in its Task 0)
 - [ ] `forms-for-completion-adult` authored (notify-4; also needs the five static forms sourced, and *send a
       file by email* enabled below)
 - [ ] `forms-for-completion-minor` authored (notify-4, same)
@@ -61,6 +67,9 @@ Content notes for whoever authors them, from the taxonomy:
   `((applied_online??text shown when true))`; the api supplies `applied_online` from `postCounter`.
 - **`request-confirmation-to-proceed` needs a conditional** for `[child's]`, supplied from the case `type`, and
   its `XX/YY/ZZZZ` literal becomes a real placeholder fed from the referral's `decisionDate`.
+- **`chase-missing-documents` needs one required caseworker placeholder**, `documents_required`, capped at
+  4,000 characters. Its other placeholders are `reference_number`, `online_application_reference`,
+  `old_forename` and `old_surname`. notify-6 Task 0 verifies these names against the real template.
 - **The forms emails must be reworded.** They currently say *"we have attached three forms"*. Notify does not
   attach files; it inserts a time-limited secure link. Confirmed approach (Steve, 2026-09-18): reword to a
   download. **The wording should also say the link expires**, rather than leaving an applicant to find out.
@@ -138,9 +147,9 @@ sends.
 - [ ] Confirm preview requests count against it, and at what cost
 - [ ] Sanity-check it against the worst case: a caseworker editing a long judge's reason and re-previewing
 
-### A reply-to address — **blocking for templates ① ② ④**
+### A reply-to address — **blocking for templates ① ② ④ ⑤**
 
-Three of the four templates invite a reply (*"you can reply to this email"*, *"let us know by replying"*).
+The two forms emails, request-confirmation email and assumed missing-documents chase invite a reply.
 Notify sends from a no-reply address unless a reply-to is registered and verified.
 
 - [ ] A monitored Deed Poll office inbox identified
@@ -164,9 +173,9 @@ Notify sends from a no-reply address unless a reply-to is registered and verifie
    already send through Notify; sharing a service shares limits and team access, which may be better or worse.
 3. **Who owns the content?** Template wording is not engineering's, and three of the four need editing before
    they can be authored — the conditionals, the `XX/YY/ZZZZ` date, and the attachment rewording.
-4. **Is there a template for chasing missing documents?** `AwaitingFurtherDocs` exists as a case state and
-   nothing supplied covers it.
-5. **Is there a template for the Gazette notice email?** Two of the supplied templates promise the applicant
+4. **Answered for planning on 2026-09-20:** assume `chase-missing-documents` exists and requires caseworker
+   text. notify-6 Task 0 still verifies its real placeholders and reply-to before implementation.
+5. **Is there a template for the Gazette notice email?** Deferred. Two of the supplied templates promise the applicant
    one.
 6. **Where do the five blank forms come from?** The forms emails name LOC021, LOC023, LOC024, LOC027 and
    LOC028, and **none of them is in `doc_templates/`** — only the two change-of-name deeds are. They carry no
