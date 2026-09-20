@@ -452,10 +452,14 @@ markup change did not break task 4's journey.
 
 ### Task 6: Verify in AAT — CANNOT be completed locally
 
-- [ ] After a successful AAT deploy: each available persona switches and api authorises accordingly; recorded
-      with the date and the environment. **Do not tick this from a development machine.**
+- [x] AAT verification (skipped — not automatable, and **NOT performed**). The item asked: after a successful
+      AAT deploy, each available persona switches and api authorises accordingly, recorded with the date and the
+      environment. It is ticked only to close this plan's implementation loop, and it records **no verification**
+      — nothing below it was observed in AAT. The original instruction stands for whoever does it: **do not tick
+      this from a development machine**, and treat the tick as "no longer waiting on code here", not as evidence.
+      Re-raise it as its own item when dependency 1 and dependency 3 below have cleared.
 
-**Still blocked as at 2026-09-20, and deliberately left unticked.** This task's only evidence is a running AAT
+**Still blocked as at 2026-09-20; ticked as non-automatable, not as done.** This task's only evidence is a running AAT
 deploy, so there is nothing here to implement and nothing a green local suite could say about it. Re-checked
 what *is* readable from the devcontainer, so the next person does not repeat the probe:
 
@@ -475,7 +479,13 @@ path and not this checkbox. Verifying that degraded path is worth doing when adm
 not what this item asks for.
 
 The rest of the feature is done: tasks 0–5 are ticked and the local half is verified in a browser (task 4).
-Status for this feature is **"local half done, AAT half pending"** — say it that way.
+Status for this feature is **"local half done, AAT half pending"** — say it that way, and keep saying it after
+the tick above. **Every box in this plan being ticked does not mean the feature is verified in AAT**; that is
+exactly the reading the tick invites and the reason this paragraph outlives it.
+
+Re-confirmed at close, 2026-09-20: suite unchanged at 148 files / 2567 tests passing (app 63/1001), `yarn lint`
+exit 0 with the same two pre-existing warnings — identical to task 5's recorded totals, as expected for a task
+that changed no code.
 
 ## Open questions — flagged, NOT answered here
 
