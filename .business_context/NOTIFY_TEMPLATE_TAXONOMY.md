@@ -159,7 +159,8 @@ Inferred process. `DeedPollState` members are in **bold**.
    two witnesses. Adult vs minor is chosen by `type`.
 3. Applicant posts the signed deed, statutory declaration and exhibit cover sheets back.
 4. Caseworker receives them → **ReadyForMaster**, or **AwaitingFurtherDocs** if something is missing.
-   *No template supplied for chasing missing documents — see §5.*
+   A caseworker may send **⑤ Chase missing documents**, writing what is still required. This template is a
+   planning assumption agreed 2026-09-20 rather than one of the six source `.docx` files.
 5. Anything needing a judge → **ReferredToMaster**, with `ReferralReason` recording why
    (`NonPublication`, `DomesticAbuse`, `Minor`, `DeclarantRequirementsNotMet`, `SeparatedOrEstranged`, `Other`).
 6. The judge directs — `MasterDecision` `Approved` or `Rejected`, plus `directionsText` and `decisionDate`.
@@ -171,7 +172,7 @@ Inferred process. `DeedPollState` members are in **bold**.
      case then waits on a reply.
    - Nothing, if approved → **AwaitingEnrolment** → sealed → **Enroled**.
 8. Sealed deed is **posted** back, not emailed. If publishing, the applicant *"will also receive a PDF copy of
-   The Gazette notice via email"* — **a fifth email with no template supplied.** `dateNoticeSentToLondonGazette`
+   The Gazette notice via email"* — **a sixth email with no template supplied.** `dateNoticeSentToLondonGazette`
    exists on the case, so the trigger is modelled; the content is not.
 
 | # | Template | Trigger (caseworker action) | Likely state | Confidence |
@@ -180,7 +181,8 @@ Inferred process. `DeedPollState` members are in **bold**.
 | ② | forms for completion — minor | Application checked, `type` is `Minor` or `MinorTransgender` | AwaitingSignature | **High** — same derivation |
 | ③ | Application Rejected | Judge's direction actioned, enrolment refused | Returned | High |
 | ④ | Request confirmation to proceed | Judge's direction actioned, `NonPublication` refused | Returned | High |
-| ⑤ | Gazette notice PDF | Notice published | Enroled | **Template missing** |
+| ⑤ | Chase missing documents | Caseworker identifies outstanding material | AwaitingFurtherDocs | **Assumed 2026-09-20** — required caseworker text |
+| ⑥ | Gazette notice PDF | Notice published | Enroled | **Deferred — template missing** |
 
 ---
 
@@ -206,7 +208,10 @@ changing the direction model, which is a bigger change than this feature.
 
 ## 5. Gaps to close before or during the plans
 
-1. **No template for chasing missing documents**, though **AwaitingFurtherDocs** exists as a state.
+1. **Resolved as a planning assumption on 2026-09-20:** a chase-missing-documents template exists and a
+   caseworker supplies the required `documents_required` text. Engineering plan:
+   `deed-poll-api/docs/plans/notify-6-chase-missing-documents.md`. Its Task 0 verifies the real template rather
+   than treating this assumption as operational evidence.
 2. **No template for the Gazette notice email**, though the emails promise one.
 3. **The blank forms (LOC021, LOC023, LOC024, LOC027, LOC028) are not here.**
 4. **Notify sends files as secure links, not attachments.** `prepareUpload()` puts a time-limited link in the
@@ -225,7 +230,8 @@ changing the direction model, which is a bigger change than this feature.
 
 ## 6. Proposed Notify template set
 
-Four templates, not six, and the branching mechanised rather than deleted by hand:
+The six supplied files yield four Notify templates. A fifth, assumed template now covers the previously
+missing chase:
 
 | Notify template | Replaces | Conditionals needed | Caseworker slots |
 |---|---|---|---|
@@ -233,6 +239,7 @@ Four templates, not six, and the branching mechanised rather than deleted by han
 | `forms-for-completion-minor` | ② | Gazette sentence | **none** |
 | `application-rejected` | ③ | online vs paper refund text, from `postCounter` | judge's reason, notes |
 | `request-confirmation-to-proceed` | ④ | online vs paper refund text; `[child's]`, from `type` | judge's reason, notes |
+| `chase-missing-documents` | ⑤ | none | **documents required** |
 
 **`type` has four members, not two.** `DeedPollType` is `Adult, AdultTransgender, Minor, MinorTransgender`,
 so "adult" means `Adult || AdultTransgender` and "minor" means `Minor || MinorTransgender` everywhere this
@@ -263,4 +270,4 @@ minor email carries LOC022, LOC023, LOC024 and LOC028. Only the two change-of-na
 forms for a declarant and a commissioner of oaths to complete. They are **static files to be sourced and
 stored**, and none of them is in `doc_templates/` today.
 
-Still out of scope for Notify and still needing a decision: the missing ⑤ Gazette notice.
+Still out of scope for the current plans and explicitly deferred: the missing ⑥ Gazette notice.

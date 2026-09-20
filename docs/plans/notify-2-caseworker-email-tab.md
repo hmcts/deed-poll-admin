@@ -195,6 +195,12 @@ Two consequences worth stating plainly, because they have bitten this repo befor
     sentence. A blank panel reads as a bug, and "sent before we started keeping the text" is a different
     reassurance from "this has not gone yet".
 
+16. **Every send carries one idempotency key for its compose journey.** notify-6 introduces repeatable,
+    case-driven chases: one per case would be the wrong business rule, while no key lets a double-click send
+    twice. Generate one UUID when the compose journey starts, preserve it through compose, preview, local/api
+    validation failures and the final send, and send it as api's required `Idempotency-Key` header. Starting a
+    new compose journey creates a new UUID. Do not derive it from template, content or time.
+
 ---
 
 ## Expected contract `[PROVISIONAL]`
@@ -359,6 +365,8 @@ Read first: `libs/deed-poll-api-client/src/api/client.ts` for the `ApiResult` id
 
 - Three client functions, returning `ApiResult<T>`, never throwing, each carrying an `AbortSignal.timeout` as
   the others do.
+- The send function accepts the journey's UUID and supplies it as `Idempotency-Key`; tests pin the exact
+  header and prove a retry reuses it.
 - Mock handlers for all three, with fixtures covering: a case with a rejected referral (the template is
   sendable), a case without one (it is not), a case with no `applicantEmail` (send is refused), and a case
   with one `Sent` and one `Failed` email in its history. **If notify-5 has shipped, the history fixtures
@@ -445,6 +453,8 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
 - The four routes of decision 2, as file-based pages under `src/pages/deed-polls/[id]/emails/`.
 - The compose page pre-populates the slots from the tab payload; the preview page renders the returned HTML in
   a sandboxed `iframe` with a `title` (decision 3); the send posts and redirects to the tab with a banner.
+- The compose GET creates an idempotency UUID and the forms preserve it unchanged through preview, correction
+  and final send. A fresh visit to `/emails/new` starts a new journey and therefore gets a new UUID.
 - An unknown or non-applicable template in the path is a 404, not a 500 — the route parameter is user input.
 - Tests: the full journey; a validation failure returns to compose with an error summary and the caseworker's
   text preserved; a send failure returns to preview with api's message and the text preserved; the `iframe`
@@ -478,9 +488,12 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
 - **notify-0, the provisioning.** Without a Notify service the preview cannot render and the send cannot
   leave — but the mock covers both, so this plan is testable regardless.
   [`.business_context/NOTIFY_PROVISIONING_REQUEST.md`](../../.business_context/NOTIFY_PROVISIONING_REQUEST.md).
-- **The other three templates.** The tab is built to list what api says is sendable, so a template added in
-  notify-3 or notify-4 should appear with no change here. **That is the design intent and Task 4's test should
+- **The other templates.** The tab is built to list what api says is sendable, so a template added in
+  notify-3, notify-4 or notify-6 should appear with no change here. **That is the design intent and Task 4's test should
   prove it** — a fixture with two sendable templates must render two radios without a code change.
+- **Chase-specific UI.** notify-6 adds `chase-missing-documents`, but this plan renders it from the same
+  availability, slots and defaults metadata as every other template. The only shared addition is decision 16's
+  idempotency header; do not add a chase route or switch on its key.
 - **Showing the sent email's content.** Decision 11. **No longer true as of 2026-09-19** — notify-5 serves it
   and decisions 12 to 15 render it on a per-email page. What is still not here: any *storage* of content in
   this repo, which decision 11's first sentence keeps.
@@ -492,6 +505,9 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
   time comes.
 - **Any change to the referrals tab.** The judge's direction is read through the emails payload, not by
   reaching into `referrals-admin-1`'s view models.
+- **Tracking the applicant's reply to *Request confirmation to proceed*.** That process spans the
+  awaiting-confirmation worklist and a referral outcome rather than the Email tab. Its standalone admin plan is
+  [`notify-3b-admin-confirmation-tracking.md`](notify-3b-admin-confirmation-tracking.md).
 
 ---
 
