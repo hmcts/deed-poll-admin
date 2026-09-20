@@ -1,5 +1,11 @@
 {
   "port": 3000,
+  "environmentName": "",
+  "personaSwitcher": {
+    "enabled": false,
+    "password": "Pa55word11",
+    "emailDomain": "example.com"
+  },
   "redis": {
     "url": "redis://localhost:6379"
   },

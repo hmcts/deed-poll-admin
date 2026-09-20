@@ -40,8 +40,9 @@ than renamed. See "No data access layer" below.
 deed-poll-admin/
 ├── src/                        # THE application (Express 5.x + Nunjucks) — the root package
 │   ├── pages/                  # File-based routes, discovered by simple-router
+│   │   └── layouts/            # The app-owned layouts every page extends — see below
 │   ├── assets/                 # SCSS/TS bundles, compiled by vite
-│   ├── auth/                   # IDAM OIDC: login, session, require-auth, require-role
+│   ├── auth/                   # IDAM OIDC: login, session, require-auth, require-role, persona switcher
 │   ├── locales/                # App-level translations
 │   ├── app.ts, server.ts       # createApp(), and the entrypoint that loads secrets first
 │   └── secrets.ts              # Reads charts/deed-poll-admin/values.yaml for the vault alias map
@@ -166,6 +167,38 @@ single file:
   function form, is not read, and a page written that way would contribute nothing. Function entries are reported
   one row per sentence (`returnedForActionFor.1`, `.2`) because English needs a singular and a plural where Welsh
   needs more, so which sentence covers which count is a translator briefing rather than a string.
+
+## The dev persona switcher, and the two patterns it establishes
+
+A tester switches between the caseworker, admin and judicial personas from a strip on every page, by signing in
+as that persona's real IDAM user (`src/auth/persona-switcher.ts`, `src/auth/persona-users.ts`,
+`src/pages/switch-persona.ts`). Two things about it generalise beyond the feature:
+
+- **Every page template extends `layouts/app.njk` or `layouts/app-full-width.njk`, never the starter's
+  `layouts/default.njk`.** The app-owned layouts are the starter's plus the strip, and they are app-owned because
+  `libs/express-govuk-starter` is template-provided: an edit there is lost at the next re-scaffold with nothing
+  failing. A page on the starter's layout renders perfectly and simply has no switcher, on one page, so
+  `src/pages/layouts/app.njk.test.ts` reads `src/pages/**` off the filesystem and fails any template extending
+  something else. The starter's own layouts must stay ignorant of the strip, which that file also pins.
+- **A non-production control is gated on a chart-injected `ENVIRONMENT_NAME` against a named allowlist, and
+  never on `NODE_ENV`.** `package.json`'s `start` is `NODE_ENV=production node dist/server.js`, so *every*
+  deployed pod runs as production — AAT and preview included — and a `NODE_ENV` test either enables the control
+  in production or disables it everywhere it is wanted. So: a flag in the chart (`PERSONA_SWITCHER_ENABLED`, off
+  in `values.yaml`, which a production deploy inherits) **and** `PERSONA_SWITCHER_ENVIRONMENTS.has(…)`. Both
+  halves fail closed, which is why `config/default.json` leaves `environmentName` **empty** — it defaulted to
+  `development`, itself a permitted environment, so any deploy path that did not render the variable reduced two
+  conditions to one. `yarn dev` and `vitest.config.ts` are therefore the two places that name their own
+  environment. `config/production.json` restates the flag's `false` and cannot enforce it: node-config applies
+  `custom-environment-variables.json` *after* `{NODE_ENV}.json`, so the variable always wins. Same allowlist
+  argument as `libs/deed-poll/src/auth/plain-http.ts` — **do not "simplify" either to `!== "production"`**.
+- The switcher's copy is **English-only in a `COPY` const**, not in `src/locales`: `yarn welsh:check` fails on a
+  `cy` identical to its `en`, so the alternative to billing a translator for a development tool is a red check
+  with no defect behind it. This is the one exception to "every page has `en`/`cy`" — do not copy it for
+  anything a caseworker sees.
+- `src/deployment-chart.test.ts` pins all of the above from the chart's side: which templates may enable the
+  flag, that the allowlist names each of them, that the env-var mapping actually maps (asserted structurally,
+  since a mis-nested key leaves every name present while `config.get` silently falls back), and that the
+  default environment name matches nothing.
 
 ## Deployment and sessions
 

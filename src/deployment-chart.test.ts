@@ -1,11 +1,12 @@
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: `${IMAGE_NAME}`, `${SERVICE_FQDN}` and
 // `values.${environment}.template.yaml` are what `envsubst` and `helmInstall` read out of the chart, so the
 // literal `${…}` in a plain string is the value under test rather than a template literal written by mistake.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { load as yamlLoad } from "js-yaml";
 import { describe, expect, it } from "vitest";
+import { PERSONA_SWITCHER_ENVIRONMENTS } from "./auth/persona-switcher.js";
 
 // `src/secrets.ts` resolves this path relative to its own directory, and `getPropertiesVolumeSecrets`
 // swallows a missing or unparseable chart: the aliases below are silently dropped and every secret arrives
@@ -15,6 +16,7 @@ const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
 const CHART_DIR = path.join(APP_DIR, "../charts/deed-poll-admin");
 const VAULT = "deed-poll";
 const TEMPLATES = ["values.aat.template.yaml", "values.preview.template.yaml"];
+const PERSONA_SWITCHER_FLAG = "PERSONA_SWITCHER_ENABLED";
 
 describe("charts/deed-poll-admin", () => {
   it("should live at the path helmInstall requires, since it throws before it does anything else", () => {
@@ -207,6 +209,59 @@ describe("charts/deed-poll-admin", () => {
     expect(preview.nodejs.environment?.REDIS_URL).toBe("redis://{{ .Release.Name }}-redis-master:6379");
   });
 
+  it("should leave the persona switcher off in values.yaml, which is what a production deploy inherits", () => {
+    // The switcher signs a tester in as another persona's real IDAM user, so it is a privilege-escalation
+    // mechanism by design. `NODE_ENV` cannot keep it out of production — `package.json`'s `start` sets
+    // `NODE_ENV=production` in *every* deployed pod, aat and preview included — so this file being off, and
+    // only the aat and preview templates turning it on, is the whole control. A future production deploy
+    // gets `values.yaml` plus no template, which must mean off.
+    const base = readValues("values.yaml").nodejs.environment?.[PERSONA_SWITCHER_FLAG];
+
+    expect(base ?? "false", "values.yaml enables the persona switcher, so production would inherit it").toBe("false");
+  });
+
+  it("should enable the persona switcher only in environments the runtime allowlist also permits", () => {
+    // Both halves of the gate, asserted against each other rather than restated: a template enabling the flag
+    // for an environment `PERSONA_SWITCHER_ENVIRONMENTS` does not name would ship a control that silently
+    // does nothing, and a template for `prod` enabling it fails here rather than at a deploy. Read off the
+    // directory rather than from `TEMPLATES`, so a values file added later is covered without an edit.
+    const templates = readdirSync(CHART_DIR).filter((file) => /^values\..+\.template\.yaml$/.test(file));
+    const enabled = templates.filter((file) => readValues(file).nodejs.environment?.[PERSONA_SWITCHER_FLAG] === "true");
+
+    expect(enabled.sort()).toEqual(["values.aat.template.yaml", "values.preview.template.yaml"]);
+    for (const file of enabled) {
+      const environment = file.replace(/^values\.(.+)\.template\.yaml$/, "$1");
+
+      expect(PERSONA_SWITCHER_ENVIRONMENTS.has(environment), `${file} enables the persona switcher for an environment persona-switcher.ts refuses`).toBe(true);
+    }
+  });
+
+  it("should tell the application which environment it is, since NODE_ENV says production in all of them", () => {
+    // `ENVIRONMENT_NAME` is resolved here, from the `global.environment` `helmInstall` passes with `--set`,
+    // and read through `config`. The mapping is asserted by *structure* and not by searching the file for the
+    // variable names: a mis-nested or renamed key leaves every name present while `config.get` silently falls
+    // back to `config/default.json`, and the symptom — no strip — is indistinguishable from the gate working.
+    const mapping = readMapping();
+
+    expect(readValues("values.yaml").nodejs.environment?.ENVIRONMENT_NAME).toBe("{{ .Values.global.environment }}");
+    expect(mapping.environmentName).toBe("ENVIRONMENT_NAME");
+    // `__format: "json"` is what makes the flag arrive as a boolean. Without it config hands back the string
+    // `"false"`, which is truthy.
+    expect(mapping.personaSwitcher?.enabled).toEqual({ __name: PERSONA_SWITCHER_FLAG, __format: "json" });
+  });
+
+  it("should leave the persona switcher's allowlist no environment to match when ENVIRONMENT_NAME is unset", () => {
+    // The other half of the gate failing closed, and the reason this is asserted rather than left to the
+    // chart: `config/default.json` applies wherever the variable does not arrive, so a default that named a
+    // permitted environment — `development`, as this held until the review of the switcher — would reduce two
+    // independent conditions to the flag alone on any deploy path that does not render `ENVIRONMENT_NAME`.
+    const fallback = (JSON.parse(readFileSync(path.join(APP_DIR, "../config/default.json"), "utf8")) as { environmentName: string }).environmentName;
+
+    expect(PERSONA_SWITCHER_ENVIRONMENTS.has(fallback), `config/default.json's environmentName "${fallback}" opens the persona switcher's allowlist`).toBe(
+      false
+    );
+  });
+
   it("should give the preview redis a probe budget that survives Dynatrace instrumentation", () => {
     // HDPI-8155: the chart-default 2s exec-probe budget leaves redis Running-but-not-Ready on preview
     // (`apps/pcs/pcs-frontend` measured 3.4-4.1s), and a master missing from its Service endpoints leaves
@@ -220,6 +275,11 @@ describe("charts/deed-poll-admin", () => {
 
 function readValues(file: string): Values {
   return yamlLoad(readFileSync(path.join(CHART_DIR, file), "utf8")) as Values;
+}
+
+/** The env-var map `config` reads, parsed rather than searched — see the assertion that uses it. */
+function readMapping(): EnvironmentMapping {
+  return JSON.parse(readFileSync(path.join(APP_DIR, "../config/custom-environment-variables.json"), "utf8")) as EnvironmentMapping;
 }
 
 /**
@@ -258,4 +318,9 @@ interface Values {
 
 interface Chart {
   dependencies: { name: string; repository: string }[];
+}
+
+interface EnvironmentMapping {
+  environmentName?: string;
+  personaSwitcher?: { enabled?: unknown };
 }

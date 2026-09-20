@@ -137,7 +137,7 @@ export const POST = async (req: Request, res: Response) => {
 ### Template Structure
 
 ```njk
-{% extends "layouts/default.njk" %}
+{% extends "layouts/app.njk" %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
 {% from "govuk/components/input/macro.njk" import govukInput %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
@@ -176,6 +176,12 @@ export const POST = async (req: Request, res: Response) => {
 
 ### Template Rules
 
+- **Extend `layouts/app.njk`, or `layouts/app-full-width.njk`** - never the starter's `layouts/default.njk`
+  or `layouts/full-width.njk`. The app-owned layouts are the starter's plus the persona switcher strip, and
+  they exist because `libs/express-govuk-starter` is template-provided: an edit there is lost at the next
+  re-scaffold, silently. `src/pages/layouts/app.njk.test.ts` reads `src/pages/**` off the filesystem and
+  fails any template that extends anything else — a page on the starter's layout renders perfectly and
+  simply has no switcher, which is why the sweep exists rather than a convention
 - **Use `page_content` block** - not `content` (layout-specific)
 - **Import macros at top** - use `{% from %}` for GOV.UK components
 - **Error summary before h1** - when validation errors exist
@@ -197,6 +203,11 @@ export const POST = async (req: Request, res: Response) => {
 - **Identical structure** - `cy` object must mirror `en` exactly
 - **Test with `?lng=cy`** - verify all text translates correctly
 - **No hardcoded English** - all visible text must come from content objects
+- **A development tool is the one exception, and it is English-only on purpose** - the persona switcher's
+  strip and its refusal page hold their copy in a `COPY` const (`src/auth/persona-switcher.ts`,
+  `src/pages/switch-persona.ts`) rather than in `en`/`cy` pairs. `yarn welsh:check` fails on a `cy` value
+  identical to its `en` one, so the alternative to billing a translator for text no citizen can reach is a
+  red check with no defect behind it. Do not copy this for anything a citizen or a caseworker sees
 
 ### Interpolating dynamic values
 

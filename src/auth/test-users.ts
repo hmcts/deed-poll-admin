@@ -13,6 +13,42 @@
 import { getClientCredentialsToken } from "./client-credentials.js";
 import type { IdamConfig } from "./idam.js";
 
+/**
+ * How long any one testing-support request waits, matching `DEFAULT_TIMEOUT_MS` in the api client.
+ *
+ * Bounded for the reason every api call is (`.claude/rules` and `libs/deed-poll-api-client/src/api/client.ts`):
+ * `fetch` has no timeout of its own, so a host that accepts a connection and never answers — a hung pod, a
+ * dropped conntrack entry — leaves the request pending for as long as the socket lives. The caller here is
+ * `POST /switch-persona`, so that is a tester's browser waiting indefinitely on a page that would otherwise
+ * have said what went wrong and offered a retry, and one held request per attempt while they reload.
+ *
+ * The abort surfaces as a `TimeoutError`, which `persona-users.ts` reports as a transient failure and
+ * deliberately does not record against the persona: a slow environment must not disable one until the pod
+ * cycles.
+ */
+const TESTING_SUPPORT_TIMEOUT_MS = 10_000;
+
+/**
+ * A refusal from `idam-testing-support-api`, carrying the status and body rather than only a sentence.
+ *
+ * The message keeps the same shape it always had, so it still reads on its own. The two fields are there
+ * because the persona switcher has to tell one refusal from another: a 400 naming the persona's role means
+ * that role does not exist in this environment, which is a permanent state to report and disable the persona
+ * for, while a 500 is worth trying again. Classifying by matching the formatted message would have coupled
+ * that decision to this string.
+ */
+export class TestUserError extends Error {
+  status: number;
+  body: string;
+
+  constructor(message: string, status: number, body: string) {
+    super(message);
+    this.name = "TestUserError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
 export interface TestUser {
   id?: string;
   email: string;
@@ -67,12 +103,13 @@ export async function createTestUser(config: IdamConfig, request: CreateTestUser
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`
     },
-    body: JSON.stringify(request)
+    body: JSON.stringify(request),
+    signal: AbortSignal.timeout(TESTING_SUPPORT_TIMEOUT_MS)
   });
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Failed to create test user: ${response.status} ${response.statusText} - ${text}`);
+    throw new TestUserError(`Failed to create test user: ${response.status} ${response.statusText} - ${text}`, response.status, text);
   }
 
   const created = (await response.json()) as TestUser;
@@ -97,7 +134,8 @@ export async function getTestUser(config: IdamConfig, userId: string): Promise<T
     method: "GET",
     headers: {
       Authorization: `Bearer ${accessToken}`
-    }
+    },
+    signal: AbortSignal.timeout(TESTING_SUPPORT_TIMEOUT_MS)
   });
 
   if (response.status === 404) {
@@ -126,7 +164,8 @@ export async function deleteTestUser(config: IdamConfig, userId: string): Promis
     method: "DELETE",
     headers: {
       Authorization: `Bearer ${accessToken}`
-    }
+    },
+    signal: AbortSignal.timeout(TESTING_SUPPORT_TIMEOUT_MS)
   });
 
   if (!response.ok && response.status !== 404) {

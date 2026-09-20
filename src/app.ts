@@ -10,9 +10,11 @@ import cookieParser from "cookie-parser";
 import type { Express } from "express";
 import express from "express";
 import { createClient } from "redis";
+import { personaSwitcherLocals } from "./auth/persona-switcher.js";
 import { refreshMiddleware } from "./auth/refresh-middleware.js";
 import { requireAuth } from "./auth/require-auth.js";
 import { requireJudicial } from "./auth/require-role.js";
+import { requireSameOrigin } from "./auth/same-origin.js";
 import { assertRedisUrl, assertSessionSecret } from "./auth/session.js";
 import { assertIdamSettings, idamSettings } from "./auth/settings.js";
 import { domainErrorHandler } from "./errors.js";
@@ -109,6 +111,17 @@ export async function createApp(): Promise<Express> {
       storeOptions: { prefix: SESSION_KEY_PREFIX }
     })
   );
+  // Every state-changing request must come from this app's own pages. `SameSite=Lax` above stops
+  // `evil.example` and not a sibling CFT service: `SameSite` is decided on the registrable domain, so
+  // anything under `platform.hmcts.net` posting here is same-site and the session cookie is attached in
+  // full. Global and before the router for the same reason `requireAuth` is — a page added later is covered
+  // by being a page — and before `requireAuth` so a forged post is refused as forged rather than bounced to
+  // `/login`. After the session middleware, because the refusal renders an error view. See
+  // ./auth/same-origin.ts for why it reads `Sec-Fetch-Site` rather than `Origin` — `configureHelmet()` above
+  // sends `Referrer-Policy: no-referrer`, under which a browser sends the same `Origin: null` for this app's
+  // own forms and for a sibling's forged post — and for why this is not a synchronizer token.
+  app.use(requireSameOrigin());
+
   // Readiness only, never liveness. `healthcheck()` defaults `readinessChecks` to `checks`, so naming a
   // dependency here without the split would put it on **both** — which is what happened with Postgres:
   // a database blip failed liveness and Kubernetes restarted every web pod. Restarting cannot fix
@@ -166,6 +179,19 @@ export async function createApp(): Promise<Express> {
   // After requireAuth, so it only fires for authenticated users. Refreshes tokens before they expire,
   // keeping sessions alive without forcing re-authentication. See ./auth/refresh-middleware.ts.
   app.use(refreshMiddleware);
+
+  // The non-production persona switcher, put on `res.locals` for `src/pages/layouts/app.njk` to render.
+  // Global and before the router, which is the only shape that puts it on *every* page — decision 7, a
+  // switcher the judge cannot see is a trap door with no way back out. After `refreshMiddleware` so it reads
+  // a settled session rather than one mid-renewal, and it assigns nothing at all unless both halves of the
+  // gate agree. See ./auth/persona-switcher.ts.
+  //
+  // Before the judicial gate, and that ordering is load-bearing rather than tidy: `requireJudicial` refuses
+  // with `next(err)`, which skips every remaining non-error middleware — so mounted after it, a refused
+  // `/judicial/**` request would reach the error views with no strip on locals, for a second reason nothing
+  // in the exception list records. The strip needs only a settled session, so there is nothing to gain by
+  // waiting for the role decision.
+  app.use(personaSwitcherLocals());
 
   // The judicial area is gated on the role for the whole prefix rather than page by page, so a judicial
   // page added later is covered by where it lives. Additive to `requireAuth` above and mounted after it:

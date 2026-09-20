@@ -277,7 +277,9 @@ interface UserSession extends Session {
 #### Accessible Form Pattern
 ```html
 <!-- src/pages/user-management/create-user.njk -->
-{% extends "layouts/default.njk" %}
+<!-- The app-owned layout, never the starter's `layouts/default.njk`: it carries the persona switcher strip,
+     and `src/pages/layouts/app.njk.test.ts` fails any page template that extends something else. -->
+{% extends "layouts/app.njk" %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
 {% from "govuk/components/input/macro.njk" import govukInput %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}

@@ -143,6 +143,21 @@ lives, and `src/app.test.ts` reads `src/pages/judicial/` off the filesystem and 
 one. It refuses with `next(new ForbiddenError(...))` and renders nothing, so the status and the disclosure
 decision both stay in `src/errors.ts`.
 
+`requireSameOrigin()` (`src/auth/same-origin.ts`) is the third shape and is global like `requireAuth`, mounted
+**before** it: a `POST`/`PUT`/`PATCH`/`DELETE` must come from one of this app's own pages. It exists because
+**`SameSite=Lax` is not CSRF protection in this estate** — `SameSite` is decided on the registrable domain, so
+any page on any `*.platform.hmcts.net` host posts here with the session cookie attached, and an XSS in a sibling
+service is otherwise a way to make a signed-in caseworker's browser write through this app.
+
+It gates on **`Sec-Fetch-Site`, not `Origin`**, and that is measured rather than chosen: `configureHelmet()`
+sends `Referrer-Policy: no-referrer`, and under that Chromium sends `Origin: null` for this app's own form posts
+*and* for a sibling's forged one — identical values, so an `Origin` gate either refuses every form in the service
+or admits every sibling. The measurement table is in the file's docblock; **do not "simplify" this to an `Origin`
+check**, and if you are tempted, re-run the probe first. A request carrying neither header is allowed (a
+non-browser client, which the e2e suite has), which is the one way this differs from `requireAuth`'s fail-closed
+polarity and is argued at the call site. It refuses with `ForbiddenError` like the role gate. **Do not add a
+state-changing `GET`** — the gate does not cover one, and covering one would hide the real bug.
+
 ## File Organization
 
 ```

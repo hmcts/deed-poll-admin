@@ -187,6 +187,18 @@ resolves.
      asks IDAM directly; do not invent a wildcard in a values file, which cannot register anything in any
      case.
 
+   - **The persona switcher needs two more grant types in AAT, and that is not raised either.** The dev
+     persona switcher signs a tester in as a persona's own IDAM user, which needs `password` on the client,
+     and creates that user through `idam-testing-support-api`, which needs `client_credentials`. Read from
+     the clone on **2026-09-19**, `apps/deed-poll/base/services.yaml` registers `authorization_code` and
+     `refresh_token` and nothing else — so **both** are missing, not the one the plan originally named, and
+     an environment overlay *replaces* `grant_types` rather than appending, so the aat overlay has to restate
+     all four. Until it merges, AAT's strip renders and every persona refuses with a reason naming that
+     repository: `src/auth/persona-users.ts` classifies the refusal rather than reaching the 500 page, so
+     this fails visibly and in one place. Nothing local is affected — the simulator's fixtures need no
+     registration, so `yarn dev` and the e2e suite are unaffected. The switcher is off in every other
+     environment (`docs/DEPLOYMENT.md`), so this blocks nothing but itself.
+
    - **The judicial role is a second, separate registration, and it is not raised yet.** `/judicial/**` is
      gated on `caseworker-deedpoll-judicial` (`libs/deed-poll/src/auth/roles.ts`), which needs its own PR
      against `apps/deed-poll/base/roles.yaml` in `idam-access-config` — #993 covered the client and the admin
