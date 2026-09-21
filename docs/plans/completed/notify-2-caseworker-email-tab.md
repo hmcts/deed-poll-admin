@@ -110,8 +110,30 @@ Two consequences worth stating plainly, because they have bitten this repo befor
 
    An `iframe` with `srcdoc` and `sandbox` (no `allow-scripts`, no `allow-same-origin`) gives two things at
    once: nothing in that HTML can touch the admin page's DOM, cookies or session, **and** the email's own
-   styles cannot leak into the admin page or inherit from it — so what the caseworker sees is closer to what
-   the applicant will see. Do not "simplify" this to `| safe` later; the reason is written here.
+   styles cannot leak into the admin page or inherit from it — ~~so what the caseworker sees is closer to what
+   the applicant will see~~. Do not "simplify" this to `| safe` later; the reason is written here.
+
+   **Corrected after review, 2026-09-21 — the preview is unbranded, and that clause was the one thing in this
+   decision that was not true.** A `srcdoc` document **inherits the embedder's CSP**, and `configureHelmet()`
+   sends `img-src 'self' data:` plus the analytics hosts, so a remote image in Notify's HTML — which is how its
+   crest and branding arrive — is refused with only a console message. **`sandbox=""` compounds it**: with no
+   `allow-same-origin` the frame has an opaque origin, and `'self'` can never match an opaque origin, so even a
+   same-origin image would be blocked. `data:` URIs still render.
+
+   **Nothing in the suite could have caught it**, which is the part worth remembering: the in-memory mock's
+   rendered HTML contains no images, the template test only renders, and the e2e asserts the `sandbox` and
+   `srcdoc` attributes alone. It was found by reading the policy against the markup, not by a failure — the
+   external review pass verified it empirically in Chromium under this app's exact header.
+
+   **Resolved by correcting the claim rather than the policy, and the reasoning is a trade rather than an
+   obvious call.** The page exists to get a caseworker to approve *wording* before an irreversible send, and the
+   wording is exact; so the caption now says that and no longer promises appearance fidelity. Restoring the
+   branding would mean allowing Notify's static-image host in `img-src`, and **that directive lives in
+   `libs/express-govuk-starter`, which is template-provided** — an edit there is lost at the next re-scaffold
+   with nothing failing, the same hazard the app-owned layouts in `src/pages/layouts/` exist to avoid. So it
+   would need an app-owned override widening the policy on every page of a caseworker application, for a
+   cosmetic gain. **Flagged for the business rather than decided here**; if a branded preview is wanted, that is
+   the shape it has to take, and the host has to come from Notify rather than be guessed.
 
    **Note 2026-09-19 — the HTML is optional at source.** `TemplatePreview.getHtml()` returns
    `Optional<String>`, so a preview can legitimately arrive with no HTML. The preview page needs a fallback

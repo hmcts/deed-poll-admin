@@ -14,7 +14,10 @@
   on a string that has been through two services and a human — decision 3 of
   docs/plans/notify-2-caseworker-email-tab.md. `sandbox` with no `allow-scripts` and no `allow-same-origin` means
   nothing in that HTML can reach this page's DOM, cookies or session, and the email's own styles neither leak out
-  nor inherit in, so what is checked looks more like what the applicant will read. The attribute is asserted in
+  nor inherit in. It is NOT a faithful rendering, though, and the caption no longer claims to be: a srcdoc document
+  inherits this page's CSP, whose img-src is `'self' data:`, and sandbox="" gives the frame an opaque origin that
+  `'self'` cannot match — so Notify's crest and any other remote image are refused, silently. The wording is exact;
+  the appearance is not. See the CSP note in preview.ts. The sandbox attribute is asserted in
   email-preview.njk.test.ts so a later "simplification" fails a test rather than shipping.
 
   Nunjucks autoescaping is what makes `srcdoc` safe to set from a variable: the HTML is escaped into the attribute

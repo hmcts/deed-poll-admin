@@ -91,6 +91,22 @@ describe("email preview page", () => {
     ]);
   });
 
+  it("should not promise the caseworker this is what the applicant will see", async () => {
+    // The preview is unbranded and cannot be otherwise: a `srcdoc` document inherits this app's CSP, whose
+    // `img-src` is `'self' data:`, and `sandbox=""` gives the frame an opaque origin that `'self'` can never
+    // match — so no image in Notify's HTML renders. The caption used to say "as the applicant will see it",
+    // which was a claim about appearance the page cannot keep. It claims the wording now, and this pins that:
+    // nothing in the suite can detect the blocked images themselves, because the mock's HTML has none.
+    const res = response();
+
+    await POST(request(), res);
+
+    const caption = res.render.mock.calls[0][1].en.previewCaption;
+    expect(caption).not.toMatch(/as the applicant will see it|exactly as|what the applicant will see/i);
+    expect(caption).toContain("wording");
+    expect(caption).toMatch(/branding and images are not shown/i);
+  });
+
   it("should withhold Send when Notify returned no HTML to check, and say so", async () => {
     // Fail closed, because the preview is mandatory *because* sending is irreversible (decisions 2 and 3).
     vi.mocked(previewCaseEmail).mockResolvedValue({ ...RENDERED, html: null } as never);
