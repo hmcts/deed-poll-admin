@@ -58,7 +58,15 @@ const en = {
   // The 404 from a claim, which covers a referral withdrawn, closed, taken by another judge, or never there.
   // One sentence for all four, because api answers all four identically on purpose — and decision 10's
   // constraint: it does not say who has it, and does not enumerate the causes either.
-  noLongerAvailable: "This referral is no longer available. Choose another referral from the list."
+  noLongerAvailable: "This referral is no longer available. Choose another referral from the list.",
+  // The navigation shared with `mine.ts`, which claiming a referral is now the way into: a claim takes the row off
+  // this list, so the pool has to name the list it went to (`referrals-admin-6` decision 4). Both entries are named
+  // on both pages so neither can grow a link the other lacks — see `list-navigation.njk`.
+  nav: {
+    label: "Referral lists",
+    pool: "Referrals for a direction",
+    mine: "My referrals"
+  }
 };
 
 // English content in the cy shape — see the note in ../../deed-polls/index.ts.
@@ -84,6 +92,7 @@ export const GET = async (req: Request, res: Response) => {
     // pool, and the empty message is the honest answer.
     pagingSummary: paging.first === 0 ? "" : content.pagingSummaryFor(paging.first, paging.last, paging.total),
     claimRefused: claimRefusal(req.query.claim, content),
+    navCurrent: "pool",
     en,
     cy
   });

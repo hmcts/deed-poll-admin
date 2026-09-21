@@ -71,6 +71,55 @@ export function buildPoolRows(referrals: JudicialReferralSummary[]): PoolRow[] {
 }
 
 /**
+ * What a judge reads where api publishes the state of a referral they hold.
+ *
+ * **Their own two words and not the caseworker's** (`referrals-admin-6` decision 2). `REFERRAL_STATE_LABEL` answers
+ * a caseworker's question — "With a judge", "Direction received" — which is the wrong side of the same fact: a
+ * judge reading "Direction received" about their own claim would be told what the office is waiting for rather than
+ * what they still owe. So `Claimed` is the work outstanding and `Decided` the work done, in that order.
+ *
+ * **Only two states can appear**, because api's membership rule for this list is exactly those two, which is why
+ * this map is keyed on them rather than on `ReferralState`. A row in any other state is api contradicting its own
+ * filter, and `myReferralStatus` answers the placeholder rather than inventing a word for it.
+ */
+export const MY_REFERRAL_STATE_LABEL: Record<"Claimed" | "Decided", string> = {
+  Claimed: "Direction needed",
+  Decided: "Direction recorded"
+};
+
+/**
+ * The rows of a judge's own list, in api's order.
+ *
+ * **Formatting and nothing else** (decision 2): no filter, no regroup, no sort. api decides membership from the
+ * token's subject and orders the page — unfinished work first, then urgent, then longest-waiting — and it is the
+ * same predicate as its visibility rule, so every row here is one whose detail read answers 200. A local opinion
+ * about either would be a second answer to a settled question, and a local sort would make the page disagree with
+ * its own pagination.
+ *
+ * **The same narrow summary the pool's rows are built from, and deliberately no more** (decision 3). The DTO is
+ * `JudicialReferralSummary`, so there is no applicant name, no case reference and no direction text to show and
+ * nothing to fetch them with: enriching a row would mean a call per row, which is both the disclosure boundary and
+ * an N+1 over a worklist. The link is keyed on the referral id alone, which is the only key a judicial URL takes.
+ *
+ * **A status column, where `buildPoolRows` has none.** The pool is `Open` only, so a column of identical tags there
+ * would be furniture; here the two states are the whole point of the list — what a judge still owes, and what they
+ * have answered and the office has not yet actioned.
+ */
+export function buildMyReferralRows(referrals: JudicialReferralSummary[]): MyReferralRow[] {
+  return referrals.map((referral) => ({
+    id: referral.id,
+    status: myReferralStatus(referral.state),
+    statusTagClasses: referral.state ? REFERRAL_STATE_TAG[referral.state] : "govuk-tag--grey",
+    reasons: referral.reasons.map(referralReasonLabel),
+    urgency: referral.urgency ? REFERRAL_URGENCY_LABEL[referral.urgency] : NOT_PROVIDED,
+    isUrgent: referral.urgency === "Urgent",
+    // The date the CASEWORKER raised it, which is what a judge is answering against — and formatted rather than
+    // counted, for `buildPoolRows`'s reason: an age in days cannot be sorted or re-read tomorrow.
+    raisedOn: formatTimestamp(referral.createdOn)
+  }));
+}
+
+/**
  * One referral, its application and its timeline — one payload, one screen.
  *
  * **`claimable` and `directable` govern which control is offered and nothing else.** api re-checks both and
@@ -86,6 +135,12 @@ export function buildPoolRows(referrals: JudicialReferralSummary[]): PoolRow[] {
  *
  * `direction` is present when api has recorded one, which is how a judge re-reads their own decided referral —
  * the one thing on this screen that is neither the application nor the pool.
+ *
+ * **`isOnMyList` is which list the referral is on, and therefore the way back to it** (`referrals-admin-6`
+ * decision 5). It is the state api has just published rather than a `returnTo` the URL carried: a query parameter
+ * would be an open redirect to validate and would be wrong in the ordinary case anyway, since claiming moves the
+ * referral between the two lists while the judge is standing on the page they arrived from. It shares its
+ * predicate with `myReferralStatus`, so the list that admits a state and the link back to it cannot disagree.
  */
 export function buildJudicialReferral(detail: JudicialReferralDetail): JudicialReferralView {
   return {
@@ -103,6 +158,7 @@ export function buildJudicialReferral(detail: JudicialReferralDetail): JudicialR
     claimedOn: detail.claimedAt === null || detail.claimedAt === undefined ? null : formatTimestamp(detail.claimedAt),
     claimable: detail.state === "Open",
     directable: detail.state === "Claimed",
+    isOnMyList: isMyListState(detail.state),
     application: buildApplicationView(detail.application),
     caseNotes: (detail.caseNotes ?? []).map(buildNoteRow),
     direction: buildDirectionView(detail)
@@ -176,6 +232,30 @@ function buildDirectionView(detail: JudicialReferralDetail): DirectionView | nul
   };
 }
 
+/**
+ * The judge's word for a state on their own list, or the placeholder for one this list cannot mean.
+ *
+ * `Open`, `Withdrawn` and `Closed` reach here only if api has contradicted its own membership rule, and the
+ * placeholder is the honest answer to that: a judicial wording for `Open` would be a label for a row that must not
+ * exist, and showing api's raw member would put the wire's vocabulary on a judge's screen. Absent is the same
+ * answer for the same reason `buildJudicialReferral` gives it — a claim about the read rather than about the data.
+ */
+function myReferralStatus(state: JudicialReferralSummary["state"]): string {
+  return isMyListState(state) ? MY_REFERRAL_STATE_LABEL[state] : NOT_RECORDED;
+}
+
+/**
+ * Whether a referral in this state is on the judge's own list — `Claimed` or `Decided`, api's membership rule for
+ * `GET /judicial/referrals/mine`.
+ *
+ * One predicate for the status wording and for `isOnMyList`, so which states the list admits and which states link
+ * back to it are the same answer. Two copies of it is how a judge ends up sent to a list their referral is not on,
+ * which is the failure `referrals-admin-6` exists to fix.
+ */
+function isMyListState(state: JudicialReferralSummary["state"]): state is "Claimed" | "Decided" {
+  return state === "Claimed" || state === "Decided";
+}
+
 /** The name components as a name, or the placeholder when api holds none of them. */
 function fullName(...parts: (string | null | undefined)[]): string {
   const name = parts
@@ -210,6 +290,26 @@ export interface PoolRow {
   isUrgent: boolean;
   /** The referral's `createdOn`, formatted. api's second sort key, shown as the wait it is. */
   waitingSince: string;
+}
+
+/**
+ * One row of a judge's own list, every cell already a display string.
+ *
+ * The pool's row plus a status and minus nothing: both are built from `JudicialReferralSummary`, so neither can
+ * carry an applicant name, a case reference or a direction — see `buildMyReferralRows`.
+ */
+export interface MyReferralRow {
+  /** The referral's id — the only key any judicial URL takes, and the whole of the link. */
+  id: string;
+  /** "Direction needed" or "Direction recorded" — the judge's own words for the two states. */
+  status: string;
+  /** For the tag's colour. The status is printed too, so the state is never carried by colour alone. */
+  statusTagClasses: string;
+  reasons: string[];
+  urgency: string;
+  isUrgent: boolean;
+  /** The referral's `createdOn`, formatted — when the office asked, not when this judge claimed it. */
+  raisedOn: string;
 }
 
 /** The narrow application projection, formatted. Exactly what `JudicialCaseView` carries and nothing else. */
@@ -253,6 +353,11 @@ export interface JudicialReferralView {
   claimable: boolean;
   /** `Claimed`, which api's visibility means claimed *by this judge* — so the direction control is offered. */
   directable: boolean;
+  /**
+   * `Claimed` or `Decided`, the two states api's personal list admits — so the way back is My referrals rather than
+   * the shared pool the referral has left. Never a `returnTo`: see `buildJudicialReferral`.
+   */
+  isOnMyList: boolean;
   /** `null` only when api sent no application, which is a shape its type permits rather than a real state. */
   application: ApplicationView | null;
   /** Read-only. A judge's writes are claim and direct; there is no add-note control on these screens. */

@@ -1,6 +1,6 @@
 # Plan: referrals to the judiciary (admin 0 of 4) — the spec refresh and the whole referral adapter
 
-> **Follow-up:** `../referrals-admin-4-caseworker-completion.md` corrected the mock's withdrawal guard to
+> **Follow-up:** `referrals-admin-4-caseworker-completion.md` corrected the mock's withdrawal guard to
 > match api-4. **The state machine recorded in Task 3 below ("409 on withdraw when terminal") is no longer
 > api's rule**: api gained a second predicate, `ReferralState.canBeWithdrawn()` — `Open` and `Claimed` only —
 > beside an unchanged `isTerminal()`, so `Decided` is neither withdrawable nor terminal, and the refusal has

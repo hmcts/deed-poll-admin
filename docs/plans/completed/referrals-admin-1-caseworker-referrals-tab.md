@@ -1,6 +1,6 @@
 # Plan: referrals to the judiciary (admin 1 of 3) — the caseworker referrals tab
 
-> **Follow-up:** `../referrals-admin-4-caseworker-completion.md` consolidates the legacy “Referral to Master”
+> **Follow-up:** `referrals-admin-4-caseworker-completion.md` consolidates the legacy “Referral to Master”
 > and live “Referrals” surfaces, displays the judicial direction, and replaces the terminal-only action
 > decision with explicit withdraw/close capabilities after business testing. Three names this plan records as
 > current have gone with it: **`terminal`** on the view model (now `canWithdraw`/`canClose`, since `Decided`
@@ -9,7 +9,7 @@
 > fields kept read-only in the Referrals panel and its `/edit/referral` route redirecting on GET, 404 on
 > POST).
 >
-> `../referrals-admin-5-lifecycle-case-notes.md`, delivered 2026-09-21, brought the in-memory API and the
+> `referrals-admin-5-lifecycle-case-notes.md`, delivered 2026-09-21, brought the in-memory API and the
 > end-to-end case Notes journey into step with the API's referral lifecycle notes: raise, claim, direction,
 > actioned and withdrawal each append a case note, and the Notes tab on this plan's case page is where a
 > caseworker reads the referral's history. No page code was added for it.

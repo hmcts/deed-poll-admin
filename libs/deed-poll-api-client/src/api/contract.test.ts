@@ -68,6 +68,9 @@ const IMPLEMENTED_OPERATIONS = [
   "PUT /caseworker/saved-queries/{id}/selection",
   "DELETE /caseworker/saved-queries/{id}/selection",
   "GET /judicial/referrals",
+  // Before the template below in this list only as a matter of sorting; what matters is that api routes the
+  // literal segment first, which `referrals-admin-6` decision 6 and the mock's own ordering test pin.
+  "GET /judicial/referrals/mine",
   "GET /judicial/referrals/{referralId}",
   "POST /judicial/referrals/{referralId}/claim",
   "POST /judicial/referrals/{referralId}/direction"
@@ -240,6 +243,33 @@ describe("openapi.json and the wire schemas", () => {
     expect(WIRE_SCHEMAS.SendEmailRequest.safeParse({}).success).toBe(true);
   });
 
+  it("should publish no owner identifier on any judicial schema", () => {
+    // api keys judicial ownership on the token's IDAM subject — `claimedById` and `decidedById`, added by its
+    // `V14__referral_owner_subjects` migration — and publishes neither column. That absence is what makes whose
+    // list `/judicial/referrals/mine` returns unforgeable, so it is asserted against the document rather than
+    // assumed: a subject appearing on a row would let a page key off it, and a caller ask for a colleague's work.
+    const judicial = Object.entries(spec.components.schemas).filter(([name]) => name.startsWith("Judicial"));
+
+    // Counted, so a judicial schema api adds is swept by the loop below rather than silently missed by it.
+    expect(judicial.length).toBe(7);
+    for (const [name, schema] of judicial) {
+      for (const property of Object.keys(schema.properties ?? {})) {
+        expect(property, `${name}.${property}`).not.toMatch(/^(claimedById|decidedById|ownerId|subject|userId)$/);
+      }
+    }
+  });
+
+  it("should give the personal list the pool's envelope and the pool's row", () => {
+    // Two facts about api's `JudicialMyReferralsResponse`, both load-bearing for `referrals-admin-6`: the page
+    // metadata is the pool's, so one paging convention serves both lists, and the ROW is literally
+    // `JudicialReferralSummary` rather than a second shape — which is what stops the personal list growing a
+    // field the pool does not have, and with it an applicant name the judicial boundary keeps off both.
+    const mine = spec.components.schemas.JudicialMyReferralsResponse;
+
+    expect(Object.keys(mine.properties ?? {}).sort()).toEqual(["page", "referrals", "size", "total", "totalPages"]);
+    expect(mine.properties?.referrals?.items?.$ref).toBe("#/components/schemas/JudicialReferralSummary");
+  });
+
   it("should not accept a reference number or an audit column on a write", () => {
     // api does not accept them, and this app must not try: reference allocation is api's, per task 3.
     for (const field of ["referencenumber", "displayReference", "createdBy", "modifiedBy", "createdOn", "modifiedOn"]) {
@@ -270,5 +300,5 @@ interface OpenApiSchema {
   required?: string[];
   /** `false` on the two email write bodies and absent everywhere else — an unknown key is refused and named. */
   additionalProperties?: false | Record<string, unknown>;
-  properties?: Record<string, { enum?: (string | null)[]; maxLength?: number; minLength?: number }>;
+  properties?: Record<string, { enum?: (string | null)[]; maxLength?: number; minLength?: number; items?: { $ref?: string } }>;
 }

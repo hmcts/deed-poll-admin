@@ -667,6 +667,30 @@ const judicialPoolSchema = z.object({
 });
 
 /**
+ * One page of the referrals one judge has in hand, and how much work that is in total.
+ *
+ * **The same five properties as the pool's envelope and the same row type, and still its own schema** — api
+ * publishes `JudicialMyReferralsResponse` beside `JudicialPoolResponse` rather than reusing it, because the two
+ * name opposite collections: the pool is the shared unclaimed work every judge sees identically, and this is one
+ * judge's own and nobody else's. Registering it as an alias of `judicialPoolSchema` would make the contract test
+ * pass while leaving a reader unable to tell which call produced a value. What it does reuse is the ROW —
+ * `JudicialMyReferralsResponse.referrals` `$ref`s `JudicialReferralSummary`, so the personal list cannot carry a
+ * field the pool does not (`referrals-admin-6` decision 3).
+ *
+ * **No owner id, and its absence is a checked property of api's contract rather than an omission here.** api keys
+ * ownership on the token's IDAM subject (`claimedById`/`decidedById`, added by its `V14__referral_owner_subjects`
+ * migration) and publishes neither column in any DTO: whose list this is comes from the token, so there is nothing
+ * on the wire to forge and nothing here to send. `contract.test.ts` fails if either name ever appears.
+ */
+const judicialMyReferralsSchema = z.object({
+  referrals: z.array(judicialReferralSummarySchema),
+  page: z.number(),
+  size: z.number(),
+  total: z.number(),
+  totalPages: z.number()
+});
+
+/**
  * The holding judge's direction on a referral, recorded once and complete — api has no draft and no patch.
  *
  * `publishToGazette` is a required JSON boolean and not a coerced string, which is api's own emphasis:
@@ -880,6 +904,7 @@ export const WIRE_SCHEMAS = {
   ReferralResponse: referralSchema,
   JudicialDirectionRequest: judicialDirectionSchema,
   JudicialPoolResponse: judicialPoolSchema,
+  JudicialMyReferralsResponse: judicialMyReferralsSchema,
   JudicialReferralSummary: judicialReferralSummarySchema,
   JudicialReferralDetail: judicialReferralDetailSchema,
   JudicialCaseView: judicialCaseViewSchema,
@@ -960,6 +985,9 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   JudicialReferralDetail: ["id", "reasons", "caseNotes"],
   // `page`, `size` and `totalPages` are `int` and `total` is `long`, as `CaseListResponse`'s already are.
   JudicialPoolResponse: ["referrals", "page", "size", "total", "totalPages"],
+  // The same five, because api's `ReferralWorkload` is the same record shape as `ReferralPool` — `List.copyOf`
+  // rows and the four numbers. A judge holding nothing is `[]` and a total of zero, never a null list.
+  JudicialMyReferralsResponse: ["referrals", "page", "size", "total", "totalPages"],
   // `note` for the reason `NoteResponse.note` is pinned: the column is NOT NULL. No id, because no judicial
   // route accepts one.
   JudicialCaseNote: ["note"],
@@ -1009,6 +1037,7 @@ export type WireReferral = z.infer<typeof referralSchema>;
 /** `z.input` for the write, as `WireCaseWrite` is: a body is what goes out, before any transform. */
 export type WireReferralCreate = z.input<typeof createReferralSchema>;
 export type WireJudicialPool = z.infer<typeof judicialPoolSchema>;
+export type WireJudicialMyReferrals = z.infer<typeof judicialMyReferralsSchema>;
 export type WireJudicialReferralSummary = z.infer<typeof judicialReferralSummarySchema>;
 export type WireJudicialReferralDetail = z.infer<typeof judicialReferralDetailSchema>;
 export type WireJudicialCaseView = z.infer<typeof judicialCaseViewSchema>;

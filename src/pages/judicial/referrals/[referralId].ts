@@ -18,12 +18,23 @@
  * (decision 10) — so this page renders one sentence for all four, on a 404 of its own rather than the shared
  * "Page not found": a stale link from a pool that has moved on is the commonest way to arrive here, and it is
  * not a mistyped URL. Naming the cause would enumerate exactly what api's shared 404 exists to hide.
+ *
+ * **The way back is derived from the state api just published, and there is no `returnTo`** (`referrals-admin-6`
+ * decision 5). A referral moves between the two judicial lists — claiming takes it off the pool and puts it on My
+ * referrals — so a destination remembered from wherever the judge arrived from is wrong precisely when they have
+ * just done something, which is the original business finding: a judge who claimed a referral and pressed "Back to
+ * referrals" was returned to the only list it is no longer on. Taking it from `view.isOnMyList` also means there is
+ * no query parameter to validate as an open redirect, and both links name their list in the words the shared
+ * navigation uses.
  */
 import { buildJudicialReferral, getReferral, NotFoundError } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../auth/current-user.js";
 
 const POOL_PATH = "/judicial/referrals";
+
+/** The judge's own list, which a referral they hold or have directed is on instead of the pool. */
+const MINE_PATH = "/judicial/referrals/mine";
 
 /** What `[referralId]/direction.ts` redirects back with: the direction was recorded, or the referral is not this judge's to direct. */
 const DIRECTION_RECORDED = "recorded";
@@ -78,7 +89,11 @@ const en = {
   // judge to look will not see it.
   claimHint: "Claiming takes this referral out of the shared list so you can record a direction on it.",
   direct: "Record a direction",
-  backToPool: "Back to referrals",
+  // Each list named as the shared navigation names it, so the link says which of the two the judge is going back
+  // to rather than "referrals", which is both of them. Which one is offered is `backLabel`'s answer, from the
+  // state — a referral this judge holds is not on the pool at all.
+  backToPool: "Back to referrals for a direction",
+  backToMine: "Back to My referrals",
   errorSummaryTitle: "There is a problem",
   successTitle: "Success",
   // The direction has just been recorded. Said on the referral rather than on a confirmation page of its own,
@@ -117,7 +132,9 @@ const unavailableEn = {
   // enumerate the causes either: naming "another judge" as one of them is the implication decision 10
   // forbids, however hedged.
   body: "This referral is no longer in the shared list. Choose another referral from the list.",
-  backToPool: "Back to referrals"
+  // The pool, whatever the referral's state was: a read api refused published no state, so there is nothing to
+  // derive a destination from and a guess at My referrals would be a link to a list this referral has left too.
+  backToPool: "Back to referrals for a direction"
 };
 
 const unavailableCy = { ...unavailableEn };
@@ -152,7 +169,11 @@ export const GET = async (req: Request, res: Response) => {
     // direction page's URL is stated by the page that offers it rather than assembled from fragments.
     claimHref: `${POOL_PATH}/${encodeURIComponent(referralId)}/claim`,
     directionHref: `${POOL_PATH}/${encodeURIComponent(referralId)}/direction`,
-    poolPath: POOL_PATH,
+    // The list this referral is on, and its name — both from the state api has just published. A claim or a
+    // direction changes which list that is, so the link is resolved on every render rather than carried forward
+    // from the page the judge arrived on: after claiming, the pool is the one list the referral is not on.
+    backHref: view.isOnMyList ? MINE_PATH : POOL_PATH,
+    backLabel: view.isOnMyList ? content.backToMine : content.backToPool,
     // What a redirect sent the judge back with, if anything. Two shapes rather than two sources: a success is a
     // banner, a refusal is an error summary. One `refused` key for both the direction's 409 and the claim's,
     // because they are the same fact arriving by two doors — the referral is visible and the write it was asked

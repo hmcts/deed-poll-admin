@@ -188,6 +188,71 @@ describe("the judicial referral page", () => {
     await GET(request(), res);
 
     expect(res.render.mock.calls[0][1].poolPath).toBe("/judicial/referrals");
+    // The pool whatever the referral's state was, because a read api refused published none — and a guess at My
+    // referrals would be a link to a list this referral has left too.
+    expect(res.render.mock.calls[0][1].en.backToPool).toBe("Back to referrals for a direction");
+  });
+
+  // Decision 5, and the business finding this plan exists for: the pool is `Open` only, so a judge who claimed a
+  // referral and pressed "Back to referrals" was returned to the one judicial list it is no longer on.
+  describe("the way back to a list", () => {
+    it("should send a judge reading a pool referral back to the pool", async () => {
+      const res = pageResponse();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1]).toMatchObject({
+        backHref: "/judicial/referrals",
+        backLabel: "Back to referrals for a direction"
+      });
+    });
+
+    it("should send a judge reading a referral they hold back to My referrals", async () => {
+      vi.mocked(getReferral).mockResolvedValue(detail({ state: "Claimed", claimedAt: new Date("2026-09-04T10:00:00Z") }) as never);
+      const res = pageResponse();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1]).toMatchObject({
+        backHref: "/judicial/referrals/mine",
+        backLabel: "Back to My referrals"
+      });
+    });
+
+    // The direction is recorded and the referral is still this judge's until the office actions it, so the list it
+    // is on has not changed — this is the second half of the journey the plan describes, returning after directing.
+    it("should still send a judge back to My referrals after they have directed it", async () => {
+      vi.mocked(getReferral).mockResolvedValue(decided() as never);
+      const res = pageResponse();
+
+      await GET(request("ref-1", { direction: "recorded" }), res);
+
+      expect(res.render.mock.calls[0][1]).toMatchObject({
+        backHref: "/judicial/referrals/mine",
+        backLabel: "Back to My referrals"
+      });
+    });
+
+    // A state neither list admits is not a state to guess a destination from: the pool is the page that tells a
+    // judge what there is to do next, and it is the one link the unavailable page offers as well.
+    it("should fall back to the pool when api published no state to derive a list from", async () => {
+      vi.mocked(getReferral).mockResolvedValue(detail({ state: null }) as never);
+      const res = pageResponse();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].backHref).toBe("/judicial/referrals");
+    });
+
+    // Not a `returnTo`, which decision 5 forbids: it would be an open redirect to validate, and wrong in the
+    // ordinary case anyway, since claiming moves the referral off the list the judge arrived from.
+    it("should ignore a destination the URL asked for", async () => {
+      const res = pageResponse();
+
+      await GET(request("ref-1", { returnTo: "https://evil.example/", return: "/judicial/referrals/mine" }), res);
+
+      expect(res.render.mock.calls[0][1].backHref).toBe("/judicial/referrals");
+    });
   });
 
   // Every other failure is a fault. A ForbiddenError here would mean the role gate admitted someone api then

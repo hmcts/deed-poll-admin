@@ -170,6 +170,21 @@ describe("the judicial pool page", () => {
     expect(res.render.mock.calls[0][1].claimRefused).toBe("");
   });
 
+  // Decision 4: claiming a referral takes it off this list, so the pool is where a judge has to be able to find
+  // the list it went to.
+  it("should mark itself as the current judicial list and name the other one", async () => {
+    const res = pageResponse();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].navCurrent).toBe("pool");
+    expect(res.render.mock.calls[0][1].en.nav).toEqual({
+      label: "Referral lists",
+      pool: "Referrals for a direction",
+      mine: "My referrals"
+    });
+  });
+
   it("should carry both locales, so the pool is bilingual like every other page", async () => {
     const res = pageResponse();
 

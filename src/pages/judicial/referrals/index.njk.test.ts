@@ -124,6 +124,17 @@ describe("judicial pool template", () => {
     expect(html).not.toMatch(/another judge|Judge |already been claimed/);
   });
 
+  // Decision 4, and the same partial `mine.njk` renders: a claim takes the row off this page, so the list it
+  // went to has to be reachable from here.
+  it("should render the shared navigation with the pool marked as the current page", async () => {
+    const html = await render({ referrals: [referral()], total: 1, totalPages: 1 });
+
+    expect(html).toContain('<nav class="app-judicial-nav" aria-label="Referral lists">');
+    expect(html).toMatch(/href="\/judicial\/referrals" aria-current="page"/);
+    expect(html).toContain('href="/judicial/referrals/mine"');
+    expect(html).not.toMatch(/href="\/judicial\/referrals\/mine" aria-current/);
+  });
+
   it("should show no message on an ordinary visit", async () => {
     const html = await render({ referrals: [referral()], total: 1, totalPages: 1 });
 

@@ -1,6 +1,6 @@
 # Plan: referrals to the judiciary (admin 2 of 3) — the "Returned — action needed" count and worklist
 
-> **Follow-up:** `../referrals-admin-4-caseworker-completion.md` adds the caseworker closure journey this
+> **Follow-up:** `referrals-admin-4-caseworker-completion.md` adds the caseworker closure journey this
 > plan's `Decided` count depends on. The count and worklist query remain unchanged.
 
 ## Overview

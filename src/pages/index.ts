@@ -55,14 +55,15 @@ export const GET = async (req: Request, res: Response) => {
  * **Caseworker-first for a user holding both roles** (decision 2): the caseworker surface is the richer one, where
  * the reverse would leave a caseworker on a screen with no case list.
  *
- * **What that costs, stated rather than glossed.** There is no judicial navigation anywhere — decision 8 builds
- * none, the shared chrome renders no service-navigation, and `judicial.spec.ts` asserts the case list carries no
- * `/judicial` link — so a dual-role user reaches their pool only by typing `/judicial/referrals`. The gate admits
- * them (`requireRole` in `src/auth/require-role.ts`, pinned by its test), so this is a missing route into a
- * permitted area and not a refusal. An earlier version of this docblock claimed the judge's area was "one link
- * away", which was never true and made the default look free. Whether such a user exists is the plan's flagged
- * open question; if the business confirms one does, the answer is a link on the case list rendered when
- * `isJudicial`, not a change here.
+ * **What that costs, stated rather than glossed.** No navigation *into* the judicial area exists — the two
+ * judicial lists have their own navigation between themselves (`referrals-admin-6`), but it renders only on pages
+ * inside the area, the shared chrome renders no service-navigation, and `judicial.spec.ts` asserts the case list
+ * carries no `/judicial` link — so a dual-role user reaches their pool only by typing `/judicial/referrals`. The
+ * gate admits them (`requireRole` in `src/auth/require-role.ts`, pinned by its test), so this is a missing route
+ * into a permitted area and not a refusal. An earlier version of this docblock claimed the judge's area was "one
+ * link away", which was never true and made the default look free. Whether such a user exists is
+ * `referrals-admin-3`'s flagged open question; if the business confirms one does, the answer is a link on the case
+ * list rendered when `isJudicial`, not a change here.
  *
  * A user with neither role also lands on the case list. It is not a privilege — `requireAuth` has already said
  * they are signed in and api enforces what they may read — and the alternative, a chooser or a third page, would

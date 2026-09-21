@@ -17,6 +17,19 @@ const MOCK_CASEWORKER = "Mock Caseworker";
 /** The direction a judge recorded, which is what `judges_reason` arrives pre-populated with. */
 const JUDGES_REASON = "The evidence supplied does not establish the applicant's identity.";
 
+/**
+ * One judge, as a token carrying nothing but a `sub` names them — so their display name and their subject are the
+ * same string, which is the ordinary case here and at `rse-idam-simulator`.
+ *
+ * Where the two must differ, `asPerson` gives a token carrying both: see the same-display-name test, which is the
+ * only thing that can show ownership is keyed on the subject rather than on the attribution beside it.
+ */
+const JUDGE = "judge@example.com";
+
+/** The same judge as a person whose display name and IDAM subject are different values — see `asPerson`. */
+const JUDGE_NAME = "HHJ Solomon";
+const JUDGE_SUBJECT = "solomon-subject";
+
 let mock: RunningMockApi;
 
 beforeAll(async () => {
@@ -1305,6 +1318,256 @@ describe("the judicial referral routes", () => {
 });
 
 /**
+ * `GET /judicial/referrals/mine` — the list `referrals-admin-6` exists for.
+ *
+ * Its own block rather than more cases in the one above, because what is under test is a **collection's
+ * membership** rather than one referral's answer: every assertion here is about which rows are on the list and in
+ * what order, and both are things a page is forbidden to compensate for.
+ */
+describe("a judge's own referrals", () => {
+  it("should list the referrals this judge holds and has directed, and nothing else", async () => {
+    const claimed = await claimedReferral(JUDGE);
+    const decided = await decidedReferral(JUDGE);
+    // The three exclusions, one per reason: the pool's, another judge's, and one the office has finished with.
+    const open = await referredCase();
+    const another = await claimedReferral("another@example.com");
+    const closed = await decidedReferral(JUDGE);
+    await post(`/caseworker/cases/${closed.caseId}/referrals/${closed.referralId}/closure`);
+
+    const mine = await get("/judicial/referrals/mine", as(JUDGE));
+
+    expect(mine.referrals.map((row: { id: string }) => row.id).sort()).toEqual([claimed.referralId, decided.referralId].sort());
+    expect(mine).toMatchObject({ page: 1, size: 10, total: 2, totalPages: 1 });
+    // Asserted as absences too: a membership rule that admitted any of these would be a disclosure rather than a
+    // presentational slip, and `total: 2` alone would not say which two.
+    for (const excluded of [open.referralId, another.referralId, closed.referralId]) {
+      expect(
+        mine.referrals.map((row: { id: string }) => row.id),
+        excluded
+      ).not.toContain(excluded);
+    }
+  });
+
+  it("should list a judge nothing when they hold nothing, rather than refusing them", async () => {
+    await referredCase();
+    await claimedReferral("another@example.com");
+
+    const mine = await get("/judicial/referrals/mine", as(JUDGE));
+
+    // The collection always exists — api has no 404 here — so an empty page is the answer and the page says so.
+    expect(mine).toEqual({ referrals: [], page: 1, size: 10, total: 0, totalPages: 0 });
+  });
+
+  it("should carry the pool's narrow row and no application field, since it is the same summary", async () => {
+    const seeded = mock.seed({ displayReference: "KBDP2026-00002", newForename: "Jo", newSurname: "Bloggs" });
+    const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor"] })).json();
+    await post(`/judicial/referrals/${created.id}/claim`, undefined, as(JUDGE));
+
+    const [row] = (await get("/judicial/referrals/mine", as(JUDGE))).referrals;
+
+    // Exactly `JudicialReferralSummary`: no application, no direction, and no holder — a list that grew any of
+    // them would be showing a judge the answer, or another judge's identity, before they opened the papers.
+    expect(Object.keys(row).sort()).toEqual(["createdOn", "id", "notes", "reasons", "state", "urgency", "urgencyReason"].sort());
+    expect(row).toMatchObject({ id: created.id, state: "Claimed" });
+    expect(JSON.stringify(row)).not.toContain(seeded.id);
+    expect(JSON.stringify(row)).not.toContain("Bloggs");
+  });
+
+  it("should order unfinished work first, then urgent, then longest-waiting, then by id", async () => {
+    // Seeded rather than claimed over HTTP: five claims in the same millisecond would leave every key but the
+    // state to `sort`'s stability, and a test that passes on insertion order pins nothing.
+    // `claimedById` is the same string as `claimedBy` because `as(JUDGE)` forwards a token with only a `sub`; the
+    // two being one value here is the ordinary case, and the test below is what pins that they are separate fields.
+    const mineOwned = { claimedBy: JUDGE, claimedById: JUDGE };
+    const decided = { ...mineOwned, state: "Decided" as const, decision: "Approved" as const, decidedBy: JUDGE, decidedById: JUDGE };
+    mock.seed({ referrals: [referral({ id: "d-decided", ...decided, createdOn: new Date("2026-03-01T09:00:00") })] });
+    mock.seed({ referrals: [referral({ id: "c-new-normal", ...mineOwned, state: "Claimed", createdOn: new Date("2026-03-05T09:00:00") })] });
+    mock.seed({ referrals: [referral({ id: "b-old-normal", ...mineOwned, state: "Claimed", createdOn: new Date("2026-03-01T09:00:00") })] });
+    mock.seed({ referrals: [referral({ id: "a-old-normal", ...mineOwned, state: "Claimed", createdOn: new Date("2026-03-01T09:00:00") })] });
+    mock.seed({ referrals: [referral({ id: "e-urgent", ...mineOwned, state: "Claimed", urgency: "Urgent", createdOn: new Date("2026-03-06T09:00:00") })] });
+
+    const mine = await get("/judicial/referrals/mine", as(JUDGE));
+
+    // Claimed above Decided, because the point of the list is resuming work rather than re-reading finished
+    // directions; and the two March 1st claims tie on every other key, so the id is what separates them — without
+    // it their order between one page and the next is arbitrary, which is how a row appears twice or not at all.
+    expect(mine.referrals.map((row: { id: string }) => row.id)).toEqual(["e-urgent", "a-old-normal", "b-old-normal", "c-new-normal", "d-decided"]);
+  });
+
+  it("should page ten at a time, and answer an empty page past the end rather than refusing it", async () => {
+    for (const _ of Array.from({ length: 11 })) await claimedReferral(JUDGE);
+
+    const first = await get("/judicial/referrals/mine", as(JUDGE));
+    const second = await get("/judicial/referrals/mine?page=2", as(JUDGE));
+    const past = await get("/judicial/referrals/mine?page=9", as(JUDGE));
+
+    expect(first.referrals).toHaveLength(10);
+    expect(first).toMatchObject({ total: 11, totalPages: 2 });
+    expect(second.referrals).toHaveLength(1);
+    expect(past.referrals).toEqual([]);
+  });
+
+  it("should refuse a page or a size that is not a whole number of one or more", async () => {
+    for (const query of ["page=0", "size=nonsense"]) {
+      const response = await fetch(`${mock.url}/judicial/referrals/mine?${query}`, { headers: as(JUDGE) });
+
+      expect(response.status, query).toBe(400);
+    }
+  });
+
+  it("should keep two judges apart who share a display name, because ownership is the subject", async () => {
+    // The defect api's `V14__referral_owner_subjects.sql` fixed, and the reason this mock holds a subject beside
+    // the attribution: keyed on the name, this judge's list would ENUMERATE their namesake's work — worse than the
+    // individual read, which at least needed an id.
+    const theirs = await referredCase();
+    await post(`/judicial/referrals/${theirs.referralId}/claim`, undefined, asPerson("HHJ Smith", "smith.two@example.com"));
+    const ours = await referredCase();
+    await post(`/judicial/referrals/${ours.referralId}/claim`, undefined, asPerson("HHJ Smith", "smith.one@example.com"));
+
+    const mine = await get("/judicial/referrals/mine", asPerson("HHJ Smith", "smith.one@example.com"));
+
+    expect(mine.referrals.map((row: { id: string }) => row.id)).toEqual([ours.referralId]);
+    // And the attribution is still the shared name, which is what makes the isolation a fact about the subject
+    // rather than about the mock having stopped using names at all.
+    expect(await get(`/caseworker/cases/${ours.caseId}/referrals/${ours.referralId}`)).toMatchObject({ claimedBy: "HHJ Smith" });
+  });
+
+  it("should leave a pre-migration claim on nobody's list, rather than falling back to the name", async () => {
+    // A row with a holder's name and no subject is what api's migration could not backfill, and it fails closed
+    // there: comparing names on exactly the rows where identity is least certain would keep the collision where it
+    // does most harm.
+    mock.seed({ referrals: [referral({ id: "pre-migration", state: "Claimed", claimedBy: JUDGE, claimedById: null })] });
+
+    expect((await get("/judicial/referrals/mine", as(JUDGE))).referrals).toEqual([]);
+  });
+
+  it("should drop a lapsed claim and hand it back to the pool, because the state decides and not the holder columns", async () => {
+    // **The one referral transition this mock does not model, covered by its result rather than by a timer.** api's
+    // inactivity sweep is a two-hour window on its own clock (see the file's docblock), and what it leaves behind is
+    // an `Open` row still carrying the attribution of the judge who let it lapse. That row is seeded here directly,
+    // because no request can produce it.
+    //
+    // Both halves matter: it is off the list of the judge who held it, and it is every judge's again. Keyed on
+    // `claimedBy`/`claimedById` instead of on the state, a lapsed claim would sit on its old holder's list for good
+    // — the same row on two lists, one of which cannot act on it.
+    const lapsed = referral({ id: "lapsed-claim", state: "Open", claimedBy: JUDGE, claimedById: JUDGE, claimedAt: new Date("2026-03-01T09:05:00") });
+    mock.seed({ referrals: [lapsed] });
+
+    const mine = await get("/judicial/referrals/mine", as(JUDGE));
+    const pool = await get("/judicial/referrals");
+
+    expect(mine.referrals).toEqual([]);
+    expect(pool.referrals.map((row: { id: string }) => row.id)).toEqual(["lapsed-claim"]);
+    expect((await fetch(`${mock.url}/judicial/referrals/lapsed-claim`, { headers: as("another@example.com") })).status).toBe(200);
+  });
+
+  it.each([
+    ["a claim adds the referral", async () => (await claimedReferral(JUDGE)).referralId, true],
+    [
+      "a direction keeps it, in its new state",
+      async () => {
+        const decided = await decidedReferral(JUDGE);
+
+        return decided.referralId;
+      },
+      true
+    ],
+    [
+      "a withdrawal removes it",
+      async () => {
+        const claimed = await claimedReferral(JUDGE);
+        await post(`/caseworker/cases/${claimed.caseId}/referrals/${claimed.referralId}/withdrawal`);
+
+        return claimed.referralId;
+      },
+      false
+    ],
+    [
+      "a closure removes it",
+      async () => {
+        const decided = await decidedReferral(JUDGE);
+        await post(`/caseworker/cases/${decided.caseId}/referrals/${decided.referralId}/closure`);
+
+        return decided.referralId;
+      },
+      false
+    ],
+    [
+      "a refused write changes nothing",
+      async () => {
+        const claimed = await claimedReferral(JUDGE);
+        // 409 both times: the referral is already claimed, and a withdrawal of a claimed one is permitted so the
+        // second call has to be one that is not — a closure before a direction.
+        expect((await post(`/judicial/referrals/${claimed.referralId}/claim`, undefined, as(JUDGE))).status).toBe(409);
+        expect((await post(`/caseworker/cases/${claimed.caseId}/referrals/${claimed.referralId}/closure`, undefined)).status).toBe(409);
+
+        return claimed.referralId;
+      },
+      true
+    ]
+  ])("should change membership only through a real transition: %s", async (_, arrange, isMine) => {
+    const referralId = await arrange();
+
+    const ids = (await get("/judicial/referrals/mine", as(JUDGE))).referrals.map((row: { id: string }) => row.id);
+
+    expect(ids.includes(referralId)).toBe(isMine);
+  });
+
+  it("should report the state the referral reached, so a direction relabels the row rather than removing it", async () => {
+    const { referralId } = await decidedReferral(JUDGE);
+
+    const [row] = (await get("/judicial/referrals/mine", as(JUDGE))).referrals;
+
+    expect(row).toMatchObject({ id: referralId, state: "Decided" });
+  });
+
+  it("should route the literal path to the list and never read `mine` as a referral id", async () => {
+    // api gets this from Spring's specificity rule; here the patterns are tried in order, so this is the one
+    // assertion that the literal branch is written before the dynamic one. Matched the other way round the
+    // response would be the 404 an unknown referral gets, for a page that exists.
+    await claimedReferral(JUDGE);
+
+    const response = await fetch(`${mock.url}/judicial/referrals/mine`, { headers: as(JUDGE) });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toHaveProperty("totalPages");
+    // And the word is not a referral either: a claim on it is the 404 an unknown id gets, not a 405 from the list.
+    expect((await post("/judicial/referrals/mine/claim", undefined, as(JUDGE))).status).toBe(404);
+  });
+
+  it("should refuse a method the personal list has no route for", async () => {
+    expect((await fetch(`${mock.url}/judicial/referrals/mine`, { method: "PUT", headers: as(JUDGE) })).status).toBe(405);
+  });
+
+  it("should publish no owner subject on any referral response", async () => {
+    // The mock stores `claimedById`/`decidedById` and api publishes neither: `toWireReferral` spreads the record,
+    // so this is what fails if a later field is added without being named out of it.
+    //
+    // Driven as a person whose subject is not their name, because that is the only arrangement in which the
+    // subject's absence is observable: with the two equal, a body carrying the attribution carries the subject too.
+    const holder = asPerson(JUDGE_NAME, JUDGE_SUBJECT);
+    const { caseId, referralId } = await referredCase();
+    await post(`/judicial/referrals/${referralId}/claim`, undefined, holder);
+    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, holder);
+
+    const caseworkerView = await get(`/caseworker/cases/${caseId}/referrals/${referralId}`);
+    const judicialView = await get(`/judicial/referrals/${referralId}`, holder);
+
+    for (const [name, body] of [
+      ["caseworker", caseworkerView],
+      ["judicial", judicialView]
+    ] as const) {
+      expect(body, name).not.toHaveProperty("claimedById");
+      expect(body, name).not.toHaveProperty("decidedById");
+      expect(JSON.stringify(body), name).not.toContain(JUDGE_SUBJECT);
+    }
+    // The attribution is still there, which is what makes the absence above about the subject rather than about
+    // the holder having been dropped from the response.
+    expect(caseworkerView).toMatchObject({ claimedBy: JUDGE_NAME, decidedBy: JUDGE_NAME });
+  });
+});
+
+/**
  * api's `ReferralNotes`, reproduced by the mock and asserted here rather than through the adapter: the wording is
  * observable behaviour no part of `openapi.json` describes, so nothing else can fail when it drifts.
  *
@@ -1313,7 +1576,6 @@ describe("the judicial referral routes", () => {
  */
 describe("the case notes a referral writes as it moves", () => {
   const CASEWORKER = "caseworker@example.com";
-  const JUDGE = "judge@example.com";
   const OFFICE = "office@example.com";
 
   it("should write one note per successful transition, attributed to whoever made it", async () => {
@@ -1603,8 +1865,8 @@ async function patch(path: string, body: unknown): Promise<Response> {
 }
 
 /** The mock's raw JSON. `any` because these tests assert against the wire body, not a parsed type. */
-async function get(path: string): Promise<any> {
-  return (await fetch(`${mock.url}${path}`)).json();
+async function get(path: string, headers: Record<string, string> = {}): Promise<any> {
+  return (await fetch(`${mock.url}${path}`, { headers })).json();
 }
 
 /**
@@ -1621,6 +1883,17 @@ async function get(path: string): Promise<any> {
  */
 function as(subject: string): Record<string, string> {
   return { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: subject }), "utf8").toString("base64url")}.signature` };
+}
+
+/**
+ * The same, for a person whose display name is not their subject.
+ *
+ * The one arrangement `as` cannot make, and the only way to show that judicial ownership is keyed on the subject:
+ * two callers can share a name here while owning separate work, which is the collision api's
+ * `V14__referral_owner_subjects.sql` was written to end.
+ */
+function asPerson(name: string, subject: string): Record<string, string> {
+  return { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: subject, name }), "utf8").toString("base64url")}.signature` };
 }
 
 /** A seeded case carrying one referral raised over HTTP, which is where every referral journey starts. */
@@ -1701,12 +1974,14 @@ function referral(overrides: Partial<MockCase["referrals"][number]> = {}): MockC
     urgencyReason: null,
     migrated: false,
     claimedBy: null,
+    claimedById: null,
     claimedAt: null,
     decision: null,
     directionsText: null,
     publishToGazette: null,
     decisionDate: null,
     decidedBy: null,
+    decidedById: null,
     createdBy: MOCK_CASEWORKER,
     modifiedBy: MOCK_CASEWORKER,
     createdOn: raised,
