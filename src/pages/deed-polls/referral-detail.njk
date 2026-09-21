@@ -3,29 +3,51 @@
 {% from "govuk/components/tag/macro.njk" import govukTag %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
 
 {#
-  One referral, read-only. The rows are the referral's own fields and nothing about the application: the case
-  detail page is one link away and api's referral response carries no case data.
+  One referral, read-only apart from the one control its state allows. The rows are the referral's own fields and
+  nothing about the application: the case detail page is one link away and api's referral response carries no
+  case data.
 
+  Three sections, because they answer three questions — what was asked, how far it has got, and what came back.
   Reasons are a list rather than a comma-joined sentence — a referral commonly has two or three and they are
-  scanned, not read. A migrated referral has none, and says so, because the previous system recorded no
-  reasons; a blank cell there would read as missing data rather than as data that never existed.
+  scanned, not read. A migrated referral has none, and says so, because the previous system recorded no reasons;
+  a blank cell there would read as missing data rather than as data that never existed.
 
-  Withdraw is a form rather than a link, because it changes something. It is absent on a referral that is
-  already closed or withdrawn, and a caseworker who had the page open when somebody else closed it comes back
-  here with the message above instead of an error page.
+  The status cell prints the caseworker's label in a tag and the sentence that says what to do about it, so the
+  colour is never the only carrier and `Decided` reads as work rather than as an outcome.
+
+  Withdraw is a form rather than a link, because it changes something. "Mark direction as actioned" is a link,
+  because it opens a confirmation page. They are mutually exclusive by state and both absent from a referral
+  that is over — or from one in a state this app cannot read. api re-checks either way.
 #}
 {% block content %}
 <div class="govuk-grid-row">
   <div class="govuk-grid-column-two-thirds">
 
-    {% if withdrawRefused %}
-      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [{ text: alreadyClosed }] }) }}
+    {#
+      A closure that landed, as a banner rather than an error summary: it announces something not tied to any
+      one control on the page, which is what a banner is for, and the state below it is the one it produced.
+
+      The two refusals share one summary, because a caseworker arrives here through one redirect or the other and
+      never both — the judicial referral page makes the same call for the same reason. The sentences are chosen in
+      the handler, against the state api has just published.
+    #}
+    {% if directionActioned %}
+      {% set actionedHtml %}<p class="govuk-notification-banner__heading">{{ directionActioned }}</p>{% endset %}
+      {{ govukNotificationBanner({ type: "success", titleText: successTitle, html: actionedHtml }) }}
+    {% endif %}
+
+    {% set refused = withdrawRefused or closeRefused %}
+    {% if refused %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [{ text: refused }] }) }}
     {% endif %}
 
     <span class="govuk-caption-l">{{ case.displayReference }}</span>
-    <h1 class="govuk-heading-xl govuk-!-margin-bottom-4">{{ heading }}</h1>
+    <h1 class="govuk-heading-xl govuk-!-margin-bottom-6">{{ heading }}</h1>
+
+    <h2 class="govuk-heading-m">{{ referralHeading }}</h2>
 
     {% set reasonsCell %}
       {% if referral.reasons.length %}
@@ -39,23 +61,75 @@
       {% endif %}
     {% endset %}
 
+    {#
+      The tag and the sentence together. `stateMeaning` is absent only when api published no state at all, so the
+      sentence is conditional rather than placeholdered: there is nothing true to say about a status this page
+      cannot read, and explaining an unknown would be worse than leaving the line out.
+    #}
+    {% set stateCell %}
+      {{ govukTag({ text: referral.state, classes: referral.stateTagClasses }) }}
+      {% if referral.stateMeaning %}<p class="govuk-body govuk-!-margin-bottom-0 govuk-!-margin-top-2">{{ referral.stateMeaning }}</p>{% endif %}
+    {% endset %}
+
     {{ govukSummaryList({
       rows: [
-        { key: { text: stateLabel }, value: { html: govukTag({ text: referral.state, classes: referral.stateTagClasses }) } },
+        { key: { text: stateLabel }, value: { html: stateCell } },
         { key: { text: reasonsLabel }, value: { html: reasonsCell } },
         { key: { text: notesLabel }, value: { text: referral.notes } },
         { key: { text: urgencyLabel }, value: { text: referral.urgency } },
-        { key: { text: urgencyReasonLabel }, value: { text: referral.urgencyReason } },
-        { key: { text: createdLabel }, value: { text: referral.createdBy + ", " + referral.createdOn } },
-        { key: { text: modifiedLabel }, value: { text: referral.modifiedBy + ", " + referral.modifiedOn } }
+        { key: { text: urgencyReasonLabel }, value: { text: referral.urgencyReason } }
       ]
     }) }}
 
-    {% if not referral.terminal %}
+    {#
+      The lifecycle, separately from the referral's own answers (decision 4). The claim row appears only once a
+      judge has picked the referral up and survives the direction and the closure, which is where "who dealt
+      with this" is asked — but it is never placeholdered, because a referral nobody has claimed has no claim
+      rather than an unrecorded one.
+    #}
+    <h2 class="govuk-heading-m">{{ progressHeading }}</h2>
+    {% set progressRows = [{ key: { text: createdLabel }, value: { text: referral.createdBy + ", " + referral.createdOn } }] %}
+    {% if referral.claim %}
+      {% set progressRows = (progressRows.push({ key: { text: claimedLabel }, value: { text: referral.claim.claimedBy + ", " + referral.claim.claimedOn } }), progressRows) %}
+    {% endif %}
+    {% set progressRows = (progressRows.push({ key: { text: modifiedLabel }, value: { text: referral.modifiedBy + ", " + referral.modifiedOn } }), progressRows) %}
+
+    {{ govukSummaryList({ rows: progressRows }) }}
+
+    {#
+      The returned direction, in full (decision 4). Absent until there is one, rather than rendered empty: a
+      decision row saying nothing would read as a referral the judiciary has not answered. `directionsText`
+      inside a section that exists is the opposite case — a judge may approve with no further directions, so it
+      carries the ordinary "not provided" placeholder and the two states look different.
+
+      `gazetteAnswer` is resolved by the handler rather than read off the model with a ternary here: api's
+      `publishToGazette` is nullish, so `{{ yes if … else no }}` would print "No" for a direction it recorded no
+      answer for, telling the caseworker the judge directed against publication.
+
+      "Decided by" is the judicial author and stays that way after closure, which changes only the modifier
+      above.
+    #}
+    {% if referral.direction %}
+      <h2 class="govuk-heading-m">{{ directionHeading }}</h2>
+      {{ govukSummaryList({
+        rows: [
+          { key: { text: decisionLabel }, value: { text: referral.direction.decision } },
+          { key: { text: directionsLabel }, value: { text: referral.direction.directionsText } },
+          { key: { text: gazetteLabel }, value: { text: gazetteAnswer } },
+          { key: { text: decidedByLabel }, value: { text: referral.direction.decidedBy } },
+          { key: { text: decidedLabel }, value: { text: referral.direction.decidedOn } }
+        ]
+      }) }}
+    {% endif %}
+
+    {% if referral.canWithdraw %}
       <form method="post" action="/deed-polls/{{ case.id }}/referrals/{{ referral.id }}/withdraw" novalidate>
         <p class="govuk-body">{{ withdrawHint }}</p>
         {{ govukButton({ text: withdraw, classes: "govuk-button--warning" }) }}
       </form>
+    {% elif referral.canClose %}
+      <p class="govuk-body">{{ markActionedHint }}</p>
+      {{ govukButton({ text: markActioned, href: closeHref }) }}
     {% endif %}
 
     <p class="govuk-body">

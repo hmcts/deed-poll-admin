@@ -30,17 +30,27 @@
  * "nothing has been sent to this applicant" and "we could not find out", which is why both view models carry
  * `unavailable` rather than an empty list.
  *
+ * **One referral tab, not two.** The retired "Referral to Master" tab is out of `FORM_TABS`, so the Referrals
+ * panel is the whole of the case's referral surface: the live history from api, and above it the populated
+ * retired fields as a read-only snapshot (`buildLegacyReferralView`). That snapshot comes off the case, so it
+ * survives a failed referrals read — the two are different records and one failing says nothing about the other.
+ *
  * **The emails read is additive on this page and load-bearing on the journey behind it.** api answers the tab,
  * the compose form and the per-email content out of the one payload (decision 8 of
  * `docs/plans/notify-2-caseworker-email-tab.md`), so a failure here costs the panel its table and its Send
  * button — `unavailableEmailsView()` offers neither, because the compose page reads the same endpoint and
  * would not load either.
+ *
+ * **The emails panel has no equivalent of the legacy snapshot**, and the asymmetry is api's rather than an
+ * omission: there were no emails in the previous system to keep, so a failed emails read leaves the panel with
+ * nothing at all to show, where a failed referrals read still has the retired fields.
  */
 import {
   buildCaseHeader,
   buildDetailTabs,
   buildDocumentsView,
   buildEmailsView,
+  buildLegacyReferralView,
   buildNotesView,
   build as buildPresentation,
   buildReferralsView,
@@ -71,14 +81,35 @@ const en = {
   unknownType: "Unknown",
   noteColumns: ["NoteID", "Note", "Created", "Modified"],
   amendNoteHint: "amend this note",
-  referralColumns: ["Raised", "Status", "Reasons", "Urgency"],
+  // Decision 3: "Referral status" and not "Status". This table sits on a case whose own header carries a
+  // `DeedPollState`, and a referral decision does not determine that — so the column says which status it is.
+  referralColumns: ["Raised", "Referral status", "Reasons", "Urgency"],
   raiseReferral: "Refer this case to the judiciary",
   viewReferralHint: "view this referral",
   // Decision 9: the previous system recorded no reasons, so a migrated referral has none and says which it is.
   migratedReferral: "Migrated from the previous system",
-  // Shown instead of the raise button while a referral is still with the judiciary: a case holds one at a
-  // time, and api answers 409 for the second. Saying so beats a button that only fails.
-  referralAlreadyOpen: "This case is with the judiciary. Withdraw the open referral before raising another.",
+  // Shown instead of the raise button while a referral is live: a case holds one at a time, and api answers
+  // 409 for the second. Saying so beats a button that only fails.
+  //
+  // **Keyed by the live referral's state, because one sentence cannot cover three.** The single message this
+  // replaced told every caseworker to withdraw the open referral — including the one looking at a direction
+  // the judiciary had already returned, which is exactly the work they were being asked to do and a thing api
+  // refuses to withdraw (`referrals-admin-4` decision 5). `stateUnknown` is not the failed-read message:
+  // `referralsUnavailable` says nothing was read, while this says a referral was read and could not be
+  // understood.
+  liveReferralMessages: {
+    withJudiciary: "This case is with the judiciary. Withdraw the open referral before raising another.",
+    directionReceived:
+      "The judiciary has returned a direction on this case. Carry out the direction, make any case updates it requires, and mark the referral as actioned before raising another.",
+    stateUnknown: "This case has a referral whose status could not be read, so no further referral can be raised yet. Try again shortly."
+  },
+  // The retired "Refer to Master" record, above the live history on the same panel. Its own heading and a
+  // sentence saying where the values came from, because without one a caseworker reads ten fields with judicial
+  // wording as something this service is still keeping up to date — and the point of the snapshot is that
+  // nothing writes to it any more (`referrals-admin-4` decision 2).
+  legacyReferralHeading: "Previous system referral information",
+  legacyReferralIntro:
+    "This referral record was recorded in the previous system. It is kept for reference, is not updated, and is separate from the referrals listed above.",
   // The referrals read failed. Worded so it cannot be read as "this case has no referrals" — the whole point
   // of the degraded state is that the panel is not making a claim about the case. See the docblock.
   referralsUnavailable:
@@ -160,10 +191,10 @@ export const GET = async (req: Request, res: Response) => {
   const emails = emailsRead.status === "fulfilled" ? emailsRead.value : null;
   const { isAdmin } = userFromRequest(req);
 
-  const presentation = buildPresentation(
-    { type: found.type, privacy: found.privacy, referToMasterChoice: found.referToMasterChoice, state: found.state },
-    { isAdmin, isNew: false }
-  );
+  // No `referToMasterChoice`: it used to decide whether the retired referral tab was shown, and that tab is
+  // gone from `FORM_TABS` — see `form-presentation.ts`. The record's own values now decide whether the
+  // read-only snapshot renders, which is the right test for history.
+  const presentation = buildPresentation({ type: found.type, privacy: found.privacy, state: found.state }, { isAdmin, isNew: false });
 
   // A second call rather than a value carried on the case: the rules depend on the type, the migrated
   // flag and the Gazette choice, and api answers that question rather than being asked for a case.
@@ -190,6 +221,10 @@ export const GET = async (req: Request, res: Response) => {
     referrals: referrals ? buildReferralsView(referrals) : unavailableReferralsView(),
     emails: emails ? buildEmailsView(emails) : unavailableEmailsView(),
     emailBanner: emailBanner(req, emails),
+    // Off the case, so it is unaffected by the referrals read and renders on a degraded panel too: the two are
+    // different records, and a failed call to api's referral endpoint says nothing about the retired fields the
+    // case itself carries. `null` when the case holds none of them, and the panel then shows no section.
+    legacyReferral: buildLegacyReferralView(found as unknown as Record<string, unknown>),
     // Data rather than a label in `en`, as every other interpolated string on this page is: it carries
     // the case's count and api's threshold. The threshold is api's — enrolment-requirement.ts.
     witnessCount: witnessCountText(found.witnesses.length),

@@ -1,10 +1,12 @@
-import { REFERRAL_REASON, type Referral, URGENCY } from "@hmcts/deed-poll-api-client";
+import { REFERRAL_REASON, REFERRAL_STATE, type Referral, URGENCY } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
 import {
   buildReferralDetail,
   buildReferralsView,
   REFERRAL_REASON_CHOICES,
   REFERRAL_REASON_LABEL,
+  REFERRAL_STATE_LABEL,
+  REFERRAL_STATE_MEANING,
   REFERRAL_STATE_TAG,
   REFERRAL_URGENCY_CHOICES,
   REFERRAL_URGENCY_LABEL,
@@ -30,6 +32,19 @@ const REFERRAL: Referral = {
   modifiedBy: "A Caseworker",
   createdOn: new Date("2026-05-13T08:44:00Z"),
   modifiedOn: new Date("2026-05-14T08:44:00Z")
+};
+
+/** The same referral once a judge has claimed it and returned a direction. */
+const DECIDED: Referral = {
+  ...REFERRAL,
+  state: "Decided",
+  claimedBy: "A Judge",
+  claimedAt: new Date("2026-05-15T08:44:00Z"),
+  decision: "Approved",
+  directionsText: "Enrol the deed once the fee is paid.",
+  publishToGazette: true,
+  decisionDate: new Date("2026-05-16T08:44:00Z"),
+  decidedBy: "A Judge"
 };
 
 describe("referrals/referrals-view", () => {
@@ -65,6 +80,25 @@ describe("referrals/referrals-view", () => {
     it("should give both terminal states the same grey tag, so what is over looks over", () => {
       expect(REFERRAL_STATE_TAG.Closed).toBe("govuk-tag--grey");
       expect(REFERRAL_STATE_TAG.Withdrawn).toBe("govuk-tag--grey");
+    });
+
+    it("should label and explain every state api publishes, so no member reaches a page as a raw member", () => {
+      for (const state of REFERRAL_STATE) {
+        expect(REFERRAL_STATE_LABEL[state]).toBeTruthy();
+        expect(REFERRAL_STATE_MEANING[state]).toBeTruthy();
+      }
+      // The four states whose api member describes its own machine rather than the caseworker's position.
+      // `Withdrawn` is left out because the business word and api's member are the same word.
+      for (const state of ["Open", "Claimed", "Decided", "Closed"] as const) {
+        expect(REFERRAL_STATE_LABEL[state]).not.toBe(state);
+      }
+    });
+
+    it("should explain Decided as a direction needing action rather than as a finished referral", () => {
+      // The finding that started referrals-admin-4: "Decided" told a caseworker something had happened and
+      // nothing about whose turn it was.
+      expect(REFERRAL_STATE_MEANING.Decided).toBe("Direction received — action needed");
+      expect(REFERRAL_STATE_MEANING.Closed).toBe("Direction actioned");
     });
   });
 
@@ -120,25 +154,131 @@ describe("referrals/referrals-view", () => {
     });
 
     it.each([
-      { state: "Open" as const, terminal: false },
-      { state: "Claimed" as const, terminal: false },
-      { state: "Decided" as const, terminal: false },
-      { state: "Closed" as const, terminal: true },
-      { state: "Withdrawn" as const, terminal: true }
-    ])("should mark $state as terminal=$terminal, which is all the state logic this repo keeps", ({ state, terminal }) => {
-      expect(buildReferralDetail({ ...REFERRAL, state }).terminal).toBe(terminal);
+      { state: "Open" as const, live: true, canWithdraw: true, canClose: false },
+      { state: "Claimed" as const, live: true, canWithdraw: true, canClose: false },
+      // The state the single `terminal` flag got wrong in both directions: live, so no second referral may be
+      // raised, and not withdrawable, because the direction has to be actioned and the referral closed.
+      { state: "Decided" as const, live: true, canWithdraw: false, canClose: true },
+      { state: "Closed" as const, live: false, canWithdraw: false, canClose: false },
+      { state: "Withdrawn" as const, live: false, canWithdraw: false, canClose: false }
+    ])("should give $state live=$live, canWithdraw=$canWithdraw and canClose=$canClose", ({ state, live, canWithdraw, canClose }) => {
+      const view = buildReferralDetail({ ...REFERRAL, state });
+
+      expect(view).toMatchObject({ live, canWithdraw, canClose });
     });
 
-    it("should treat an unpublished state as not terminal, so api gets the final word on a withdraw", () => {
+    it("should offer neither action on a state api did not publish, while still counting it as live", () => {
+      // Two different conservative answers to two different questions: withholding the raise costs a reload,
+      // while a warning button on a referral nobody can describe invites a write that may be the wrong one.
       const view = buildReferralDetail({ ...REFERRAL, state: null });
 
-      expect(view.terminal).toBe(false);
+      expect(view.live).toBe(true);
+      expect(view.canWithdraw).toBe(false);
+      expect(view.canClose).toBe(false);
       expect(view.state).toBe("Not recorded");
+      expect(view.stateMeaning).toBeNull();
       expect(view.stateTagClasses).toBe("govuk-tag--grey");
+    });
+
+    it("should render the status as the caseworker's label and its meaning, not api's member", () => {
+      expect(buildReferralDetail({ ...REFERRAL, state: "Decided" })).toMatchObject({
+        state: "Direction received",
+        stateMeaning: "Direction received — action needed"
+      });
     });
 
     it("should tag the state so the lifecycle is scannable", () => {
       expect(buildReferralDetail(REFERRAL).stateTagClasses).toBe("govuk-tag--blue");
+    });
+
+    it("should carry no claim and no direction on a referral nobody has picked up", () => {
+      const view = buildReferralDetail(REFERRAL);
+
+      expect(view.claim).toBeNull();
+      expect(view.direction).toBeNull();
+    });
+
+    it("should format the claim once a judge holds the referral, so the lifecycle section can say who", () => {
+      const view = buildReferralDetail({ ...REFERRAL, state: "Claimed", claimedBy: "A Judge", claimedAt: new Date("2026-05-15T08:44:00Z") });
+
+      expect(view.claim).toEqual({ claimedBy: "A Judge", claimedOn: "15 May 2026 at 9:44am" });
+      // Still no direction: being claimed is not being answered.
+      expect(view.direction).toBeNull();
+    });
+
+    it("should keep the claim readable after the referral is closed, since that is where who dealt with it is asked", () => {
+      const view = buildReferralDetail({ ...DECIDED, state: "Closed", modifiedBy: "A Caseworker" });
+
+      expect(view.claim).toMatchObject({ claimedBy: "A Judge" });
+    });
+
+    it("should render every field of a returned direction, in the business's words", () => {
+      const view = buildReferralDetail(DECIDED);
+
+      expect(view.direction).toEqual({
+        decision: "Approved",
+        directionsText: "Enrol the deed once the fee is paid.",
+        publishToGazette: true,
+        decidedBy: "A Judge",
+        decidedOn: "16 May 2026 at 9:44am"
+      });
+    });
+
+    it("should keep the direction exactly as the judge recorded it once the referral is closed", () => {
+      // Closing records that the office carried the direction out, not that it was undone.
+      const view = buildReferralDetail({ ...DECIDED, state: "Closed", modifiedBy: "A Caseworker" });
+
+      expect(view.direction).toMatchObject({ decision: "Approved", decidedBy: "A Judge", publishToGazette: true });
+    });
+
+    it("should name the deciding judge and never the last modifier, which closure changes", () => {
+      // The trap decision 4 names: after a closure `modifiedBy` is the caseworker, so reading the direction's
+      // author off it would credit the judge's decision to whoever actioned it.
+      const view = buildReferralDetail({ ...DECIDED, state: "Closed", modifiedBy: "A Caseworker", decidedBy: "A Judge" });
+
+      expect(view.direction?.decidedBy).toBe("A Judge");
+      expect(view.modifiedBy).toBe("A Caseworker");
+    });
+
+    it("should say directions were not provided rather than hiding a direction that has none", () => {
+      // A judge may approve with nothing further to direct. "No directions provided" and "no direction yet"
+      // are opposite claims, so the section is present and only the one row is a placeholder.
+      const view = buildReferralDetail({ ...DECIDED, directionsText: null });
+
+      expect(view.direction).toMatchObject({ decision: "Approved", directionsText: "Not provided" });
+    });
+
+    it("should leave an unanswered Gazette question null rather than turning it into No", () => {
+      const view = buildReferralDetail({ ...DECIDED, publishToGazette: null });
+
+      expect(view.direction?.publishToGazette).toBeNull();
+    });
+
+    it("should carry an explicit No on the Gazette question as false, distinct from unanswered", () => {
+      const view = buildReferralDetail({ ...DECIDED, publishToGazette: false });
+
+      expect(view.direction?.publishToGazette).toBe(false);
+    });
+
+    it("should still render the direction section when the state says there is one but the fields did not arrive", () => {
+      // The one thing certainly false on a Decided referral is "no direction yet", so the section stays and
+      // says which fields are missing.
+      const view = buildReferralDetail({ ...REFERRAL, state: "Decided" });
+
+      expect(view.direction).toEqual({
+        decision: "Not recorded",
+        directionsText: "Not provided",
+        publishToGazette: null,
+        decidedBy: "Not recorded",
+        decidedOn: "Not recorded"
+      });
+    });
+
+    it("should render a direction api recorded even on a state that does not imply one", () => {
+      // `decision` is the more specific answer of the two, and the fields are what api actually sent.
+      const view = buildReferralDetail({ ...DECIDED, state: "Open" });
+
+      expect(view.direction).toMatchObject({ decision: "Approved" });
     });
 
     it("should render the urgency as its label and say when none was published", () => {
@@ -155,13 +295,21 @@ describe("referrals/referrals-view", () => {
       expect(view.rows).toEqual([buildReferralDetail(REFERRAL)]);
       // Named values as well as the shape, so this cannot pass by both sides changing together: a row the tab
       // renders is already display text, not the wire's members.
-      expect(view.rows[0]).toMatchObject({ id: "ref-1", state: "Open", reasons: ["Applicant is a minor", "Other"], urgency: "Urgent", terminal: false });
+      expect(view.rows[0]).toMatchObject({
+        id: "ref-1",
+        state: "Awaiting a judge",
+        reasons: ["Applicant is a minor", "Other"],
+        urgency: "Urgent",
+        canWithdraw: true,
+        canClose: false
+      });
     });
 
-    it("should count a referral whose state api did not publish as open, so no second one is offered", () => {
-      // The conservative answer in both directions: `terminal: false` offers the withdraw and withholds the
-      // raise, so api refuses whichever of the two is wrong instead of this app guessing.
-      expect(buildReferralsView([{ ...REFERRAL, state: null }]).anyOpen).toBe(true);
+    it("should count a referral whose state api did not publish as live, so no second one is offered", () => {
+      const view = buildReferralsView([{ ...REFERRAL, state: null }]);
+
+      expect(view.liveReferral).toEqual({ id: "ref-1", state: "Not recorded", message: "stateUnknown" });
+      expect(view.offerRaise).toBe(false);
     });
 
     it("should keep api's order rather than re-sorting, since listReferrals answers newest first", () => {
@@ -175,14 +323,36 @@ describe("referrals/referrals-view", () => {
     it("should report a case with no referrals as an empty tab rather than failing", () => {
       const view = buildReferralsView([]);
 
-      expect(view).toEqual({ rows: [], count: 0, anyOpen: false, unavailable: false, offerRaise: true });
+      expect(view).toEqual({ rows: [], count: 0, liveReferral: null, unavailable: false, offerRaise: true });
     });
 
-    it.each(["Open", "Claimed", "Decided"] as const)("should count a %s referral as open, so no second one is offered", (state) => {
+    it.each(["Open", "Claimed", "Decided"] as const)("should count a %s referral as live, so no second one is offered", (state) => {
       const view = buildReferralsView([{ ...REFERRAL, state }]);
 
-      expect(view.anyOpen).toBe(true);
+      expect(view.liveReferral?.id).toBe("ref-1");
       expect(view.offerRaise).toBe(false);
+    });
+
+    it.each([
+      { state: "Open" as const, message: "withJudiciary" },
+      { state: "Claimed" as const, message: "withJudiciary" },
+      // The message the old `anyOpen` could not tell apart, and the whole reason this replaced it: a tab that
+      // told a caseworker to withdraw the referral they were being asked to action.
+      { state: "Decided" as const, message: "directionReceived" }
+    ])("should ask the page for the $message message while a $state referral is live", ({ state, message }) => {
+      expect(buildReferralsView([{ ...REFERRAL, state }]).liveReferral).toEqual({
+        id: "ref-1",
+        state: REFERRAL_STATE_LABEL[state],
+        message
+      });
+    });
+
+    it("should name a message key rather than a sentence, so the words stay in the page's en and cy", () => {
+      // A library answering English here would be the one string Welsh could not reach.
+      const view = buildReferralsView([{ ...REFERRAL, state: "Decided" }]);
+
+      expect(view.liveReferral?.message).toBe("directionReceived");
+      expect(view.liveReferral?.message).not.toContain(" ");
     });
 
     // A read that succeeded is a claim about the case, however it turned out — which is the distinction
@@ -192,20 +362,31 @@ describe("referrals/referrals-view", () => {
       expect(buildReferralsView([REFERRAL]).unavailable).toBe(false);
     });
 
-    it("should report no open referral when every one of them is closed or withdrawn", () => {
+    it("should report no live referral when every one of them is closed or withdrawn", () => {
       const view = buildReferralsView([
         { ...REFERRAL, id: "ref-2", state: "Withdrawn" },
         { ...REFERRAL, id: "ref-1", state: "Closed" }
       ]);
 
-      expect(view.anyOpen).toBe(false);
+      expect(view.liveReferral).toBeNull();
+      expect(view.offerRaise).toBe(true);
       expect(view.count).toBe(2);
     });
 
-    it("should report an open referral from a history that also holds closed ones", () => {
+    it("should offer another referral once a returned direction has been actioned and the referral closed", () => {
+      // The end of the journey this plan completes: closing is what lets the case be referred again.
+      const view = buildReferralsView([{ ...DECIDED, state: "Closed" }]);
+
+      expect(view.liveReferral).toBeNull();
+      expect(view.offerRaise).toBe(true);
+      // And the direction is still on the row, so the history says what was directed.
+      expect(view.rows[0].direction).toMatchObject({ decision: "Approved" });
+    });
+
+    it("should find the live referral in a history that also holds closed ones", () => {
       const view = buildReferralsView([REFERRAL, { ...REFERRAL, id: "ref-0", state: "Withdrawn" }]);
 
-      expect(view.anyOpen).toBe(true);
+      expect(view.liveReferral?.id).toBe("ref-1");
       expect(view.offerRaise).toBe(false);
     });
   });

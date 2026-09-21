@@ -8,6 +8,10 @@
  * the emails panel, that nothing a caseworker reads there can be mistaken for proof the applicant received the
  * email.
  *
+ * Since `referrals-admin-4` it also covers the retired "Referral to Master" record, which the panel renders
+ * read-only below the live history: whether a section appears at all is a rendering decision the view model can
+ * only half express, and the two orderings — history above, history below — look identical in a model.
+ *
  * Only those two tabs are covered — the other three panels predate this file and are asserted through their
  * view models. Rendering the whole template is how the panel is reached, not the subject.
  */
@@ -114,9 +118,11 @@ const FAILED_EMAIL = {
   createdOn: new Date("2026-02-27T14:20:00Z")
 };
 
-const html = (model: Record<string, unknown>): string => environment.render("deed-polls/detail.njk", { ...model, ...(model.en as object) });
+/** Content pair first, the handler's own values over it — `renderInterceptorMiddleware`'s order. See `referral-detail.njk.test.ts`. */
+const html = (model: Record<string, unknown>): string => environment.render("deed-polls/detail.njk", { ...(model.en as object), ...model });
 
-async function page(referrals: Record<string, unknown>[]): Promise<string> {
+async function page(referrals: Record<string, unknown>[], record: Record<string, unknown> = found): Promise<string> {
+  vi.mocked(findDeedPoll).mockResolvedValue(record as never);
   vi.mocked(findReferrals).mockResolvedValue(referrals as never);
   const res = pageResponse();
 
@@ -136,14 +142,25 @@ async function emailsPage(emails: Record<string, unknown>): Promise<string> {
   return html(res.render.mock.calls[0][1]);
 }
 
+/** A case whose referral history is in the retired fields, as a migrated one may be. */
+const LEGACY_RECORD = {
+  ...found,
+  referToMasterChoice: "Yes",
+  masterName: "Master Smith",
+  masterDirections: "Enrol once the declarant's consent is filed.",
+  masterDecision: "Approved",
+  publishToLondonGazette: false
+};
+
 /**
  * The page with the referrals read failing, which the handler degrades to a panel rather than a 404.
  *
  * The `console.error` is the handler's own log line for the degradation, silenced so the suite output stays
  * readable — asserted in `[id].test.ts`, which owns the handler's side of this.
  */
-async function unavailablePage(): Promise<string> {
+async function unavailablePage(record: Record<string, unknown> = found): Promise<string> {
   const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.mocked(findDeedPoll).mockResolvedValue(record as never);
   vi.mocked(findReferrals).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): nope"));
   const res = pageResponse();
 
@@ -187,6 +204,19 @@ function panelFor(rendered: string, id: string): string {
   return rendered.slice(start, next === -1 ? undefined : next);
 }
 
+/**
+ * The referrals panel, which is `panelFor(rendered, "referrals")`.
+ *
+ * Both names exist because the two branches generalised the same one-tab helper in different directions and met
+ * here: `referrals-admin-4` kept it referrals-specific, `notify-2` needed a second tab and took an `id`. Kept as
+ * a wrapper rather than resolved either way — rewriting seven referral tests to pass a literal would be churn in
+ * somebody else's work to no end, and dropping the general form would leave the emails tests with no way to
+ * scope an assertion. Prefer `panelFor` in anything new.
+ */
+function referralsPanel(rendered: string): string {
+  return panelFor(rendered, "referrals");
+}
+
 describe("case detail template — the referrals tab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -200,6 +230,16 @@ describe("case detail template — the referrals tab", () => {
 
     expect(rendered).toContain('href="#referrals"');
     expect(rendered).toContain("Referrals");
+  });
+
+  it("should offer one referral tab, even on a case whose retired fields are populated", async () => {
+    // Two tabs whose ids differed by an "s" is what decision 1 removes. Asserted on the rendered tab strip
+    // because that is where a caseworker met both — and on a case that would have shown the retired one, since
+    // its old visibility rule keyed on `referToMasterChoice`.
+    const rendered = await page([], LEGACY_RECORD);
+
+    expect(rendered).not.toContain('href="#referral"');
+    expect(rendered).not.toContain("Referral to Master");
   });
 
   it("should list a referral with its state tagged and its reasons in the business's words", async () => {
@@ -241,11 +281,31 @@ describe("case detail template — the referrals tab", () => {
     expect(rendered).toContain('href="/deed-polls/case-1/referrals/new"');
   });
 
-  it.each(["Open", "Claimed", "Decided"] as const)("should withhold the raise button while a %s referral is with the judiciary, and say why", async (state) => {
+  it.each(["Open", "Claimed"] as const)("should withhold the raise button while a %s referral is with the judiciary, and say why", async (state) => {
     const rendered = await page([{ ...REFERRAL, state }]);
 
     expect(rendered).not.toContain('href="/deed-polls/case-1/referrals/new"');
     expect(rendered).toContain("Withdraw the open referral before raising another.");
+  });
+
+  it("should tell a caseworker with a returned direction to action it, never to withdraw it", async () => {
+    // The parametrised case above used to cover Decided too, which is how the tab came to ask for a withdrawal
+    // api refuses — of the one referral whose direction is the caseworker's work to carry out.
+    const rendered = await page([{ ...REFERRAL, state: "Decided" }]);
+
+    expect(rendered).not.toContain('href="/deed-polls/case-1/referrals/new"');
+    expect(rendered).toContain("mark the referral as actioned before raising another");
+    expect(rendered).not.toContain("Withdraw the open referral");
+  });
+
+  it("should say a referral is live but unreadable rather than borrowing the failed-read message", async () => {
+    // Two different claims: nothing was read at all, versus a referral was read whose state this app cannot
+    // name. Only the second still knows there is one.
+    const rendered = await page([{ ...REFERRAL, state: null }]);
+
+    expect(rendered).not.toContain('href="/deed-polls/case-1/referrals/new"');
+    expect(rendered).toContain("whose status could not be read");
+    expect(rendered).not.toContain("Referral information could not be loaded");
   });
 
   it("should say a migrated referral came from the previous system rather than showing an empty reasons cell", async () => {
@@ -262,6 +322,67 @@ describe("case detail template — the referrals tab", () => {
     // The row is still listed and still links to the referral — an empty reasons cell is not a reason to hide
     // a referral the case has.
     expect(rendered).toContain('href="/deed-polls/case-1/referrals/ref-1"');
+  });
+
+  describe("the retired referral record", () => {
+    it("should render the populated retired fields under their own heading, below the live history", async () => {
+      // Decision 2: one tab owns both, and the historical record is clearly separated rather than mixed into
+      // the list of referrals api holds.
+      const panel = referralsPanel(await page([REFERRAL], LEGACY_RECORD));
+
+      expect(panel).toContain("Previous system referral information");
+      expect(panel).toContain("Master Smith");
+      expect(panel).toContain("Enrol once the declarant&#39;s consent is filed.");
+      expect(panel.indexOf("Previous system referral information")).toBeGreaterThan(panel.indexOf("13 May 2026"));
+    });
+
+    it("should say the record came from the previous system and is not updated", async () => {
+      const panel = referralsPanel(await page([], LEGACY_RECORD));
+
+      expect(panel).toContain("recorded in the previous system");
+      expect(panel).toContain("is not updated");
+    });
+
+    it("should render only the fields the case holds, not a column of placeholders against ten retired ones", async () => {
+      const panel = referralsPanel(await page([], LEGACY_RECORD));
+
+      expect(panel).toContain("Master name");
+      // Never referred under the old system either, so these were never answered — and ten "Not provided" rows
+      // would claim a referral history the case does not have.
+      expect(panel).not.toContain("Date ready for Master");
+      expect(panel).not.toContain("Referral notes");
+    });
+
+    it("should keep an explicit No on the Gazette question, which is an answer somebody recorded", async () => {
+      const panel = referralsPanel(await page([], LEGACY_RECORD));
+
+      expect(panel).toContain("Publish to London Gazette");
+      expect(panel).toContain("No");
+    });
+
+    it("should render no section at all for a case that holds none of the retired fields", async () => {
+      const panel = referralsPanel(await page([REFERRAL]));
+
+      expect(panel).not.toContain("Previous system referral information");
+    });
+
+    it("should still render the snapshot when the referrals read failed, the two being different records", async () => {
+      // The reason it sits outside the panel's three-state branch: a failed call to api's referral endpoint says
+      // nothing about the retired fields on the case, and hiding the history behind it would lose a migrated
+      // case's whole referral record to an unrelated outage.
+      const panel = referralsPanel(await unavailablePage(LEGACY_RECORD));
+
+      expect(panel).toContain("Referral information could not be loaded");
+      expect(panel).toContain("Previous system referral information");
+      expect(panel).toContain("Master Smith");
+    });
+
+    it("should offer no way to edit it, the tab it was edited on having been retired", async () => {
+      const panel = referralsPanel(await page([], LEGACY_RECORD));
+
+      expect(panel).not.toContain("/edit/referral");
+      expect(panel).not.toContain("Change");
+    });
   });
 
   describe("when the referrals read failed", () => {

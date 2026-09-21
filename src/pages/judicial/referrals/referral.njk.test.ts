@@ -72,7 +72,7 @@ const render = async (referral: JudicialReferralDetail, query: Record<string, un
   await GET(pageRequest({ params: { referralId: "ref-1" }, query, judicial: true, accessToken: "judge-token" }), res);
   const model = res.render.mock.calls[0][1];
 
-  return environment.render("judicial/referrals/referral.njk", { ...model, ...model.en });
+  return environment.render("judicial/referrals/referral.njk", { ...model.en, ...model });
 };
 
 /**

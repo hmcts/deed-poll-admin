@@ -19,7 +19,7 @@
 import { REFERRAL_REASON, type Referral, type ReferralReason, type ReferralState, URGENCY, type Urgency } from "@hmcts/deed-poll-api-client";
 import { formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
 import { NOT_PROVIDED } from "../deed-poll/detail-view.js";
-import { TERMINAL_REFERRAL_STATES } from "../deed-poll/enums/dynamics-values.js";
+import { MASTER_DECISION_LABEL, TERMINAL_REFERRAL_STATES } from "../deed-poll/enums/dynamics-values.js";
 
 /** Why a case is referred, in the words the business uses for each of api's members. */
 export const REFERRAL_REASON_LABEL: Record<ReferralReason, string> = {
@@ -35,6 +35,45 @@ export const REFERRAL_REASON_LABEL: Record<ReferralReason, string> = {
 export const REFERRAL_URGENCY_LABEL: Record<Urgency, string> = {
   Normal: "Standard",
   Urgent: "Urgent"
+};
+
+/**
+ * What a caseworker reads where api publishes a state — the "Referral status" on the table and the detail page.
+ *
+ * **The raw member is not shown any more.** api's words describe its own state machine ("Decided", "Closed"),
+ * and a caseworker reading "Decided" learns that something happened rather than that there is a direction
+ * waiting for them to carry out. `referrals-admin-4` decision 3: the referral's status is the caseworker's
+ * question, api's enum is the wire.
+ *
+ * Keyed by `ReferralState` so a member added at api's end is a type error here rather than a blank cell, like
+ * every other map in this file. See `REFERRAL_STATE_MEANING` for the sentence that goes with each label.
+ */
+export const REFERRAL_STATE_LABEL: Record<ReferralState, string> = {
+  Open: "Awaiting a judge",
+  Claimed: "With a judge",
+  Decided: "Direction received",
+  Closed: "Direction actioned",
+  Withdrawn: "Withdrawn"
+};
+
+/**
+ * What each status means for the case in front of the caseworker, shown beside the label.
+ *
+ * The labels above are short enough for a tag; these say what to do about one. `Decided` is the reason the map
+ * exists — "Direction received — action needed" is the whole point of the state, and the referral is neither
+ * finished nor still with the judiciary — but every state gets one, so the page never has a sentence for some
+ * rows and nothing for others.
+ *
+ * **Not the application's status.** A direction does not decide whether the case next awaits forms, enrolment
+ * or a return; the caseworker makes those updates and then marks the referral actioned (decision 3). Nothing
+ * here is derived from or writes to `DeedPollState`.
+ */
+export const REFERRAL_STATE_MEANING: Record<ReferralState, string> = {
+  Open: "Waiting for a judge to claim",
+  Claimed: "Being considered by the judiciary",
+  Decided: "Direction received — action needed",
+  Closed: "Direction actioned",
+  Withdrawn: "Withdrawn before a direction"
 };
 
 /**
@@ -73,14 +112,31 @@ export const REFERRAL_URGENCY_CHOICES: { value: Urgency; text: string }[] = URGE
  *
  * A migrated referral has an empty `reasons` array — the source store had no such field — so `migrated` is
  * carried for the page to say so instead of rendering a blank cell that reads as a bug.
+ *
+ * **`canWithdraw` and `canClose` are the two capabilities, and neither is "not terminal".** api answers 409
+ * for a withdrawal of anything but `Open`/`Claimed` and for a closure of anything but `Decided`, so these
+ * withhold the two controls a caseworker can see are pointless before the click and nothing more — api is
+ * still the authority and may refuse a stale page. `Decided` is where the old single `terminal` flag was
+ * wrong in both directions: it is not terminal, so a raise is still refused, and it is not withdrawable
+ * either, so the withdraw button had no business being on it.
+ *
+ * **An unknown state offers neither**, which reverses the earlier rule that offered the withdraw and let api
+ * decide. That argument rested on "not terminal" being evidence of withdrawability, which `Decided` disproved:
+ * a state this app cannot read is now as likely to be one that must be closed as one that may be taken back,
+ * and a warning button on a referral nobody can describe is worse than a caseworker having to reload.
  */
 export function buildReferralDetail(referral: Referral): ReferralView {
+  const state = referral.state ?? null;
+
   return {
     id: referral.id,
-    // Already display words ("Open", "Withdrawn"), so no label map: one would be five identity entries to
-    // maintain. Absent means api did not publish one, which is a claim about the read rather than the data.
-    state: referral.state ?? NOT_RECORDED,
-    stateTagClasses: referral.state ? REFERRAL_STATE_TAG[referral.state] : "govuk-tag--grey",
+    // The caseworker's words, not api's member — see `REFERRAL_STATE_LABEL`. Absent means api published no
+    // state, which is a claim about the read rather than about the referral.
+    state: state ? REFERRAL_STATE_LABEL[state] : NOT_RECORDED,
+    // Null rather than a placeholder sentence: there is nothing true to say about a state this app cannot
+    // read, and the page leaves the line out instead of explaining an unknown.
+    stateMeaning: state ? REFERRAL_STATE_MEANING[state] : null,
+    stateTagClasses: state ? REFERRAL_STATE_TAG[state] : "govuk-tag--grey",
     reasons: referral.reasons.map(referralReasonLabel),
     migrated: referral.migrated,
     notes: orPlaceholder(referral.notes, NOT_PROVIDED),
@@ -90,11 +146,11 @@ export function buildReferralDetail(referral: Referral): ReferralView {
     createdOn: formatTimestamp(referral.createdOn),
     modifiedBy: orPlaceholder(referral.modifiedBy, NOT_RECORDED),
     modifiedOn: formatTimestamp(referral.modifiedOn),
-    // A withdraw of a terminal referral is api's 409, which the page renders as a message; the button is
-    // hidden rather than offered-and-refused only on the one path a caseworker can see is pointless before
-    // the click. Unknown counts as not terminal, so the control is offered and api gets the final word — the
-    // alternative hides a withdraw a caseworker is entitled to because a field did not arrive.
-    terminal: referral.state !== null && referral.state !== undefined && TERMINAL_REFERRAL_STATES.includes(referral.state)
+    live: isLive(state),
+    canWithdraw: state === "Open" || state === "Claimed",
+    canClose: state === "Decided",
+    claim: buildClaimView(referral),
+    direction: buildDirectionView(referral)
   };
 }
 
@@ -106,19 +162,34 @@ export function buildReferralDetail(referral: Referral): ReferralView {
  * a second sort here would be this repo deciding something api has already decided — the mistake
  * `../notes/notes-view.ts` documents itself as *not* making only because its callers disagree on order.
  *
- * **`anyOpen` is `terminal` asked of the list, and nothing more.** A case holds at most one live referral and
- * api answers 409 for the second. It is not a claim about what else may happen to those referrals: who may
- * claim one, and whether a withdraw is allowed, stay api's (decision 10).
+ * **`liveReferral` replaces the old `anyOpen`, which named only one of the three live states.** A case holds at
+ * most one referral that is not terminal — api answers 409 for the second — and that one may be `Open`,
+ * `Claimed` or `Decided`. The old name read as "one is waiting to be claimed", which made the tab tell a
+ * caseworker with a returned direction in front of them to withdraw it before raising another.
  *
- * **`offerRaise` is the one the template reads**, and it is not `not anyOpen`: the button is also withheld
- * when the read failed. Computed here rather than in the template because two booleans in the wrong order
- * offer a control on a panel that knows nothing — see `unavailableReferralsView`.
+ * So `message` says which of the three the tab is looking at, and the page owns the words: a `Decided`
+ * referral needs actioning, not withdrawing. It is a key rather than a sentence because the copy is the
+ * page's `en`/`cy` — a library that answered English here would be the one string Welsh could not reach.
+ *
+ * **`offerRaise` is the one the template reads for the button**, and it is not `not liveReferral`: it is also
+ * withheld when the read failed. Computed here rather than in the template because two booleans in the wrong
+ * order offer a control on a panel that knows nothing — see `unavailableReferralsView`.
  */
 export function buildReferralsView(referrals: Referral[]): ReferralsView {
   const rows = referrals.map(buildReferralDetail);
-  const anyOpen = rows.some((row) => !row.terminal);
+  // The wire records rather than the rows, because the message is keyed on api's state and a row carries the
+  // caseworker's label for it. `find` and not a filter: api allows one, and a second would be its bug to fix.
+  const live = referrals.find((referral) => isLive(referral.state ?? null));
 
-  return { rows, count: rows.length, anyOpen, unavailable: false, offerRaise: !anyOpen };
+  return {
+    rows,
+    count: rows.length,
+    liveReferral: live
+      ? { id: live.id, state: live.state ? REFERRAL_STATE_LABEL[live.state] : NOT_RECORDED, message: liveReferralMessage(live.state ?? null) }
+      : null,
+    unavailable: false,
+    offerRaise: live === undefined
+  };
 }
 
 /**
@@ -135,7 +206,7 @@ export function buildReferralsView(referrals: Referral[]): ReferralsView {
  * same endpoint, so the button would lead to a page that cannot load either.
  */
 export function unavailableReferralsView(): ReferralsView {
-  return { rows: [], count: 0, anyOpen: false, unavailable: true, offerRaise: false };
+  return { rows: [], count: 0, liveReferral: null, unavailable: true, offerRaise: false };
 }
 
 /**
@@ -155,6 +226,82 @@ export function referralReasonLabel(reason: string): string {
 }
 
 /**
+ * Is this the case's live referral — the one that stops a second being raised?
+ *
+ * **api's `isTerminal()` negated, and deliberately not its `canBeWithdrawn()`.** The two predicates answer
+ * different questions and `Decided` is where they part: it is live, so the case may raise no second referral
+ * and still counts as returned for action, and it is not withdrawable, because the direction on it has to be
+ * carried out and the referral closed. Collapsing the pair into one flag is how the referrals tab came to
+ * offer a withdraw on a returned direction.
+ *
+ * An unpublished state counts as live, which is the conservative answer for *this* question: withholding the
+ * raise costs a reload, while offering it invites a create api answers 409 to.
+ */
+function isLive(state: ReferralState | null): boolean {
+  return state === null || !TERMINAL_REFERRAL_STATES.includes(state);
+}
+
+/**
+ * The claim, for the lifecycle section — or null on a referral no judge has picked up.
+ *
+ * Both fields or neither: api sets them together on the claim, so a page that rendered one placeholder beside
+ * one name would be describing a state that cannot happen. `claimedBy` survives the direction and the closure,
+ * so this stays readable on a `Closed` referral, which is where "who dealt with this" is asked.
+ */
+function buildClaimView(referral: Referral): ReferralClaimView | null {
+  if (referral.claimedBy === null || referral.claimedBy === undefined) return null;
+
+  return { claimedBy: orPlaceholder(referral.claimedBy, NOT_RECORDED), claimedOn: formatTimestamp(referral.claimedAt) };
+}
+
+/**
+ * The direction a judge returned, or null on a referral that has none.
+ *
+ * **Present when api recorded a decision, or when the state says there must be one.** `decision` is the more
+ * specific answer and the two normally agree; the state is also consulted so a `Decided` or `Closed` referral
+ * whose decision did not arrive says which fields are missing rather than hiding the whole section, which on
+ * this page would read as "no direction yet" — the one thing that is certainly false.
+ *
+ * **`directionsText` absent is not the same as no direction.** A judge may approve with no further directions,
+ * so this renders the ordinary "not provided" placeholder inside a section that is there; a referral with no
+ * direction at all has no section. The two states say different things and must look different.
+ *
+ * **`publishToGazette` stays a boolean**, as `../judicial/view.ts` keeps it: null means the judge did not
+ * answer, and turning that into "No" would record a decision nobody made. The two words belong to the page's
+ * `en`/`cy`, not to a library.
+ *
+ * **`decidedBy` and never `modifiedBy`.** Closing the referral changes the modifier to the caseworker who
+ * actioned it, while `decidedBy` stays the judicial author — reading the direction's author off `modifiedBy`
+ * would credit the direction to the caseworker the moment they marked it actioned.
+ */
+function buildDirectionView(referral: Referral): ReferralDirectionView | null {
+  const recorded = referral.decision !== null && referral.decision !== undefined;
+  if (!recorded && referral.state !== "Decided" && referral.state !== "Closed") return null;
+
+  return {
+    decision: referral.decision ? MASTER_DECISION_LABEL[referral.decision] : NOT_RECORDED,
+    directionsText: orPlaceholder(referral.directionsText, NOT_PROVIDED),
+    publishToGazette: referral.publishToGazette ?? null,
+    decidedBy: orPlaceholder(referral.decidedBy, NOT_RECORDED),
+    decidedOn: formatTimestamp(referral.decisionDate)
+  };
+}
+
+/**
+ * Which message the referrals tab shows in place of the raise button, given the live referral's state.
+ *
+ * A key and not a sentence, so the page's `en`/`cy` owns the copy. Three cases because there are three things
+ * to say: one is with the judiciary and will come back, one has come back and needs actioning, and one is in a
+ * state this app cannot read — which is not the same as the read having failed (`unavailableReferralsView`)
+ * and so cannot borrow that message.
+ */
+function liveReferralMessage(state: ReferralState | null): LiveReferralMessage {
+  if (state === "Decided") return "directionReceived";
+
+  return state === null ? "stateUnknown" : "withJudiciary";
+}
+
+/**
  * A stored free-text value, or the placeholder for one that was never filled in.
  *
  * Trimmed first, so a value that is only whitespace reads as absent rather than as a blank cell. The
@@ -170,7 +317,10 @@ function orPlaceholder(raw: string | null | undefined, placeholder: string): str
 /** One referral, every cell already a display string. */
 export interface ReferralView {
   id: string;
+  /** The caseworker's label for api's state — "Direction received", not "Decided". `REFERRAL_STATE_LABEL`. */
   state: string;
+  /** What that status means for this case, or null when api published no state. `REFERRAL_STATE_MEANING`. */
+  stateMeaning: string | null;
   stateTagClasses: string;
   reasons: string[];
   /** Backfilled from the power app, so it carries no reasons and the page says why. */
@@ -182,8 +332,34 @@ export interface ReferralView {
   createdOn: string;
   modifiedBy: string;
   modifiedOn: string;
-  /** Closed or withdrawn, so there is nothing left to withdraw. See `TERMINAL_REFERRAL_STATES`. */
-  terminal: boolean;
+  /**
+   * The case's live referral — not closed or withdrawn — so no second one may be raised beside it. api's
+   * `isTerminal()` negated, and **not** the same question as `canWithdraw`: see `isLive`.
+   */
+  live: boolean;
+  /** `Open` or `Claimed`, so a withdrawal is worth offering. api still decides — see `buildReferralDetail`. */
+  canWithdraw: boolean;
+  /** `Decided`, so there is a direction to mark as actioned. */
+  canClose: boolean;
+  /** The judge's claim, or null on a referral nobody has picked up. */
+  claim: ReferralClaimView | null;
+  /** The returned direction, or null on a referral that has none. */
+  direction: ReferralDirectionView | null;
+}
+
+/** Who is holding, or held, the referral. Both fields or neither — see `buildClaimView`. */
+export interface ReferralClaimView {
+  claimedBy: string;
+  claimedOn: string;
+}
+
+/** The direction a judge returned. `publishToGazette` is a boolean — see `buildDirectionView`. */
+export interface ReferralDirectionView {
+  decision: string;
+  directionsText: string;
+  publishToGazette: boolean | null;
+  decidedBy: string;
+  decidedOn: string;
 }
 
 /** A case's referral history, as the detail page's referrals tab renders it. */
@@ -192,13 +368,28 @@ export interface ReferralsView {
   rows: ReferralView[];
   /** Row count, shown as a caption above the list. Meaningless when `unavailable` — nothing was read. */
   count: number;
-  /** True while one referral is still with the judiciary, so no second one can be raised. */
-  anyOpen: boolean;
+  /**
+   * The referral that is still live, or null when the case has none. Replaces the old `anyOpen`, which named
+   * one of the three states it covers — see `buildReferralsView`.
+   */
+  liveReferral: LiveReferral | null;
   /**
    * The read failed, so no field here is a claim about the case. The panel says so rather than rendering
    * an empty list — see `unavailableReferralsView` for why the two cannot share a state.
    */
   unavailable: boolean;
-  /** Whether the panel shows "Raise a referral", the one control it offers. False when open, false when unavailable. */
+  /** Whether the panel shows "Raise a referral". False while one is live, false when unavailable. */
   offerRaise: boolean;
 }
+
+/** The live referral, as the tab's message and link need it. */
+export interface LiveReferral {
+  id: string;
+  /** Its caseworker-facing status label. */
+  state: string;
+  /** Which message the tab shows in place of the raise button. The words are the page's. */
+  message: LiveReferralMessage;
+}
+
+/** The three things the tab may have to say about a live referral. See `liveReferralMessage`. */
+export type LiveReferralMessage = "withJudiciary" | "directionReceived" | "stateUnknown";

@@ -899,6 +899,53 @@ describe("the referral routes", () => {
     expect((await response.json()).state).toBe("Withdrawn");
   });
 
+  it("should refuse to withdraw a referral a judge has directed, since the direction has to be actioned instead", async () => {
+    // api's `canBeWithdrawn()`, added by referrals-api-4: Decided is non-terminal — the case still has a live
+    // referral and still sits in the returned-for-action queue — and withdrawal is refused all the same.
+    const { caseId, referralId } = await decidedReferral("judge@example.com");
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
+
+    expect(response.status).toBe(409);
+    // The refused withdrawal changed nothing: the direction is still readable and the case still counted.
+    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).state).toBe("Decided");
+    expect(await currentReferralState(caseId)).toBe("Decided");
+  });
+
+  it("should tell a caseworker looking at a direction to action it, not that it was already withdrawn", async () => {
+    // Two messages rather than one "already X", which is api's choice and the reason this is asserted: the
+    // same words for both would tell someone reading a returned direction that they had withdrawn it.
+    const decided = await decidedReferral("judge@example.com");
+    const withdrawn = await referredCase();
+    await post(`/caseworker/cases/${withdrawn.caseId}/referrals/${withdrawn.referralId}/withdrawal`);
+
+    const onDecided = await post(`/caseworker/cases/${decided.caseId}/referrals/${decided.referralId}/withdrawal`);
+    const onWithdrawn = await post(`/caseworker/cases/${withdrawn.caseId}/referrals/${withdrawn.referralId}/withdrawal`);
+
+    expect((await onDecided.json()).error).toContain("must be actioned and the referral closed");
+    expect((await onWithdrawn.json()).error).toContain("already Withdrawn");
+  });
+
+  it("should still hold a Decided referral as the case's live one, so a second cannot be raised beside it", async () => {
+    // The reason `isTerminal` was left alone. Narrowing it so Decided counted as terminal would have made the
+    // withdrawal guard read correctly and quietly allowed a second referral on a case awaiting action.
+    const { caseId } = await decidedReferral("judge@example.com");
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] });
+
+    expect(response.status).toBe(409);
+  });
+
+  it("should allow another referral once the direction has been actioned and the referral closed", async () => {
+    const { caseId, referralId } = await decidedReferral("judge@example.com");
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`);
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] });
+
+    expect(response.status).toBe(201);
+    expect(await currentReferralState(caseId)).toBe("Open");
+  });
+
   it("should refuse a second withdrawal with 409 rather than answering as though the click did something", async () => {
     const { caseId, referralId } = await referredCase();
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);

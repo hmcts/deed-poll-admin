@@ -62,6 +62,14 @@ export function updateNote(deedPollId: string, id: string, dto: UpdateNoteInput,
 - **The local rule matrices stay** — `deed-poll-validation.ts`, `case-state.ts`, `upload-policy.ts`. api
   enforces the same rules; a rule applied at both ends is pinned at both ends, and the conformance
   harness pins these against the Dataverse exports
+- **Case fields are two lists, and picking the wrong one fails silently.** `form-fields.ts` publishes
+  `CASE_FIELD_TABS` — every field the app knows how to format or query — and `FORM_TABS`, that list filtered
+  to the tabs a caseworker navigates and edits. `FIELD_BY_NAME` and `query-fields.ts` read the catalogue;
+  `EDITABLE_FIELDS`, `detail-view.ts` and `edit-view.ts` read the form. That split is what lets a **retired**
+  field (the legacy `referral` tab) still format with its own label and still resolve a saved query while
+  nothing can write to it. Deriving everything from one list is the trap: delete a tab and its fields quietly
+  leave formatting and query metadata too, with no failure anywhere. `form-fields.test.ts` pins each
+  derivation to the right list
 - **Option sets are built, never restated.** `deed-poll/enums/option-sets.ts` turns the client's exported
   member ARRAYS (`DEED_POLL_STATE`, `URGENCY`, …) into `{ Member: "Member" }` objects, so the rules can go on
   reading `DeedPollState.Returned` and a member added at api's end reaches the Dynamics label maps without an
@@ -80,7 +88,7 @@ export function updateNote(deedPollId: string, id: string, dto: UpdateNoteInput,
 | `validation` | `InvalidInputError`, carrying api's field errors | the page handler catches it and re-renders its form with the errors against the fields. Reaching `domainErrorHandler` means a handler did not, which is a bug in that handler |
 | `forbidden` | `ForbiddenError` | 403, on the 404 template — a caseworker learns no more from it than that the case is not theirs. Also raised **locally** by `requireJudicial` for an authenticated non-judge, which is the second reason for the 404 view: it keeps `/judicial/**` non-enumerable, so a caseworker who guesses a judicial URL is not told there is something behind it. `src/errors.ts` logs the message before rendering, because that render is the end of the chain |
 | `unauthorized` | `UnauthorizedError` | **500**, deliberately unmapped. `requireAuth` and `refreshMiddleware` own re-authentication; a redirect to `/login` from an error handler loops when the session is valid and only api rejected the token |
-| `conflict` | `ConflictError` | the page handler's own message, not the 500 page. api answers 409 for a referral raised while one is already open and for a withdraw of one that is already terminal — states two caseworkers can reach between them, so `referrals/new.ts` re-renders at 409 with a link to the open referral and `referrals/[referralId]/withdraw.ts` redirects to the referral view with `?withdraw=conflict`. Reaching `domainErrorHandler` means a handler did not catch it, which is a bug in that handler |
+| `conflict` | `ConflictError` | the page handler's own message, not the 500 page. api answers 409 for a referral raised while the case already has a live one, for a withdraw of anything but `Open`/`Claimed` (**`Decided` is not withdrawable and is not terminal either** — api's `canBeWithdrawn()` is a second predicate beside `isTerminal()`, and narrowing the latter would let a case raise a second referral beside a decided one), and for a closure of anything but `Decided` — states two caseworkers can reach between them. So `referrals/new.ts` re-renders at 409 with a link to the live referral, `referrals/[referralId]/withdraw.ts` redirects to the referral view with `?withdraw=conflict`, and `referrals/[referralId]/close.ts` with `?close=conflict`; the referral page then picks the sentence from the **fresh** read, because each 409 has more than one meaning. Reaching `domainErrorHandler` means a handler did not catch it, which is a bug in that handler |
 | `unavailable`, `timeout`, `invalid-response`, `unknown` | plain `Error` | 500 page, the same as a database outage did before |
 
 Adding an operation: it must exist in `openapi.json` first. Add it to `client.ts`, let `contract.test.ts`

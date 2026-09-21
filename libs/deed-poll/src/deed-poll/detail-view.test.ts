@@ -6,12 +6,8 @@ import { type FieldDef, FORM_TABS } from "./form-fields.js";
 import { build } from "./form-presentation.js";
 
 const rulesFor = (type: DeedPollType | null) => getFieldRules(type);
-const presentationFor = (input: {
-  type?: DeedPollType | null;
-  privacy?: Privacy | null;
-  referToMasterChoice?: ReferToMaster | null;
-  state?: DeedPollState | null;
-}) => build(input, { isAdmin: true, isNew: false });
+const presentationFor = (input: { type?: DeedPollType | null; privacy?: Privacy | null; state?: DeedPollState | null }) =>
+  build(input, { isAdmin: true, isNew: false });
 
 /** Flatten a built tab set to "Tab › Section › Key" = value for easy assertions. */
 const flatten = (tabs: ReturnType<typeof buildDetailTabs>) => {
@@ -152,16 +148,21 @@ describe("buildDetailTabs — per-type field rules", () => {
 });
 
 describe("buildDetailTabs — conditional tabs", () => {
-  it("hides Referral to Master when the choice is No", () => {
-    const tabs = buildDetailTabs(
-      { type: DeedPollType.Adult, referToMasterChoice: ReferToMaster.No },
-      rulesFor(DeedPollType.Adult),
-      presentationFor({
-        type: DeedPollType.Adult,
-        referToMasterChoice: ReferToMaster.No
-      })
-    );
-    expect(tabs.map((t) => t.id)).not.toContain("referral");
+  it("offers one referral tab and never the retired one, whatever the case answered to refer-to-Master", () => {
+    // The retired tab used to be conditional on `referToMasterChoice`; `referrals-admin-4` decision 2 takes it
+    // out of `FORM_TABS` entirely, so no case can produce it and the live `referrals` subgrid is the only
+    // referral surface. Both answers are exercised because the old rule showed the tab for "Yes" and unset —
+    // a case that would have had it is the one worth asserting.
+    for (const referToMasterChoice of [ReferToMaster.Yes, ReferToMaster.No, null]) {
+      const ids = buildDetailTabs(
+        { type: DeedPollType.Adult, referToMasterChoice, masterName: "Master Smith" },
+        rulesFor(DeedPollType.Adult),
+        presentationFor({ type: DeedPollType.Adult })
+      ).map((t) => t.id);
+
+      expect(ids, String(referToMasterChoice)).not.toContain("referral");
+      expect(ids, String(referToMasterChoice)).toContain("referrals");
+    }
   });
 
   it("hides Return when the case is Enroled", () => {
@@ -336,18 +337,7 @@ describe("buildDetailTabs — card columns", () => {
   const keys = (rows: { key: string }[]) => rows.map((r) => r.key);
 
   /** Every tab of a case built to show as many of them as possible. */
-  const allTabs = () =>
-    buildDetailTabs(
-      {
-        type: DeedPollType.Minor,
-        referToMasterChoice: ReferToMaster.Yes
-      },
-      rulesFor(DeedPollType.Minor),
-      presentationFor({
-        type: DeedPollType.Minor,
-        referToMasterChoice: ReferToMaster.Yes
-      })
-    );
+  const allTabs = () => buildDetailTabs({ type: DeedPollType.Minor }, rulesFor(DeedPollType.Minor), presentationFor({ type: DeedPollType.Minor }));
 
   const general = () =>
     buildDetailTabs({ type: DeedPollType.Adult, privacy: Privacy.Normal }, rulesFor(DeedPollType.Adult), presentationFor({ type: DeedPollType.Adult }))
@@ -451,14 +441,8 @@ describe("buildDetailTabs — card columns", () => {
 describe("buildDetailTabs — full-width bands", () => {
   const keys = (rows: { key: string }[]) => rows.map((r) => r.key);
   const sectionOf = (tabId: string) =>
-    buildDetailTabs(
-      { type: DeedPollType.Adult, referToMasterChoice: ReferToMaster.Yes },
-      rulesFor(DeedPollType.Adult),
-      presentationFor({
-        type: DeedPollType.Adult,
-        referToMasterChoice: ReferToMaster.Yes
-      })
-    ).find((t) => t.id === tabId)?.sections[0];
+    buildDetailTabs({ type: DeedPollType.Adult }, rulesFor(DeedPollType.Adult), presentationFor({ type: DeedPollType.Adult })).find((t) => t.id === tabId)
+      ?.sections[0];
 
   /** Band sequence as one comparable shape, so order is asserted, not just membership. */
   const shape = (s?: DetailSection) =>
@@ -471,23 +455,12 @@ describe("buildDetailTabs — full-width bands", () => {
     expect(shape(sectionOf("return"))).toEqual([{ left: ["Date returned", "Days received to returned"], right: [] }, { full: ["Return reason"] }]);
   });
 
-  it("interleaves the two full-width Referral fields in source order", () => {
-    // The section that proves a card must be a SEQUENCE of bands: Referral notes and
-    // Master directions sit between two-column runs, so neither can be hoisted to an
-    // end of the card without reordering the form.
-    expect(shape(sectionOf("referral"))).toEqual([
-      {
-        left: ["Refer to Master", "Date ready for Master", "Date referred"],
-        right: []
-      },
-      { full: ["Referral notes"] },
-      { left: ["Master name"], right: [] },
-      { full: ["Master directions"] },
-      {
-        left: ["Master decision", "Master date of decision", "Date decision/directions received", "Publish to London Gazette"],
-        right: []
-      }
-    ]);
+  it("builds no card for the retired referral tab, whose fields are a summary list rather than a form", () => {
+    // This used to be the section that proved a card is a SEQUENCE of bands: Referral notes and Master
+    // directions sat between two-column runs. Return still proves it above, and the retired fields now render
+    // as one flat list of the values a case actually holds (`../referrals/legacy-referral-view.ts`), so there is
+    // no card here to lay out at all.
+    expect(sectionOf("referral")).toBeUndefined();
   });
 
   it.each([

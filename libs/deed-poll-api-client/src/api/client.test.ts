@@ -722,6 +722,22 @@ describe("referrals", () => {
     expect(result.error.kind).toBe("conflict");
   });
 
+  it("should report conflict when withdrawing a referral a judge has already directed", async () => {
+    // api's `canBeWithdrawn()` and not the negation of `isTerminal()`: a Decided referral is still the case's
+    // live one, so it stays non-terminal, and withdrawal is refused because the direction on it has to be
+    // actioned and the referral closed instead.
+    const { caseId: id, referralId } = await decidedReferral();
+
+    const result = await withdrawReferral(id, referralId, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("conflict");
+    // Still Decided afterwards, so the refusal left the direction where the judge put it.
+    const after = await getReferral(id, referralId, config);
+    expect(after.ok && after.data.state).toBe("Decided");
+  });
+
   it("should close a referral once a judge has directed it, and clear the case's state with it", async () => {
     const { caseId: id, referralId } = await decidedReferral();
 

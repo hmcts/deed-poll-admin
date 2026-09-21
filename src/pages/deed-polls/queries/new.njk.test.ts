@@ -33,7 +33,7 @@ const environment = nunjucks.configure(
 
 const QUERY = { filter: "received", where: ["newSurname:contains:Smith"], sort: "dateReceived:desc" };
 
-const html = (model: Record<string, unknown>): string => environment.render("deed-polls/queries/new.njk", { ...model, ...(model.en as object) });
+const html = (model: Record<string, unknown>): string => environment.render("deed-polls/queries/new.njk", { ...(model.en as object), ...model });
 
 describe("save a query template", () => {
   beforeEach(() => {
