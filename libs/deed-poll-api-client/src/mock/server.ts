@@ -16,7 +16,7 @@
  * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
  * Both, because api's actuator serves both and `checkApiReachable` deliberately probes the liveness group.
  *
- * **Ten of api's rules are restated here, and only ten.** A mock that applied none of them would let a
+ * **Eleven of api's rules are restated here, and only eleven.** A mock that applied none of them would let a
  * page ship having never seen a real reference number or a derived state:
  *
  *   1. Reference-number allocation — the year from Date Received, the prefix from Type, a per-year serial.
@@ -38,9 +38,13 @@
  *  10. The judicial surface's visibility rule and the pool's order — an `Open` referral is every judge's, a
  *      claimed or decided one is only its holder's, and a closed or withdrawn one is nobody's. Urgent
  *      first, then longest-waiting. See `visibleToJudge` and `poolOrder`.
+ *  11. The email rules — what makes a template applicable, what a slot payload may contain, the 422 for a case
+ *      with no applicant email address, and one email per referral. Restated because every one of them is a
+ *      state the Email tab has to render, and the last is the difference between a redundant send being a
+ *      success and being an error. See `emails`, `composeEmail` and `enqueueEmail`.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
- * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `JudicialReferralService` and
+ * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `JudicialReferralService`, `CaseEmailService` and
  * `IdamAuthenticationConverter` — not this file. Everything else api does (the
  * privacy lock, the minor and Gazette write gates, create-time defaults, the saved-query permission rules —
  * see `savedQuery`) is deliberately NOT modelled: no
@@ -56,6 +60,26 @@
  *     api's clock and nothing a page can drive, so a mock of it would be untestable machinery.
  *   - **The case notes api writes when a referral is raised, withdrawn or lapses.** The wording is api's
  *     `ReferralNotes`, and a copy of it here would be a second opinion on text this app only renders.
+ *
+ * **On the email surface this mock stands in for GOV.UK Notify as well as for api**, which none of the other
+ * routes require. Three consequences, all deliberate:
+ *
+ *   - **It renders the preview and the sent body itself** — `renderEmail` — and a send drains immediately to
+ *     `Sent` with that rendering stored, because api drains immediately too. The wording is a stand-in and
+ *     nothing should assert on it: the real template is a content designer's, authored in Notify.
+ *   - **It does NOT escape the caseworker's text into the preview HTML, where Notify does.** That is the awkward
+ *     path made reachable rather than an opinion about Notify: decision 3 of
+ *     `docs/plans/notify-2-caseworker-email-tab.md` renders that HTML in a sandboxed `iframe` precisely because
+ *     it is not this app's to trust, and a mock that escaped would let the tab ship having only ever been given
+ *     safe HTML. Do not read this as evidence that Notify passes markup through.
+ *   - **`provisioned` is true**, because a mock with no Notify service is nevertheless the Notify service here.
+ *     Deployed environments answer false until notify-0 runs, and what a tab does with false is tested by giving
+ *     it both values in the page tests — the arrangement `editable` already has (see `savedQuery`).
+ *
+ * One email rule is restated only in part. V12 of api's schema narrowed the unique index so a **permanently
+ * failed** row no longer blocks a re-send; here any existing row for the referral blocks. Nothing can reach the
+ * difference — decision 10 of the plan forbids a retry control, so there is no second send to make — and
+ * modelling it would mean storing a `failureVerdict` that appears on no response.
  */
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -71,7 +95,18 @@ import type {
   WireWitness
 } from "../api/wire.js";
 import { URGENCY, WIRE_SCHEMAS } from "../api/wire.js";
-import { DEFAULT_SCENARIO, isMockScenario, MOCK_DOCUMENT_TYPES, MOCK_SCENARIOS, MOCK_WRITE_REJECTION, type MockScenario } from "./fixtures.js";
+import {
+  APPLICATION_REJECTED,
+  DEFAULT_SCENARIO,
+  isMockScenario,
+  MOCK_DOCUMENT_TYPES,
+  MOCK_EMAIL_TEMPLATES,
+  MOCK_SCENARIOS,
+  MOCK_WRITE_REJECTION,
+  type MockEmailTemplate,
+  type MockNotification,
+  type MockScenario
+} from "./fixtures.js";
 
 /** Five digits, zero-padded, as api's `ReferenceNumbers` formats it. */
 const REFERENCE_SERIAL_DIGITS = 5;
@@ -262,8 +297,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     }
 
     // The trailing group is an ACTION on the child rather than a second child id — `/file` on a document,
-    // `/withdrawal` and `/closure` on a referral — which is why the three share one group.
-    const scoped = /^\/caseworker\/cases\/([^/]+)(?:\/(notes|witnesses|documents|referrals)(?:\/([^/]+))?)?(?:\/(file|withdrawal|closure))?$/.exec(pathname);
+    // `/withdrawal` and `/closure` on a referral, `/preview` on an email — which is why they share one group.
+    // An email's "child" is its template key rather than a stored row's id, which is api's shape too: the key is
+    // the only thing that identifies which email is being composed.
+    const scoped =
+      /^\/caseworker\/cases\/([^/]+)(?:\/(notes|witnesses|documents|referrals|emails)(?:\/([^/]+))?)?(?:\/(file|withdrawal|closure|preview))?$/.exec(pathname);
     if (!scoped) return send(res, 404, { error: `no such route: ${method} ${pathname}` });
 
     const [, rawId, collection, childId, action] = scoped;
@@ -280,6 +318,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (collection === "witnesses") return witnesses(req, res, method, found, childId);
     if (collection === "documents") return documents(req, res, method, found, childId, action === "file");
     if (collection === "referrals") return referrals(req, res, method, found, childId, action);
+    if (collection === "emails") return emails(req, res, method, found, childId, action === "preview");
 
     return send(res, 404, { error: `no such route: ${method} ${pathname}` });
   }
@@ -396,7 +435,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       notes: [],
       witnesses: [],
       documents: [],
-      referrals: []
+      referrals: [],
+      notifications: []
     };
     cases.set(record.id, record);
 
@@ -693,6 +733,99 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   }
 
   /**
+   * A case's emails: what may be sent, what one would look like, and sending it.
+   *
+   * Three operations and no fourth, which is api's surface: an email is owed or it is not, and an owed one is
+   * either accepted by Notify or fails with a reason on its row. There is no route to read one row back by id —
+   * the per-email page reads it out of the `GET`'s history, which is why that response carries the content.
+   *
+   * The refusals in order, because the order is api's and a page renders the first one it is given: an unknown
+   * template key is a 404, then a case in no state to send is a 409, then a slot payload is a 400, then a case
+   * with no applicant email address is a 422.
+   *
+   * **The payload is checked before the recipient.** api's `CaseEmailService` javadoc claims the reverse and its
+   * code does this, so the code is what is restated here — a mock written from the prose would disagree with the
+   * service it stands in for.
+   */
+  async function emails(req: IncomingMessage, res: ServerResponse, method: string, record: MockCase, template: string | undefined, wantsPreview: boolean) {
+    if (template === undefined) {
+      if (method === "GET") return send(res, 200, toWireCaseEmails(record));
+      return send(res, 405, { error: `no such route: ${method} on emails` });
+    }
+
+    const key = decodeURIComponent(template);
+    const resolved = MOCK_EMAIL_TEMPLATES.find((candidate) => candidate.key === key);
+    // 404 rather than 400, as api's `requireTemplate` answers: `/emails/whatever` is a path nothing is served
+    // at, exactly as an unknown case id is. The keys that would have worked are named because a client that got
+    // this wrong has no other way to find out; the rejected token is deliberately not echoed back, since it is
+    // caller-supplied text and this body is rendered by whatever is on the other end.
+    if (!resolved) return send(res, 404, { error: `There is no such email type. One of: ${MOCK_EMAIL_TEMPLATES.map((each) => each.key).join(", ")}` });
+    if (method !== "POST") return send(res, 405, { error: `no such route: ${method} on an email type` });
+
+    const composed = composeEmail(record, resolved, await readJsonBody(req));
+    if ("status" in composed) return send(res, composed.status, composed.body);
+
+    if (wantsPreview) return send(res, 200, renderEmail(record, resolved, composed.slots).preview);
+
+    return enqueueEmail(res, record, resolved, composed, auditName(req));
+  }
+
+  /**
+   * Owe the applicant this email, then drain it.
+   *
+   * **A second send for the same referral is a 200 carrying the first row's id, not a 409.** api's insert is
+   * `ON CONFLICT DO NOTHING` on a partial unique index, so a double-click or two replicas racing cannot tell an
+   * applicant twice that their application was refused — and `enqueued: false` is how the caseworker is told
+   * their click was redundant rather than that it failed, because a reported failure invites a third attempt.
+   *
+   * Drained in the same breath, as api drains immediately after the enqueue commits: a row left `Pending` would
+   * make `Pending` the state every locally-driven send produced, and the tab would ship having never rendered
+   * the common one.
+   */
+  function enqueueEmail(res: ServerResponse, record: MockCase, template: MockEmailTemplate, composed: ComposedEmail, author: string): void {
+    // Blank counts as absent, because `applicantEmail` is free text with no format constraint: a row holding a
+    // space would otherwise be enqueued and then fail permanently where nobody is waiting to read it.
+    const recipient = (record.applicantEmail ?? "").trim();
+    // 422 and never a silent skip, which is the opposite of what an automatic sender does and is the point: a
+    // caseworker has CHOSEN to send, so saying nothing would leave them believing an applicant had been told.
+    // Addressed to the column so the tab can say whose address is missing.
+    if (recipient === "") {
+      send(res, 422, {
+        error: "This applicant has no email address, so this email cannot be sent",
+        errors: [{ field: "applicantEmail", message: "is empty on this case, and is where this email would be sent" }]
+      });
+      return;
+    }
+
+    const owed = record.notifications.find((candidate) => candidate.referralId === composed.referral.id && candidate.template === template.member);
+    if (owed) {
+      send(res, 200, { id: owed.id, recipient: owed.recipient, enqueued: false });
+      return;
+    }
+
+    const rendered = renderEmail(record, template, composed.slots);
+    const created: MockNotification = {
+      id: randomUUID(),
+      referralId: composed.referral.id,
+      template: template.member,
+      // Frozen here rather than recomputed later, as api freezes them: a later edit to the case cannot redirect
+      // an email already owed, and "what was this applicant told" stays answerable from the row.
+      recipient,
+      state: "Sent",
+      failureReason: null,
+      subject: rendered.preview.subject,
+      body: rendered.body,
+      createdOn: new Date(),
+      createdBy: author
+    };
+    record.notifications.push(created);
+
+    // No state on the response, which is api's shape: it drains after the enqueue, so any state read here could
+    // say `Pending` for an email Notify has already accepted.
+    send(res, 200, { id: created.id, recipient, enqueued: true });
+  }
+
+  /**
    * One page of the shared pool: the `Open` referrals of every case, urgent first then longest-waiting.
    *
    * `Open` only, which is what makes it a pool rather than a list of everything a judge may see: a claimed or
@@ -949,6 +1082,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       witnesses: [],
       documents: [],
       referrals: [],
+      notifications: [],
       ...body
     };
     // A case seeded WITH referrals gets its column from them, for the reason every transition recomputes it:
@@ -1476,7 +1610,9 @@ function flag(value: string | null, whenAbsent: boolean): boolean | null {
 function toSaved(record: MockCase): unknown {
   // The referrals go with the other children, and unlike them they are on NO case response: api publishes them
   // only under `/caseworker/cases/{id}/referrals`, and what the case itself carries is `currentReferralState`.
-  const { notes: _notes, witnesses: _witnesses, documents: _documents, referrals: _referrals, ...fields } = record;
+  // The notifications are the same, under `/caseworker/cases/{id}/emails` — and there is no column on the case
+  // saying an email has been sent, so nothing here is derived from them either.
+  const { notes: _notes, witnesses: _witnesses, documents: _documents, referrals: _referrals, notifications: _notifications, ...fields } = record;
 
   return {
     ...isoDates(fields),
@@ -1559,6 +1695,239 @@ function referralConditionalErrors(body: { reasons: readonly string[]; notes?: s
   }
 
   return errors;
+}
+
+/**
+ * The one slot api pre-populates, from the referral's direction. api's `EmailSlot.JUDGES_REASON`.
+ *
+ * `snake_case` because it is a GOV.UK Notify placeholder name, which is the personalisation key and the
+ * request-body key at once — the documented exception to this package's camelCase wire rule. Renamed, Notify
+ * substitutes nothing and the applicant reads a refusal with an empty quotation in it.
+ */
+const JUDGES_REASON = "judges_reason";
+
+/**
+ * Everything the Email tab needs, in one response — api's `CaseEmailService.overview`.
+ *
+ * Availability carries **every** template, applicable or not, with the sentence saying why not: a tab sent only
+ * the applicable ones would show a shorter list with no explanation, and "why can I not send the refusal letter"
+ * is the question a caseworker would then ask a person.
+ */
+function toWireCaseEmails(record: MockCase): unknown {
+  const availability = MOCK_EMAIL_TEMPLATES.map((template) => {
+    const applicable = applicableReferral(record, template) !== undefined;
+
+    return {
+      template: template.key,
+      applicable,
+      // Null when it applies rather than a sentence saying so, which is api's shape: `reason` answers only "why
+      // can I not send this".
+      reason: applicable ? null : template.notApplicable,
+      provisioned: true,
+      slots: template.slots.map((slot) => ({ name: slot.name, required: slot.required, maxLength: slot.maxLength }))
+    };
+  });
+
+  return {
+    availability,
+    // Newest first, as api's `findByDeedPollIdOrderByCreatedOnDesc` answers — a tab rendering them in the order
+    // it is given would otherwise see insertion order here and the reverse deployed.
+    history: [...record.notifications].sort((left, right) => right.createdOn.getTime() - left.createdOn.getTime()).map(toWireEmailHistory),
+    // Only the APPLICABLE templates, which is api's `overview`: a default for an email that cannot be sent would
+    // be a value resolved from a referral that does not exist.
+    slotDefaults: MOCK_EMAIL_TEMPLATES.filter((template) => applicableReferral(record, template) !== undefined).map((template) => ({
+      template: template.key,
+      fields: slotDefaults(record, template)
+    }))
+  };
+}
+
+/**
+ * The starting values for one template's slots: the judge's words for the slot that has them, and empty for the
+ * rest.
+ *
+ * **api resolves these through the same path a send takes, and that path can refuse — so this is narrower than
+ * api on purpose.** `CaseEmailService.slotDefaults` composes with an empty payload, which means a Rejected
+ * referral carrying *no* directions text makes `judges_reason` fail its required check and the whole
+ * `GET …/emails` answer 400 — the Email tab's one load-bearing read, refused for a case that legitimately
+ * exists, since a direction is optional even on a refusal. That is api's defect rather than a rule worth
+ * restating: mirroring it would have the tab built to handle its own read failing, so here an undefaulted slot
+ * is the empty string api's own `getOrDefault(…, "")` intends. Raised as a flag on the plan.
+ */
+function slotDefaults(record: MockCase, template: MockEmailTemplate): Record<string, string> {
+  const referral = applicableReferral(record, template);
+
+  return Object.fromEntries(template.slots.map((slot) => [slot.name, slot.name === JUDGES_REASON ? (referral?.directionsText ?? "") : ""]));
+}
+
+/** One history row: the stored notification, minus the outbox bookkeeping no response carries. */
+function toWireEmailHistory(notification: MockNotification): unknown {
+  const template = MOCK_EMAIL_TEMPLATES.find((candidate) => candidate.member === notification.template);
+
+  return {
+    id: notification.id,
+    // The KEY, not the stored member name — and a row whose template no longer exists keeps the raw column in
+    // both fields rather than making the whole history unreadable, which is api's own fallback.
+    template: template?.key ?? notification.template,
+    templateName: template?.displayName ?? notification.template,
+    subject: notification.subject,
+    body: notification.body,
+    recipient: notification.recipient,
+    notifyState: notification.state,
+    failureReason: notification.failureReason,
+    createdBy: notification.createdBy,
+    createdOn: iso(notification.createdOn),
+    // Always empty, because the one shipped template declares no document keys: an email cannot currently carry
+    // an attachment at all. Attachments arrive with notify-4, which is blocked on document generation.
+    documents: []
+  };
+}
+
+/**
+ * The referral that entitles this case to this email, or undefined.
+ *
+ * Newest first, because api's case-scoped finder is ordered that way and a case referred twice has been refused
+ * on whichever referral was most recent — quoting an older refusal would tell the applicant about a decision
+ * that has since been superseded.
+ *
+ * One rule for the one template, and it is api's `cause`: a referral of this case that a Master has refused.
+ */
+function applicableReferral(record: MockCase, template: MockEmailTemplate): MockReferral | undefined {
+  if (template.member !== APPLICATION_REJECTED) return undefined;
+
+  return [...record.referrals].sort((left, right) => right.createdOn.getTime() - left.createdOn.getTime()).find((referral) => referral.decision === "Rejected");
+}
+
+/**
+ * The referral behind the email and the slots as api would accept them, or the refusal to send back.
+ *
+ * Shared by the preview and the send so what a caseworker approved is what is stored: two resolvers would be two
+ * ways of answering the same question, and the one place they could differ is the content of a letter about a
+ * refusal.
+ *
+ * **Every refusal at once**, as api's `EmailSlots.parse` reports them: a payload that both omits the judge's
+ * reason and tries to set the reference number comes back naming both, rather than costing a round trip per
+ * mistake.
+ */
+function composeEmail(record: MockCase, template: MockEmailTemplate, body: unknown): ComposedEmail | MockRefusal {
+  const referral = applicableReferral(record, template);
+  // 409 and not a 400: nothing about the request is wrong, and the same request succeeds unchanged once a Master
+  // has refused the application.
+  if (!referral) return { status: 409, body: { error: template.notApplicable } };
+
+  const fields: Record<string, unknown> = body !== null && typeof body === "object" ? { ...(body as Record<string, unknown>) } : {};
+  const errors: MockFieldError[] = [];
+
+  // Unknown keys are REFUSED AND NAMED rather than stripped, which is `additionalProperties: false` on both write
+  // bodies and the one place api departs from every other schema of its own. The interesting unknown keys are
+  // exactly the ones a caller must not send — `reference_number`, `applied_online` — so stripping them would
+  // honour the request while silently ignoring the part that mattered, and a caseworker who had tried to change
+  // the reference an applicant is told would get a success and a different email.
+  for (const key of Object.keys(fields)) {
+    if (template.slots.some((slot) => slot.name === key)) continue;
+    errors.push({
+      field: key,
+      message: template.resolvedKeys.includes(key)
+        ? `${key} is resolved from the case and cannot be set by the caller. Only ${slotNames(template)} may be supplied`
+        : `'${key}' is not a slot of ${template.key}. One of ${slotNames(template)}`
+    });
+  }
+
+  const slots: Record<string, string> = {};
+  for (const slot of template.slots) {
+    const sent = fields[slot.name];
+    if (sent !== undefined && sent !== null && typeof sent !== "string") {
+      errors.push({ field: slot.name, message: `${slot.name} must be text` });
+      continue;
+    }
+
+    // Blank becomes absent rather than an empty string, which is what makes `required` mean anything: a
+    // `judges_reason` of spaces must not satisfy it, because an email quoting a judge as having said nothing
+    // reads as a quotation until somebody opens it.
+    const supplied = typeof sent === "string" ? sent.trim() : "";
+    const direction = slot.name === JUDGES_REASON ? (referral.directionsText ?? "") : "";
+    // The judge's own words when the caseworker sent none, read UNALTERED: they were trimmed and bounded when the
+    // judge recorded them, and re-trimming here would make this the second place that decides what a direction
+    // says.
+    const prePopulated = supplied === "" && direction.trim() !== "";
+    const value = prePopulated ? direction : supplied;
+
+    if (value === "") {
+      if (slot.required) {
+        errors.push({
+          field: slot.name,
+          message: `${slot.name} is required: this email quotes the judge, and there is no direction recorded to pre-populate it from`
+        });
+      }
+      continue;
+    }
+
+    // Refused rather than truncated, at either origin: a shortened quotation of a judge is worse than a
+    // caseworker being asked to shorten one. The message differs because somebody who typed nothing needs to be
+    // told why the pre-filled text is the problem.
+    if (value.length > slot.maxLength) {
+      errors.push({
+        field: slot.name,
+        message: prePopulated
+          ? `${slot.name} is pre-populated from the judge's direction, which is longer than the ${slot.maxLength} characters this email can carry. Shorten it before sending`
+          : `${slot.name} must be ${slot.maxLength} characters or fewer`
+      });
+      continue;
+    }
+
+    slots[slot.name] = value;
+  }
+
+  if (errors.length > 0) return { status: 400, body: { error: "Email content is not valid", errors } };
+
+  return { referral, slots };
+}
+
+/** The slots a template takes, listed in a refusal so a client does not have to hold the enum. */
+function slotNames(template: MockEmailTemplate): string {
+  return template.slots.map((slot) => slot.name).join(", ");
+}
+
+/**
+ * The email as this mock's stand-in Notify renders it: a subject, the HTML an applicant would see, and the text
+ * rendering of the same thing.
+ *
+ * **The wording is a stand-in and nothing should assert on it.** The real template is a content designer's,
+ * authored in Notify, and this exists so a preview page has real HTML to sandbox and a history page has real
+ * paragraphs to render. What IS faithful is the shape: HTML for the preview and plain text for the stored body,
+ * which are two different renderings of one template rather than one string used twice.
+ *
+ * The refund paragraph branches on `postCounter`, which is api's `appliedOnline`: only `Online` means the
+ * applicant paid online, and every other value gets the paragraph that asks how they paid — a wrong guess
+ * recovers, where promising a refund to a card nobody paid with leaves somebody waiting for money.
+ */
+function renderEmail(record: MockCase, template: MockEmailTemplate, slots: Record<string, string>): RenderedEmail {
+  const formerName = [record.oldForename, record.oldSurname].filter((part) => (part ?? "").trim() !== "").join(" ");
+  const paragraphs = [
+    "Dear applicant,",
+    `Regarding your application to change your name from ${formerName || "the name on your application"} (reference ${record.displayReference ?? "not yet allocated"}).`,
+    "The Master has refused your application for the following reason:",
+    slots[JUDGES_REASON] ?? "",
+    slots.additional_notes ?? "",
+    record.postCounter === "Online"
+      ? "We will refund your fee to the account you paid from."
+      : "We will refund your fee. Please tell us how you paid and where to send the refund.",
+    "Kind regards,"
+  ].filter((paragraph) => paragraph !== "");
+
+  return {
+    preview: {
+      subject: `${template.displayName}: ${record.displayReference ?? "your application"}`,
+      // Not escaped, deliberately — see the file's docblock. Notify escapes personalisation; a mock that did
+      // would let the preview page ship having only ever been given HTML it was safe to interpolate, which is
+      // the one thing decision 3's sandbox exists to stop anybody relying on.
+      html: `<html lang="en"><body>${paragraphs.map((paragraph) => `<p>${paragraph}</p>`).join("")}</body></html>`,
+      // Fixed, because Notify increments the version when a content designer edits the template and there is no
+      // template here to edit.
+      templateVersion: 1
+    },
+    body: paragraphs.join("\n\n")
+  };
 }
 
 /**
@@ -1804,6 +2173,15 @@ export type MockCase = Omit<WireSavedCase, "daysReceivedToEnroled" | "daysReceiv
   witnesses: WireWitness[];
   documents: MockDocument[];
   referrals: MockReferral[];
+  /**
+   * The outbox rows for this case, which are a child of it here and at api — but unlike the other four they are
+   * on **no** case response: they reach a caller only through `GET /caseworker/cases/{id}/emails`.
+   *
+   * Seedable, because three of the four states a row can be in are unreachable through the contract: a send
+   * drains immediately, so everything driven through the send route is `Sent` with content. See
+   * `MOCK_EMAIL_HISTORY`.
+   */
+  notifications: MockNotification[];
 };
 
 type CaseState = NonNullable<WireSavedCase["state"]>;
@@ -1854,6 +2232,30 @@ interface MockSort {
 interface MockFieldError {
   field: string;
   message: string;
+}
+
+/** One request's resolved email: the referral that caused it, and the slots as api would have accepted them. */
+interface ComposedEmail {
+  referral: MockReferral;
+  /** Keyed by `snake_case` placeholder name, absent where an optional slot was left blank. */
+  slots: Record<string, string>;
+}
+
+/**
+ * A refusal ready to send, so a compose can report one without holding the response.
+ *
+ * `status` is what distinguishes it from a `ComposedEmail`, which is why the caller narrows on that key rather
+ * than on a flag: an extra discriminator would be a second thing to keep true.
+ */
+interface MockRefusal {
+  status: number;
+  body: { error: string; errors?: MockFieldError[] };
+}
+
+/** One rendered email: what a preview answers, and the text rendering a sent row stores. */
+interface RenderedEmail {
+  preview: { subject: string; html: string; templateVersion: number };
+  body: string;
 }
 
 type MockNote = WireNote;

@@ -20,10 +20,18 @@ import {
   UNSPECIFIED_SCHEMAS,
   WIRE_SCHEMAS,
   type WireCaseDetail,
+  type WireCaseEmails,
   type WireCaseList,
   type WireCaseWrite,
+  type WireCorrespondenceDocument,
   type WireDocument,
   type WireDocumentType,
+  type WireEmailHistory,
+  type WireEmailPreview,
+  type WireEmailSlot,
+  type WireEmailSlotDefaults,
+  type WireEmailSlotsWrite,
+  type WireEmailType,
   type WireFieldRules,
   type WireJudicialCaseNote,
   type WireJudicialCaseView,
@@ -38,6 +46,7 @@ import {
   type WireSavedQuery,
   type WireSavedQueryCreate,
   type WireSavedQueryUpdate,
+  type WireSentEmail,
   type WireWitnessCreate,
   type WireWitnessUpdate
 } from "./wire.js";
@@ -63,6 +72,10 @@ export {
   MASTER_DECISION,
   NATIONALITY,
   NATIONALITY_SECTION,
+  // The outbox states, for the same reason: the Email tab renders a label per member, and the members are
+  // api's. Its `NOTIFY_STATE` docblock carries the constraint on what those labels may say — `Sent` means
+  // Notify accepted the email and nothing more, so no label built from these may read as proof of receipt.
+  NOTIFY_STATE,
   POST_COUNTER,
   PRIVACY,
   REFER_TO_MASTER,
@@ -376,6 +389,60 @@ export function closeReferral(caseId: string, referralId: string, config: ApiCon
 }
 
 /**
+ * Everything the Email tab needs, in one call: what may be sent, what has been sent, and the pre-populated
+ * slot values for each sendable template.
+ *
+ * One call and not three, which is api's own answer to this repo's performance rule — and it is load-bearing
+ * beyond the tab: the per-email content page reads from this same payload rather than making a call of its own,
+ * and the compose form opens with `slotDefaults` rather than spending a Notify call on `previewEmail` merely to
+ * discover the judge's words.
+ *
+ * `availability` carries **every** template api knows about rather than only the sendable ones, each with the
+ * sentence saying why it is not sendable, so a tab can answer "why can I not send the refusal letter" before it
+ * is asked. `provisioned` is the separate question of whether the environment has a real Notify template behind
+ * the key, and neither flag implies the other.
+ */
+export function getCaseEmails(caseId: string, config: ApiConfig): Promise<ApiResult<CaseEmails>> {
+  return request(config, "GET", emailsPath(caseId), WIRE_SCHEMAS.CaseEmailsResponse);
+}
+
+/**
+ * The email as GOV.UK Notify renders it, from the slot text the caseworker has typed so far. Writes nothing.
+ *
+ * A `POST` for a read, which is api's shape rather than a mistake: the input is the caseworker's prose, and a
+ * URL would log it.
+ *
+ * **Every call spends one of Notify's rate-limited API calls, and that allowance is shared with real sends**, so
+ * this belongs behind an explicit action and never behind a keystroke — decision 9 of
+ * `docs/plans/notify-2-caseworker-email-tab.md`. `unavailable` covers api's 502 for a template Notify will not
+ * render, which is what an unprovisioned environment answers; `availability[].provisioned` is how a tab knows
+ * that in advance instead.
+ */
+export function previewEmail(caseId: string, template: string, slots: EmailSlotsWrite, config: ApiConfig): Promise<ApiResult<EmailPreview>> {
+  return request(config, "POST", `${emailTemplatePath(caseId, template)}/preview`, WIRE_SCHEMAS.EmailPreviewResponse, slots);
+}
+
+/**
+ * Send the email: api freezes the recipient and the content into an outbox row and drains it immediately.
+ *
+ * **The two slots and nothing else.** No idempotency key, in the body or in a header: `SendEmailRequest` is one
+ * of the two bodies in this contract with `additionalProperties: false`, so an extra key is a 400 that names it,
+ * and api's protection against a double send is a partial unique index on the referral and the template. The
+ * compose journey's UUID is admin-local — decision 16 of the plan.
+ *
+ * **A redundant second send is a SUCCESS, not a conflict.** api's insert is `ON CONFLICT DO NOTHING`, so a
+ * double-click answers 200 with the first row's id and `enqueued: false`; telling a caseworker their email
+ * failed would invite a third attempt. `conflict` means something else entirely — the case is in no state to
+ * send this email, which for the one shipped template means no Master has refused the application.
+ *
+ * `validation` covers both of api's refusals of content: its 400 naming each offending slot, and its 422 for a
+ * case with no `applicantEmail` to send to, which names that column so a tab can say whose address is missing.
+ */
+export function sendEmail(caseId: string, template: string, slots: EmailSlotsWrite, config: ApiConfig): Promise<ApiResult<SentEmail>> {
+  return request(config, "POST", emailTemplatePath(caseId, template), WIRE_SCHEMAS.SentEmailResponse, slots);
+}
+
+/**
  * The caller's saved-query library: every shared query plus their own, each flagged `selected` and
  * `editable`.
  *
@@ -538,6 +605,21 @@ function witnessPath(caseId: string, witnessId: string): string {
 
 function referralPath(caseId: string, referralId: string): string {
   return `/caseworker/cases/${encodeURIComponent(caseId)}/referrals/${encodeURIComponent(referralId)}`;
+}
+
+function emailsPath(caseId: string): string {
+  return `/caseworker/cases/${encodeURIComponent(caseId)}/emails`;
+}
+
+/**
+ * One email type of one case, addressed by api's template key.
+ *
+ * Encoded like every other path segment, even though the keys are kebab-case literals: the value reaching here
+ * is a route parameter a caseworker's URL supplied, so it is treated as text rather than as a key that has
+ * already been checked. api matches it exactly and answers 404 naming the keys it would have taken.
+ */
+function emailTemplatePath(caseId: string, template: string): string {
+  return `${emailsPath(caseId)}/${encodeURIComponent(template)}`;
 }
 
 /** No case id, because api's judicial routes take none — see {@link getJudicialPool}. */
@@ -850,6 +932,35 @@ export type JudicialReferralDetail = WireJudicialReferralDetail;
 export type JudicialCaseView = WireJudicialCaseView;
 export type JudicialCaseNote = WireJudicialCaseNote;
 export type JudicialDirection = WireJudicialDirection;
+/**
+ * The email types, which are one payload's parts rather than five endpoints' worth: `CaseEmails` is what the tab
+ * reads and the other four are the shapes inside it.
+ *
+ * `EmailSlot` is the METADATA of a field a caseworker fills — its name, its cap and whether it is required —
+ * where `EmailSlotsWrite` is the values. Two types for what sounds like one thing, because api publishes them
+ * separately and for a reason: the metadata is what a form is built from, and the values are the only part of an
+ * email this app may set.
+ */
+export type CaseEmails = WireCaseEmails;
+export type EmailType = WireEmailType;
+export type EmailSlot = WireEmailSlot;
+export type EmailSlotDefaults = WireEmailSlotDefaults;
+export type EmailHistory = WireEmailHistory;
+export type CorrespondenceDocument = WireCorrespondenceDocument;
+export type EmailPreview = WireEmailPreview;
+export type SentEmail = WireSentEmail;
+/**
+ * The slots as they go OUT, so `z.input` — and the keys are **`snake_case`**, which is this module's one
+ * documented exception to "the wire is camelCase".
+ *
+ * They are GOV.UK Notify placeholder names, which makes each one the personalisation key and the request-body
+ * key at once. Renaming one anywhere above this line is the mistake no test here catches: `additionalProperties:
+ * false` means api names an unknown key in a 400, but a *renamed* key is simply a slot that was never sent, so
+ * Notify substitutes nothing and the applicant reads the template with an empty quotation in it.
+ */
+export type EmailSlotsWrite = WireEmailSlotsWrite;
+/** The outbox states, as the member union. See `NOTIFY_STATE` for what `Sent` may and may not be said to mean. */
+export type NotifyState = NonNullable<EmailHistory["notifyState"]>;
 
 /**
  * The option sets, as the member unions a caller annotates with.

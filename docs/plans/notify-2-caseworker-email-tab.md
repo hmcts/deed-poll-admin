@@ -262,9 +262,18 @@ Two consequences worth stating plainly, because they have bitten this repo befor
 
     **What to build instead.** Keep the UUID, keep it entirely inside this repo: it is the form token that
     stops a double-click or a browser resubmit posting twice, which is a real problem this journey has and api
-    cannot see. Do not send it anywhere. Handle api's **409** as its own rendered state on the preview page —
+    cannot see. Do not send it anywhere. ~~Handle api's **409** as its own rendered state on the preview page —
     "this email has already been sent for this referral", with a link to the tab — because the 409 is
-    reachable without any double-click at all: two caseworkers on the same case will produce it.
+    reachable without any double-click at all: two caseworkers on the same case will produce it.~~
+
+    **Corrected by Task 2, 2026-09-21, from api's source — a second send is not a 409 and is not an error.**
+    api's insert is `ON CONFLICT DO NOTHING`, so a redundant send answers **200 with the first row's id and
+    `enqueued: false`**; api's own note is that telling the caseworker their email failed would invite a third
+    attempt. So the double-send case is a *success* to render — the email is already sent, here it is — and a
+    `409` on this surface means something else entirely: **the case is in no state to send this email**, which
+    for the one shipped template is "no Master has refused the application". That is reachable without a
+    double-click (the referral was withdrawn or re-decided since the tab was rendered), and it is api's
+    `reason` sentence rather than a claim about who sent what. Two states, two sentences; see Task 5.
 
     **This is per referral, not per compose journey, and that asymmetry is api's.** notify-1's decision 4 says
     so and flags that it "may not generalise" to notify-6's repeatable chases. Nothing here needs to solve
@@ -605,8 +614,31 @@ Read first: `libs/deed-poll-api-client/src/api/client.ts` for the `ApiResult` id
 - Tests: the happy path for each function, a 4xx surfacing as a failed `ApiResult` rather than a throw, and a
   parse failure on an unexpected payload.
 
-- [ ] Three functions on the adapter with mock support and fixtures for the sendable, not-sendable,
+- [x] Three functions on the adapter with mock support and fixtures for the sendable, not-sendable,
       no-email-address and mixed-history cases, none of them throwing, and the validation commands green
+
+      **Done 2026-09-21.** `getCaseEmails`, `previewEmail` and `sendEmail`, plus `MOCK_EMAIL_TEMPLATES` and
+      `MOCK_EMAIL_HISTORY` in `mock/fixtures.ts` and the three routes in `mock/server.ts`. Test count **2,652**
+      against Task 1's 2,632: +20, all in `@hmcts/deed-poll-api-client` (358 → 378).
+
+      **One correction to this plan, read api's source rather than its document — see the strikethroughs in
+      decision 16 and Task 5. api's 409 does not mean "already sent".** A redundant second send answers **200
+      with `enqueued: false`** and the first row's id, because the insert is `ON CONFLICT DO NOTHING`; api's own
+      note is that reporting a failure would invite a third attempt. The 409 on this surface means *the case is
+      in no state to send this email* — no Master has refused the application — which is a different sentence
+      and a different link. Pinned both ways in `client.test.ts`.
+
+      **Two things the mock restates that are worth knowing before Task 3.** api checks the **payload before the
+      recipient** (its `CaseEmailService` javadoc claims the reverse; the code is what the mock follows), so a
+      case with no `applicantEmail` and an empty `judges_reason` answers 400 and not 422. And the four content
+      states of decision 15 are only reachable by seeding: a send drains immediately, so everything driven
+      through the send route is `Sent` with content.
+
+      **One deliberate divergence from api, flagged rather than mirrored — see flag 7.** api's `GET …/emails`
+      answers **400** for a case whose Rejected referral has no directions text, because it resolves the slot
+      defaults through the send path and `judges_reason` then fails its required check. The mock answers 200 with
+      an empty default, which is what api's own `getOrDefault(…, "")` intends. Mirroring it would mean building
+      the tab to handle its own load-bearing read being refused.
 
 ### Task 3: The domain service and the view models
 
@@ -692,9 +724,14 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
   **The UUID is admin-local and is sent to api in neither a header nor the body** — decision 16 as corrected by
   Task 0. It exists to stop a double-click or a browser resubmit; api's own protection is a unique index that
   answers 409.
-- **api's 409 is a rendered state on the preview page**, not an error page: "this email has already been sent
-  for this referral", with a link back to the tab. Reachable without any double-click — two caseworkers on one
-  case produce it.
+- **api's 409 is a rendered state on the preview page**, not an error page — but **not** the sentence this
+  bullet used to carry. Corrected by Task 2: a 409 means *the case is in no state to send this email*, which is
+  api's own `reason` prose ("no referral that a Master has refused"), reachable when the referral was withdrawn
+  or re-decided since the tab was rendered. Render that with a link back to the tab.
+- **A redundant send is a SUCCESS, and needs its own wording on the confirmation rather than an error.** api
+  answers 200 with `enqueued: false` and the first row's id, so the caseworker should be told the email had
+  already been sent and shown it — not told their send failed, which would invite a third attempt. This is the
+  case the compose journey's UUID is there to make rare; it is not the case the UUID has to handle.
 - An unknown or non-applicable template in the path is a 404, not a 500 — the route parameter is user input.
 - Tests: the full journey; a validation failure returns to compose with an error summary and the caseworker's
   text preserved; a send failure returns to preview with api's message and the text preserved; the `iframe`
@@ -702,7 +739,8 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
   because that attribute is the whole of decision 3 and a later tidy-up could drop it silently.
 
 - [ ] All three routes live, the preview renders in a titled sandboxed iframe asserted by test and explains
-      itself in a sentence when `html` is null, a 409 renders as its own state rather than an error page, a
+      itself in a sentence when `html` is empty **or** null, a 409 renders as its own state rather than an error
+      page, a redundant send (`enqueued: false`) renders as an already-sent success rather than a failure, a
       validation or send failure never loses the caseworker's typing, an unknown template is a 404, and
       validation green
 
@@ -813,3 +851,23 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
    That is a reason to check the target is still met, not a reason to move it — but if Task 0 skipped Task 5a
    because notify-5 had not shipped, the baseline comparison in Task 6 should say so rather than appearing to
    have lost tests.
+
+7. **api's Email tab read 400s for a refusal with no directions text, and it is an api fix rather than one I can
+   make here.** Found by Task 2 reading `CaseEmailService`. `GET /caseworker/cases/{id}/emails` resolves the slot
+   defaults by composing an empty send — `slotDefaults` → `compose` → `EmailSlots.parse` — so a case whose
+   Rejected referral carries **no** `directionsText` fails `judges_reason`'s required check and the whole
+   response is a 400. A judge may refuse an application without typing a comment (`directionsText` is optional on
+   a direction, on purpose), so this is reachable rather than theoretical, and what it breaks is the tab's one
+   load-bearing read: the Email tab would not render at all for that case.
+
+   **The api fix is small** — resolve a default as the empty string rather than through the required check, which
+   is what its own `getOrDefault(slot.placeholder(), "")` already intends one line later. I have **not** mirrored
+   the defect in the mock, because mirroring it would mean building the tab to handle its own read being refused
+   and then unbuilding that; the mock answers 200 with an empty default and `server.test.ts` pins the divergence
+   with this reasoning. **If api is not fixed before this lands, the symptom in AAT is a case whose Emails tab
+   500s while every other tab works.**
+
+8. **api's `CaseEmailService` javadoc and its code disagree about refusal order**, and the code checks the
+   payload first. Harmless — it costs a caseworker with no applicant address one extra correction before they are
+   told the real problem — and worth a one-line doc fix at api's end rather than anything here. The mock follows
+   the code.

@@ -8,10 +8,14 @@
  */
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { MOCK_EMAIL_HISTORY } from "./fixtures.js";
 import { type MockCase, type RunningMockApi, startMockApi } from "./server.js";
 
 /** `server.ts`'s `MOCK_USER_NAME` — who a write with no token forwarded is attributed to. */
 const MOCK_CASEWORKER = "Mock Caseworker";
+
+/** The direction a judge recorded, which is what `judges_reason` arrives pre-populated with. */
+const JUDGES_REASON = "The evidence supplied does not establish the applicant's identity.";
 
 let mock: RunningMockApi;
 
@@ -1248,6 +1252,107 @@ describe("the judicial referral routes", () => {
   });
 });
 
+describe("the email routes", () => {
+  it("should list a case's history newest first, whatever order the rows were stored in", async () => {
+    // The array's own order is deliberately not the answer: a page rendering the rows as given would otherwise
+    // see insertion order here and `createdOn` order deployed.
+    const seeded = mock.seed({ notifications: MOCK_EMAIL_HISTORY.map((row) => ({ ...row })) });
+
+    const history = (await get(`/caseworker/cases/${seeded.id}/emails`)).history;
+
+    expect(history.map((row: { createdOn: string }) => row.createdOn)).toEqual([
+      "2026-03-20T16:45:00.000",
+      "2026-03-18T11:05:00.000",
+      "2026-02-27T14:20:00.000",
+      "2026-01-09T09:30:00.000"
+    ]);
+  });
+
+  it("should keep the four no-content states distinguishable, because each needs its own sentence", async () => {
+    const seeded = mock.seed({ notifications: MOCK_EMAIL_HISTORY.map((row) => ({ ...row })) });
+
+    const history: { notifyState: string; subject: string | null; body: string | null; failureReason: string | null }[] = (
+      await get(`/caseworker/cases/${seeded.id}/emails`)
+    ).history;
+
+    // `notifyState` alone does not separate the two `Sent` rows — one carries its wording and the other never
+    // will, which is a different thing to tell a caseworker from "this has not gone yet".
+    expect(history.map((row) => [row.notifyState, row.body === null])).toEqual([
+      ["Pending", true],
+      ["Sent", false],
+      ["Failed", true],
+      ["Sent", true]
+    ]);
+    expect(history[2].failureReason).toContain("PERMANENT");
+    expect(history[1].subject).toMatch(/./);
+  });
+
+  it("should publish the template key rather than the member name the row stores", async () => {
+    // Two spellings of one template, and both are on the wire. Conflating them makes the history unreadable.
+    const seeded = mock.seed({ notifications: [{ ...MOCK_EMAIL_HISTORY[0] }] });
+
+    const history = (await get(`/caseworker/cases/${seeded.id}/emails`)).history;
+
+    expect(history[0]).toMatchObject({ template: "application-rejected", templateName: "Application rejected" });
+  });
+
+  it("should refuse a body key that is not a slot, naming it rather than ignoring it", async () => {
+    // Stripping it would honour the request while silently dropping the part that mattered. The idempotency UUID
+    // is the concrete case: it is admin-local, and a mock that accepted it would let a page ship sending it.
+    const { caseId } = refusedCase();
+
+    const response = await post(`/caseworker/cases/${caseId}/emails/application-rejected/preview`, { judges_reason: "Because", idempotencyKey: randomUUID() });
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.errors).toEqual([{ field: "idempotencyKey", message: expect.stringContaining("is not a slot of application-rejected") }]);
+  });
+
+  it("should require the judge's reason when no direction was recorded to pre-populate it from", async () => {
+    // A judge may refuse an application without typing a comment, so this is reachable rather than theoretical.
+    const { caseId } = refusedCase({ directionsText: null });
+
+    const response = await post(`/caseworker/cases/${caseId}/emails/application-rejected`, {});
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors).toEqual([{ field: "judges_reason", message: expect.stringContaining("is required") }]);
+  });
+
+  it("should still answer the tab for a refusal with no direction recorded, which api itself does not", async () => {
+    // The one place this mock is deliberately NARROWER than api: `CaseEmailService.slotDefaults` resolves the
+    // defaults through the send path, so a required slot with nothing to default from makes the whole
+    // `GET …/emails` answer 400 — the tab's one load-bearing read, refused for a case that legitimately exists.
+    // Mirroring that would mean building the tab to handle its own read failing. Raised as a flag on the plan.
+    const { caseId } = refusedCase({ directionsText: null });
+
+    const response = await fetch(`${mock.url}/caseworker/cases/${caseId}/emails`);
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).slotDefaults).toEqual([{ template: "application-rejected", fields: { judges_reason: "", additional_notes: "" } }]);
+  });
+
+  it("should quote the most recent refusal, because an older one has been superseded", async () => {
+    const seeded = mock.seed({
+      applicantEmail: "applicant@example.com",
+      referrals: [
+        referral({ id: "older", state: "Closed", decision: "Rejected", directionsText: "The old reason", createdOn: new Date("2026-01-04T09:00:00") }),
+        referral({ id: "newer", state: "Decided", decision: "Rejected", directionsText: "The current reason", createdOn: new Date("2026-03-04T09:00:00") })
+      ]
+    });
+
+    const emails = await get(`/caseworker/cases/${seeded.id}/emails`);
+
+    expect(emails.slotDefaults[0].fields.judges_reason).toBe("The current reason");
+  });
+
+  it("should refuse a method neither the collection nor a template has a route for", async () => {
+    const { caseId } = refusedCase();
+
+    expect((await fetch(`${mock.url}/caseworker/cases/${caseId}/emails`, { method: "DELETE" })).status).toBe(405);
+    expect((await fetch(`${mock.url}/caseworker/cases/${caseId}/emails/application-rejected`)).status).toBe(405);
+  });
+});
+
 describe("when the scenario says api is unavailable", () => {
   it("should answer 503 on every contract route while leaving the control routes working", async () => {
     mock.setScenario("api-unavailable");
@@ -1326,6 +1431,20 @@ async function currentReferralState(caseId: string): Promise<string | null> {
  * `Date` values rather than the ISO strings the wire carries, because `mock.seed` holds a `MockCase` — which is
  * also why a case with children is seeded in process rather than over `POST /__mock/cases`.
  */
+/**
+ * A seeded case whose referral a Master has refused, with an applicant to write to.
+ *
+ * Seeded rather than driven through the judicial surface, which is what `client.test.ts` does: these tests are
+ * about the email rules, and arranging a claim and a direction per test would put three round trips in front of
+ * every assertion. The refusal itself is what makes the email applicable, so the state is the arrangement.
+ */
+function refusedCase(overrides: Partial<MockCase["referrals"][number]> = {}): { caseId: string; referralId: string } {
+  const refused = referral({ state: "Decided", decision: "Rejected", directionsText: JUDGES_REASON, decidedBy: "judge@example.com", ...overrides });
+  const seeded = mock.seed({ applicantEmail: "applicant@example.com", referrals: [refused] });
+
+  return { caseId: seeded.id, referralId: refused.id };
+}
+
 function referral(overrides: Partial<MockCase["referrals"][number]> = {}): MockCase["referrals"][number] {
   const raised = new Date("2026-03-01T09:00:00");
 
