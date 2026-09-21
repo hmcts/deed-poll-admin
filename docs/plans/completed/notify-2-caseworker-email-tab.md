@@ -268,9 +268,10 @@ Two consequences worth stating plainly, because they have bitten this repo befor
       alone in this contract, so an unknown body key is refused **and named**. So do not put the UUID in the
       body either.
 
-    **What to build instead.** Keep the UUID, keep it entirely inside this repo: it is the form token that
+    **~~What to build instead.~~ Superseded 2026-09-21 — the UUID was removed. See the third correction below.**
+    ~~Keep the UUID, keep it entirely inside this repo: it is the form token that
     stops a double-click or a browser resubmit posting twice, which is a real problem this journey has and api
-    cannot see. Do not send it anywhere. ~~Handle api's **409** as its own rendered state on the preview page —
+    cannot see.~~ Do not send it anywhere. ~~Handle api's **409** as its own rendered state on the preview page —
     "this email has already been sent for this referral", with a link to the tab — because the 409 is
     reachable without any double-click at all: two caseworkers on the same case will produce it.~~
 
@@ -282,6 +283,31 @@ Two consequences worth stating plainly, because they have bitten this repo befor
     for the one shipped template is "no Master has refused the application". That is reachable without a
     double-click (the referral was withdrawn or re-decided since the tab was rendered), and it is api's
     `reason` sentence rather than a claim about who sent what. Two states, two sentences; see Task 5.
+
+    **Removed outright, 2026-09-21, after review — this decision produced a mechanism that protected nothing.**
+    The token shipped as specified: minted on the compose `GET`, carried through the check page in a hidden
+    control, re-validated on the way back. It was **never compared against a stored value**, so it had no effect
+    on a double-click, a resubmit, or anything else — while reading, to anyone who found it, like a second guard
+    beside api's. Both an internal and an external reviewer found it independently, and `send.ts`'s docblock had
+    gone on to claim it "exists to make rare" the case api's index actually handles.
+
+    **The root cause was in the correction above, not in the build.** "Keep the UUID, it is the form token that
+    stops a double-click" specified a token without specifying anything to compare it against — so a task
+    implemented a token that round-trips, faithfully and uselessly. A guard needs state; a value in a hidden
+    field is not state.
+
+    **Removed rather than completed, because api's index already covers every send this service can make.** One
+    `Application Rejected` per referral is a database constraint, so a redundant send is a 200 with
+    `enqueued: false` and the already-sent banner. A second mechanism for a solved problem is complexity with
+    nothing on the other side of it — YAGNI, which this repo's `CLAUDE.md` states outright.
+
+    **The gap that leaves, recorded so it is not rediscovered as a surprise.** api's index is on
+    `("referralId", "template")`, which notify-1's own decision 4 flags "may not generalise". notify-6 proposes
+    repeatable, case-driven chases: for a template like that there is no unique row to conflict with, a
+    double-click would send a second email to an applicant, and nothing in either repo would stop it. **That is
+    the point at which real idempotency has to be built, and it belongs in api** where the outbox is, so every
+    client inherits it. `send.ts` carries the same note at the call site. Tests now assert the field's
+    **absence**, so it cannot return without the comparison that would justify it.
 
     **This is per referral, not per compose journey, and that asymmetry is api's.** notify-1's decision 4 says
     so and flags that it "may not generalise" to notify-6's repeatable chases. Nothing here needs to solve

@@ -121,10 +121,14 @@ describe("email compose template", () => {
     expect(rendered).toContain("Continue");
   });
 
-  it("should carry the journey's token as a hidden control", async () => {
+  it("should carry no journey token, the one that was built having protected nothing", async () => {
+    // Replaces a test asserting the hidden control was present. It was, and it did nothing: minted here, carried
+    // to the check page and re-validated on return, but never compared against stored state. api's unique index is
+    // what makes a redundant send a 200 with `enqueued: false`. Asserted as an absence so the control cannot come
+    // back without the comparison that would justify it — see `send.ts` for what a repeatable template would need.
     const rendered = await page();
 
-    expect(rendered).toMatch(/<input type="hidden" name="journey" value="[0-9a-f-]{36}">/);
+    expect(rendered).not.toContain('name="journey"');
   });
 
   it("should link the error summary to the control the rejection is about", async () => {

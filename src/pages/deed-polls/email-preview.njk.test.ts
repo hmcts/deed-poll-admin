@@ -134,13 +134,16 @@ describe("email preview template", () => {
     expect(rendered).toContain('action="/deed-polls/case-1/emails/application-rejected/send"');
   });
 
-  it("should carry the checked wording and the journey's token into the send", async () => {
+  it("should carry the checked wording into the send, and no journey token", async () => {
     // What was approved is what the send posts: nothing may be rendered for approval and then sent different.
+    //
+    // The token's absence is asserted here too, because this page carried it in both forms. It compared against
+    // nothing, so it protected nothing; api's unique index is the real guard. See `send.ts`.
     const rendered = await previewPage(RENDERED, { additional_notes: "Ring us if anything is unclear" });
 
     expect(rendered).toContain('<input type="hidden" name="judges_reason" value="Identity not established.">');
     expect(rendered).toContain('<input type="hidden" name="additional_notes" value="Ring us if anything is unclear">');
-    expect(rendered).toContain(`<input type="hidden" name="journey" value="${TOKEN}">`);
+    expect(rendered).not.toContain('name="journey"');
   });
 
   it("should offer the way back to the wording as a POST, so a correction keeps what was typed", async () => {

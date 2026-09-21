@@ -33,9 +33,14 @@ const RENDERED = {
   templateVersion: 1
 };
 
-const TOKEN = "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d";
-
-const body = (overrides: Record<string, unknown> = {}) => ({ journey: TOKEN, judges_reason: "Identity not established.", ...overrides });
+// A stray `journey` key is still posted deliberately: the removed token's field name must not start reaching api,
+// and both write bodies set `additionalProperties: false`, so an unknown key is a 400. The test below that asserts
+// what `previewCaseEmail` was called with is what proves it is dropped rather than forwarded.
+const body = (overrides: Record<string, unknown> = {}) => ({
+  journey: "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d",
+  judges_reason: "Identity not established.",
+  ...overrides
+});
 
 function request(posted: Record<string, unknown> = body(), template = "application-rejected") {
   return pageRequest({ params: { id: "case-1", template }, body: posted, accessToken: "session-token" });
@@ -62,8 +67,9 @@ describe("email preview page", () => {
   });
 
   it("should ask api to render the trimmed slots the caseworker typed, and nothing else", async () => {
-    // The journey's token is admin-local: `SendEmailRequest` and `PreviewEmailRequest` both set
-    // `additionalProperties: false`, so an unknown key is a 400 that names it (decision 16 as corrected).
+    // **This is the test that pins the removed token cannot leak.** `body()` still posts a `journey` key, and
+    // `SendEmailRequest`/`PreviewEmailRequest` both set `additionalProperties: false`, so forwarding it would be a
+    // 400 naming the key. Only the slots are sent — decision 16 as corrected by Task 0 and then removed outright.
     await POST(request(body({ judges_reason: "  Identity not established.  ", additional_notes: "Ring us" })), response());
 
     expect(previewCaseEmail).toHaveBeenCalledWith(
@@ -83,7 +89,6 @@ describe("email preview page", () => {
       { name: "judges_reason", value: "Identity not established." },
       { name: "additional_notes", value: "Ring us" }
     ]);
-    expect(res.render.mock.calls[0][1].token).toBe(TOKEN);
   });
 
   it("should withhold Send when Notify returned no HTML to check, and say so", async () => {
@@ -134,12 +139,15 @@ describe("email preview page", () => {
     ]);
   });
 
-  it("should keep the journey's token through a validation failure", async () => {
+  it("should render no journey token through a validation failure, there being none to keep", async () => {
+    // Was "should keep the journey's token through a validation failure". The typing surviving is what mattered and
+    // is pinned two tests above; the token itself compared against nothing, so it guaranteed nothing. Kept as an
+    // absence rather than deleted, so the reason is on the record where the assertion used to be.
     const res = response();
 
     await POST(request(body({ judges_reason: "" })), res);
 
-    expect(res.render.mock.calls[0][1].token).toBe(TOKEN);
+    expect(res.render.mock.calls[0][1]).not.toHaveProperty("token");
   });
 
   it("should put api's own rejection against the control it names", async () => {

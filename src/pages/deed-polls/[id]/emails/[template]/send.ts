@@ -12,8 +12,24 @@
  * **A redundant send is a success and is told as one.** api's insert is `ON CONFLICT DO NOTHING` on one email per
  * referral, so a double-click or a browser resubmit answers 200 with the first row's id and `enqueued: false`.
  * Telling the caseworker their send failed would invite a third attempt, so the banner says the email had already
- * been sent and links to it. This is the case the journey's token exists to make rare (decision 16) rather than the
- * case it has to handle — the token is admin-local and reaches api in neither the body nor a header.
+ * been sent and links to it.
+ *
+ * **Nothing in this repo makes that case rare, and this docblock used to claim otherwise.** It said the journey's
+ * idempotency token existed to make a double-click rare (decision 16 of the plan). The token was minted, carried
+ * through the check page and re-validated on the way back, and **never compared against a stored value** — so it
+ * had no effect on anything, and a reader who found it would reasonably conclude this route was protected twice
+ * over when it is protected once. The token has been removed rather than made real, because api's index already
+ * covers every send this service can currently make and a second mechanism for a solved problem is complexity
+ * with nothing on the other side of it.
+ *
+ * **The gap that removal leaves, so it is not rediscovered as a surprise.** api's index is on
+ * `("referralId", "template")`, which makes "one of these per referral" a database constraint — exactly right for
+ * the one shipped template and, as api's own notify-1 decision 4 flags, a rule that *may not generalise*. notify-6
+ * proposes repeatable, case-driven chases: for a template like that there is no unique row to conflict with, so a
+ * double-click would send a second email to an applicant and nothing here or in api would stop it. That is the
+ * point at which real idempotency has to be built, and it needs server-side state — a token in a hidden control
+ * cannot do it, which is the whole lesson of the one that was removed. Build it in api, where the outbox is, so
+ * every client inherits it rather than each one re-implementing a guarantee.
  *
  * **A 409 means something else entirely and is not an error page.** It says the case is in no state to send this
  * email — for the one shipped template, that no Master has refused the application — which a caseworker reaches

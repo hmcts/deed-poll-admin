@@ -31,9 +31,8 @@
   The checked wording, as hidden controls. Repeated in both forms so whichever button is used carries it: what was
   approved is what the send posts, and going back to the wording must not lose it.
 #}
-{% macro checkedWording(slots, journeyField, token) %}
+{% macro checkedWording(slots) %}
   {% for s in slots %}<input type="hidden" name="{{ s.name }}" value="{{ s.value }}">{% endfor %}
-  <input type="hidden" name="{{ journeyField }}" value="{{ token }}">
 {% endmacro %}
 
 {% block content %}
@@ -71,17 +70,17 @@
       {{ govukWarningText({ text: irreversible, iconFallbackText: warningIcon }) }}
 
       <form method="post" action="/deed-polls/{{ case.id }}/emails/{{ compose.template }}/send" novalidate>
-        {{ checkedWording(slots, journeyField, token) }}
+        {{ checkedWording(slots) }}
         {{ govukButton({ text: send }) }}
       </form>
     {% endif %}
 
     {#
-      Back to the wording, and a form rather than a link on purpose: a GET could carry neither the caseworker's
-      text nor the journey's token, so a refused send or an unavailable preview would cost them their typing.
+      Back to the wording, and a form rather than a link on purpose: a GET could not carry the caseworker's text,
+      so a refused send or an unavailable preview would cost them their typing.
     #}
     <form method="post" action="/deed-polls/{{ case.id }}/emails/{{ compose.template }}/compose" novalidate>
-      {{ checkedWording(slots, journeyField, token) }}
+      {{ checkedWording(slots) }}
       {{ govukButton({ text: change, classes: "govuk-button--secondary" }) }}
     </form>
 

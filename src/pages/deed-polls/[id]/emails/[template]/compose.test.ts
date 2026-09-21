@@ -89,34 +89,24 @@ describe("email compose page", () => {
     expect(sendCaseEmail).not.toHaveBeenCalled();
   });
 
-  it("should mint a journey token when the form opens, and a new one for a new journey", async () => {
-    // Decision 16: one token per compose journey, not derived from the template, the content or the time.
-    const first = response();
-    const second = response();
+  it("should mint no journey token, and ignore one that is posted", async () => {
+    // **Replaces three tests that pinned a mechanism which protected nothing.** They asserted that a UUID was
+    // minted per journey (decision 16), that a posted one was carried back, and that a non-UUID was replaced
+    // rather than rendered. All three passed and all three were about a value no code ever compared against
+    // stored state, so no double-click or resubmit was affected by any of it. api's partial unique index on
+    // `("referralId", "template")` is the real guard: a redundant send is a 200 with `enqueued: false`.
+    //
+    // Asserted as an absence, and including the posted case, so the field cannot quietly return without the
+    // comparison that would make it mean something. `send.ts` records what a repeatable template would need.
+    const opened = response();
+    const returned = response();
 
-    await GET(request(), first);
-    await GET(request(), second);
+    await GET(request(), opened);
+    await POST(request({ journey: "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d", judges_reason: "Shortened" }), returned);
 
-    expect(first.render.mock.calls[0][1].token).toMatch(UUID);
-    expect(second.render.mock.calls[0][1].token).not.toBe(first.render.mock.calls[0][1].token);
-  });
-
-  it("should carry the journey's own token back when the check page returns to the form", async () => {
-    const res = response();
-
-    await POST(request({ journey: "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d", judges_reason: "Shortened" }), res);
-
-    expect(res.render.mock.calls[0][1].token).toBe("6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d");
-  });
-
-  it("should mint a fresh token rather than render a posted value that is not one", async () => {
-    // The token is rendered back into the form, so it is the caseworker's journey identifier and not a place to
-    // put text of their choosing. Nothing about it reaches api either way.
-    const res = response();
-
-    await POST(request({ journey: "<script>alert(1)</script>", judges_reason: "Still here" }), res);
-
-    expect(res.render.mock.calls[0][1].token).toMatch(UUID);
+    expect(opened.render.mock.calls[0][1]).not.toHaveProperty("token");
+    expect(returned.render.mock.calls[0][1]).not.toHaveProperty("token");
+    expect(returned.render.mock.calls[0][1]).not.toHaveProperty("journeyField");
   });
 
   it("should return the caseworker's own text untrimmed, not api's default, when the form comes back", async () => {

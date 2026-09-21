@@ -22,19 +22,19 @@
  * read has nothing to render and its error goes to the page.
  *
  * **`POST` is how the check page comes back**, not a second submission: it re-renders the form from the posted
- * body, so the caseworker's own text and the journey's token both survive the return. A link could carry neither.
+ * body, so the caseworker's own text survives the return. A link could not carry it.
+ *
+ * **There is no idempotency token here, and its removal is the point rather than an omission.** One was built to
+ * decision 16 of the plan — minted on `GET`, carried through the check page in a hidden control, re-validated on
+ * the way back — and **compared against nothing**, so it protected against nothing while reading like a guard to
+ * anyone who found it. What actually stops a double-click sending twice is api's partial unique index on
+ * `("referralId", "template")`, which answers a redundant send as a 200 with `enqueued: false`. See `send.ts` for
+ * the case that is not covered and what would have to be built if it ever arrives.
  */
 
-import { randomUUID } from "node:crypto";
 import { buildComposeView, type EmailComposeView, type FieldError, findCaseEmails, findDeedPoll, NotFoundError } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
-
-/** The hidden control the journey's token travels in. Named once, because all three steps read and write it. */
-export const JOURNEY_FIELD = "journey";
-
-/** What a minted token looks like, and the only shape a posted one is trusted in. See `journeyToken`. */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const en = {
   title: "Write the email",
@@ -57,7 +57,7 @@ export const en = {
 // English content in the cy shape — see the note in ../../../../index.ts.
 export const cy = { ...en };
 
-/** The form, opened from the tab: api's defaults in the slots and a new token for the journey. */
+/** The form, opened from the tab, with api's defaults in the slots. */
 export const GET = async (req: Request, res: Response) => {
   renderCompose(res, await loadEmailJourney(req));
 };
@@ -65,14 +65,14 @@ export const GET = async (req: Request, res: Response) => {
 /**
  * The same form, returned to from the check page.
  *
- * Identical to the `GET` because `loadEmailJourney` reads the values and the token out of the body when there is
- * one: what makes this a different route is the method, not the rendering. It is a `POST` rather than a link
- * precisely so the caseworker's typing comes back with them.
+ * Identical to the `GET` because `loadEmailJourney` reads the values out of the body when there is one: what
+ * makes this a different route is the method, not the rendering. It is a `POST` rather than a link precisely so
+ * the caseworker's typing comes back with them.
  */
 export const POST = GET;
 
 /**
- * The case, the compose form for the template in the path, and the journey's token.
+ * The case and the compose form for the template in the path.
  *
  * Shared by all three steps so the 404 rule is decided once. The submitted body is what the form is built from,
  * which is what makes a failed validation keep the caseworker's own words rather than reverting to api's
@@ -87,7 +87,7 @@ export async function loadEmailJourney(req: Request): Promise<EmailJourney> {
   // Unknown, not applicable, not provisioned — one answer for all three. The template is user input in a path.
   if (!compose) throw new NotFoundError(`Email ${req.params.template} cannot be sent for case ${req.params.id}`);
 
-  return { found, compose, token: journeyToken(req) };
+  return { found, compose };
 }
 
 /** The posted body as the slot values, which is `{}` on a `GET` and therefore api's defaults. */
@@ -108,8 +108,6 @@ export function renderCompose(res: Response, journey: EmailJourney, errors: Fiel
   res.render("deed-polls/email-compose", {
     case: journey.found,
     compose: journey.compose,
-    token: journey.token,
-    journeyField: JOURNEY_FIELD,
     errors: messages,
     // Ordered by the controls rather than by whatever order the rejections arrived in, so the summary reads
     // down the page.
@@ -132,29 +130,8 @@ function fieldMessages(compose: EmailComposeView, errors: FieldError[]): Record<
   return Object.fromEntries(errors.filter((error) => hasControl(compose, error.field)).map((error) => [error.field, error.message]));
 }
 
-/**
- * The journey's own idempotency token: minted when the form opens, carried unchanged through the check page,
- * a correction and the send — decision 16 of the plan.
- *
- * **It is admin-local and is sent to api in neither the body nor a header.** api has no such parameter, and
- * `SendEmailRequest` is one of two bodies in this contract with `additionalProperties: false`, so an unknown key
- * is a 400 that names it. What stops a double-click sending twice is api's own partial unique index, which makes
- * a redundant send a 200 with `enqueued: false` — the already-sent state `send.ts` renders.
- *
- * A posted token is trusted only if it looks like a minted one, and a fresh `GET` always mints. Not because a
- * forged value could reach api, but because this one is rendered back into the form: a token is the caseworker's
- * own journey identifier, not a place to put text of their choosing.
- */
-function journeyToken(req: Request): string {
-  const posted = submittedSlots(req)[JOURNEY_FIELD];
-
-  return typeof posted === "string" && UUID.test(posted) ? posted : randomUUID();
-}
-
-/** The case, the form and the token — everything all three steps of the journey share. */
+/** The case and the form — everything all three steps of the journey share. */
 export interface EmailJourney {
   found: Awaited<ReturnType<typeof findDeedPoll>>;
   compose: EmailComposeView;
-  /** The journey's idempotency token. See `journeyToken`. */
-  token: string;
 }

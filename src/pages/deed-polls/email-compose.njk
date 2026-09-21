@@ -41,12 +41,6 @@
     <p class="govuk-hint">{{ prePopulatedHint }}</p>
 
     <form method="post" action="/deed-polls/{{ case.id }}/emails/{{ compose.template }}/preview" novalidate>
-      {#
-        The journey's token, carried unchanged from the moment the form opened. Admin-local: it goes to the check
-        page and back here on a correction, and never to api — see journeyToken in compose.ts.
-      #}
-      <input type="hidden" name="{{ journeyField }}" value="{{ token }}">
-
       {% for f in compose.fields %}
         {{ govukCharacterCount({
           id: f.name,

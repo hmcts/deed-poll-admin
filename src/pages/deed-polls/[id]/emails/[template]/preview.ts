@@ -24,7 +24,7 @@
 import { InvalidInputError, previewCaseEmail, validateEmailSlots } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
-import { en as composeEn, type EmailJourney, hasControl, JOURNEY_FIELD, loadEmailJourney, renderCompose, submittedSlots } from "./compose.js";
+import { en as composeEn, type EmailJourney, hasControl, loadEmailJourney, renderCompose, submittedSlots } from "./compose.js";
 
 export const en = {
   title: "Check the email before sending",
@@ -168,8 +168,6 @@ function render(res: Response, journey: EmailJourney, slots: Record<string, stri
   res.render("deed-polls/email-preview", {
     case: journey.found,
     compose: journey.compose,
-    token: journey.token,
-    journeyField: JOURNEY_FIELD,
     // The checked values, carried as hidden controls: what was approved is what the send posts, so nothing can be
     // rendered for approval and then sent different.
     slots: Object.entries(slots).map(([name, value]) => ({ name, value })),
