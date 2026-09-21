@@ -715,7 +715,7 @@ still has no link to `/judicial/**` (CLAUDE.md's persona section, flagged by adm
 ## Out of scope
 
 - Case notes for every referral lifecycle transition — recommendation 2, **delivered 2026-09-21 by
-  `../referrals-admin-5-lifecycle-case-notes.md`** with no page code: api writes the notes and the Notes tab
+  `referrals-admin-5-lifecycle-case-notes.md`** with no page code: api writes the notes and the Notes tab
   this plan left in place is where they are read.
 - A judicial “My referrals” query or screen — recommendation 3, **delivered 2026-09-21 by
   `referrals-admin-6-judicial-my-referrals.md`** against api follow-up 6's `GET /judicial/referrals/mine`. It is

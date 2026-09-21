@@ -1,12 +1,12 @@
 # Plan: referrals to the judiciary (admin 3 of 3) — the judicial screen
 
-> **Follow-up, delivered 2026-09-21:** `../referrals-admin-5-lifecycle-case-notes.md` updated the in-memory
+> **Follow-up, delivered 2026-09-21:** `referrals-admin-5-lifecycle-case-notes.md` updated the in-memory
 > API and the end-to-end coverage now that the API records claim and direction events in the case notes this
 > screen already displays. No page or view-model change was needed — the notes arrive in `caseNotes` as they
 > always did — but **decision 4 below is amended**: a judge still authors no note, and a claim and a direction
 > now each append one credited to them, so a judge's own name appears in this read-only timeline.
 >
-> `../referrals-admin-6-judicial-my-referrals.md` closes this plan's known navigation gap by adding the
+> `referrals-admin-6-judicial-my-referrals.md` closes this plan's known navigation gap by adding the
 > API-backed personal list a judge needs to recover `Claimed` and `Decided` referrals.
 
 ## Overview
@@ -232,7 +232,7 @@ admin-0.
    admin-only field. Notes render read-only (no add-note control on this screen — a judge authors no note,
    api-3 decision: writes are exactly claim + direct).
 
-   **Amended 2026-09-21 by `../referrals-admin-5-lifecycle-case-notes.md`.** "A judge does not write notes" was
+   **Amended 2026-09-21 by `referrals-admin-5-lifecycle-case-notes.md`.** "A judge does not write notes" was
    true of what a judge can *type* and is no longer true of what appears: api's claim and direction each append
    a lifecycle note credited to the judge who made it, and this screen shows it. The decision itself stands —
    still read-only, still no add-note control, still nothing the screen adds to what api sends.
@@ -339,7 +339,7 @@ admin-0.
   carries the caller's `Decided` referrals alongside their `Claimed` ones until a caseworker actions the direction.
   It is deliberately not the history list this item imagined: `Withdrawn` and `Closed` are still not on any
   judicial list, and permanent history remains out of scope (admin-6 "Out of scope").
-- ~~**Superseded by `../referrals-admin-6-judicial-my-referrals.md`: a referral a judge has claimed but not yet
+- ~~**Superseded by `referrals-admin-6-judicial-my-referrals.md`: a referral a judge has claimed but not yet
   directed has no route back to it, and that is api's to fix before admin can consume it, not
   this screen's.**~~ **Fixed. `referrals-admin-6` shipped `/judicial/referrals/mine` on 2026-09-21**, against api
   follow-up 6's `GET /judicial/referrals/mine` (api PR #36). For the record of what the gap was: item 1 above says
