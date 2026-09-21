@@ -909,9 +909,67 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
   whether Task 5a ran**, so a lower count is explained rather than looking like lost tests.
 - Re-read this file's `[PROVISIONAL]` markers and confirm none survived.
 
-- [ ] The journey passes end to end with axe clean, coverage above 90% on the new code, every `[PROVISIONAL]`
+- [x] The journey passes end to end with axe clean, coverage above 90% on the new code, every `[PROVISIONAL]`
       marker gone, the test count recorded against the baseline, and `yarn lint`, the unit suite and
       `yarn test:e2e` all green
+
+      **Done 2026-09-21.** `e2e-tests/tests/emails.spec.ts` — **two** tests, not one: the send that goes (the tab
+      explaining why nothing can be sent yet, the button that appears once a Master has refused, the wording, the
+      check page, the send, the content page, and a second click that is a success) and the send api refuses,
+      which is a different journey because nothing typed is wrong and no wording would fix it. Six axe scans in
+      the first and one in the second, inline at the points the journeys pass through. `yarn test:e2e`:
+      **37 passed** against 35 before.
+
+      **Task 5a ran — notify-5 had shipped, so nothing was skipped** and the count is not to be read as short.
+      `npx turbo test test:app --concurrency=1` → `8 successful, 8 total`, **160 test files, 2,854 tests**, against
+      Task 0's baseline of 150 files and 2,601: **+10 files, +253 tests**, all this plan's. `yarn lint` exits 0 with
+      the same 2 pre-existing `noUndeclaredEnvVars` warnings on `REDIS_URL` it had on `master`. The baseline's
+      3 skipped tests ran again here (`session-store.test.ts` with Redis up), which is why the arithmetic is against
+      2,601 rather than 2,598.
+
+      | Package | Files | Tests |
+      |---|---|---|
+      | root app (`//`) | 72 | 1,158 |
+      | `@hmcts/deed-poll` | 55 | 980 |
+      | `@hmcts/deed-poll-api-client` | 4 | 378 |
+      | `@hmcts-cft/cloud-native-platform` | 10 | 140 |
+      | `@hmcts-cft/express-govuk-starter` | 12 | 127 |
+      | `@hmcts-cft/simple-router` | 4 | 41 |
+      | `@hmcts-cft/express-session-postgres` | 2 | 23 |
+      | `@hmcts-cft/express-session-redis` | 1 | 7 |
+
+      **Coverage is above the 90% target on every file this plan added.** `yarn test:coverage`: the journey's pages
+      `compose.ts`, `preview.ts` and `send.ts` are 100% of statements and 97.29% of branches (one uncovered branch,
+      `preview.ts:90`), `[notificationId].ts` is 100% of everything, and `libs/deed-poll/src/emails` is 97.59% /
+      94.18% in its own package run with `service.ts` and `slot-validation.ts` at 100%. Flag 6 is therefore
+      answered: the target survived Task 5a's extra page.
+
+      **No `[PROVISIONAL]` marker is live.** The ten remaining occurrences of the word in this file are the
+      struck-through history in the section at the top, decision 8's struck-through claim, and the instructions
+      that told Task 0 to clear them — checked line by line rather than by a count.
+
+      **Three findings, the first two about running this suite rather than about the feature.**
+
+      1. **The journey needs `test.slow()`, and the symptom of not having it is misleading.** It is 47 seconds under
+         three workers — four form round trips, six axe scans and a second sign-in for the Welsh check — against
+         Playwright's 30-second default, and what a timeout mid-scan reports is
+         `browserContext.newPage: Protocol error (Target.createTarget)` from inside `AxeBuilder`, with a link to
+         axe's error-handling page. That reads as the sandboxed `iframe` having broken axe, which it has not: the
+         same scan passes on the same page given the time. Splitting the journey to fit the default would cost
+         exactly what the file is for, which is that the typing survives each step.
+      2. **Playwright's `webServer` cannot start the app from inside a git worktree, and this is not a repo defect.**
+         `yarn dev:nowatch:web` runs `yarn dev:up`, and `docker compose` names its project after the directory — so
+         from a worktree it tries to create `deed-poll-redis` and `deed-poll-idam` again and exits on the name
+         conflict with the containers the main checkout already has. `docker-compose.yml` shares those containers
+         between repos deliberately, so the answer is to start the mock and the app by hand without `dev:up` and let
+         `reuseExistingServer` find them, which is how this run was made. Worth knowing before reading the failure
+         as a broken suite.
+      3. **api's 409 is not drivable from a browser, and the spec says so at the code.** A 409 means the case is in
+         no state to send this email, and `loadEmailJourney` 404s on that same condition when the page loads — so
+         reaching it needs the case to stop being sendable *between* the compose read and the send, which nothing in
+         the contract can do to a Rejected referral. It stays covered in `send.test.ts`. The 422 for a case with no
+         `applicantEmail` **is** reachable, which is what the second test drives: api checks the recipient at the
+         send and not in availability, so the tab offers the button exactly as a caseworker finds it.
 
 ---
 
