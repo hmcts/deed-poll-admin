@@ -1183,7 +1183,12 @@ describe("the judicial referral routes", () => {
       ["displayReference", "newForename", "newMiddleName", "newSurname", "oldForename", "oldMiddleName", "oldSurname", "type"].sort()
     );
     expect(detail.application).toMatchObject({ displayReference: "KBDP2026-00001", newForename: "Jo" });
-    expect(detail.caseNotes).toEqual([{ note: "Chased the declarant", createdBy: MOCK_CASEWORKER, createdOn: expect.any(String) }]);
+    // Newest first, so the note the raise wrote leads and the caseworker's own follows — the timeline reaches a
+    // judge unfiltered, which is asserted properly in "the case notes a referral writes as it moves".
+    expect(detail.caseNotes).toEqual([
+      { note: expect.stringContaining("Referred to the judiciary"), createdBy: MOCK_CASEWORKER, createdOn: expect.any(String) },
+      { note: "Chased the declarant", createdBy: MOCK_CASEWORKER, createdOn: expect.any(String) }
+    ]);
     // No case id anywhere on the response: a judge must not be able to name an application.
     expect(JSON.stringify(detail)).not.toContain(seeded.id);
   });
@@ -1296,6 +1301,180 @@ describe("the judicial referral routes", () => {
     const { referralId } = await referredCase();
 
     expect((await fetch(`${mock.url}/judicial/referrals/${referralId}/notes`)).status).toBe(404);
+  });
+});
+
+/**
+ * api's `ReferralNotes`, reproduced by the mock and asserted here rather than through the adapter: the wording is
+ * observable behaviour no part of `openapi.json` describes, so nothing else can fail when it drifts.
+ *
+ * The prose is asserted in full where it is short enough to read, not by `toContain` alone — a note that
+ * silently lost its Gazette sentence would still contain every fragment a looser test looked for.
+ */
+describe("the case notes a referral writes as it moves", () => {
+  const CASEWORKER = "caseworker@example.com";
+  const JUDGE = "judge@example.com";
+  const OFFICE = "office@example.com";
+
+  it("should write one note per successful transition, attributed to whoever made it", async () => {
+    const { caseId, referralId } = await referredCase({ reasons: ["Minor"] }, CASEWORKER);
+
+    await post(`/judicial/referrals/${referralId}/claim`, undefined, as(JUDGE));
+    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(JUDGE));
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`, undefined, as(OFFICE));
+
+    const notes = await notesOn(caseId);
+    // Four transitions, four notes — and the closure's author is the caseworker who actioned the direction
+    // rather than the judge who gave it, which is the one attribution easy to get wrong.
+    expect(notes.map((note) => note.createdBy)).toEqual([OFFICE, JUDGE, JUDGE, CASEWORKER]);
+    // Both audit columns stamped on create, with the same instant: that is what makes the grid's "Not edited"
+    // true of a note nobody has touched.
+    expect(notes.every((note) => note.createdOn === note.modifiedOn && note.modifiedBy === note.createdBy)).toBe(true);
+    // Each note is stamped when its transition happened, not when the referral was raised — so none of them can
+    // predate the referral they describe. Zoneless ISO strings, which compare lexicographically.
+    const referral = await get(`/caseworker/cases/${caseId}/referrals/${referralId}`);
+    expect(notes.every((note) => note.createdOn >= referral.createdOn)).toBe(true);
+  });
+
+  it("should expose the raise, claim, direction and closure as one timeline, newest first", async () => {
+    // The whole sequence in one test, because the order is the point: a caseworker opening the Notes tab on a
+    // case that has been to the judiciary and back reads what happened, latest first.
+    const { caseId, referralId } = await referredCase({ reasons: ["Minor"] });
+    await post(`/judicial/referrals/${referralId}/claim`, undefined, as(JUDGE));
+    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(JUDGE));
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`);
+
+    const notes = await notesOn(caseId);
+
+    const raised = await raisedOn(caseId, referralId);
+    expect(notes.map((note) => note.note)).toEqual([
+      `Judicial direction for referral raised on ${raised}, reasons: Minor, marked as actioned.`,
+      `Judicial direction recorded for referral raised on ${raised}, reasons: Minor.` +
+        " Decision: Approved. Publish to the London Gazette: Yes. See the referral for the full direction.",
+      `Referral raised on ${raised}, reasons: Minor, claimed by the judiciary.`,
+      "Referred to the judiciary. Reasons: Minor."
+    ]);
+  });
+
+  it("should record a withdrawal beside the raise, naming which referral it was", async () => {
+    // The pre-direction branch, where a case's timeline has to say the referral left and came back with nothing
+    // in between — and name the referral, because a case may carry several over its life.
+    const { caseId, referralId } = await referredCase({ reasons: ["Minor", "DomesticAbuse"] });
+
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
+
+    const raised = await raisedOn(caseId, referralId);
+    expect((await notesOn(caseId)).map((note) => note.note)).toEqual([
+      `Referral to the judiciary withdrawn. It was raised on ${raised}, reasons: Minor, DomesticAbuse.`,
+      "Referred to the judiciary. Reasons: Minor, DomesticAbuse."
+    ]);
+  });
+
+  it("should put the caseworker's urgency reason and their notes on their own lines, trimmed", async () => {
+    const seeded = mock.seed(null);
+
+    await post(`/caseworker/cases/${seeded.id}/referrals`, {
+      reasons: ["Other"],
+      notes: "  Unusual circumstances  ",
+      urgency: "Urgent",
+      urgencyReason: "  Hearing on Friday.  "
+    });
+
+    // A line each rather than run into the sentence before with a full stop the composer would have to add:
+    // theirs is prose they wrote, and one already ending in a stop would read as "Friday..".
+    const [raised] = await notesOn(seeded.id);
+    expect(raised.note).toBe("Referred to the judiciary. Reasons: Other.\nMarked urgent: Hearing on Friday.\nNotes: Unusual circumstances");
+  });
+
+  it("should point at the referral for the full direction rather than copying it into the note", async () => {
+    // api allows a direction to be twice what a note may hold, so copying it would compose a note api's own
+    // validator refuses — and a truncated copy would read as the whole of a judicial direction.
+    const { caseId, referralId } = await claimedReferral(JUDGE);
+    const directions = "The applicant must file the missing evidence. ".repeat(80);
+
+    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Rejected", publishToGazette: false, directionsText: directions }, as(JUDGE));
+
+    const [directed] = await notesOn(caseId);
+    expect(directed.note).toContain("Decision: Rejected.");
+    // Spelled out, never abbreviated to the presence of a word: publication names the applicant in a public
+    // notice, so "not published" and "nothing recorded" must not read alike.
+    expect(directed.note).toContain("Publish to the London Gazette: No.");
+    expect(directed.note).toContain("See the referral for the full direction.");
+    expect(directed.note).not.toContain("must file the missing evidence");
+    expect(directed.note.length).toBeLessThanOrEqual(2000);
+    // The full text is still on the referral, which is where the note sends the reader.
+    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).directionsText).toBe(directions.trim());
+  });
+
+  it("should write nothing for a refused withdrawal, claim or direction, so the timeline claims only what happened", async () => {
+    const { caseId, referralId } = await decidedReferral(JUDGE);
+    const before = await notesOn(caseId);
+
+    expect((await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`)).status).toBe(409);
+    expect((await post(`/judicial/referrals/${referralId}/claim`, undefined, as(JUDGE))).status).toBe(409);
+    expect((await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(JUDGE))).status).toBe(409);
+
+    expect(await notesOn(caseId)).toEqual(before);
+  });
+
+  it("should write nothing for a refused closure or a refused raise", async () => {
+    const { caseId, referralId } = await referredCase();
+    const before = await notesOn(caseId);
+
+    // Open, so there is no direction to have actioned; and a second referral while the first is in play.
+    expect((await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`)).status).toBe(409);
+    expect((await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] })).status).toBe(409);
+    // A body the schema refuses, on a case with no live referral at all: the note must not be written before
+    // the referral it describes.
+    const other = mock.seed(null);
+    expect((await post(`/caseworker/cases/${other.id}/referrals`, { reasons: [] })).status).toBe(400);
+
+    expect(await notesOn(caseId)).toEqual(before);
+    expect(await notesOn(other.id)).toEqual([]);
+  });
+
+  it("should show a judge the same generated events as the caseworker, and leave the stored order alone", async () => {
+    const { caseId, referralId } = await referredCase();
+    await post(`/judicial/referrals/${referralId}/claim`, undefined, as(JUDGE));
+
+    const judicial = await (await fetch(`${mock.url}/judicial/referrals/${referralId}`, { headers: as(JUDGE) })).json();
+    const listed = await notesOn(caseId);
+    const detail = await get(`/caseworker/cases/${caseId}`);
+
+    // No filter by origin, author or anything else on the judicial projection: a note a referral wrote reaches
+    // a judge by construction, which is what makes the two timelines one.
+    expect(judicial.caseNotes).toEqual(listed.map((note) => ({ note: note.note, createdBy: note.createdBy, createdOn: note.createdOn })));
+    // The case detail publishes the stored array, which api orders ascending — the same notes the other way
+    // round rather than a second timeline. Sorting in place would have made this the same order as above.
+    expect(detail.notes.map((note: { note: string }) => note.note)).toEqual([...listed].reverse().map((note) => note.note));
+    // And a second read answers what the first did, which a sort in place would not.
+    expect(await notesOn(caseId)).toEqual(listed);
+  });
+
+  it("should leave a hand-written note in the same timeline as the generated ones, amendable as ever", async () => {
+    // Lifecycle entries are ordinary case notes: nothing here marks them, and the caseworker's own note is
+    // ordered among them by when it was written.
+    const { caseId, referralId } = await referredCase();
+    const written = await (await post(`/caseworker/cases/${caseId}/notes`, { note: "Chased the declarant" })).json();
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`);
+
+    const patched = await patch(`/caseworker/cases/${caseId}/notes/${written.id}`, { note: "Declarant called back" });
+
+    expect(patched.status).toBe(200);
+    expect((await notesOn(caseId)).map((note) => note.note)).toEqual([
+      expect.stringContaining("Referral to the judiciary withdrawn"),
+      "Declarant called back",
+      "Referred to the judiciary. Reasons: Minor."
+    ]);
+  });
+
+  it("should write no lapse note, because the inactivity sweep is not modelled here", async () => {
+    // The sixth of api's lifecycle notes, and the one no page can drive: the sweep is a window on api's clock.
+    // Asserted so the gap is a recorded limitation rather than something a reader has to infer from its absence.
+    const { caseId, referralId } = await claimedReferral(JUDGE);
+
+    expect((await notesOn(caseId)).some((note) => note.note.includes("lapsed"))).toBe(false);
+    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).state).toBe("Claimed");
   });
 });
 
@@ -1445,11 +1624,29 @@ function as(subject: string): Record<string, string> {
 }
 
 /** A seeded case carrying one referral raised over HTTP, which is where every referral journey starts. */
-async function referredCase(body: Record<string, unknown> = { reasons: ["Minor"] }): Promise<{ caseId: string; referralId: string }> {
+async function referredCase(body: Record<string, unknown> = { reasons: ["Minor"] }, raisedBy?: string): Promise<{ caseId: string; referralId: string }> {
   const seeded = mock.seed(null);
-  const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, body)).json();
+  const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, body, raisedBy === undefined ? {} : as(raisedBy))).json();
 
   return { caseId: seeded.id, referralId: created.id };
+}
+
+/** A case's timeline as `GET …/notes` answers it — newest first, which is what the note assertions are about. */
+async function notesOn(caseId: string): Promise<{ note: string; createdBy: string; modifiedBy: string; createdOn: string; modifiedOn: string }[]> {
+  return get(`/caseworker/cases/${caseId}/notes`);
+}
+
+/**
+ * The day a referral was raised, as its lifecycle notes date it.
+ *
+ * Read back off the referral and formatted the way the mock formats it, rather than assumed to be today: a suite
+ * running either side of midnight UTC would otherwise fail on the date and say nothing about the prose. The `Z`
+ * is added because api's date-times are zoneless, so the string would otherwise be read as local time.
+ */
+async function raisedOn(caseId: string, referralId: string): Promise<string> {
+  const referral = await get(`/caseworker/cases/${caseId}/referrals/${referralId}`);
+
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${referral.createdOn}Z`));
 }
 
 /** The same, claimed by one judge — the state every judicial write but the claim starts from. */

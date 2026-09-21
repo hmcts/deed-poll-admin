@@ -16,7 +16,7 @@
  * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
  * Both, because api's actuator serves both and `checkApiReachable` deliberately probes the liveness group.
  *
- * **Eleven of api's rules are restated here, and only eleven.** A mock that applied none of them would let a
+ * **Twelve of api's rules are restated here, and only twelve.** A mock that applied none of them would let a
  * page ship having never seen a real reference number or a derived state:
  *
  *   1. Reference-number allocation — the year from Date Received, the prefix from Type, a per-year serial.
@@ -42,24 +42,30 @@
  *      with no applicant email address, and one email per referral. Restated because every one of them is a
  *      state the Email tab has to render, and the last is the difference between a redundant send being a
  *      success and being an error. See `emails`, `composeEmail` and `enqueueEmail`.
+ *  12. The case notes a referral writes as it moves — raised, claimed, directed, actioned and withdrawn — and
+ *      the order the two note reads publish them in. Restated because the Notes grid is the only place this
+ *      app shows a referral's history, so a mock that wrote none would let the caseworker and judicial
+ *      timelines ship against a case that looks as though the referral had never moved. See
+ *      `referralRaisedNote` and `appendNote`; the wording's authority is api's `ReferralNotes`.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
- * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `JudicialReferralService`, `CaseEmailService` and
- * `IdamAuthenticationConverter` — not this file. Everything else api does (the
+ * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `ReferralNotes`, `JudicialReferralService`,
+ * `CaseEmailService` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
  * privacy lock, the minor and Gazette write gates, create-time defaults, the saved-query permission rules —
  * see `savedQuery`) is deliberately NOT modelled: no
  * page's behaviour depends on it, and a half-copy would be a second opinion to keep in step. If a page
  * ever does depend on one, model it here and say so in this list.
  *
- * Three referral-shaped omissions, each for one of those reasons rather than by oversight:
+ * Two referral-shaped omissions, each for one of those reasons rather than by oversight:
  *
  *   - **The `caseworker-deedpoll-judicial` role gate on `/judicial/**`.** This mock reads a name out of a
  *     token and no roles, exactly as it reads none for the saved-query and witness-delete gates, so a 403
  *     is not a state it can produce. api's gate is api's own test.
  *   - **The inactivity sweep that hands a forgotten claim back to the pool.** It is a two-hour window on
- *     api's clock and nothing a page can drive, so a mock of it would be untestable machinery.
- *   - **The case notes api writes when a referral is raised, withdrawn or lapses.** The wording is api's
- *     `ReferralNotes`, and a copy of it here would be a second opinion on text this app only renders.
+ *     api's clock and nothing a page can drive, so a mock of it would be untestable machinery. It takes the
+ *     sixth of api's lifecycle notes with it: `ReferralNotes.claimLapsed` is the only one this mock never
+ *     writes, because the only event that writes it is the sweep. Nothing here should grow a timer to reach
+ *     it — a page cannot drive one either.
  *
  * **On the email surface this mock stands in for GOV.UK Notify as well as for api**, which none of the other
  * routes require. Three consequences, all deliberate:
@@ -165,6 +171,15 @@ const MIGRATED_RELAXED_FIELDS = [
  * api date is read stays `wire.ts`.
  */
 const SEEDABLE_CASE = WIRE_SCHEMAS.SavedCaseResponse.partial();
+
+/**
+ * How a lifecycle note dates the referral it is about — api's `ReferralNotes.DAY`, `d MMMM yyyy`.
+ *
+ * The day rather than the instant, because a caseworker reads it in a grid. Formatted in UTC for the reason
+ * `iso` publishes UTC: api's timestamps are zoneless `LocalDateTime`s, so a note formatted in the local zone
+ * would date a midnight referral to the previous day west of Greenwich.
+ */
+const NOTE_DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
 /** api's `DeedPollService.WITNESSES_REQUIRED_FOR_ENROLMENT`. Restated because this file plays api. */
 const WITNESSES_REQUIRED_FOR_ENROLMENT = 2;
@@ -472,7 +487,9 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
   async function notes(req: IncomingMessage, res: ServerResponse, method: string, record: MockCase, noteId: string | undefined): Promise<void> {
     if (noteId === undefined) {
-      if (method === "GET") return send(res, 200, record.notes.map(toWireNote));
+      // Newest first, as `NoteService.findNotes` orders it — and unlike the `notes` on the case detail, which
+      // api publishes oldest first. See `newestFirst` for why the two differ.
+      if (method === "GET") return send(res, 200, newestFirst(record.notes).map(toWireNote));
       if (method === "POST") {
         const parsed = WIRE_SCHEMAS.CreateNoteRequest.safeParse(await readJsonBody(req));
         if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
@@ -673,13 +690,27 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       // answering 200 would tell them their click did something it did not.
       if (!canBeWithdrawn(referral.state)) return send(res, 409, { error: withdrawalRefusal(id, referral.state) });
 
-      return send(res, 200, toWireReferral(transition(record, referral, auditName(req), { state: "Withdrawn" })));
+      // The note is written after the transition and never beside the guard above, which is what makes a
+      // refused withdrawal leave the timeline alone — api writes it inside the same transaction for that
+      // reason. Written here rather than inside `transition` because each event has its own prose and its own
+      // author: a helper that wrote one note for every transition would put a withdrawal's words on a claim.
+      const withdrawnBy = auditName(req);
+      const withdrawn = transition(record, referral, withdrawnBy, { state: "Withdrawn" });
+      appendNote(record, referralWithdrawnNote(withdrawn), withdrawnBy);
+
+      return send(res, 200, toWireReferral(withdrawn));
     }
 
     if (method === "POST" && action === "closure") {
       if (referral.state !== "Decided") return send(res, 409, { error: `Referral ${id} is ${referral.state} and can only be closed once it is Decided` });
 
-      return send(res, 200, toWireReferral(transition(record, referral, auditName(req), { state: "Closed" })));
+      // The caseworker who actioned the direction, not the judge who gave it: `decidedBy` on the referral still
+      // says who directed it, and this note's author is who carried it out.
+      const closedBy = auditName(req);
+      const closed = transition(record, referral, closedBy, { state: "Closed" });
+      appendNote(record, referralActionedNote(closed), closedBy);
+
+      return send(res, 200, toWireReferral(closed));
     }
 
     return send(res, 405, { error: `no such route: ${method} on a referral` });
@@ -732,6 +763,9 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       modifiedOn: now
     };
     record.referrals.push(created);
+    // The caseworker who raised it, from the same token the referral's own audit columns took — api writes the
+    // note inside the create's transaction, so a refused create leaves none.
+    appendNote(record, referralRaisedNote(created), author);
     refreshCurrentReferralState(record);
 
     return send(res, 201, toWireReferral(created));
@@ -889,6 +923,9 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
       const now = new Date();
       transition(record, referral, judge, { state: "Claimed", claimedBy: judge, claimedAt: now, modifiedOn: now });
+      // The claiming judge, not the service account: a person did this, and their name in `createdBy` is why the
+      // prose does not name them a second time.
+      appendNote(record, referralClaimedNote(referral), judge);
 
       return send(res, 200, toWireJudicialDetail(record, referral));
     }
@@ -915,6 +952,9 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
         decidedBy: judge,
         modifiedOn: now
       });
+      // Composed after the transition, so the note reads the decision and the Gazette answer as they were
+      // stored rather than as they arrived — api composes it from the saved referral for the same reason.
+      appendNote(record, referralDirectedNote(referral), judge);
 
       return send(res, 200, toWireJudicialDetail(record, referral));
     }
@@ -1626,6 +1666,13 @@ function toSaved(record: MockCase): unknown {
   };
 }
 
+/**
+ * One case in full, with the three child lists the detail response carries.
+ *
+ * All three in stored order, which is oldest first and is api's: `DeedPoll`'s associations each declare
+ * `@OrderBy("createdOn ASC")`, so the detail response's `notes` are the opposite way round from the notes
+ * `GET …/notes` answers. **Do not sort here to match that route** — see `newestFirst`.
+ */
 function toDetail(record: MockCase): unknown {
   return {
     ...(toSaved(record) as object),
@@ -1706,6 +1753,141 @@ function withdrawalRefusal(id: string, state: ReferralState): string {
   return state === "Decided"
     ? `Referral ${id} is Decided -- a direction has been recorded on it and must be actioned and the referral closed, rather than withdrawn`
     : `Referral ${id} is already ${state} and cannot be withdrawn`;
+}
+
+/**
+ * The note a raised referral writes: what it says, and why it is urgent if it is.
+ *
+ * **The five composers below reproduce api's `ReferralNotes` word for word**, at the commit
+ * `referrals-admin-5` reconciled against (api `7226fc9`). That is deliberate duplication and the one place
+ * this mock copies prose: the text is observable behaviour no part of `openapi.json` describes, so nothing but
+ * a copy makes the Notes grid locally look like the Notes grid deployed. api's file is the authority —
+ * **reword there first**, then here. Nothing parses any of it.
+ *
+ * Composed from the stored referral rather than from the request body, where api composes this one from the
+ * DTO: api's schema trims each optional and treats a blank as absent, which is exactly what `createReferral`
+ * stores, so the two agree and the mock has one source for the note instead of two.
+ */
+function referralRaisedNote(referral: MockReferral): string {
+  // Each piece of the caseworker's own text on its own line rather than run into the sentence before it with
+  // a full stop this would have to add — api's reasoning: their text is prose they wrote, and one that
+  // already ended in a stop would read as "Friday..".
+  const lines = [`Referred to the judiciary. Reasons: ${referral.reasons.join(", ")}.`];
+  if (referral.urgency === "Urgent" && referral.urgencyReason) lines.push(`Marked urgent: ${referral.urgencyReason}`);
+  if (referral.notes) lines.push(`Notes: ${referral.notes}`);
+
+  return lines.join("\n");
+}
+
+/**
+ * The note for a judge taking a referral out of the pool.
+ *
+ * Says the judiciary has it rather than naming the judge: the note's `createdBy` is that judge, so naming
+ * them in the prose would put the same name in the grid twice.
+ */
+function referralClaimedNote(referral: MockReferral): string {
+  return `Referral ${identifiesReferral(referral)}, claimed by the judiciary.`;
+}
+
+/**
+ * The note for a judge's direction coming back: what they decided, and whether it goes in the Gazette.
+ *
+ * **A summary, and deliberately not a copy of `directionsText`** — api allows a direction to be twice what a
+ * note may hold, so copying it would compose a note api's own validator refuses, and truncating it would put
+ * an incomplete second version of a judicial direction on the timeline reading as though it were the whole of
+ * it. The referral's own page has the full text, so the note points at it.
+ */
+function referralDirectedNote(referral: MockReferral): string {
+  return (
+    `Judicial direction recorded for referral ${identifiesReferral(referral)}.` +
+    ` Decision: ${referral.decision ?? "not recorded"}.` +
+    ` Publish to the London Gazette: ${gazetteAnswer(referral.publishToGazette)}.` +
+    " See the referral for the full direction."
+  );
+}
+
+/** The note for the office acknowledging that a returned direction has been carried out. */
+function referralActionedNote(referral: MockReferral): string {
+  return `Judicial direction for referral ${identifiesReferral(referral)}, marked as actioned.`;
+}
+
+/**
+ * The note for a withdrawn referral, naming when it was raised and what for.
+ *
+ * Said again rather than left to the reader to pair up with the raised note: a case may carry several
+ * referrals over its life, and a bare "referral withdrawn" in a grid of thirty notes does not say which.
+ */
+function referralWithdrawnNote(referral: MockReferral): string {
+  return `Referral to the judiciary withdrawn. It was ${identifiesReferral(referral)}.`;
+}
+
+/**
+ * Which referral a note is about, in terms a caseworker can recognise — api's `identifies()` fragment, shared
+ * by four of the five composers so the notes of one referral pair up in the grid.
+ *
+ * **Never the id**: it is a uuid, and nobody matches two of those by eye. Nothing of the applicant's either —
+ * the note is already under their case. A referral with no reasons is a backfilled one, so it says so rather
+ * than trailing off; the raised note above has no such fallback, because api's does not.
+ */
+function identifiesReferral(referral: MockReferral): string {
+  const reasons = referral.reasons.length > 0 ? referral.reasons.join(", ") : "no reasons recorded";
+
+  return `raised on ${NOTE_DAY.format(referral.createdOn)}, reasons: ${reasons}`;
+}
+
+/**
+ * The Gazette answer as Yes or No, or that it was never recorded.
+ *
+ * Spelled out and never abbreviated to the presence of a word, which is api's rule and its reason: publication
+ * puts the applicant's former and new names in a public notice, so "not published" and "nothing recorded" must
+ * not read alike. Unreachable through the direction route, which stores both halves.
+ */
+function gazetteAnswer(publish: boolean | null | undefined): string {
+  if (publish === null || publish === undefined) return "not recorded";
+
+  return publish ? "Yes" : "No";
+}
+
+/**
+ * Write a note onto a case's timeline, as api's `NoteService.createNote` writes one.
+ *
+ * Both audit columns are stamped on create and with the same instant, which is api's behaviour and what makes
+ * the grid's `unmodified` flag true: "modified" there means "last written", not "edited since".
+ *
+ * Pushed onto the stored array in insertion order — the reads are what order a timeline, see `newestFirst`.
+ */
+function appendNote(record: MockCase, text: string, author: string): void {
+  const now = new Date();
+  record.notes.push({ id: randomUUID(), note: text, createdOn: now, modifiedOn: now, createdBy: author, modifiedBy: author });
+}
+
+/**
+ * A case's notes newest first — a sorted COPY, because the stored array is the chronology the case detail
+ * publishes and reversing it in place would make one read's order depend on another having happened.
+ *
+ * **Two of the three note reads are newest-first and the third is not, which is api's shape rather than an
+ * inconsistency here.** `GET …/notes` and a judge's `caseNotes` both come from
+ * `NoteService.findNotes` — `findByDeedPollIdOrderByCreatedOnDesc` — while the `notes` on
+ * `GET /caseworker/cases/{id}` come off the entity's `@OneToMany` with `@OrderBy("createdOn ASC")`, oldest
+ * first. So `toDetail` deliberately does NOT call this: making all three newest-first would read as tidiness
+ * and be the drift this mock exists to prevent. (`referrals-admin-5`'s decision 2 asked for all three; api's
+ * source says otherwise and api is the authority. The app's own grid sorts what it is given —
+ * `buildNotesView` — so no page depends on either order.)
+ *
+ * Equal timestamps fall back to insertion order reversed, which api leaves to Postgres: several notes of one
+ * transition sequence land in the same millisecond here, and without a tiebreak the order of a timeline would
+ * be whatever `sort` did with them.
+ */
+function newestFirst(notes: readonly MockNote[]): MockNote[] {
+  return notes
+    .map((note, at) => ({ note, at }))
+    .sort((left, right) => writtenAt(right.note) - writtenAt(left.note) || right.at - left.at)
+    .map((entry) => entry.note);
+}
+
+/** When a note was written, or the epoch for a seeded one carrying no timestamp — which sorts it last. */
+function writtenAt(note: MockNote): number {
+  return note.createdOn ? note.createdOn.getTime() : 0;
 }
 
 /**
@@ -2053,8 +2235,9 @@ function toWireJudicialDetail(record: MockCase, referral: MockReferral): unknown
       newSurname: record.newSurname ?? null
     },
     // The same timeline the caseworker surface publishes, narrowed to the three fields a judge is shown: no
-    // id, because no judicial route accepts one, and no amendment audit trail.
-    caseNotes: record.notes.map((note) => ({ note: note.note, createdBy: note.createdBy ?? null, createdOn: iso(note.createdOn) }))
+    // id, because no judicial route accepts one, and no amendment audit trail. Newest first, because api builds
+    // it from `NoteService.findNotes` — the same read `GET …/notes` uses, not the case detail's association.
+    caseNotes: newestFirst(record.notes).map((note) => ({ note: note.note, createdBy: note.createdBy ?? null, createdOn: iso(note.createdOn) }))
   };
 }
 
