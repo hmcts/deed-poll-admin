@@ -432,7 +432,14 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   // rather than disabled — the same shape as the note and witness deletes above.
   await page.getByRole("link", { name: /view this referral/ }).click();
   await expect(page.getByRole("button", { name: "Withdraw this referral" })).toHaveCount(0);
-  await expect(page.getByText("Withdrawn")).toBeVisible();
+  // Scoped to the status row, because the status now carries a sentence as well as a label: a bare
+  // `getByText("Withdrawn")` matches both, and a bare `.govuk-tag` also catches the phase banner and the
+  // persona strip. The pair is the point — the label is scannable, the sentence says what it means for the case.
+  const referralStatus = page.locator(".govuk-summary-list__row", { hasText: "Referral status" });
+  await expect(referralStatus.locator(".govuk-tag")).toHaveText("Withdrawn");
+  await expect(referralStatus).toContainText("Withdrawn before a direction");
+  // And no closure control either: this referral never had a direction to action.
+  await expect(page.getByRole("link", { name: "Mark direction as actioned" })).toHaveCount(0);
 });
 
 /**

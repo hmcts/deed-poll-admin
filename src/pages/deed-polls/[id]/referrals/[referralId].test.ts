@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../express-doubles.js";
 import { GET } from "./[referralId].js";
 
-// `buildReferralDetail` is the domain's and runs for real: the labels, the placeholders and the one terminal
-// rule are what this page is made of.
+// `buildReferralDetail` is the domain's and runs for real: the labels, the placeholders and the two capability
+// rules are what this page is made of.
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
   findDeedPoll: vi.fn(),
@@ -16,6 +16,18 @@ const found = { id: "case-1", displayReference: "KBDP2026-00001", notes: [], wit
 const PARAMS = { id: "case-1", referralId: "ref-1" };
 
 const CALLER = { accessToken: "session-token" };
+
+/** A judge's answer, as api publishes it on a `Decided` or `Closed` referral. */
+const DIRECTED = {
+  state: "Decided",
+  claimedBy: "A Judge",
+  claimedAt: new Date("2026-05-14T09:00:00Z"),
+  decision: "Approved",
+  directionsText: "Serve the notice on the second respondent.",
+  publishToGazette: true,
+  decisionDate: new Date("2026-05-15T10:30:00Z"),
+  decidedBy: "A Judge"
+};
 
 const REFERRAL = {
   id: "ref-1",
@@ -101,7 +113,7 @@ describe("referral view page", () => {
     expect(res.render.mock.calls[0][1].referral.canClose).toBe(false);
   });
 
-  it.each(["Closed", "Withdrawn"] as const)("should offer no withdraw action on a %s referral", async (state) => {
+  it.each(["Closed", "Withdrawn"] as const)("should offer neither action on a %s referral", async (state) => {
     vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, state } as never);
     const res = response();
 
@@ -111,14 +123,117 @@ describe("referral view page", () => {
     expect(res.render.mock.calls[0][1].referral.canClose).toBe(false);
   });
 
+  it("should offer neither action on a state this app cannot read, rather than letting api refuse one", async () => {
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, state: null } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].referral.canWithdraw).toBe(false);
+    expect(res.render.mock.calls[0][1].referral.canClose).toBe(false);
+    // Nothing true to say about it either, so the page leaves the sentence out instead of explaining an unknown.
+    expect(res.render.mock.calls[0][1].referral.stateMeaning).toBeNull();
+  });
+
   it("should offer closing and not withdrawing on a referral a judge has directed", async () => {
-    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, state: "Decided" } as never);
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED } as never);
     const res = response();
 
     await GET(request(), res);
 
     expect(res.render.mock.calls[0][1].referral.canWithdraw).toBe(false);
     expect(res.render.mock.calls[0][1].referral.canClose).toBe(true);
+    expect(res.render.mock.calls[0][1].closeHref).toBe("/deed-polls/case-1/referrals/ref-1/close");
+  });
+
+  it("should say a returned direction needs actioning rather than only naming the state", async () => {
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].referral.state).toBe("Direction received");
+    expect(res.render.mock.calls[0][1].referral.stateMeaning).toBe("Direction received — action needed");
+  });
+
+  it("should show the complete returned direction, with the deciding judge and not the last modifier", async () => {
+    // `modifiedBy` is the caseworker throughout — closing the referral would make them the modifier, and reading
+    // the direction's author off that field would credit the judge's decision to them.
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].referral.direction).toEqual({
+      decision: "Approved",
+      directionsText: "Serve the notice on the second respondent.",
+      publishToGazette: true,
+      decidedBy: "A Judge",
+      decidedOn: "15 May 2026 at 11:30am"
+    });
+    expect(res.render.mock.calls[0][1].gazetteAnswer).toBe("Yes");
+  });
+
+  it("should keep the direction readable after closure, since api preserves the judicial fields", async () => {
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED, state: "Closed", modifiedBy: "A Caseworker" } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].referral.direction.decidedBy).toBe("A Judge");
+    expect(res.render.mock.calls[0][1].referral.modifiedBy).toBe("A Caseworker");
+  });
+
+  it("should show no direction section on a referral the judiciary has not answered", async () => {
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].referral.direction).toBeNull();
+  });
+
+  it("should distinguish a direction with no further directions from one that was never given", async () => {
+    // An approval may carry no directions, so the placeholder goes *inside* a section that exists. A referral
+    // with no direction at all has no section — the case above.
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED, directionsText: null } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].referral.direction.directionsText).toBe("Not provided");
+  });
+
+  it.each([
+    { publishToGazette: true, answer: "Yes" },
+    { publishToGazette: false, answer: "No" },
+    // The third state said rather than collapsed: "No" would assert a direction against publication that the
+    // judge never gave.
+    { publishToGazette: null, answer: "Not recorded" }
+  ])("should read a publishToGazette of $publishToGazette as $answer", async ({ publishToGazette, answer }) => {
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED, publishToGazette } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].gazetteAnswer).toBe(answer);
+  });
+
+  it("should show the claim once a judge has picked the referral up", async () => {
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, state: "Claimed", claimedBy: "A Judge", claimedAt: new Date("2026-05-14T09:00:00Z") } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].referral.claim).toEqual({ claimedBy: "A Judge", claimedOn: "14 May 2026 at 10:00am" });
+    expect(res.render.mock.calls[0][1].referral.canWithdraw).toBe(true);
+  });
+
+  it("should show no claim on a referral nobody has picked up, rather than an unrecorded one", async () => {
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].referral.claim).toBeNull();
   });
 
   it("should carry migrated with no reasons, so the page explains the empty cell", async () => {
@@ -131,12 +246,26 @@ describe("referral view page", () => {
     expect(res.render.mock.calls[0][1].referral.reasons).toEqual([]);
   });
 
-  it("should show the refused-withdrawal message when the withdraw route sent the caseworker back", async () => {
+  it("should say the referral is already over when the withdraw route sent the caseworker back from a terminal one", async () => {
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, state: "Closed" } as never);
     const res = response();
 
     await GET(request({ withdraw: "conflict" }), res);
 
-    expect(res.render.mock.calls[0][1].withdrawRefused).toBe(true);
+    expect(res.render.mock.calls[0][1].withdrawRefused).toBe("This referral has already been closed or withdrawn.");
+  });
+
+  it("should not tell a caseworker looking at a returned direction that they have already withdrawn it", async () => {
+    // api's other refusal (api-4): `Decided` is not withdrawable *and* not terminal, so "already withdrawn"
+    // would be false in both halves. The message points at the control the page actually offers.
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED } as never);
+    const res = response();
+
+    await GET(request({ withdraw: "conflict" }), res);
+
+    expect(res.render.mock.calls[0][1].withdrawRefused).toContain("can no longer be withdrawn");
+    expect(res.render.mock.calls[0][1].withdrawRefused).toContain("mark it as actioned");
+    expect(res.render.mock.calls[0][1].withdrawRefused).not.toContain("already been closed or withdrawn");
   });
 
   it("should show no refused-withdrawal message on an ordinary visit", async () => {
@@ -144,7 +273,7 @@ describe("referral view page", () => {
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].withdrawRefused).toBe(false);
+    expect(res.render.mock.calls[0][1].withdrawRefused).toBe("");
   });
 
   it("should 404 for a referral that is not under this case, which is api's answer and not a local check", async () => {

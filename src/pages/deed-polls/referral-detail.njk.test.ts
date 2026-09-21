@@ -2,9 +2,10 @@
  * The referral view's markup, rendered rather than asserted through the view model.
  *
  * The model is asserted in `[id]/referrals/[referralId].test.ts`. What this file exists for is what a model
- * cannot show: that the withdraw control is a **form** and not a link, that it disappears on a referral that
- * cannot be withdrawn rather than being rendered disabled, and that a migrated referral says why it lists no
- * reasons instead of showing an empty cell.
+ * cannot show: that the withdraw control is a **form** and not a link, that "Mark direction as actioned" is a
+ * link because it opens a page, that each disappears on a referral it does not apply to rather than being
+ * rendered disabled, that the direction section is absent until there is one, and that a migrated referral says
+ * why it lists no reasons instead of showing an empty cell.
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,6 +55,18 @@ const REFERRAL = {
   modifiedOn: new Date("2026-05-13T08:44:00Z")
 };
 
+/** A judge's answer, as api publishes it on a `Decided` or `Closed` referral. */
+const DIRECTED = {
+  state: "Decided",
+  claimedBy: "A Judge",
+  claimedAt: new Date("2026-05-14T09:00:00Z"),
+  decision: "Approved",
+  directionsText: "Serve the notice on the second respondent.",
+  publishToGazette: true,
+  decisionDate: new Date("2026-05-15T10:30:00Z"),
+  decidedBy: "A Judge"
+};
+
 const html = (model: Record<string, unknown>): string => environment.render("deed-polls/referral-detail.njk", { ...model, ...(model.en as object) });
 
 async function page(referral: Record<string, unknown>, query: Record<string, unknown> = {}): Promise<string> {
@@ -87,6 +100,32 @@ describe("referral view template", () => {
     expect(rendered).toMatch(/govuk-tag[^"]*govuk-tag--blue/);
     // The caseworker's label, not api's member: the tag says where the referral is, not what its enum is called.
     expect(rendered).toContain("Awaiting a judge");
+    // Decision 3: which status this is. The case header carries one of its own and a direction does not set it.
+    expect(rendered).toContain("Referral status");
+    expect(rendered).toContain("Waiting for a judge to claim");
+  });
+
+  it("should leave the meaning out rather than explain a status it cannot read", async () => {
+    const rendered = await page({ ...REFERRAL, state: null });
+
+    expect(rendered).toContain("Not recorded");
+    expect(rendered).not.toContain("Waiting for a judge to claim");
+    // And neither control, which is the reversal Task 1 made: "not terminal" is no longer evidence of anything.
+    expect(rendered).not.toContain("/withdraw");
+    expect(rendered).not.toContain("/close");
+  });
+
+  it("should show the claim in the progress section once a judge has picked the referral up", async () => {
+    const rendered = await page({ ...REFERRAL, state: "Claimed", claimedBy: "A Judge", claimedAt: new Date("2026-05-14T09:00:00Z") });
+
+    expect(rendered).toContain("Claimed by the judiciary");
+    expect(rendered).toContain("A Judge, 14 May 2026 at 10:00am");
+  });
+
+  it("should show no claim row on a referral nobody has picked up, rather than a placeholder for one", async () => {
+    const rendered = await page(REFERRAL);
+
+    expect(rendered).not.toContain("Claimed by the judiciary");
   });
 
   it("should offer withdraw as a form posting to the withdraw route, because it changes something", async () => {
@@ -100,22 +139,52 @@ describe("referral view template", () => {
   it.each([
     { state: "Closed", label: "Direction actioned" },
     { state: "Withdrawn", label: "Withdrawn" }
-  ])("should render a $state referral read-only, with no withdraw control at all", async ({ state, label }) => {
+  ])("should render a $state referral read-only, with neither control at all", async ({ state, label }) => {
     const rendered = await page({ ...REFERRAL, state });
 
     expect(rendered).not.toContain("Withdraw this referral");
     expect(rendered).not.toContain("/withdraw");
+    expect(rendered).not.toContain("Mark direction as actioned");
+    expect(rendered).not.toContain("/close");
     expect(rendered).toContain(label);
   });
 
-  it("should render no withdraw control on a referral a judge has directed, since api refuses that withdrawal", async () => {
+  it("should replace the withdraw with the mark-as-actioned link on a referral a judge has directed", async () => {
     // Not terminal — the case still holds it — and still not withdrawable: the direction on it is the
-    // caseworker's work to carry out, and Task 3 puts the "mark as actioned" control here in its place.
-    const rendered = await page({ ...REFERRAL, state: "Decided" });
+    // caseworker's work to carry out, so the control that belongs here is the one that says they have.
+    const rendered = await page({ ...REFERRAL, ...DIRECTED });
 
     expect(rendered).not.toContain("Withdraw this referral");
     expect(rendered).not.toContain("/withdraw");
-    expect(rendered).toContain("Direction received");
+    expect(rendered).toContain("Direction received — action needed");
+    // A link and not a form: it opens a confirmation page, and the state-changing POST is that page's.
+    expect(rendered).toContain('href="/deed-polls/case-1/referrals/ref-1/close"');
+    expect(rendered).toContain("Mark direction as actioned");
+    expect(rendered).toContain("Carry out the direction and make any updates the application needs");
+  });
+
+  it("should show the whole returned direction, naming the judge who decided it", async () => {
+    const rendered = await page({ ...REFERRAL, ...DIRECTED, modifiedBy: "A Caseworker" });
+
+    expect(rendered).toContain("Direction from the judiciary");
+    expect(rendered).toContain("Approved");
+    expect(rendered).toContain("Serve the notice on the second respondent.");
+    expect(rendered).toContain("Published in the Gazette");
+    expect(rendered).toContain("Decided by");
+    expect(rendered).toContain("15 May 2026 at 11:30am");
+  });
+
+  it("should show no direction section on a referral the judiciary has not answered", async () => {
+    const rendered = await page(REFERRAL);
+
+    expect(rendered).not.toContain("Direction from the judiciary");
+  });
+
+  it("should say the Gazette answer was not recorded rather than printing No for a direction that gave none", async () => {
+    const rendered = await page({ ...REFERRAL, ...DIRECTED, publishToGazette: null });
+
+    expect(rendered).toContain("Published in the Gazette");
+    expect(rendered).toMatch(/Published in the Gazette[\s\S]*?Not recorded/);
   });
 
   it("should say a migrated referral came from the previous system rather than showing an empty reasons cell", async () => {

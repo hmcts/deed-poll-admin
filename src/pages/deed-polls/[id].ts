@@ -67,7 +67,9 @@ const en = {
   unknownType: "Unknown",
   noteColumns: ["NoteID", "Note", "Created", "Modified"],
   amendNoteHint: "amend this note",
-  referralColumns: ["Raised", "Status", "Reasons", "Urgency"],
+  // Decision 3: "Referral status" and not "Status". This table sits on a case whose own header carries a
+  // `DeedPollState`, and a referral decision does not determine that — so the column says which status it is.
+  referralColumns: ["Raised", "Referral status", "Reasons", "Urgency"],
   raiseReferral: "Refer this case to the judiciary",
   viewReferralHint: "view this referral",
   // Decision 9: the previous system recorded no reasons, so a migrated referral has none and says which it is.

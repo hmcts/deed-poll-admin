@@ -482,8 +482,35 @@ Expand the referral detail page and template:
 Update stale-conflict messages so they do not claim every refused withdrawal was already closed or
 withdrawn. Test null direction text and null Gazette separately from explicit empty/No values.
 
-- [ ] Caseworker can read the complete direction; labels and copy reflect each lifecycle state; controls
+- [x] Caseworker can read the complete direction; labels and copy reflect each lifecycle state; controls
       match capabilities; page/template tests green
+
+#### What Task 3 settled, which Tasks 4–6 build on
+
+- **The referral page is three sections now**, matching decision 4's "separate lifecycle section": the referral's
+  own answers (status, reasons, notes, urgency), **Progress** (Raised, *Claimed by the judiciary* when a judge has
+  picked it up, Last updated), and **Direction from the judiciary** when there is one. The claim row is never
+  placeholdered — a referral nobody has claimed has no claim rather than an unrecorded one.
+- **The status cell is a tag plus `stateMeaning`**, and both the detail page's row and the tab's table column are
+  labelled **"Referral status"** (decision 3) — the case header carries a `DeedPollState` of its own and a
+  direction does not set it. `stateMeaning` is omitted, not placeholdered, when api published no state.
+- **`gazetteAnswer` is resolved in the handler, exactly as `src/pages/judicial/referrals/[referralId].ts` does
+  it.** Three answers, because `publishToGazette` is nullish: `Yes`, `No`, and **"Not recorded"** for a direction
+  that gave none. A template ternary would print "No" and assert a direction against publication.
+- **"Mark direction as actioned" is a link, not a form**, because it opens Task 4's confirmation page; it points
+  at `/deed-polls/{id}/referrals/{referralId}/close`, which **Task 4 must serve at that path** (`closeHref` is
+  built in the handler, so the path is stated once). It renders on `canClose` and sits in the `elif` of the
+  withdraw form, so the two can never both appear.
+- **`withdrawRefused` is a sentence now, not a boolean, and the *page* chooses which** — api-4 gives the
+  withdrawal 409 two meanings and only the fresh read knows which applies. Keyed on `canClose` rather than on the
+  wire state, so the message and the control it names cannot drift: a `Decided` referral says the direction can no
+  longer be withdrawn and must be actioned, and never "already been closed or withdrawn". `withdraw.ts` keeps one
+  flag and its docblock records why the reason is not carried through the redirect.
+- **One e2e assertion needed narrowing, and the reason generalises.** `getByText("Withdrawn")` matched the tag
+  *and* "Withdrawn before a direction"; `.govuk-tag` alone also matches the phase banner and the persona strip. The
+  journey now scopes to the status row — worth knowing for Task 5, which asserts the same pair on `Decided`.
+- Validation after Task 3: **2,685 unit tests** across 8 packages (2,667 after Task 2), `yarn lint` exit 0 with the
+  same 2 warnings and 2 infos, **35 e2e passed** in 3.5m.
 
 ### Task 4: Implement the mark-as-actioned journey
 
