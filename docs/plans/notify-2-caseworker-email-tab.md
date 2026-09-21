@@ -334,9 +334,22 @@ with every other hand-registered write body in this contract.
 3. **`notifyState` is `Pending | Sent | Failed`**, and api's own description says *"Sent means accepted by
    GOV.UK Notify; it does not mean delivered."* That is decision 10's wording constraint already justified at
    source, and `failureReason` is the field that makes a `Failed` row actionable.
-4. **`html` is nullable and so is `body`** — springdoc emits no response nullability, so nothing goes in
-   `STRICT_RESPONSE_PROPERTIES` from this feature. Decision 3 covers the null `html`; decision 15 covers the
-   absent `body`.
+4. **`html` is nullable and so is `body`** — springdoc emits no response nullability, so neither goes in
+   `STRICT_RESPONSE_PROPERTIES`. Decision 3 covers the null `html`; decision 15 covers the absent `body`.
+
+   **Corrected by Task 1, 2026-09-21, reading api's source rather than its document — `html` arrives EMPTY, not
+   null.** `EmailPreview.from` reads the Notify client's two `Optional`s with `orElse("")`, so api cannot
+   currently send null for either `html` or `subject`; an absent rendering is `""`. Both are still **registered
+   nullable**, because a preview that cannot be shown must become a sentence on the page rather than an
+   `invalid-response` that takes the whole journey to the 500 page. **The consequence is Task 5's, and it is a
+   real bug if missed: the fallback must test for empty *or* null.** A check for null alone renders an empty
+   iframe and offers a Send — which is the one outcome decision 3 exists to prevent.
+
+   `STRICT_RESPONSE_PROPERTIES` is therefore not empty for this feature after all, which the sentence above got
+   wrong by conflating "no nullability in the document" with "nothing to pin": the primitives and the always-built
+   collections are pinned exactly as every other response schema's are — `applicable`, `provisioned`, `slots`,
+   `maxLength`, `required`, `fields`, `templateVersion`, `enqueued`, the three arrays of `CaseEmailsResponse`,
+   and the two `id`s. Only the *content* fields are left nullable.
 
 ### notify-5 shipped, so nothing is skipped
 
@@ -547,9 +560,25 @@ Notify substitutes nothing and sends the template with empty slots, with every t
 - **Contingency:** if the document's property names differ from Task 0's reconciliation, the document wins —
   amend this plan, do not adapt the schema to the plan.
 
-- [ ] `openapi.json` refreshed with a new `SPEC-PROVENANCE.md` entry to that file's standard, every new schema
+- [x] `openapi.json` refreshed with a new `SPEC-PROVENANCE.md` entry to that file's standard, every new schema
       registered and every new operation listed, strictness pinned for each, `contract.test.ts` green, and the
       validation commands green
+
+      **Done 2026-09-21.** 35 → 38 operations, 27 → 37 schemas, and the "what changed that was not an addition"
+      section says **nothing** — measured three ways: all 27 pre-existing schemas byte-identical when serialised
+      one at a time, every pre-existing operation byte-identical with **not one `operationId` shifted**, and the
+      file diff 310 insertions / 0 deletions. Both write bodies published their real caps rather than `{}`.
+
+      **One method finding worth the next refresh's time, now in `SPEC-PROVENANCE.md` step 1.**
+      `JSON.stringify(…, null, 2)` alone is not the committed file's formatting — Biome collapses short arrays —
+      so the raw copy reported 1,291 insertions and 221 deletions of pure formatting churn, which makes step 3's
+      "account for every change" unreadable. `npx biome format --write` on the file afterwards is now mandatory.
+
+      Test count **2,632** against the 2,601 baseline: +31, all in `@hmcts/deed-poll-api-client` (327 → 358) and
+      fully accounted for — 20 generic per-schema tests for the ten new schemas, 8 new strictness pins, and 3
+      hand-written ones for what the generic loops cannot see. The root app's 3 previously-skipped tests ran this
+      time (1,032 + 3 skipped → 1,035 passed); that is `session-store.test.ts` finding a Redis it did not have on
+      09-21, not a change of this task's.
 
 ### Task 2: The adapter and its mock
 
@@ -560,8 +589,13 @@ Read first: `libs/deed-poll-api-client/src/api/client.ts` for the `ApiResult` id
 
 - Three client functions, returning `ApiResult<T>`, never throwing, each carrying an `AbortSignal.timeout` as
   the others do.
-- The send function accepts the journey's UUID and supplies it as `Idempotency-Key`; tests pin the exact
-  header and prove a retry reuses it.
+- **The send function takes the two slots and nothing else. ~~The send function accepts the journey's UUID and
+  supplies it as `Idempotency-Key`; tests pin the exact header and prove a retry reuses it.~~** Struck by
+  Task 1, 2026-09-21: this bullet survived Task 0's correction of decision 16, which is the decision it
+  contradicts. There is no `Idempotency-Key` anywhere in api's contract or source, the UUID is admin-local and
+  belongs to Task 5's page handlers, and `contract.test.ts` now pins `additionalProperties: false` on both write
+  bodies so it cannot be smuggled into the body either. What Task 2 does pin instead is that api's **409** comes
+  back as a failed `ApiResult` of kind `conflict` — that is the real double-send protection.
 - Mock handlers for all three, with fixtures covering: a case with a rejected referral (the template is
   sendable), a case without one (it is not), a case with no `applicantEmail` (send is refused), and a case
   with one `Sent` and one `Failed` email in its history. **If notify-5 has shipped, the history fixtures
@@ -701,7 +735,8 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
   prove it** — a fixture with two sendable templates must render two radios without a code change.
 - **Chase-specific UI.** notify-6 adds `chase-missing-documents`, but this plan renders it from the same
   availability, slots and defaults metadata as every other template. The only shared addition is decision 16's
-  idempotency header; do not add a chase route or switch on its key.
+  idempotency **form token**, which is admin-local — ~~header~~, struck by Task 1 for the reason decision 16 gives.
+  Do not add a chase route or switch on its key.
 - **Showing the sent email's content.** Decision 11. **No longer true as of 2026-09-19** — notify-5 serves it
   and decisions 12 to 15 render it on a per-email page. What is still not here: any *storage* of content in
   this repo, which decision 11's first sentence keeps.

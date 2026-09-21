@@ -49,6 +49,9 @@ const IMPLEMENTED_OPERATIONS = [
   "GET /caseworker/cases/{id}/witnesses/{witnessId}",
   "PATCH /caseworker/cases/{id}/witnesses/{witnessId}",
   "DELETE /caseworker/cases/{id}/witnesses/{witnessId}",
+  "GET /caseworker/cases/{id}/emails",
+  "POST /caseworker/cases/{id}/emails/{template}",
+  "POST /caseworker/cases/{id}/emails/{template}/preview",
   "POST /caseworker/cases/{id}/documents",
   "GET /caseworker/cases/{id}/documents/{documentId}/file",
   "GET /caseworker/cases/{id}/referrals",
@@ -146,7 +149,9 @@ describe("openapi.json and the wire schemas", () => {
       "CreateSavedQueryRequest",
       "UpdateSavedQueryRequest",
       "CreateReferralRequest",
-      "JudicialDirectionRequest"
+      "JudicialDirectionRequest",
+      "PreviewEmailRequest",
+      "SendEmailRequest"
     ];
     const responses = Object.keys(WIRE_SCHEMAS).filter((name) => !requests.includes(name));
 
@@ -197,6 +202,44 @@ describe("openapi.json and the wire schemas", () => {
     expect(WIRE_SCHEMAS.UpdateWitnessRequest.safeParse({ declarant: "false" }).success).toBe(false);
   });
 
+  it("should keep the email slot keys in snake_case at both ends", () => {
+    // The one mistake in this feature that nothing else catches. These are GOV.UK Notify placeholder names —
+    // the personalisation keys and the body keys at once — so they are the documented exception to this
+    // module's camelCase rule. Renamed, Notify substitutes nothing and sends the template with empty slots.
+    for (const name of ["PreviewEmailRequest", "SendEmailRequest"] as const) {
+      expect(Object.keys(spec.components.schemas[name].properties ?? {}).sort(), name).toEqual(["additional_notes", "judges_reason"]);
+      expect(Object.keys(WIRE_SCHEMAS[name].shape).sort(), name).toEqual(["additional_notes", "judges_reason"]);
+      expect(Object.keys(WIRE_SCHEMAS[name].shape), name).not.toContain("judgesReason");
+      expect(Object.keys(WIRE_SCHEMAS[name].shape), name).not.toContain("additionalNotes");
+    }
+  });
+
+  it("should agree with the spec on the email slot length limits", () => {
+    // api's caps are the referral direction's and the referral notes': a direction a judge could record is
+    // therefore always sendable unedited. Enforced here as well so a caseworker gets a message against the
+    // field, and never truncated — a shortened quotation of a judge is worse than being asked to shorten one.
+    for (const [field, maxLength] of [
+      ["judges_reason", 4000],
+      ["additional_notes", 1000]
+    ] as const) {
+      expect(spec.components.schemas.SendEmailRequest.properties?.[field]?.maxLength, field).toBe(maxLength);
+      expect(WIRE_SCHEMAS.SendEmailRequest.safeParse({ [field]: "x".repeat(maxLength) }).success, field).toBe(true);
+      expect(WIRE_SCHEMAS.SendEmailRequest.safeParse({ [field]: "x".repeat(maxLength + 1) }).success, field).toBe(false);
+    }
+  });
+
+  it("should refuse an unknown key on the email write bodies, unlike every other body here", () => {
+    // These two are the only bodies in the contract with `additionalProperties: false`, and that is what makes
+    // the compose journey's idempotency UUID a 400 rather than an ignored field if anyone ever puts it in the
+    // body. api's protection against a double send is a unique index answering 409; the UUID stays admin-local.
+    for (const name of ["PreviewEmailRequest", "SendEmailRequest"] as const) {
+      expect(spec.components.schemas[name].additionalProperties, name).toBe(false);
+    }
+    // And an empty body is legitimate on both: `judges_reason` is pre-populated from the referral's direction.
+    expect(spec.components.schemas.SendEmailRequest.required).toBeUndefined();
+    expect(WIRE_SCHEMAS.SendEmailRequest.safeParse({}).success).toBe(true);
+  });
+
   it("should not accept a reference number or an audit column on a write", () => {
     // api does not accept them, and this app must not try: reference allocation is api's, per task 3.
     for (const field of ["referencenumber", "displayReference", "createdBy", "modifiedBy", "createdOn", "modifiedOn"]) {
@@ -225,5 +268,7 @@ interface OpenApiSpec {
 
 interface OpenApiSchema {
   required?: string[];
+  /** `false` on the two email write bodies and absent everywhere else — an unknown key is refused and named. */
+  additionalProperties?: false | Record<string, unknown>;
   properties?: Record<string, { enum?: (string | null)[]; maxLength?: number; minLength?: number }>;
 }
