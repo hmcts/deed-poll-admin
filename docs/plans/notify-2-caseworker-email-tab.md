@@ -508,13 +508,38 @@ Then, against the published document rather than against this plan:
 Refresh the document and register everything it added. **No adapter functions and no pages in this task** — it
 is the registry only, and it is the one task that cannot be made smaller.
 
-Read first: `libs/deed-poll-api-client/SPEC-PROVENANCE.md` (the refresh procedure and what it demands be
-re-checked), `libs/deed-poll-api-client/src/api/contract.test.ts` (all of it), and
+Read first: **"The contract — measured, not expected"** above — in particular "Four things to register exactly
+as api published them, not as convention would", which is this task's whole risk surface — then
+`libs/deed-poll-api-client/SPEC-PROVENANCE.md` (the refresh procedure and what it demands be re-checked),
+`libs/deed-poll-api-client/src/api/contract.test.ts` (all of it), and
 `libs/deed-poll-api-client/src/api/wire.ts`.
+
+**The one mistake this task can make that no test catches:** the slot keys are `snake_case` —
+`judges_reason`, `additional_notes`, and the keys inside `EmailSlotDefaultsResponse.fields`. This repo's
+`CLAUDE.md` says the wire is camelCase and nothing is renamed at the boundary, so obeying the convention here
+is the error. `contract.test.ts` compares the document against `WIRE_SCHEMAS`, so a renamed property **does**
+fail — but only if it was renamed in the zod schema. Rename it later, in the adapter or a view model, and
+Notify substitutes nothing and sends the template with empty slots, with every test still green.
 
 - Refresh `openapi.json` from api, following `SPEC-PROVENANCE.md`, and **write a new provenance entry**
   recording the api commit, the new counts, and what changed that was not an addition. That document's
   standard is property-by-property accounting; match it.
+
+  **The document is already generated — do not run Gradle and do not touch the `deed-poll-api` clone.** Task 0
+  generated it on 2026-09-21 from api `09d70e35c86b718b290e9dd693695750df32f468` (`origin/master`, "Merge pull
+  request #33 from hmcts/referrals-api-4"), and it is at **`/tmp/openapi-specs.json`**. Copy and reformat it
+  with the `node -e` one-liner in `SPEC-PROVENANCE.md` step 1. Two reasons this is not a shortcut: another agent
+  may be working in that clone, and regenerating from a clone on a different branch is how a refresh acquires an
+  unpinnable provenance. **If `/tmp/openapi-specs.json` is missing or its counts are not 38 operations and 37
+  schemas, stop and report** rather than regenerating from whatever state that clone happens to be in.
+
+  The provenance entry's facts are settled and measured — take them from "The contract — measured, not
+  expected" above rather than re-deriving: **35 → 38 operations, 27 → 37 schemas, purely additive, nothing
+  removed, and no pre-existing schema altered in any property.** The "what changed that was not an addition"
+  section is therefore **"nothing"**, which is itself worth stating: the last two refreshes each had entries
+  there, so an empty one is a finding rather than an omission. `SPEC-PROVENANCE.md` also demands two re-checks
+  that the document cannot carry — api's `application.yaml` actuator settings and the `where`/`sort` parameter
+  descriptions. Do those against api at that pinned commit with `git show <sha>:<path>`, never by checking out.
 - Add a zod schema to `WIRE_SCHEMAS` for every schema the document gained.
 - Add every new operation to `IMPLEMENTED_OPERATIONS`.
 - Pin `STRICT_RESPONSE_PROPERTIES` for each new **response** schema, and add each new **request** schema to
