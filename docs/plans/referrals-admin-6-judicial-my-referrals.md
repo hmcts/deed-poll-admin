@@ -435,7 +435,70 @@ Extend `e2e-tests/tests/judicial.spec.ts`:
 Add withdrawal and lapse coverage at the mock/domain level; use E2E only where it proves the user-visible
 journey. Run axe on both list states and verify keyboard/navigation and no applicant data on either list.
 
-- [ ] Original feedback journey and terminal removal proven end to end; focused E2E green
+- [x] Original feedback journey and terminal removal proven end to end; focused E2E green
+
+> **DONE 2026-09-21.** `yarn lint` exits 0, `npx turbo test test:app --concurrency=1` is `8 successful, 8 total`
+> across **166 test files, 3,087 tests** — Task 3's 166/3,086 plus **1**, the mock's lapse test — and
+> `yarn welsh:check` is unchanged at **466 strings, 441 identical**, because this task adds no user-facing string.
+>
+> **E2E has actually been run, which it had not been since Task 2.** `judicial.spec.ts` is **6 passed**, the whole
+> suite **39 passed**, and the judicial spec **9 passed** again under `--repeat-each=2`. The two copies of the new
+> journey run concurrently as the *same* judge, which is the arrangement its paging lookup exists for. Task 3's
+> updated "Back to referrals for a direction" wording is therefore verified against Playwright's whole-accessible-name
+> matching rather than assumed, and so is the new page's.
+>
+> **How to run it from a worktree, since the plan's own note says `webServer` cannot**: `yarn mock:api`, then
+> `yarn build:app:dev`, then `NODE_ENV=development ENVIRONMENT_NAME=development PERSONA_SWITCHER_ENABLED=true
+> VITE_MIDDLEWARE=false npx tsx src/server.ts`, then `npx playwright test` from `e2e-tests/` — no `dev:up`, because
+> the main checkout's `deed-poll-redis`/`deed-poll-idam` containers are already up and compose would collide on the
+> names. `node scripts/seed-idam-users.mjs` is idempotent and safe against that shared simulator.
+> `PERSONA_SWITCHER_ENABLED` is load-bearing here for the first time: without it the strip does not render and the
+> journey cannot switch. **Both servers were stopped afterwards**, so Task 5 starts them itself rather than testing
+> against a build that predates its own edits.
+>
+> **One journey and not six, and it signs itself in.** The six numbered steps are one referral's life, so they are
+> one test per `.claude/rules/e2e-testing.md` — with `test.use({ storageState: undefined })`, because a persona
+> switch calls `signIn` and regenerates the session id behind the restored cookie, which would sign the file's other
+> journey out mid-run. That opt-out is **asserted** (`expect(await page.context().cookies()).toEqual([])`) rather
+> than trusted: a context that had restored the judge session would still land on the pool from `/login`, so
+> `signInAsJudge` would pass and the damage would surface as a timeout in a different file.
+>
+> **The persona switcher is the mechanism, and it is what makes step 3 worth running.** A second browser context
+> holding the caseworker's cookie would have been cheaper and would have proven nothing: what decision 1 claims is
+> that "mine" is api's answer about a token, so the discriminating arrangement is **one** session that becomes
+> another identity and comes back. A list derived from session state, history or rows previously seen passes every
+> unit test and fails exactly there.
+>
+> **The row is located through api's paging, like `poolRow`.** This list is keyed on the judge's own subject and the
+> mock's store outlives the run (`reuseExistingServer`), so `judge@example.com` accumulates a decided referral from
+> every run of the *other* journey — which never closes its own. Page 1 is therefore not where the row is, and
+> `myReferralsPageOf` asks api the same question the UI's paging answers. The absence check after closure walks pages
+> 1 to the one it was on, since a removal can only pull the rows behind it earlier.
+>
+> **The empty rendering is reached by a page past the end, and its sentence is deliberately not asserted.** A judge
+> holding nothing cannot be arranged here for the reason above, and on page 99 "You have no referrals" is true of the
+> page rather than of the judge — so this takes the axe check of the no-table branch and leaves the copy to
+> `mine.njk.test.ts`. The same is true of the pool's own empty state, so it is not a new defect.
+>
+> **Welsh is not checked at runtime for this page, unlike the pool's.** `mine.ts`'s `cy` is `{ ...en }`, a literal
+> spread, so the missing-key failure the pool's check exists to catch — a blank heading, with nothing failing — cannot
+> be constructed, and `welsh:check` already counts all sixteen keys. A `?lng=cy` visit would assert that English
+> equals English.
+>
+> **Two things fixed beside the journey.** The administrator-refusal loop now includes `/mine` and `?page=2`, which
+> Task 3 flagged as covered only by `src/app.test.ts`'s filesystem sweep, and it asserts neither navigation label
+> reaches a refused caseworker. And the first journey's "no other spec raises an urgent referral" comment was made
+> true rather than left stale: what keeps an urgent row findable is that the band is ordered oldest-first, so a
+> referral raised later — including this journey's — sorts *after* one already in it and cannot move it.
+>
+> **Withdrawal and lapse stayed at the mock/domain level, as the task asks, and only lapse was missing.** Task 1
+> already pins withdrawal and closure removing a row and a refused write changing nothing, and `view.test.ts` already
+> pins `Open`/`Withdrawn`/`Closed`/absent on both `buildMyReferralRows` and `isOnMyList`. The gap was api's
+> inactivity sweep: it is a two-hour window on api's clock and the mock grows no timer for it, but its **result** is a
+> state — an `Open` row still carrying the holder's name and subject — and that row is now seeded directly. It is off
+> its old holder's list and back in the pool, and visible to another judge again. Keyed on `claimedById` instead of on
+> the state, a lapsed claim would sit on its old holder's list for good: the same row on two lists, one of which
+> cannot act on it.
 
 ### Task 5: Documentation and full validation
 

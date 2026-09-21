@@ -1441,6 +1441,26 @@ describe("a judge's own referrals", () => {
     expect((await get("/judicial/referrals/mine", as(JUDGE))).referrals).toEqual([]);
   });
 
+  it("should drop a lapsed claim and hand it back to the pool, because the state decides and not the holder columns", async () => {
+    // **The one referral transition this mock does not model, covered by its result rather than by a timer.** api's
+    // inactivity sweep is a two-hour window on its own clock (see the file's docblock), and what it leaves behind is
+    // an `Open` row still carrying the attribution of the judge who let it lapse. That row is seeded here directly,
+    // because no request can produce it.
+    //
+    // Both halves matter: it is off the list of the judge who held it, and it is every judge's again. Keyed on
+    // `claimedBy`/`claimedById` instead of on the state, a lapsed claim would sit on its old holder's list for good
+    // — the same row on two lists, one of which cannot act on it.
+    const lapsed = referral({ id: "lapsed-claim", state: "Open", claimedBy: JUDGE, claimedById: JUDGE, claimedAt: new Date("2026-03-01T09:05:00") });
+    mock.seed({ referrals: [lapsed] });
+
+    const mine = await get("/judicial/referrals/mine", as(JUDGE));
+    const pool = await get("/judicial/referrals");
+
+    expect(mine.referrals).toEqual([]);
+    expect(pool.referrals.map((row: { id: string }) => row.id)).toEqual(["lapsed-claim"]);
+    expect((await fetch(`${mock.url}/judicial/referrals/lapsed-claim`, { headers: as("another@example.com") })).status).toBe(200);
+  });
+
   it.each([
     ["a claim adds the referral", async () => (await claimedReferral(JUDGE)).referralId, true],
     [
