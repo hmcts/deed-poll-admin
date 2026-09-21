@@ -277,8 +277,30 @@ describe("buildDetailTabs — empty states", () => {
     expect(tabs.find((t) => t.id === "documents")?.empty).toBe(true);
   });
 
+  it("counts emails off the record too, the page merging that call's history in under the subgrid's name", () => {
+    // The second subgrid fed by a call of its own, and the merge is the page's `emails: emails?.history`. A
+    // caller that passes the whole payload instead gets the absent case above — an empty tab on a case that has
+    // been written to.
+    const tabs = buildDetailTabs(
+      { type: DeedPollType.Adult, emails: [{ id: "email-1" }] },
+      rulesFor(DeedPollType.Adult),
+      presentationFor({ type: DeedPollType.Adult })
+    );
+
+    expect(tabs.find((t) => t.id === "emails")?.empty).toBe(false);
+    expect(tabs.find((t) => t.id === "emails")?.subgrid).toBe("emails");
+  });
+
+  it("puts the emails tab last, so an existing tab's position is unchanged by it", () => {
+    // Decision 1: the tab list ports a Dynamics form and this page once fell six tabs behind it, so a new tab
+    // goes on the end rather than beside the thing it relates to.
+    const tabs = buildDetailTabs({ type: DeedPollType.Adult }, rulesFor(DeedPollType.Adult), presentationFor({ type: DeedPollType.Adult }));
+
+    expect(tabs[tabs.length - 1]?.id).toBe("emails");
+  });
+
   it("counts referrals off the record the same way, since the page merges its second call in under that name", () => {
-    // The one subgrid whose rows are not on the case payload. A caller that does not merge them gets the
+    // The first subgrid whose rows are not on the case payload. A caller that does not merge them gets the
     // absent case above — an empty tab — which is why the page's own test pins the merge.
     const tabs = buildDetailTabs(
       { type: DeedPollType.Adult, referrals: [{ id: "ref-1" }] },

@@ -1,12 +1,12 @@
-import { findDeedPoll, findReferrals, NotFoundError } from "@hmcts/deed-poll";
+import { findCaseEmails, findDeedPoll, findReferrals, NotFoundError } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET } from "./[id].js";
 
-// Only the three api calls are replaced. The tabs, header, notes, documents and referrals view models are
-// the domain's and tested there, so this exercises the page against the real ones — which is the point: the
-// page's job is to assemble them, and a wrong argument order would not show up against mocks.
+// Only the four api calls are replaced. The tabs, header, notes, documents, referrals and emails view models
+// are the domain's and tested there, so this exercises the page against the real ones — which is the point:
+// the page's job is to assemble them, and a wrong argument order would not show up against mocks.
 vi.mock("@hmcts/deed-poll", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@hmcts/deed-poll")>();
 
@@ -14,6 +14,7 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => {
     ...actual,
     findDeedPoll: vi.fn(),
     findReferrals: vi.fn(),
+    findCaseEmails: vi.fn(),
     // The rules come over HTTP now, so the call is stubbed — but stubbed with the local matrix, which
     // is the same one api's port answers from. A stub map would make the type-awareness assertions
     // below assertions about the stub.
@@ -57,6 +58,34 @@ const REFERRAL = {
   modifiedOn: new Date("2026-05-13T08:44:00Z")
 };
 
+/** One slot set, as api publishes it per template — `snake_case` names and all. */
+const SLOTS = [
+  { name: "judges_reason", required: true, maxLength: 4000 },
+  { name: "additional_notes", required: false, maxLength: 1000 }
+];
+
+/** The emails payload, which answers the tab, the compose form and the per-email page in one read. */
+const CASE_EMAILS = {
+  availability: [{ template: "application-rejected", applicable: true, reason: null, provisioned: true, slots: SLOTS }],
+  history: [],
+  slotDefaults: [{ template: "application-rejected", fields: { judges_reason: "The evidence does not establish identity." } }]
+};
+
+/** One email api has accepted, for the tab fed by the fourth call. */
+const SENT_EMAIL = {
+  id: "email-1",
+  template: "application-rejected",
+  templateName: "Application refused",
+  subject: "Your application has been refused",
+  body: "Dear applicant,\n\nThe Master has refused your application.",
+  recipient: "applicant@example.com",
+  notifyState: "Sent" as const,
+  failureReason: null,
+  createdBy: "caseworker@example.com",
+  createdOn: new Date("2026-03-18T11:05:00Z"),
+  documents: []
+};
+
 function request(admin = false): Request {
   return pageRequest({ params: { id: "case-1" }, admin });
 }
@@ -83,6 +112,7 @@ describe("case detail page", () => {
     process.env.NODE_ENV = "test";
     vi.mocked(findDeedPoll).mockResolvedValue(found as never);
     vi.mocked(findReferrals).mockResolvedValue([]);
+    vi.mocked(findCaseEmails).mockResolvedValue(CASE_EMAILS as never);
   });
 
   it("renders its own template, qualified by directory", async () => {
@@ -99,7 +129,7 @@ describe("case detail page", () => {
     expect(findDeedPoll).toHaveBeenCalledWith("case-1", expect.anything());
   });
 
-  it("makes all three api calls as the signed-in caseworker", async () => {
+  it("makes all four api calls as the signed-in caseworker", async () => {
     const { getCaseFieldRules } = await import("@hmcts/deed-poll");
 
     await GET(pageRequest({ params: { id: "case-1" }, accessToken: "caseworker-token" }), response());
@@ -107,6 +137,15 @@ describe("case detail page", () => {
     expect(findDeedPoll).toHaveBeenCalledWith("case-1", { accessToken: "caseworker-token" });
     expect(getCaseFieldRules).toHaveBeenCalledWith(expect.anything(), { accessToken: "caseworker-token" });
     expect(findReferrals).toHaveBeenCalledWith("case-1", { accessToken: "caseworker-token" });
+    expect(findCaseEmails).toHaveBeenCalledWith("case-1", { accessToken: "caseworker-token" });
+  });
+
+  it("reads the emails once, since one payload answers the tab, the compose form and the per-email page", async () => {
+    // Decision 8: api returns availability, history and slot defaults together, so a second call here would be
+    // a round trip for an answer the page is already holding.
+    await GET(request(), response());
+
+    expect(findCaseEmails).toHaveBeenCalledTimes(1);
   });
 
   it("uses the reference as the page heading, since that is data rather than content", async () => {
@@ -209,6 +248,152 @@ describe("case detail page", () => {
     }
   });
 
+  it("passes an emails view model built from the fourth call, formatted rather than raw", async () => {
+    // The emails tab, like referrals, is only ever as populated as its own call makes it — and every cell is
+    // the view model's display string, since a template cannot format a timestamp.
+    vi.mocked(findCaseEmails).mockResolvedValue({ ...CASE_EMAILS, history: [SENT_EMAIL] } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    const emails = res.render.mock.calls[0][1].emails;
+    expect(emails.count).toBe(1);
+    expect(emails.rows[0]).toMatchObject({ id: "email-1", template: "Application refused", state: "Accepted by Notify" });
+  });
+
+  it("populates the emails tab from that call, not from the case record", async () => {
+    // The same merge the referrals tab needs, and the same failure mode: the case payload carries no emails, so
+    // forgetting it leaves the tab claiming an applicant has never been written to.
+    vi.mocked(findCaseEmails).mockResolvedValue({ ...CASE_EMAILS, history: [SENT_EMAIL] } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    const tabs = res.render.mock.calls[0][1].tabs as { id: string; subgrid?: string; empty: boolean; label: string }[];
+    expect(tabs.find((tab) => tab.id === "emails")).toMatchObject({ subgrid: "emails", empty: false, label: "Emails" });
+  });
+
+  it("renders the emails tab last, after the referrals one", async () => {
+    // Decision 1, and it is the page's business as much as `FORM_TABS`': this is the order a caseworker's
+    // muscle memory is built on, and the read-only page once fell six tabs behind the form it ports.
+    const res = response();
+
+    await GET(request(), res);
+
+    const tabs = res.render.mock.calls[0][1].tabs as { id: string }[];
+    expect(tabs[tabs.length - 1].id).toBe("emails");
+  });
+
+  it("renders the emails tab empty on a case whose applicant has never been written to", async () => {
+    const res = response();
+
+    await GET(request(), res);
+
+    const tabs = res.render.mock.calls[0][1].tabs as { id: string; empty: boolean }[];
+    expect(tabs.find((tab) => tab.id === "emails")?.empty).toBe(true);
+    expect(res.render.mock.calls[0][1].emails).toMatchObject({ rows: [], count: 0, unavailable: false });
+  });
+
+  it("offers every template api says may be sent now, so a second one needs no change here", async () => {
+    vi.mocked(findCaseEmails).mockResolvedValue({
+      ...CASE_EMAILS,
+      availability: [...CASE_EMAILS.availability, { template: "chase-missing-documents", applicable: true, reason: null, provisioned: true, slots: SLOTS }]
+    } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].emails.sendable).toEqual([
+      { template: "application-rejected", name: "Application refused" },
+      { template: "chase-missing-documents", name: "Chase missing documents" }
+    ]);
+  });
+
+  it("carries api's reason for a template that cannot be sent, so an absent button is explained", async () => {
+    vi.mocked(findCaseEmails).mockResolvedValue({
+      ...CASE_EMAILS,
+      availability: [
+        {
+          template: "application-rejected",
+          applicable: false,
+          reason: "This case has no referral that a Master has refused",
+          provisioned: true,
+          slots: SLOTS
+        }
+      ]
+    } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    const emails = res.render.mock.calls[0][1].emails;
+    expect(emails.sendable).toEqual([]);
+    expect(emails.unsendable[0].reason).toBe("This case has no referral that a Master has refused");
+  });
+
+  it("renders the case when the emails read fails, rather than losing the page to one panel", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(findCaseEmails).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): nope"));
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render).toHaveBeenCalled();
+    expect(res.render.mock.calls[0][1].pageHeading).toBe("KBDP2026-00001");
+    expect(res.render.mock.calls[0][1].emails).toEqual({ rows: [], count: 0, unavailable: true, sendable: [], unsendable: [] });
+    logged.mockRestore();
+  });
+
+  // api answers this read 400 for a refusal with no directions text — flag 7 of the plan — which `callApi`
+  // turns into an InvalidInputError, not an outage. The panel degrades either way rather than 500ing the page.
+  it("renders the case when the emails read is refused rather than unreachable", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { InvalidInputError } = await import("@hmcts/deed-poll");
+    vi.mocked(findCaseEmails).mockRejectedValue(new InvalidInputError("judges_reason is required", []));
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].emails.unavailable).toBe(true);
+    logged.mockRestore();
+  });
+
+  it("logs a degrading emails panel without the case id, so the logs say it is happening and not to whom", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(findCaseEmails).mockRejectedValue(new Error("deed-poll-api call failed (timeout): nope"));
+
+    await GET(request(), response());
+
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("emails unavailable"));
+    expect(logged).not.toHaveBeenCalledWith(expect.stringContaining("case-1"));
+    logged.mockRestore();
+  });
+
+  it("carries the labels the emails subgrid renders, since a missing one is a blank column or button", async () => {
+    const res = response();
+
+    await GET(request(), res);
+
+    const { en } = res.render.mock.calls[0][1];
+    expect(en.emailColumns).toHaveLength(3);
+    for (const key of ["sendEmail", "viewEmailHint", "emailsStateHint", "emailsUnavailable"]) {
+      expect(en[key], key).toBeTruthy();
+    }
+  });
+
+  it("never labels an email as received, read or downloaded, in any string the tab renders", async () => {
+    // Decision 10 from the page's side: api knows only that Notify accepted the send. The rendered assertion is
+    // in detail.njk.test.ts; this one covers the copy, where a well-meaning wording change would start.
+    const res = response();
+
+    await GET(request(), res);
+
+    const { en } = res.render.mock.calls[0][1];
+    for (const key of ["emailColumns", "sendEmail", "viewEmailHint"]) {
+      expect(JSON.stringify(en[key]), key).not.toMatch(/delivered|viewed|opened|downloaded/i);
+    }
+  });
+
   it("treats an admin caller as able to edit privacy", async () => {
     const res = response();
 
@@ -290,10 +475,11 @@ describe("case detail page", () => {
 
   // A mistyped id 404s both calls, since findReferrals answers api's 404 rather than an empty list. Logging
   // the referrals leg before the case leg is known good would file a fault for every wrong URL.
-  it("does not log a referrals fault when the case itself is missing, which fails both reads", async () => {
+  it("does not log a referrals or emails fault when the case itself is missing, which fails every read", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(findDeedPoll).mockRejectedValue(new NotFoundError("DeedPoll nope not found"));
     vi.mocked(findReferrals).mockRejectedValue(new NotFoundError("DeedPoll nope not found"));
+    vi.mocked(findCaseEmails).mockRejectedValue(new NotFoundError("DeedPoll nope not found"));
 
     await expect(GET(request(), response())).rejects.toThrow(NotFoundError);
 

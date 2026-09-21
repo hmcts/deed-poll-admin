@@ -78,12 +78,13 @@ export interface TabDef {
   /**
    * Present when the tab is a child-entity subgrid rather than fields.
    *
-   * `referrals` is the one whose rows are **not** on the case payload — `GET /caseworker/cases/{id}` carries
-   * notes, witnesses and documents, and a case's referral history is a second call. So the page hands
-   * `buildDetailTabs` a record with the fetched referrals merged in; see `../referrals/service.ts` for why the
-   * second call is the right answer here and not for the other three.
+   * `referrals` and `emails` are the ones whose rows are **not** on the case payload — `GET /caseworker/cases/{id}`
+   * carries notes, witnesses and documents, and a case's referral history and its correspondence are each a
+   * call of their own. So the page hands `buildDetailTabs` a record with both fetched lists merged in; see
+   * `../referrals/service.ts` and `../emails/service.ts` for why the extra call is the right answer there and
+   * not for the first three.
    */
-  subgrid?: "notes" | "witnesses" | "documents" | "referrals";
+  subgrid?: "notes" | "witnesses" | "documents" | "referrals" | "emails";
 }
 
 /** Build govuk select items ({value,text}) for an enum LABELS set. */
@@ -360,7 +361,12 @@ export const FORM_TABS: TabDef[] = [
   // `referrals` is not `referral`: REFERRAL_TAB above holds the case's own "Refer to Master?" fields, ported
   // from the Dynamics form, while this lists the referrals actually raised against the case. Both ids are
   // URL slugs (`/deed-polls/{id}/edit/referral`) so neither can be renamed to tell them apart.
-  { id: "referrals", label: "Referrals", sections: [], subgrid: "referrals" }
+  { id: "referrals", label: "Referrals", sections: [], subgrid: "referrals" },
+  // Last, and the position is not cosmetic: this list ports a Dynamics form and the read-only page once fell
+  // six tabs behind it, so a new tab goes on the end rather than beside the thing it relates to. Inserting it
+  // in the middle would reorder every caseworker's muscle memory for no gain. Decision 1 of
+  // `docs/plans/notify-2-caseworker-email-tab.md`.
+  { id: "emails", label: "Emails", sections: [], subgrid: "emails" }
 ];
 
 /**

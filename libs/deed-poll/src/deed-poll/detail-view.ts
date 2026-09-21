@@ -141,16 +141,17 @@ function tabVisible(tab: TabDef, presentation: FormPresentation): boolean {
 /**
  * Count of child rows backing a subgrid tab, for its empty state.
  *
- * Read off `record` under the subgrid's own name, which for three of the four is the property api nested in
- * the case. `referrals` is not on that payload, so the page merges its second call's result in under the same
- * name, and a caller that forgets to leaves `empty` claiming a referred case has nothing.
+ * Read off `record` under the subgrid's own name, which for three of the five is the property api nested in
+ * the case. `referrals` and `emails` are not on that payload, so the page merges each extra call's result in
+ * under the same name, and a caller that forgets to leaves `empty` claiming a referred or written-to case has
+ * nothing.
  *
  * Note that `detail.njk` renders each subgrid panel's own "None recorded" from that panel's view model
- * (`referrals.count`, `notes.count`, `case.witnesses.length`, `documents.length`) rather than from `empty`,
+ * (`referrals.count`, `emails.count`, `notes.count`, `case.witnesses.length`, `documents.length`) rather than from `empty`,
  * which the template reads for field tabs only. So `empty` is a property of this model that has to be true,
  * not the switch the message hangs off — do not rely on it to hide a populated list.
  *
- * That is also why `referrals` being `null` — the read failed, see `src/pages/deed-polls/[id].ts` — is left
+ * That is also why `referrals` or `emails` being `null` — the read failed, see `src/pages/deed-polls/[id].ts` — is left
  * counting as 0 rather than given a third `empty: unknown` state: `[]` would say the same thing, and no
  * template reads it for a subgrid. The panel's own `unavailable` is what a caseworker sees. If `empty` ever
  * does drive subgrid copy, this is the line that has to change first.

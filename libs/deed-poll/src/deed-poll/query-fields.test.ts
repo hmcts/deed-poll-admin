@@ -71,7 +71,7 @@ describe("deed-poll/query-fields", () => {
     it("should exclude the subgrid tabs, whose rows are child entities rather than case fields", () => {
       const subgridTabs = FORM_TABS.filter((tab) => tab.subgrid);
 
-      expect(subgridTabs.map((tab) => tab.id)).toEqual(["notes", "witnesses", "documents", "referrals"]);
+      expect(subgridTabs.map((tab) => tab.id)).toEqual(["notes", "witnesses", "documents", "referrals", "emails"]);
       expect(subgridTabs.every((tab) => tab.sections.length === 0)).toBe(true);
     });
   });

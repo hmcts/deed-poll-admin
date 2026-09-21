@@ -713,9 +713,37 @@ Read first: `libs/deed-poll/src/deed-poll/form-fields.ts` (`FORM_TABS`), `src/pa
   is absent when nothing is sendable, with a hint saying why (an applicant with no email address is the
   common case and a silent missing button would read as a bug).
 
-- [ ] The tab renders last with sent emails and their states, rows linking to the per-email page, an empty
+- [x] The tab renders last with sent emails and their states, rows linking to the per-email page, an empty
       state, a button that is absent with a reason when nothing can be sent, and no word implying receipt;
       `[id].test.ts` and the `njk` tests cover all of it; validation green
+
+      **Done 2026-09-21.** `{ id: "emails", …, subgrid: "emails" }` last in `FORM_TABS`, the
+      `{% elif tab.subgrid == "emails" %}` branch in `detail.njk`, and the read wired into `[id].ts` as a fourth
+      call inside the existing `Promise.allSettled` — additive, degrading to `unavailableEmailsView()` with a log
+      line. Test count **2,740** against Task 3's 2,712: +28, 26 in the root app and 2 in `@hmcts/deed-poll`.
+      Task 4's contingency did not fire; history is on the wire.
+
+      **Three decisions Task 5 and Task 5a inherit.**
+
+      1. **The button reads `Send an email: <template name>`, and the label carries the name for a reason.** One
+         button per entry in `EmailsView.sendable`, so notify-3's second template appears with no code change
+         (pinned by a test that renders two), and the name is in the button's own text rather than under a
+         heading above it because a control read out of context by a screen reader has to say what it does. The
+         name is passed as `text` and never as `html`: it can come from api's `templateName`, and `govukButton`
+         does not escape `html`.
+      2. **The timestamp column is headed "Created", not "Sent".** api's field is the outbox row's `createdOn`
+         and a `Pending` row has one without having gone, so a column headed "Sent" beside a state of "Waiting to
+         send" would contradict itself on the one row where the difference matters.
+      3. **Decision 10 is now pinned twice over and the second half is the useful one.** The panel is asserted to
+         contain no `/delivered|viewed|opened|downloaded/i` — scoped to the panel, because the documents tab could
+         satisfy a page-wide match — *and* it renders a sentence saying that acceptance by Notify is not
+         confirmation the applicant received or read anything. The negative test alone would pass on a panel that
+         said nothing at all, which is the state a caseworker reads as receipt by default.
+
+      `detail.njk.test.ts`'s `referralsPanel` became `panelFor(rendered, id)`: its docblock claimed referrals was
+      the last of `FORM_TABS` and that a tab added after it would widen the window. The second half was wrong in
+      a way worth recording — a later tab *narrows* the window, which is still the safe direction for a negative,
+      but the comment would have sent the next reader looking for a failure that cannot happen.
 
 ### Task 5a: The per-email page
 
