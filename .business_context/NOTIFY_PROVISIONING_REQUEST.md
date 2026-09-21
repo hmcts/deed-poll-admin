@@ -133,6 +133,32 @@ styling a body in our code. Notify renders the email; a service's brand decides 
 - [ ] Confirm the branding applies to **all** templates on the service, so a later template does not need it
       re-requested
 
+> **⚠️ When you tick the first box, the caseworker Email tab's preview will still look unbranded. That is a
+> known Content-Security-Policy effect in `deed-poll-admin`, not a sign the branding failed — do not go looking
+> for it in Notify.**
+>
+> The preview on `/deed-polls/{id}/emails/{template}/preview` renders Notify's HTML inside a sandboxed `iframe`
+> with `srcdoc`. A `srcdoc` document **inherits the embedder's CSP**, and `configureHelmet()` sends
+> `img-src 'self' data:` plus the analytics hosts — so the crest and any other remote image are refused, with
+> only a browser console message. `sandbox=""` compounds it: with no `allow-same-origin` the frame has an opaque
+> origin, and `'self'` can never match an opaque origin, so even a same-origin image would be blocked. `data:`
+> URIs would still render.
+>
+> **The wording in the preview is exact; only the appearance is not**, and the page's caption says so rather
+> than promising fidelity it cannot keep. Nothing in the test suite can detect this — the in-memory mock's
+> rendered HTML contains no images at all — so it was found by reading the policy and verified in Chromium
+> under the app's real header.
+>
+> **If a branded preview is wanted, it is a deliberate trade rather than a bug fix.** The `img-src` directive
+> lives in `libs/express-govuk-starter`, which is template-provided: editing it there is lost at the next
+> re-scaffold with nothing failing. It needs an app-owned CSP override, widening `img-src` on every page of a
+> caseworker application for a cosmetic gain on one — and Notify's real static-image host, which nothing in
+> this repo currently references. **The honest moment to decide is right after this box is ticked**, because
+> that is the first time anyone can look at a real branded rendering and see what is actually missing.
+>
+> Full reasoning at decision 3 of `docs/plans/completed/notify-2-caseworker-email-tab.md` and in the docblock
+> of `src/pages/deed-polls/[id]/emails/[template]/preview.ts`.
+
 **Why this is the mechanism and not a choice:** Notify email templates accept no HTML, and personalisation
 values are inserted as plain text — Notify does not render Markdown inside a placeholder. So the structure and
 the look have to live in the template, with our code supplying values. See decision 11 of
