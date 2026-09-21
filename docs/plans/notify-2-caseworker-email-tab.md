@@ -18,7 +18,14 @@ applicant when a state changes; a person composes part of what the applicant rea
 
 ---
 
-## This plan is PROVISIONAL, and more so than plans 11 and 12 were
+## ~~This plan is PROVISIONAL, and more so than plans 11 and 12 were~~ — no longer, as of 2026-09-21
+
+> **Task 0 is done and this plan is no longer provisional.** Read "The contract — measured, not expected"
+> below for the real operation and schema names; it replaced the *Expected contract* section's guesses. No live
+> `[PROVISIONAL]` marker survives — the remaining occurrences of the word are this section's history and the
+> instructions that told Task 0 to clear them. **Four decisions were corrected by that reconciliation and the
+> corrections are in place** (2, 3, 8 and 16); the history below is kept because the reasoning still explains
+> why those decisions were shaped as they were.
 
 **notify-1 has not been built.** Plans 11 and 12 were written ahead of a *published* api contract; this one is
 written ahead of the api *existing*. So every schema name, property name and response shape below is an
@@ -66,14 +73,27 @@ Two consequences worth stating plainly, because they have bitten this repo befor
 
    | Step | Route | What |
    |---|---|---|
-   | 1 | `GET /deed-polls/{id}/emails/new` | Which email? Radios, one per applicable template |
-   | 2 | `GET,POST /deed-polls/{id}/emails/{template}/compose` | The free-text slots, pre-populated |
-   | 3 | `POST /deed-polls/{id}/emails/{template}/preview` | The **real rendered email**, with Send and Back |
-   | 4 | `POST /deed-polls/{id}/emails/{template}` | Send, then back to the tab with a success banner |
+   | 1 | `GET,POST /deed-polls/{id}/emails/{template}/compose` | The free-text slots, pre-populated |
+   | 2 | `POST /deed-polls/{id}/emails/{template}/preview` | The **real rendered email**, with Send and Back |
+   | 3 | `POST /deed-polls/{id}/emails/{template}` | Send, then back to the tab with a success banner |
 
-   **Sending is irreversible, so step 3 is mandatory rather than a nicety.** An applicant cannot be un-told
-   that their application was refused. This is the same reason the deed-poll journeys already put a
+   **Sending is irreversible, so the preview step is mandatory rather than a nicety.** An applicant cannot be
+   un-told that their application was refused. This is the same reason the deed-poll journeys already put a
    confirmation in front of a witness deletion.
+
+   **Amended by Task 0, 2026-09-21 — there is no "which email?" step, and this is three routes not four.**
+   The table above originally opened with `GET /deed-polls/{id}/emails/new`, radios one per applicable
+   template. api ships **one** template (`application-rejected`); `EmailTemplate` has a single member and the
+   other three in `NOTIFY_TEMPLATE_TAXONOMY.md` §6 are notify-3 and notify-4. A radio list of one option is
+   dead UI that reads as an unfinished feature, so **Task 4's "Send an email" button links straight to the
+   compose page for the one applicable template.** Steve's decision, 2026-09-21.
+
+   **The template stays a route parameter, which is what makes this additive rather than a rework.** When
+   notify-3 adds a second template, the picker is a new page in front of an unchanged compose route — not a
+   change to the journey's shape. Do not hardcode `application-rejected` into the compose, preview or send
+   handlers; take it from the path as planned, and resolve *which* template the button points at from the
+   `availability` list at render time. If more than one template is ever applicable and no picker exists, that
+   is the trigger to build one.
 
 3. **The preview HTML renders inside a sandboxed `iframe` with `srcdoc`, never interpolated into the page.**
    The HTML comes from Notify by way of api, and it contains text a caseworker typed. Nunjucks autoescapes,
@@ -90,6 +110,27 @@ Two consequences worth stating plainly, because they have bitten this repo befor
    that shows the text body rather than an empty iframe, rendered the way decision 12 renders history. Task 0
    should confirm whether api's preview response makes the field optional; if it does not, that is worth
    raising rather than assuming Notify will always populate it.
+
+   **Resolved by Task 0, 2026-09-21 — the field is nullable, and the fallback as described is unbuildable.**
+   `EmailPreviewResponse` publishes exactly three properties: `html`, `subject`, `templateVersion`. Two
+   findings follow, and the second corrects the note above:
+
+   1. **`html` is nullable**, so the fallback is needed. springdoc emits no nullability for a response body, so
+      `type: string` means "a string when present" — see `SPEC-PROVENANCE.md`. Register it nullable; do **not**
+      add it to `STRICT_RESPONSE_PROPERTIES`.
+   2. **There is no text body on the preview response to fall back *to*.** The note assumed one, by analogy
+      with history. `EmailHistoryResponse.body` is a *history* field and exists only once an email has been
+      sent; a preview has no outbox row, so nothing carries the text rendering. So the fallback is **a
+      sentence, not a second rendering**. Do not synthesise a text preview from the slots — that would show the
+      caseworker something Notify did not render, which is the one thing decision 3 exists to prevent.
+
+      **Implement fail-closed: no preview, no Send.** Render the sentence and withhold the Send button. This
+      follows decision 2 — the preview is mandatory *because* sending is irreversible — and it matches the
+      polarity of the `NODE_ENV` allowlists and `plain-http.ts` that this repo deliberately keeps. The
+      alternative reading is that a null `html` is Notify's failure rather than a reason to refuse a send, and
+      a caseworker with a refused application to communicate is then stuck. **Flagged for Steve rather than
+      settled by Task 0**, because it trades a blocked caseworker against an unchecked irreversible send and
+      that is a business call. It is a one-line change either way and nothing else depends on it.
 
 4. **`libs/deed-poll-api-client` is the only thing that speaks HTTP, and it still never throws.** Three
    functions returning `ApiResult<T>`, wire types as aliases of the document's schemas rather than
@@ -116,7 +157,10 @@ Two consequences worth stating plainly, because they have bitten this repo befor
    *everything the tab needs*: what has been sent, what may be sent now, and for each sendable template its
    slots with pre-populated defaults. The tab must not make one call for history and another for
    applicability, and the compose page must not call preview merely to discover a default.
-   **[PROVISIONAL] — see flag 1. notify-1 as written does not return history or slot defaults.**
+   **~~[PROVISIONAL] — see flag 1. notify-1 as written does not return history or slot defaults.~~ Verified
+   against the published document by Task 0, 2026-09-21.** `CaseEmailsResponse` is
+   `{ availability[], history[], slotDefaults[] }` — all three, in one response, exactly as this decision
+   required. Nothing on the tab or the per-email page needs a second call.
 
    **Resolved 2026-09-19 — `[PROVISIONAL]` lifted, and flag 1 is answered in full.** Rather than widening
    notify-1 mid-flight, api took the amendment as its own plan:
@@ -198,41 +242,115 @@ Two consequences worth stating plainly, because they have bitten this repo befor
 16. **Every send carries one idempotency key for its compose journey.** notify-6 introduces repeatable,
     case-driven chases: one per case would be the wrong business rule, while no key lets a double-click send
     twice. Generate one UUID when the compose journey starts, preserve it through compose, preview, local/api
-    validation failures and the final send, and send it as api's required `Idempotency-Key` header. Starting a
-    new compose journey creates a new UUID. Do not derive it from template, content or time.
+    validation failures and the final send, and ~~send it as api's required `Idempotency-Key` header~~. Starting
+    a new compose journey creates a new UUID. Do not derive it from template, content or time.
+
+    **Corrected by Task 0, 2026-09-21 — there is no `Idempotency-Key` header, and there never was one
+    planned. The key is admin-local only.** This was the load-bearing false claim in this plan and it would
+    have cost a task cycle:
+
+    - **api's document has no such parameter.** `POST /caseworker/cases/{id}/emails/{template}` takes two path
+      parameters and an optional JSON body, and the string `idempotenc` appears **zero** times in the whole
+      document. In api's source it appears only in two migrations and `NotificationRepository` — never in a
+      controller, never as a `@RequestHeader`.
+    - **api decided the opposite approach on purpose.** notify-1's own decision 6: *"Idempotency is a database
+      constraint, not a check"* — a partial unique index on `("referralId", "template")`. A second send answers
+      **409**, and that is the protection.
+    - **Sending the key would be a 400, not a no-op.** `SendEmailRequest` sets `additionalProperties: false`,
+      alone in this contract, so an unknown body key is refused **and named**. So do not put the UUID in the
+      body either.
+
+    **What to build instead.** Keep the UUID, keep it entirely inside this repo: it is the form token that
+    stops a double-click or a browser resubmit posting twice, which is a real problem this journey has and api
+    cannot see. Do not send it anywhere. Handle api's **409** as its own rendered state on the preview page —
+    "this email has already been sent for this referral", with a link to the tab — because the 409 is
+    reachable without any double-click at all: two caseworkers on the same case will produce it.
+
+    **This is per referral, not per compose journey, and that asymmetry is api's.** notify-1's decision 4 says
+    so and flags that it "may not generalise" to notify-6's repeatable chases. Nothing here needs to solve
+    that; it needs to not assume a key that does not exist.
 
 ---
 
-## Expected contract `[PROVISIONAL]`
+## The contract — measured, not expected
 
-What Task 0 must reconcile. Current published state, from
-[`libs/deed-poll-api-client/SPEC-PROVENANCE.md`](../../libs/deed-poll-api-client/SPEC-PROVENANCE.md): **30
-caseworker operations across 17 paths, 4 judicial across 4 paths, plus `GET /` — 35 across 22 paths, 27
-schemas.**
+**Reconciled by Task 0 on 2026-09-21 against api `09d70e35c86b718b290e9dd693695750df32f468`** (`origin/master`,
+"Merge pull request #33 from hmcts/referrals-api-4"), generated per `SPEC-PROVENANCE.md`. The expectations this
+section used to carry were right on the counts and wrong on nothing except the schema names, which were
+flagged as guesses.
 
-After notify-1: **33 caseworker operations across 20 paths — 38 across 25 paths.**
-
-| Operation | Expected |
-|---|---|
-| `GET /caseworker/cases/{id}/emails` | What was sent **with its rendered subject, text body and documents**, what may be sent, slots with defaults |
-| `POST /caseworker/cases/{id}/emails/{template}/preview` | Notify-rendered subject, HTML, template version |
-| `POST /caseworker/cases/{id}/emails/{template}` | Send; answers with the outbox row |
-
-Schema names are **guesses** — notify-1's plan says "DTOs under `api/caseworker/dto`" without naming them.
-Task 0 replaces this table with what api actually published.
-
-**The counts above are notify-1's, and notify-5 does not move them.** notify-5 adds *fields* to the `GET`
-rather than operations — its task 3 says so and asks api to confirm rather than assume — so the expected 38
-operations stands, while the schema count will rise by however many response types the history needed. If
-Task 0 finds the operation count has moved, something was built differently from both plans: stop and
-reconcile rather than adjusting the number.
-
-**Whether notify-5 has shipped changes what Task 0 will find**, and both outcomes are workable:
-
-| notify-5 state | What `GET …/emails` returns | This plan |
+| | Admin's copy (`ee37173`) | api master (`09d70e3`) |
 |---|---|---|
-| Shipped | Availability, history, slot defaults | Decisions 8 and 12–15 all buildable |
-| Not shipped | Availability only | Decisions 12–15 are dead code; build the tab without them and say so, as Task 4's contingency already directs |
+| Operations | 35 | **38** |
+| Schemas | 27 | **37** |
+
+**The refresh is purely additive: three operations, ten schemas, nothing removed, and no pre-existing schema
+altered in any property.** Diffed property-by-property, not by count, as `SPEC-PROVENANCE.md` step 3 requires.
+
+**api-4 therefore has zero contract delta** — measured, not taken from its plan's assertion. `referrals-admin-4`
+needs no refresh of its own, and this plan's Task 1 carries the whole delta.
+
+### The three operations
+
+| Operation | Request | Response |
+|---|---|---|
+| `GET /caseworker/cases/{id}/emails` | — | `CaseEmailsResponse` |
+| `POST /caseworker/cases/{id}/emails/{template}/preview` | `PreviewEmailRequest` (optional) | `EmailPreviewResponse` |
+| `POST /caseworker/cases/{id}/emails/{template}` | `SendEmailRequest` (optional) | `SentEmailResponse` |
+
+Only `200` is declared on each. Path parameters only — **no headers**, see decision 16. Both bodies are
+`required=false`, because `judges_reason` is pre-populated server-side when omitted.
+
+### The ten schemas
+
+| Schema | Shape |
+|---|---|
+| `CaseEmailsResponse` | `{ availability[], history[], slotDefaults[] }` — the whole tab in one call |
+| `EmailTypeResponse` | `{ template, applicable, reason, slots[], provisioned }` |
+| `EmailSlotResponse` | `{ name, maxLength, required }` |
+| `EmailSlotDefaultsResponse` | `{ template, fields }` — `fields` is a `string→string` map keyed by slot name |
+| `EmailPreviewResponse` | `{ subject, html, templateVersion }` — **HTML**, and `html` is nullable |
+| `SentEmailResponse` | `{ id, recipient, enqueued }` |
+| `EmailHistoryResponse` | `{ id, template, templateName, subject, body, recipient, notifyState, failureReason, createdBy, createdOn, documents[] }` — **`body` is plain text** |
+| `CorrespondenceDocumentResponse` | `{ id, name }` |
+| `PreviewEmailRequest` | `{ judges_reason?, additional_notes? }`, `additionalProperties: false` |
+| `SendEmailRequest` | `{ judges_reason?, additional_notes? }`, `additionalProperties: false` |
+
+**The write bodies published properly** — both carry their two slots with real `maxLength`s, not the `{}`
+failure of 2026-09-17 that `SPEC-PROVENANCE.md` makes a mandatory check. Both omit `type: object`, consistent
+with every other hand-registered write body in this contract.
+
+### Four things to register exactly as api published them, not as convention would
+
+1. **The slot keys are `snake_case`** — `judges_reason`, `additional_notes` — and so are the keys inside
+   `EmailSlotDefaultsResponse.fields` and `EmailSlotResponse.name`. This repo's `CLAUDE.md` says the wire is
+   camelCase and nothing is renamed at the boundary; **these are the documented exception**, because they are
+   Notify placeholder names and are the personalisation keys and the body keys at once. api's own source says
+   they "are not renamed to Java style anywhere". A task that camelCases them breaks the personalisation
+   **silently** — Notify substitutes nothing and sends the template with empty slots.
+2. **`EmailTypeResponse.template` is a bare `string`, not an enum.** So `contract.test.ts` cannot pin the
+   template set, and a template api adds later arrives with nothing failing. Do not model it as a closed union
+   in a way that throws on an unknown value; render an unrecognised template by its `templateName`.
+3. **`notifyState` is `Pending | Sent | Failed`**, and api's own description says *"Sent means accepted by
+   GOV.UK Notify; it does not mean delivered."* That is decision 10's wording constraint already justified at
+   source, and `failureReason` is the field that makes a `Failed` row actionable.
+4. **`html` is nullable and so is `body`** — springdoc emits no response nullability, so nothing goes in
+   `STRICT_RESPONSE_PROPERTIES` from this feature. Decision 3 covers the null `html`; decision 15 covers the
+   absent `body`.
+
+### notify-5 shipped, so nothing is skipped
+
+`history[]` and `slotDefaults[]` are both on the wire. **Decisions 8 and 12–15 are all buildable, Task 4's
+contingency does not fire, and Task 5a is not skipped.** Decision 12's text-versus-HTML table is confirmed
+correct by the schemas: `EmailPreviewResponse.html` is HTML and `EmailHistoryResponse.body` is plain text, with
+api's description spelling out that "the applicant received branded HTML". Had api published one field for
+both, one of those two renderings would have been an injection.
+
+### What is on the wire but out of scope
+
+`EmailHistoryResponse.documents[]` exists, but the one shipped template has `documentKeys = List.of()`, so no
+email can currently carry an attachment. Render the list — decision 14 already says to — and expect it empty.
+Attachments arrive with notify-4, which is blocked on document generation.
 
 ---
 
@@ -270,9 +388,26 @@ npx turbo test test:app --concurrency=1
 and "no tests" while running nothing at all — it looks like a red suite and is not one. `--concurrency=1` is
 what makes it run.
 
-**Verified green on `master` at 2026-09-18 before this plan was written:** `yarn lint` clean, and
-`8 successful, 8 total` across 114 test files. **Measure the test count as the baseline before Task 1** and
+**~~Verified green on `master` at 2026-09-18 before this plan was written:~~** ~~`yarn lint` clean, and
+`8 successful, 8 total` across 114 test files.~~ **Measure the test count as the baseline before Task 1** and
 record it in Task 6 — the task-file figures are 45 + 4 + 42 + 10 + 1 + 12.
+
+**Re-measured by Task 0 on `master` at `030e099`, 2026-09-21 — this is the baseline, not the 09-18 figure.**
+`yarn lint` exits 0 (2 warnings, 0 errors — `noUndeclaredEnvVars` on `REDIS_URL` in two test files, pre-existing
+and not this plan's). `npx turbo test test:app --concurrency=1` → `8 successful, 8 total`, **150 test files,
+2,598 passed + 3 skipped = 2,601**. The 09-18 figure of 114 files predates the referrals and persona-switcher
+work; do not quote it, and do not treat the gap as something this plan caused.
+
+| Package | Files | Tests |
+|---|---|---|
+| root app (`//`) | 65 | 1,032 + 3 skipped |
+| `@hmcts/deed-poll` | 52 | 901 |
+| `@hmcts/deed-poll-api-client` | 4 | 327 |
+| `@hmcts-cft/cloud-native-platform` | 10 | 140 |
+| `@hmcts-cft/express-govuk-starter` | 12 | 127 |
+| `@hmcts-cft/simple-router` | 4 | 41 |
+| `@hmcts-cft/express-session-postgres` | 2 | 23 |
+| `@hmcts-cft/express-session-redis` | 1 | 7 |
 
 `yarn test:e2e` needs Playwright browsers and a running app, so it is Task 6's business, not every task's.
 Browser downloads are proxy-blocked here — symlink a cached chromium build to the wanted version.
@@ -282,6 +417,35 @@ Browser downloads are proxy-blocked here — symlink a cached chromium build to 
 ## Tasks
 
 ### Task 0: Reconcile this plan against the published contract — RUN THIS FIRST, ALONE
+
+> **DONE 2026-09-21, by hand in a Claude Code session rather than by a ralphex task, and not skippable by a
+> later reader.** Findings are written into the decisions above and into "The contract — measured, not
+> expected", which replaced this task's *Expected contract* section. Summary, worst first:
+>
+> 1. **Decision 16's `Idempotency-Key` header does not exist** and never was planned — api made idempotency a
+>    database constraint. Sending it would be a **400**, because `additionalProperties: false`.
+> 2. **api ships one template, not four**, so the "which email?" step is gone from decision 2 — Steve's call.
+> 3. **The preview has no text body to fall back to** when `html` is null; decision 3's note assumed one.
+> 4. **The slot keys are `snake_case`** and must not be normalised to this repo's camelCase wire convention.
+> 5. **notify-5 shipped**, so flag 1 is answered yes, decision 12's table is confirmed correct by the schemas,
+>    and nothing in Tasks 4 or 5a is skipped.
+> 6. **api-4 has zero contract delta**, measured — so Task 1 carries only this feature's additions.
+>
+> **One decision is deliberately left to Steve and is not a blocker:** whether a null preview `html` should
+> withhold the Send button (decision 3, resolution 2). Fail-closed is written in as the default.
+>
+> **Two corrections to this task's own method, recorded because they would recur:**
+>
+> - **Its gate commands pointed at the wrong document.** They ran `yq` against
+>   `libs/deed-poll-api-client/openapi.json` — *this* repo's copy — and required the emails operations to be
+>   present. But refreshing that file is **Task 1's** job, and it cannot be done earlier because the refresh is
+>   atomic (see the two bullets under "This plan is PROVISIONAL"). So the gate could only ever read `[]` and
+>   `35`, hit "STOP if notify-1 is not merged", and kill the plan on task 1 of 8 with notify-1 merged all along.
+>   **A gate on a published contract must read api's generated document, not admin's copy of it.** Generate it
+>   per `SPEC-PROVENANCE.md` and diff, which is what was actually done.
+> - **Do not generate it by switching the api clone's branch.** A `ralphex` run was building api-4 in that
+>   clone at the time. Read api at a pinned commit with `git show <sha>:<path>`, which touches neither the
+>   working tree nor `HEAD`, and only run the generator once that clone is idle and clean.
 
 **STOP if notify-1 is not merged.** This plan cannot be implemented against a design document.
 
@@ -328,10 +492,16 @@ Then, against the published document rather than against this plan:
 - Confirm the slot names and their validation rules (required, max length) from the document.
 - Note anything api did differently from notify-1's plan, since notify-1 may have been amended while running.
 
-- [ ] notify-1 merged and its spec published, the three operations present in `openapi.json` with their real
+- [x] notify-1 merged and its spec published, the three operations present in `openapi.json` with their real
       names, every `[PROVISIONAL]` marker in this file resolved, flag 1 answered in writing, whether notify-5
       has shipped recorded along with what follows from it, and the validation commands green with no changes
       made
+
+      **Done 2026-09-21.** One departure, stated rather than hidden: the operations are **not** yet in
+      `libs/deed-poll-api-client/openapi.json`, because putting them there is Task 1 and the refresh is atomic —
+      see the method correction above. They are verified present in api's generated document at `09d70e3`, and
+      their real names are recorded in "The contract — measured, not expected". Validation commands measured
+      green with **no file changed except this plan**.
 
 ### Task 1: The contract — atomically
 
@@ -403,7 +573,9 @@ Read first: `libs/deed-poll/src/deed-poll/form-fields.ts` (`FORM_TABS`), `src/pa
 
 - The `emails` entry in `FORM_TABS`, last (decision 1).
 - The `{% elif tab.subgrid == "emails" %}` branch: a `govukTable` of what has been sent with its state, and a
-  "Send an email" button. Empty state when nothing has been sent, matching how the other subgrids read when
+  "Send an email" button — which links **straight to the compose page** of the single applicable template,
+  resolved from `availability` at render time rather than hardcoded (decision 2 as amended by Task 0; there is
+  no picker page). Empty state when nothing has been sent, matching how the other subgrids read when
   empty. Each row links to the per-email page of Task 5a (decision 14); the table itself carries no content.
 - **The state column's wording is decision 10's addition, and it is a test, not a preference.** Assert that
   the rendered tab contains no occurrence of "Delivered", "Viewed", "Opened" or "Downloaded", so that a later
@@ -450,19 +622,30 @@ Read first: decisions 12, 13, 14 and 15, and Task 4's view model to extend.
 Read first: `src/pages/deed-polls/[id]/notes/new.ts` and `[id]/notes/[noteId]/edit.ts` for the page shape,
 and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is validated.
 
-- The four routes of decision 2, as file-based pages under `src/pages/deed-polls/[id]/emails/`.
+- The **three** routes of decision 2, as file-based pages under `src/pages/deed-polls/[id]/emails/`. **Not
+  four** — Task 0 removed the "which email?" picker, because api ships one template. There is no
+  `/emails/new`.
 - The compose page pre-populates the slots from the tab payload; the preview page renders the returned HTML in
-  a sandboxed `iframe` with a `title` (decision 3); the send posts and redirects to the tab with a banner.
+  a sandboxed `iframe` with a `title` (decision 3), and says so in a sentence when `html` is null; the send
+  posts and redirects to the tab with a banner.
 - The compose GET creates an idempotency UUID and the forms preserve it unchanged through preview, correction
-  and final send. A fresh visit to `/emails/new` starts a new journey and therefore gets a new UUID.
+  and final send. A fresh visit to the compose page starts a new journey and therefore gets a new UUID.
+  **The UUID is admin-local and is sent to api in neither a header nor the body** — decision 16 as corrected by
+  Task 0. It exists to stop a double-click or a browser resubmit; api's own protection is a unique index that
+  answers 409.
+- **api's 409 is a rendered state on the preview page**, not an error page: "this email has already been sent
+  for this referral", with a link back to the tab. Reachable without any double-click — two caseworkers on one
+  case produce it.
 - An unknown or non-applicable template in the path is a 404, not a 500 — the route parameter is user input.
 - Tests: the full journey; a validation failure returns to compose with an error summary and the caseworker's
   text preserved; a send failure returns to preview with api's message and the text preserved; the `iframe`
   carries `sandbox` without `allow-scripts` and without `allow-same-origin`, asserted in the `njk` test,
   because that attribute is the whole of decision 3 and a later tidy-up could drop it silently.
 
-- [ ] All four routes live, the preview renders in a titled sandboxed iframe asserted by test, a validation or
-      send failure never loses the caseworker's typing, an unknown template is a 404, and validation green
+- [ ] All three routes live, the preview renders in a titled sandboxed iframe asserted by test and explains
+      itself in a sentence when `html` is null, a 409 renders as its own state rather than an error page, a
+      validation or send failure never loses the caseworker's typing, an unknown template is a 404, and
+      validation green
 
 ### Task 6: Journey test, accessibility and full validation
 
