@@ -152,7 +152,87 @@ Do not add claim-refusal messaging to this page: a beaten claim remains the shar
 
 ## Tasks
 
+## Validation Commands
+
+**Added 2026-09-21, before the plan was run — it had none, exactly as `referrals-admin-5` had none.** `ralphex`
+runs this section after every task; without it there is no per-task gate, and a task can leave the suite red
+while the next one starts regardless.
+
+```bash
+yarn lint
+npx turbo test test:app --concurrency=1
+```
+
+**Verified green on this branch before Task 1** — `yarn lint` exits 0, `8 successful, 8 total` across
+**164 test files, 2,991 tests**. Those are Task 0's baselines and what Task 5 measures against.
+
+**Two things must stay out of this section, and one of them is specific to this plan:**
+
+- **`yarn welsh:check` exits 1 on `master`** — 446 strings, 421 still identical in `cy`, the repo-wide
+  `cy = { ...en }` state pending the translation request. A gate that starts red fails every task from the
+  first. It is **not** one of the six Jenkins-owned scripts, so it does not fail the build. This plan adds a
+  page, so Task 5 should confirm the count has moved only by this plan's own new keys — **compare against 421,
+  do not expect a zero exit.**
+- **`yarn test:e2e`** needs a running app and mock, and **cannot start its own `webServer` from inside a
+  worktree**: `dev:nowatch:web` runs `yarn dev:up`, and docker compose names its project after the directory, so
+  it collides with the `deed-poll-redis`/`deed-poll-idam` containers the main checkout owns. Start the mock and
+  app by hand without `dev:up` and let `reuseExistingServer` find them. **If port 3200 is already held it belongs
+  to another agent's worktree — do not kill it**; wait, or report and stop.
+
+**A bare `yarn test` is not a substitute.** It reports failure with `0 successful, 8 total` and "no tests" while
+running nothing at all, which reads as a red suite and is not one. The `--concurrency=1` form is what runs.
+
 ### Task 0: Reconcile the published API contract
+
+> **DONE 2026-09-21, by hand in a Claude Code session.** Every check passes and the delta is exactly what this
+> plan predicted. Nothing was changed but this plan — **including `openapi.json`, which this task deliberately
+> did NOT refresh. See "the correction to this task's own shape" below; it is not an omission.**
+>
+> **api follow-up 6 is merged** — `referrals-api-6` as PR **#36**, api `origin/master` at
+> `227b714819d522197b1e1aecd31ab78a5172f292`, its plan moved to `completed/`, the clone clean and idle.
+>
+> **The delta is exactly one operation and one schema, measured:**
+>
+> | | admin now | api at `227b714` |
+> |---|---|---|
+> | Operations | 38 | **39** |
+> | Schemas | 37 | **38** |
+>
+> Added: `GET /judicial/referrals/mine` and `JudicialMyReferralsResponse`. **Nothing removed, and no
+> pre-existing schema altered in any property.** Five judicial operations, as required — pool, mine, detail,
+> claim, direction.
+>
+> **All three stop conditions are clear, checked against the published schemas rather than api's source:**
+>
+> - **No owner ids on the wire.** `JudicialMyReferralsResponse` is `{ page, size, total, totalPages, referrals }`
+>   and nothing else; `JudicialReferralSummary` is `{ id, state, reasons, notes, urgency, urgencyReason,
+>   createdOn }`. There is no `ownerId`, `subject`, `claimedBy` or any other holder identifier anywhere in
+>   either. api-6's stable-owner persistence fields stayed out of the DTOs, which is what this plan required.
+> - **No application fields in list rows.** `JudicialReferralSummary` carries referral fields only — no case
+>   reference, no applicant name, no surname, no application dates.
+> - **No unrelated operation or schema changed.** Measured property-by-property, not by count.
+>
+> **`JudicialMyReferralsResponse` does reuse `JudicialReferralSummary`** — it `$ref`s it rather than declaring a
+> second row shape, so the pool and the personal list are the same row type. The operation takes `page` and
+> `size` as query parameters and declares only `200`.
+>
+> **Baselines: 164 test files, 2,991 tests, `yarn lint` exit 0** — see "Validation Commands", added below
+> because this plan shipped without one.
+>
+> ---
+>
+> **The correction to this task's own shape, and it is the reason `openapi.json` is untouched.** As written, this
+> task refreshed the spec while Task 1 registered the schema and operation. **That cannot work.**
+> `libs/deed-poll-api-client/src/api/contract.test.ts:97` is
+> `expect([...IMPLEMENTED_OPERATIONS].sort()).toEqual(inSpec)` — exact set equality against the document, and
+> `WIRE_SCHEMAS` is compared the same way. So the moment `openapi.json` gains the new operation and schema, the
+> contract test fails until both are registered: **this task would have ended red and taken every task after it
+> down with it.**
+>
+> **So the refresh moves into Task 1, atomically with the registration**, which is the only split available and
+> the same one notify-2 used. This task keeps the verification, which needs no write: api's document was
+> generated per `SPEC-PROVENANCE.md` and compared to this repo's copy in place. Task 1 now owns the refresh, the
+> new `SPEC-PROVENANCE.md` entry, and the registry — in one commit.
 
 Regenerate and refresh the spec, provenance and contract fixtures. Verify:
 
@@ -164,10 +244,30 @@ Regenerate and refresh the spec, provenance and contract fixtures. Verify:
 
 Record focused app/package/E2E baselines and stop on drift.
 
-- [ ] API contract reconciled and baselines recorded; no implementation files changed beyond the mechanical,
-      provenance-backed spec refresh
+- [x] API contract reconciled and baselines recorded; ~~no implementation files changed beyond the mechanical,
+      provenance-backed spec refresh~~ **no implementation files changed at all — the spec refresh moved to
+      Task 1 because it is atomic with registration, see above**
 
 ### Task 1: Add client, domain and mock support
+
+**Start by refreshing `openapi.json`, and do it in this task rather than the last one — the refresh and the
+registration are one atomic step.** `contract.test.ts` compares `IMPLEMENTED_OPERATIONS` and `WIRE_SCHEMAS`
+against the document as **set equality in both directions**, so a refreshed document with an unregistered
+operation is a red suite. Refresh, register, and let the tests go green inside this one commit.
+
+**The document is already generated** — Task 0 produced it from api
+`227b714819d522197b1e1aecd31ab78a5172f292` (`origin/master`, PR #36) and it is at
+**`/tmp/openapi-specs.json`**. Copy and reformat it with the `node -e` one-liner in `SPEC-PROVENANCE.md` step 1,
+then **`biome format` the file** or 200-odd lines of array-formatting churn will hide whether anything was
+removed. Write the new provenance entry to that file's standard; the facts are settled in Task 0 — **38 → 39
+operations, 37 → 38 schemas, purely additive, nothing removed and no pre-existing schema altered**, so its "what
+changed that was not an addition" section is "nothing".
+
+**Do not run Gradle and do not touch the `deed-poll-api` clone.** Another agent works in it. If
+`/tmp/openapi-specs.json` is missing or its counts are not 39 operations and 38 schemas, **stop and report**
+rather than regenerating from whatever state that clone is in. `SPEC-PROVENANCE.md`'s two out-of-band re-checks
+(the actuator settings and the `where`/`sort` parameter descriptions) can be done with
+`git show <sha>:<path>`, never by checking that clone out.
 
 Add:
 
