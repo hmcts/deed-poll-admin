@@ -394,7 +394,8 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   await expect(referrals).toContainText("Applicant is a minor");
   await expect(referrals).toContainText("Other");
   await expect(referrals).toContainText("Standard");
-  await expect(referrals.locator(".govuk-tag")).toHaveText("Open");
+  // The caseworker's status label rather than api's member: the tag says where the referral is.
+  await expect(referrals.locator(".govuk-tag")).toHaveText("Awaiting a judge");
   // The raise button is withheld while one is live, with the reason in its place rather than a button that
   // could only fail.
   await expect(page.getByRole("button", { name: "Refer this case to the judiciary" })).toHaveCount(0);
@@ -427,8 +428,8 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   await expect(referrals).toContainText("Applicant is a minor");
   await expect(page.getByRole("button", { name: "Refer this case to the judiciary" })).toBeVisible();
 
-  // The withdraw control is gone from a terminal referral, absent from the markup rather than disabled — the
-  // same shape as the note and witness deletes above.
+  // The withdraw control is gone from a referral that can no longer be withdrawn, absent from the markup
+  // rather than disabled — the same shape as the note and witness deletes above.
   await page.getByRole("link", { name: /view this referral/ }).click();
   await expect(page.getByRole("button", { name: "Withdraw this referral" })).toHaveCount(0);
   await expect(page.getByText("Withdrawn")).toBeVisible();

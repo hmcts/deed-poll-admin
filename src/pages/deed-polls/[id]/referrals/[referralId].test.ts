@@ -65,7 +65,7 @@ describe("referral view page", () => {
 
     expect(res.render.mock.calls[0][0]).toBe("deed-polls/referral-detail");
     expect(res.render.mock.calls[0][1].case.displayReference).toBe("KBDP2026-00001");
-    expect(res.render.mock.calls[0][1].referral.state).toBe("Open");
+    expect(res.render.mock.calls[0][1].referral.state).toBe("Awaiting a judge");
   });
 
   it("should show the reasons as labels rather than api's enum members", async () => {
@@ -92,12 +92,13 @@ describe("referral view page", () => {
     expect(standard.render.mock.calls[0][1].referral.urgency).toBe("Standard");
   });
 
-  it("should offer the withdraw action on a referral that is not terminal", async () => {
+  it("should offer the withdraw action on a referral the judiciary has not answered", async () => {
     const res = response();
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].referral.terminal).toBe(false);
+    expect(res.render.mock.calls[0][1].referral.canWithdraw).toBe(true);
+    expect(res.render.mock.calls[0][1].referral.canClose).toBe(false);
   });
 
   it.each(["Closed", "Withdrawn"] as const)("should offer no withdraw action on a %s referral", async (state) => {
@@ -106,7 +107,18 @@ describe("referral view page", () => {
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].referral.terminal).toBe(true);
+    expect(res.render.mock.calls[0][1].referral.canWithdraw).toBe(false);
+    expect(res.render.mock.calls[0][1].referral.canClose).toBe(false);
+  });
+
+  it("should offer closing and not withdrawing on a referral a judge has directed", async () => {
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, state: "Decided" } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].referral.canWithdraw).toBe(false);
+    expect(res.render.mock.calls[0][1].referral.canClose).toBe(true);
   });
 
   it("should carry migrated with no reasons, so the page explains the empty cell", async () => {

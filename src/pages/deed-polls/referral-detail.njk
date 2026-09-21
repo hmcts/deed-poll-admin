@@ -12,9 +12,10 @@
   scanned, not read. A migrated referral has none, and says so, because the previous system recorded no
   reasons; a blank cell there would read as missing data rather than as data that never existed.
 
-  Withdraw is a form rather than a link, because it changes something. It is absent on a referral that is
-  already closed or withdrawn, and a caseworker who had the page open when somebody else closed it comes back
-  here with the message above instead of an error page.
+  Withdraw is a form rather than a link, because it changes something. It is offered on `canWithdraw` and not
+  on "not terminal": a referral a judge has directed is still the case's live one and is *not* withdrawable —
+  the direction on it has to be carried out. A caseworker who had the page open when somebody else closed it
+  comes back here with the message above instead of an error page.
 #}
 {% block content %}
 <div class="govuk-grid-row">
@@ -51,7 +52,7 @@
       ]
     }) }}
 
-    {% if not referral.terminal %}
+    {% if referral.canWithdraw %}
       <form method="post" action="/deed-polls/{{ case.id }}/referrals/{{ referral.id }}/withdraw" novalidate>
         <p class="govuk-body">{{ withdrawHint }}</p>
         {{ govukButton({ text: withdraw, classes: "govuk-button--warning" }) }}

@@ -2,9 +2,9 @@
  * The referral view's markup, rendered rather than asserted through the view model.
  *
  * The model is asserted in `[id]/referrals/[referralId].test.ts`. What this file exists for is what a model
- * cannot show: that the withdraw control is a **form** and not a link, that it disappears on a terminal
- * referral rather than being rendered disabled, and that a migrated referral says why it lists no reasons
- * instead of showing an empty cell.
+ * cannot show: that the withdraw control is a **form** and not a link, that it disappears on a referral that
+ * cannot be withdrawn rather than being rendered disabled, and that a migrated referral says why it lists no
+ * reasons instead of showing an empty cell.
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,7 +85,8 @@ describe("referral view template", () => {
     const rendered = await page(REFERRAL);
 
     expect(rendered).toMatch(/govuk-tag[^"]*govuk-tag--blue/);
-    expect(rendered).toContain("Open");
+    // The caseworker's label, not api's member: the tag says where the referral is, not what its enum is called.
+    expect(rendered).toContain("Awaiting a judge");
   });
 
   it("should offer withdraw as a form posting to the withdraw route, because it changes something", async () => {
@@ -96,12 +97,25 @@ describe("referral view template", () => {
     expect(rendered).toContain("Withdraw this referral");
   });
 
-  it.each(["Closed", "Withdrawn"] as const)("should render a %s referral read-only, with no withdraw control at all", async (state) => {
+  it.each([
+    { state: "Closed", label: "Direction actioned" },
+    { state: "Withdrawn", label: "Withdrawn" }
+  ])("should render a $state referral read-only, with no withdraw control at all", async ({ state, label }) => {
     const rendered = await page({ ...REFERRAL, state });
 
     expect(rendered).not.toContain("Withdraw this referral");
     expect(rendered).not.toContain("/withdraw");
-    expect(rendered).toContain(state);
+    expect(rendered).toContain(label);
+  });
+
+  it("should render no withdraw control on a referral a judge has directed, since api refuses that withdrawal", async () => {
+    // Not terminal — the case still holds it — and still not withdrawable: the direction on it is the
+    // caseworker's work to carry out, and Task 3 puts the "mark as actioned" control here in its place.
+    const rendered = await page({ ...REFERRAL, state: "Decided" });
+
+    expect(rendered).not.toContain("Withdraw this referral");
+    expect(rendered).not.toContain("/withdraw");
+    expect(rendered).toContain("Direction received");
   });
 
   it("should say a migrated referral came from the previous system rather than showing an empty reasons cell", async () => {

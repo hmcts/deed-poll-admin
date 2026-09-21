@@ -1,7 +1,7 @@
 /**
  * Referrals to the judiciary, read and written through `deed-poll-api`.
  *
- * Four thin functions and no rules of their own. What is worth knowing before reading a caller of these:
+ * Five thin functions and no rules of their own. What is worth knowing before reading a caller of these:
  *
  * **The reads are dedicated calls, unlike witnesses.** `GET /caseworker/cases/{id}` carries a case's notes,
  * witnesses and documents, so `findWitnesses` reads them off the case rather than paying for a second round
@@ -16,20 +16,29 @@
  * would go stale the moment a judge claimed the referral in another session. A withdraw of a terminal
  * referral is api's 409, which `callApi` turns into the `ConflictError` the page renders as a message.
  *
- * **Both 409s reach a caller as `ConflictError`, and both are expected states rather than faults.** api
- * answers 409 on create when the case already has a referral that is not terminal, and on withdraw when the
- * referral is already closed or withdrawn. The page catches it; reaching the 500 page with one means a
- * handler did not, which is a bug in that handler.
+ * **Every 409 reaches a caller as `ConflictError`, and all of them are expected states rather than faults.**
+ * api answers 409 on create when the case already has a referral that is not terminal, on withdraw for
+ * anything but `Open`/`Claimed`, and on close for anything but `Decided`. The page catches it; reaching the
+ * 500 page with one means a handler did not, which is a bug in that handler.
+ *
+ * **Withdrawable and terminal are two different questions, both api's.** `Decided` is not terminal — the case
+ * still holds it as its live referral and still counts as returned for action — and is still refused a
+ * withdrawal, because the direction on it has to be carried out and the referral closed instead
+ * (`ReferralState.canBeWithdrawn()`). A single local predicate over `state` would have to answer both and
+ * would get one of them wrong.
  *
  * **No author parameter**, as everywhere else: api stamps `createdBy` from the caller's own token, so passing
  * a name alongside it would let this app attribute a referral to whoever it liked. The same token is how api
  * decides whether the caller may raise one at all — there is no role check here.
  *
- * **Claiming, directing and closing are not here on purpose.** The adapter carries `closeReferral` and the
- * four `/judicial/**` operations because it tracks the whole of api; this app's caseworker surface uses four
- * of the nine, and the rest arrive with the screens that need them.
+ * **Claiming and directing are not here on purpose.** The adapter carries the four `/judicial/**` operations
+ * because it tracks the whole of api, and the judge's own screens call them through `../judicial/service.ts`;
+ * a caseworker never claims or directs. Closing *is* here, as of `referrals-admin-4`: it is how a caseworker
+ * records that a returned direction has been carried out, and without it a case could not leave the
+ * returned-for-action worklist through the UI at all.
  */
 import {
+  closeReferral as apiCloseReferral,
   createReferral as apiCreateReferral,
   withdrawReferral as apiWithdrawReferral,
   getReferral,
@@ -79,4 +88,21 @@ export function createReferral(deedPollId: string, dto: CreateReferralInput, cal
  */
 export function withdrawReferral(deedPollId: string, id: string, caller: Caller): Promise<Referral> {
   return callApi(caller, (config) => apiWithdrawReferral(deedPollId, id, config));
+}
+
+/**
+ * Close a referral — the caseworker's record that the judge's direction has been carried out.
+ *
+ * No body, as the withdrawal has none, and **no pre-read to check the state**: api refuses anything but
+ * `Decided` with a 409 the page renders, and a read first would be a second round trip for a fact that could
+ * change between the two calls anyway. The closed referral comes back with the judicial fields intact —
+ * closing records that the direction was actioned, not that it was undone — so a page can render the state it
+ * landed in.
+ *
+ * **No note and no author.** api stamps the actor from the token, and a closure note would be a second place
+ * to look for what was done about a direction: the case's own notes are where that belongs
+ * (`referrals-admin-4`, decision 6).
+ */
+export function closeReferral(deedPollId: string, id: string, caller: Caller): Promise<Referral> {
+  return callApi(caller, (config) => apiCloseReferral(deedPollId, id, config));
 }

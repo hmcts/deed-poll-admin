@@ -158,7 +158,7 @@ describe("case detail page", () => {
 
     const referrals = res.render.mock.calls[0][1].referrals;
     expect(referrals.count).toBe(1);
-    expect(referrals.rows[0]).toMatchObject({ id: "ref-1", state: "Open", reasons: ["Applicant is a minor"], urgency: "Standard" });
+    expect(referrals.rows[0]).toMatchObject({ id: "ref-1", state: "Awaiting a judge", reasons: ["Applicant is a minor"], urgency: "Standard" });
   });
 
   it("populates the referrals tab from that call, not from the case record", async () => {
@@ -181,10 +181,10 @@ describe("case detail page", () => {
 
     const tabs = res.render.mock.calls[0][1].tabs as { id: string; empty: boolean }[];
     expect(tabs.find((tab) => tab.id === "referrals")?.empty).toBe(true);
-    expect(res.render.mock.calls[0][1].referrals).toEqual({ rows: [], count: 0, anyOpen: false, unavailable: false, offerRaise: true });
+    expect(res.render.mock.calls[0][1].referrals).toEqual({ rows: [], count: 0, liveReferral: null, unavailable: false, offerRaise: true });
   });
 
-  it("reports an open referral so the tab can withhold the raise button api would refuse", async () => {
+  it("reports the live referral so the tab can withhold the raise button api would refuse", async () => {
     vi.mocked(findReferrals).mockResolvedValue([REFERRAL] as never);
     const open = response();
     await GET(request(), open);
@@ -193,8 +193,20 @@ describe("case detail page", () => {
     const closed = response();
     await GET(request(), closed);
 
-    expect(open.render.mock.calls[0][1].referrals.anyOpen).toBe(true);
-    expect(closed.render.mock.calls[0][1].referrals.anyOpen).toBe(false);
+    expect(open.render.mock.calls[0][1].referrals.liveReferral).toMatchObject({ id: "ref-1", message: "withJudiciary" });
+    expect(closed.render.mock.calls[0][1].referrals.liveReferral).toBeNull();
+  });
+
+  it("reports a returned direction as its own live state, so the tab asks for it to be actioned", async () => {
+    vi.mocked(findReferrals).mockResolvedValue([{ ...REFERRAL, state: "Decided" }] as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    const { referrals, en } = res.render.mock.calls[0][1];
+    expect(referrals.liveReferral.message).toBe("directionReceived");
+    // The message the template looks up has to exist, or the panel withholds the button and says nothing.
+    expect(en.liveReferralMessages[referrals.liveReferral.message]).toContain("mark the referral as actioned");
   });
 
   it("carries the labels the referrals subgrid renders, since a missing one is a blank column or button", async () => {
@@ -204,8 +216,13 @@ describe("case detail page", () => {
 
     const { en } = res.render.mock.calls[0][1];
     expect(en.referralColumns).toHaveLength(4);
-    for (const key of ["raiseReferral", "viewReferralHint", "migratedReferral", "referralAlreadyOpen"]) {
+    for (const key of ["raiseReferral", "viewReferralHint", "migratedReferral"]) {
       expect(en[key], key).toBeTruthy();
+    }
+    // One message per live state the view model can report — a missing one is a panel with no button and no
+    // explanation, which reads as a case whose referral history has gone.
+    for (const key of ["withJudiciary", "directionReceived", "stateUnknown"]) {
+      expect(en.liveReferralMessages[key], key).toBeTruthy();
     }
   });
 
@@ -259,7 +276,7 @@ describe("case detail page", () => {
 
     expect(res.render).toHaveBeenCalled();
     expect(res.render.mock.calls[0][1].pageHeading).toBe("KBDP2026-00001");
-    expect(res.render.mock.calls[0][1].referrals).toEqual({ rows: [], count: 0, anyOpen: false, unavailable: true, offerRaise: false });
+    expect(res.render.mock.calls[0][1].referrals).toEqual({ rows: [], count: 0, liveReferral: null, unavailable: true, offerRaise: false });
     logged.mockRestore();
   });
 

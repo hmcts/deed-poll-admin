@@ -359,7 +359,10 @@ export function createReferral(caseId: string, referral: ReferralCreate, config:
  * Withdraw a referral — the caseworker's way of taking one back before the judiciary has finished with it.
  *
  * **No body**, which is api's shape and not an omission: the sub-resource names the transition, so there is
- * nothing left to state. `conflict` when the referral is already terminal.
+ * nothing left to state. `conflict` unless the referral is `Open` or `Claimed` — api's
+ * `ReferralState.canBeWithdrawn()`, which is **not** the negation of `isTerminal()`: a `Decided` referral is
+ * non-terminal and still refused, because the direction on it has to be actioned and the referral closed
+ * rather than taken back.
  */
 export function withdrawReferral(caseId: string, referralId: string, config: ApiConfig): Promise<ApiResult<Referral>> {
   return request(config, "POST", `${referralPath(caseId, referralId)}/withdrawal`, WIRE_SCHEMAS.ReferralResponse);

@@ -239,8 +239,15 @@ const APPLICATION_TAB: TabDef = {
   ]
 };
 
-/** Referral to Master tab. */
-const REFERRAL_TAB: TabDef = {
+/**
+ * The retired "Referral to Master" tab — the previous system's referral record, kept as read-only history.
+ *
+ * **Exported because the definitions outlive the tab.** `referrals-admin-4` decision 2 retires these fields for
+ * new work: a caseworker raises and reads referrals on the Referrals tab, and the values here may be a migrated
+ * business record that must stay readable. `../referrals/legacy-referral-view.ts` renders the populated ones
+ * from this metadata rather than restating their labels, so the two cannot drift apart.
+ */
+export const LEGACY_REFERRAL_TAB: TabDef = {
   id: "referral",
   label: "Referral to Master",
   sections: [
@@ -350,14 +357,14 @@ const REFUND_TAB: TabDef = {
 export const FORM_TABS: TabDef[] = [
   APPLICATION_TAB,
   { id: "notes", label: "Notes", sections: [], subgrid: "notes" },
-  REFERRAL_TAB,
+  LEGACY_REFERRAL_TAB,
   SIGNATURE_TAB,
   ENROLMENT_TAB,
   RETURN_TAB,
   REFUND_TAB,
   { id: "witnesses", label: "Witnesses", sections: [], subgrid: "witnesses" },
   { id: "documents", label: "Supporting documents", sections: [], subgrid: "documents" },
-  // `referrals` is not `referral`: REFERRAL_TAB above holds the case's own "Refer to Master?" fields, ported
+  // `referrals` is not `referral`: LEGACY_REFERRAL_TAB above holds the case's own "Refer to Master?" fields, ported
   // from the Dynamics form, while this lists the referrals actually raised against the case. Both ids are
   // URL slugs (`/deed-polls/{id}/edit/referral`) so neither can be renamed to tell them apart.
   { id: "referrals", label: "Referrals", sections: [], subgrid: "referrals" }

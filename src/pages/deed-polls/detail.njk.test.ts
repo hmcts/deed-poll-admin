@@ -170,11 +170,31 @@ describe("case detail template — the referrals tab", () => {
     expect(rendered).toContain('href="/deed-polls/case-1/referrals/new"');
   });
 
-  it.each(["Open", "Claimed", "Decided"] as const)("should withhold the raise button while a %s referral is with the judiciary, and say why", async (state) => {
+  it.each(["Open", "Claimed"] as const)("should withhold the raise button while a %s referral is with the judiciary, and say why", async (state) => {
     const rendered = await page([{ ...REFERRAL, state }]);
 
     expect(rendered).not.toContain('href="/deed-polls/case-1/referrals/new"');
     expect(rendered).toContain("Withdraw the open referral before raising another.");
+  });
+
+  it("should tell a caseworker with a returned direction to action it, never to withdraw it", async () => {
+    // The parametrised case above used to cover Decided too, which is how the tab came to ask for a withdrawal
+    // api refuses — of the one referral whose direction is the caseworker's work to carry out.
+    const rendered = await page([{ ...REFERRAL, state: "Decided" }]);
+
+    expect(rendered).not.toContain('href="/deed-polls/case-1/referrals/new"');
+    expect(rendered).toContain("mark the referral as actioned before raising another");
+    expect(rendered).not.toContain("Withdraw the open referral");
+  });
+
+  it("should say a referral is live but unreadable rather than borrowing the failed-read message", async () => {
+    // Two different claims: nothing was read at all, versus a referral was read whose state this app cannot
+    // name. Only the second still knows there is one.
+    const rendered = await page([{ ...REFERRAL, state: null }]);
+
+    expect(rendered).not.toContain('href="/deed-polls/case-1/referrals/new"');
+    expect(rendered).toContain("whose status could not be read");
+    expect(rendered).not.toContain("Referral information could not be loaded");
   });
 
   it("should say a migrated referral came from the previous system rather than showing an empty reasons cell", async () => {

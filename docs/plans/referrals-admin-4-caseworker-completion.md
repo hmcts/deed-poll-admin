@@ -388,8 +388,36 @@ Update the mock withdrawal rule and adapter-level tests. Add the domain closure 
 Unit-test all five states, null/unknown defensive behaviour, nullable direction fields, retained direction
 after closure, and legacy information present/absent.
 
-- [ ] Mock matches API withdrawal semantics; close wrapper added; complete view model and capabilities
+- [x] Mock matches API withdrawal semantics; close wrapper added; complete view model and capabilities
       unit-tested; contract tests green
+
+#### What Task 1 settled, which Tasks 2–5 build on
+
+- **The mock gained a second predicate, not a narrower one.** `canBeWithdrawn` (`Open`/`Claimed`) beside an
+  unchanged `isTerminal`, with api's two refusal messages in `withdrawalRefusal`
+  (`libs/deed-poll-api-client/src/mock/server.ts`). `isTerminal` still backs the one-live-referral rule and
+  `currentReferralState`, both now pinned from a `Decided` referral in `server.test.ts`.
+- **`closeReferral` is in the domain layer** (`libs/deed-poll/src/referrals/service.ts`), with no pre-read and
+  no body, and the docblock that said closing was deliberately absent now says why it is here.
+- **The view model's vocabulary, which pages and e2e assert on:** `REFERRAL_STATE_LABEL` gives
+  `Open → "Awaiting a judge"`, `Claimed → "With a judge"`, `Decided → "Direction received"`,
+  `Closed → "Direction actioned"`, `Withdrawn → "Withdrawn"`; `REFERRAL_STATE_MEANING` adds the sentence, and
+  `Decided`'s is **"Direction received — action needed"** — the phrase Task 5's journey looks for. `ReferralView`
+  now carries `stateMeaning`, `live`, `canWithdraw`, `canClose`, `claim` and `direction`; `terminal` is gone.
+- **`anyOpen` became `liveReferral: { id, state, message } | null`.** `message` is a key
+  (`withJudiciary` / `directionReceived` / `stateUnknown`) and the copy lives in `src/pages/deed-polls/[id].ts`'s
+  `liveReferralMessages`, so the tab no longer tells a caseworker with a returned direction to withdraw it.
+  `src/pages/deed-polls/[id]/referrals/new.ts` resolves its 409 link through `liveReferral` now.
+- **An unknown state offers neither action**, reversing the old "offer the withdraw and let api decide" — that
+  rested on "not terminal" implying withdrawable, which `Decided` disproves. It still counts as **live**, so the
+  raise stays withheld.
+- **The legacy snapshot exists but is not rendered yet** (Task 2 places it):
+  `buildLegacyReferralView(record)` in `libs/deed-poll/src/referrals/legacy-referral-view.ts` returns the
+  populated retired fields or `null`, built from the now-exported `LEGACY_REFERRAL_TAB` — still in `FORM_TABS`
+  until Task 2 splits the catalogues. `false` counts as a value, so `publishToLondonGazette: false` renders "No".
+- Validation after Task 1: **2,642 unit tests** across 8 packages (baseline 2,601), `yarn lint` exit 0 with the
+  same 2 warnings and 2 infos, **35 e2e passed** in 3.5m. `e2e-tests/tests/deed-polls.spec.ts` needed one
+  assertion changed — the tag now reads "Awaiting a judge".
 
 ### Task 2: Consolidate the case detail Referrals tab
 

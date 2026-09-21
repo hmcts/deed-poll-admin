@@ -596,9 +596,14 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
    * it is given would otherwise see insertion order here and the reverse deployed.
    *
    * The two caseworker transitions are guarded as api guards them, and the difference between the two guards
-   * is api's rather than an inconsistency: withdrawal asks `isTerminal`, because a referral a judge is holding
-   * is still withdrawable, and closure names `Decided` alone, because closing anything else would relabel a
-   * referral nobody directed as one that was actioned.
+   * is api's rather than an inconsistency: withdrawal asks `canBeWithdrawn`, because a referral a judge is
+   * holding is still withdrawable but one they have directed is not, and closure names `Decided` alone,
+   * because closing anything else would relabel a referral nobody directed as one that was actioned.
+   *
+   * **Withdrawal's refusal carries two messages, as api's does**, because the caseworker's next move differs:
+   * a `Decided` referral has a direction on it to carry out and close, while a `Closed` or `Withdrawn` one is
+   * over. Reusing "already Decided" would tell someone reading a returned direction that they had already
+   * withdrawn it.
    */
   async function referrals(
     req: IncomingMessage,
@@ -626,7 +631,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (method === "POST" && action === "withdrawal") {
       // Not idempotent-and-silent: a second withdrawal is a caseworker acting on a stale screen, and
       // answering 200 would tell them their click did something it did not.
-      if (isTerminal(referral.state)) return send(res, 409, { error: `Referral ${id} is already ${referral.state} and cannot be withdrawn` });
+      if (!canBeWithdrawn(referral.state)) return send(res, 409, { error: withdrawalRefusal(id, referral.state) });
 
       return send(res, 200, toWireReferral(transition(record, referral, auditName(req), { state: "Withdrawn" })));
     }
@@ -1538,6 +1543,33 @@ function refreshCurrentReferralState(record: MockCase): void {
 /** api's `ReferralState.isTerminal()`. A case holds at most one referral for which this is false. */
 function isTerminal(state: ReferralState): boolean {
   return state === "Closed" || state === "Withdrawn";
+}
+
+/**
+ * api's `ReferralState.canBeWithdrawn()` — a second, independent predicate rather than a narrower
+ * `isTerminal`, exactly as `referrals-api-4` added it.
+ *
+ * **Do not fold this into `isTerminal`.** That one still means `Closed || Withdrawn` and backs two other rules:
+ * a case may hold only one referral for which it is false, and `currentReferralState` is the state of that one.
+ * Narrowing it so `Decided` counted as terminal would let a case raise a second referral beside a decided one
+ * *and* drop the case out of the returned-for-action queue the moment a judge answered it — api's own javadoc
+ * says so. `Decided` is deliberately non-terminal and not withdrawable.
+ */
+function canBeWithdrawn(state: ReferralState): boolean {
+  return state === "Open" || state === "Claimed";
+}
+
+/**
+ * api's two withdrawal refusals, which differ because the caseworker's next action does.
+ *
+ * A `Decided` referral is refused because there is a direction on it to carry out and then close; a `Closed`
+ * or `Withdrawn` one is refused because it is over. One "already X" message for both would tell a caseworker
+ * looking at a returned direction that they had already withdrawn it.
+ */
+function withdrawalRefusal(id: string, state: ReferralState): string {
+  return state === "Decided"
+    ? `Referral ${id} is Decided -- a direction has been recorded on it and must be actioned and the referral closed, rather than withdrawn`
+    : `Referral ${id} is already ${state} and cannot be withdrawn`;
 }
 
 /**
