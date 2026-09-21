@@ -50,8 +50,30 @@ authorship.
 
 The mock currently stores notes in insertion order and passes that order directly to both detail responses,
 while the API repository returns notes newest first. Sort a copy at the read projections; do not reverse the
-stored array in place. Both caseworker `notes` and judicial `caseNotes` must expose the same newest-first
-timeline.
+stored array in place. ~~Both caseworker `notes` and judicial `caseNotes` must expose the same newest-first
+timeline.~~
+
+**Corrected by Task 1 and verified independently against api's source, 2026-09-21 — that last sentence was
+false, and following it would have created the very drift this plan exists to remove.** api has **three** note
+surfaces and **two** orderings, not one:
+
+| Surface | Source | Order |
+|---|---|---|
+| `notes` on `GET /caseworker/cases/{id}` | `DeedPoll.notes`, a `@OneToMany` with `@OrderBy("createdOn ASC")` | **oldest first** |
+| `GET /caseworker/cases/{id}/notes` | `NoteService.findNotes` → `findByDeedPollIdOrderByCreatedOnDesc` | **newest first** |
+| judicial `caseNotes` | the same `NoteService.findNotes` | **newest first** |
+
+Checked at api `7226fc9` rather than inferred: `DeedPoll.java:398` carries the `ASC` annotation with a comment
+saying it reproduces the reference's `orderBy: { createdOn: "asc" }`; `NoteService.java:89` is the `Desc` query;
+`JudicialReferralDetail.java:57` documents `caseNotes` as "newest first" and `JudicialReferralService.java:224`
+says it comes from `findNotes`. So the decision conflated the case-detail `notes` collection with the dedicated
+`…/notes` one.
+
+**So: sort the two that api sorts, and leave the case-detail projection in insertion order.** Sorting all three
+would have made the mock disagree with api on the surface the case page actually reads. The asymmetry is api's,
+it is deliberate on api's side, and the mock's job here is parity rather than tidiness — it is now pinned by a
+test asserting the two projections carry the same notes in **opposite** orders, so a future "consistency" fix
+fails rather than shipping. No admin page depends on either order: `buildNotesView` sorts what it is given.
 
 The claim-lapse note remains service-account authored, matching API. If the mock does not currently execute
 automatic lapse reclamation, do not invent a timer solely for this plan; cover the events the mock can
@@ -229,7 +251,10 @@ Extend the caseworker completion journey from admin follow-up 4 rather than addi
 raise → claim → direction → actioned:
 
 - open the case Notes tab;
-- verify each lifecycle event and actor is visible in the grid's established newest-first order;
+- verify each lifecycle event and actor is visible in the grid's established order. **That order is
+  `buildNotesView`'s, not api's** — see decision 2 as corrected: the case-detail `notes` collection arrives
+  oldest-first from api, and the grid sorts what it is given. Assert what the page renders; do not assert
+  "newest first" as though the payload guaranteed it;
 - verify the direction's full text remains on the referral detail rather than being copied into the note;
 - switch to the judicial persona before closure and verify the allowed lifecycle notes are visible in the
   existing read-only notes section;
