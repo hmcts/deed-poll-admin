@@ -78,6 +78,25 @@ The adapter itself is tested a layer down and differently: `libs/deed-poll-api-c
 runs against the in-memory mock, and `contract.test.ts` fails if the adapter and `openapi.json` disagree.
 Do not stub `fetch` to test an adapter function — the mock is the contract.
 
+## Template Test Pattern
+
+A `*.njk.test.ts` drives the real handler, then renders the model it passed to `res.render`. **Spread the
+content pair first and the handler's own values over it**, because that is
+`renderInterceptorMiddleware`'s order (`libs/express-govuk-starter/src/i18n/locale-middleware.ts` merges
+`...selectedContent` then `...otherContent`):
+
+```typescript
+const html = (model: Record<string, unknown>): string =>
+  environment.render("deed-polls/referral-detail.njk", { ...(model.en as object), ...model });
+```
+
+The other way round is a trap rather than a preference. A handler that **resolves a sentence itself** from
+the same `en` the template also receives — `directionActioned`, `gazetteAnswer`, `withdrawRefused` — has the
+resolved value win in the app, so an empty one means "no banner". Spread `en` last and the unresolved entry
+wins instead: every conditional the handler owns renders unconditionally in the test while behaving
+correctly in the app, so the test passes and pins nothing. All eleven template tests use the order above;
+a new one that does not will mislead the first time its handler resolves a string named like its `en` key.
+
 ## Test Naming Conventions
 
 - Use descriptive names that explain the behavior being tested

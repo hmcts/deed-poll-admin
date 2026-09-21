@@ -2,7 +2,12 @@
 
 > **Follow-up:** `../referrals-admin-4-caseworker-completion.md` consolidates the legacy “Referral to Master”
 > and live “Referrals” surfaces, displays the judicial direction, and replaces the terminal-only action
-> decision with explicit withdraw/close capabilities after business testing.
+> decision with explicit withdraw/close capabilities after business testing. Three names this plan records as
+> current have gone with it: **`terminal`** on the view model (now `canWithdraw`/`canClose`, since `Decided`
+> is non-terminal and still not withdrawable), **`anyOpen`** (now `liveReferral: { id, state, message }`, so
+> the tab's message is state-sensitive), and the editable **`referral` tab** (retired from `FORM_TABS`, its
+> fields kept read-only in the Referrals panel and its `/edit/referral` route redirecting on GET, 404 on
+> POST).
 >
 > `../referrals-admin-5-lifecycle-case-notes.md` keeps the in-memory API and end-to-end case Notes journey in
 > step with the API's expanded referral lifecycle notes.

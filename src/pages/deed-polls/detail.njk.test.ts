@@ -78,7 +78,8 @@ const REFERRAL = {
   modifiedOn: new Date("2026-05-13T08:44:00Z")
 };
 
-const html = (model: Record<string, unknown>): string => environment.render("deed-polls/detail.njk", { ...model, ...(model.en as object) });
+/** Content pair first, the handler's own values over it — `renderInterceptorMiddleware`'s order. See `referral-detail.njk.test.ts`. */
+const html = (model: Record<string, unknown>): string => environment.render("deed-polls/detail.njk", { ...(model.en as object), ...model });
 
 async function page(referrals: Record<string, unknown>[], record: Record<string, unknown> = found): Promise<string> {
   vi.mocked(findDeedPoll).mockResolvedValue(record as never);

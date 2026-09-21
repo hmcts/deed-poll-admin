@@ -340,7 +340,10 @@ Follow these strict naming conventions throughout the project:
   the 404 template — three disguises for a failure the adapter itself calls "try again shortly". The test for
   which way a given call goes is **load-bearing versus additive**: `findDeedPoll` is the case and
   `getCaseFieldRules` decides which fields exist at all, so both stay fatal. The degraded state must be
-  distinguishable from an empty one — see `unavailableReferralsView`'s docblock for why
+  distinguishable from an empty one — see `unavailableReferralsView`'s docblock for why. **And what does not
+  depend on the degraded call must render outside every branch of it**: the Referrals panel's "Previous system
+  referral information" snapshot comes off the case, so nesting it inside the live-history branch would let a
+  failed referrals read hide a historical record that was never at risk
 - **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its two
   additive calls — the saved-query nav and the returned-for-action count — *before* the list read and awaits each
   inside a helper that catches everything, logs, and returns a sentinel (`[]`, `null`); only the list read is

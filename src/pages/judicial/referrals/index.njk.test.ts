@@ -49,7 +49,7 @@ const render = async (pool: Partial<JudicialPool>, query: Record<string, unknown
   await GET(pageRequest({ query, judicial: true, accessToken: "judge-token" }), res);
   const model = res.render.mock.calls[0][1];
 
-  return environment.render("judicial/referrals/index.njk", { ...model, ...model.en });
+  return environment.render("judicial/referrals/index.njk", { ...model.en, ...model });
 };
 
 describe("judicial pool template", () => {

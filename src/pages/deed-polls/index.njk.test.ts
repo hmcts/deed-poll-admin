@@ -58,7 +58,7 @@ const render = async (query: Record<string, unknown> = {}): Promise<string> => {
   await GET(pageRequest({ query }), res);
   const model = res.render.mock.calls[0][1];
 
-  return environment.render("deed-polls/index.njk", { ...model, ...model.en });
+  return environment.render("deed-polls/index.njk", { ...model.en, ...model });
 };
 
 /**

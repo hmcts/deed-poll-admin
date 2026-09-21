@@ -642,7 +642,75 @@ yarn test:e2e
 
 Record final totals against Task 0's baseline and verify the six Jenkins-owned package scripts remain.
 
-- [ ] Documentation current; full unit/app, lint, Welsh and E2E validation green; final totals recorded
+- [x] Documentation current; full unit/app, lint, Welsh and E2E validation green; final totals recorded
+
+#### What Task 6 changed, and the final numbers
+
+**Documentation.** Four files, all of them guidance that described superseded behaviour as current:
+
+- **`.claude/rules/backend.md`'s `conflict` row** said api answers 409 "for a withdraw of one that is already
+  terminal". It now states api-4's actual rule — withdrawal refused for anything but `Open`/`Claimed`, with
+  `Decided` **neither withdrawable nor terminal**, and why narrowing `isTerminal()` was the wrong fix — and adds
+  closure's 409 and its `?close=conflict` redirect. It also records that each 409 has more than one meaning, so
+  the sentence comes from the fresh read.
+- **`.claude/rules/backend.md` gained the case-field catalogue rule**, which nothing outside `form-fields.ts`
+  documented: `CASE_FIELD_TABS` is what the app can format and query, `FORM_TABS` is what it navigates and
+  edits, and which derivation reads which list. The failure mode is the point — delete a tab and its fields
+  quietly leave formatting and query metadata with nothing failing.
+- **`.claude/rules/testing.md` gained a Template Test Pattern section** for the `html()` merge order Task 4
+  found, stated as the trap it is rather than a preference.
+- **`CLAUDE.md`'s `Promise.allSettled` bullet** gained the corollary Task 2 established: what does not depend on
+  the degraded call renders **outside every branch** of it, or a failed referrals read hides a historical record
+  that was never at risk.
+
+**Cross-links on the completed plans.** `referrals-admin-0` now carries one, because its Task 3 state machine
+records "409 on withdraw when terminal" and that is no longer api's rule. `referrals-admin-1`'s existing link
+now also names the three identifiers it records as current that have gone — `terminal`, `anyOpen` and the
+editable `referral` tab. `referrals-admin-2`'s link was already right (the count query did not change), and
+`referrals-admin-3` needed none: this plan did not touch the judicial surface.
+
+**The `.njk` test harness is uniform now, and it was nine files rather than Task 4's three.**
+`grep` found the wrong merge order in `deed-polls/{detail,referral-form,index}`, `deed-polls/queries/{new,edit,
+delete,index}` and `judicial/referrals/{referral,index,direction-check,direction-form}` — Task 4 named the three
+it had met. All eleven template tests now spread the content pair first. **The suite stayed green through the
+change**, which is the useful finding: none of those nine pages currently has a handler resolving a value under
+a key its own `en` also holds, so every one was a latent trap rather than a live false pass. The rule in
+`testing.md` is what stops the tenth reintroducing it.
+
+**Welsh.** `yarn welsh:extract` regenerated `.business_context/welsh-translation-request.csv`: **+46 rows, −3**.
+The three removals are keys this plan replaced — `referralAlreadyOpen` (now three state-sensitive
+`liveReferralMessages`), `alreadyClosed` (now `withdrawRefusedDecided`/`withdrawRefusedTerminal`) and the old
+`stateLabel` value "Status" (now "Referral status"). The additions are Tasks 2–4's copy, including the whole of
+`referrals/[referralId]/close.ts`. The new page area needed no `INCLUDE` change — it sits under
+`src/pages/deed-polls`, already in scope — and every key parsed, confirmed by finding the close page's rows in
+the CSV rather than by the script staying silent.
+
+**`yarn welsh:check` exits 1, and cannot be made to exit 0 from this repo.** 399 strings, 374 still identical in
+`cy` (367 prose, 7 not prose). That is the pending-translation state, not a defect this plan introduced: it
+exited 1 at Task 0 too (333 untranslated at HEAD), and its only complaint is `cy` mirroring `en` — no missing or
+unparsed key is reported. It goes green when the translator's Welsh comes back into `cy.ts`, which is the
+request this task regenerated. **Recorded as amber rather than claimed green.**
+
+**Final totals, against Task 0's baseline:**
+
+| Command | Task 0 baseline | Final | |
+|---|---|---|---|
+| `yarn turbo test test:app --concurrency=1` | 2,601 passed, 8 packages, exit 0 | **2,727 passed**, 8 packages, exit 0 | +126 |
+| `yarn lint` | exit 0 — 2 warnings, 2 infos | exit 0 — **the same** 2 warnings, 2 infos, 364 files | no new lint debt |
+| `yarn test:e2e --workers=1` | 35 passed in 3.5m, exit 0 | **36 passed in 3.8m**, exit 0, no flakes | +1, Task 5's journey |
+| `yarn build` | — | exit 0 | |
+| `yarn welsh:check` | exit 1, 333 untranslated | exit 1, 374 of 399 untranslated | pending translation, see above |
+
+Exit codes are the commands' own, not a pipe's. Ports 3000 and 3200 were verified free before the e2e run, so
+Playwright started this worktree's server rather than reusing another's — Task 4's trap.
+
+**The six Jenkins-owned scripts are all present** in `package.json`: `lint`, `test`, `test:coverage`,
+`test:a11y`, `test:smoke`, `test:functional`. `src/pipeline.test.ts` passed inside the run above, which is what
+pins them; the two `echo` scripts still carry the docblock explaining why they exist.
+
+**Open questions this plan leaves, both already stated above and neither blocking:** `publishToLondonGazette` is
+a live field whose only editable control sat on the retired tab (Task 2), and a caseworker holding both roles
+still has no link to `/judicial/**` (CLAUDE.md's persona section, flagged by admin-3).
 
 ## Out of scope
 

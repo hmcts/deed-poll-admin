@@ -54,7 +54,8 @@ const OPEN_REFERRAL = {
   modifiedOn: new Date("2026-05-13T08:44:00Z")
 };
 
-const html = (model: Record<string, unknown>): string => environment.render("deed-polls/referral-form.njk", { ...model, ...(model.en as object) });
+/** Content pair first, the handler's own values over it — `renderInterceptorMiddleware`'s order. See `referral-detail.njk.test.ts`. */
+const html = (model: Record<string, unknown>): string => environment.render("deed-polls/referral-form.njk", { ...(model.en as object), ...model });
 
 function request(body: Record<string, unknown> = {}) {
   return pageRequest({ params: { id: "case-1" }, body, accessToken: "session-token" });
