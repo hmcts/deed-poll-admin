@@ -191,8 +191,37 @@ Implement the note helper and call it from each successful mock referral transit
 
 No `WIRE_SCHEMAS`, operation registry or OpenAPI changes.
 
-- [ ] Mock lifecycle side effects match API and are covered through both existing read projections; contract
+- [x] Mock lifecycle side effects match API and are covered through both existing read projections; contract
       tests green
+
+      **Done 2026-09-21.** Five composers in `libs/deed-poll-api-client/src/mock/server.ts` reproducing
+      `ReferralNotes` at api `7226fc9` word for word — `referralRaisedNote`, `referralClaimedNote`,
+      `referralDirectedNote`, `referralActionedNote`, `referralWithdrawnNote`, sharing `identifiesReferral` —
+      plus `appendNote` and `newestFirst`. Called from the five transitions the mock can produce, each after the
+      state change and never beside its guard, so a refused one writes nothing. Ten tests in
+      `server.test.ts` ("the case notes a referral writes as it moves"); `164 test files, 2,991 tests`,
+      `yarn lint` exit 0. Rule 12 added to `server.ts`'s docblock and the omission bullet that said the mock
+      writes no lifecycle notes removed.
+
+      **One departure from decision 2, because api's source contradicts its premise.** The decision says both
+      detail responses return notes newest first and asks for both to be sorted. api does that on **two** of
+      the three note reads and not the third: `GET …/notes` and a judge's `caseNotes` both come from
+      `NoteService.findNotes` (`findByDeedPollIdOrderByCreatedOnDesc`), while the `notes` on
+      `GET /caseworker/cases/{id}` come off `DeedPoll`'s `@OneToMany` with **`@OrderBy("createdOn ASC")`** —
+      oldest first, which is also the mock's stored order. So `newestFirst` is applied to the notes route and to
+      `caseNotes`, and `toDetail` deliberately still publishes insertion order: sorting all three would have
+      read as tidiness and been exactly the drift this plan exists to prevent. Nothing on a page depends on
+      either order — `buildNotesView` sorts what it is given — and the test asserts the two projections carry
+      the same notes in opposite orders, which is what pins the difference.
+
+      **`claimLapsed` is not implemented**, per decision 2's own instruction not to invent a timer: the only
+      event that writes it is the inactivity sweep, which this mock does not model. The gap is recorded in
+      `server.ts`'s omission bullet and asserted by a test, so it is a stated limitation rather than an absence
+      a reader has to notice. A composer with no call site would have been dead code.
+
+      Two existing tests changed rather than added to, both because a raised referral now writes a note their
+      arrangement did not expect: the judicial-detail test in `server.test.ts` and the judicial-timeline test in
+      `client.test.ts`. No `WIRE_SCHEMAS`, operation-registry or `openapi.json` change.
 
 ### Task 2: Extend the end-to-end referral journey
 
