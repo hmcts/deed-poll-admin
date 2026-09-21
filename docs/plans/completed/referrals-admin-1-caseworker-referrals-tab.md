@@ -3,6 +3,9 @@
 > **Follow-up:** `../referrals-admin-4-caseworker-completion.md` consolidates the legacy “Referral to Master”
 > and live “Referrals” surfaces, displays the judicial direction, and replaces the terminal-only action
 > decision with explicit withdraw/close capabilities after business testing.
+>
+> `../referrals-admin-5-lifecycle-case-notes.md` keeps the in-memory API and end-to-end case Notes journey in
+> step with the API's expanded referral lifecycle notes.
 
 ## Overview
 

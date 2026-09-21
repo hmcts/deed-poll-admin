@@ -345,7 +345,8 @@ Record final totals against Task 0's baseline and verify the six Jenkins-owned p
 ## Out of scope
 
 - Case notes for every referral lifecycle transition — recommendation 2.
-- A judicial “My referrals” query or screen — recommendation 3.
+- A judicial “My referrals” query or screen — recommendation 3, planned in
+  `referrals-admin-6-judicial-my-referrals.md`.
 - Automatically deriving an application state from `Approved`/`Rejected`.
 - Changing the referral enum, closure endpoint or returned-action query.
 - Editing or deleting legacy referral values in the API.
