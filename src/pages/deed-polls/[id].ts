@@ -24,6 +24,11 @@
  * 500 page, and a 403 rendered the 404 template. Three disguises, none of which mentions referrals, for a
  * failure `client.ts` itself classifies as "try again shortly".
  *
+ * **One referral tab, not two.** The retired "Referral to Master" tab is out of `FORM_TABS`, so the Referrals
+ * panel is the whole of the case's referral surface: the live history from api, and above it the populated
+ * retired fields as a read-only snapshot (`buildLegacyReferralView`). That snapshot comes off the case, so it
+ * survives a failed referrals read — the two are different records and one failing says nothing about the other.
+ *
  * So the referrals read degrades to `unavailableReferralsView()` and is logged, the same trade
  * `deed-polls/index.ts`'s `savedQueryEntries` makes for the saved-query nav. What it must **not** do is
  * degrade silently to an empty tab: "never referred" and "could not find out" are opposite claims, which is
@@ -33,6 +38,7 @@ import {
   buildCaseHeader,
   buildDetailTabs,
   buildDocumentsView,
+  buildLegacyReferralView,
   buildNotesView,
   build as buildPresentation,
   buildReferralsView,
@@ -81,6 +87,13 @@ const en = {
       "The judiciary has returned a direction on this case. Carry out the direction, make any case updates it requires, and mark the referral as actioned before raising another.",
     stateUnknown: "This case has a referral whose status could not be read, so no further referral can be raised yet. Try again shortly."
   },
+  // The retired "Refer to Master" record, above the live history on the same panel. Its own heading and a
+  // sentence saying where the values came from, because without one a caseworker reads ten fields with judicial
+  // wording as something this service is still keeping up to date — and the point of the snapshot is that
+  // nothing writes to it any more (`referrals-admin-4` decision 2).
+  legacyReferralHeading: "Previous system referral information",
+  legacyReferralIntro:
+    "This referral record was recorded in the previous system. It is kept for reference, is not updated, and is separate from the referrals listed above.",
   // The referrals read failed. Worded so it cannot be read as "this case has no referrals" — the whole point
   // of the degraded state is that the panel is not making a claim about the case. See the docblock.
   referralsUnavailable:
@@ -125,10 +138,10 @@ export const GET = async (req: Request, res: Response) => {
   const referrals = referralsRead.status === "fulfilled" ? referralsRead.value : null;
   const { isAdmin } = userFromRequest(req);
 
-  const presentation = buildPresentation(
-    { type: found.type, privacy: found.privacy, referToMasterChoice: found.referToMasterChoice, state: found.state },
-    { isAdmin, isNew: false }
-  );
+  // No `referToMasterChoice`: it used to decide whether the retired referral tab was shown, and that tab is
+  // gone from `FORM_TABS` — see `form-presentation.ts`. The record's own values now decide whether the
+  // read-only snapshot renders, which is the right test for history.
+  const presentation = buildPresentation({ type: found.type, privacy: found.privacy, state: found.state }, { isAdmin, isNew: false });
 
   // A second call rather than a value carried on the case: the rules depend on the type, the migrated
   // flag and the Gazette choice, and api answers that question rather than being asked for a case.
@@ -152,6 +165,10 @@ export const GET = async (req: Request, res: Response) => {
     notes: buildNotesView(found.notes),
     documents: buildDocumentsView(found.documents),
     referrals: referrals ? buildReferralsView(referrals) : unavailableReferralsView(),
+    // Off the case, so it is unaffected by the referrals read and renders on a degraded panel too: the two are
+    // different records, and a failed call to api's referral endpoint says nothing about the retired fields the
+    // case itself carries. `null` when the case holds none of them, and the panel then shows no section.
+    legacyReferral: buildLegacyReferralView(found as unknown as Record<string, unknown>),
     // Data rather than a label in `en`, as every other interpolated string on this page is: it carries
     // the case's count and api's threshold. The threshold is api's — enrolment-requirement.ts.
     witnessCount: witnessCountText(found.witnesses.length),

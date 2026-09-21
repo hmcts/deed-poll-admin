@@ -438,8 +438,35 @@ Update detail-view, presentation, edit-route and template tests to prove:
 - unavailable live referral data does not hide a present historical snapshot;
 - live states produce the correct state-specific message and action availability.
 
-- [ ] One Referrals tab owns current and historical information; legacy values preserved read-only; obsolete
+- [x] One Referrals tab owns current and historical information; legacy values preserved read-only; obsolete
       edit path removed; page/template tests green
+
+#### What Task 2 settled, which Tasks 3–6 build on
+
+- **The catalogue and the form are two lists now.** `CASE_FIELD_TABS` is every case field the app knows about,
+  including `LEGACY_REFERRAL_TAB`; `FORM_TABS` is that list *filtered* — the tabs a caseworker navigates and
+  edits. `FIELD_BY_NAME` and `query-fields.ts` read the catalogue, `EDITABLE_FIELDS`, `detail-view.ts` and
+  `edit-view.ts` read the form. So the retired fields still format, still resolve a saved query and still appear
+  in the query chooser under "Referral to Master", and nothing writes to them. `form-fields.test.ts` is new and
+  pins each derivation to the right list — picking the wrong one fails silently in production.
+- **`FormPresentation.tabs.referralToMaster` is gone**, along with `PresentationInput.referToMasterChoice`: there
+  is no tab left for a flag to show or hide. Two conditional tabs remain, Enrolment and Return.
+- **`/deed-polls/{id}/edit/referral` redirects to `#referrals` on GET and 404s on POST.** The GET answers before
+  reading the case (the destination is the same for every case); the POST is refused by the existing
+  `FORM_TABS.find` guard, which is what stops a stale form's body being written onto the Application tab.
+- **The snapshot renders last in the panel and outside every branch of it**, so a failed referrals read degrades
+  the live history and leaves the historical record in place. Copy: `legacyReferralHeading` ("Previous system
+  referral information") and `legacyReferralIntro` in `src/pages/deed-polls/[id].ts`.
+- **One correction to Task 1's `buildLegacyReferralView`, found by rendering it.**
+  `publishToLondonGazette` is `z.boolean()` on the wire — not nullable, and defaulted at create — so *every* case
+  holds a value and the section appeared on all of them over a single row. It is now in
+  `ALWAYS_POPULATED_FIELDS`: still rendered inside a snapshot that exists, and no longer able to create one. It is
+  a live field that happened to sit on the retired form (it gates `dateNoticeSentToLondonGazette` through
+  `getFieldRules`), which is also the open question this leaves: retiring it removes its only editable control.
+- Validation after Task 2: **2,667 unit tests** across 8 packages (baseline 2,601; 2,642 after Task 1), `yarn lint`
+  exit 0 with the same 2 warnings and 2 infos, **35 e2e passed** in 3.6m, `yarn build` clean. No e2e change was
+  needed — no journey visited the retired tab. `yarn welsh:check` exits 1 both before and after this task (333
+  untranslated at HEAD, 335 now: the two new strings); regenerating the request is Task 6's.
 
 ### Task 3: Display the judicial direction and correct actions
 

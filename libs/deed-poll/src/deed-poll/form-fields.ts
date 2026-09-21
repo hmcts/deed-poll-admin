@@ -246,6 +246,10 @@ const APPLICATION_TAB: TabDef = {
  * new work: a caseworker raises and reads referrals on the Referrals tab, and the values here may be a migrated
  * business record that must stay readable. `../referrals/legacy-referral-view.ts` renders the populated ones
  * from this metadata rather than restating their labels, so the two cannot drift apart.
+ *
+ * **In `CASE_FIELD_TABS` and deliberately not in `FORM_TABS`**, so nothing navigates or edits it — see the two
+ * docblocks below. The `column` positions are kept as the record of where the source form put each field; no
+ * card renders them now, since the snapshot is one summary list of the values a case actually holds.
  */
 export const LEGACY_REFERRAL_TAB: TabDef = {
   id: "referral",
@@ -353,8 +357,23 @@ const REFUND_TAB: TabDef = {
   ]
 };
 
-/** All form tabs in source order. Subgrid tabs carry no data-entry sections. */
-export const FORM_TABS: TabDef[] = [
+/**
+ * **Every case field the app knows about**, in source order, including the retired referral tab. Subgrid tabs
+ * carry no data-entry sections.
+ *
+ * **This is the catalogue, `FORM_TABS` is the form**, and the two are separate because `referrals-admin-4`
+ * decision 2 retires a tab without retiring its fields. The old "Refer to Master" record may hold a migrated
+ * business record, so its definitions still have to answer two questions:
+ *
+ *   - how to format one of its values (`FIELD_BY_NAME`, and `../referrals/legacy-referral-view.ts` through it);
+ *   - whether a saved query may name it (`query-fields.ts`), since caseworkers have worklists built on
+ *     `masterName` and `masterDecision` today and this plan does not take them away.
+ *
+ * Deriving everything from one list is the trap the decision names: `EDITABLE_FIELDS` would go on offering the
+ * retired fields through the generic case form, and dropping the tab outright would silently remove them from
+ * formatting and from the query chooser with nothing failing.
+ */
+export const CASE_FIELD_TABS: TabDef[] = [
   APPLICATION_TAB,
   { id: "notes", label: "Notes", sections: [], subgrid: "notes" },
   LEGACY_REFERRAL_TAB,
@@ -369,6 +388,19 @@ export const FORM_TABS: TabDef[] = [
   // URL slugs (`/deed-polls/{id}/edit/referral`) so neither can be renamed to tell them apart.
   { id: "referrals", label: "Referrals", sections: [], subgrid: "referrals" }
 ];
+
+/**
+ * The tabs a caseworker **navigates and edits** — the catalogue above without the retired referral tab.
+ *
+ * So the case detail page shows one referral tab rather than two (`detail-view.ts` iterates this list), the edit
+ * form's tab strip does not offer the retired one, and `tabFor`/the POST guard in
+ * `src/pages/deed-polls/[id]/edit/[tab].ts` no longer resolve `referral` to anything. The retired fields are
+ * read-only history inside the Referrals panel instead.
+ *
+ * Filtered rather than listed a second time, so a tab added to the catalogue reaches the form without a second
+ * edit — the same derivation argument as `query-fields.ts`, one list further out.
+ */
+export const FORM_TABS: TabDef[] = CASE_FIELD_TABS.filter((tab) => tab !== LEGACY_REFERRAL_TAB);
 
 /**
  * Case properties api publishes and answers conditions on that have **no control on any form tab**.
@@ -408,10 +440,22 @@ export const NON_FORM_QUERYABLE_FIELDS: FieldDef[] = [
   }
 ];
 
-/** Every editable (non-readOnly) field across all data-entry sections. */
+/**
+ * Every editable (non-readOnly) field across all data-entry sections.
+ *
+ * **`FORM_TABS` and not `CASE_FIELD_TABS`**, which is what stops a new write reaching the retired referral
+ * fields: this list is what the generic case form accepts, so a field absent from it cannot be patched through
+ * `/edit/{tab}` however a body is composed. The values stay readable — see `FIELD_BY_NAME` below.
+ */
 export const EDITABLE_FIELDS: FieldDef[] = FORM_TABS.flatMap((t) => t.sections.flatMap((s) => s.fields)).filter((f) => !f.readOnly);
 
-/** Fast lookup of a field def by name (editable + read-only). */
+/**
+ * Fast lookup of a field def by name (editable + read-only).
+ *
+ * **`CASE_FIELD_TABS`**, so a retired field is still formatted with its own label and kind. This is the half of
+ * the split that keeps a migrated referral record readable; it says nothing about whether the field may be
+ * written, which `EDITABLE_FIELDS` answers.
+ */
 export const FIELD_BY_NAME: Record<string, FieldDef> = Object.fromEntries(
-  FORM_TABS.flatMap((t) => t.sections.flatMap((s) => s.fields)).map((f) => [f.name, f])
+  CASE_FIELD_TABS.flatMap((t) => t.sections.flatMap((s) => s.fields)).map((f) => [f.name, f])
 );

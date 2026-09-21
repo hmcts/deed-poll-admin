@@ -29,6 +29,7 @@ import {
   type FormError,
   findDeedPoll,
   InvalidInputError,
+  LEGACY_REFERRAL_TAB,
   NotFoundError,
   type TabDef,
   tabFor,
@@ -60,6 +61,15 @@ const en = {
 const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
+  // **The one slug that gets an answer of its own, before the case is even read.** `referral` was the "Referral
+  // to Master" tab, retired by `referrals-admin-4` decision 2, and `tabFor`'s fallback would hand a caseworker
+  // who bookmarked it the Application tab — 46 editable fields under a heading they did not ask for. The values
+  // are read-only history on the Referrals panel now, so the bookmark is sent to where they are rather than
+  // 404'd: the record it pointed at still exists, only the form for editing it does not.
+  if (req.params.tab === LEGACY_REFERRAL_TAB.id) {
+    return res.redirect(`/deed-polls/${req.params.id}#referrals`);
+  }
+
   const found = await findDeedPoll(req.params.id, callerFromRequest(req));
   const { isAdmin } = userFromRequest(req);
 
@@ -75,6 +85,10 @@ export const POST = async (req: Request, res: Response) => {
   // Application — 46 editable fields. `buildUpdatePatch` writes every field it is given, blanking
   // absent ones, so falling back here would null all 46 from a body that never mentioned them.
   // A mistyped tab in a POST target is not something to guess at.
+  //
+  // This is also what refuses the retired `referral` slug, which GET redirects: a form posted from a stale page
+  // must not be answered by writing its fields onto the Application tab, and nothing accepts the retired fields
+  // any more — they are out of `FORM_TABS` and so out of `EDITABLE_FIELDS`.
   const tab = FORM_TABS.find((candidate) => candidate.id === req.params.tab);
   if (!tab) {
     throw new NotFoundError(`Unknown tab ${req.params.tab}`);

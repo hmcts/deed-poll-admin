@@ -283,6 +283,29 @@
           <p class="govuk-body">{{ liveReferralMessages[referrals.liveReferral.message] }}</p>
         {% endif %}
 
+        {#
+          The previous system's referral record, kept readable now its editable tab has gone (see
+          legacy-referral-view.ts). Only the fields the case actually holds, so a case with none of them shows
+          no section at all rather than a column of "Not provided" against ten retired fields.
+
+          **Outside every branch above**, and that is the point of putting it last: it comes off the case, not
+          off the referrals call, so a failed read degrades the live history and leaves the historical record
+          where it is. Nesting it in the `else` would hide a migrated case's whole referral history behind an
+          api the page had already given up on.
+
+          Its own heading, below the live list, because the two are different records and a caseworker must not
+          read a 2024 Master's direction as this case's current position.
+        #}
+        {% if legacyReferral %}
+          <h2 class="govuk-heading-m govuk-!-margin-top-6">{{ legacyReferralHeading }}</h2>
+          <p class="govuk-body">{{ legacyReferralIntro }}</p>
+          {% set legacyRows = [] %}
+          {% for row in legacyReferral.rows %}
+            {% set legacyRows = (legacyRows.push({ key: { text: row.key }, value: { text: row.value } }), legacyRows) %}
+          {% endfor %}
+          {{ govukSummaryList({ rows: legacyRows }) }}
+        {% endif %}
+
       {% else %}
         {% if tab.empty %}
           <p class="govuk-body">{{ noneRecorded }}</p>

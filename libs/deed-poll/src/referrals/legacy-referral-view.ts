@@ -17,7 +17,8 @@
  *
  * **`null` when nothing is populated, and the panel then renders no section.** The absence of these values is
  * the evidence that there is no snapshot — not `migratedRecord`, which says where a case came from rather than
- * whether these ten fields hold anything.
+ * whether these ten fields hold anything. One of the ten is excluded from that test rather than from the
+ * snapshot, because api populates it on every case — see `ALWAYS_POPULATED_FIELDS`.
  */
 import { formatValue } from "../deed-poll/detail-view.js";
 import { type FieldDef, LEGACY_REFERRAL_TAB } from "../deed-poll/form-fields.js";
@@ -26,18 +27,33 @@ import { type FieldDef, LEGACY_REFERRAL_TAB } from "../deed-poll/form-fields.js"
 const LEGACY_REFERRAL_FIELDS: FieldDef[] = LEGACY_REFERRAL_TAB.sections.flatMap((section) => section.fields);
 
 /**
- * The populated legacy referral fields, or null when the case has none of them.
+ * The retired field whose value is **no evidence of a referral**, because api publishes one for every case.
+ *
+ * `publishToLondonGazette` is `z.boolean()` on the wire — not nullable, and `deed-poll-validation.ts` defaults it
+ * to `false` at create — so "does this case hold a value?" is `true` of every case ever raised. Counting it as
+ * evidence put a "Previous system referral information" heading on all of them, over a single row, on cases that
+ * had never been near the judiciary. It is a live case field that happened to sit on the referral form: it gates
+ * `dateNoticeSentToLondonGazette` through `getFieldRules`, which is why it has a value whether or not anyone
+ * answered a question.
+ *
+ * It is still **rendered** in a snapshot that exists — a migrated referral's Gazette answer is part of that
+ * record — it just cannot bring one into being on its own.
+ */
+const ALWAYS_POPULATED_FIELDS = ["publishToLondonGazette"];
+
+/**
+ * The populated legacy referral fields, or null when the case holds nothing anybody recorded about a referral.
  *
  * Takes the case as a property bag rather than a `DeedPoll`, like `buildDetailTabs` does: the names come from
  * the field defs, so a typed parameter would only restate the metadata that is already the source of truth.
  */
 export function buildLegacyReferralView(record: Record<string, unknown>): LegacyReferralView | null {
-  const rows = LEGACY_REFERRAL_FIELDS.filter((field) => isPopulated(record[field.name])).map((field) => ({
-    key: field.label,
-    value: formatValue(field, record[field.name])
-  }));
+  const populated = LEGACY_REFERRAL_FIELDS.filter((field) => isPopulated(record[field.name]));
+  const recorded = populated.filter((field) => !ALWAYS_POPULATED_FIELDS.includes(field.name));
 
-  return rows.length > 0 ? { rows } : null;
+  if (recorded.length === 0) return null;
+
+  return { rows: populated.map((field) => ({ key: field.label, value: formatValue(field, record[field.name]) })) };
 }
 
 /**

@@ -63,9 +63,21 @@ describe("referrals/legacy-referral-view", () => {
 
   it("should keep an explicit No on the Gazette question, which is an answer somebody recorded", () => {
     // A falsiness test would drop it and turn a decided question back into an unasked one.
-    const view = buildLegacyReferralView({ publishToLondonGazette: false });
+    const view = buildLegacyReferralView({ masterName: "Master Smith", publishToLondonGazette: false });
 
-    expect(view?.rows).toEqual([{ key: "Publish to London Gazette", value: "No" }]);
+    expect(view?.rows).toEqual([
+      { key: "Master name", value: "Master Smith" },
+      { key: "Publish to London Gazette", value: "No" }
+    ]);
+  });
+
+  it("should not make a snapshot out of the Gazette answer alone, api publishing one for every case", () => {
+    // `publishToLondonGazette` is not nullable on the wire and is defaulted at create, so every case holds a
+    // value: counting it as evidence put a "previous system" heading, over one row, on cases that had never been
+    // near the judiciary. It is a live field that happened to sit on the retired form — it gates
+    // `dateNoticeSentToLondonGazette` through `getFieldRules`.
+    expect(buildLegacyReferralView({ publishToLondonGazette: true })).toBeNull();
+    expect(buildLegacyReferralView({ publishToLondonGazette: false })).toBeNull();
   });
 
   it("should render a partial record as the part that exists, since a migrated case may hold only some fields", () => {

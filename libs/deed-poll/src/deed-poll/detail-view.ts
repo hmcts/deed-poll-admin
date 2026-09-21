@@ -14,10 +14,14 @@ import type { FormPresentation } from "./form-presentation.js";
  * Two filters are applied, mirroring what the edit form does:
  *   - per-type field rules (getFieldRules) hide fields the Type does not use,
  *     e.g. minor fields on an adult case;
- *   - FormPresentation.tabs hides the three conditional tabs (Referral to Master,
- *     Enrolment, Return).
+ *   - FormPresentation.tabs hides the two conditional tabs (Enrolment, Return).
  * A section whose every field is hidden or empty is dropped rather than rendered
  * as a block of "Not provided" rows.
+ *
+ * The retired "Referral to Master" tab was the third conditional one and is now
+ * absent by construction: it is in `CASE_FIELD_TABS` but not `FORM_TABS`, so no
+ * rule here can bring it back. Its populated values are a read-only snapshot on
+ * the Referrals panel — `../referrals/legacy-referral-view.ts`.
  */
 
 /** Placeholder for an absent value, matching the prototype's house style. */
@@ -127,8 +131,6 @@ function buildSection(section: SectionDef, record: Record<string, unknown>, rule
 /** Which conditional tabs are visible, keyed by tab id. */
 function tabVisible(tab: TabDef, presentation: FormPresentation): boolean {
   switch (tab.id) {
-    case "referral":
-      return presentation.tabs.referralToMaster;
     case "enrolment":
       return presentation.tabs.enrolment;
     case "return":
