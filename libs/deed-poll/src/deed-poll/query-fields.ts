@@ -7,18 +7,23 @@
  *
  * Two rules hold this file together, and both are here to stop a drift that would be silent:
  *
- *   - **The queryable list is derived from `FORM_TABS`, never enumerated.** A field added to the form
+ *   - **The queryable list is derived from `CASE_FIELD_TABS`, never enumerated.** A field added to the form
  *     becomes queryable with no second edit, so the builder cannot fall behind the case tabs. It is
  *     every field including the six `readOnly` ones: `referencenumber` and `state` are among the most
  *     useful things to query, and read-only means "api computes it", not "api cannot filter on it". The
  *     one addition to the form is `NON_FORM_QUERYABLE_FIELDS` — case properties api answers conditions on
  *     that have no control to add to a tab; it is a named list, not an exception to the derivation.
+ *
+ *     **The catalogue and not `FORM_TABS`**, which since `referrals-admin-4` is the narrower list: the
+ *     retired "Referral to Master" fields are off the case form and still queryable, because caseworkers
+ *     have saved queries naming `masterName` and `masterDecision` and api answers conditions on them
+ *     exactly as before. Retiring a tab for new work is not a reason to break a worklist.
  *   - **Operators come from `kind`, in one place.** A per-field mapping of 70 entries would drift from
  *     api's table on the first field anyone added. api re-validates every condition against its own
  *     `FormFields` and api wins any disagreement — this list exists to keep obviously-wrong requests
  *     off the wire and to offer a caseworker only comparisons that can succeed.
  */
-import { type FieldDef, type FieldKind, FORM_TABS, NON_FORM_QUERYABLE_FIELDS } from "./form-fields.js";
+import { CASE_FIELD_TABS, type FieldDef, type FieldKind, NON_FORM_QUERYABLE_FIELDS } from "./form-fields.js";
 
 /**
  * Mirrors api's operator table exactly (`deed-poll-api`'s query surface). Kinds share lists where api
@@ -82,7 +87,10 @@ export const OPERATOR_LABELS: Record<QueryOperator, string> = {
  * `NON_FORM_QUERYABLE_FIELDS`. Appended rather than mixed in, so "the form in form order" is still the
  * whole of the first part of this list and the drift guard is untouched.
  */
-export const QUERYABLE_FIELDS: FieldDef[] = [...FORM_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields)), ...NON_FORM_QUERYABLE_FIELDS];
+export const QUERYABLE_FIELDS: FieldDef[] = [
+  ...CASE_FIELD_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields)),
+  ...NON_FORM_QUERYABLE_FIELDS
+];
 
 /**
  * The two fields api computes at read time and refuses a condition on: *"is derived, not stored"*. They
@@ -114,13 +122,18 @@ const DERIVED_FIELD_NAMES = ["daysReceivedToEnroled", "daysReceivedToReturned"];
  *     merely **not worth offering** — per-case identifiers, narrative prose, address components. 68
  *     options in one list is a list nobody reads; the reason for each cut is a comment on the field.
  *
+ * One group is no longer a tab a caseworker can visit: "Referral to Master" is retired from the case form and
+ * kept in the catalogue (`CASE_FIELD_TABS`), so the queries built on it stay buildable as well as resolvable.
+ * Dropping the group would leave such a query renderable, submittable through `appliedOption` — and impossible
+ * to write again.
+ *
  * Still derived from the form either way. api answers a condition on anything excluded here — a hand-edited
  * URL can name one, and so does the dashboard's "returned — action needed" link — and `queryableField`
  * resolves it, so the row renders with whatever api says about it. `appliedOption` is what then keeps such a
  * row **submittable**: a chooser missing an option for its own field would drop the condition on the next
  * Apply and answer the whole list.
  */
-export const CHOOSABLE_FIELD_GROUPS: ChoosableFieldGroup[] = FORM_TABS.flatMap((tab) =>
+export const CHOOSABLE_FIELD_GROUPS: ChoosableFieldGroup[] = CASE_FIELD_TABS.flatMap((tab) =>
   tab.sections
     .map((section) => ({
       label: section.label === tab.label ? tab.label : `${tab.label}: ${section.label}`,

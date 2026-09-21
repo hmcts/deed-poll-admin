@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FIELD_BY_NAME, type FieldKind, FORM_TABS, NON_FORM_QUERYABLE_FIELDS } from "./form-fields.js";
+import { CASE_FIELD_TABS, FIELD_BY_NAME, type FieldKind, FORM_TABS, NON_FORM_QUERYABLE_FIELDS } from "./form-fields.js";
 import {
   CHOOSABLE_FIELD_GROUPS,
   CHOOSABLE_FIELDS,
@@ -26,11 +26,23 @@ const EXPECTED_OPERATORS: Record<FieldKind, QueryOperator[]> = {
 
 describe("deed-poll/query-fields", () => {
   describe("QUERYABLE_FIELDS", () => {
-    it("should offer every form field, so a field added to the form becomes queryable without a second edit", () => {
+    it("should offer every case field, so a field added to the form becomes queryable without a second edit", () => {
       // The drift guard: enumerating the queryable fields separately is what this test exists to prevent.
-      const formFields = FORM_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields)).map((field) => field.name);
+      const caseFields = CASE_FIELD_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields)).map((field) => field.name);
 
-      expect(QUERYABLE_FIELDS.map((field) => field.name)).toEqual([...formFields, ...NON_FORM_QUERYABLE_FIELDS.map((field) => field.name)]);
+      expect(QUERYABLE_FIELDS.map((field) => field.name)).toEqual([...caseFields, ...NON_FORM_QUERYABLE_FIELDS.map((field) => field.name)]);
+    });
+
+    it("should keep the retired referral fields, because the worklists built on them are api's to answer either way", () => {
+      // `CASE_FIELD_TABS` and not `FORM_TABS`: `referrals-admin-4` decision 2 takes the "Referral to Master" tab
+      // off the case form and does not touch the query surface. A saved query naming `masterDecision` would
+      // otherwise have its condition dropped by `caseQueryWhere` without a word — and a dropped condition
+      // answers the whole list, which reads as a suddenly enormous worklist rather than as a fault.
+      const names = QUERYABLE_FIELDS.map((field) => field.name);
+
+      expect(names).toContain("masterName");
+      expect(names).toContain("masterDecision");
+      expect(queryableField("masterDecision")?.enumSet).toBe("masterDecision");
     });
 
     it("should carry the case properties api answers conditions on that no form tab holds a control for", () => {
@@ -69,7 +81,7 @@ describe("deed-poll/query-fields", () => {
     });
 
     it("should exclude the subgrid tabs, whose rows are child entities rather than case fields", () => {
-      const subgridTabs = FORM_TABS.filter((tab) => tab.subgrid);
+      const subgridTabs = CASE_FIELD_TABS.filter((tab) => tab.subgrid);
 
       expect(subgridTabs.map((tab) => tab.id)).toEqual(["notes", "witnesses", "documents", "referrals"]);
       expect(subgridTabs.every((tab) => tab.sections.length === 0)).toBe(true);
@@ -92,14 +104,14 @@ describe("deed-poll/query-fields", () => {
       expect(names).not.toContain("applicantAddress1");
     });
 
-    // Derived from `FORM_TABS` and **not** from `QUERYABLE_FIELDS`, which is the form *plus*
+    // Derived from `CASE_FIELD_TABS` and **not** from `QUERYABLE_FIELDS`, which is the catalogue *plus*
     // `NON_FORM_QUERYABLE_FIELDS`. Deriving it from the wider list made the expectation claim the chooser
     // should offer non-form fields, and it passed only because `currentReferralState` happened to carry
     // `queryable: false` — a flag that does nothing in production, since `isChoosable` is never applied
     // outside the tabs. So the flag was masking a stale premise here rather than documenting a mechanism.
     it("should offer everything else queryable, in form order, so it tracks the form as the queryable list does", () => {
-      const formFields = FORM_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields));
-      const expected = formFields.filter((field) => field.queryable !== false && !field.name.startsWith("daysReceivedTo")).map((field) => field.name);
+      const caseFields = CASE_FIELD_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields));
+      const expected = caseFields.filter((field) => field.queryable !== false && !field.name.startsWith("daysReceivedTo")).map((field) => field.name);
 
       expect(CHOOSABLE_FIELDS.map((field) => field.name)).toEqual(expected);
     });
@@ -184,10 +196,20 @@ describe("deed-poll/query-fields", () => {
     });
 
     it("should group in form order, so the groups follow the case tabs a caseworker already knows", () => {
-      const tabOrder = FORM_TABS.filter((tab) => tab.sections.length > 0).map((tab) => tab.label);
+      const tabOrder = CASE_FIELD_TABS.filter((tab) => tab.sections.length > 0).map((tab) => tab.label);
       const groupTabs = [...new Set(CHOOSABLE_FIELD_GROUPS.map((group) => group.label.split(":")[0]))];
 
       expect(groupTabs).toEqual(tabOrder);
+    });
+
+    it("should still offer the retired referral group, so a query built on it can be built again", () => {
+      // One group is no longer a tab a caseworker can visit. Dropping it would leave an existing saved query
+      // renderable and submittable (`appliedOption`) but impossible to write from scratch — see the docblock on
+      // `CHOOSABLE_FIELD_GROUPS`.
+      const group = CHOOSABLE_FIELD_GROUPS.find((candidate) => candidate.label === "Referral to Master");
+
+      expect(group?.fields.map((field) => field.name)).toContain("masterDecision");
+      expect(FORM_TABS.map((tab) => tab.label)).not.toContain("Referral to Master");
     });
   });
 

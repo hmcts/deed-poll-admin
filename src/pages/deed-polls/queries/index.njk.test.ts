@@ -64,7 +64,7 @@ const render = async (queries: SavedQuery[]): Promise<string> => {
   await GET(pageRequest({ accessToken: "session-token" }), res);
   const model = res.render.mock.calls[0][1];
 
-  return environment.render("deed-polls/queries/index.njk", { ...model, ...model.en });
+  return environment.render("deed-polls/queries/index.njk", { ...model.en, ...model });
 };
 
 describe("saved query library template", () => {

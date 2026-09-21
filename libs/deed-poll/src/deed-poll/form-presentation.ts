@@ -1,4 +1,4 @@
-import { DeedPollState, DeedPollType, Privacy, ReferToMaster } from "./enums/option-sets.js";
+import { DeedPollState, DeedPollType, Privacy } from "./enums/option-sets.js";
 
 /** Context for building the presentation model: who is viewing and record age. */
 export interface PresentationContext {
@@ -18,8 +18,14 @@ export interface FormPresentation {
     showBanner: boolean;
     bannerText?: string;
   };
+  /**
+   * The two state-keyed conditional tabs. `referralToMaster` was a third until `referrals-admin-4` decision 2
+   * retired that tab: it is out of `FORM_TABS` altogether now, so there is nothing for a visibility flag to
+   * decide. Its populated values are read-only history on the Referrals panel, shown whatever
+   * `referToMasterChoice` says — a case answered "No" and referred anyway under the old system would otherwise
+   * hide the very record the snapshot exists to preserve.
+   */
   tabs: {
-    referralToMaster: boolean;
     enrolment: boolean;
     return: boolean;
   };
@@ -27,10 +33,14 @@ export interface FormPresentation {
 
 const PRIVATE_BANNER = "This record is PRIVATE!";
 
+/**
+ * What the presentation model is computed from. **`referToMasterChoice` is gone**, with the tab it used to show
+ * and hide: leaving it here would invite a caller to go on passing a value nothing reads, which is how a field
+ * comes to look load-bearing.
+ */
 export interface PresentationInput {
   type?: DeedPollType | null;
   privacy?: Privacy | null;
-  referToMasterChoice?: ReferToMaster | null;
   state?: DeedPollState | null;
 }
 
@@ -40,7 +50,7 @@ export interface PresentationInput {
  * is decided here rather than in the browser).
  *
  * Privacy auto-default (create only), editability, the PRIVATE banner, and the
- * three conditional tabs all mirror the source functions OnChangeType,
+ * remaining two conditional tabs all mirror the source functions OnChangeType,
  * OnChangePrivacy and ShowHideTab exactly. See notes on each method.
  */
 /**
@@ -86,12 +96,11 @@ export function privacyEditable(type: DeedPollType | null | undefined, ctx: Pres
   return false;
 }
 
-/** Tab visibility, matching ShowHideTab. */
+/**
+ * Tab visibility, matching ShowHideTab — less its Referral-to-Master branch, whose tab this app no longer has.
+ * See `FormPresentation["tabs"]`.
+ */
 export function tabVisibility(input: PresentationInput): FormPresentation["tabs"] {
-  // Referral-to-Master hidden only when the choice is explicitly No (2);
-  // visible for Yes (1) or when unset.
-  const referralToMaster = input.referToMasterChoice !== ReferToMaster.No;
-
   // Enrolment/Return keyed on state: Enroled(4) shows Enrolment only,
   // Returned(5) shows Return only, everything else shows both.
   let enrolment = true;
@@ -104,7 +113,7 @@ export function tabVisibility(input: PresentationInput): FormPresentation["tabs"
     ret = true;
   }
 
-  return { referralToMaster, enrolment, return: ret };
+  return { enrolment, return: ret };
 }
 
 /** Build the full presentation model for a record + viewer context. */

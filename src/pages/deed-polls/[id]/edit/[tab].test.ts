@@ -82,6 +82,24 @@ describe("case edit tab page", () => {
       expect(res.render.mock.calls[0][1].tab.id).toBe(FORM_TABS[0].id);
     });
 
+    it("sends a bookmarked referral tab to the case's referrals panel, where its values now live", async () => {
+      // `referrals-admin-4` decision 2 retires the "Referral to Master" form. The fallback above would answer
+      // this URL with the Application tab — 46 editable fields under a heading nobody asked for — so the slug
+      // is redirected to the panel that holds the values read-only, rather than 404'd: the record still exists.
+      const res = response();
+
+      await GET(request("referral"), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1#referrals");
+      expect(res.render).not.toHaveBeenCalled();
+    });
+
+    it("does not read the case to answer that redirect, the destination being the same for every case", async () => {
+      await GET(request("referral"), response());
+
+      expect(findDeedPoll).not.toHaveBeenCalled();
+    });
+
     it("pre-fills fields from the stored record", async () => {
       const res = response();
 
@@ -134,6 +152,15 @@ describe("case edit tab page", () => {
       // writes every field it is given — blanking absent ones. Falling back on a write would null
       // all 46 from a body that never mentioned them. This is the guard against that.
       await expect(POST(request("nonsense", {}), response())).rejects.toThrow(NotFoundError);
+
+      expect(updateDeedPoll).not.toHaveBeenCalled();
+    });
+
+    it("refuses a post to the retired referral tab rather than writing its body onto the Application tab", async () => {
+      // The other half of the retirement. GET redirects, but a form posted from a page loaded before the
+      // retirement must not be accepted: falling back would blank 46 Application fields, and nothing accepts
+      // the retired fields any more — they are out of `FORM_TABS`, so out of `EDITABLE_FIELDS`.
+      await expect(POST(request("referral", { masterName: "Master Smith" }), response())).rejects.toThrow(NotFoundError);
 
       expect(updateDeedPoll).not.toHaveBeenCalled();
     });
@@ -263,7 +290,7 @@ describe("case edit tab page", () => {
     it("does not warn on the tabs that carry no enrolment date, however short the case is", async () => {
       // A banner shown on every tab is read on none, and on the Application tab it answers a question the
       // caseworker is not asking.
-      for (const tab of [APPLICATION, "referral", "return", "refund"]) {
+      for (const tab of [APPLICATION, "return", "refund"]) {
         const res = response();
         await GET(request(tab), res);
         expect(res.render.mock.calls[0][1].witnessWarning, tab).toBeNull();

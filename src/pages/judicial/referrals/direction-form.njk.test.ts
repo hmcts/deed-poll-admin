@@ -80,7 +80,7 @@ const renderSubmitted = async (body: Record<string, unknown>): Promise<string> =
 };
 
 const render = (model: Record<string, unknown>): string =>
-  environment.render("judicial/referrals/direction-form.njk", { ...model, ...(model.en as Record<string, unknown>) });
+  environment.render("judicial/referrals/direction-form.njk", { ...(model.en as Record<string, unknown>), ...model });
 
 describe("direction form template", () => {
   beforeEach(() => {

@@ -11,12 +11,18 @@
  * this is also reversible in the sense that matters — the case can be referred again, which is exactly how
  * api-1 expects an open referral to be amended.
  *
- * **The 409 comes back as a message on the referral, not an error page.** api answers 409 when the referral is
- * already closed or withdrawn, which is what a caseworker sees if somebody else finished with it while this
- * page was open — an ordinary race, not a fault. So the refusal redirects to the referral view with
- * `?withdraw=conflict`, and that page's own copy says so above the state api has just published. Redirecting
- * rather than rendering here is what the forms' `?error=` objection does not apply to: there is no input to
- * lose, and the state on the page afterwards has to be re-read to be true.
+ * **The 409 comes back as a message on the referral, not an error page.** api answers 409 for anything but an
+ * `Open` or `Claimed` referral (api-4's `canBeWithdrawn()`), which is what a caseworker sees if somebody else
+ * finished with it — or a judge directed it — while this page was open: an ordinary race, not a fault. So the
+ * refusal redirects to the referral view with `?withdraw=conflict`, and that page's own copy says so above the
+ * state api has just published. Redirecting rather than rendering here is what the forms' `?error=` objection
+ * does not apply to: there is no input to lose, and the state on the page afterwards has to be re-read to be
+ * true.
+ *
+ * **There is one flag and two sentences, and the *page* chooses between them.** api refuses a `Decided`
+ * withdrawal differently from a terminal one — a direction has to be actioned, not taken back — and only the
+ * fresh read on the referral page knows which. Sending the reason in the query instead would carry this
+ * handler's copy through a redirect and be stale by the time it rendered.
  */
 import { ConflictError, withdrawReferral } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";

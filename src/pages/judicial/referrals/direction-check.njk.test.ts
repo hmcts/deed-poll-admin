@@ -67,7 +67,7 @@ const renderCheck = async (body: Record<string, unknown>): Promise<string> => {
   await POST(pageRequest({ params: { referralId: "ref-1" }, body, judicial: true, accessToken: "judge-token" }), res);
   const model = res.render.mock.calls[0][1];
 
-  return environment.render("judicial/referrals/direction-check.njk", { ...model, ...model.en });
+  return environment.render("judicial/referrals/direction-check.njk", { ...model.en, ...model });
 };
 
 const DIRECTION = { decision: "Approved", directionsText: "Grant the application.", publishToGazette: "false" };

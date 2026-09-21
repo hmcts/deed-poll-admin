@@ -345,8 +345,8 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   const caseUrl = page.url();
   const referrals = page.locator("#referrals");
 
-  // "Referrals" and not "Referral": the tab beside it holds the case's own Refer-to-Master fields, so the
-  // exact name is load-bearing rather than tidiness.
+  // `exact` because the retired "Referral to Master" tab that made it load-bearing is gone
+  // (`referrals-admin-4` decision 2) and the substring would match it again the moment anything reinstated it.
   await page.getByRole("tab", { name: "Referrals", exact: true }).click();
   await expect(referrals).toContainText("None recorded.");
   await page.getByRole("button", { name: "Refer this case to the judiciary" }).click();
@@ -394,7 +394,8 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   await expect(referrals).toContainText("Applicant is a minor");
   await expect(referrals).toContainText("Other");
   await expect(referrals).toContainText("Standard");
-  await expect(referrals.locator(".govuk-tag")).toHaveText("Open");
+  // The caseworker's status label rather than api's member: the tag says where the referral is.
+  await expect(referrals.locator(".govuk-tag")).toHaveText("Awaiting a judge");
   // The raise button is withheld while one is live, with the reason in its place rather than a button that
   // could only fail.
   await expect(page.getByRole("button", { name: "Refer this case to the judiciary" })).toHaveCount(0);
@@ -427,11 +428,21 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   await expect(referrals).toContainText("Applicant is a minor");
   await expect(page.getByRole("button", { name: "Refer this case to the judiciary" })).toBeVisible();
 
-  // The withdraw control is gone from a terminal referral, absent from the markup rather than disabled — the
-  // same shape as the note and witness deletes above.
+  // The withdraw control is gone from a referral that can no longer be withdrawn, absent from the markup
+  // rather than disabled — the same shape as the note and witness deletes above.
   await page.getByRole("link", { name: /view this referral/ }).click();
   await expect(page.getByRole("button", { name: "Withdraw this referral" })).toHaveCount(0);
-  await expect(page.getByText("Withdrawn")).toBeVisible();
+  // Scoped to the status row, because the status now carries a sentence as well as a label: a bare
+  // `getByText("Withdrawn")` matches both, and a bare `.govuk-tag` also catches the phase banner and the
+  // persona strip. The pair is the point — the label is scannable, the sentence says what it means for the case.
+  const referralStatus = page.locator(".govuk-summary-list__row", { hasText: "Referral status" });
+  await expect(referralStatus.locator(".govuk-tag")).toHaveText("Withdrawn");
+  await expect(referralStatus).toContainText("Withdrawn before a direction");
+  // And no closure control either: this referral never had a direction to action. `button` and not `link`,
+  // because `govukButton` given an `href` renders `<a role="button">` — a locator reaching for `link` finds
+  // nothing on any page and this absence assertion passed for the wrong reason until the journey below needed
+  // the same control to be *present*.
+  await expect(page.getByRole("button", { name: "Mark direction as actioned" })).toHaveCount(0);
 });
 
 /**
@@ -444,10 +455,15 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
  * this can pin is that the href is a query api answers with those rows — the count and the worklist being one
  * query (decision 3) is a claim about two round trips agreeing, and a stub cannot disagree with itself.
  *
- * **The count is read as a baseline plus this journey's cases, not as an absolute.** It is global by design
- * (decision 5) and the mock's store outlives a run — `reuseExistingServer` — so `yarn mock:seed` or an earlier
- * run leaves `Decided` cases that are legitimately part of the number. Nothing else in the suite drives a
- * referral past `Claimed`, so the baseline cannot move underneath this test while it runs.
+ * **The number is asserted against api's total at the same moment, never against an arithmetic baseline.** It is
+ * global by design (decision 5) and the mock's store outlives a run — `reuseExistingServer` — so `yarn mock:seed`
+ * and every earlier run leave `Decided` cases that are legitimately part of it. This test used to add two to a
+ * baseline it had read and assert the sum, which was only safe while nothing else in the suite produced a
+ * `Decided` referral: `judicial.spec.ts` records a direction and the mark-as-actioned journey below drives one to
+ * `Decided` and back, both in parallel workers, so the sum can be two short or two over by the time the banner
+ * renders. Comparing the two sides at one moment — as `judicial.spec.ts` compares the pool's summary — pins the
+ * claim that matters, that the banner states api's total for that condition, and the rows below pin that this
+ * journey's cases are in it.
  *
  * Either role, so this file's administrator serves: the dashboard is every caseworker's and nothing here is
  * deleted.
@@ -463,13 +479,16 @@ test("caseworker sees how many applications have a returned direction, and follo
   // A notification banner and not a bespoke tile (decision 4), above the search box rather than immediately
   // above the table: a thing whose only job is to be seen is not seen below a 40-line query builder.
   const banner = page.getByRole("region", { name: "Important" });
-  await expect(banner).toContainText(`${seeded.total} applications have a returned direction needing action`);
+  await expect(banner).toContainText("applications have a returned direction needing action");
+  await expectReturnedForActionCountMatchesApi(page, request);
   await expectNoAccessibilityViolations(page);
 
   // Decision 5, where a caseworker would notice it: the count is a fact about the service, so another tab —
-  // whose own list holds none of these cases — does not narrow it.
+  // whose own list holds none of these cases — does not narrow it. Against api's global total, which is exactly
+  // the claim: a count narrowed by the tab would be below it.
   await page.getByRole("link", { name: "Enroled" }).click();
-  await expect(banner).toContainText(`${seeded.total} applications have a returned direction needing action`);
+  await expect(banner).toContainText("applications have a returned direction needing action");
+  await expectReturnedForActionCountMatchesApi(page, request);
 
   await banner.getByRole("link", { name: "View these applications" }).click();
 
@@ -477,7 +496,7 @@ test("caseworker sees how many applications have a returned direction, and follo
   // narrowed by the tab it was clicked from.
   await expect(page).toHaveURL("/deed-polls?where=currentReferralState%3Ais%3ADecided");
   // api's total for the query, which is the number the banner had: the count and the worklist are one query.
-  await expect(page.getByText(new RegExp(`of ${seeded.total} applications`))).toBeVisible();
+  await expectWorklistTotalMatchesApi(page, request);
 
   // The rows, newest first — the mock's default order is `createdOn` descending, so this journey's two are at
   // the top of the first page however many Decided cases were already in the store.
@@ -504,9 +523,192 @@ test("caseworker sees how many applications have a returned direction, and follo
   await page.getByRole("button", { name: "Apply filters" }).click();
 
   await expect(page).toHaveURL("/deed-polls?where=currentReferralState%3Ais%3ADecided");
-  await expect(page.getByText(new RegExp(`of ${seeded.total} applications`))).toBeVisible();
+  await expectWorklistTotalMatchesApi(page, request);
   await expect(seededRow(seeded.claimed)).toHaveCount(0);
   for (const reference of seeded.decided) await expect(seededRow(reference)).toHaveCount(1);
+});
+
+/**
+ * The other end of the same feature — `docs/plans/referrals-admin-4-caseworker-completion.md`.
+ *
+ * **One journey, because the caseworker's half of a referral is one story**: they raise it, a judge answers it,
+ * they are told through the count, they read the direction, they carry it out, and they say so. The test above
+ * stops at "the number is followable"; this one goes on to what the number is *for*, and finishes by watching the
+ * number go down again.
+ *
+ * **What only a browser can show here, and why this earns its keep on top of the page tests:**
+ *
+ * - **The two writes are api's state machine, driven for real.** The claim and the direction go through the
+ *   judicial routes with a judge's token (`claimAndDirect`), exactly as `scripts/seed-local-cases.mjs` drives
+ *   them, so `Decided` is a state api produced rather than one a stub asserted. A `vi.fn()` returning
+ *   `state: "Decided"` cannot show that the closure is refused for anything else, that `currentReferralState`
+ *   recomputes, or that the count falls without anybody decrementing it (decision 7).
+ * - **`decidedBy` outliving the closure is a claim about two round trips.** Closing changes the modifier to the
+ *   caseworker who actioned it, and the direction must still be credited to the judge (decision 4). Both names
+ *   are on screen after the close, from api's own record.
+ * - **The caseworker is never offered the control api would refuse.** No withdrawal on a returned direction
+ *   (api-4 gives that its own 409), no "mark as actioned" once it is actioned, and no confirmation page for a
+ *   referral that has nothing to confirm — the last of those is a redirect, which is only a redirect in a browser.
+ * - **The count reduces because api recomputed, not because a page removed a row.** Asserted on a query narrowed
+ *   to this journey's own surname, for the reason the test above no longer asserts a sum: the global number moves
+ *   under a parallel run, and `1 → 0` on this run's own cases is the "exactly one" that survives it.
+ *
+ * Either role, so this file's administrator serves: api gates neither raising nor closing on the admin role.
+ */
+test("caseworker actions a returned direction, and the returned-direction count falls by one", async ({ page, browser, request }) => {
+  // Arrange: one case, seeded through the mock's control route because what a create does is the first test's
+  // subject and not this one's. Its surname carries this run's identity, which is what makes the count
+  // assertions below immune to every other spec's `Decided` referrals — see `returnedForActionTotal`.
+  const seeded = await seedCaseToAction(request);
+  const caseUrl = `/deed-polls/${seeded.id}`;
+  const referrals = page.locator("#referrals");
+  const direction: JudicialDirection = {
+    decision: "Approved",
+    directionsText: "Approved. Enrol once the applicant has confirmed the spelling of the new surname.",
+    publishToGazette: true
+  };
+
+  // Nothing of this run's is waiting for action yet, which is the number the closure at the end returns to.
+  expect(await returnedForActionTotal(request, seeded.surname)).toBe(0);
+
+  // 1. Raised by the caseworker, through the form — the reveals and the refusals on it are the journey above's.
+  await page.goto(caseUrl);
+  await page.getByRole("tab", { name: "Referrals", exact: true }).click();
+  await expect(referrals).toContainText("None recorded.");
+  await page.getByRole("button", { name: "Refer this case to the judiciary" }).click();
+  await expect(page).toHaveURL(`${caseUrl}/referrals/new`);
+  await page.getByLabel("Applicant is a minor").check();
+  await page.getByLabel("Standard", { exact: true }).check();
+  await page.getByRole("button", { name: "Raise referral" }).click();
+
+  await expect(page).toHaveURL(`${caseUrl}#referrals`);
+  await expect(referrals.locator(".govuk-tag")).toHaveText("Awaiting a judge");
+
+  // The referral's id, read off the row that links to it: it is the mock's, and this is the only place the page
+  // states it.
+  const referralUrl = await referrals.getByRole("link", { name: /view this referral/ }).getAttribute("href");
+  expect(referralUrl).toMatch(new RegExp(`^${caseUrl}/referrals/[0-9a-f-]{36}$`));
+  const referralId = (referralUrl as string).split("/").pop() as string;
+
+  // 2. Claimed and directed through api's judicial contract, because that is what makes it the caseworker's turn
+  // again. Not driven through the judicial UI: that persona's journey is `judicial.spec.ts`, and a second copy of
+  // it here would double a three-step flow this test says nothing about.
+  await claimAndDirect(request, referralId, direction);
+  expect(await returnedForActionTotal(request, seeded.surname)).toBe(1);
+
+  // 3. And the caseworker finds out from the dashboard, which is the whole of the alerting (decision 7).
+  await page.goto("/deed-polls");
+  const banner = page.getByRole("region", { name: "Important" });
+  await expect(banner).toContainText("returned direction needing action");
+  await expectReturnedForActionCountMatchesApi(page, request);
+
+  await banner.getByRole("link", { name: "View these applications" }).click();
+  await expect(page).toHaveURL("/deed-polls?where=currentReferralState%3Ais%3ADecided");
+  // Matched on this run's surname as well as the reference, for the reason `seedReturnedForActionCases` records:
+  // a five-digit reference is unique only by arithmetic, and the store outlives the run.
+  const worklistRow = page.locator("tbody tr").filter({ hasText: seeded.surname }).filter({ hasText: seeded.reference });
+  await expect(worklistRow).toHaveCount(1);
+
+  // Followed into the case from the worklist rather than by URL: the row is the route the banner promises.
+  await worklistRow.getByRole("link", { name: seeded.reference }).click();
+  await expect(page).toHaveURL(caseUrl);
+
+  // 4. The tab says what came back and what to do about it — and does **not** tell the caseworker to withdraw the
+  // referral, which is the single message decision 5 split and a thing api now refuses outright.
+  await page.getByRole("tab", { name: "Referrals", exact: true }).click();
+  await expect(referrals.locator(".govuk-tag")).toHaveText("Direction received");
+  await expect(referrals).toContainText("The judiciary has returned a direction on this case.");
+  await expect(referrals).not.toContainText("Withdraw the open referral before raising another.");
+  // Still no second referral while this one is live: `Decided` is not terminal, which is exactly the pair of
+  // rules api-4 kept apart.
+  await expect(page.getByRole("button", { name: "Refer this case to the judiciary" })).toHaveCount(0);
+  await expectNoAccessibilityViolations(page);
+
+  // 5. The direction in full, on the page that tells them to carry it out (decision 4).
+  await referrals.getByRole("link", { name: /view this referral/ }).click();
+  await expect(page).toHaveURL(`${caseUrl}/referrals/${referralId}`);
+  await expect(summaryRow(page, "Referral status").locator(".govuk-tag")).toHaveText("Direction received");
+  await expect(summaryRow(page, "Referral status")).toContainText("Direction received — action needed");
+  await expect(page.getByRole("heading", { name: "Direction from the judiciary" })).toBeVisible();
+  await expect(summaryRow(page, "Decision")).toContainText("Approved");
+  await expect(summaryRow(page, "Directions")).toContainText(direction.directionsText);
+  // Yes because the judge answered yes — the third answer, "Not recorded", is the one a page test pins.
+  await expect(summaryRow(page, "Published in the Gazette")).toContainText("Yes");
+  await expect(summaryRow(page, "Decided by")).toContainText(SEED_JUDGE);
+  await expect(summaryRow(page, "Claimed by the judiciary")).toContainText(SEED_JUDGE);
+  // 6. And no withdrawal, absent from the markup rather than disabled: api answers 409 with a sentence of its own
+  // for this state, so a button here could only collect a refusal.
+  await expect(page.getByRole("button", { name: "Withdraw this referral" })).toHaveCount(0);
+  await expectNoAccessibilityViolations(page);
+
+  // 7. The confirmation, which is the one thing this journey adds that the withdrawal has no equivalent of: the
+  // three assertions being made are on the page, above the direction they are about.
+  await page.getByRole("button", { name: "Mark direction as actioned" }).click();
+  await expect(page).toHaveURL(`${caseUrl}/referrals/${referralId}/close`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Confirm the direction has been actioned");
+  await expect(page.locator(".govuk-caption-l")).toHaveText(seeded.reference);
+  await expect(page.getByText("you have carried out the judicial direction")).toBeVisible();
+  await expect(page.getByText("you have made any updates the application needs, including any dates")).toBeVisible();
+  await expect(page.getByText("this referral will leave the list of returned directions waiting for action")).toBeVisible();
+  // The direction is on the page the attestation is made on, not one click behind it.
+  await expect(summaryRow(page, "Directions")).toContainText(direction.directionsText);
+  await expectNoAccessibilityViolations(page);
+
+  // Checked here rather than at the end, and the position is load-bearing: both pages' judicial sections exist
+  // only while the referral is `Decided`, and the confirmation page does not exist at all afterwards.
+  await expectReferralWelshKeysResolve(browser, `${caseUrl}/referrals/${referralId}`);
+
+  // Cancel is a link, so the only thing on that page that can act is its one submit: the referral comes back
+  // unchanged.
+  await page.getByRole("link", { name: "Cancel" }).click();
+  await expect(page).toHaveURL(`${caseUrl}/referrals/${referralId}`);
+  await expect(summaryRow(page, "Referral status").locator(".govuk-tag")).toHaveText("Direction received");
+
+  // Back in, and then the submit. The URL is asserted between the two clicks because the link that opens the page
+  // and the button that commits it carry the same words: without it, a second click landing before the navigation
+  // would press the link again and the journey would sit on the confirmation page it thought it had submitted.
+  await page.getByRole("button", { name: "Mark direction as actioned" }).click();
+  await expect(page).toHaveURL(`${caseUrl}/referrals/${referralId}/close`);
+  await page.getByRole("button", { name: "Mark direction as actioned" }).click();
+
+  // 8. Post/redirect/get onto the referral, where the state it produced and the direction it preserved are. The
+  // banner carries the `role="alert"` `govukNotificationBanner` gives a success type, so it is announced.
+  await expect(page).toHaveURL(`${caseUrl}/referrals/${referralId}?close=actioned`);
+  await expect(page.getByRole("alert")).toContainText("The direction has been marked as actioned.");
+  await expect(summaryRow(page, "Referral status").locator(".govuk-tag")).toHaveText("Direction actioned");
+  await expect(summaryRow(page, "Decision")).toContainText("Approved");
+  await expect(summaryRow(page, "Directions")).toContainText(direction.directionsText);
+  // **The assertion the whole of decision 4 rests on.** Closing changed the modifier to the caseworker who did
+  // it; the direction is still the judge's. Reading the author off `modifiedBy` would have swapped these two.
+  await expect(summaryRow(page, "Decided by")).toContainText(SEED_JUDGE);
+  await expect(summaryRow(page, "Last updated")).toContainText(ADMIN_EMAIL);
+  // Neither control applies to a referral that is over.
+  await expect(page.getByRole("button", { name: "Mark direction as actioned" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Withdraw this referral" })).toHaveCount(0);
+  await expectNoAccessibilityViolations(page);
+
+  // The confirmation page refuses to present an action that no longer applies — a back button, a bookmark or a
+  // second tab — and redirects to the referral, which shows the state that explains why.
+  await page.goto(`${caseUrl}/referrals/${referralId}/close`);
+  await expect(page).toHaveURL(`${caseUrl}/referrals/${referralId}`);
+
+  // 9. Back on the tab: the history keeps the actioned referral, and the case may be referred again.
+  await page.getByRole("link", { name: "Back to case" }).click();
+  await expect(page).toHaveURL(`${caseUrl}#referrals`);
+  await expect(referrals.locator(".govuk-tag")).toHaveText("Direction actioned");
+  await expect(referrals).toContainText("Applicant is a minor");
+  await expect(page.getByRole("button", { name: "Refer this case to the judiciary" })).toBeVisible();
+
+  // 10. And the count. **Nobody removed a row and nobody decremented a number** (decision 7): api recomputed
+  // `currentReferralState` to null on the closure, so the next read of the same query is short by exactly this
+  // case. Asserted on this run's own surname for the strict "by one", and against api's global total for the
+  // banner the caseworker actually reads.
+  expect(await returnedForActionTotal(request, seeded.surname)).toBe(0);
+
+  await page.goto("/deed-polls");
+  await expectReturnedForActionCountMatchesApi(page, request);
+  await page.goto("/deed-polls?where=currentReferralState%3Ais%3ADecided");
+  await expect(page.locator("tbody tr").filter({ hasText: seeded.surname })).toHaveCount(0);
 });
 
 /**
@@ -1174,11 +1376,12 @@ async function seedCasesToSearch(request: APIRequestContext): Promise<{ surname:
  * are what the other seeders' `1`/`2`/`3`/`6`/`7`/`8` and the `0000n` serials the mock allocates on a real
  * create leave free.
  *
- * `total` is what the banner should say — the baseline the store already held plus the two this adds.
+ * **No total is returned, deliberately.** It used to answer the baseline plus two and the journey asserted that
+ * number, which stopped being safe the moment a second spec produced a `Decided` referral — see the test's own
+ * docblock. The banner is compared with api instead, and these references are what say the seeded cases are in it.
  */
-async function seedReturnedForActionCases(request: APIRequestContext): Promise<{ total: number; surname: string; decided: string[]; claimed: string }> {
+async function seedReturnedForActionCases(request: APIRequestContext): Promise<{ surname: string; decided: string[]; claimed: string }> {
   const leads = ["9", "5", "4"];
-  const baseline = await returnedForActionTotal(request);
   const surname = `Returnedby${Date.now().toString(36)}`;
   const serial = String(Math.floor(Date.now() / 1000)).slice(-4);
 
@@ -1207,21 +1410,98 @@ async function seedReturnedForActionCases(request: APIRequestContext): Promise<{
   const claimed = await seed(3);
   await referTo(request, claimed.id, "Claimed");
 
-  return { total: baseline + decided.length, surname, decided: decided.map((one) => one.reference), claimed: claimed.reference };
+  return { surname, decided: decided.map((one) => one.reference), claimed: claimed.reference };
+}
+
+/**
+ * One case for the mark-as-actioned journey, with no referral on it: raising one is step 1 of that journey and is
+ * driven through the form.
+ *
+ * **The surname carries the run's identity and the count assertions are narrowed by it.** The alternative — an
+ * arithmetic baseline — is what the returned-for-action test above had to give up: the number is global, so a
+ * parallel worker recording a direction moves it. `newSurname:is:<this run>` AND `currentReferralState:is:Decided`
+ * is a count nothing else in the suite can touch, which is what makes "falls by exactly one" assertable at all.
+ *
+ * Received in August and led with `0`, so the date and the reference collide with no other seeder's — the leads in
+ * use are `1`/`2`/`3` on fixed patterns and `4`–`9` on the clock. The reference matters less here than elsewhere
+ * because the surname is what the queries key on, but the Reference cell is a link and one with no text is an
+ * accessibility violation on every list page the rest of the run renders.
+ */
+async function seedCaseToAction(request: APIRequestContext): Promise<{ id: string; surname: string; reference: string }> {
+  const surname = `Actionedby${Date.now().toString(36)}`;
+  const reference = `KBDP2026-0${String(Math.floor(Date.now() / 1000)).slice(-4)}`;
+
+  const response = await request.post(`${MOCK_API_URL}/__mock/cases`, {
+    data: {
+      type: "Adult",
+      state: "Received",
+      newForename: "Ada",
+      newSurname: surname,
+      displayReference: reference,
+      dateReceived: "2026-08-03T00:00:00.000"
+    }
+  });
+  // Asserted, because a rejected seed leaves the journey opening a case that does not exist and the failure
+  // surfaces as a 404 on a page whose URL looks right.
+  expect(response.status(), await response.text()).toBe(201);
+
+  return { id: (await response.json()).id, surname, reference };
 }
 
 /**
  * How many cases api counts as needing action right now — the query the dashboard's banner reads.
  *
- * Read before seeding because the count is global (decision 5) and the mock's store outlives the run, so an
- * earlier run's or `yarn mock:seed`'s `Decided` cases belong in the number the banner shows. `size=1` for the
- * reason the dashboard uses it: the total is api's across every page and the rows are not wanted here.
+ * `size=1` for the reason the dashboard uses it: the total is api's across every page and the rows are not
+ * wanted here.
+ *
+ * **`surname` narrows it to one run's own cases, and that is the only count worth asserting an exact number
+ * for.** Unnarrowed it is global by design (decision 5) over a store that outlives the run — `yarn mock:seed`,
+ * every earlier run, and any spec in a parallel worker that records a direction — so the global figure is only
+ * ever compared against the page at the same moment. api ANDs `where` conditions, so the two together are "this
+ * journey's cases that are waiting for action".
  */
-async function returnedForActionTotal(request: APIRequestContext): Promise<number> {
-  const response = await request.get(`${MOCK_API_URL}/caseworker/cases?where=currentReferralState:is:Decided&size=1`);
+async function returnedForActionTotal(request: APIRequestContext, surname?: string): Promise<number> {
+  const scope = surname === undefined ? "" : `&where=newSurname:is:${surname}`;
+  const response = await request.get(`${MOCK_API_URL}/caseworker/cases?where=currentReferralState:is:Decided${scope}&size=1`);
   expect(response.status(), await response.text()).toBe(200);
 
   return (await response.json()).total;
+}
+
+/**
+ * The dashboard banner's number, against api's total for the same condition read at the same moment.
+ *
+ * **Re-read on each attempt rather than compared once**, as `judicial.spec.ts` compares the pool's summary: the
+ * count is global, so another worker's direction or closure can move api's side between a render and an
+ * assertion about it, and reloading inside the poll makes the two sides the same moment. Compared by
+ * backreference so a failure prints both numbers and so nothing here pins a total this suite does not control.
+ *
+ * **An absent banner is the number zero**, not a missing element to wait for: the page renders no banner when
+ * nothing needs action (`returnedForActionFor` is only set for a non-zero count), which is the state the
+ * mark-as-actioned journey can leave a store in.
+ */
+async function expectReturnedForActionCountMatchesApi(page: Page, request: APIRequestContext): Promise<void> {
+  await expect
+    .poll(async () => {
+      await page.reload();
+      const banner = page.getByRole("region", { name: "Important" });
+      const shown = (await banner.count()) === 0 ? "0" : ((await banner.textContent()) ?? "").match(/(\d+) applications? ha/)?.[1];
+
+      return `${shown} / api total ${await returnedForActionTotal(request)}`;
+    })
+    .toMatch(/^(\d+) \/ api total \1$/);
+}
+
+/** The worklist's range caption's total, against api's for the same condition — same reasoning, same shape. */
+async function expectWorklistTotalMatchesApi(page: Page, request: APIRequestContext): Promise<void> {
+  await expect
+    .poll(async () => {
+      await page.reload();
+      const shown = ((await page.getByText(/of \d+ applications/).textContent()) ?? "").match(/of (\d+) applications/)?.[1];
+
+      return `${shown} / api total ${await returnedForActionTotal(request)}`;
+    })
+    .toMatch(/^(\d+) \/ api total \1$/);
 }
 
 /**
@@ -1236,18 +1516,53 @@ async function referTo(request: APIRequestContext, caseId: string, upTo: "Claime
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
 
-  const judge = { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: SEED_JUDGE }), "utf8").toString("base64url")}.signature` };
-  const claimed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/claim`, { headers: judge });
+  const claimed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/claim`, { headers: bearer(SEED_JUDGE) });
   expect(claimed.status(), await claimed.text()).toBe(200);
   if (upTo === "Claimed") return;
 
   // The direction is what makes it the caseworker's turn again: `Claimed → Decided`, and the caseworker's
   // `close` has not happened, which is the whole of "returned — action needed".
   const directed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/direction`, {
-    headers: judge,
+    headers: bearer(SEED_JUDGE),
     data: { decision: "Approved", publishToGazette: true }
   });
   expect(directed.status(), await directed.text()).toBe(200);
+}
+
+/**
+ * A judge claims the referral and records a direction on it — `Open → Claimed → Decided`.
+ *
+ * **Driven through api's judicial routes rather than through the judicial UI**, which `judicial.spec.ts` covers
+ * end to end: what the caseworker's journey needs is a direction api itself produced, and a second traversal of a
+ * three-step flow would double that spec's cost to assert nothing new. It must not be written onto the record
+ * either — the mock recomputes `currentReferralState` on every transition, so a fixture that set the state
+ * directly would teach the count a number api's own state machine cannot reach.
+ *
+ * Both steps are checked for the reason `referTo`'s are: a refusal part-way leaves the referral short of
+ * `Decided`, and the journey then fails several pages later on a control that is correctly absent.
+ */
+async function claimAndDirect(request: APIRequestContext, referralId: string, direction: JudicialDirection): Promise<void> {
+  const claimed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/claim`, { headers: bearer(SEED_JUDGE) });
+  expect(claimed.status(), await claimed.text()).toBe(200);
+
+  const directed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/direction`, {
+    headers: bearer(SEED_JUDGE),
+    data: direction
+  });
+  expect(directed.status(), await directed.text()).toBe(200);
+}
+
+/**
+ * A bearer token carrying a subject and nothing else.
+ *
+ * The mock reads the subject out of the middle segment and never verifies a signature — `auditName` — so this is
+ * all a write needs to be attributed to a name. It proves nothing about authentication, which is the app's own
+ * concern and is exercised by the real sign-in the `setup` project performs.
+ */
+function bearer(subject: string): Record<string, string> {
+  const claims = Buffer.from(JSON.stringify({ sub: subject }), "utf8").toString("base64url");
+
+  return { authorization: `Bearer x.${claims}.signature` };
 }
 
 /**
@@ -1314,6 +1629,45 @@ async function expectWelshKeysResolve(browser: Browser, caseUrl: string): Promis
   }
 }
 
+/**
+ * The Welsh shape of the referral and the closure confirmation, for the reasons `expectWelshKeysResolve` sets out
+ * at length — `cy` holds English deliberately, so what this catches is a **missing** `cy` key, which renders blank
+ * rather than erroring and would empty a heading or a whole direction without failing anything.
+ *
+ * **Its own context and session**, and `storageState: undefined` is load-bearing: `?lng=cy` is a write to
+ * `req.session.locale`, and done on the session this file shares it switches another spec into Welsh mid-run.
+ *
+ * **Both pages in one signed-in context**, because they are only reachable together: the closure confirmation
+ * exists solely while the referral is `Decided`, which is also the only state in which the referral page carries a
+ * direction to render. One login covers the pair and neither can be checked afterwards.
+ */
+async function expectReferralWelshKeysResolve(browser: Browser, referralUrl: string): Promise<void> {
+  const context = await browser.newContext({ storageState: undefined });
+
+  try {
+    const page = await context.newPage();
+    await signInAsAdmin(page);
+
+    await page.goto(`${referralUrl}?lng=cy`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to the judiciary");
+    await expect(page.getByRole("heading", { name: "Direction from the judiciary" })).toBeVisible();
+    await expect(summaryRow(page, "Referral status")).toBeVisible();
+    await expect(summaryRow(page, "Published in the Gazette")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Mark direction as actioned" })).toBeVisible();
+
+    await page.goto(`${referralUrl}/close?lng=cy`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Confirm the direction has been actioned");
+    await expect(page.getByText("By marking this referral as actioned you are confirming that:")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Mark direction as actioned" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Cancel" })).toBeVisible();
+    // The language toggle offers English, which is how the page says it rendered as Welsh at all — a `cy` that
+    // failed to resolve would leave the copy blank rather than announcing itself.
+    await expect(page.locator(".language")).toContainText("English");
+  } finally {
+    await context.close();
+  }
+}
+
 function signatureRequested(page: Page): Locator {
   return page.getByRole("group", { name: "Signature requested date" });
 }
@@ -1347,6 +1701,22 @@ function urgencyReasonRow(page: Page): Locator {
 }
 
 /**
+ * A `govukSummaryList` row, addressed by its **key**. Located by class because such a row has no accessible name
+ * to address it by — the same reason `caseHeader` and `declarantRow` are.
+ *
+ * **Anchored on the whole key rather than a substring of it**, which `judicial.spec.ts`'s equivalent can afford
+ * not to be: the referral page carries both "Decision" and "Decision date", so a substring match on the first
+ * resolves two rows and the assertion fails on strict mode instead of on the value it was about. Scoped to the key
+ * cell rather than the row for that spec's reason too — `hasText` spans the whole row, so a row whose *value* is
+ * the tag "Withdrawn" answers to a key of "Withdrawn".
+ */
+function summaryRow(page: Page, key: string): Locator {
+  const keyCell = page.locator(".govuk-summary-list__key").filter({ hasText: new RegExp(`^\\s*${key}\\s*$`) });
+
+  return page.locator(".govuk-summary-list__row").filter({ has: keyCell });
+}
+
+/**
  * The case header above the tabs — the summary list `case-header.ts` builds.
  *
  * Scoped, and by position rather than by role: Type and State also appear as rows inside the
@@ -1375,4 +1745,17 @@ async function expectNoAccessibilityViolations(page: Page, allowed: string[] = [
   const findings = results.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target).join(", ")}`);
 
   expect(findings.filter((finding) => !allowed.includes(finding))).toEqual([]);
+}
+
+/**
+ * The direction a judge records, in api's own field names — `JudicialDirectionRequest`.
+ *
+ * `directionsText` is optional on the wire and given here on purpose: a direction with no further directions is the
+ * "not provided" placeholder the page tests pin, and this journey asserts the caseworker can read the words the
+ * judge actually typed.
+ */
+interface JudicialDirection {
+  decision: "Approved" | "Rejected";
+  directionsText: string;
+  publishToGazette: boolean;
 }

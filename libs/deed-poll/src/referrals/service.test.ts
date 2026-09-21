@@ -1,7 +1,14 @@
-import { createReferral as apiCreateReferral, withdrawReferral as apiWithdrawReferral, getCase, getReferral, listReferrals } from "@hmcts/deed-poll-api-client";
+import {
+  closeReferral as apiCloseReferral,
+  createReferral as apiCreateReferral,
+  withdrawReferral as apiWithdrawReferral,
+  getCase,
+  getReferral,
+  listReferrals
+} from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
-import { createReferral, findReferral, findReferrals, withdrawReferral } from "./service.js";
+import { closeReferral, createReferral, findReferral, findReferrals, withdrawReferral } from "./service.js";
 
 // The adapter is mocked and nothing else. What is worth pinning at this seam is that each function reaches
 // the right operation, that the caller's token travels and no author does, and that api's two 409s arrive as
@@ -12,6 +19,7 @@ vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
   getReferral: vi.fn(),
   createReferral: vi.fn(),
   withdrawReferral: vi.fn(),
+  closeReferral: vi.fn(),
   getCase: vi.fn()
 }));
 
@@ -168,6 +176,67 @@ describe("referrals/service", () => {
       vi.mocked(apiWithdrawReferral).mockResolvedValue(notFound as never);
 
       await expect(withdrawReferral("other-case", "ref-1", CALLER)).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
+  describe("closeReferral", () => {
+    const CLOSED = {
+      ...REFERRAL,
+      state: "Closed",
+      decision: "Approved",
+      directionsText: "Enrol the deed.",
+      publishToGazette: true,
+      decidedBy: "A Judge",
+      modifiedBy: "A Caseworker"
+    };
+
+    it("should post to the closure sub-resource with no body and return the closed referral", async () => {
+      vi.mocked(apiCloseReferral).mockResolvedValue(ok(CLOSED) as never);
+
+      expect(await closeReferral("case-1", "ref-1", CALLER)).toEqual(CLOSED);
+      expect(apiCloseReferral).toHaveBeenCalledWith(
+        "case-1",
+        "ref-1",
+        expect.objectContaining({ baseUrl: "http://api.test", accessToken: "caseworker-token" })
+      );
+      // Three arguments and no fourth: no closure note, and nothing naming who actioned the direction — api
+      // stamps the actor from the token, as it does on every other write.
+      expect(vi.mocked(apiCloseReferral).mock.calls[0]).toHaveLength(3);
+    });
+
+    it("should return the judicial fields unchanged, since closing records the direction was actioned not undone", async () => {
+      vi.mocked(apiCloseReferral).mockResolvedValue(ok(CLOSED) as never);
+
+      const closed = await closeReferral("case-1", "ref-1", CALLER);
+
+      expect(closed).toMatchObject({ decision: "Approved", directionsText: "Enrol the deed.", publishToGazette: true, decidedBy: "A Judge" });
+    });
+
+    it("should throw ConflictError when the referral is not Decided, which is api's rule to enforce", async () => {
+      vi.mocked(apiCloseReferral).mockResolvedValue({
+        ok: false,
+        error: { kind: "conflict", status: 409, message: "Referral ref-1 is Open and can only be closed once it is Decided" }
+      } as never);
+
+      await expect(closeReferral("case-1", "ref-1", CALLER)).rejects.toBeInstanceOf(ConflictError);
+    });
+
+    it("should not read the referral first to check its state — api owns the transition", async () => {
+      // The same reasoning as the withdrawal: a referral Decided when the confirmation page rendered may have
+      // been closed by another caseworker since, so the pre-read would answer a question that has moved on.
+      vi.mocked(apiCloseReferral).mockResolvedValue(ok(CLOSED) as never);
+
+      await closeReferral("case-1", "ref-1", CALLER);
+
+      expect(getReferral).not.toHaveBeenCalled();
+      expect(listReferrals).not.toHaveBeenCalled();
+      expect(getCase).not.toHaveBeenCalled();
+    });
+
+    it("should throw NotFoundError for a referral that is not under this case", async () => {
+      vi.mocked(apiCloseReferral).mockResolvedValue(notFound as never);
+
+      await expect(closeReferral("other-case", "ref-1", CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 });

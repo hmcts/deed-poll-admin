@@ -24,7 +24,7 @@
  * field takes up to 1,000 characters and losing them to a missed checkbox would be the expensive failure.
  */
 import {
-  buildReferralDetail,
+  buildReferralsView,
   ConflictError,
   createReferral,
   createReferralSchema,
@@ -166,10 +166,10 @@ function fieldMessages(errors: FieldError[]): Record<string, string> {
 /**
  * Where to send someone who has just learned the case is already with the judiciary.
  *
- * A second read, on the conflict path only: api's 409 says that a referral is open, not which one, and "view
- * it" needs an id. A case whose open referral has been withdrawn between the two calls falls back to the
- * case's referrals tab rather than linking to nothing — `terminal` is the one state rule this app keeps, and
- * api remains the authority on the transition itself.
+ * A second read, on the conflict path only: api's 409 says that a referral is live, not which one, and "view
+ * it" needs an id. A case whose live referral has been withdrawn between the two calls falls back to the
+ * case's referrals tab rather than linking to nothing — `liveReferral` is the view model's answer to "which
+ * one", and api remains the authority on the transition itself.
  *
  * **A failed read falls back rather than throwing.** This runs inside the handler's `catch`, so letting it
  * reject would turn a 409 this page knows how to render into the 500 page and take up to 1,000 typed
@@ -181,9 +181,9 @@ async function openReferralHref(req: Request): Promise<string> {
 
   try {
     const referrals = await findReferrals(req.params.id, callerFromRequest(req));
-    const open = referrals.find((referral) => !buildReferralDetail(referral).terminal);
+    const live = buildReferralsView(referrals).liveReferral;
 
-    return open ? `/deed-polls/${req.params.id}/referrals/${open.id}` : referralsTab;
+    return live ? `/deed-polls/${req.params.id}/referrals/${live.id}` : referralsTab;
   } catch (error) {
     console.error(`could not resolve the open referral to link to: ${error instanceof Error ? error.message : error}`);
     return referralsTab;

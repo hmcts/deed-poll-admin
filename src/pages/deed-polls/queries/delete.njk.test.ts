@@ -61,7 +61,7 @@ const render = async (query: SavedQuery): Promise<string> => {
   await GET(pageRequest({ params: { queryId: "sq-1" }, accessToken: "session-token" }), res);
   const model = res.render.mock.calls[0][1];
 
-  return environment.render("deed-polls/queries/delete.njk", { ...model, ...model.en });
+  return environment.render("deed-polls/queries/delete.njk", { ...model.en, ...model });
 };
 
 describe("delete a saved query template", () => {

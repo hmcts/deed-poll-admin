@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DeedPollState, DeedPollType, Privacy, ReferToMaster } from "./enums/option-sets.js";
+import { DeedPollState, DeedPollType, Privacy } from "./enums/option-sets.js";
 import { build, defaultPrivacy, type PresentationContext, privacyEditable, tabVisibility } from "./form-presentation.js";
 
 const ADMIN_NEW: PresentationContext = { isAdmin: true, isNew: true };
@@ -64,13 +64,13 @@ describe("form-presentation", () => {
   });
 
   describe("tabVisibility", () => {
-    it("hides Referral tab when refer-to-master is No", () => {
-      expect(tabVisibility({ referToMasterChoice: ReferToMaster.No }).referralToMaster).toBe(false);
-    });
-
-    it("shows Referral tab for Yes or unset", () => {
-      expect(tabVisibility({ referToMasterChoice: ReferToMaster.Yes }).referralToMaster).toBe(true);
-      expect(tabVisibility({}).referralToMaster).toBe(true);
+    it("decides two tabs and no longer a referral one, that tab having been retired from the case form", () => {
+      // `referralToMaster` was the third flag, keyed on `referToMasterChoice`. `referrals-admin-4` decision 2
+      // takes the "Referral to Master" tab out of `FORM_TABS`, so there is no tab left for a flag to show or
+      // hide — and the retired fields' read-only snapshot is shown on the referral values themselves, which is
+      // the right test for history: a case answered "No" and referred anyway under the old system still holds
+      // the record.
+      expect(Object.keys(tabVisibility({}))).toEqual(["enrolment", "return"]);
     });
 
     it("Enroled state shows Enrolment, hides Return", () => {
