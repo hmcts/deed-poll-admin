@@ -73,9 +73,79 @@ delete them, exactly as deployed API permits. Do not add mock-only immutability 
 This plan records operational history, not a tamper-proof audit log. A future immutability requirement must
 change API data and authorization before admin can represent it.
 
+## Validation Commands
+
+**Added 2026-09-21, before the plan was run — it had none, and `ralphex` runs this section after every task.**
+Without it there is no per-task gate at all: a task can leave the suite red and the next one starts anyway.
+
+```bash
+yarn lint
+npx turbo test test:app --concurrency=1
+```
+
+**Verified green on this branch before Task 1** — `yarn lint` exits 0, and `8 successful, 8 total` across
+**164 test files, 2,981 tests**. That is the baseline Task 0 was asked to record and Task 3 measures against.
+
+**Two commands in Task 3's list are deliberately NOT here, and putting them here would break every task:**
+
+- **`yarn welsh:check` exits 1 on `master`** — 446 strings, 421 still identical in `cy` (414 prose), the
+  repo-wide `cy = { ...en }` state pending the translation request. Measured on a clean tree, not assumed. A
+  gate that starts red fails every task from the first one, which is the single rule this section has.
+  **It is not one of the six Jenkins-owned scripts**, so it does not fail the build either. Task 3 runs it to
+  confirm this plan has not *added* to that debt — compare the count, do not expect a zero exit.
+- **`yarn test:e2e` needs a running app and mock**, costs minutes, and **cannot start its own `webServer` from
+  inside a git worktree**: `dev:nowatch:web` runs `yarn dev:up`, and docker compose names its project after the
+  directory, so it collides with the `deed-poll-redis`/`deed-poll-idam` containers the main checkout owns. Start
+  the mock and the app by hand without `dev:up` and let `reuseExistingServer` find them. Task 3's business.
+
+`yarn turbo test test:app --concurrency=1` and `npx turbo …` are equivalent here; both were run and both exit 0.
+**Use the `--concurrency=1` form either way** — a bare `yarn test` reports failure with `0 successful, 8 total`
+and "no tests" while running nothing at all, which reads as a red suite and is not one.
+
 ## Tasks
 
 ### Task 0: Reconcile API wording and current note surfaces
+
+> **DONE 2026-09-21, by hand in a Claude Code session rather than as a ralphex task**, because it decides whether
+> the plan runs at all and it reads another repo. Every gate passes; nothing was changed but this plan.
+>
+> **api follow-up 5 is merged** — `referrals-api-5` as PR **#35**, `origin/master` at
+> `7226fc92c05421434e79520eec00b9b6e1e45cf5`, its plan moved to `completed/`, the clone clean and idle.
+>
+> **The contract is unchanged, and that is measured rather than taken from api's commit message.** api's own
+> `2dd416e` claims "the contract unchanged"; regenerating the document per `SPEC-PROVENANCE.md` and comparing it
+> to `libs/deed-poll-api-client/openapi.json` shows **the whole document is byte-identical** — 38 operations and
+> 37 schemas both sides, nothing added, removed or altered in any property, and no parameter description moved.
+> **So `openapi.json` needs no refresh, and this plan carries none of the atomic-refresh risk notify-2 did.**
+>
+> **The note surfaces are as the plan assumed:**
+>
+> - `record.notes` is what the case detail response carries, unfiltered;
+> - the judicial projection is `server.ts:2057` — `caseNotes: record.notes.map(…)`, the **same** notes, with no
+>   filter by origin, author or anything else, so a generated note is visible to a judge by construction;
+> - follow-up 4's transitions are both already in the mock — `withdrawal` at `server.ts:671` and `closure` at
+>   `server.ts:679`;
+> - **neither read sorts**, which confirms decision 2's premise: the mock passes insertion order straight through
+>   where api's repository returns newest first. That is the difference Task 1 exists to close.
+>
+> **The six events and where their prose actually lives.** api composes each in
+> `ReferralNotes.java` at the pinned commit above — `raised`, `claimed`, `directionRecorded`,
+> `directionActioned`, `withdrawn`, `claimLapsed`, plus the shared `identifies()` fragment
+> (`"raised on {d MMMM yyyy}, reasons: {…}"`). **Read that file directly rather than a transcription of it.** This
+> task was asked to "copy its final event matrix and exact strings" into the plan and deliberately has not: the
+> mock is already a second copy of prose that lives in Java, and a third copy in a plan is one more place to rot
+> while looking authoritative. Decision 3 stands — the mock reproduces the strings exactly, with a comment
+> pointing at `ReferralNotes` — and the plan points at the source instead of restating it.
+>
+> **One thing api's own docblock settles that Task 1 must not "tidy".** `claimLapsed` **names the judge who held
+> the referral**, and that is deliberate and Steve's decision of 2026-09-18: the note reaches other judges
+> through `JudicialReferralDetail`, so the judge picking a lapsed referral out of the pool learns who had it and
+> can go and ask them. Do not drop the name to narrow judicial visibility.
+>
+> **Baselines recorded** — see "Validation Commands" above: 164 test files, 2,981 tests, `yarn lint` exit 0.
+>
+> **And the plan had no `## Validation Commands` section at all**, which is a defect in the plan rather than a
+> finding about the code; one has been added, with the two commands that must stay out of it.
 
 Confirm API follow-up 5 is merged, copy its final event matrix and exact strings, and verify:
 
@@ -86,9 +156,27 @@ Confirm API follow-up 5 is merged, copy its final event matrix and exact strings
 
 Record focused adapter/app/E2E baselines. Stop on contract drift.
 
-- [ ] API wording, mock transitions and existing note views reconciled; baselines recorded; no files changed
+- [x] API wording, mock transitions and existing note views reconciled; baselines recorded; no files changed
+
+      **Done 2026-09-21** — see the block above. One departure, stated rather than hidden: the exact strings are
+      **not** copied into this plan. `ReferralNotes.java` at api `7226fc9` is the authority and Task 1 reads it
+      directly; a copy here would be a third home for prose that already has two. Nothing changed but this file.
 
 ### Task 1: Add mock lifecycle-note side effects
+
+**Read the prose from api's own source, at the commit Task 0 pinned.** Do not transcribe it from this plan or
+from api's plan document — neither is the authority:
+
+```bash
+cd ../../../deed-poll-api && git show 7226fc92c05421434e79520eec00b9b6e1e45cf5:src/main/java/uk/gov/hmcts/reform/deedpoll/domain/referrals/ReferralNotes.java
+```
+
+**`git show <sha>:<path>`, not a checkout.** That reads out of the object database and touches neither that
+clone's working tree nor its `HEAD` — another agent works in it, and switching its branch under them is how a
+commit landed on the wrong branch on 17 September.
+
+Six events: `raised`, `claimed`, `directionRecorded`, `directionActioned`, `withdrawn`, `claimLapsed`, sharing an
+`identifies()` fragment. **Keep the judge's name in the lapse note** — Task 0 records why.
 
 Implement the note helper and call it from each successful mock referral transition the API records. Extend
 `server.test.ts` to prove:
@@ -136,7 +224,18 @@ yarn welsh:check
 yarn test:e2e
 ```
 
-Record final totals against Task 0 and verify the six Jenkins-owned package scripts remain.
+**Two of those four do not exit 0, and neither is this plan's fault — read "Validation Commands" before treating
+either as a failure.**
+
+- **`yarn welsh:check` exits 1 on `master`**: 446 strings, **421** still identical in `cy` (414 prose). Run it to
+  confirm this plan has not *added* to that count, and record the number you get beside 421. A zero exit is not
+  available and is not the goal.
+- **`yarn test:e2e` cannot start its own `webServer` from a worktree.** Start the mock and app by hand, without
+  `yarn dev:up`, and let `reuseExistingServer` find them on 3200 and 3000. If port 3200 is already held, it
+  belongs to another agent's worktree — **do not kill it**; wait, or report and stop.
+
+Record final totals against Task 0's **164 test files / 2,981 tests** and verify the six Jenkins-owned package
+scripts remain.
 
 - [ ] Documentation current; full app, lint, Welsh and E2E validation green; final totals recorded
 
