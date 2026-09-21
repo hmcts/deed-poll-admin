@@ -90,3 +90,7 @@ crash.*.log
 # slightly different name is untracked-but-not-ignored again, which is the one state `git add -A` commits
 # by accident.
 steve*.md
+# And the same argument for a note whose name does not start with "steve": the agent rules-of-engagement file
+# is per-engineer, not per-repo. `deed-poll-api` already names it `rules-of-engagement.local.md` for this
+# reason, so the suffix is the convention worth sharing across the four repos.
+*.local.md
