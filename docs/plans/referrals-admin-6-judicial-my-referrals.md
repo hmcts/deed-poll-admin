@@ -150,8 +150,6 @@ Do not add claim-refusal messaging to this page: a beaten claim remains the shar
 5. **Pages** — add `mine.ts`/`mine.njk`, shared judicial-list navigation, and state-derived detail back link.
 6. **Tests** — contract, client, mock, domain, route/template/app and E2E.
 
-## Tasks
-
 ## Validation Commands
 
 **Added 2026-09-21, before the plan was run — it had none, exactly as `referrals-admin-5` had none.** `ralphex`
@@ -181,6 +179,8 @@ npx turbo test test:app --concurrency=1
 
 **A bare `yarn test` is not a substitute.** It reports failure with `0 successful, 8 total` and "no tests" while
 running nothing at all, which reads as a red suite and is not one. The `--concurrency=1` form is what runs.
+
+## Tasks
 
 ### Task 0: Reconcile the published API contract
 
@@ -319,6 +319,13 @@ Do not change existing pool semantics or sort/filter in the domain/view layer.
 > invisible while ownership was the display name only because nothing listed it.
 
 ### Task 2: Add the My referrals page and navigation
+
+> **Found by Task 1, and it will otherwise read as a broken page.** `scripts/seed-local-cases.mjs` claims and
+> directs as `seed.judge@example.com`, so after `yarn mock:seed` every seeded `Claimed`/`Decided` referral belongs
+> to **that** subject. The persona judge's **My referrals** is therefore legitimately **empty** until they claim
+> something themselves — which is the empty state working, not a failed read. Claim one from the pool first when
+> checking this by hand, and do not "fix" the seeder to assign work to the persona judge: two judges owning
+> separate work is the property Task 1's subject-keying exists to provide.
 
 Create the role-gated static page and template. Render:
 
