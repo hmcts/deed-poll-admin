@@ -115,7 +115,9 @@ const unavailableEn = {
   title: "This referral is no longer available",
   heading: "This referral is no longer available",
   body: "This referral is no longer in the shared list. Choose another referral from the list.",
-  backToPool: "Back to referrals"
+  // The pool, and named as the shared navigation names it — a refused read published no state to derive My
+  // referrals from, and it is a list this referral has left as well.
+  backToPool: "Back to referrals for a direction"
 };
 
 const unavailableCy = { ...unavailableEn };

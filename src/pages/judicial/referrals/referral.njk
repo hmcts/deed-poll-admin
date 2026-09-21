@@ -140,8 +140,13 @@
       {{ govukButton({ text: direct, href: directionHref }) }}
     {% endif %}
 
+    {#
+      Back to whichever list this referral is on — the shared pool while it is `Open`, My referrals once this judge
+      holds it or has directed it. Both the destination and the words come resolved from the state api sent, so
+      there is no ternary here and no `returnTo` in the URL to trust: see the handler's docblock.
+    #}
     <p class="govuk-body">
-      <a class="govuk-link" href="{{ poolPath }}">{{ backToPool }}</a>
+      <a class="govuk-link" href="{{ backHref }}">{{ backLabel }}</a>
     </p>
   </div>
 </div>

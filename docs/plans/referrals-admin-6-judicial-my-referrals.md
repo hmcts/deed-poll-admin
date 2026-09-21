@@ -386,7 +386,40 @@ Derive the detail page's return link from the API state:
 Update view/handler/template tests and the claim/direction flows so a judge can claim, leave, return through
 My referrals, direct, and return again without browser history. Do not add or accept `returnTo`.
 
-- [ ] Claimed/decided detail returns to My referrals; open/unavailable detail returns to the pool; tests green
+- [x] Claimed/decided detail returns to My referrals; open/unavailable detail returns to the pool; tests green
+
+> **DONE 2026-09-21.** `yarn lint` exits 0 and `npx turbo test test:app --concurrency=1` is `8 successful, 8
+> total` across **166 test files, 3,086 tests** — Task 2's 166/3,073 plus **13**, and no new test file.
+> `yarn welsh:check` is `466 strings, 441 still identical`, one more than Task 2's 465/440: the single new key is
+> `backToMine`, and the two reworded `backToPool` values are not new strings.
+>
+> **The state that decides the destination is one predicate, shared with the list's own membership rule.**
+> `buildJudicialReferral` now publishes `isOnMyList`, and `isMyListState` in `libs/deed-poll/src/judicial/view.ts`
+> is what both it and `myReferralStatus` ask — so the states api's personal list admits and the states whose detail
+> page links back to it cannot drift apart. Two copies of `state === "Claimed" || state === "Decided"` is exactly
+> how a judge ends up returned to a list their referral is not on, which is the bug this plan exists to fix
+> arriving from the other direction.
+>
+> **The claim and direction flows needed no change, which is the point of deriving it from the state.** Both
+> already redirect to the referral, and the referral re-reads it — so the link is resolved from the state api
+> published a moment ago rather than from anything a handler assumed or a URL carried. There is no `returnTo` to
+> add and none accepted: `[referralId].test.ts` posts `?returnTo=https://evil.example/` and `?return=…` at the page
+> and asserts the pool still wins, so the open redirect decision 5 forbids fails a test rather than being an
+> absence nothing pins.
+>
+> **The copy moved on three pages, not one, because a destination must have one name.** The pool link now reads
+> "Back to referrals for a direction" on the referral view *and* on both renderings of the "no longer available"
+> page (`[referralId].ts` and `[referralId]/direction.ts`), matching the shared navigation's own label for that
+> list; My referrals reads "Back to My referrals", matching its. A refused read publishes no state, so those two
+> pages keep the pool unconditionally — a guess at My referrals would be a link to a list the referral has left as
+> well.
+>
+> **Two things Task 4 should know.** The one existing assertion on the old wording —
+> `e2e-tests/tests/judicial.spec.ts`'s click on the unavailable page's link — is updated here, but **no E2E has
+> been run**: this task's gate is lint and the unit suites, and Playwright's `name` matches the whole accessible
+> name, so that line would have failed on the new copy. And the administrator-refusal test's list of judicial URLs
+> does not include `${POOL_PATH}/mine`, so the gate's coverage of the page Task 2 added is currently pinned only by
+> `src/app.test.ts`'s filesystem sweep.
 
 ### Task 4: Prove the complete cross-persona lifecycle
 

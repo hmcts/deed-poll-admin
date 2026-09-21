@@ -251,6 +251,28 @@ describe("judicial/view", () => {
       expect(view).toMatchObject({ state: "Not recorded", claimable: false, directable: false, stateTagClasses: "govuk-tag--grey" });
     });
 
+    // Decision 5: which list the referral is on, which is the way back to it. Keyed on the state api published
+    // rather than on where the judge came from, because claiming moves it from one list to the other.
+    it("should place an Open referral on the shared pool and not on the judge's own list", () => {
+      const view = buildJudicialReferral(detail({ state: "Open" }));
+
+      expect(view.isOnMyList).toBe(false);
+    });
+
+    it.each([["Claimed"], ["Decided"]] as const)("should place a %s referral on the judge's own list", (state) => {
+      const view = buildJudicialReferral(detail({ state }));
+
+      expect(view.isOnMyList).toBe(true);
+    });
+
+    // The same two states `buildMyReferralRows` words, from one predicate: a referral whose detail page links to a
+    // list that would not have it is the failure this plan exists to fix, arriving from the other direction.
+    it.each([["Withdrawn"], ["Closed"], [null]] as const)("should place a %s referral on neither judge's list", (state) => {
+      const view = buildJudicialReferral(detail({ state }));
+
+      expect(view.isOnMyList).toBe(false);
+    });
+
     it("should tag the state so the lifecycle is scannable, with the word printed alongside", () => {
       const view = buildJudicialReferral(detail({ state: "Claimed" }));
 

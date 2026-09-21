@@ -140,7 +140,7 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("This referral is no longer available");
   await expect(page.locator("body")).not.toContainText(OTHER_JUDGE);
   await expectNoAccessibilityViolations(page);
-  await page.getByRole("link", { name: "Back to referrals" }).click();
+  await page.getByRole("link", { name: "Back to referrals for a direction" }).click();
   await expect(page).toHaveURL(POOL_PATH);
 
   // On to one nobody has taken.

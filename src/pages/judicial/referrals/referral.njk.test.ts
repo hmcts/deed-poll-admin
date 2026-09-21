@@ -210,10 +210,23 @@ describe("judicial referral template", () => {
     expect(html).toContain("There are no notes on this application");
   });
 
-  it("should offer the way back to the pool", async () => {
-    const html = await render(detail());
+  it("should offer the way back to the pool from a referral still in it", async () => {
+    const html = await render(detail({ state: "Open" }));
 
-    expect(html).toContain('href="/judicial/referrals"');
+    expect(html).toContain('<a class="govuk-link" href="/judicial/referrals">Back to referrals for a direction</a>');
+  });
+
+  // Decision 5, and the whole of the business finding: the pool is `Open` only, so this link on a claimed referral
+  // used to send a judge to the one judicial list it is not on. Asserted as the rendered anchor because the two
+  // halves have to move together — the right destination under the pool's name would be as wrong to read.
+  it.each([
+    ["Claimed", { state: "Claimed", claimedAt: new Date("2026-09-04T10:00:00Z") }],
+    ["Decided", { state: "Decided", decision: "Approved", decisionDate: new Date("2026-09-05T16:05:00Z") }]
+  ] as const)("should offer the way back to My referrals from a %s referral", async (_state, overrides) => {
+    const html = await render(detail(overrides));
+
+    expect(html).toContain('<a class="govuk-link" href="/judicial/referrals/mine">Back to My referrals</a>');
+    expect(html).not.toContain('href="/judicial/referrals"');
   });
 
   // A recorded direction is not a correction to anything on the page, which is what distinguishes the banner from
