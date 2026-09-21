@@ -584,8 +584,46 @@ Add one complete Playwright journey:
 Include accessibility scans and Welsh checks at the meaningful pages within that journey. Keep the existing
 withdraw-before-direction journey as separate coverage of a different outcome.
 
-- [ ] Complete returned-direction/actioned journey passes against the real mock transitions; count and
+- [x] Complete returned-direction/actioned journey passes against the real mock transitions; count and
       worklist update from API state; accessibility and Welsh checks pass
+
+#### What Task 5 settled, which Task 6 builds on
+
+- **One journey, `e2e-tests/tests/deed-polls.spec.ts`'s "caseworker actions a returned direction, and the
+  returned-direction count falls by one".** It raises through the form, claims and directs through api's judicial
+  routes with a judge's token (`claimAndDirect`), finds the case from the dashboard banner and its worklist row,
+  reads the direction, is offered no withdrawal, cancels once, confirms, and comes back to a `Closed` referral, a
+  preserved direction and a case that may be referred again. The withdraw-before-direction journey is untouched
+  beside it, as the plan asks.
+- **The end-to-end proof of decision 4 is one pair of rows after the closure**: `Decided by` still names the judge
+  while `Last updated` names the caseworker who actioned it. Reading the direction's author off `modifiedBy` — the
+  mistake the view model's docblock warns about — swaps exactly those two, and nothing below a browser can show it.
+- **"Falls by exactly one" is asserted on a query narrowed to the run's own surname**, not on an arithmetic
+  baseline: `returnedForActionTotal(request, surname)` goes 1 → 0 across the closure. The global number is compared
+  against api's total *at the same moment* instead (`expectReturnedForActionCountMatchesApi`), which is the claim
+  decision 7 actually makes — the banner is that query, and nothing decrements a local count.
+- **The existing returned-for-action test had to stop asserting a sum, and that is a fix rather than a
+  concession.** It read a baseline and asserted baseline + 2, which was only safe while nothing else in the suite
+  produced a `Decided` referral — `judicial.spec.ts` already records a direction, and this task's journey drives
+  one to `Decided` and back, both in parallel workers. Its rows still pin that the seeded cases are in the
+  worklist; its numbers are now compared with api. `seedReturnedForActionCases` no longer returns a `total`.
+- **Two locator traps, both worth knowing before writing the next journey.** `govukButton` given an `href` renders
+  `<a role="button">`, so `getByRole("link", { name: "Mark direction as actioned" })` matches nothing and the
+  withdraw journey's absence assertion had been passing for the wrong reason — fixed to `button`. And
+  `summaryRow` here anchors on the **whole** key where `judicial.spec.ts` can match a substring: the referral page
+  carries both "Decision" and "Decision date", so a substring match resolves two rows and fails on strict mode
+  instead of on the value.
+- **The confirmation page's submit shares its words with the link that opens it**, so the journey asserts the URL
+  between the two clicks: without that, a click landing before the navigation presses the link again and the test
+  sits on a page it believes it has submitted.
+- **The Welsh check runs while the referral is still `Decided`**, in its own context and session
+  (`expectReferralWelshKeysResolve`) — the confirmation page does not exist in any other state and the referral page
+  carries no direction in any other state, so afterwards there is nothing left to check.
+- Validation after Task 5: **2,727 unit tests** across 8 packages (unchanged — this task touches only
+  `e2e-tests/`), `yarn lint` exit 0 with the same 2 warnings and 2 infos, **36 e2e passed** in 3.7m against the
+  35-test baseline, no flakes. The three worktree preconditions held: the libraries were already built, the IDAM
+  personas were still seeded in the running container, and nothing else held ports 3000/3200 or the compose
+  container names.
 
 ### Task 6: Documentation and full validation
 
