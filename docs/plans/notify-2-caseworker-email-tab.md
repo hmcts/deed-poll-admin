@@ -646,16 +646,51 @@ Read first: `libs/deed-poll/src/api/deed-poll-api.ts` (`callApi`, `Caller`), and
 such as `libs/deed-poll/src/notes/` for the shape to copy.
 
 - `libs/deed-poll/src/emails/` — service functions over the adapter, taking `Caller`.
-- A view model for the tab's history table and one for the radio list, derived rather than hand-built, so the
-  Nunjucks stays free of logic as `detail.njk`'s existing branches are.
+- A view model for the tab's history table and one for the ~~radio list~~ **compose form**, derived rather than
+  hand-built, so the Nunjucks stays free of logic as `detail.njk`'s existing branches are. Struck by Task 3,
+  2026-09-21: Task 0 removed the picker, so the second view model is the form's fields rather than a radio list.
+  The *list* survives as `EmailsView.sendable` — see the note under the checkbox.
 - Slot validation mirroring api's rules (decision 7), returning field-addressed errors a GOV.UK error summary
   can render.
 - Tests: an unreachable api becomes a rendered state rather than a throw; validation names every offending
-  slot at once rather than the first; a case with no sendable template yields an empty radio list rather than
-  an error.
+  slot at once rather than the first; a case with no sendable template yields an empty ~~radio list~~ **send
+  list with api's reason beside it** rather than an error.
 
-- [ ] Service functions take only a `Caller`, an unreachable api degrades rather than throws, slot validation
+- [x] Service functions take only a `Caller`, an unreachable api degrades rather than throws, slot validation
       names every offending field at once, view models are derived, and the validation commands green
+
+      **Done 2026-09-21.** `emails/service.ts` (`findCaseEmails`, `previewCaseEmail`, `sendCaseEmail`),
+      `emails/emails-view.ts` (`buildEmailsView`, `unavailableEmailsView`, `buildComposeView`) and
+      `emails/slot-validation.ts` (`validateEmailSlots`), all three exported from the package index. Test count
+      **2,712** against Task 2's 2,652: +60, all in `@hmcts/deed-poll` (901 → 961, 52 → 55 files).
+
+      **Slot validation is a rule matrix read off api's metadata, not a zod schema in `schemas.ts`.** Every other
+      form in this repo knows its fields at authoring time; an email's fields are `EmailSlotResponse` rows — a
+      name, a cap and a `required` flag — published per template, and `template` is a bare string with no member
+      list. A hand-written schema would refuse or ignore a template api adds later, so `validateEmailSlots` takes
+      the slots and the raw body and returns `{ ok: true, slots } | { ok: false, errors }` with the same
+      `FieldError[]` a zod rejection produces. Same shape as `deed-poll-validation.ts`; pinned by a test that
+      validates a slot this repo has never seen (`days_outstanding`) from the metadata alone. The returned
+      `Record<string, string>` is assignable to `EmailSlotsWrite`, so nothing between it and the wire casts.
+
+      **Two decisions Task 4 and Task 5 inherit rather than re-take.**
+
+      1. **`sendable` is `applicable` AND `provisioned`, and the tab explains the difference in a sentence.**
+         api's two flags are separate questions and `provisioned` is false everywhere until notify-0 runs. A
+         button offered without it leads to a preview that answers api's 502 — an `unavailable`, so the **500
+         page** — for a reason the tab already held. So `buildComposeView` returns `null` for all three of
+         unknown, not-applicable and not-provisioned, and the page 404s on all three without distinguishing
+         them; `EmailsView.unsendable` carries api's own `reason` prose where it gave one and this repo's
+         provisioning sentence where it did not. Every template api published lands in exactly one of the two
+         lists, asserted, because one in neither is a missing button a caseworker cannot tell from a bug.
+      2. **The state column's words are `Waiting to send` / `Accepted by Notify` / `Failed`.** Decision 10 as a
+         label map with a test asserting no value matches `/delivered|viewed|opened|downloaded|received|read/i`
+         — "Sent" on its own was the trap, because it is the word a caseworker reads as receipt. Task 4's
+         rendered-page assertion is the second half of this, not a duplicate of it.
+
+      The compose view keeps the caseworker's own text **untrimmed** over api's default after a failed attempt,
+      and api's `snake_case` placeholder names are the control names — both pinned, because the second is the
+      mistake no other test catches.
 
 ### Task 4: The Email tab
 
@@ -770,7 +805,11 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
   [`.business_context/NOTIFY_PROVISIONING_REQUEST.md`](../../.business_context/NOTIFY_PROVISIONING_REQUEST.md).
 - **The other templates.** The tab is built to list what api says is sendable, so a template added in
   notify-3, notify-4 or notify-6 should appear with no change here. **That is the design intent and Task 4's test should
-  prove it** — a fixture with two sendable templates must render two radios without a code change.
+  prove it** — a fixture with two sendable templates must render two ~~radios~~ **buttons, one per template**,
+  without a code change. Struck by Task 3, 2026-09-21: there are no radios, because Task 0 removed the picker.
+  `EmailsView.sendable` is already a list and `emails-view.test.ts` pins that a second applicable template reaches
+  it, so Task 4's half is the rendering only. More than one sendable template is the trigger to build the picker
+  decision 2 deferred.
 - **Chase-specific UI.** notify-6 adds `chase-missing-documents`, but this plan renders it from the same
   availability, slots and defaults metadata as every other template. The only shared addition is decision 16's
   idempotency **form token**, which is admin-local — ~~header~~, struck by Task 1 for the reason decision 16 gives.

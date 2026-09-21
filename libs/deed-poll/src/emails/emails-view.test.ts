@@ -1,0 +1,322 @@
+import { type CaseEmails, NOTIFY_STATE } from "@hmcts/deed-poll-api-client";
+import { describe, expect, it } from "vitest";
+import { buildComposeView, buildEmailsView, emailTemplateLabel, NOTIFY_STATE_LABEL, NOTIFY_STATE_TAG, unavailableEmailsView } from "./emails-view.js";
+
+const TEMPLATE = "application-rejected";
+
+const SLOTS = [
+  { name: "judges_reason", required: true, maxLength: 4000 },
+  { name: "additional_notes", required: false, maxLength: 1000 }
+];
+
+const SENT = {
+  id: "email-1",
+  template: TEMPLATE,
+  templateName: "Application refused",
+  subject: "Your application has been refused",
+  body: "Dear applicant,\n\nThe Master has refused your application.",
+  recipient: "applicant@example.com",
+  notifyState: "Sent" as const,
+  failureReason: null,
+  createdBy: "caseworker@example.com",
+  createdOn: new Date("2026-03-18T11:05:00Z"),
+  documents: []
+};
+
+const FAILED = {
+  ...SENT,
+  id: "email-2",
+  subject: null,
+  body: null,
+  notifyState: "Failed" as const,
+  failureReason: "GOV.UK Notify rejected the recipient address (PERMANENT, status 400)",
+  createdOn: new Date("2026-02-27T14:20:00Z")
+};
+
+const emails = (overrides: Partial<CaseEmails> = {}): CaseEmails => ({
+  availability: [{ template: TEMPLATE, applicable: true, reason: null, provisioned: true, slots: SLOTS }],
+  history: [],
+  slotDefaults: [{ template: TEMPLATE, fields: { judges_reason: "The evidence does not establish identity." } }],
+  ...overrides
+});
+
+describe("emails/emails-view", () => {
+  describe("the state labels", () => {
+    it("should label and colour every state api publishes, so no member renders blank", () => {
+      for (const state of NOTIFY_STATE) {
+        expect(NOTIFY_STATE_LABEL[state]).toBeTruthy();
+        expect(NOTIFY_STATE_TAG[state]).toBeTruthy();
+      }
+    });
+
+    it("should never imply the applicant received, opened or downloaded anything", () => {
+      // Decision 10, and it is a test rather than a preference: api knows only that Notify accepted the send,
+      // and a caseworker who read "Delivered" here would conclude an applicant has their deed poll when the
+      // email may have bounced. The tab's own test asserts the same of the rendered page.
+      for (const label of Object.values(NOTIFY_STATE_LABEL)) {
+        expect(label).not.toMatch(/delivered|viewed|opened|downloaded|received|read/i);
+      }
+    });
+  });
+
+  describe("buildEmailsView", () => {
+    it("should render one row per email in api's order, every cell a display string", () => {
+      const view = buildEmailsView(emails({ history: [SENT, FAILED] }));
+
+      expect(view.count).toBe(2);
+      expect(view.unavailable).toBe(false);
+      expect(view.rows).toEqual([
+        {
+          id: "email-1",
+          template: "Application refused",
+          state: "Accepted by Notify",
+          stateTagClasses: "govuk-tag--green",
+          sentOn: "18 March 2026 at 11:05am",
+          sentBy: "caseworker@example.com"
+        },
+        {
+          id: "email-2",
+          template: "Application refused",
+          state: "Failed",
+          stateTagClasses: "govuk-tag--red",
+          sentOn: "27 February 2026 at 2:20pm",
+          sentBy: "caseworker@example.com"
+        }
+      ]);
+    });
+
+    it("should carry no email content on a row, because a body belongs on a page of its own", () => {
+      const view = buildEmailsView(emails({ history: [SENT] }));
+
+      expect(view.rows[0]).not.toHaveProperty("body");
+      expect(view.rows[0]).not.toHaveProperty("subject");
+    });
+
+    it("should fall back to the local wording for a row api sent no templateName for", () => {
+      const view = buildEmailsView(emails({ history: [{ ...SENT, templateName: null }] }));
+
+      expect(view.rows[0]?.template).toBe("Application refused");
+    });
+
+    it("should humanise a template key this repo has no wording for, rather than dropping the row's label", () => {
+      // `template` is a bare string with no member list, so a template notify-6 adds arrives with nothing failing.
+      const view = buildEmailsView(emails({ history: [{ ...SENT, templateName: null, template: "chase-missing-documents" }] }));
+
+      expect(view.rows[0]?.template).toBe("Chase missing documents");
+    });
+
+    it("should say the state was not recorded rather than inventing one of three that mean different things", () => {
+      const view = buildEmailsView(emails({ history: [{ ...SENT, notifyState: null }] }));
+
+      expect(view.rows[0]?.state).toBe("Not recorded");
+      expect(view.rows[0]?.stateTagClasses).toBe("govuk-tag--grey");
+    });
+
+    it("should offer the template api says is applicable and provisioned", () => {
+      const view = buildEmailsView(emails());
+
+      expect(view.sendable).toEqual([{ template: TEMPLATE, name: "Application refused" }]);
+      expect(view.unsendable).toEqual([]);
+    });
+
+    it("should offer every applicable template, so one added at api's end needs no change here", () => {
+      // The design intent of decision 2: the template is a route parameter and the tab renders what api says is
+      // sendable, so a second applicable template appears with no code change — and is the trigger to build the
+      // picker that a list of one did not justify.
+      const view = buildEmailsView(
+        emails({
+          availability: [
+            { template: TEMPLATE, applicable: true, reason: null, provisioned: true, slots: SLOTS },
+            { template: "chase-missing-documents", applicable: true, reason: null, provisioned: true, slots: SLOTS }
+          ]
+        })
+      );
+
+      expect(view.sendable).toEqual([
+        { template: TEMPLATE, name: "Application refused" },
+        { template: "chase-missing-documents", name: "Chase missing documents" }
+      ]);
+    });
+
+    it("should withhold a template api says does not apply, carrying api's own sentence as the reason", () => {
+      const reason = "This case has no referral that a Master has refused, so there is no refusal to tell the applicant about";
+      const view = buildEmailsView(emails({ availability: [{ template: TEMPLATE, applicable: false, reason, provisioned: true, slots: SLOTS }] }));
+
+      expect(view.sendable).toEqual([]);
+      expect(view.unsendable).toEqual([{ template: TEMPLATE, name: "Application refused", reason }]);
+    });
+
+    it("should withhold an applicable template this environment has not provisioned, and say so", () => {
+      // Offering the button without `provisioned` sends the caseworker to a preview that answers api's 502 — an
+      // `unavailable` and therefore the 500 page — for a reason the tab already knew.
+      const view = buildEmailsView(emails({ availability: [{ template: TEMPLATE, applicable: true, reason: null, provisioned: false, slots: SLOTS }] }));
+
+      expect(view.sendable).toEqual([]);
+      expect(view.unsendable[0]?.reason).toBe("This email cannot be sent in this environment yet, because its template has not been set up in GOV.UK Notify");
+    });
+
+    it("should still explain a template api refused with no reason, rather than leaving the cell empty", () => {
+      const view = buildEmailsView(emails({ availability: [{ template: TEMPLATE, applicable: false, reason: null, provisioned: true, slots: SLOTS }] }));
+
+      expect(view.unsendable[0]?.reason).toBe("This email cannot be sent for this case at the moment");
+    });
+
+    it("should account for every template api published in one list or the other", () => {
+      // A template in neither is one the tab neither offers nor explains, which a caseworker cannot tell from a bug.
+      const payload = emails({
+        availability: [
+          { template: TEMPLATE, applicable: true, reason: null, provisioned: true, slots: SLOTS },
+          { template: "chase-missing-documents", applicable: false, reason: "Nothing is outstanding", provisioned: true, slots: [] }
+        ]
+      });
+
+      const view = buildEmailsView(payload);
+
+      expect(view.sendable.length + view.unsendable.length).toBe(payload.availability.length);
+    });
+
+    it("should render an empty history as an empty table rather than as a failure", () => {
+      const view = buildEmailsView(emails());
+
+      expect(view.rows).toEqual([]);
+      expect(view.count).toBe(0);
+      expect(view.unavailable).toBe(false);
+    });
+  });
+
+  describe("unavailableEmailsView", () => {
+    it("should be distinguishable from a case that has never been written to", () => {
+      // The two say opposite things: "nothing has been sent" is a fact, "we could not find out" is the absence
+      // of one — and the second rendered as the first misinforms a caseworker on a page that looks normal.
+      const unavailable = unavailableEmailsView();
+
+      expect(unavailable.unavailable).toBe(true);
+      expect(buildEmailsView(emails()).unavailable).toBe(false);
+    });
+
+    it("should offer nothing, because the compose page reads the endpoint that just failed", () => {
+      expect(unavailableEmailsView()).toEqual({ rows: [], count: 0, unavailable: true, sendable: [], unsendable: [] });
+    });
+  });
+
+  describe("buildComposeView", () => {
+    it("should build one control per slot in api's order, pre-populated from api's defaults", () => {
+      const view = buildComposeView(emails(), TEMPLATE);
+
+      expect(view).toEqual({
+        template: TEMPLATE,
+        name: "Application refused",
+        fields: [
+          {
+            name: "judges_reason",
+            label: "The Master's reason for refusing the application",
+            maxLength: 4000,
+            required: true,
+            value: "The evidence does not establish identity."
+          },
+          { name: "additional_notes", label: "Additional notes for the applicant", maxLength: 1000, required: false, value: "" }
+        ]
+      });
+    });
+
+    it("should keep api's snake_case placeholder names as the control names", () => {
+      // The control's name is the body's key and the field api's own 400 addresses its errors to, so a
+      // camelCase version here breaks the personalisation, the round trip and the error summary at once.
+      const view = buildComposeView(emails(), TEMPLATE);
+
+      expect(view?.fields.map((field) => field.name)).toEqual(["judges_reason", "additional_notes"]);
+    });
+
+    it("should give a caseworker their own text back after a failed attempt, unaltered", () => {
+      // Somebody just told to shorten their text must get their words back to shorten, not the pre-populated
+      // ones they replaced — and untrimmed, so the cursor lands where they left it.
+      const view = buildComposeView(emails(), TEMPLATE, { judges_reason: "  My own words  " });
+
+      expect(view?.fields[0]?.value).toBe("  My own words  ");
+    });
+
+    it("should fall back to api's default for a slot the caseworker's attempt did not carry", () => {
+      const view = buildComposeView(emails(), TEMPLATE, { additional_notes: "Ring us" });
+
+      expect(view?.fields[0]?.value).toBe("The evidence does not establish identity.");
+      expect(view?.fields[1]?.value).toBe("Ring us");
+    });
+
+    it("should render an empty control for a slot api resolved no default for", () => {
+      const view = buildComposeView(emails({ slotDefaults: [] }), TEMPLATE);
+
+      expect(view?.fields.map((field) => field.value)).toEqual(["", ""]);
+    });
+
+    it("should ignore a submitted value that is not text, so a tampered post renders rather than crashing", () => {
+      const view = buildComposeView(emails(), TEMPLATE, { judges_reason: ["one", "two"] });
+
+      expect(view?.fields[0]?.value).toBe("The evidence does not establish identity.");
+    });
+
+    it("should be null for a template api does not publish, so the page answers 404", () => {
+      expect(buildComposeView(emails(), "made-up")).toBeNull();
+    });
+
+    it("should be null for a template api says does not apply to this case", () => {
+      const payload = emails({ availability: [{ template: TEMPLATE, applicable: false, reason: "No refusal", provisioned: true, slots: SLOTS }] });
+
+      expect(buildComposeView(payload, TEMPLATE)).toBeNull();
+    });
+
+    it("should be null for an applicable template this environment has not provisioned", () => {
+      const payload = emails({ availability: [{ template: TEMPLATE, applicable: true, reason: null, provisioned: false, slots: SLOTS }] });
+
+      expect(buildComposeView(payload, TEMPLATE)).toBeNull();
+    });
+
+    it("should drop a slot api published with no name, because there is nothing to send it under", () => {
+      const payload = emails({
+        availability: [
+          { template: TEMPLATE, applicable: true, reason: null, provisioned: true, slots: [{ name: null, required: false, maxLength: 10 }, ...SLOTS] }
+        ]
+      });
+
+      expect(buildComposeView(payload, TEMPLATE)?.fields.map((field) => field.name)).toEqual(["judges_reason", "additional_notes"]);
+    });
+
+    it("should label a slot this repo has never seen from its placeholder name", () => {
+      const payload = emails({
+        availability: [
+          {
+            template: "chase-missing-documents",
+            applicable: true,
+            reason: null,
+            provisioned: true,
+            slots: [{ name: "days_outstanding", required: true, maxLength: 3 }]
+          }
+        ]
+      });
+
+      expect(buildComposeView(payload, "chase-missing-documents")).toEqual({
+        template: "chase-missing-documents",
+        name: "Chase missing documents",
+        fields: [{ name: "days_outstanding", label: "Days outstanding", maxLength: 3, required: true, value: "" }]
+      });
+    });
+  });
+
+  describe("emailTemplateLabel", () => {
+    it("should give the business's wording for the template api ships", () => {
+      expect(emailTemplateLabel(TEMPLATE)).toBe("Application refused");
+    });
+
+    it("should humanise an unrecognised key rather than hiding the row behind a placeholder", () => {
+      expect(emailTemplateLabel("chase-missing-documents")).toBe("Chase missing documents");
+    });
+
+    it("should say the template was not recorded when api published none", () => {
+      expect(emailTemplateLabel(null)).toBe("Not recorded");
+      expect(emailTemplateLabel("")).toBe("Not recorded");
+    });
+
+    it("should not resolve an inherited member name to a function off Object.prototype", () => {
+      expect(emailTemplateLabel("constructor")).toBe("Constructor");
+    });
+  });
+});
