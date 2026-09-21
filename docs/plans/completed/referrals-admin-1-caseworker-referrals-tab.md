@@ -9,8 +9,10 @@
 > fields kept read-only in the Referrals panel and its `/edit/referral` route redirecting on GET, 404 on
 > POST).
 >
-> `../referrals-admin-5-lifecycle-case-notes.md` keeps the in-memory API and end-to-end case Notes journey in
-> step with the API's expanded referral lifecycle notes.
+> `../referrals-admin-5-lifecycle-case-notes.md`, delivered 2026-09-21, brought the in-memory API and the
+> end-to-end case Notes journey into step with the API's referral lifecycle notes: raise, claim, direction,
+> actioned and withdrawal each append a case note, and the Notes tab on this plan's case page is where a
+> caseworker reads the referral's history. No page code was added for it.
 
 ## Overview
 

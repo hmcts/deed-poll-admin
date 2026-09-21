@@ -112,9 +112,15 @@ export function buildNoteDetail(note: Note): NoteRow {
  *
  * Ordered newest first: the source grid is sorted by Modified On descending (the ↓ on
  * that column in the screenshot), and on a case that accumulates notes over months the
- * latest is what a caseworker wants first. `findAll()` already applies this order in
- * the query; sorting here too keeps the model correct for any caller that does not —
- * including the detail page, whose `include` orders notes ascending for the other tabs.
+ * latest is what a caseworker wants first.
+ *
+ * **This sort is load-bearing, because api's two note surfaces disagree on order.**
+ * `GET /caseworker/cases/{id}/notes` answers newest first, while the `notes` carried on
+ * `GET /caseworker/cases/{id}` are api's `@OrderBy("createdOn ASC")` collection — oldest
+ * first. Both reach this function, so it orders what it is given rather than trusting
+ * either; that is also why a referral's lifecycle notes (raised, claimed, directed,
+ * actioned, withdrawn — api's `ReferralNotes`) appear at the top of the grid whichever
+ * read the page made.
  *
  * A note with no usable `modifiedOn` sorts last rather than being dropped or treated as
  * the epoch, the same rule the prototype's case timeline follows.

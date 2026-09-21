@@ -590,6 +590,14 @@ test("caseworker sees how many applications have a returned direction, and follo
  * session `judicial.spec.ts` shares.
  */
 test("caseworker actions a returned direction, and the returned-direction count falls by one", async ({ page, browser, request }) => {
+  // Three times the default timeout, for the reason `emails.spec.ts` gives: this is one journey rather than a slow
+  // one. Six axe scans, eleven steps, and two contexts of their own — the judge's read of the same timeline and
+  // the Welsh session, the second of which pays for an IDAM sign-in — run past the 30-second default, and it was
+  // reached inside the Welsh helper's `context.close()`, which reports as a closed browser and reads as a crash.
+  // Splitting the journey to fit would cost what the journey is for: that the referral's history is one thread
+  // from the raise to the closure.
+  test.slow();
+
   // Arrange: one case, seeded through the mock's control route because what a create does is the first test's
   // subject and not this one's. Its surname carries this run's identity, which is what makes the count
   // assertions below immune to every other spec's `Decided` referrals — see `returnedForActionTotal`.

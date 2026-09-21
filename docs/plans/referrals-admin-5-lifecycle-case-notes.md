@@ -328,7 +328,58 @@ either as a failure.**
 Record final totals against Task 0's **164 test files / 2,981 tests** and verify the six Jenkins-owned package
 scripts remain.
 
-- [ ] Documentation current; full app, lint, Welsh and E2E validation green; final totals recorded
+- [x] Documentation current; full app, lint, Welsh and E2E validation green; final totals recorded
+
+      **Done 2026-09-21.** Four documentation corrections, each a claim this plan made false rather than a
+      tidy-up:
+
+      - **`libs/deed-poll/src/judicial/view.ts`** said "a judge writes no notes". Half true and now misleading:
+        a judge still *authors* none, and a claim and a direction each append one credited to them, which
+        arrives in this very timeline. The docblock says both, and says the rows stay read-only with no amend
+        control — the reason the row is narrower than the caseworker's has not changed.
+      - **`libs/deed-poll/src/notes/notes-view.ts`** justified its sort with `findAll()` and an `include` that
+        orders ascending — Prisma vocabulary, from a data access layer deleted in `02-dal-cutover-to-api`. It
+        now says what is actually true and why the sort is load-bearing: api's two note surfaces disagree on
+        order (decision 2's table), both reach this function, so it orders what it is given — which is why a
+        lifecycle note is at the top of the grid whichever read the page made.
+      - **`completed/referrals-admin-3-judicial-screen.md`** decision 4 carried the same "a judge does not write
+        notes" as a decision. Amended in place rather than rewritten: the decision stands (read-only, no
+        add-note control, nothing added to what api sends) and the parenthetical no longer claims a judge's name
+        cannot appear.
+      - **`completed/referrals-admin-1`** and **`completed/referrals-admin-4`** carried this plan as future
+        work — admin-1 in its follow-up header, admin-4 as out-of-scope "recommendation 2". Both now record it
+        as delivered, and that it needed no page code.
+
+      **The mock's own comments needed nothing**: Task 1 added rule 12 to `server.ts`'s docblock and rewrote the
+      omission bullet, so the only remaining "this mock never writes" is `claimLapsed`, which is still true.
+
+      **One test change, and it is a real flake rather than a doc fix.** The completion journey timed out at the
+      30-second default on the first full E2E run — inside `expectNotesWelshKeysResolve`'s `context.close()`,
+      which reports as a closed browser and reads as a crash. The journey is six axe scans, eleven steps and two
+      contexts of its own now, one of them paying for an IDAM sign-in; it measured 26.5s on the next run, so the
+      default was inside the noise. `test.slow()` with the reasoning at the call site, exactly as
+      `emails.spec.ts` already does for the same cause. Splitting the journey was the alternative and would have
+      cost what the journey is for.
+
+      **Final validation, all four commands, on the full tree:**
+
+      | Command | Result |
+      |---|---|
+      | `npx turbo test test:app --concurrency=1` | exit 0 — `8 successful, 8 total`, **164 test files, 2,991 tests** |
+      | `yarn lint` | exit 0 — 382 files, 3 warnings and 2 infos, all pre-existing `turbo.json` env-var notices |
+      | `yarn welsh:check` | exit 1 — **446 strings, 421 identical in `cy` (414 prose)**, digit for digit the `master` baseline, so this plan added nothing to that debt |
+      | `yarn test:e2e` | exit 0 — **38 passed**, mock and app started by hand without `dev:up`, the main checkout's containers serving Redis and IDAM |
+
+      Against Task 0's **164 files / 2,981 tests**: same file count, **+10 tests**, all Task 1's mock lifecycle
+      tests — Tasks 2 and 3 added Playwright coverage and comments, neither of which the unit count sees. **The
+      six Jenkins-owned scripts are all present** in `package.json` (`lint`, `test`, `test:coverage`,
+      `test:a11y`, `test:smoke`, `test:functional`), pinned by `src/pipeline.test.ts` inside the run above.
+
+      One process note, recorded because it is the kind of thing that ends up committed on the wrong branch:
+      the first pass of these five edits landed in the **main checkout** rather than this worktree, by absolute
+      path. The main checkout had no other uncommitted work, so the diff was captured, reverted there with
+      `git checkout --`, and applied here — it is back to clean `master`, and the validation above was re-run
+      with every change present.
 
 ## Out of scope
 

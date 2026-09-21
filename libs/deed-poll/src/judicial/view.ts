@@ -141,8 +141,11 @@ function buildApplicationView(application: JudicialCaseView | null | undefined):
  * One note from the application's timeline, read-only.
  *
  * Narrower than the caseworker's note row and without its short code, because no judicial route takes a note
- * id: there is nothing to link to, and a judge writes no notes — api's judicial writes are exactly claim and
- * direct. An unattributed note still renders; the author placeholder says which of the two is missing.
+ * id: there is nothing to link to, and a judge authors no note directly — api's judicial writes are exactly
+ * claim and direct. **They do reach this timeline, though**: since api's lifecycle notes a claim and a
+ * direction each append a note credited to the judge who made it (`ReferralNotes`), so a judge's own name
+ * appears on rows here — read-only like every other row, and with no control to amend one.
+ * An unattributed note still renders; the author placeholder says which of the two is missing.
  */
 function buildNoteRow(note: JudicialCaseNote): JudicialNoteRow {
   return {
