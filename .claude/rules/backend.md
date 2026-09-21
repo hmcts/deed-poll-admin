@@ -62,6 +62,14 @@ export function updateNote(deedPollId: string, id: string, dto: UpdateNoteInput,
 - **The local rule matrices stay** — `deed-poll-validation.ts`, `case-state.ts`, `upload-policy.ts`. api
   enforces the same rules; a rule applied at both ends is pinned at both ends, and the conformance
   harness pins these against the Dataverse exports
+- **Case fields are two lists, and picking the wrong one fails silently.** `form-fields.ts` publishes
+  `CASE_FIELD_TABS` — every field the app knows how to format or query — and `FORM_TABS`, that list filtered
+  to the tabs a caseworker navigates and edits. `FIELD_BY_NAME` and `query-fields.ts` read the catalogue;
+  `EDITABLE_FIELDS`, `detail-view.ts` and `edit-view.ts` read the form. That split is what lets a **retired**
+  field (the legacy `referral` tab) still format with its own label and still resolve a saved query while
+  nothing can write to it. Deriving everything from one list is the trap: delete a tab and its fields quietly
+  leave formatting and query metadata too, with no failure anywhere. `form-fields.test.ts` pins each
+  derivation to the right list
 - **Option sets are built, never restated.** `deed-poll/enums/option-sets.ts` turns the client's exported
   member ARRAYS (`DEED_POLL_STATE`, `URGENCY`, …) into `{ Member: "Member" }` objects, so the rules can go on
   reading `DeedPollState.Returned` and a member added at api's end reaches the Dynamics label maps without an
