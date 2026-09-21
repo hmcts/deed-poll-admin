@@ -1,21 +1,23 @@
 /**
- * The case detail page's referrals panel, rendered rather than asserted through the view model.
+ * The case detail page's referrals and emails panels, rendered rather than asserted through their view models.
  *
- * The model is asserted in `[id].test.ts`, which is where the second call and the tab's empty state are
+ * The models are asserted in `[id].test.ts`, which is where the extra calls and the tabs' empty states are
  * pinned. What this file exists for is what a model cannot show: that the raise control is a button the panel
- * **withholds** while a referral is open rather than rendering disabled, that each row links to the referral
- * it is about, and that a migrated referral explains its empty reasons cell instead of showing a blank one.
+ * **withholds** while a referral is open rather than rendering disabled, that each row links to the record it
+ * is about, that a migrated referral explains its empty reasons cell instead of showing a blank one — and, for
+ * the emails panel, that nothing a caseworker reads there can be mistaken for proof the applicant received the
+ * email.
  *
  * Since `referrals-admin-4` it also covers the retired "Referral to Master" record, which the panel renders
  * read-only below the live history: whether a section appears at all is a rendering decision the view model can
  * only half express, and the two orderings — history above, history below — look identical in a model.
  *
- * Only the referrals tab is covered — the other three panels predate this file and are asserted through their
+ * Only those two tabs are covered — the other three panels predate this file and are asserted through their
  * view models. Rendering the whole template is how the panel is reached, not the subject.
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { findDeedPoll, findReferrals } from "@hmcts/deed-poll";
+import { findCaseEmails, findDeedPoll, findReferrals } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
@@ -28,6 +30,7 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => {
     ...actual,
     findDeedPoll: vi.fn(),
     findReferrals: vi.fn(),
+    findCaseEmails: vi.fn(),
     getCaseFieldRules: vi.fn(async (query: { type?: string | null; migrated?: boolean; publishToGazette?: boolean }) =>
       actual.getFieldRules(query.type as never, query.migrated, query.publishToGazette)
     )
@@ -78,12 +81,60 @@ const REFERRAL = {
   modifiedOn: new Date("2026-05-13T08:44:00Z")
 };
 
+/** api's slot metadata for the one shipped template — `snake_case` names, as published. */
+const SLOTS = [
+  { name: "judges_reason", required: true, maxLength: 4000 },
+  { name: "additional_notes", required: false, maxLength: 1000 }
+];
+
+/** The emails payload: one sendable template, nothing sent yet. */
+const CASE_EMAILS = {
+  availability: [{ template: "application-rejected", applicable: true, reason: null, provisioned: true, slots: SLOTS }],
+  history: [],
+  slotDefaults: [{ template: "application-rejected", fields: { judges_reason: "The evidence does not establish identity." } }]
+};
+
+const SENT_EMAIL = {
+  id: "email-1",
+  template: "application-rejected",
+  templateName: "Application refused",
+  subject: "Your application has been refused",
+  body: "Dear applicant,\n\nThe Master has refused your application.",
+  recipient: "applicant@example.com",
+  notifyState: "Sent" as const,
+  failureReason: null,
+  createdBy: "caseworker@example.com",
+  createdOn: new Date("2026-03-18T11:05:00Z"),
+  documents: []
+};
+
+const FAILED_EMAIL = {
+  ...SENT_EMAIL,
+  id: "email-2",
+  subject: null,
+  body: null,
+  notifyState: "Failed" as const,
+  failureReason: "GOV.UK Notify rejected the recipient address (PERMANENT, status 400)",
+  createdOn: new Date("2026-02-27T14:20:00Z")
+};
+
 /** Content pair first, the handler's own values over it — `renderInterceptorMiddleware`'s order. See `referral-detail.njk.test.ts`. */
 const html = (model: Record<string, unknown>): string => environment.render("deed-polls/detail.njk", { ...(model.en as object), ...model });
 
 async function page(referrals: Record<string, unknown>[], record: Record<string, unknown> = found): Promise<string> {
   vi.mocked(findDeedPoll).mockResolvedValue(record as never);
   vi.mocked(findReferrals).mockResolvedValue(referrals as never);
+  const res = pageResponse();
+
+  await GET(pageRequest({ params: { id: "case-1" }, accessToken: "session-token" }), res);
+
+  return html(res.render.mock.calls[0][1]);
+}
+
+/** The page with one emails payload, the referrals read succeeding so only the emails panel varies. */
+async function emailsPage(emails: Record<string, unknown>): Promise<string> {
+  vi.mocked(findReferrals).mockResolvedValue([]);
+  vi.mocked(findCaseEmails).mockResolvedValue(emails as never);
   const res = pageResponse();
 
   await GET(pageRequest({ params: { id: "case-1" }, accessToken: "session-token" }), res);
@@ -120,18 +171,50 @@ async function unavailablePage(record: Record<string, unknown> = found): Promise
 }
 
 /**
- * Just the referrals panel, for the assertions that a page-wide `toContain` would satisfy from another tab.
+ * The page with the emails read failing, degraded to a panel the same way.
  *
- * "None recorded." is every empty panel's copy, so asserting its *absence* has to be scoped or it is really
- * an assertion about notes, witnesses and documents. Referrals is the last of `FORM_TABS`, so this runs from
- * its panel to the end of the document: if a tab is ever added after it the window widens and the assertion
- * goes red rather than quietly green, which is the safe direction for a negative.
+ * The referrals read is left succeeding so the two degraded panels cannot be confused for each other in an
+ * assertion that is really about one of them.
  */
-function referralsPanel(rendered: string): string {
-  const start = rendered.indexOf('id="referrals"');
+async function unavailableEmailsPage(): Promise<string> {
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.mocked(findReferrals).mockResolvedValue([]);
+  vi.mocked(findCaseEmails).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): nope"));
+  const res = pageResponse();
+
+  await GET(pageRequest({ params: { id: "case-1" }, accessToken: "session-token" }), res);
+  logged.mockRestore();
+
+  return html(res.render.mock.calls[0][1]);
+}
+
+/**
+ * One tab's panel, for the assertions that a page-wide `toContain` would satisfy from another tab.
+ *
+ * "None recorded." is every empty panel's copy, so asserting its *absence* has to be scoped or it is really an
+ * assertion about notes, witnesses and documents — and the same goes for the words decision 10 forbids, which
+ * the documents tab's own columns could supply. Each window runs from the panel's `id` to the next panel's
+ * class attribute, so a tab inserted after the one under test narrows the window rather than widening it,
+ * which is the safe direction for a negative.
+ */
+function panelFor(rendered: string, id: string): string {
+  const start = rendered.indexOf(`id="${id}"`);
   const next = rendered.indexOf("govuk-tabs__panel", start + 1);
 
   return rendered.slice(start, next === -1 ? undefined : next);
+}
+
+/**
+ * The referrals panel, which is `panelFor(rendered, "referrals")`.
+ *
+ * Both names exist because the two branches generalised the same one-tab helper in different directions and met
+ * here: `referrals-admin-4` kept it referrals-specific, `notify-2` needed a second tab and took an `id`. Kept as
+ * a wrapper rather than resolved either way — rewriting seven referral tests to pass a literal would be churn in
+ * somebody else's work to no end, and dropping the general form would leave the emails tests with no way to
+ * scope an assertion. Prefer `panelFor` in anything new.
+ */
+function referralsPanel(rendered: string): string {
+  return panelFor(rendered, "referrals");
 }
 
 describe("case detail template — the referrals tab", () => {
@@ -139,6 +222,7 @@ describe("case detail template — the referrals tab", () => {
     vi.clearAllMocks();
     process.env.NODE_ENV = "test";
     vi.mocked(findDeedPoll).mockResolvedValue(found as never);
+    vi.mocked(findCaseEmails).mockResolvedValue(CASE_EMAILS as never);
   });
 
   it("should render the referrals tab as one of the page's tabs", async () => {
@@ -312,7 +396,7 @@ describe("case detail template — the referrals tab", () => {
     // The distinction the whole degraded state exists for: "None recorded." is a claim about the case, and
     // the page is not in a position to make it.
     it("should say the information could not be loaded rather than that there are none", async () => {
-      const panel = referralsPanel(await unavailablePage());
+      const panel = panelFor(await unavailablePage(), "referrals");
 
       expect(panel).toContain("Referral information could not be loaded");
       expect(panel).not.toContain("None recorded.");
@@ -330,5 +414,234 @@ describe("case detail template — the referrals tab", () => {
 
       expect(rendered).not.toContain("Withdraw the open referral before raising another.");
     });
+  });
+});
+
+describe("case detail template — the emails tab", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NODE_ENV = "test";
+    vi.mocked(findDeedPoll).mockResolvedValue(found as never);
+    vi.mocked(findCaseEmails).mockResolvedValue(CASE_EMAILS as never);
+  });
+
+  it("should render the emails tab as one of the page's tabs", async () => {
+    const rendered = await emailsPage(CASE_EMAILS);
+
+    expect(rendered).toContain('href="#emails"');
+    expect(rendered).toContain("Emails");
+  });
+
+  it("should list a sent email with its state tagged, when it was created and who sent it", async () => {
+    const rendered = await emailsPage({ ...CASE_EMAILS, history: [SENT_EMAIL] });
+    const panel = panelFor(rendered, "emails");
+
+    expect(panel).toContain("1 email");
+    expect(panel).toContain("Application refused");
+    expect(panel).toMatch(/govuk-tag[^"]*govuk-tag--green/);
+    expect(panel).toContain("Accepted by Notify");
+    expect(panel).toContain("18 March 2026");
+    expect(panel).toContain("caseworker@example.com");
+  });
+
+  it("should render a failed email as failed, since that is the row that needs a phone call", async () => {
+    const panel = panelFor(await emailsPage({ ...CASE_EMAILS, history: [SENT_EMAIL, FAILED_EMAIL] }), "emails");
+
+    expect(panel).toContain("2 emails");
+    expect(panel).toMatch(/govuk-tag[^"]*govuk-tag--red/);
+    expect(panel).toContain("Failed");
+  });
+
+  // Decision 10, as a test rather than a preference. api knows that GOV.UK Notify accepted the send and nothing
+  // more: there are no delivery callbacks in this estate and no download concept anywhere in the Notify client,
+  // so a caseworker who read any of these words here could conclude an applicant has their deed poll when the
+  // email in fact bounced. A later well-meaning wording change fails here instead of shipping.
+  it("should never say an email was delivered, viewed, opened or downloaded", async () => {
+    const panel = panelFor(await emailsPage({ ...CASE_EMAILS, history: [SENT_EMAIL, FAILED_EMAIL] }), "emails");
+
+    expect(panel).not.toMatch(/delivered|viewed|opened|downloaded/i);
+  });
+
+  it("should say what acceptance by Notify does and does not mean, beside the states it labels", async () => {
+    const panel = panelFor(await emailsPage({ ...CASE_EMAILS, history: [SENT_EMAIL] }), "emails");
+
+    expect(panel).toContain("It is not confirmation that the applicant received or read it.");
+  });
+
+  it("should link each row to that email's own page, the table itself carrying no content", async () => {
+    // Decision 14: a body is several paragraphs and would destroy the table's scannability, so the template name
+    // is the row's handle and the content lives one page down.
+    const panel = panelFor(await emailsPage({ ...CASE_EMAILS, history: [SENT_EMAIL] }), "emails");
+
+    expect(panel).toContain('href="/deed-polls/case-1/emails/email-1"');
+    expect(panel).toContain("view what was sent");
+    expect(panel).not.toContain("The Master has refused your application.");
+  });
+
+  it("should say nothing has been sent on a case whose applicant has never been written to", async () => {
+    const panel = panelFor(await emailsPage(CASE_EMAILS), "emails");
+
+    expect(panel).toContain("None recorded.");
+  });
+
+  it("should offer the send button for the applicable template, going straight to compose with no picker", async () => {
+    // Decision 2 as amended: api ships one template, and radios with one option read as an unfinished feature.
+    const panel = panelFor(await emailsPage(CASE_EMAILS), "emails");
+
+    expect(panel).toContain('href="/deed-polls/case-1/emails/application-rejected/compose"');
+    expect(panel).toContain("Send an email: Application rejected");
+    expect(panel).not.toContain('href="/deed-polls/case-1/emails/new"');
+  });
+
+  it("should render a second sendable template as a second button, with no change to this template", async () => {
+    // The design intent of building the panel off api's availability: a template arriving with notify-3,
+    // notify-4 or notify-6 appears here on its own. More than one is also the trigger to build the picker
+    // decision 2 deferred, which is why this is worth pinning rather than assuming.
+    const panel = panelFor(
+      await emailsPage({
+        ...CASE_EMAILS,
+        availability: [...CASE_EMAILS.availability, { template: "chase-missing-documents", applicable: true, reason: null, provisioned: true, slots: SLOTS }]
+      }),
+      "emails"
+    );
+
+    expect(panel).toContain('href="/deed-polls/case-1/emails/application-rejected/compose"');
+    expect(panel).toContain('href="/deed-polls/case-1/emails/chase-missing-documents/compose"');
+    expect(panel).toContain("Send an email: Chase missing documents");
+  });
+
+  it("should withhold the button and give api's reason when nothing can be sent", async () => {
+    // A missing button with nothing beside it reads as a bug, and an applicant with no email address is the
+    // common case. api's sentence is prose written for a caseworker, so it is rendered unaltered.
+    const panel = panelFor(
+      await emailsPage({
+        ...CASE_EMAILS,
+        availability: [
+          {
+            template: "application-rejected",
+            applicable: false,
+            reason: "This case has no referral that a Master has refused",
+            provisioned: true,
+            slots: SLOTS
+          }
+        ]
+      }),
+      "emails"
+    );
+
+    expect(panel).not.toContain("/compose");
+    expect(panel).toContain("This case has no referral that a Master has refused");
+  });
+
+  it("should withhold the button and say so for a template this environment has not provisioned", async () => {
+    // api's two flags are separate questions, and `provisioned` is false everywhere until notify-0 runs. A
+    // button offered without it leads to a preview api answers 502 — the 500 page — for a reason the tab held.
+    const panel = panelFor(
+      await emailsPage({
+        ...CASE_EMAILS,
+        availability: [{ template: "application-rejected", applicable: true, reason: null, provisioned: false, slots: SLOTS }]
+      }),
+      "emails"
+    );
+
+    expect(panel).not.toContain("/compose");
+    expect(panel).toContain("has not been set up in GOV.UK Notify");
+  });
+
+  describe("when the emails read failed", () => {
+    it("should still render the case, the panel being one tab rather than the page", async () => {
+      const rendered = await unavailableEmailsPage();
+
+      expect(rendered).toContain("KBDP2026-00001");
+      expect(rendered).toContain('href="#emails"');
+    });
+
+    // The distinction the degraded state exists for: "None recorded." would tell a caseworker the applicant has
+    // never been written to, which is the opposite claim from not having found out.
+    it("should say the information could not be loaded rather than that nothing has been sent", async () => {
+      const panel = panelFor(await unavailableEmailsPage(), "emails");
+
+      expect(panel).toContain("Email information could not be loaded");
+      expect(panel).not.toContain("None recorded.");
+    });
+
+    // The compose page reads the same endpoint, so a button here would lead to a page that cannot load either.
+    it("should withhold every send button, since the compose page reads the same payload", async () => {
+      const panel = panelFor(await unavailableEmailsPage(), "emails");
+
+      expect(panel).not.toContain("/compose");
+    });
+  });
+});
+
+/**
+ * The banner a completed send comes back to, rendered rather than asserted through the handler's model.
+ *
+ * `emails/[template]/send.ts` redirects to this page rather than rendering a confirmation of its own, so the
+ * outcome of an irreversible action is markup here — and the redundant send is the one that must not read as a
+ * failure. The handler's half (which query values it honours, and that an invented id builds no link) is pinned
+ * in `[id].test.ts`.
+ */
+describe("case detail template — the banner a send comes back to", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NODE_ENV = "test";
+    vi.mocked(findDeedPoll).mockResolvedValue(found as never);
+    vi.mocked(findReferrals).mockResolvedValue([]);
+    vi.mocked(findCaseEmails).mockResolvedValue({ ...CASE_EMAILS, history: [SENT_EMAIL] } as never);
+  });
+
+  async function sentPage(query: Record<string, string>): Promise<string> {
+    const res = pageResponse();
+
+    await GET(pageRequest({ params: { id: "case-1" }, query, accessToken: "session-token" }), res);
+
+    return html(res.render.mock.calls[0][1]);
+  }
+
+  it("should confirm a send as a success, with a link to what was sent", async () => {
+    const rendered = await sentPage({ email: "sent", emailId: "email-1" });
+
+    expect(rendered).toContain("govuk-notification-banner--success");
+    expect(rendered).toContain("The email has been accepted by GOV.UK Notify for sending to the applicant.");
+    expect(rendered).toContain('href="/deed-polls/case-1/emails/email-1"');
+  });
+
+  it("should report a redundant send as already sent rather than as a failure", async () => {
+    const rendered = await sentPage({ email: "already-sent", emailId: "email-1" });
+
+    expect(rendered).toContain("govuk-notification-banner--success");
+    expect(rendered).toContain("This email had already been sent for this case, so it was not sent again.");
+  });
+
+  it("should render no banner for an email id the history does not carry", async () => {
+    // Was "should still say what happened when there is no email to link to", asserting the sentence survived an
+    // unknown id with only the link withheld. That is the defect: the query string is user input, so the sentence
+    // has to be earned by the history rather than by the URL.
+    const rendered = await sentPage({ email: "sent", emailId: "email-nope" });
+
+    expect(rendered).not.toContain("govuk-notification-banner--success");
+    expect(rendered).not.toContain('href="/deed-polls/case-1/emails/email-nope"');
+  });
+
+  it("should still confirm the send, unlinked, when the history could not be read", async () => {
+    // The one case where an unverifiable id still earns the sentence, and the reason the fix above is a condition
+    // rather than a blanket check: with the emails read degraded there is nothing to check the id against, and
+    // swallowing the confirmation for a send that did happen is the worse of the two errors. This is the template
+    // side of `[id].test.ts`'s "still confirms the send when the emails read failed".
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(findCaseEmails).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): nope"));
+
+    const rendered = await sentPage({ email: "sent", emailId: "email-1" });
+
+    expect(rendered).toContain("accepted by GOV.UK Notify");
+    expect(rendered).not.toContain('href="/deed-polls/case-1/emails/email-1"');
+    logged.mockRestore();
+  });
+
+  it("should render no banner on an ordinary visit", async () => {
+    const rendered = await sentPage({});
+
+    expect(rendered).not.toContain("govuk-notification-banner--success");
   });
 });

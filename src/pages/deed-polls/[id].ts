@@ -10,42 +10,56 @@
  *
  * `findDeedPoll` includes the children, so notes, witnesses and documents come from the one query.
  *
- * Referrals are the exception and cost a third call: `GET /caseworker/cases/{id}` does not carry them, so the
- * referrals tab has to ask — the reason `libs/deed-poll/src/referrals/service.ts` reads them dedicated rather
- * than off the case. They go to the template twice over: merged into the record handed to `buildDetailTabs`,
- * which counts them under their own name like the other three subgrids, and as the `referrals` view model the
- * panel actually renders from.
+ * Referrals and emails are the exceptions and cost a call each: `GET /caseworker/cases/{id}` carries neither,
+ * so those two tabs have to ask — the reason `libs/deed-poll/src/referrals/service.ts` and
+ * `libs/deed-poll/src/emails/service.ts` read them dedicated rather than off the case. Each goes to the
+ * template twice over: merged into the record handed to `buildDetailTabs`, which counts it under its own name
+ * like the other three subgrids, and as the view model the panel actually renders from.
  *
- * **Two of the three calls are fatal, and referrals is not one of them.** The distinction is load-bearing
- * versus additive: `findDeedPoll` is the case, and `getCaseFieldRules` decides which fields exist on the page
- * at all, so neither has a page without it. Referrals are one panel of several, and the cost of making them
- * fatal was out of proportion to it — `deed-poll-api-client`'s `classify` maps by status, so a referrals 404
- * became `NotFoundError` and rendered "Page not found" for a case that exists, a 5xx or a timeout became the
- * 500 page, and a 403 rendered the 404 template. Three disguises, none of which mentions referrals, for a
- * failure `client.ts` itself classifies as "try again shortly".
+ * **Two of the four calls are fatal, and neither referrals nor emails is one of them.** The distinction is
+ * load-bearing versus additive: `findDeedPoll` is the case, and `getCaseFieldRules` decides which fields exist
+ * on the page at all, so neither has a page without it. Referrals and emails are one panel each out of
+ * several, and the cost of making them fatal was out of proportion to it — `deed-poll-api-client`'s `classify`
+ * maps by status, so a referrals 404 became `NotFoundError` and rendered "Page not found" for a case that
+ * exists, a 5xx or a timeout became the 500 page, and a 403 rendered the 404 template. Three disguises, none
+ * of which mentions the panel, for a failure `client.ts` itself classifies as "try again shortly".
+ *
+ * So each degrades to its own `unavailable…View()` and is logged, the same trade
+ * `deed-polls/index.ts`'s `savedQueryEntries` makes for the saved-query nav. What they must **not** do is
+ * degrade silently to an empty tab: "never referred" and "could not find out" are opposite claims, and so are
+ * "nothing has been sent to this applicant" and "we could not find out", which is why both view models carry
+ * `unavailable` rather than an empty list.
  *
  * **One referral tab, not two.** The retired "Referral to Master" tab is out of `FORM_TABS`, so the Referrals
  * panel is the whole of the case's referral surface: the live history from api, and above it the populated
  * retired fields as a read-only snapshot (`buildLegacyReferralView`). That snapshot comes off the case, so it
  * survives a failed referrals read — the two are different records and one failing says nothing about the other.
  *
- * So the referrals read degrades to `unavailableReferralsView()` and is logged, the same trade
- * `deed-polls/index.ts`'s `savedQueryEntries` makes for the saved-query nav. What it must **not** do is
- * degrade silently to an empty tab: "never referred" and "could not find out" are opposite claims, which is
- * why that view model carries `unavailable` rather than an empty list.
+ * **The emails read is additive on this page and load-bearing on the journey behind it.** api answers the tab,
+ * the compose form and the per-email content out of the one payload (decision 8 of
+ * `docs/plans/notify-2-caseworker-email-tab.md`), so a failure here costs the panel its table and its Send
+ * button — `unavailableEmailsView()` offers neither, because the compose page reads the same endpoint and
+ * would not load either.
+ *
+ * **The emails panel has no equivalent of the legacy snapshot**, and the asymmetry is api's rather than an
+ * omission: there were no emails in the previous system to keep, so a failed emails read leaves the panel with
+ * nothing at all to show, where a failed referrals read still has the retired fields.
  */
 import {
   buildCaseHeader,
   buildDetailTabs,
   buildDocumentsView,
+  buildEmailsView,
   buildLegacyReferralView,
   buildNotesView,
   build as buildPresentation,
   buildReferralsView,
   DOCUMENT_COLUMNS,
+  findCaseEmails,
   findDeedPoll,
   findReferrals,
   getCaseFieldRules,
+  unavailableEmailsView,
   unavailableReferralsView,
   witnessCountText
 } from "@hmcts/deed-poll";
@@ -102,6 +116,32 @@ const en = {
     "Referral information could not be loaded, so this tab cannot say whether the case is with the judiciary. The rest of the case is shown as normal. Try again shortly.",
   // GOV.UK's own fallback for the warning icon, which is decorative and needs a text equivalent.
   warningIcon: "Warning",
+  emailColumns: ["Email", "Created", "Status"],
+  // "Created" and not "Sent" for the timestamp column, because a `Pending` row has a timestamp and has not
+  // gone: api's field is the outbox row's `createdOn`, and a column headed "Sent" beside a state of "Waiting
+  // to send" would contradict itself.
+  viewEmailHint: "view what was sent",
+  // Carries the template name, so a second sendable template arriving from notify-3 needs no new label — and
+  // so the button still says what it does when read out of context by a screen reader.
+  sendEmail: "Send an email",
+  // Decision 10. The state column's words are the domain's (`NOTIFY_STATE_LABEL`), and this is the sentence
+  // that makes "Accepted by Notify" unmistakable: there are no delivery callbacks in this estate, so the
+  // service cannot know the applicant received or read anything, and a caseworker who assumed otherwise on a
+  // bounced email is the failure the tab exists to prevent.
+  emailsStateHint:
+    "“Accepted by Notify” means GOV.UK Notify took the email to send. It is not confirmation that the applicant received or read it. Ring the applicant about anything that failed.",
+  // The banner a completed send comes back to. "Accepted by GOV.UK Notify" rather than "sent to the applicant"
+  // for the reason the state column is worded that way: api knows Notify took the email and nothing more.
+  successTitle: "Success",
+  emailSent: "The email has been accepted by GOV.UK Notify for sending to the applicant.",
+  // api's insert is `ON CONFLICT DO NOTHING` on one email per referral, so a double-click or a browser resubmit
+  // writes nothing and answers with the first row. Told as a success, because reporting a failure would invite a
+  // third attempt — `emails/[template]/send.ts` has the reasoning.
+  emailAlreadySent: "This email had already been sent for this case, so it was not sent again.",
+  viewSentEmail: "View the email",
+  // The emails read failed. Worded, like the referrals one, so it cannot be read as "nothing has been sent".
+  emailsUnavailable:
+    "Email information could not be loaded, so this tab cannot say what has been sent to the applicant, and no email can be sent from here at the moment. The rest of the case is shown as normal. Try again shortly.",
   documentColumns: DOCUMENT_COLUMNS,
   amendWitnessHint: "amend this witness",
   witnessAddress: "Address",
@@ -119,10 +159,14 @@ const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
   const caller = callerFromRequest(req);
-  // Together, because neither answer depends on the other and the referrals tab is rendered on every case:
-  // the same shape `referrals/[referralId].ts` uses. `allSettled` rather than `all` so the two failures can
-  // be told apart — under `all` either one rejects the handler, and the referrals one is the page.
-  const [caseRead, referralsRead] = await Promise.allSettled([findDeedPoll(req.params.id, caller), findReferrals(req.params.id, caller)]);
+  // Together, because no answer depends on another and the referrals and emails tabs are rendered on every
+  // case: the same shape `referrals/[referralId].ts` uses. `allSettled` rather than `all` so the failures can
+  // be told apart — under `all` any one of them rejects the handler, and only the case read is the page.
+  const [caseRead, referralsRead, emailsRead] = await Promise.allSettled([
+    findDeedPoll(req.params.id, caller),
+    findReferrals(req.params.id, caller),
+    findCaseEmails(req.params.id, caller)
+  ]);
 
   // The case is what the page is for, so its failure is still the page's: `NotFoundError` reaches the 404
   // page through `src/errors.ts` exactly as it did before.
@@ -136,8 +180,15 @@ export const GET = async (req: Request, res: Response) => {
   if (referralsRead.status === "rejected") {
     console.error(`referrals unavailable: ${referralsRead.reason instanceof Error ? referralsRead.reason.message : String(referralsRead.reason)}`);
   }
+  // Same rule and the same reasons — and one of its own: api answers this read 400 for a case whose refusal
+  // carries no directions text (flag 7 of the plan), so the message is worth having in the logs to tell that
+  // apart from an outage.
+  if (emailsRead.status === "rejected") {
+    console.error(`emails unavailable: ${emailsRead.reason instanceof Error ? emailsRead.reason.message : String(emailsRead.reason)}`);
+  }
 
   const referrals = referralsRead.status === "fulfilled" ? referralsRead.value : null;
+  const emails = emailsRead.status === "fulfilled" ? emailsRead.value : null;
   const { isAdmin } = userFromRequest(req);
 
   // No `referToMasterChoice`: it used to decide whether the retired referral tab was shown, and that tab is
@@ -157,16 +208,19 @@ export const GET = async (req: Request, res: Response) => {
     pageHeading: found.displayReference,
     case: found,
     presentation,
-    // `referrals` merged in because it is the one subgrid whose rows are not on the case — see the docblock.
-    // A failed read passes `null`, which `subgridCount` counts as 0 and so marks the tab `empty`. That is a
-    // claim the template never renders for a subgrid (`detail-view.ts`), and `[]` would say the same thing,
-    // so it is left rather than given an `empty: unknown` no page reads. The panel's own three states are
-    // what a caseworker sees.
-    tabs: buildDetailTabs({ ...found, referrals } as unknown as Record<string, unknown>, rules, presentation),
+    // `referrals` and `emails` merged in because they are the two subgrids whose rows are not on the case —
+    // see the docblock. A failed read passes `null`, which `subgridCount` counts as 0 and so marks the tab
+    // `empty`. That is a claim the template never renders for a subgrid (`detail-view.ts`), and `[]` would say
+    // the same thing, so it is left rather than given an `empty: unknown` no page reads. Each panel's own
+    // states are what a caseworker sees. `emails` is the history rather than the whole payload, because that
+    // is the list the tab's rows come from.
+    tabs: buildDetailTabs({ ...found, referrals, emails: emails?.history ?? null } as unknown as Record<string, unknown>, rules, presentation),
     header: buildCaseHeader(found),
     notes: buildNotesView(found.notes),
     documents: buildDocumentsView(found.documents),
     referrals: referrals ? buildReferralsView(referrals) : unavailableReferralsView(),
+    emails: emails ? buildEmailsView(emails) : unavailableEmailsView(),
+    emailBanner: emailBanner(req, emails),
     // Off the case, so it is unaffected by the referrals read and renders on a degraded panel too: the two are
     // different records, and a failed call to api's referral endpoint says nothing about the retired fields the
     // case itself carries. `null` when the case holds none of them, and the panel then shows no section.
@@ -178,3 +232,46 @@ export const GET = async (req: Request, res: Response) => {
     cy
   });
 };
+
+/**
+ * What a completed send comes back to, or `null` on an ordinary visit.
+ *
+ * `emails/[template]/send.ts` redirects here rather than rendering its own confirmation, so this is where the two
+ * outcomes are worded: an email accepted by Notify, and a redundant send that api answered with the row it had
+ * already written. Both are successes — see that file for why the second is not reported as a failure.
+ *
+ * **The link is only built for a row this case's history actually carries.** `emailId` is a query parameter and
+ * therefore user input, so an invented one must not reach an `href`; without a match the banner still says what
+ * happened and simply does not offer the link. A failed emails read has no history to check against, which is the
+ * same answer.
+ */
+function emailBanner(req: Request, emails: Awaited<ReturnType<typeof findCaseEmails>> | null): EmailBanner | null {
+  const outcome = req.query.email;
+  if (outcome !== "sent" && outcome !== "already-sent") return null;
+
+  const id = typeof req.query.emailId === "string" ? req.query.emailId : "";
+  const known = emails?.history.some((email) => email.id === id) === true;
+
+  // **The query string is user input, so the banner's words are gated on the history and not only its link.**
+  // Telling a caseworker an applicant has been informed their application was refused, when they have not been, is
+  // the failure decision 10 exists to prevent — and `?email=sent` alone used to be enough to produce that sentence
+  // for anyone who could be handed a URL. An id the history does not carry means the parameter was fabricated or
+  // the send it refers to belongs to another case, and neither is something to confirm.
+  //
+  // **A failed history read is the exception, and it stays confirmed.** `emails` is null when that read degraded
+  // (see `unavailableEmailsView`), so there is nothing to check the id against — and suppressing the banner then
+  // would lose a genuine confirmation for a send that did happen, which is the worse of the two errors. The link
+  // is withheld because it cannot be built, and that is the same in both cases.
+  if (emails !== null && !known) return null;
+
+  return {
+    text: outcome === "sent" ? en.emailSent : en.emailAlreadySent,
+    href: known ? `/deed-polls/${req.params.id}/emails/${encodeURIComponent(id)}` : null
+  };
+}
+
+/** The success banner after a send: what happened, and where the email is if it can be linked to. */
+interface EmailBanner {
+  text: string;
+  href: string | null;
+}

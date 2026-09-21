@@ -682,6 +682,165 @@ const judicialDirectionSchema = z.object({
   directionsText: z.string().max(4000).optional()
 });
 
+/**
+ * The outbox state of one email, as api's `NotificationState` declares it.
+ *
+ * **`Sent` means GOV.UK Notify accepted it, not that it arrived** — api's own schema description says so, and
+ * nothing in this estate can say more: delivery status needs Notify callbacks that do not exist yet, and there
+ * is no download or open concept in the Notify client at all. So no label built from these members may read as
+ * proof of receipt, and `failureReason` is what makes a `Failed` row actionable.
+ */
+export const NOTIFY_STATE = ["Pending", "Sent", "Failed"] as const;
+
+/**
+ * One field of an email a caseworker fills in, and how long it may be.
+ *
+ * **`name` is `snake_case` and must stay that way.** It is a GOV.UK Notify placeholder name, which is the
+ * personalisation key and the request-body key at once — api's `EmailSlot` says it "is not renamed to Java style
+ * anywhere". This module's rule is that the wire is camelCase and nothing is renamed at the boundary; these
+ * keys are the documented exception, and renaming one anywhere above here makes Notify substitute nothing and
+ * send the template with empty slots, with every test still green.
+ */
+const emailSlotSchema = z.object({
+  name: z.string().nullish(),
+  maxLength: z.int(),
+  required: z.boolean()
+});
+
+/**
+ * One email type a caseworker could send about a case, applicable or not.
+ *
+ * api publishes every type rather than only the sendable ones, so `reason` is the sentence that answers "why
+ * can I not send the refusal letter" before it is asked. `provisioned` is separate and narrower: whether this
+ * environment has a real Notify template behind the key, which is false everywhere until notify-0 runs.
+ *
+ * **`template` is a bare string, not an enum.** api publishes no member list for it, so `contract.test.ts`
+ * cannot pin the set and a template api adds later arrives here with nothing failing — which is the intent:
+ * the tab lists what api says is sendable. Nothing above this may model it as a closed union that throws on an
+ * unrecognised value.
+ */
+const emailTypeSchema = z.object({
+  template: z.string().nullish(),
+  applicable: z.boolean(),
+  reason: z.string().nullish(),
+  provisioned: z.boolean(),
+  slots: z.array(emailSlotSchema)
+});
+
+/**
+ * The starting values api resolved for one applicable template's slots.
+ *
+ * `fields` is keyed by the same `snake_case` placeholder names `emailSlotSchema.name` carries, which is why it
+ * is a `record` rather than a named shape: the keys are the template's, and a template api adds brings its own.
+ * Published so the compose page can pre-populate without calling preview, which costs a Notify call.
+ */
+const emailSlotDefaultsSchema = z.object({
+  template: z.string().nullish(),
+  fields: z.record(z.string(), z.string())
+});
+
+/** A case document carried by an email — enough to name it, and no storage key, as `documentSchema` is. */
+const correspondenceDocumentSchema = z.object({
+  id: z.string(),
+  name: z.string().nullish()
+});
+
+/**
+ * One email attempt recorded against a case.
+ *
+ * **`body` is PLAIN TEXT and not HTML**, which api's own description spells out — the applicant received
+ * Notify's branded HTML and this is the text rendering of the same template with the same values. It is
+ * therefore rendered through Nunjucks autoescaping, and must never reach the `srcdoc` iframe the preview uses:
+ * see `docs/plans/notify-2-caseworker-email-tab.md` decision 12.
+ *
+ * `subject` and `body` are null until Notify accepts a send, and stay null forever for anything sent before api
+ * began capturing them. `documents` is `List.copyOf` at the source, so it is `[]` rather than null — and empty
+ * for every email today, because the one shipped template carries no attachments.
+ */
+const emailHistorySchema = z.object({
+  id: z.string(),
+  template: z.string().nullish(),
+  templateName: z.string().nullish(),
+  subject: z.string().nullish(),
+  body: z.string().nullish(),
+  recipient: z.string().nullish(),
+  notifyState: z.enum(NOTIFY_STATE).nullish(),
+  failureReason: z.string().nullish(),
+  createdBy: z.string().nullish(),
+  createdOn: wireDateTime.nullish(),
+  documents: z.array(correspondenceDocumentSchema)
+});
+
+/**
+ * Everything the Email tab needs, from one request.
+ *
+ * All three arrays in one response is api's answer to this repo's performance rule, and it is load-bearing for
+ * more than the tab: the per-email page reads its content from this same payload rather than making a call of
+ * its own. Each is built with `stream().toList()` at the source, so an empty one arrives as `[]`.
+ */
+const caseEmailsSchema = z.object({
+  availability: z.array(emailTypeSchema),
+  history: z.array(emailHistorySchema),
+  slotDefaults: z.array(emailSlotDefaultsSchema)
+});
+
+/**
+ * The email as Notify renders it, for the caseworker to read before sending.
+ *
+ * `html` is Notify's own HTML and carries text a caseworker typed, so it is shown in a sandboxed `iframe` with
+ * `srcdoc` and never interpolated into the page — decision 3 of the plan, and the reason there is no `| safe`
+ * anywhere near it.
+ *
+ * **Nullable rather than strict, deliberately, though api cannot currently send null.** `EmailPreview.from`
+ * reads the client's two `Optional`s with `orElse("")`, so an absent rendering arrives as an **empty string**
+ * — which means a caller checking only for null would render an empty iframe and offer a Send. The permissive
+ * schema is the safe polarity here: a preview that cannot be shown must become a sentence on the page, not an
+ * `invalid-response` that takes the whole journey to the 500 page.
+ */
+const emailPreviewSchema = z.object({
+  subject: z.string().nullish(),
+  html: z.string().nullish(),
+  templateVersion: z.int()
+});
+
+/**
+ * What a send returns: the outbox row that now owes the email, not its delivery.
+ *
+ * **`enqueued` is false when the send was redundant and the request still succeeded** — one email per referral
+ * is a unique index at api, so a second attempt writes nothing and answers with the first row's id. api's own
+ * note is that telling the caseworker their email failed would invite a third attempt.
+ *
+ * No state field, on purpose: api drains the outbox immediately after the enqueue commits, so any state here
+ * would have been read before that and could say `Pending` for an email Notify has already accepted.
+ */
+const sentEmailSchema = z.object({
+  id: z.string(),
+  recipient: z.string().nullish(),
+  enqueued: z.boolean()
+});
+
+/**
+ * The slots a caseworker fills, and the whole of what this app may set on an email.
+ *
+ * One schema for the preview body and the send body, as `caseWriteSchema` serves both case writes: api's two
+ * bodies have identical properties, and `contract.test.ts` compares each spec name against it separately, so
+ * the day they diverge one of the two comparisons fails.
+ *
+ * **These are the only two contract bodies with `additionalProperties: false`, so an unknown key is a 400 that
+ * names it** — not an ignored field. Nothing else may be added here: every other value in the email (the
+ * reference number, the former names, which refund paragraph renders) is api's to resolve from the case, and
+ * the compose journey's idempotency UUID is admin-local and is sent to api in neither the body nor a header.
+ *
+ * Both slots are optional because `judges_reason` is pre-populated from the referral's direction when omitted.
+ * The caps are api's published ones — the referral direction and notes caps, so a direction a judge could
+ * record is always sendable unedited — and are enforced here so a caseworker gets a message against the field
+ * rather than a round trip.
+ */
+const emailSlotsWriteSchema = z.object({
+  judges_reason: z.string().max(4000).optional(),
+  additional_notes: z.string().max(1000).optional()
+});
+
 /** api's failure body. `errors` is omitted rather than empty when there are none (`@JsonInclude`). */
 const apiErrorSchema = z.object({
   error: z.string(),
@@ -724,7 +883,19 @@ export const WIRE_SCHEMAS = {
   JudicialReferralSummary: judicialReferralSummarySchema,
   JudicialReferralDetail: judicialReferralDetailSchema,
   JudicialCaseView: judicialCaseViewSchema,
-  JudicialCaseNote: judicialCaseNoteSchema
+  JudicialCaseNote: judicialCaseNoteSchema,
+  CaseEmailsResponse: caseEmailsSchema,
+  EmailTypeResponse: emailTypeSchema,
+  EmailSlotResponse: emailSlotSchema,
+  EmailSlotDefaultsResponse: emailSlotDefaultsSchema,
+  EmailHistoryResponse: emailHistorySchema,
+  CorrespondenceDocumentResponse: correspondenceDocumentSchema,
+  EmailPreviewResponse: emailPreviewSchema,
+  SentEmailResponse: sentEmailSchema,
+  // Both of api's email write bodies, which have identical properties. One schema, two comparisons — the
+  // `CreateCaseRequest`/`UpdateCaseRequest` arrangement, and for the same reason.
+  PreviewEmailRequest: emailSlotsWriteSchema,
+  SendEmailRequest: emailSlotsWriteSchema
 } as const;
 
 /**
@@ -794,7 +965,27 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   JudicialCaseNote: ["note"],
   // Empty, and correctly so: no id, no primitive and no collection. Every one of the eight fields is a
   // nullable column of the application.
-  JudicialCaseView: []
+  JudicialCaseView: [],
+  // All three are `stream().toList()` at the source, so an empty one arrives as `[]`.
+  CaseEmailsResponse: ["availability", "history", "slotDefaults"],
+  // `applicable` and `provisioned` are `boolean` primitives and `slots` a `toList()`. `template` is NOT here,
+  // though api builds it from an enum key that cannot be null: it is the token the tab links with, so a null
+  // one is a row the view model skips rather than a reason to fail the whole tab's parse.
+  EmailTypeResponse: ["applicable", "provisioned", "slots"],
+  // `required` is a `boolean` and `maxLength` an `int` on api's record. `name` is a placeholder literal and
+  // still nullable, for the reason `EmailTypeResponse.template` is.
+  EmailSlotResponse: ["maxLength", "required"],
+  // `fields` is an unmodifiable map api always builds, as `FieldRulesResponse.rules` is.
+  EmailSlotDefaultsResponse: ["fields"],
+  // `documents` is `List.copyOf`. `subject`, `body`, `failureReason` and `notifyState` are all legitimately
+  // null — decision 15's three no-content cases are exactly this.
+  EmailHistoryResponse: ["id", "documents"],
+  CorrespondenceDocumentResponse: ["id"],
+  // `templateVersion` is an `int`. `html` and `subject` are nullable on purpose — see the schema's docblock:
+  // api sends `""` rather than null for an absent rendering, and either must become a sentence on the page.
+  EmailPreviewResponse: ["templateVersion"],
+  // `enqueued` is a `boolean` primitive, and false is a SUCCESS — the send was redundant.
+  SentEmailResponse: ["id", "enqueued"]
 };
 
 export type WireSavedCase = z.infer<typeof savedCaseSchema>;
@@ -823,4 +1014,14 @@ export type WireJudicialReferralDetail = z.infer<typeof judicialReferralDetailSc
 export type WireJudicialCaseView = z.infer<typeof judicialCaseViewSchema>;
 export type WireJudicialCaseNote = z.infer<typeof judicialCaseNoteSchema>;
 export type WireJudicialDirection = z.input<typeof judicialDirectionSchema>;
+export type WireCaseEmails = z.infer<typeof caseEmailsSchema>;
+export type WireEmailType = z.infer<typeof emailTypeSchema>;
+export type WireEmailSlot = z.infer<typeof emailSlotSchema>;
+export type WireEmailSlotDefaults = z.infer<typeof emailSlotDefaultsSchema>;
+export type WireEmailHistory = z.infer<typeof emailHistorySchema>;
+export type WireCorrespondenceDocument = z.infer<typeof correspondenceDocumentSchema>;
+export type WireEmailPreview = z.infer<typeof emailPreviewSchema>;
+export type WireSentEmail = z.infer<typeof sentEmailSchema>;
+/** `z.input` for the write, as `WireCaseWrite` is: a body is what goes out, before any transform. */
+export type WireEmailSlotsWrite = z.input<typeof emailSlotsWriteSchema>;
 export type WireApiError = z.infer<typeof apiErrorSchema>;

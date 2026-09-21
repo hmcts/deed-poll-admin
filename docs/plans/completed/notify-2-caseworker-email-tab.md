@@ -75,7 +75,7 @@ Two consequences worth stating plainly, because they have bitten this repo befor
    |---|---|---|
    | 1 | `GET,POST /deed-polls/{id}/emails/{template}/compose` | The free-text slots, pre-populated |
    | 2 | `POST /deed-polls/{id}/emails/{template}/preview` | The **real rendered email**, with Send and Back |
-   | 3 | `POST /deed-polls/{id}/emails/{template}` | Send, then back to the tab with a success banner |
+   | 3 | ~~`POST /deed-polls/{id}/emails/{template}`~~ **`POST …/{template}/send`** | Send, then back to the tab with a success banner |
 
    **Sending is irreversible, so the preview step is mandatory rather than a nicety.** An applicant cannot be
    un-told that their application was refused. This is the same reason the deed-poll journeys already put a
@@ -87,6 +87,14 @@ Two consequences worth stating plainly, because they have bitten this repo befor
    other three in `NOTIFY_TEMPLATE_TAXONOMY.md` §6 are notify-3 and notify-4. A radio list of one option is
    dead UI that reads as an unfinished feature, so **Task 4's "Send an email" button links straight to the
    compose page for the one applicable template.** Steve's decision, 2026-09-21.
+
+   **Amended by Task 5, 2026-09-21 — the send is a sub-resource, `…/{template}/send`, and the reason is this
+   repo's router rather than a preference.** Task 5a's per-email page already answers
+   `GET /deed-polls/:id/emails/:notificationId`, so a send at `POST /deed-polls/:id/emails/:template` would put two
+   meanings — an outbox row's id and a template key — in one URL, told apart only by the method and by which of the
+   two `sortRoutes` happened to register first. `simple-router`'s conflict check keys on the **parameter name**, so
+   it would not have noticed the collision. The sub-resource is also what `referrals/[referralId]/withdraw.ts` does
+   with api's own transition paths, and no caseworker reads the URL. Nothing else about the journey changes.
 
    **The template stays a route parameter, which is what makes this additive rather than a rework.** When
    notify-3 adds a second template, the picker is a new page in front of an unchanged compose route — not a
@@ -262,9 +270,18 @@ Two consequences worth stating plainly, because they have bitten this repo befor
 
     **What to build instead.** Keep the UUID, keep it entirely inside this repo: it is the form token that
     stops a double-click or a browser resubmit posting twice, which is a real problem this journey has and api
-    cannot see. Do not send it anywhere. Handle api's **409** as its own rendered state on the preview page —
+    cannot see. Do not send it anywhere. ~~Handle api's **409** as its own rendered state on the preview page —
     "this email has already been sent for this referral", with a link to the tab — because the 409 is
-    reachable without any double-click at all: two caseworkers on the same case will produce it.
+    reachable without any double-click at all: two caseworkers on the same case will produce it.~~
+
+    **Corrected by Task 2, 2026-09-21, from api's source — a second send is not a 409 and is not an error.**
+    api's insert is `ON CONFLICT DO NOTHING`, so a redundant send answers **200 with the first row's id and
+    `enqueued: false`**; api's own note is that telling the caseworker their email failed would invite a third
+    attempt. So the double-send case is a *success* to render — the email is already sent, here it is — and a
+    `409` on this surface means something else entirely: **the case is in no state to send this email**, which
+    for the one shipped template is "no Master has refused the application". That is reachable without a
+    double-click (the referral was withdrawn or re-decided since the tab was rendered), and it is api's
+    `reason` sentence rather than a claim about who sent what. Two states, two sentences; see Task 5.
 
     **This is per referral, not per compose journey, and that asymmetry is api's.** notify-1's decision 4 says
     so and flags that it "may not generalise" to notify-6's repeatable chases. Nothing here needs to solve
@@ -334,9 +351,22 @@ with every other hand-registered write body in this contract.
 3. **`notifyState` is `Pending | Sent | Failed`**, and api's own description says *"Sent means accepted by
    GOV.UK Notify; it does not mean delivered."* That is decision 10's wording constraint already justified at
    source, and `failureReason` is the field that makes a `Failed` row actionable.
-4. **`html` is nullable and so is `body`** — springdoc emits no response nullability, so nothing goes in
-   `STRICT_RESPONSE_PROPERTIES` from this feature. Decision 3 covers the null `html`; decision 15 covers the
-   absent `body`.
+4. **`html` is nullable and so is `body`** — springdoc emits no response nullability, so neither goes in
+   `STRICT_RESPONSE_PROPERTIES`. Decision 3 covers the null `html`; decision 15 covers the absent `body`.
+
+   **Corrected by Task 1, 2026-09-21, reading api's source rather than its document — `html` arrives EMPTY, not
+   null.** `EmailPreview.from` reads the Notify client's two `Optional`s with `orElse("")`, so api cannot
+   currently send null for either `html` or `subject`; an absent rendering is `""`. Both are still **registered
+   nullable**, because a preview that cannot be shown must become a sentence on the page rather than an
+   `invalid-response` that takes the whole journey to the 500 page. **The consequence is Task 5's, and it is a
+   real bug if missed: the fallback must test for empty *or* null.** A check for null alone renders an empty
+   iframe and offers a Send — which is the one outcome decision 3 exists to prevent.
+
+   `STRICT_RESPONSE_PROPERTIES` is therefore not empty for this feature after all, which the sentence above got
+   wrong by conflating "no nullability in the document" with "nothing to pin": the primitives and the always-built
+   collections are pinned exactly as every other response schema's are — `applicable`, `provisioned`, `slots`,
+   `maxLength`, `required`, `fields`, `templateVersion`, `enqueued`, the three arrays of `CaseEmailsResponse`,
+   and the two `id`s. Only the *content* fields are left nullable.
 
 ### notify-5 shipped, so nothing is skipped
 
@@ -508,13 +538,38 @@ Then, against the published document rather than against this plan:
 Refresh the document and register everything it added. **No adapter functions and no pages in this task** — it
 is the registry only, and it is the one task that cannot be made smaller.
 
-Read first: `libs/deed-poll-api-client/SPEC-PROVENANCE.md` (the refresh procedure and what it demands be
-re-checked), `libs/deed-poll-api-client/src/api/contract.test.ts` (all of it), and
+Read first: **"The contract — measured, not expected"** above — in particular "Four things to register exactly
+as api published them, not as convention would", which is this task's whole risk surface — then
+`libs/deed-poll-api-client/SPEC-PROVENANCE.md` (the refresh procedure and what it demands be re-checked),
+`libs/deed-poll-api-client/src/api/contract.test.ts` (all of it), and
 `libs/deed-poll-api-client/src/api/wire.ts`.
+
+**The one mistake this task can make that no test catches:** the slot keys are `snake_case` —
+`judges_reason`, `additional_notes`, and the keys inside `EmailSlotDefaultsResponse.fields`. This repo's
+`CLAUDE.md` says the wire is camelCase and nothing is renamed at the boundary, so obeying the convention here
+is the error. `contract.test.ts` compares the document against `WIRE_SCHEMAS`, so a renamed property **does**
+fail — but only if it was renamed in the zod schema. Rename it later, in the adapter or a view model, and
+Notify substitutes nothing and sends the template with empty slots, with every test still green.
 
 - Refresh `openapi.json` from api, following `SPEC-PROVENANCE.md`, and **write a new provenance entry**
   recording the api commit, the new counts, and what changed that was not an addition. That document's
   standard is property-by-property accounting; match it.
+
+  **The document is already generated — do not run Gradle and do not touch the `deed-poll-api` clone.** Task 0
+  generated it on 2026-09-21 from api `09d70e35c86b718b290e9dd693695750df32f468` (`origin/master`, "Merge pull
+  request #33 from hmcts/referrals-api-4"), and it is at **`/tmp/openapi-specs.json`**. Copy and reformat it
+  with the `node -e` one-liner in `SPEC-PROVENANCE.md` step 1. Two reasons this is not a shortcut: another agent
+  may be working in that clone, and regenerating from a clone on a different branch is how a refresh acquires an
+  unpinnable provenance. **If `/tmp/openapi-specs.json` is missing or its counts are not 38 operations and 37
+  schemas, stop and report** rather than regenerating from whatever state that clone happens to be in.
+
+  The provenance entry's facts are settled and measured — take them from "The contract — measured, not
+  expected" above rather than re-deriving: **35 → 38 operations, 27 → 37 schemas, purely additive, nothing
+  removed, and no pre-existing schema altered in any property.** The "what changed that was not an addition"
+  section is therefore **"nothing"**, which is itself worth stating: the last two refreshes each had entries
+  there, so an empty one is a finding rather than an omission. `SPEC-PROVENANCE.md` also demands two re-checks
+  that the document cannot carry — api's `application.yaml` actuator settings and the `where`/`sort` parameter
+  descriptions. Do those against api at that pinned commit with `git show <sha>:<path>`, never by checking out.
 - Add a zod schema to `WIRE_SCHEMAS` for every schema the document gained.
 - Add every new operation to `IMPLEMENTED_OPERATIONS`.
 - Pin `STRICT_RESPONSE_PROPERTIES` for each new **response** schema, and add each new **request** schema to
@@ -522,9 +577,25 @@ re-checked), `libs/deed-poll-api-client/src/api/contract.test.ts` (all of it), a
 - **Contingency:** if the document's property names differ from Task 0's reconciliation, the document wins —
   amend this plan, do not adapt the schema to the plan.
 
-- [ ] `openapi.json` refreshed with a new `SPEC-PROVENANCE.md` entry to that file's standard, every new schema
+- [x] `openapi.json` refreshed with a new `SPEC-PROVENANCE.md` entry to that file's standard, every new schema
       registered and every new operation listed, strictness pinned for each, `contract.test.ts` green, and the
       validation commands green
+
+      **Done 2026-09-21.** 35 → 38 operations, 27 → 37 schemas, and the "what changed that was not an addition"
+      section says **nothing** — measured three ways: all 27 pre-existing schemas byte-identical when serialised
+      one at a time, every pre-existing operation byte-identical with **not one `operationId` shifted**, and the
+      file diff 310 insertions / 0 deletions. Both write bodies published their real caps rather than `{}`.
+
+      **One method finding worth the next refresh's time, now in `SPEC-PROVENANCE.md` step 1.**
+      `JSON.stringify(…, null, 2)` alone is not the committed file's formatting — Biome collapses short arrays —
+      so the raw copy reported 1,291 insertions and 221 deletions of pure formatting churn, which makes step 3's
+      "account for every change" unreadable. `npx biome format --write` on the file afterwards is now mandatory.
+
+      Test count **2,632** against the 2,601 baseline: +31, all in `@hmcts/deed-poll-api-client` (327 → 358) and
+      fully accounted for — 20 generic per-schema tests for the ten new schemas, 8 new strictness pins, and 3
+      hand-written ones for what the generic loops cannot see. The root app's 3 previously-skipped tests ran this
+      time (1,032 + 3 skipped → 1,035 passed); that is `session-store.test.ts` finding a Redis it did not have on
+      09-21, not a change of this task's.
 
 ### Task 2: The adapter and its mock
 
@@ -535,8 +606,13 @@ Read first: `libs/deed-poll-api-client/src/api/client.ts` for the `ApiResult` id
 
 - Three client functions, returning `ApiResult<T>`, never throwing, each carrying an `AbortSignal.timeout` as
   the others do.
-- The send function accepts the journey's UUID and supplies it as `Idempotency-Key`; tests pin the exact
-  header and prove a retry reuses it.
+- **The send function takes the two slots and nothing else. ~~The send function accepts the journey's UUID and
+  supplies it as `Idempotency-Key`; tests pin the exact header and prove a retry reuses it.~~** Struck by
+  Task 1, 2026-09-21: this bullet survived Task 0's correction of decision 16, which is the decision it
+  contradicts. There is no `Idempotency-Key` anywhere in api's contract or source, the UUID is admin-local and
+  belongs to Task 5's page handlers, and `contract.test.ts` now pins `additionalProperties: false` on both write
+  bodies so it cannot be smuggled into the body either. What Task 2 does pin instead is that api's **409** comes
+  back as a failed `ApiResult` of kind `conflict` — that is the real double-send protection.
 - Mock handlers for all three, with fixtures covering: a case with a rejected referral (the template is
   sendable), a case without one (it is not), a case with no `applicantEmail` (send is refused), and a case
   with one `Sent` and one `Failed` email in its history. **If notify-5 has shipped, the history fixtures
@@ -546,8 +622,31 @@ Read first: `libs/deed-poll-api-client/src/api/client.ts` for the `ApiResult` id
 - Tests: the happy path for each function, a 4xx surfacing as a failed `ApiResult` rather than a throw, and a
   parse failure on an unexpected payload.
 
-- [ ] Three functions on the adapter with mock support and fixtures for the sendable, not-sendable,
+- [x] Three functions on the adapter with mock support and fixtures for the sendable, not-sendable,
       no-email-address and mixed-history cases, none of them throwing, and the validation commands green
+
+      **Done 2026-09-21.** `getCaseEmails`, `previewEmail` and `sendEmail`, plus `MOCK_EMAIL_TEMPLATES` and
+      `MOCK_EMAIL_HISTORY` in `mock/fixtures.ts` and the three routes in `mock/server.ts`. Test count **2,652**
+      against Task 1's 2,632: +20, all in `@hmcts/deed-poll-api-client` (358 → 378).
+
+      **One correction to this plan, read api's source rather than its document — see the strikethroughs in
+      decision 16 and Task 5. api's 409 does not mean "already sent".** A redundant second send answers **200
+      with `enqueued: false`** and the first row's id, because the insert is `ON CONFLICT DO NOTHING`; api's own
+      note is that reporting a failure would invite a third attempt. The 409 on this surface means *the case is
+      in no state to send this email* — no Master has refused the application — which is a different sentence
+      and a different link. Pinned both ways in `client.test.ts`.
+
+      **Two things the mock restates that are worth knowing before Task 3.** api checks the **payload before the
+      recipient** (its `CaseEmailService` javadoc claims the reverse; the code is what the mock follows), so a
+      case with no `applicantEmail` and an empty `judges_reason` answers 400 and not 422. And the four content
+      states of decision 15 are only reachable by seeding: a send drains immediately, so everything driven
+      through the send route is `Sent` with content.
+
+      **One deliberate divergence from api, flagged rather than mirrored — see flag 7.** api's `GET …/emails`
+      answers **400** for a case whose Rejected referral has no directions text, because it resolves the slot
+      defaults through the send path and `judges_reason` then fails its required check. The mock answers 200 with
+      an empty default, which is what api's own `getOrDefault(…, "")` intends. Mirroring it would mean building
+      the tab to handle its own load-bearing read being refused.
 
 ### Task 3: The domain service and the view models
 
@@ -555,16 +654,51 @@ Read first: `libs/deed-poll/src/api/deed-poll-api.ts` (`callApi`, `Caller`), and
 such as `libs/deed-poll/src/notes/` for the shape to copy.
 
 - `libs/deed-poll/src/emails/` — service functions over the adapter, taking `Caller`.
-- A view model for the tab's history table and one for the radio list, derived rather than hand-built, so the
-  Nunjucks stays free of logic as `detail.njk`'s existing branches are.
+- A view model for the tab's history table and one for the ~~radio list~~ **compose form**, derived rather than
+  hand-built, so the Nunjucks stays free of logic as `detail.njk`'s existing branches are. Struck by Task 3,
+  2026-09-21: Task 0 removed the picker, so the second view model is the form's fields rather than a radio list.
+  The *list* survives as `EmailsView.sendable` — see the note under the checkbox.
 - Slot validation mirroring api's rules (decision 7), returning field-addressed errors a GOV.UK error summary
   can render.
 - Tests: an unreachable api becomes a rendered state rather than a throw; validation names every offending
-  slot at once rather than the first; a case with no sendable template yields an empty radio list rather than
-  an error.
+  slot at once rather than the first; a case with no sendable template yields an empty ~~radio list~~ **send
+  list with api's reason beside it** rather than an error.
 
-- [ ] Service functions take only a `Caller`, an unreachable api degrades rather than throws, slot validation
+- [x] Service functions take only a `Caller`, an unreachable api degrades rather than throws, slot validation
       names every offending field at once, view models are derived, and the validation commands green
+
+      **Done 2026-09-21.** `emails/service.ts` (`findCaseEmails`, `previewCaseEmail`, `sendCaseEmail`),
+      `emails/emails-view.ts` (`buildEmailsView`, `unavailableEmailsView`, `buildComposeView`) and
+      `emails/slot-validation.ts` (`validateEmailSlots`), all three exported from the package index. Test count
+      **2,712** against Task 2's 2,652: +60, all in `@hmcts/deed-poll` (901 → 961, 52 → 55 files).
+
+      **Slot validation is a rule matrix read off api's metadata, not a zod schema in `schemas.ts`.** Every other
+      form in this repo knows its fields at authoring time; an email's fields are `EmailSlotResponse` rows — a
+      name, a cap and a `required` flag — published per template, and `template` is a bare string with no member
+      list. A hand-written schema would refuse or ignore a template api adds later, so `validateEmailSlots` takes
+      the slots and the raw body and returns `{ ok: true, slots } | { ok: false, errors }` with the same
+      `FieldError[]` a zod rejection produces. Same shape as `deed-poll-validation.ts`; pinned by a test that
+      validates a slot this repo has never seen (`days_outstanding`) from the metadata alone. The returned
+      `Record<string, string>` is assignable to `EmailSlotsWrite`, so nothing between it and the wire casts.
+
+      **Two decisions Task 4 and Task 5 inherit rather than re-take.**
+
+      1. **`sendable` is `applicable` AND `provisioned`, and the tab explains the difference in a sentence.**
+         api's two flags are separate questions and `provisioned` is false everywhere until notify-0 runs. A
+         button offered without it leads to a preview that answers api's 502 — an `unavailable`, so the **500
+         page** — for a reason the tab already held. So `buildComposeView` returns `null` for all three of
+         unknown, not-applicable and not-provisioned, and the page 404s on all three without distinguishing
+         them; `EmailsView.unsendable` carries api's own `reason` prose where it gave one and this repo's
+         provisioning sentence where it did not. Every template api published lands in exactly one of the two
+         lists, asserted, because one in neither is a missing button a caseworker cannot tell from a bug.
+      2. **The state column's words are `Waiting to send` / `Accepted by Notify` / `Failed`.** Decision 10 as a
+         label map with a test asserting no value matches `/delivered|viewed|opened|downloaded|received|read/i`
+         — "Sent" on its own was the trap, because it is the word a caseworker reads as receipt. Task 4's
+         rendered-page assertion is the second half of this, not a duplicate of it.
+
+      The compose view keeps the caseworker's own text **untrimmed** over api's default after a failed attempt,
+      and api's `snake_case` placeholder names are the control names — both pinned, because the second is the
+      mistake no other test catches.
 
 ### Task 4: The Email tab
 
@@ -587,9 +721,37 @@ Read first: `libs/deed-poll/src/deed-poll/form-fields.ts` (`FORM_TABS`), `src/pa
   is absent when nothing is sendable, with a hint saying why (an applicant with no email address is the
   common case and a silent missing button would read as a bug).
 
-- [ ] The tab renders last with sent emails and their states, rows linking to the per-email page, an empty
+- [x] The tab renders last with sent emails and their states, rows linking to the per-email page, an empty
       state, a button that is absent with a reason when nothing can be sent, and no word implying receipt;
       `[id].test.ts` and the `njk` tests cover all of it; validation green
+
+      **Done 2026-09-21.** `{ id: "emails", …, subgrid: "emails" }` last in `FORM_TABS`, the
+      `{% elif tab.subgrid == "emails" %}` branch in `detail.njk`, and the read wired into `[id].ts` as a fourth
+      call inside the existing `Promise.allSettled` — additive, degrading to `unavailableEmailsView()` with a log
+      line. Test count **2,740** against Task 3's 2,712: +28, 26 in the root app and 2 in `@hmcts/deed-poll`.
+      Task 4's contingency did not fire; history is on the wire.
+
+      **Three decisions Task 5 and Task 5a inherit.**
+
+      1. **The button reads `Send an email: <template name>`, and the label carries the name for a reason.** One
+         button per entry in `EmailsView.sendable`, so notify-3's second template appears with no code change
+         (pinned by a test that renders two), and the name is in the button's own text rather than under a
+         heading above it because a control read out of context by a screen reader has to say what it does. The
+         name is passed as `text` and never as `html`: it can come from api's `templateName`, and `govukButton`
+         does not escape `html`.
+      2. **The timestamp column is headed "Created", not "Sent".** api's field is the outbox row's `createdOn`
+         and a `Pending` row has one without having gone, so a column headed "Sent" beside a state of "Waiting to
+         send" would contradict itself on the one row where the difference matters.
+      3. **Decision 10 is now pinned twice over and the second half is the useful one.** The panel is asserted to
+         contain no `/delivered|viewed|opened|downloaded/i` — scoped to the panel, because the documents tab could
+         satisfy a page-wide match — *and* it renders a sentence saying that acceptance by Notify is not
+         confirmation the applicant received or read anything. The negative test alone would pass on a panel that
+         said nothing at all, which is the state a caseworker reads as receipt by default.
+
+      `detail.njk.test.ts`'s `referralsPanel` became `panelFor(rendered, id)`: its docblock claimed referrals was
+      the last of `FORM_TABS` and that a tab added after it would widen the window. The second half was wrong in
+      a way worth recording — a later tab *narrows* the window, which is still the safe direction for a negative,
+      but the comment would have sent the next reader looking for a failure that cannot happen.
 
 ### Task 5a: The per-email page
 
@@ -613,9 +775,46 @@ Read first: decisions 12, 13, 14 and 15, and Task 4's view model to extend.
   not reuse the iframe; each of the three no-content cases renders its own wording rather than a blank; an
   unknown id is a 404; and the page makes no second api call.
 
-- [ ] One email's content renders as escaped text with its documents, markup in the body is inert and proven
+- [x] One email's content renders as escaped text with its documents, markup in the body is inert and proven
       so by test, all three no-content cases are explained rather than blank, an unknown id is a 404, and the
       validation commands green
+
+      **Done 2026-09-21.** `buildEmailDetail` in `emails-view.ts`, the page at
+      `src/pages/deed-polls/[id]/emails/[notificationId].ts`, its template `deed-polls/email-detail.njk` and an
+      `.app-email-body { white-space: pre-wrap }` rule in `src/assets/css/index.scss`. Test count **2,782**
+      against Task 4's 2,740: +42, 19 in `@hmcts/deed-poll` and 23 in the root app. No new adapter function and
+      no new api call — the row comes out of the `findCaseEmails` payload, asserted by a test that pins
+      `findCaseEmails` at one call and both write functions at none.
+
+      **Four decisions Task 5 and Task 6 inherit.**
+
+      1. **The four no-content cases are four, not three.** Decision 15 names `Pending`, `Failed` and
+         "sent before the text was kept"; `notifyState` is *nullable* on the wire, so a row with neither a state
+         nor a body is reachable and none of the three sentences may be borrowed for it — each asserts a history
+         that row does not have. It gets its own (`No wording was recorded for this email.`), and the state cell
+         already reads "Not recorded". `body` and `missingBody` are alternatives with **exactly one set**, pinned
+         across all five shapes api can publish, because both set renders the wording and an explanation of its
+         absence together while neither set is the blank panel decision 15 exists to prevent.
+      2. **A body of only whitespace counts as absent.** api sends `""` rather than null for an absent rendering
+         (Task 1's correction to `html` is the same defect one field over), so a null check alone renders a panel
+         with nothing visible in it — which is the outcome the sentence exists to replace. **Task 5's `html`
+         fallback has to test for empty *or* null for the same reason**, and this is the second instance of it.
+      3. **Both calls on this page are load-bearing, which inverts the tab's rule rather than contradicting it.**
+         `[id].ts` reads emails with `Promise.allSettled` and degrades the panel because there it is one tab out
+         of several; this page *is* the email, so `Promise.all` and the error reaches the page. `findDeedPoll` is
+         the second call and is the case reference in the caption, exactly as `referrals/[referralId].ts` does it.
+      4. **`failureReason` is rendered whenever api published one, not only on a `Failed` row**, and a reason of
+         only whitespace reads as absent. It is the field that makes a failure actionable — "the recipient address
+         was rejected" tells a caseworker to ring the applicant where "Failed" alone tells them only to worry.
+
+      The `<script>` test is the one the plan called for and it is worth knowing what it pins: the body reaches
+      the page through **autoescaping with `pre-wrap`**, so the newlines are CSS and not markup. Turning them into
+      `<p>` or `<li>` would mean building HTML out of caseworker free text, which is decision 3's problem arriving
+      by the back door — the reason is now in the SCSS comment as well as the template's.
+
+      **One thing checked and deliberately not changed:** `yarn welsh:check` exits 1 on `master` too (342 prose
+      strings identical in `cy`, the repo-wide `cy = { ...en }` state). Measured by stashing this task's work, not
+      assumed. It is not one of the six pipeline scripts and this page adds to the count rather than causing it.
 
 ### Task 5: The journey
 
@@ -624,7 +823,8 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
 
 - The **three** routes of decision 2, as file-based pages under `src/pages/deed-polls/[id]/emails/`. **Not
   four** — Task 0 removed the "which email?" picker, because api ships one template. There is no
-  `/emails/new`.
+  `/emails/new`. The send is `…/{template}/send` rather than `…/{template}`, for the routing reason recorded
+  against decision 2.
 - The compose page pre-populates the slots from the tab payload; the preview page renders the returned HTML in
   a sandboxed `iframe` with a `title` (decision 3), and says so in a sentence when `html` is null; the send
   posts and redirects to the tab with a banner.
@@ -633,19 +833,69 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
   **The UUID is admin-local and is sent to api in neither a header nor the body** — decision 16 as corrected by
   Task 0. It exists to stop a double-click or a browser resubmit; api's own protection is a unique index that
   answers 409.
-- **api's 409 is a rendered state on the preview page**, not an error page: "this email has already been sent
-  for this referral", with a link back to the tab. Reachable without any double-click — two caseworkers on one
-  case produce it.
+- **api's 409 is a rendered state on the preview page**, not an error page — but **not** the sentence this
+  bullet used to carry. Corrected by Task 2: a 409 means *the case is in no state to send this email*, which is
+  api's own `reason` prose ("no referral that a Master has refused"), reachable when the referral was withdrawn
+  or re-decided since the tab was rendered. Render that with a link back to the tab.
+- **A redundant send is a SUCCESS, and needs its own wording on the confirmation rather than an error.** api
+  answers 200 with `enqueued: false` and the first row's id, so the caseworker should be told the email had
+  already been sent and shown it — not told their send failed, which would invite a third attempt. This is the
+  case the compose journey's UUID is there to make rare; it is not the case the UUID has to handle.
 - An unknown or non-applicable template in the path is a 404, not a 500 — the route parameter is user input.
 - Tests: the full journey; a validation failure returns to compose with an error summary and the caseworker's
   text preserved; a send failure returns to preview with api's message and the text preserved; the `iframe`
   carries `sandbox` without `allow-scripts` and without `allow-same-origin`, asserted in the `njk` test,
   because that attribute is the whole of decision 3 and a later tidy-up could drop it silently.
 
-- [ ] All three routes live, the preview renders in a titled sandboxed iframe asserted by test and explains
-      itself in a sentence when `html` is null, a 409 renders as its own state rather than an error page, a
+- [x] All three routes live, the preview renders in a titled sandboxed iframe asserted by test and explains
+      itself in a sentence when `html` is empty **or** null, a 409 renders as its own state rather than an error
+      page, a redundant send (`enqueued: false`) renders as an already-sent success rather than a failure, a
       validation or send failure never loses the caseworker's typing, an unknown template is a 404, and
       validation green
+
+      **Done 2026-09-21.** `emails/[template]/compose.ts` (GET and POST), `preview.ts` (POST) and `send.ts` (POST),
+      with `deed-polls/email-compose.njk`, `deed-polls/email-preview.njk` and an `.app-email-preview` rule in
+      `src/assets/css/index.scss`. The four routes now under `/deed-polls/:id/emails` were read back off the
+      filesystem through `discoverRoutes` to confirm the per-email `GET` and the journey's three do not collide.
+      Test count **2,854** against Task 5a's 2,782: +72, all in the root app (67 → 72 files).
+
+      **Five decisions Task 6 inherits.**
+
+      1. **The send URL is a sub-resource — see the amendment on decision 2.** The collision it avoids is one
+         `simple-router` cannot report, because `validateRoutes` keys on the parameter *name*: `:notificationId`
+         and `:template` are different keys for the same URL, so two meanings would have shared a path with only
+         Express's registration order telling them apart.
+      2. **`compose.ts` owns the journey's shared parts and the other two steps import them.** `preview.ts`
+         re-renders the form on a rejected wording and `send.ts` does too, and both must show *that page's* copy —
+         a second set of labels for the same controls is a second thing for a translator to keep in step, and
+         `yarn welsh:check` reads `en`/`cy` per file. So `loadEmailJourney`, `renderCompose` and `hasControl` live
+         in `compose.ts`, `renderPreview`/`renderRefusal`/`renderContentRejection` in `preview.ts`, and nothing
+         imports upwards. The 404 rule for a template that is not sendable is therefore decided once.
+      3. **`POST …/compose` is the way back from the check page, and it is a form rather than a link on purpose.**
+         A `GET` could carry neither the caseworker's text nor the journey's token, so a refused send or an
+         unrenderable preview would cost them their typing — which is the failure the whole re-render pattern in
+         this repo exists to prevent. The handler is the `GET`'s, because `loadEmailJourney` reads the values out
+         of the body when there is one.
+      4. **A rejection api addresses to something this form has no control for goes on the check page, not the
+         form.** api's 422 for a case with no `applicantEmail` is the live example: nothing typed is wrong and
+         nothing the compose form can change would fix it, so it renders as a refusal with api's own message where
+         it can be read in full. A mixed 400 is split the way `referrals/new.ts` splits one — the placeable
+         messages against their controls, the rest logged and stood in for — because showing one and dropping the
+         other has the caseworker fix what they were shown and be refused again for the half they were not.
+      5. **The journey's token is admin-local and deliberately holds no server-side state.** It is minted on the
+         compose `GET`, carried through the check page and the send, and re-minted when a posted value is not a
+         UUID (it is rendered back into the form, so it is not a place for text of the caseworker's choosing).
+         **No session-backed "spent token" set**, which was the alternative considered: api's insert is
+         `ON CONFLICT DO NOTHING` per referral, so a resubmit already answers 200 with `enqueued: false` and that
+         *is* the already-sent state this journey renders — local bookkeeping would have saved one api call while
+         giving this repo a rule api does not have, which notify-6's repeatable chases would then have to undo.
+
+      **One thing to know before Task 6's Playwright spec.** The send redirects to
+      `/deed-polls/{id}?email=sent|already-sent&emailId={id}#emails` and the banner is the case page's
+      (`[id].ts`), not a confirmation page of its own — decision 2 asked for the tab and a banner. The link in it
+      is built only for an id that case's history carries, because `emailId` is a query parameter; an e2e
+      assertion on the link therefore needs the mock's history to have drained, which it has, since a send there
+      is `Sent` immediately.
 
 ### Task 6: Journey test, accessibility and full validation
 
@@ -659,9 +909,67 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
   whether Task 5a ran**, so a lower count is explained rather than looking like lost tests.
 - Re-read this file's `[PROVISIONAL]` markers and confirm none survived.
 
-- [ ] The journey passes end to end with axe clean, coverage above 90% on the new code, every `[PROVISIONAL]`
+- [x] The journey passes end to end with axe clean, coverage above 90% on the new code, every `[PROVISIONAL]`
       marker gone, the test count recorded against the baseline, and `yarn lint`, the unit suite and
       `yarn test:e2e` all green
+
+      **Done 2026-09-21.** `e2e-tests/tests/emails.spec.ts` — **two** tests, not one: the send that goes (the tab
+      explaining why nothing can be sent yet, the button that appears once a Master has refused, the wording, the
+      check page, the send, the content page, and a second click that is a success) and the send api refuses,
+      which is a different journey because nothing typed is wrong and no wording would fix it. Six axe scans in
+      the first and one in the second, inline at the points the journeys pass through. `yarn test:e2e`:
+      **37 passed** against 35 before.
+
+      **Task 5a ran — notify-5 had shipped, so nothing was skipped** and the count is not to be read as short.
+      `npx turbo test test:app --concurrency=1` → `8 successful, 8 total`, **160 test files, 2,854 tests**, against
+      Task 0's baseline of 150 files and 2,601: **+10 files, +253 tests**, all this plan's. `yarn lint` exits 0 with
+      the same 2 pre-existing `noUndeclaredEnvVars` warnings on `REDIS_URL` it had on `master`. The baseline's
+      3 skipped tests ran again here (`session-store.test.ts` with Redis up), which is why the arithmetic is against
+      2,601 rather than 2,598.
+
+      | Package | Files | Tests |
+      |---|---|---|
+      | root app (`//`) | 72 | 1,158 |
+      | `@hmcts/deed-poll` | 55 | 980 |
+      | `@hmcts/deed-poll-api-client` | 4 | 378 |
+      | `@hmcts-cft/cloud-native-platform` | 10 | 140 |
+      | `@hmcts-cft/express-govuk-starter` | 12 | 127 |
+      | `@hmcts-cft/simple-router` | 4 | 41 |
+      | `@hmcts-cft/express-session-postgres` | 2 | 23 |
+      | `@hmcts-cft/express-session-redis` | 1 | 7 |
+
+      **Coverage is above the 90% target on every file this plan added.** `yarn test:coverage`: the journey's pages
+      `compose.ts`, `preview.ts` and `send.ts` are 100% of statements and 97.29% of branches (one uncovered branch,
+      `preview.ts:90`), `[notificationId].ts` is 100% of everything, and `libs/deed-poll/src/emails` is 97.59% /
+      94.18% in its own package run with `service.ts` and `slot-validation.ts` at 100%. Flag 6 is therefore
+      answered: the target survived Task 5a's extra page.
+
+      **No `[PROVISIONAL]` marker is live.** The ten remaining occurrences of the word in this file are the
+      struck-through history in the section at the top, decision 8's struck-through claim, and the instructions
+      that told Task 0 to clear them — checked line by line rather than by a count.
+
+      **Three findings, the first two about running this suite rather than about the feature.**
+
+      1. **The journey needs `test.slow()`, and the symptom of not having it is misleading.** It is 47 seconds under
+         three workers — four form round trips, six axe scans and a second sign-in for the Welsh check — against
+         Playwright's 30-second default, and what a timeout mid-scan reports is
+         `browserContext.newPage: Protocol error (Target.createTarget)` from inside `AxeBuilder`, with a link to
+         axe's error-handling page. That reads as the sandboxed `iframe` having broken axe, which it has not: the
+         same scan passes on the same page given the time. Splitting the journey to fit the default would cost
+         exactly what the file is for, which is that the typing survives each step.
+      2. **Playwright's `webServer` cannot start the app from inside a git worktree, and this is not a repo defect.**
+         `yarn dev:nowatch:web` runs `yarn dev:up`, and `docker compose` names its project after the directory — so
+         from a worktree it tries to create `deed-poll-redis` and `deed-poll-idam` again and exits on the name
+         conflict with the containers the main checkout already has. `docker-compose.yml` shares those containers
+         between repos deliberately, so the answer is to start the mock and the app by hand without `dev:up` and let
+         `reuseExistingServer` find them, which is how this run was made. Worth knowing before reading the failure
+         as a broken suite.
+      3. **api's 409 is not drivable from a browser, and the spec says so at the code.** A 409 means the case is in
+         no state to send this email, and `loadEmailJourney` 404s on that same condition when the page loads — so
+         reaching it needs the case to stop being sendable *between* the compose read and the send, which nothing in
+         the contract can do to a Rejected referral. It stays covered in `send.test.ts`. The 422 for a case with no
+         `applicantEmail` **is** reachable, which is what the second test drives: api checks the recipient at the
+         send and not in availability, so the tab offers the button exactly as a caseworker finds it.
 
 ---
 
@@ -673,10 +981,15 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
   [`.business_context/NOTIFY_PROVISIONING_REQUEST.md`](../../.business_context/NOTIFY_PROVISIONING_REQUEST.md).
 - **The other templates.** The tab is built to list what api says is sendable, so a template added in
   notify-3, notify-4 or notify-6 should appear with no change here. **That is the design intent and Task 4's test should
-  prove it** — a fixture with two sendable templates must render two radios without a code change.
+  prove it** — a fixture with two sendable templates must render two ~~radios~~ **buttons, one per template**,
+  without a code change. Struck by Task 3, 2026-09-21: there are no radios, because Task 0 removed the picker.
+  `EmailsView.sendable` is already a list and `emails-view.test.ts` pins that a second applicable template reaches
+  it, so Task 4's half is the rendering only. More than one sendable template is the trigger to build the picker
+  decision 2 deferred.
 - **Chase-specific UI.** notify-6 adds `chase-missing-documents`, but this plan renders it from the same
   availability, slots and defaults metadata as every other template. The only shared addition is decision 16's
-  idempotency header; do not add a chase route or switch on its key.
+  idempotency **form token**, which is admin-local — ~~header~~, struck by Task 1 for the reason decision 16 gives.
+  Do not add a chase route or switch on its key.
 - **Showing the sent email's content.** Decision 11. **No longer true as of 2026-09-19** — notify-5 serves it
   and decisions 12 to 15 render it on a per-email page. What is still not here: any *storage* of content in
   this repo, which decision 11's first sentence keeps.
@@ -753,3 +1066,23 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
    That is a reason to check the target is still met, not a reason to move it — but if Task 0 skipped Task 5a
    because notify-5 had not shipped, the baseline comparison in Task 6 should say so rather than appearing to
    have lost tests.
+
+7. **api's Email tab read 400s for a refusal with no directions text, and it is an api fix rather than one I can
+   make here.** Found by Task 2 reading `CaseEmailService`. `GET /caseworker/cases/{id}/emails` resolves the slot
+   defaults by composing an empty send — `slotDefaults` → `compose` → `EmailSlots.parse` — so a case whose
+   Rejected referral carries **no** `directionsText` fails `judges_reason`'s required check and the whole
+   response is a 400. A judge may refuse an application without typing a comment (`directionsText` is optional on
+   a direction, on purpose), so this is reachable rather than theoretical, and what it breaks is the tab's one
+   load-bearing read: the Email tab would not render at all for that case.
+
+   **The api fix is small** — resolve a default as the empty string rather than through the required check, which
+   is what its own `getOrDefault(slot.placeholder(), "")` already intends one line later. I have **not** mirrored
+   the defect in the mock, because mirroring it would mean building the tab to handle its own read being refused
+   and then unbuilding that; the mock answers 200 with an empty default and `server.test.ts` pins the divergence
+   with this reasoning. **If api is not fixed before this lands, the symptom in AAT is a case whose Emails tab
+   500s while every other tab works.**
+
+8. **api's `CaseEmailService` javadoc and its code disagree about refusal order**, and the code checks the
+   payload first. Harmless — it costs a caseworker with no applicant address one extra correction before they are
+   told the real problem — and worth a one-line doc fix at api's end rather than anything here. The mock follows
+   the code.

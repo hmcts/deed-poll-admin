@@ -1,0 +1,92 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/tag/macro.njk" import govukTag %}
+{% from "govuk/components/inset-text/macro.njk" import govukInsetText %}
+
+{#
+  One email's content, on a page of its own rather than in the tab's table: a body is several paragraphs and would
+  destroy a govukTable's scannability, and the tab is what a caseworker loads every time where the content is what
+  they occasionally need. Decision 14 of docs/plans/notify-2-caseworker-email-tab.md.
+
+  THE BODY IS PLAIN TEXT AND RENDERS THROUGH AUTOESCAPING. api's `EmailHistoryResponse.body` is the text
+  rendering of the template, not the branded HTML the applicant read — the two are different fields of different
+  shapes (decision 12). So: no `| safe`, and NOT the preview's sandboxed srcdoc iframe, which exists for the
+  other one. Newlines are preserved by `app-email-body` (white-space: pre-wrap) rather than by markup, and
+  Notify's Markdown-flavoured bullets are shown as the `*` they arrive as — passing caseworker free text through
+  a Markdown renderer would put it back into an unescaped render for no gain. email-detail.njk.test.ts asserts
+  that a body containing `<script>` appears as visible text.
+
+  The heading says this is the wording rather than the email (decision 13), because the applicant saw Notify's
+  branding around it and "that is not what they got" is the objection this page has to survive.
+
+  Nothing here may read as proof of receipt. api knows GOV.UK Notify accepted the send and nothing more, so the
+  state's words come from the domain's label map and the hint spells out what they mean — decision 10, and the
+  test asserts no "Delivered", "Viewed", "Opened" or "Downloaded" survives on the page.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    <span class="govuk-caption-l">{{ case.displayReference }}</span>
+    <h1 class="govuk-heading-xl govuk-!-margin-bottom-4">{{ heading }}</h1>
+
+    {#
+      Every attachment the email carried. Empty for every email today — the one shipped template attaches
+      nothing and notify-4 is blocked on document generation — so this renders "None" rather than an empty cell,
+      which beside "Documents attached" would read as a question the page failed to answer.
+    #}
+    {% set documentsCell %}
+      {% if email.documents.length %}
+        <ul class="govuk-list govuk-!-margin-bottom-0">
+          {% for document in email.documents %}<li>{{ document.name }}</li>{% endfor %}
+        </ul>
+      {% else %}
+        {{ noDocuments }}
+      {% endif %}
+    {% endset %}
+
+    {% set metadataRows = [
+      { key: { text: templateLabel }, value: { text: email.template } },
+      { key: { text: subjectLabel }, value: { text: email.subject } },
+      { key: { text: recipientLabel }, value: { text: email.recipient } },
+      { key: { text: stateLabel }, value: { html: govukTag({ text: email.state, classes: email.stateTagClasses }) } }
+    ] %}
+
+    {#
+      api's own prose on a failure, and the row that makes a failed email actionable: "the recipient address was
+      rejected" tells a caseworker to ring the applicant where "Failed" alone tells them only to worry. Absent
+      rather than empty when api published none.
+    #}
+    {% if email.failureReason %}
+      {% set metadataRows = (metadataRows.push({ key: { text: failureLabel }, value: { text: email.failureReason } }), metadataRows) %}
+    {% endif %}
+
+    {% set metadataRows = (metadataRows.push(
+      { key: { text: createdLabel }, value: { text: email.sentBy + ", " + email.sentOn } },
+      { key: { text: documentsLabel }, value: { html: documentsCell } }
+    ), metadataRows) %}
+
+    {{ govukSummaryList({ rows: metadataRows }) }}
+
+    <p class="govuk-hint">{{ stateHint }}</p>
+
+    <h2 class="govuk-heading-m">{{ bodyHeading }}</h2>
+
+    {#
+      The body, or the sentence saying why there is none — exactly one of the two, guaranteed by the view model.
+      A blank panel here reads as a bug, and the three reasons an email has no wording are three different
+      reassurances (decision 15), so the view model picks the sentence and this template only places it.
+    #}
+    {% if email.body %}
+      <p class="govuk-body">{{ bodyCaption }}</p>
+      <div class="govuk-body app-email-body">{{ email.body }}</div>
+    {% else %}
+      {{ govukInsetText({ text: email.missingBody }) }}
+    {% endif %}
+
+    <p class="govuk-body">
+      <a class="govuk-link" href="/deed-polls/{{ case.id }}#emails">{{ backToCase }}</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

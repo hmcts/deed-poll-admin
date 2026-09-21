@@ -1,6 +1,11 @@
 
 @use "govuk-frontend/dist/govuk/index";
 
+// The settings and helpers, so the rules below can name GOV.UK's own colours rather than repeating hex values.
+// `base` emits nothing of its own, so this adds no output — the same import `components/_persona-switcher.scss`
+// takes, and for the same reason.
+@use "govuk-frontend/dist/govuk/base" as *;
+
 // The case list's filter bar. A partial under `components/` rather than beside this file: `vite.build.ts`
 // globs `css/*.scss` into build entries, so a partial as a sibling would become a stylesheet of its own.
 @use "components/filter-nav";
@@ -70,4 +75,34 @@
  */
 .app-nowrap {
   white-space: nowrap;
+}
+
+/*
+ * The wording of a sent email, on the per-email page. api's `body` is the plain-text rendering Notify
+ * produced, so its paragraph and list breaks are newlines and nothing else: `pre-wrap` keeps them while
+ * still wrapping long lines to the column.
+ *
+ * This is why that body needs no markup around it, which is the point — it renders through Nunjucks
+ * autoescaping (decision 12 of docs/plans/notify-2-caseworker-email-tab.md). Turning the newlines into
+ * <p> or <li> elements would mean building HTML from text a caseworker typed, which is the escaping
+ * problem the preview's sandboxed iframe exists to avoid. Do not replace this with a Markdown renderer
+ * because Notify's bullets arrive as `*`.
+ */
+.app-email-body {
+  white-space: pre-wrap;
+}
+
+/*
+ * The frame the email is checked in, on the preview page. Sized here rather than inline because GOV.UK's rule is
+ * classes and not style attributes, and a frame with no height at all collapses to a few pixels — a caseworker
+ * scrolling a 150px window is how an irreversible send gets approved unread.
+ *
+ * The border is the only styling it may have: everything inside comes from GOV.UK Notify through a `srcdoc`
+ * sandbox, so the email's styles cannot inherit from this page and this page cannot dress the email up as
+ * something the applicant will not see (decision 3 of docs/plans/notify-2-caseworker-email-tab.md).
+ */
+.app-email-preview {
+  width: 100%;
+  height: 30em;
+  border: 1px solid $govuk-border-colour;
 }

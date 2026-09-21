@@ -1,0 +1,69 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/character-count/macro.njk" import govukCharacterCount %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{#
+  Step one of the send-an-email journey: the free-text slots, pre-populated.
+
+  THE CONTROLS ARE api's SLOT METADATA, not a form written here. One `EmailSlotResponse` row per control — its
+  name, its cap and whether it is required — so a template api adds later renders its own fields with no change
+  in this file. That is why there is a loop rather than two named controls.
+
+  THE CONTROL NAMES ARE `snake_case` AND MUST STAY THAT WAY. They are GOV.UK Notify placeholder names, which
+  makes each one the personalisation key, the request-body key and the field api's own 400 addresses itself to at
+  once. Renaming one to this repo's camelCase convention breaks the personalisation silently: Notify substitutes
+  nothing and the applicant reads the template with an empty quotation in it.
+
+  Character counts rather than `maxlength`, the call witness-form.njk and referral-form.njk both record: the cap
+  is api's and is stated in the message, and a browser that silently stops accepting characters gives no reason
+  for having done so. A caseworker over the cap is asked to shorten the wording, never truncated — a shortened
+  quotation of a judge is worse than being asked to shorten one.
+
+  The form posts to the check page, which is mandatory because sending is irreversible. Decision 2 of
+  docs/plans/notify-2-caseworker-email-tab.md.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if errorList.length %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+    {% endif %}
+
+    <span class="govuk-caption-l">{{ case.displayReference }}</span>
+    <h1 class="govuk-heading-xl govuk-!-margin-bottom-4">{{ heading }}</h1>
+
+    {{ govukSummaryList({ rows: [ { key: { text: templateLabel }, value: { text: compose.name } } ] }) }}
+
+    <p class="govuk-body">{{ intro }}</p>
+    <p class="govuk-hint">{{ prePopulatedHint }}</p>
+
+    <form method="post" action="/deed-polls/{{ case.id }}/emails/{{ compose.template }}/preview" novalidate>
+      {#
+        The journey's token, carried unchanged from the moment the form opened. Admin-local: it goes to the check
+        page and back here on a correction, and never to api — see journeyToken in compose.ts.
+      #}
+      <input type="hidden" name="{{ journeyField }}" value="{{ token }}">
+
+      {% for f in compose.fields %}
+        {{ govukCharacterCount({
+          id: f.name,
+          name: f.name,
+          rows: 8,
+          maxlength: f.maxLength,
+          value: f.value,
+          label: { text: f.label if f.required else f.label + " " + optional, classes: "govuk-label--m" },
+          errorMessage: { text: errors[f.name] } if errors[f.name]
+        }) }}
+      {% endfor %}
+
+      <div class="govuk-button-group">
+        {{ govukButton({ text: submit }) }}
+        <a class="govuk-link" href="/deed-polls/{{ case.id }}#emails">{{ cancel }}</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

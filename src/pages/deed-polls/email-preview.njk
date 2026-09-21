@@ -1,0 +1,93 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/inset-text/macro.njk" import govukInsetText %}
+{% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
+
+{#
+  Step two: the real email, checked before it goes. This is the journey's check-your-answers page and it is
+  mandatory because sending is irreversible — an applicant cannot be un-told that their application was refused.
+
+  THE HTML RENDERS INSIDE A SANDBOXED IFRAME WITH srcdoc AND IS NEVER INTERPOLATED INTO THE PAGE. It comes from
+  GOV.UK Notify by way of api and contains text a caseworker typed, so showing it in the page would mean `| safe`
+  on a string that has been through two services and a human — decision 3 of
+  docs/plans/notify-2-caseworker-email-tab.md. `sandbox` with no `allow-scripts` and no `allow-same-origin` means
+  nothing in that HTML can reach this page's DOM, cookies or session, and the email's own styles neither leak out
+  nor inherit in, so what is checked looks more like what the applicant will read. The attribute is asserted in
+  email-preview.njk.test.ts so a later "simplification" fails a test rather than shipping.
+
+  Nunjucks autoescaping is what makes `srcdoc` safe to set from a variable: the HTML is escaped into the attribute
+  and the browser unescapes it back inside the frame. Do not add `| safe` here — that would put it in the page.
+
+  The frame carries a `title` because decision 3's sandbox must not cost a screen-reader user the ability to read
+  what they are about to send.
+
+  NO RENDERING, NO SEND. api answers an absent preview as an empty string rather than null, so `html` is null here
+  for both and the page says so instead of offering an empty frame with a Send button beside it.
+#}
+
+{#
+  The checked wording, as hidden controls. Repeated in both forms so whichever button is used carries it: what was
+  approved is what the send posts, and going back to the wording must not lose it.
+#}
+{% macro checkedWording(slots, journeyField, token) %}
+  {% for s in slots %}<input type="hidden" name="{{ s.name }}" value="{{ s.value }}">{% endfor %}
+  <input type="hidden" name="{{ journeyField }}" value="{{ token }}">
+{% endmacro %}
+
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {#
+      api's refusal, led by this page's own sentence. Not a field error — nothing that was typed is wrong — so it
+      carries no `href`, the same call referral-form.njk makes for its conflict row.
+    #}
+    {% if refusal %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [ { text: refusal } ] }) }}
+    {% endif %}
+
+    <span class="govuk-caption-l">{{ case.displayReference }}</span>
+    <h1 class="govuk-heading-xl govuk-!-margin-bottom-4">{{ heading }}</h1>
+
+    {% set metadataRows = [ { key: { text: templateLabel }, value: { text: compose.name } } ] %}
+    {% if subject %}
+      {% set metadataRows = (metadataRows.push({ key: { text: subjectLabel }, value: { text: subject } }), metadataRows) %}
+    {% endif %}
+    {{ govukSummaryList({ rows: metadataRows }) }}
+
+    {% if not refusal %}
+      {% if html %}
+        <h2 class="govuk-heading-m">{{ previewHeading }}</h2>
+        <p class="govuk-body">{{ previewCaption }}</p>
+        <iframe class="app-email-preview" title="{{ frameTitle }}" sandbox="" srcdoc="{{ html }}"></iframe>
+      {% else %}
+        {{ govukInsetText({ text: previewUnavailable }) }}
+      {% endif %}
+    {% endif %}
+
+    {% if canSend %}
+      {{ govukWarningText({ text: irreversible, iconFallbackText: warningIcon }) }}
+
+      <form method="post" action="/deed-polls/{{ case.id }}/emails/{{ compose.template }}/send" novalidate>
+        {{ checkedWording(slots, journeyField, token) }}
+        {{ govukButton({ text: send }) }}
+      </form>
+    {% endif %}
+
+    {#
+      Back to the wording, and a form rather than a link on purpose: a GET could carry neither the caseworker's
+      text nor the journey's token, so a refused send or an unavailable preview would cost them their typing.
+    #}
+    <form method="post" action="/deed-polls/{{ case.id }}/emails/{{ compose.template }}/compose" novalidate>
+      {{ checkedWording(slots, journeyField, token) }}
+      {{ govukButton({ text: change, classes: "govuk-button--secondary" }) }}
+    </form>
+
+    <p class="govuk-body">
+      <a class="govuk-link" href="/deed-polls/{{ case.id }}#emails">{{ backToCase }}</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

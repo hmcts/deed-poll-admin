@@ -5,6 +5,7 @@
  * away — a multipart body a server can actually parse, a timeout that really fires, a connection that is
  * really refused, and a 2xx whose body does not match the contract.
  */
+import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { Readable } from "node:stream";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -26,6 +27,7 @@ import {
   directJudicialReferral,
   downloadDocument,
   getCase,
+  getCaseEmails,
   getFieldRules,
   getJudicialPool,
   getJudicialReferral,
@@ -42,8 +44,10 @@ import {
   patchCase,
   patchNote,
   patchSavedQuery,
+  previewEmail,
   type ReferralCreate,
   selectSavedQuery,
+  sendEmail,
   updateWitness,
   uploadDocument,
   withdrawReferral
@@ -54,6 +58,14 @@ const DATE_RECEIVED = new Date("2026-03-10T00:00:00Z");
 
 /** A document type the mock serves, so an upload can name one. */
 const DOCUMENT_TYPE_ID = "11111111-1111-4111-8111-111111111111";
+
+/**
+ * The direction a judge recorded, which is what `judges_reason` arrives pre-populated with.
+ *
+ * A constant because three tests need to tell the pre-populated value from a typed one, and "the judge's words
+ * reached the email" is the assertion rather than the words themselves.
+ */
+const JUDGES_REASON = "The evidence supplied does not establish the applicant's identity.";
 
 /** All four witness fields, because api requires all four on a create. */
 const WITNESS = { witnessName: "Alex Witness", witnessAddress: "1 Test Road, Testville", witnessOccupation: "Baker", declarant: false };
@@ -751,6 +763,202 @@ describe("referrals", () => {
   });
 });
 
+describe("emails", () => {
+  it("should answer the whole tab in one call: availability, history and slot defaults", async () => {
+    const { caseId: id } = await refusedCase();
+
+    const result = await getCaseEmails(id, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // One request for three things, which is why no page here needs a second call — and the slot metadata is
+    // what a compose form is built from, so it arrives with the availability rather than on demand.
+    expect(result.data.availability).toEqual([
+      {
+        template: "application-rejected",
+        applicable: true,
+        // Null when it applies: `reason` answers only "why can I not send this".
+        reason: null,
+        provisioned: true,
+        slots: [
+          { name: "judges_reason", required: true, maxLength: 4000 },
+          { name: "additional_notes", required: false, maxLength: 1000 }
+        ]
+      }
+    ]);
+    // The judge's own words, so the compose page opens populated without spending a Notify call on a preview.
+    expect(result.data.slotDefaults).toEqual([{ template: "application-rejected", fields: { judges_reason: JUDGES_REASON, additional_notes: "" } }]);
+    expect(result.data.history).toEqual([]);
+  });
+
+  it("should say why an email does not apply rather than leaving it off the list", async () => {
+    // A case nobody has refused. Answering with an empty list would leave a caseworker asking a person why the
+    // refusal letter is not there.
+    const id = await caseId({ applicantEmail: "applicant@example.com" });
+
+    const result = await getCaseEmails(id, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.availability[0]).toMatchObject({ applicable: false, reason: expect.stringContaining("no referral that a Master has refused") });
+    // No defaults for an email that cannot be sent: they would be values resolved from a referral there is none of.
+    expect(result.data.slotDefaults).toEqual([]);
+  });
+
+  it("should report not-found for a case that does not exist, rather than an empty tab", async () => {
+    const result = await getCaseEmails(randomUUID(), config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("not-found");
+  });
+
+  it("should render a preview carrying the caseworker's own text, as HTML", async () => {
+    const { caseId: id } = await refusedCase();
+
+    const result = await previewEmail(id, "application-rejected", { judges_reason: "Identity not established", additional_notes: "Ring first" }, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.html).toContain("Identity not established");
+    expect(result.data.html).toContain("Ring first");
+    expect(result.data.subject).toMatch(/./);
+    expect(result.data.templateVersion).toBeTypeOf("number");
+  });
+
+  it("should pre-populate the judge's reason from the referral when the body omits it", async () => {
+    const { caseId: id } = await refusedCase();
+
+    // An empty body is legitimate on both write bodies precisely because of this.
+    const result = await previewEmail(id, "application-rejected", {}, config);
+
+    expect(result.ok && result.data.html).toContain(JUDGES_REASON);
+  });
+
+  it("should report conflict when the case is in no state to send, rather than throwing", async () => {
+    const id = await caseId({ applicantEmail: "applicant@example.com" });
+
+    const result = await previewEmail(id, "application-rejected", { judges_reason: "Because" }, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // A state and not a malformed body: the same request succeeds unchanged once a Master has refused.
+    expect(result.error.kind).toBe("conflict");
+    expect(result.error.status).toBe(409);
+  });
+
+  it("should report not-found for a template key api does not serve", async () => {
+    const { caseId: id } = await refusedCase();
+
+    const result = await previewEmail(id, "application-approved", { judges_reason: "Because" }, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // 404 rather than 400: the key is a path segment, so an unknown one is a path nothing is served at. The
+    // template reaches these functions from a URL, which is why it is not narrowed to a union in TypeScript.
+    expect(result.error.kind).toBe("not-found");
+    expect(result.error.message).toContain("application-rejected");
+  });
+
+  it("should send the email and leave it in the history with what was sent", async () => {
+    const { caseId: id } = await refusedCase();
+
+    const result = await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toMatchObject({ recipient: "applicant@example.com", enqueued: true });
+    const after = await getCaseEmails(id, config);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.data.history).toHaveLength(1);
+    expect(after.data.history[0]).toMatchObject({
+      id: result.data.id,
+      template: "application-rejected",
+      templateName: "Application rejected",
+      notifyState: "Sent",
+      failureReason: null,
+      // The stored rendering is PLAIN TEXT where the preview is HTML — two renderings of one template, which is
+      // why the history must never reach the preview's iframe.
+      body: expect.stringContaining("Identity not established"),
+      documents: []
+    });
+    expect(after.data.history[0].body).not.toContain("<p>");
+    expect(after.data.history[0].createdOn).toBeInstanceOf(Date);
+  });
+
+  it("should answer a redundant second send with the first email's id and enqueued false, not a conflict", async () => {
+    // The whole of api's double-send protection, and it is a SUCCESS: a caseworker told their email failed
+    // would try a third time. There is no idempotency key on the wire — the unique index is the mechanism.
+    const { caseId: id } = await refusedCase();
+    const first = await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, config);
+
+    const second = await sendEmail(id, "application-rejected", { judges_reason: "Changed my mind" }, config);
+
+    expect(second.ok).toBe(true);
+    if (!second.ok || !first.ok) return;
+    expect(second.data).toEqual({ id: first.data.id, recipient: "applicant@example.com", enqueued: false });
+    const after = await getCaseEmails(id, config);
+    expect(after.ok && after.data.history).toHaveLength(1);
+  });
+
+  it("should report a case with no email address as a validation failure against applicantEmail", async () => {
+    const { caseId: id } = await refusedCase({ applicantEmail: "   " });
+
+    const result = await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // 422, classified with the 400s: the case is missing a value, which is not a service failure — and the
+    // column is named so the tab can say whose address is missing rather than showing the 500 page.
+    expect(result.error.kind).toBe("validation");
+    expect(result.error.status).toBe(422);
+    expect(result.error.fieldErrors?.map((error) => error.field)).toEqual(["applicantEmail"]);
+  });
+
+  it("should report every offending slot at once, addressed to the slot", async () => {
+    const { caseId: id } = await refusedCase();
+
+    const result = await sendEmail(
+      id,
+      "application-rejected",
+      // Over-long, and a key api resolves from the case rather than accepting. Cast because the wire type has
+      // no way to express the second: the point is what api answers if one ever reaches it.
+      { judges_reason: "x".repeat(4001), reference_number: "KBDP2026-99999" } as never,
+      config
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("validation");
+    // Both, in one answer: a refusal per round trip is what this saves the caseworker.
+    expect(result.error.fieldErrors?.map((error) => error.field).sort()).toEqual(["judges_reason", "reference_number"]);
+    expect(result.error.fieldErrors?.find((error) => error.field === "reference_number")?.message).toContain("resolved from the case");
+  });
+
+  it("should report invalid-response when a send answers a body that breaks the contract", async () => {
+    // `enqueued` absent from a 200 would make a redundant send indistinguishable from a real one, which is the
+    // only thing that response is for.
+    const liar = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ id: randomUUID(), recipient: "applicant@example.com" }));
+      })
+    );
+
+    try {
+      const result = await sendEmail("abc", "application-rejected", {}, { baseUrl: liar.url, timeoutMs: 2000 });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.kind).toBe("invalid-response");
+      expect(result.error.message).toContain("enqueued");
+    } finally {
+      await liar.close();
+    }
+  });
+});
+
 describe("saved queries", () => {
   const A_QUERY = { name: "Enroled this month", conditions: ["state:is:Enroled"], filter: "enroled", sortDirection: "desc" } as const;
 
@@ -1418,6 +1626,26 @@ async function decidedReferral(): Promise<{ caseId: string; referralId: string }
   const claimed = await claimJudicialReferral(referralId, judgeConfig);
   if (!claimed.ok) throw new Error(`referral was not claimed: ${claimed.error.message}`);
   const directed = await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judgeConfig);
+  if (!directed.ok) throw new Error(`referral was not directed: ${directed.error.message}`);
+
+  return { caseId: id, referralId };
+}
+
+/**
+ * A case whose latest referral a Master has REFUSED, with an applicant to write to.
+ *
+ * Driven through the judicial surface rather than seeded, for the reason `decidedReferral` is: the refusal is
+ * what makes the email applicable at all, so seeding one would let every email test pass over a transition api
+ * does not allow.
+ */
+async function refusedCase(patch: Parameters<typeof createCase>[0] = {}): Promise<{ caseId: string; referralId: string }> {
+  const id = await caseId({ applicantEmail: "applicant@example.com", oldForename: "Sam", oldSurname: "Smith", ...patch });
+  const referralId = await referralOn(id);
+  const judgeConfig = judge("judge.a@example.com");
+
+  const claimed = await claimJudicialReferral(referralId, judgeConfig);
+  if (!claimed.ok) throw new Error(`referral was not claimed: ${claimed.error.message}`);
+  const directed = await directJudicialReferral(referralId, { decision: "Rejected", publishToGazette: false, directionsText: JUDGES_REASON }, judgeConfig);
   if (!directed.ok) throw new Error(`referral was not directed: ${directed.error.message}`);
 
   return { caseId: id, referralId };

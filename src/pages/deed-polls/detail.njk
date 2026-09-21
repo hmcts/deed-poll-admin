@@ -36,6 +36,22 @@
   {% endif %}
 
   {#
+    Where a completed send lands. The journey redirects here rather than rendering a confirmation page of its own,
+    so the outcome is a banner above the case — and a redundant send is one of the two successes it reports, never
+    a failure (see emails/[template]/send.ts). The link appears only when the handler could match the id to a row
+    this case has, because it comes from a query parameter.
+  #}
+  {% if emailBanner %}
+    {% set emailBannerHtml %}
+      <p class="govuk-notification-banner__heading">
+        {{ emailBanner.text }}
+        {% if emailBanner.href %}<a class="govuk-notification-banner__link" href="{{ emailBanner.href }}">{{ viewSentEmail }}</a>{% endif %}
+      </p>
+    {% endset %}
+    {{ govukNotificationBanner({ titleText: successTitle, html: emailBannerHtml, type: "success" }) }}
+  {% endif %}
+
+  {#
     Case header, porting the Dynamics form header above the tabs. Rows come from the `header` view
     model (case-header.ts) — do not hand-list them. State renders as a tag so status stays
     scannable; every other row is plain text.
@@ -305,6 +321,84 @@
           {% endfor %}
           {{ govukSummaryList({ rows: legacyRows }) }}
         {% endif %}
+
+      {#
+        Correspondence with the applicant: what has been sent, and what may be sent now. The second subgrid
+        whose rows are not on the case payload, so `emails` is a view model (emails-view.ts) and every cell here
+        is already a display string.
+
+        The table is metadata only. An email's subject and body are several paragraphs and would destroy the
+        table's scannability, so the template name is the row's handle and links to the per-email page — the
+        same shape as a note's code cell above. Decision 14 of docs/plans/notify-2-caseworker-email-tab.md.
+
+        Nothing in this panel may read as proof of receipt. api knows that GOV.UK Notify accepted the send and
+        nothing more — there are no delivery callbacks in this estate and no download concept at all — so the
+        state column's words come from the domain's own label map and the hint spells out what they mean.
+        Decision 10, and detail.njk.test.ts asserts no "Delivered", "Viewed", "Opened" or "Downloaded" survives
+        in this panel.
+      #}
+      {% elif tab.subgrid == "emails" %}
+        {#
+          Three states, as the referrals panel has: `unavailable` is the read having failed, which is a
+          different claim from an applicant who has never been written to. "None recorded." would say the
+          second on a panel that knows neither.
+        #}
+        {% if emails.unavailable %}
+          {{ govukWarningText({ text: emailsUnavailable, iconFallbackText: warningIcon }) }}
+        {% elif emails.count %}
+          <p class="govuk-caption-m">{{ emails.count }} email{{ "" if emails.count == 1 else "s" }}</p>
+          {% set emailRows = [] %}
+          {% for e in emails.rows %}
+            {% set emailNameCell %}
+              <a class="govuk-link" href="/deed-polls/{{ case.id }}/emails/{{ e.id }}">{{ e.template }}<span class="govuk-visually-hidden"> — {{ viewEmailHint }}</span></a>
+            {% endset %}
+            {% set emailCreatedCell %}
+              {{ e.sentOn }}<br>
+              <span class="govuk-hint govuk-!-font-size-16 govuk-!-margin-bottom-0">{{ e.sentBy }}</span>
+            {% endset %}
+            {% set emailRows = (emailRows.push([
+              { html: emailNameCell },
+              { html: emailCreatedCell },
+              { html: govukTag({ text: e.state, classes: e.stateTagClasses }) }
+            ]), emailRows) %}
+          {% endfor %}
+          {{ govukTable({
+            head: [
+              { text: emailColumns[0] },
+              { text: emailColumns[1] },
+              { text: emailColumns[2] }
+            ],
+            rows: emailRows
+          }) }}
+          <p class="govuk-hint">{{ emailsStateHint }}</p>
+        {% else %}
+          <p class="govuk-body">{{ noneRecorded }}</p>
+        {% endif %}
+        {#
+          One button per template api says may be sent now, rather than a picker in front of a list of one:
+          api ships a single template today, and radios with one option read as an unfinished feature. The loop
+          is what makes a template added by notify-3 or notify-6 appear here with no code change — and more than
+          one reaching it is the trigger to build the picker decision 2 deferred.
+
+          The name comes from the view model, and the template key out of the same place, so a button can only
+          ever point at a compose page the same payload says is sendable.
+        #}
+        {% for s in emails.sendable %}
+          {{ govukButton({
+            text: sendEmail + ": " + s.name,
+            href: "/deed-polls/" + case.id + "/emails/" + s.template + "/compose",
+            classes: "govuk-button--secondary"
+          }) }}
+        {% endfor %}
+        {#
+          And the reason for every button that is not there. An applicant with no email address and a case no
+          Master has refused are both common, and a panel with nothing on it reads as a bug — so api's own
+          sentence is rendered beside the template it is about. emails-view.ts guarantees every template lands
+          in exactly one of the two lists.
+        #}
+        {% for u in emails.unsendable %}
+          <p class="govuk-body">{{ u.name }}: {{ u.reason }}</p>
+        {% endfor %}
 
       {% else %}
         {% if tab.empty %}
