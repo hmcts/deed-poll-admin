@@ -1,5 +1,37 @@
 # Plan: Give deed-poll-api a Flux HelmRelease, so admin's readiness can go green
 
+> ## Correction, 2026-09-21 — the HelmRelease does NOT create the `.internal` record. Read this first.
+>
+> The diagnosis below is right and the HelmRelease is still needed. **Its attribution of the DNS record is
+> wrong**, and acting on it as written would land a HelmRelease and leave admin's readiness still failing.
+>
+> **What actually creates `<product>-<component>-<env>.service.core-compute-<env>.internal`:** a two-line
+> entry in `environments/<env>/backend_lb_config.yaml` in
+> [`hmcts/azure-platform-terraform`](https://github.com/hmcts/azure-platform-terraform). Merging it generates
+> the record through the `cftapps_private_dns` component, pointing at the internal **application gateway** —
+> and the record must not be added by hand. Documented at
+> `cft-workspace/docs/how-to/path-to-live/private-dns.md`.
+>
+> **The evidence, since this plan reasoned from `pcs-api` and reached the opposite conclusion:**
+>
+> - `pcs-api-aat` is a **plain `A` record at 10.10.161.101**, with **no companion external-dns `TXT`
+>   ownership record** — so nothing driven by an ingress created it. Read off the live zone.
+> - **10.10.161.101 is the `private_ip_address` of the second AAT gateway block in that very file**, which
+>   also contains `- product: pcs` / `component: api`. The record is the gateway.
+> - **AAT is `stg`** in `azure-platform-terraform`. An earlier search for `environments/aat/…` found nothing
+>   and was misread as "no request exists" for the right reason by luck, not by method.
+>
+> **What the HelmRelease is genuinely for**, and what to keep from this plan: the deployment itself, with
+> `ingressHost` set to the same hostname the gateway sends to, and the traefik TLS router left **disabled**
+> (`disableTraefikTls: true`, the chart default) — the gateway terminates TLS and speaks plain HTTP on port 80
+> to the backend, so a TLS-only ingress leaves both its requests and its probe unmatched and every backend
+> reports unhealthy. `deed-poll` having no HelmRelease at all while `apps/pcs/` has ten is still a real gap.
+>
+> **Status:** the `backend_lb_config.yaml` request is **raised** as
+> [`azure-platform-terraform#3163`](https://github.com/hmcts/azure-platform-terraform/pull/3163) — AAT only,
+> no `ssl_enabled`, since nothing reaches api by its `platform.hmcts.net` name. **Sequence the HelmRelease
+> after it merges**, so that a failing readiness probe afterwards means something new.
+
 ## Overview
 
 **This repo's AAT deploy fails, and the cause is in another repo.** Admin's pod starts, then dies:
