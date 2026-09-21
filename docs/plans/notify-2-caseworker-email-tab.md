@@ -75,7 +75,7 @@ Two consequences worth stating plainly, because they have bitten this repo befor
    |---|---|---|
    | 1 | `GET,POST /deed-polls/{id}/emails/{template}/compose` | The free-text slots, pre-populated |
    | 2 | `POST /deed-polls/{id}/emails/{template}/preview` | The **real rendered email**, with Send and Back |
-   | 3 | `POST /deed-polls/{id}/emails/{template}` | Send, then back to the tab with a success banner |
+   | 3 | ~~`POST /deed-polls/{id}/emails/{template}`~~ **`POST …/{template}/send`** | Send, then back to the tab with a success banner |
 
    **Sending is irreversible, so the preview step is mandatory rather than a nicety.** An applicant cannot be
    un-told that their application was refused. This is the same reason the deed-poll journeys already put a
@@ -87,6 +87,14 @@ Two consequences worth stating plainly, because they have bitten this repo befor
    other three in `NOTIFY_TEMPLATE_TAXONOMY.md` §6 are notify-3 and notify-4. A radio list of one option is
    dead UI that reads as an unfinished feature, so **Task 4's "Send an email" button links straight to the
    compose page for the one applicable template.** Steve's decision, 2026-09-21.
+
+   **Amended by Task 5, 2026-09-21 — the send is a sub-resource, `…/{template}/send`, and the reason is this
+   repo's router rather than a preference.** Task 5a's per-email page already answers
+   `GET /deed-polls/:id/emails/:notificationId`, so a send at `POST /deed-polls/:id/emails/:template` would put two
+   meanings — an outbox row's id and a template key — in one URL, told apart only by the method and by which of the
+   two `sortRoutes` happened to register first. `simple-router`'s conflict check keys on the **parameter name**, so
+   it would not have noticed the collision. The sub-resource is also what `referrals/[referralId]/withdraw.ts` does
+   with api's own transition paths, and no caseworker reads the URL. Nothing else about the journey changes.
 
    **The template stays a route parameter, which is what makes this additive rather than a rework.** When
    notify-3 adds a second template, the picker is a new page in front of an unchanged compose route — not a
@@ -815,7 +823,8 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
 
 - The **three** routes of decision 2, as file-based pages under `src/pages/deed-polls/[id]/emails/`. **Not
   four** — Task 0 removed the "which email?" picker, because api ships one template. There is no
-  `/emails/new`.
+  `/emails/new`. The send is `…/{template}/send` rather than `…/{template}`, for the routing reason recorded
+  against decision 2.
 - The compose page pre-populates the slots from the tab payload; the preview page renders the returned HTML in
   a sandboxed `iframe` with a `title` (decision 3), and says so in a sentence when `html` is null; the send
   posts and redirects to the tab with a banner.
@@ -838,11 +847,55 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
   carries `sandbox` without `allow-scripts` and without `allow-same-origin`, asserted in the `njk` test,
   because that attribute is the whole of decision 3 and a later tidy-up could drop it silently.
 
-- [ ] All three routes live, the preview renders in a titled sandboxed iframe asserted by test and explains
+- [x] All three routes live, the preview renders in a titled sandboxed iframe asserted by test and explains
       itself in a sentence when `html` is empty **or** null, a 409 renders as its own state rather than an error
       page, a redundant send (`enqueued: false`) renders as an already-sent success rather than a failure, a
       validation or send failure never loses the caseworker's typing, an unknown template is a 404, and
       validation green
+
+      **Done 2026-09-21.** `emails/[template]/compose.ts` (GET and POST), `preview.ts` (POST) and `send.ts` (POST),
+      with `deed-polls/email-compose.njk`, `deed-polls/email-preview.njk` and an `.app-email-preview` rule in
+      `src/assets/css/index.scss`. The four routes now under `/deed-polls/:id/emails` were read back off the
+      filesystem through `discoverRoutes` to confirm the per-email `GET` and the journey's three do not collide.
+      Test count **2,854** against Task 5a's 2,782: +72, all in the root app (67 → 72 files).
+
+      **Five decisions Task 6 inherits.**
+
+      1. **The send URL is a sub-resource — see the amendment on decision 2.** The collision it avoids is one
+         `simple-router` cannot report, because `validateRoutes` keys on the parameter *name*: `:notificationId`
+         and `:template` are different keys for the same URL, so two meanings would have shared a path with only
+         Express's registration order telling them apart.
+      2. **`compose.ts` owns the journey's shared parts and the other two steps import them.** `preview.ts`
+         re-renders the form on a rejected wording and `send.ts` does too, and both must show *that page's* copy —
+         a second set of labels for the same controls is a second thing for a translator to keep in step, and
+         `yarn welsh:check` reads `en`/`cy` per file. So `loadEmailJourney`, `renderCompose` and `hasControl` live
+         in `compose.ts`, `renderPreview`/`renderRefusal`/`renderContentRejection` in `preview.ts`, and nothing
+         imports upwards. The 404 rule for a template that is not sendable is therefore decided once.
+      3. **`POST …/compose` is the way back from the check page, and it is a form rather than a link on purpose.**
+         A `GET` could carry neither the caseworker's text nor the journey's token, so a refused send or an
+         unrenderable preview would cost them their typing — which is the failure the whole re-render pattern in
+         this repo exists to prevent. The handler is the `GET`'s, because `loadEmailJourney` reads the values out
+         of the body when there is one.
+      4. **A rejection api addresses to something this form has no control for goes on the check page, not the
+         form.** api's 422 for a case with no `applicantEmail` is the live example: nothing typed is wrong and
+         nothing the compose form can change would fix it, so it renders as a refusal with api's own message where
+         it can be read in full. A mixed 400 is split the way `referrals/new.ts` splits one — the placeable
+         messages against their controls, the rest logged and stood in for — because showing one and dropping the
+         other has the caseworker fix what they were shown and be refused again for the half they were not.
+      5. **The journey's token is admin-local and deliberately holds no server-side state.** It is minted on the
+         compose `GET`, carried through the check page and the send, and re-minted when a posted value is not a
+         UUID (it is rendered back into the form, so it is not a place for text of the caseworker's choosing).
+         **No session-backed "spent token" set**, which was the alternative considered: api's insert is
+         `ON CONFLICT DO NOTHING` per referral, so a resubmit already answers 200 with `enqueued: false` and that
+         *is* the already-sent state this journey renders — local bookkeeping would have saved one api call while
+         giving this repo a rule api does not have, which notify-6's repeatable chases would then have to undo.
+
+      **One thing to know before Task 6's Playwright spec.** The send redirects to
+      `/deed-polls/{id}?email=sent|already-sent&emailId={id}#emails` and the banner is the case page's
+      (`[id].ts`), not a confirmation page of its own — decision 2 asked for the tab and a banner. The link in it
+      is built only for an id that case's history carries, because `emailId` is a query parameter; an e2e
+      assertion on the link therefore needs the mock's history to have drained, which it has, since a send there
+      is `Sent` immediately.
 
 ### Task 6: Journey test, accessibility and full validation
 

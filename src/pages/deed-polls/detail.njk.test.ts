@@ -452,3 +452,57 @@ describe("case detail template — the emails tab", () => {
     });
   });
 });
+
+/**
+ * The banner a completed send comes back to, rendered rather than asserted through the handler's model.
+ *
+ * `emails/[template]/send.ts` redirects to this page rather than rendering a confirmation of its own, so the
+ * outcome of an irreversible action is markup here — and the redundant send is the one that must not read as a
+ * failure. The handler's half (which query values it honours, and that an invented id builds no link) is pinned
+ * in `[id].test.ts`.
+ */
+describe("case detail template — the banner a send comes back to", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NODE_ENV = "test";
+    vi.mocked(findDeedPoll).mockResolvedValue(found as never);
+    vi.mocked(findReferrals).mockResolvedValue([]);
+    vi.mocked(findCaseEmails).mockResolvedValue({ ...CASE_EMAILS, history: [SENT_EMAIL] } as never);
+  });
+
+  async function sentPage(query: Record<string, string>): Promise<string> {
+    const res = pageResponse();
+
+    await GET(pageRequest({ params: { id: "case-1" }, query, accessToken: "session-token" }), res);
+
+    return html(res.render.mock.calls[0][1]);
+  }
+
+  it("should confirm a send as a success, with a link to what was sent", async () => {
+    const rendered = await sentPage({ email: "sent", emailId: "email-1" });
+
+    expect(rendered).toContain("govuk-notification-banner--success");
+    expect(rendered).toContain("The email has been accepted by GOV.UK Notify for sending to the applicant.");
+    expect(rendered).toContain('href="/deed-polls/case-1/emails/email-1"');
+  });
+
+  it("should report a redundant send as already sent rather than as a failure", async () => {
+    const rendered = await sentPage({ email: "already-sent", emailId: "email-1" });
+
+    expect(rendered).toContain("govuk-notification-banner--success");
+    expect(rendered).toContain("This email had already been sent for this case, so it was not sent again.");
+  });
+
+  it("should still say what happened when there is no email to link to", async () => {
+    const rendered = await sentPage({ email: "sent", emailId: "email-nope" });
+
+    expect(rendered).toContain("accepted by GOV.UK Notify");
+    expect(rendered).not.toContain('href="/deed-polls/case-1/emails/email-nope"');
+  });
+
+  it("should render no banner on an ordinary visit", async () => {
+    const rendered = await sentPage({});
+
+    expect(rendered).not.toContain("govuk-notification-banner--success");
+  });
+});

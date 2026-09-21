@@ -36,6 +36,22 @@
   {% endif %}
 
   {#
+    Where a completed send lands. The journey redirects here rather than rendering a confirmation page of its own,
+    so the outcome is a banner above the case — and a redundant send is one of the two successes it reports, never
+    a failure (see emails/[template]/send.ts). The link appears only when the handler could match the id to a row
+    this case has, because it comes from a query parameter.
+  #}
+  {% if emailBanner %}
+    {% set emailBannerHtml %}
+      <p class="govuk-notification-banner__heading">
+        {{ emailBanner.text }}
+        {% if emailBanner.href %}<a class="govuk-notification-banner__link" href="{{ emailBanner.href }}">{{ viewSentEmail }}</a>{% endif %}
+      </p>
+    {% endset %}
+    {{ govukNotificationBanner({ titleText: successTitle, html: emailBannerHtml, type: "success" }) }}
+  {% endif %}
+
+  {#
     Case header, porting the Dynamics form header above the tabs. Rows come from the `header` view
     model (case-header.ts) — do not hand-list them. State renders as a tag so status stays
     scannable; every other row is plain text.

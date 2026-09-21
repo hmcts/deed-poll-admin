@@ -99,6 +99,15 @@ const en = {
   // bounced email is the failure the tab exists to prevent.
   emailsStateHint:
     "“Accepted by Notify” means GOV.UK Notify took the email to send. It is not confirmation that the applicant received or read it. Ring the applicant about anything that failed.",
+  // The banner a completed send comes back to. "Accepted by GOV.UK Notify" rather than "sent to the applicant"
+  // for the reason the state column is worded that way: api knows Notify took the email and nothing more.
+  successTitle: "Success",
+  emailSent: "The email has been accepted by GOV.UK Notify for sending to the applicant.",
+  // api's insert is `ON CONFLICT DO NOTHING` on one email per referral, so a double-click or a browser resubmit
+  // writes nothing and answers with the first row. Told as a success, because reporting a failure would invite a
+  // third attempt — `emails/[template]/send.ts` has the reasoning.
+  emailAlreadySent: "This email had already been sent for this case, so it was not sent again.",
+  viewSentEmail: "View the email",
   // The emails read failed. Worded, like the referrals one, so it cannot be read as "nothing has been sent".
   emailsUnavailable:
     "Email information could not be loaded, so this tab cannot say what has been sent to the applicant, and no email can be sent from here at the moment. The rest of the case is shown as normal. Try again shortly.",
@@ -180,6 +189,7 @@ export const GET = async (req: Request, res: Response) => {
     documents: buildDocumentsView(found.documents),
     referrals: referrals ? buildReferralsView(referrals) : unavailableReferralsView(),
     emails: emails ? buildEmailsView(emails) : unavailableEmailsView(),
+    emailBanner: emailBanner(req, emails),
     // Data rather than a label in `en`, as every other interpolated string on this page is: it carries
     // the case's count and api's threshold. The threshold is api's — enrolment-requirement.ts.
     witnessCount: witnessCountText(found.witnesses.length),
@@ -187,3 +197,34 @@ export const GET = async (req: Request, res: Response) => {
     cy
   });
 };
+
+/**
+ * What a completed send comes back to, or `null` on an ordinary visit.
+ *
+ * `emails/[template]/send.ts` redirects here rather than rendering its own confirmation, so this is where the two
+ * outcomes are worded: an email accepted by Notify, and a redundant send that api answered with the row it had
+ * already written. Both are successes — see that file for why the second is not reported as a failure.
+ *
+ * **The link is only built for a row this case's history actually carries.** `emailId` is a query parameter and
+ * therefore user input, so an invented one must not reach an `href`; without a match the banner still says what
+ * happened and simply does not offer the link. A failed emails read has no history to check against, which is the
+ * same answer.
+ */
+function emailBanner(req: Request, emails: Awaited<ReturnType<typeof findCaseEmails>> | null): EmailBanner | null {
+  const outcome = req.query.email;
+  if (outcome !== "sent" && outcome !== "already-sent") return null;
+
+  const id = typeof req.query.emailId === "string" ? req.query.emailId : "";
+  const known = emails?.history.some((email) => email.id === id) === true;
+
+  return {
+    text: outcome === "sent" ? en.emailSent : en.emailAlreadySent,
+    href: known ? `/deed-polls/${req.params.id}/emails/${encodeURIComponent(id)}` : null
+  };
+}
+
+/** The success banner after a send: what happened, and where the email is if it can be linked to. */
+interface EmailBanner {
+  text: string;
+  href: string | null;
+}

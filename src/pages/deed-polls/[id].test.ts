@@ -381,6 +381,68 @@ describe("case detail page", () => {
     }
   });
 
+  it("shows no banner on an ordinary visit to the case", async () => {
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].emailBanner).toBeNull();
+  });
+
+  it("confirms a completed send and links to the email the journey named", async () => {
+    // `emails/[template]/send.ts` redirects here rather than rendering a confirmation of its own, so this is
+    // where the outcome is worded.
+    vi.mocked(findCaseEmails).mockResolvedValue({ ...CASE_EMAILS, history: [SENT_EMAIL] } as never);
+    const res = response();
+
+    await GET(pageRequest({ params: { id: "case-1" }, query: { email: "sent", emailId: "email-1" } }), res);
+
+    expect(res.render.mock.calls[0][1].emailBanner).toEqual({
+      text: "The email has been accepted by GOV.UK Notify for sending to the applicant.",
+      href: "/deed-polls/case-1/emails/email-1"
+    });
+  });
+
+  it("tells a caseworker a redundant send had already gone, rather than reporting a failure", async () => {
+    // api's insert is `ON CONFLICT DO NOTHING`, so a double-click answers 200 with `enqueued: false` and the row
+    // it wrote the first time. Reporting a failure would invite a third attempt.
+    vi.mocked(findCaseEmails).mockResolvedValue({ ...CASE_EMAILS, history: [SENT_EMAIL] } as never);
+    const res = response();
+
+    await GET(pageRequest({ params: { id: "case-1" }, query: { email: "already-sent", emailId: "email-1" } }), res);
+
+    expect(res.render.mock.calls[0][1].emailBanner.text).toBe("This email had already been sent for this case, so it was not sent again.");
+  });
+
+  it("offers no link for an email id this case's history does not carry", async () => {
+    // `emailId` is a query parameter and therefore user input: an invented one must not reach an href, and the
+    // banner still says what happened.
+    const res = response();
+
+    await GET(pageRequest({ params: { id: "case-1" }, query: { email: "sent", emailId: "../../somebody-elses" } }), res);
+
+    expect(res.render.mock.calls[0][1].emailBanner).toEqual({ text: expect.stringContaining("accepted by GOV.UK Notify"), href: null });
+  });
+
+  it("shows no banner for a query value the journey never produces", async () => {
+    const res = response();
+
+    await GET(pageRequest({ params: { id: "case-1" }, query: { email: "delivered" } }), res);
+
+    expect(res.render.mock.calls[0][1].emailBanner).toBeNull();
+  });
+
+  it("still confirms the send when the emails read failed, with nothing to link to", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(findCaseEmails).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): nope"));
+    const res = response();
+
+    await GET(pageRequest({ params: { id: "case-1" }, query: { email: "sent", emailId: "email-1" } }), res);
+
+    expect(res.render.mock.calls[0][1].emailBanner.href).toBeNull();
+    logged.mockRestore();
+  });
+
   it("never labels an email as received, read or downloaded, in any string the tab renders", async () => {
     // Decision 10 from the page's side: api knows only that Notify accepted the send. The rendered assertion is
     // in detail.njk.test.ts; this one covers the copy, where a well-meaning wording change would start.
