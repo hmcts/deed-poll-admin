@@ -302,7 +302,7 @@ contains `closeReferral`, and the mock has the existing closure transition. Reco
 Inventory the tests that assert the legacy tab, raw state labels, terminal-only withdrawal control and
 returned-action count. Stop if Notify work or another branch has changed the same files unexpectedly.
 
-- [ ] Contract and implementation reconciled; baselines recorded; no files changed
+- [x] Contract and implementation reconciled; baselines recorded; no files changed
 
 #### Reconciliation already performed, 2026-09-21 — read this instead of repeating it
 
@@ -322,6 +322,57 @@ them as Task 0 work** — re-measure at the end and compare.
 **So Task 0 changes no files, and in particular does not touch `openapi.json`, `wire.ts`, `contract.test.ts`
 or the mock's registration.** If the referral operations or `ReferralResponse`/`CreateReferralRequest` have
 moved, stop and report. A Notify-shaped difference is not drift.
+
+#### Re-verified against the api clone, 2026-09-21 — what api-4 actually changed
+
+The narrowed Precondition 2 was checked against the api working copy rather than taken on trust, by diffing
+`ee37173..origin/master` (`09d70e3`, the api-4 merge) across `src/main/**`. **No drift; proceed.**
+
+| Checked | Found |
+|---|---|
+| Referral operations in this repo's `openapi.json` | The expected nine — five `/caseworker/cases/{id}/referrals*`, four `/judicial/referrals*`. 35 operations, 27 schemas, matching `SPEC-PROVENANCE.md` for `ee37173` |
+| Referral/judicial files api-4 touched | Three: `ReferralState`, `ReferralService`, `CaseworkerReferralController`. **No DTO and no controller annotation** — the controller diff is javadoc only |
+| `ReferralResponse` / `CreateReferralRequest` | Untouched. Neither DTO file appears in the diff at all, so there is no referral contract delta to take |
+| Notify delta | As predicted: `/caseworker/cases/{id}/emails` and friends. api master's `OpenAPIPublisherTest` asserts **33 caseworker + 4 judicial**; our pin carries 30 + 4 + Spring's welcome route. The three missing are notify-1/notify-5's, and stay another branch's |
+| Enum members | Unchanged — api-4 added the *method* `canBeWithdrawn()`, not a sixth state. `Open, Claimed, Decided, Closed, Withdrawn` still |
+
+**The one substantive finding, which Task 1 must mirror.** api-4 did not narrow `isTerminal()`; it added a
+second, independent predicate `ReferralState.canBeWithdrawn()` — true for `Open` and `Claimed` only — and
+pointed withdrawal's guard at it. `isTerminal()` still means `Closed || Withdrawn` and still backs the other
+two rules (one live referral per case, and the `currentReferralState` denormalisation), so `Decided` is
+deliberately **non-terminal and not withdrawable**. api's javadoc says outright that narrowing `isTerminal()`
+instead would have let a case raise a second referral beside a decided one *and* dropped the case out of the
+returned-for-action queue. **Do not "simplify" the mock by narrowing its `isTerminal` either** — add the
+second predicate, exactly as api did.
+
+api also gives the refusal **two different messages**, because the caseworker's next action differs:
+
+- `Decided` → `Referral {id} is Decided -- a direction has been recorded on it and must be actioned and the referral closed, rather than withdrawn`
+- `Closed`/`Withdrawn` → `Referral {id} is already {state} and cannot be withdrawn`
+
+Reusing "already X" for `Decided` would tell a caseworker looking at a returned direction that they had
+already withdrawn it. Closure's message is unchanged and names the single state.
+
+#### Inventory: what the later tasks have to move
+
+Verified present at the paths given, so a task that cannot find one of these should stop rather than invent it:
+
+| Thing | Where |
+|---|---|
+| Mock's withdrawal guard, still `isTerminal` | `libs/deed-poll-api-client/src/mock/server.ts:629`, with the docblock at :599 asserting the old rule — **both** need correcting, and the mock's closure handler at :634 is already right |
+| Mock/adapter referral tests | `libs/deed-poll-api-client/src/mock/server.test.ts` — :889 asserts a `Claimed` withdrawal succeeds (**stays true**), :898 a second withdrawal is refused, :907 closure is refused while `Open`/`Withdrawn`, :918 a `Decided` close preserves the direction, :997 the `currentReferralState` sequence ending `null` |
+| Domain layer's deliberate absence of closing | `libs/deed-poll/src/referrals/service.ts:28` — "Claiming, directing and closing are not here on purpose". Task 1 adds `closeReferral` and must **update that docblock** rather than leave it contradicting the file |
+| `terminal`-only capability | `libs/deed-poll/src/referrals/referrals-view.ts:97`, and `anyOpen` derived from it at :119 with its docblock at :109 and the interface at :186/:195 |
+| View-model tests to rework | `libs/deed-poll/src/referrals/referrals-view.test.ts` — :65 the two-terminal-states tag, :123-126 the per-state `terminal` table, :164/:178/:184/:201/:208 `anyOpen` including the `null`-state defensive case |
+| Legacy tab definition | `libs/deed-poll/src/deed-poll/form-fields.ts:243` (`REFERRAL_TAB`, id `referral`, label "Referral to Master"), listed in `FORM_TABS` (:350) at :353, beside the live `referrals` subgrid tab at :363 |
+| The catalogue split Task 2 needs | `EDITABLE_FIELDS` (:405) and `FIELD_BY_NAME` (:408) **both** flatten `FORM_TABS`, exactly as decision 2 warns. The comment at :360 records that `referral` and `referrals` are URL slugs and cannot be renamed apart |
+| Tests naming the legacy tab | `libs/deed-poll/src/deed-poll/query-builder.test.ts`, `libs/deed-poll/src/deed-poll/detail-view.test.ts`, `src/pages/deed-polls/[id]/edit/[tab].test.ts` |
+| The generic "with the judiciary" copy | `src/pages/deed-polls/[id].ts:71` (`referralAlreadyOpen`), with the degraded-read wording at :75 and the docblock at :69. Asserted by `src/pages/deed-polls/detail.njk.test.ts:173`, which currently covers `Open`, `Claimed` **and `Decided` together** — that parametrised case is what decision 5 splits |
+| Page-level `anyOpen` assertions | `src/pages/deed-polls/[id].test.ts:184, 196, 197, 262` — two of them whole-object `toEqual`, so a new view-model field fails them by design |
+| Returned-for-action count | `libs/deed-poll/src/referrals/returned-for-action.ts`, unchanged by this plan per decision 7; the mock proves the count at `server.test.ts:1025` and the worklist at :1054 |
+
+**This worktree's libraries are already built** (`libs/deed-poll/dist/` is populated), so the first of the
+three worktree preconditions above is satisfied. The other two are e2e-only and bite at Task 5.
 
 ### Task 1: Align the mock and domain capabilities
 
