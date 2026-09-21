@@ -32,6 +32,33 @@ into this plan.
    those documents into this branch.
 5. Measure the current test and lint baselines. Do not quote the totals in completed referral plans.
 
+### Correction to preconditions 1 and 2 — 2026-09-21. **Do NOT refresh `openapi.json` in this branch.**
+
+Preconditions 1 and 2 were written expecting api-4's merge to be the only api change outstanding. It is not,
+and taken literally they now say *stop*. What is actually true:
+
+- **api-4 is merged** (`deed-poll-api` PR #33). It changed no contract: api's own `OpenAPIPublisherTest` still
+  asserts **33 caseworker and 4 judicial** operations, and passed in that build.
+- **This repo's `openapi.json` is pinned to api commit `ee37173`** (api-3's merge, 18 September) —
+  **35 operations, no `CaseEmailsResponse`, no email path.** So it is **three caseworker operations behind api
+  master**, and every one of those three is notify-1's send path and notify-5's correspondence history.
+- **A refresh is atomic.** `contract.test.ts` is set-equality in both directions, so there is no way to take
+  api-4's zero-delta without also taking those three Notify operations and their schemas — which is
+  `referrals-admin-2`'s companion Notify plan's work, being implemented concurrently in another worktree.
+  Refreshing here would put the same wire functions on two branches.
+
+**So this plan needs no refresh and no adapter change at all.** `closeReferral` already exists
+(`libs/deed-poll-api-client/src/api/client.ts:374`), and `libs/deed-poll/src/referrals/service.ts` records that
+closing was deliberately left out of the *domain* layer — which is exactly the gap this plan fills. The work is
+domain service, view model, pages and the in-memory mock.
+
+Precondition 2 is therefore replaced by: **verify the referral surface only.** The five
+`/caseworker/cases/{id}/referrals*` operations, the four `/judicial/referrals*` ones, `ReferralResponse` and
+`CreateReferralRequest` must be byte-identical to what is committed. **Stop** if any of them moved — that would
+be real referral drift. A Notify-shaped delta is expected, is not this plan's, and must be left alone.
+
+Steve's decision, 2026-09-21, taken with the collision on the table.
+
 ## End-to-end state model
 
 | Referral state | Caseworker meaning | Available action |
@@ -213,6 +240,53 @@ In `src/pages/deed-polls/`:
 - handle closure success/conflict through redirect flags and a fresh read;
 - update the existing withdrawal conflict copy so it is true for `Decided` as well as terminal states.
 
+## Validation Commands
+
+**These run after every task, so everything here must be green after every task — not only at the end.**
+
+```bash
+yarn turbo test test:app --concurrency=1
+yarn lint
+yarn test:e2e --workers=1
+```
+
+**Measured on this branch before Task 1, 2026-09-21 — not copied from an earlier plan:**
+
+| Command | Baseline |
+|---|---|
+| `yarn turbo test test:app --concurrency=1` | **2,601 passed** across 8 packages, exit 0 |
+| `yarn lint` | exit 0 — 2 warnings, 2 infos (pre-existing) |
+| `yarn test:e2e --workers=1` | **35 passed in 3.5m**, exit 0 |
+
+`yarn test:e2e` is in the gate because omitting it is how `dev-persona-switcher` shipped a broken branch: unit
+tests, lint and build were all green while four browser journeys timed out. This plan changes the case detail
+tab structure, which several e2e journeys traverse, so it is exposed to the same gap.
+
+### This worktree needs three things done before any of that passes
+
+Found the hard way, in this order:
+
+1. **`yarn install`, then `yarn build`.** The unit suite runs from source through `vite-tsconfig-paths`, so it
+   passes in a worktree with no `dist` — but `yarn idam:users` imports `@hmcts/deed-poll/dist/index.js` and dies
+   with `ERR_MODULE_NOT_FOUND` until the libraries are built.
+2. **`yarn dev:up`, then `yarn idam:users`.** The three e2e personas are seeded *into the running IDAM
+   simulator container*, so they do not survive that container being recreated. Without them all three
+   `auth.setup.ts` projects fail and **32 of 35 tests never run** — which reads as a suite-wide failure rather
+   than a missing fixture.
+3. **Nothing else may hold the compose container names.** `docker-compose.yml` hard-codes
+   `container_name: deed-poll-redis` and `deed-poll-idam` (lines 12 and 42), so the names are global to the
+   Docker daemon rather than scoped to the compose project. A **stopped** container from another checkout still
+   owns the name, and Playwright's `webServer` then fails with `Conflict. The container name … is already in
+   use`, reported as `Process from config.webServer was not able to start`.
+
+**Consequence worth stating, because it affects another agent:** only one worktree can run e2e at a time. A
+concurrent `yarn dev` or `yarn test:e2e` in the `notify-2` worktree will collide with this plan's gate, and
+whichever starts second fails on the container name — not on its own code.
+
+**And do not read a piped exit code as the result.** `yarn test:e2e … | tail` reports `tail`'s status, so the
+first baseline attempt here looked like a pass (`exit 0`) while the suite had in fact started no tests at all.
+Capture the status of the command itself.
+
 ## Tasks
 
 ### Task 0: Reconcile API, adapter and current UI — STOP on drift
@@ -229,6 +303,25 @@ Inventory the tests that assert the legacy tab, raw state labels, terminal-only 
 returned-action count. Stop if Notify work or another branch has changed the same files unexpectedly.
 
 - [ ] Contract and implementation reconciled; baselines recorded; no files changed
+
+#### Reconciliation already performed, 2026-09-21 — read this instead of repeating it
+
+Done in the parent session before this run, against `origin/master` at `20b50fa`:
+
+| Checked | Found |
+|---|---|
+| api companion merged | Yes — `deed-poll-api` PR #33, zero contract delta, `OpenAPIPublisherTest` still 33 + 4 |
+| `closeReferral` in the adapter | Yes — `libs/deed-poll-api-client/src/api/client.ts:374` |
+| Closing absent from the domain layer | Yes, deliberately — `libs/deed-poll/src/referrals/service.ts:28` says so. **This is the gap the plan fills** |
+| Referral surface in `openapi.json` | Unchanged. 35 operations, as `SPEC-PROVENANCE.md` records for `ee37173` |
+| Notify delta | Present and **expected** — api master carries three more caseworker operations (notify-1, notify-5). **Not this plan's.** See the correction under Preconditions |
+
+Baselines are in **Validation Commands** above: 2,601 unit, lint exit 0, e2e 35 passed. **Do not re-measure
+them as Task 0 work** — re-measure at the end and compare.
+
+**So Task 0 changes no files, and in particular does not touch `openapi.json`, `wire.ts`, `contract.test.ts`
+or the mock's registration.** If the referral operations or `ReferralResponse`/`CreateReferralRequest` have
+moved, stop and report. A Notify-shaped difference is not drift.
 
 ### Task 1: Align the mock and domain capabilities
 
