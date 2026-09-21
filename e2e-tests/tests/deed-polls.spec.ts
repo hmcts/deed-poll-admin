@@ -21,6 +21,8 @@ import {
   ADMIN_STORAGE_STATE,
   CASEWORKER_STORAGE_STATE,
   DEPLOYED_STACK_SKIP_REASON,
+  JUDGE_EMAIL,
+  JUDGE_STORAGE_STATE,
   RUNS_AGAINST_DEPLOYED_STACK,
   signInAsAdmin
 } from "./idam-session.js";
@@ -443,6 +445,31 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   // nothing on any page and this absence assertion passed for the wrong reason until the journey below needed
   // the same control to be *present*.
   await expect(page.getByRole("button", { name: "Mark direction as actioned" })).toHaveCount(0);
+
+  // And the other record of the same two events — the case's own timeline. api writes a note at each successful
+  // transition (`referrals-admin-5`), so a caseworker reading the Notes tab sees the referral leave and come back
+  // with nothing in between; no page composes either sentence, which is why this is the only place in the app
+  // they can be checked.
+  await page.getByRole("link", { name: "Back to case" }).click();
+  await page.getByRole("tab", { name: "Notes" }).click();
+  const notes = page.locator("#notes");
+  await expect(notes).toContainText("2 notes");
+
+  // Newest first, which is the **grid's** order and not the payload's: the case detail's `notes` arrive
+  // oldest-first from api and `buildNotesView` sorts them. The withdrawn note names the referral it was, because
+  // a case may carry several over its life and "referral withdrawn" in a grid of thirty notes does not say which.
+  const noteRows = notes.locator("tbody tr");
+  await expect(noteRows.nth(0)).toContainText("Referral to the judiciary withdrawn. It was raised on");
+  await expect(noteRows.nth(0)).toContainText("reasons: Minor, Other.");
+  // The reasons are api's stored members here rather than the caseworker's labels — the prose is api's
+  // (`ReferralNotes`), so "Minor" and not "Applicant is a minor". Reworded there, not here.
+  await expect(noteRows.nth(1)).toContainText("Referred to the judiciary. Reasons: Minor, Other.");
+  await expect(noteRows.nth(1)).toContainText("Notes: The declarant is abroad until June.");
+  // The value left inside the closed urgency reveal reached neither the referral nor its note: the same
+  // assertion as "Not provided" above, one layer further on, and the note is where a discarded answer would
+  // otherwise resurface with no page to correct it.
+  await expect(notes).not.toContainText("Hearing listed on Friday.");
+  await expectNoAccessibilityViolations(page);
 });
 
 /**
@@ -552,8 +579,15 @@ test("caseworker sees how many applications have a returned direction, and follo
  * - **The count reduces because api recomputed, not because a page removed a row.** Asserted on a query narrowed
  *   to this journey's own surname, for the reason the test above no longer asserts a sum: the global number moves
  *   under a parallel run, and `1 → 0` on this run's own cases is the "exactly one" that survives it.
+ * - **The referral's history is on the Notes tab, and no page put it there** — `referrals-admin-5`. api writes a
+ *   note at each successful transition; this app renders the grid it already had, so the only way to see the
+ *   feature at all is to drive four transitions and read the page. Both personas' views of the same rows are
+ *   asserted, and the judge's *before* the closure: api answers them 404 for a closed referral, so that is the
+ *   only window it exists in.
  *
- * Either role, so this file's administrator serves: api gates neither raising nor closing on the admin role.
+ * Either role, so this file's administrator serves: api gates neither raising nor closing on the admin role. The
+ * judge's half restores `JUDGE_STORAGE_STATE` in a context of its own and only reads, so it does not disturb the
+ * session `judicial.spec.ts` shares.
  */
 test("caseworker actions a returned direction, and the returned-direction count falls by one", async ({ page, browser, request }) => {
   // Arrange: one case, seeded through the mock's control route because what a create does is the first test's
@@ -567,6 +601,11 @@ test("caseworker actions a returned direction, and the returned-direction count 
     directionsText: "Approved. Enrol once the applicant has confirmed the spelling of the new surname.",
     publishToGazette: true
   };
+  // The part of the direction's own words that appears nowhere else, so "the lifecycle note summarised the
+  // direction instead of copying it" can be asserted as an absence. Not the whole of `directionsText`: it opens
+  // with "Approved", which the note carries as the decision, and a fragment that overlapped would let the
+  // assertion pass on a note that had copied everything after it.
+  const directionOnlyFragment = "Enrol once the applicant has confirmed the spelling";
 
   // Nothing of this run's is waiting for action yet, which is the number the closure at the end returns to.
   expect(await returnedForActionTotal(request, seeded.surname)).toBe(0);
@@ -593,6 +632,11 @@ test("caseworker actions a returned direction, and the returned-direction count 
   // 2. Claimed and directed through api's judicial contract, because that is what makes it the caseworker's turn
   // again. Not driven through the judicial UI: that persona's journey is `judicial.spec.ts`, and a second copy of
   // it here would double a three-step flow this test says nothing about.
+  //
+  // **As the judge fixture and not an invented subject**, which is what makes step 6a possible at all: api narrows
+  // a `Decided` referral to the judge who decided it, so a claim attributed to anybody else would answer the
+  // signed-in judge 404 — and this journey's two judicial notes would then be unreadable on the surface they were
+  // written for.
   await claimAndDirect(request, referralId, direction);
   expect(await returnedForActionTotal(request, seeded.surname)).toBe(1);
 
@@ -634,12 +678,19 @@ test("caseworker actions a returned direction, and the returned-direction count 
   await expect(summaryRow(page, "Directions")).toContainText(direction.directionsText);
   // Yes because the judge answered yes — the third answer, "Not recorded", is the one a page test pins.
   await expect(summaryRow(page, "Published in the Gazette")).toContainText("Yes");
-  await expect(summaryRow(page, "Decided by")).toContainText(SEED_JUDGE);
-  await expect(summaryRow(page, "Claimed by the judiciary")).toContainText(SEED_JUDGE);
+  await expect(summaryRow(page, "Decided by")).toContainText(JUDGE_EMAIL);
+  await expect(summaryRow(page, "Claimed by the judiciary")).toContainText(JUDGE_EMAIL);
   // 6. And no withdrawal, absent from the markup rather than disabled: api answers 409 with a sentence of its own
   // for this state, so a button here could only collect a refusal.
   await expect(page.getByRole("button", { name: "Withdraw this referral" })).toHaveCount(0);
   await expectNoAccessibilityViolations(page);
+
+  // 6a. **The judge's half of the same timeline, read before the closure because that is the only window it
+  // exists in**: api answers the judicial surface 404 for a `Closed` referral, so a judge who came to it
+  // afterwards would see nothing at all. Three notes there and four here (the closure is the caseworker's), which
+  // is the asymmetry `referrals-admin-5` decision 1 rests on — the judge reads the same rows through
+  // `caseNotes` with no filter by origin or author.
+  await expectJudgeReadsLifecycleNotes(browser, referralId, directionOnlyFragment);
 
   // 7. The confirmation, which is the one thing this journey adds that the withdrawal has no equivalent of: the
   // three assertions being made are on the page, above the direction they are about.
@@ -680,7 +731,7 @@ test("caseworker actions a returned direction, and the returned-direction count 
   await expect(summaryRow(page, "Directions")).toContainText(direction.directionsText);
   // **The assertion the whole of decision 4 rests on.** Closing changed the modifier to the caseworker who did
   // it; the direction is still the judge's. Reading the author off `modifiedBy` would have swapped these two.
-  await expect(summaryRow(page, "Decided by")).toContainText(SEED_JUDGE);
+  await expect(summaryRow(page, "Decided by")).toContainText(JUDGE_EMAIL);
   await expect(summaryRow(page, "Last updated")).toContainText(ADMIN_EMAIL);
   // Neither control applies to a referral that is over.
   await expect(page.getByRole("button", { name: "Mark direction as actioned" })).toHaveCount(0);
@@ -699,7 +750,53 @@ test("caseworker actions a returned direction, and the returned-direction count 
   await expect(referrals).toContainText("Applicant is a minor");
   await expect(page.getByRole("button", { name: "Refer this case to the judiciary" })).toBeVisible();
 
-  // 10. And the count. **Nobody removed a row and nobody decremented a number** (decision 7): api recomputed
+  // 10. **The whole of the referral's history on the Notes tab, which is the only page this feature shows up on.**
+  // Four transitions, four notes, each written by api at the transition (`referrals-admin-5` decision 1 adds no
+  // page code and no lifecycle component) — so a caseworker who arrives months later reads what happened from the
+  // grid this app already had.
+  await page.getByRole("tab", { name: "Notes" }).click();
+  const notes = page.locator("#notes");
+  await expect(notes).toContainText("4 notes");
+
+  // **The order asserted is `buildNotesView`'s and not api's.** The case detail's `notes` arrive *oldest* first —
+  // api's `@OneToMany` is `@OrderBy("createdOn ASC")`, and the mock reproduces that deliberately — and the grid
+  // sorts them newest first. So this pins what the page renders; a payload order would be the wrong claim to make
+  // from here, and the mock's own test is where the two projections' opposite orders are pinned.
+  const noteRows = notes.locator("tbody tr");
+  await expect(noteRows).toHaveCount(4);
+  await expect(noteRows.nth(0)).toContainText("marked as actioned.");
+  // The caseworker who did the closing, not the judge who gave the direction — the attribution decision 4 turns
+  // on, in the grid rather than on the referral this time.
+  await expect(noteRows.nth(0)).toContainText(ADMIN_EMAIL);
+  await expect(noteRows.nth(1)).toContainText("Judicial direction recorded for referral");
+  await expect(noteRows.nth(1)).toContainText("Decision: Approved.");
+  // Spelled out rather than abbreviated to the presence of a word: publication names the applicant in a public
+  // notice, so "not published" and "nothing recorded" must not read alike.
+  await expect(noteRows.nth(1)).toContainText("Publish to the London Gazette: Yes.");
+  await expect(noteRows.nth(1)).toContainText(JUDGE_EMAIL);
+  await expect(noteRows.nth(2)).toContainText("claimed by the judiciary.");
+  await expect(noteRows.nth(2)).toContainText(JUDGE_EMAIL);
+  await expect(noteRows.nth(3)).toContainText("Referred to the judiciary. Reasons: Minor.");
+  await expect(noteRows.nth(3)).toContainText(ADMIN_EMAIL);
+
+  // **The direction is summarised in the note and kept whole on the referral**, which is the pair that makes the
+  // pointer honest: api allows a direction twice what a note may hold, so a copy would be truncated and read as
+  // the whole of a judicial direction. The full text was asserted on the referral at step 8.
+  await expect(noteRows.nth(1)).toContainText("See the referral for the full direction.");
+  await expect(notes).not.toContainText(directionOnlyFragment);
+
+  // Ordinary case notes, and deliberately not a tamper-proof audit log (decision 4): each row keeps the amend link
+  // every other note has, and none of them says it was edited, because api stamps both audit columns at the write.
+  await expect(notes.getByRole("link", { name: /amend this note/ })).toHaveCount(4);
+  await expect(notes).toContainText("Not edited");
+  await expectNoAccessibilityViolations(page);
+
+  // The Welsh shape of the grid these notes arrive in, in a session of its own for the reason
+  // `expectWelshKeysResolve` sets out: `?lng=cy` writes to `req.session.locale`. Last of the three page checks,
+  // because it is the only one whose subject survives the closure.
+  await expectNotesWelshKeysResolve(browser, caseUrl);
+
+  // 11. And the count. **Nobody removed a row and nobody decremented a number** (decision 7): api recomputed
   // `currentReferralState` to null on the closure, so the next read of the same query is short by exactly this
   // case. Asserted on this run's own surname for the strict "by one", and against api's global total for the
   // banner the caseworker actually reads.
@@ -1540,13 +1637,17 @@ async function referTo(request: APIRequestContext, caseId: string, upTo: "Claime
  *
  * Both steps are checked for the reason `referTo`'s are: a refusal part-way leaves the referral short of
  * `Decided`, and the journey then fails several pages later on a control that is correctly absent.
+ *
+ * **Attributed to `JUDGE_EMAIL` and not to `SEED_JUDGE`**, which `referTo` still uses: api's judicial surface
+ * narrows a `Decided` referral to the judge who decided it, so the journey can only read the judge's side of the
+ * timeline if the judge whose session it restores is the one these two writes are credited to.
  */
 async function claimAndDirect(request: APIRequestContext, referralId: string, direction: JudicialDirection): Promise<void> {
-  const claimed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/claim`, { headers: bearer(SEED_JUDGE) });
+  const claimed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/claim`, { headers: bearer(JUDGE_EMAIL) });
   expect(claimed.status(), await claimed.text()).toBe(200);
 
   const directed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/direction`, {
-    headers: bearer(SEED_JUDGE),
+    headers: bearer(JUDGE_EMAIL),
     data: direction
   });
   expect(directed.status(), await directed.text()).toBe(200);
@@ -1666,6 +1767,103 @@ async function expectReferralWelshKeysResolve(browser: Browser, referralUrl: str
   } finally {
     await context.close();
   }
+}
+
+/**
+ * The Welsh shape of the Notes grid, for the reasons `expectWelshKeysResolve` sets out at length — and its own
+ * context, because `?lng=cy` is a write to `req.session.locale` and this file's session is shared.
+ *
+ * Its own helper rather than a third navigation inside `expectReferralWelshKeysResolve`: these keys belong to the
+ * case page and outlive the closure, where that helper's two pages exist only while the referral is `Decided`.
+ *
+ * **The panel has to be opened.** The detail page renders every tab's panel, and govuk-frontend's tabs hide all
+ * but the selected one once its JavaScript runs — so a columnheader inside the Notes panel is present and
+ * invisible until the tab is clicked, and `toBeVisible` is what makes a missing `cy` key fail rather than a
+ * hidden one pass.
+ */
+async function expectNotesWelshKeysResolve(browser: Browser, caseUrl: string): Promise<void> {
+  const context = await browser.newContext({ storageState: undefined });
+
+  try {
+    const page = await context.newPage();
+    await signInAsAdmin(page);
+    await page.goto(`${caseUrl}?lng=cy`);
+    await page.getByRole("tab", { name: "Notes" }).click();
+
+    const notes = page.locator("#notes");
+    // `exact`, because "Note" is a substring of "NoteID" and an unscoped match would pass on either header.
+    for (const column of ["NoteID", "Note", "Created", "Modified"]) {
+      await expect(notes.getByRole("columnheader", { name: column, exact: true })).toBeVisible();
+    }
+    // The Modified column's own sentence, and the amend link's visually-hidden suffix — two more `cy` keys that
+    // render blank rather than erroring, the second of which would leave every row's link unnamed.
+    await expect(notes).toContainText("Not edited");
+    await expect(notes.getByRole("link", { name: /amend this note/ })).toHaveCount(4);
+    // The language toggle offers English, which is how the page says it rendered as Welsh at all.
+    await expect(page.locator(".language")).toContainText("English");
+  } finally {
+    await context.close();
+  }
+}
+
+/**
+ * The judge's view of a case's timeline, on the referral they decided.
+ *
+ * **A context restoring `JUDGE_STORAGE_STATE` rather than a sign-in**, which is safe here and only here: this
+ * reads and never asks for `?lng=cy`, so it writes nothing to the session `judicial.spec.ts` shares. A Welsh
+ * check on this page would need a login of its own, and belongs in that file beside the pool's.
+ *
+ * **Three notes and not four**: the closure has not happened yet, and cannot have — api answers 404 on this
+ * surface once it has, which is why the caller reads this before the closure rather than after it.
+ *
+ * `directionOnlyFragment` is a phrase from the direction's own text that no note should carry. The full direction
+ * *is* on this page, in the section above the timeline, so the absence is asserted inside the note and not on the
+ * page: that is the whole distinction the composer draws.
+ */
+async function expectJudgeReadsLifecycleNotes(browser: Browser, referralId: string, directionOnlyFragment: string): Promise<void> {
+  const context = await browser.newContext({ storageState: JUDGE_STORAGE_STATE });
+
+  try {
+    const page = await context.newPage();
+    await page.goto(`/judicial/referrals/${referralId}`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to the judiciary");
+    await expect(page.getByRole("heading", { name: "Case notes" })).toBeVisible();
+
+    // **Newest first, and this order is api's** — `caseNotes` comes off `NoteService.findNotes`, and
+    // `buildJudicialReferral` maps what it is given without sorting. The opposite end of the same asymmetry the
+    // caseworker's grid hides by sorting for itself.
+    const entries = judicialNotes(page);
+    await expect(entries).toHaveCount(3);
+    await expect(entries.nth(0)).toContainText("Judicial direction recorded for referral");
+    await expect(entries.nth(0)).toContainText("See the referral for the full direction.");
+    await expect(entries.nth(0)).not.toContainText(directionOnlyFragment);
+    await expect(entries.nth(0)).toContainText(JUDGE_EMAIL);
+    await expect(entries.nth(1)).toContainText("claimed by the judiciary.");
+    await expect(entries.nth(1)).toContainText(JUDGE_EMAIL);
+    // The caseworker's, unfiltered: a judge reads the office's own words about the referral they are answering,
+    // and the note names the reasons in api's members as every lifecycle note does.
+    await expect(entries.nth(2)).toContainText("Referred to the judiciary. Reasons: Minor.");
+    await expect(entries.nth(2)).toContainText(ADMIN_EMAIL);
+    // The full direction is still on the page the note points at — here, above the timeline.
+    await expect(summaryRow(page, "Directions")).toContainText(directionOnlyFragment);
+    await expectNoAccessibilityViolations(page);
+  } finally {
+    await context.close();
+  }
+}
+
+/**
+ * The read-only timeline's entries on a judicial referral — a `<ul>` of prose with an attribution rather than a
+ * grid, so there are no rows to address.
+ *
+ * Filtered by the caption each entry carries, because `ul.govuk-list` also matches the reasons list inside the
+ * summary above it and the page gives neither list a name or an id to reach for.
+ */
+function judicialNotes(page: Page): Locator {
+  return page
+    .locator("ul.govuk-list")
+    .filter({ has: page.locator("p.govuk-caption-m") })
+    .locator("li");
 }
 
 function signatureRequested(page: Page): Locator {

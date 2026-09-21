@@ -262,7 +262,44 @@ raise → claim → direction → actioned:
 
 Keep the existing withdrawal journey and assert its raised/withdrawn notes there.
 
-- [ ] Caseworker and judicial E2E journeys show the deployed lifecycle history without additional page code
+- [x] Caseworker and judicial E2E journeys show the deployed lifecycle history without additional page code
+
+      **Done 2026-09-21.** No page, template or library change — both journeys read the pages this app already
+      had. In `e2e-tests/tests/deed-polls.spec.ts`:
+
+      - the **completion journey** gains step 6a and step 10. Step 10 opens the Notes tab after
+        raise → claim → direction → actioned and asserts four rows with their actors — the closure credited to
+        the caseworker and the two judicial notes to the judge — the direction note's decision and Gazette
+        sentences, its pointer at the referral, the amend link still on every row (decision 4), and an
+        accessibility pass with the grid rendered;
+      - **the order asserted is `buildNotesView`'s**, per this task's own bullet: the payload arrives
+        oldest-first and the grid sorts it, so the test says what the page renders and the mock's test remains
+        the only place the two projections' opposite orders are pinned;
+      - **step 6a is before the closure and had to be.** api's judicial surface answers 404 for a `Closed`
+        referral, so the judge's three notes are only readable in that window. It restores
+        `JUDGE_STORAGE_STATE` in a context of its own and only reads, so it does not write to the session
+        `judicial.spec.ts` shares;
+      - **`claimAndDirect` now claims and directs as `JUDGE_EMAIL`, not `SEED_JUDGE`** — the one change the task
+        needed that is not an assertion. api narrows a `Decided` referral to the judge who decided it, so the
+        signed-in judge could not otherwise see it at all. `referTo` still uses `SEED_JUDGE`, and the journey's
+        "Decided by"/"Claimed by" assertions moved with it;
+      - the **withdrawal journey** ends on the Notes tab: two notes, the withdrawn one naming which referral it
+        was, the raised one carrying the caseworker's Other-reason text, and — the assertion worth having — the
+        urgency reason typed into a reveal that was then closed appearing in neither;
+      - **Welsh**, in `expectNotesWelshKeysResolve`: its own login because `?lng=cy` writes to the session, the
+        Notes panel opened because govuk-frontend hides the unselected ones, and the four column headers, the
+        "Not edited" sentence and the amend link's hidden suffix each pinned as a `cy` key that would otherwise
+        render blank.
+
+      **`judicial.spec.ts` needed two changes, and one of them was a break Task 1 had already caused.** Its
+      `getByText(CASEWORKER_EMAIL)` resolved one element until a raised referral started writing a note by the
+      same author; two matches is a strict-mode failure, so the timeline is now addressed by position through a
+      `caseNotes` locator and asserts both entries and the raise note's "Marked urgent" line. Its Welsh helper
+      also now covers the referral page — `timelineHeading` among the keys nothing else checked.
+
+      **Validation**: `yarn lint` exit 0, `npx turbo test test:app --concurrency=1` `8 successful, 8 total`, and
+      the **full Playwright suite green — 38 passed** with the mock and app started by hand (no `dev:up`, the
+      main checkout's containers serving Redis and IDAM), which is the shape Task 3 inherits.
 
 ### Task 3: Documentation and full validation
 

@@ -95,10 +95,11 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
     .toMatch(/of (\d+) referrals \/ api total \1$/);
   await expectNoAccessibilityViolations(page);
 
-  // Checked here rather than at the end of the journey, and the position is load-bearing: the pool's column
-  // headers only exist while something is waiting in it, and by the end this journey has taken both of its own
-  // referrals out — leaving a page whose `cy` keys are the empty state's instead of the table's.
-  await expectWelshKeysResolve(browser);
+  // Checked here rather than at the end of the journey, and the position is load-bearing twice over: the pool's
+  // column headers only exist while something is waiting in it, and by the end this journey has taken both of its
+  // own referrals out — leaving a page whose `cy` keys are the empty state's instead of the table's. The referral
+  // it also visits has to still be `Open`, for the reason api narrows a claimed one to its holder.
+  await expectWelshKeysResolve(browser, mine.referralId);
 
   // The row, and its cells: the urgency word (never the tag colour alone), the business's wording for the reason
   // the court picked, and the wait the queue is ordered by.
@@ -166,8 +167,20 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   await expect(summaryRow(page, "Notes from the court")).toContainText("Please consider the applicant's circumstances.");
   await expect(summaryRow(page, "Reason for urgency")).toContainText("Hearing listed on Friday.");
   await expect(page.getByRole("heading", { name: "Case notes" })).toBeVisible();
-  await expect(page.getByText("Applicant asked for the hearing to be listed early.")).toBeVisible();
-  await expect(page.getByText(CASEWORKER_EMAIL)).toBeVisible();
+
+  // **Two entries, newest first, and only one of them was typed by anybody.** api writes a case note at each
+  // successful referral transition (`referrals-admin-5`), so the raise the office made is on the timeline above
+  // the note they wrote by hand — and both are attributed to the caseworker, which is why each entry is addressed
+  // by position rather than by its author: the same name now captions more than one.
+  const notes = caseNotes(page);
+  await expect(notes).toHaveCount(2);
+  await expect(notes.nth(0)).toContainText("Referred to the judiciary. Reasons: NonPublication.");
+  // The caseworker's own two sentences on their own lines, which is api's composer rather than this page's doing —
+  // and the reason a judge reading the timeline learns why the office called it urgent.
+  await expect(notes.nth(0)).toContainText("Marked urgent: Hearing listed on Friday.");
+  await expect(notes.nth(0)).toContainText(CASEWORKER_EMAIL);
+  await expect(notes.nth(1)).toContainText("Applicant asked for the hearing to be listed early.");
+  await expect(notes.nth(1)).toContainText(CASEWORKER_EMAIL);
   // A judge's writes are exactly claim and direct, so there is no note control — and no link to the case,
   // because api's judicial surface takes no case id and there is nowhere to link to.
   await expect(page.getByRole("button", { name: "Add a note" })).toHaveCount(0);
@@ -485,6 +498,20 @@ function summaryRow(page: Page, key: string): Locator {
   return page.locator(".govuk-summary-list__row").filter({ has: page.locator(".govuk-summary-list__key", { hasText: key }) });
 }
 
+/**
+ * The read-only timeline's entries — a `<ul>` of prose with an attribution rather than a grid, so there are no
+ * rows to address.
+ *
+ * Filtered by the caption each entry carries, because `ul.govuk-list` also matches the reasons list inside the
+ * summary above it and the page gives neither list a name or an id to reach for.
+ */
+function caseNotes(page: Page): Locator {
+  return page
+    .locator("ul.govuk-list")
+    .filter({ has: page.locator("p.govuk-caption-m") })
+    .locator("li");
+}
+
 function claimButton(page: Page): Locator {
   return page.getByRole("button", { name: "Claim this referral" });
 }
@@ -535,8 +562,12 @@ function formatTimestamp(raw: string): string {
  *
  * `storageState: undefined` is load-bearing: `browser.newContext()` otherwise inherits this file's `test.use`
  * and the "own session" would be the shared one — the exact bug that reasoning was earned by.
+ *
+ * **Both pages in the one signed-in context**, as `deed-polls.spec.ts` pairs the referral and its confirmation:
+ * one login covers the pool and a referral still waiting in it, and the referral's own `cy` keys — the timeline's
+ * heading among them — are otherwise checked by nothing.
  */
-async function expectWelshKeysResolve(browser: Browser): Promise<void> {
+async function expectWelshKeysResolve(browser: Browser, openReferralId: string): Promise<void> {
   const context = await browser.newContext({ storageState: undefined });
 
   try {
@@ -551,6 +582,15 @@ async function expectWelshKeysResolve(browser: Browser): Promise<void> {
     // The language toggle offers English, which is how the page says it rendered as Welsh at all — a `cy` that
     // failed to resolve would leave the headings blank rather than announcing itself.
     await expect(page.locator(".language")).toContainText("English");
+
+    await page.goto(`${POOL_PATH}/${openReferralId}?lng=cy`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to the judiciary");
+    await expect(summaryRow(page, "Reasons for referral")).toBeVisible();
+    // The timeline's heading, above entries whose prose is api's and needs no translation: the heading is the key
+    // that would empty the section without failing anything.
+    await expect(page.getByRole("heading", { name: "Case notes" })).toBeVisible();
+    await expect(caseNotes(page).nth(0)).toContainText("Referred to the judiciary.");
+    await expect(page.getByRole("button", { name: "Claim this referral" })).toBeVisible();
   } finally {
     await context.close();
   }
