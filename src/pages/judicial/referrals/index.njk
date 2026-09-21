@@ -3,6 +3,7 @@
 {% from "govuk/components/tag/macro.njk" import govukTag %}
 {% from "govuk/components/pagination/macro.njk" import govukPagination %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "judicial/referrals/list-navigation.njk" import judicialListNavigation %}
 
 {#
   The shared pool. Four columns, no filter bar and no sortable headers: api fixes the order and the page
@@ -28,6 +29,11 @@
     {% endif %}
 
     <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+    {# The pool is where a judge starts, and since a claim takes the row off it, the way back to the claimed
+       referral is this navigation — the same partial `mine.njk` renders, so the pair cannot diverge. #}
+    {{ judicialListNavigation(nav, navCurrent) }}
+
     <p class="govuk-body">{{ intro }}</p>
 
     {% if rows.length == 0 %}

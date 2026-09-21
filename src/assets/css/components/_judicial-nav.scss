@@ -1,0 +1,40 @@
+/*
+ * The judicial lists' navigation — the shared pool and a judge's own referrals.
+ *
+ * Its own component rather than `app-filter-nav` even though the two look alike: that one is the case list's
+ * filter bar, with labelled groups and variable-length saved-query entries, and sharing its classes would tie a
+ * change made for one page to the rendering of another that has no filters at all. Not
+ * `govuk-service-navigation` either — see the reasoning in `src/pages/judicial/referrals/list-navigation.njk`.
+ *
+ * `base` and not `index`, so this file gets the settings, tools and helpers and emits no rules of its own beyond
+ * the ones below.
+ */
+@use "govuk-frontend/dist/govuk/base" as *;
+
+.app-judicial-nav {
+  @include govuk-responsive-margin(6, "bottom");
+}
+
+.app-judicial-nav__list {
+  @include govuk-font($size: 19);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Spacing is the component's job, which is why the markup carries no `govuk-!-margin-right-*` overrides. */
+.app-judicial-nav__item {
+  display: inline-block;
+  margin: 0 govuk-spacing(4) govuk-spacing(1) 0;
+}
+
+/*
+ * "You are here", said three ways. `aria-current` is the programmatic one; the underline is the visual
+ * indicator and the weight repeats it, so the current list is never distinguished by colour alone.
+ */
+.app-judicial-nav__current {
+  @include govuk-typography-weight-bold;
+  display: inline-block;
+  padding-bottom: govuk-spacing(1);
+  border-bottom: 4px solid govuk-functional-colour(brand);
+}

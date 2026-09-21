@@ -339,8 +339,41 @@ Update the shared-pool page to render the same navigation. Prove static-route pr
 fields, API order preservation, pagination URLs, empty/error states, escaping, Welsh key parity and
 accessibility markup.
 
-- [ ] Both judicial lists have accessible navigation; My referrals renders only the existing narrow summary;
+- [x] Both judicial lists have accessible navigation; My referrals renders only the existing narrow summary;
       route/template/app tests green
+
+> **DONE 2026-09-21.** `yarn lint` exits 0 and `npx turbo test test:app --concurrency=1` is `8 successful, 8
+> total` across **166 test files, 3,073 tests** — Task 1's 164/3,040 plus the two new files and **33** tests.
+> `yarn welsh:check` is `465 strings, 440 still identical` — Task 0's 446/421 plus **19**, which is exactly this
+> task's own new keys (16 on `mine.ts`, 3 for the pool's `nav`) and nothing else.
+>
+> **Decision 6 is pinned by dispatch, not by registration order.** `mine.test.ts` builds a real
+> `createSimpleRouter` over the real `src/pages` tree with a view engine that names the template it was handed,
+> then asserts `/judicial/referrals/mine` renders `mine.njk` with `listMyReferrals` called once and `getReferral`
+> never — and that `/judicial/referrals/ref-1` still reaches `[referralId].ts`. Asserting the *order* `sortRoutes`
+> produced would have passed on a router that then dispatched the other way; this fails the way the bug would
+> present, as a judge being told their own list is no longer available.
+>
+> **The navigation is one partial with both destinations in it**, `judicial/referrals/list-navigation.njk`, so
+> neither page can grow a link the other lacks — which is the failure decision 4 is guarding against, since the
+> pool is the page a judge is standing on when the row they just claimed disappears. `aria-current="page"` stays on
+> a link rather than becoming a `<span>` as `app-filter-nav` does: the plan asks for the link, and the state is
+> announced by `aria-current`, printed as weight and underlined by `app-judicial-nav__current`.
+>
+> **Its own SCSS component rather than reusing `app-filter-nav`**, whose ~20 lines it resembles: that one is the
+> case list's filter bar with labelled groups and variable-length saved-query entries, and sharing its classes
+> would tie a change made for one page to a page that filters nothing. **Not `govukServiceNavigation` either** —
+> it renders its own `govuk-width-container`, which inside the layout's would mean nesting one in another to say
+> something only two pages may say, and decision 4 keeps this off global chrome.
+>
+> **The nav copy is in each page's own `en`/`cy`, deliberately duplicated.** It is user-facing wording, so it has
+> to reach the translation request through `extract-welsh-strings.mjs`, and a shared const in a library would be
+> English that Welsh cannot reach — the argument `buildDirectionView` already makes about "Yes"/"No". Both pages
+> assert the same three strings, so a change to one that misses the other fails.
+>
+> **One thing Task 3 should know.** `mine.njk` links every row to `/judicial/referrals/{id}` and that detail page
+> still says "Back to referrals" and links to the pool, so a judge who opens one of their own referrals from this
+> list is currently returned to the list it is *not* on. That is Task 3's subject, not a defect here.
 
 ### Task 3: Fix referral-detail return paths
 
