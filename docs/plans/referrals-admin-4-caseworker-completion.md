@@ -527,8 +527,46 @@ Test:
 - direct GET/POST attempts for non-`Decided` states;
 - no closure payload or asserted user identity.
 
-- [ ] Accessible confirmation journey closes only `Decided`; success and stale conflicts render correctly;
+- [x] Accessible confirmation journey closes only `Decided`; success and stale conflicts render correctly;
       domain/page/template tests green
+
+#### What Task 4 settled, which Tasks 5–6 build on
+
+- **The journey is `src/pages/deed-polls/[id]/referrals/[referralId]/close.ts` plus
+  `src/pages/deed-polls/referral-close.njk`**, served at the path Task 3's `closeHref` already pointed at. The GET
+  reads case and referral with `Promise.all` — both load-bearing, since a page that showed neither the reference nor
+  the direction would be asking for an attestation about something it had not shown — and **redirects to the
+  referral for anything but `Decided`**, keyed on `canClose`, so the same guard covers already-actioned, withdrawn,
+  still-with-the-judiciary and unreadable states.
+- **The POST reads nothing and sends nothing.** api refuses anything but `Decided` itself, so the state is checked
+  where it is *rendered* and enforced where it is *committed*; a read in the POST would be stale by the time it
+  acted on the answer. Pinned by a test that closes a referral the mocked read says is already `Closed`.
+- **Both outcomes land on the referral (post/redirect/get).** `?close=actioned` renders a success notification
+  banner above the freshly-read `Closed` state and the preserved direction; `?close=conflict` renders an error
+  summary. A refresh of either is a plain GET.
+- **The closure refusal is keyed on api's fresh *state*, unlike the withdrawal's**, and the asymmetry is
+  deliberate: `withdrawRefusal` keys on `canClose` because its two sentences name the two controls the page
+  offers, whereas a refused closure offers nothing — `Closed` and `Withdrawn` both end the referral. So
+  `closeRefusal` names the likely race ("already been marked as actioned") when api says `Closed` and claims
+  nothing about which of the rest otherwise.
+- **The two refusals share one error summary** (`{% set refused = withdrawRefused or closeRefused %}`), as the
+  judicial referral page shares its `refused` key: a caseworker arrives through one redirect or the other, never
+  both. The sentences are still chosen in the handler.
+- **One pre-existing test-harness bug fixed, and it matters beyond this task.** The `.njk` tests' `html()` helper
+  spread the content pair **over** the model, the opposite of `renderInterceptorMiddleware`'s order
+  (`libs/express-govuk-starter/src/i18n/locale-middleware.ts` merges `...selectedContent` then `...otherContent`).
+  Any conditional whose sentence the handler resolves from its own `en` — `directionActioned` is the first —
+  therefore rendered unconditionally in the test while behaving correctly in the app. Fixed in
+  `referral-detail.njk.test.ts` and the new `referral-close.njk.test.ts`; **the other three
+  (`detail.njk.test.ts`, `referral-form.njk.test.ts`, `queries/new.njk.test.ts`) still have the old order** and
+  will mislead the same way the moment a handler resolves a string named like its `en` key.
+- Validation after Task 4: **2,727 unit tests** across 8 packages (2,685 after Task 3), `yarn lint` exit 0 with the
+  same 2 warnings and 2 infos, `yarn build` clean, **35 e2e passed** in 3.4m — no e2e change, since the journey is
+  Task 5's. `yarn welsh:check` still exits 1 (399 strings, 374 identical in `cy`): Task 6's.
+- **The first e2e run of this task was invalid and the reason will recur.** Playwright's
+  `reuseExistingServer` picked up an app server on `:3000` owned by the **`notify-2-email-tab` worktree**, so 34
+  tests passed against another branch's code and the referrals journey failed on Task 1's label. Check the port's
+  owner (`ss -ltnp`, then `/proc/<pid>/cwd`) before believing an e2e failure in this worktree.
 
 ### Task 5: End-to-end workflow and count
 

@@ -1,0 +1,66 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/tag/macro.njk" import govukTag %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+
+{#
+  The confirmation in front of marking a returned direction as actioned — decision 6, and the reasoning for
+  having a step at all is in `[id]/referrals/[referralId]/close.ts`.
+
+  The direction is shown in full above the submit, because that is what is being confirmed: a caseworker
+  attesting that a direction has been carried out has to be able to read the direction on the page they attest
+  on. It is the same summary the referral page renders, and the same `gazetteAnswer` resolved in the handler for
+  the same reason — a ternary here would print "No" for a direction that recorded no answer.
+
+  Cancel is a link, so the only thing on this page that can act is the one submit. The page is only ever
+  rendered for a `Decided` referral, so there is no state in which the button has to be hidden — the handler
+  redirects instead of rendering a confirmation nothing can confirm.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    <span class="govuk-caption-l">{{ case.displayReference }}</span>
+    <h1 class="govuk-heading-xl govuk-!-margin-bottom-6">{{ heading }}</h1>
+
+    {#
+      The tag and its sentence, as the referral page pairs them, so the colour is never the only carrier. No
+      condition on `stateMeaning` here: this page renders only for `Decided`, which always has one.
+    #}
+    {% set stateCell %}
+      {{ govukTag({ text: referral.state, classes: referral.stateTagClasses }) }}
+      <p class="govuk-body govuk-!-margin-bottom-0 govuk-!-margin-top-2">{{ referral.stateMeaning }}</p>
+    {% endset %}
+
+    {{ govukSummaryList({ rows: [{ key: { text: stateLabel }, value: { html: stateCell } }] }) }}
+
+    <h2 class="govuk-heading-m">{{ directionHeading }}</h2>
+    {{ govukSummaryList({
+      rows: [
+        { key: { text: decisionLabel }, value: { text: referral.direction.decision } },
+        { key: { text: directionsLabel }, value: { text: referral.direction.directionsText } },
+        { key: { text: gazetteLabel }, value: { text: gazetteAnswer } },
+        { key: { text: decidedByLabel }, value: { text: referral.direction.decidedBy } },
+        { key: { text: decidedLabel }, value: { text: referral.direction.decidedOn } }
+      ]
+    }) }}
+
+    <p class="govuk-body">{{ confirmingIntro }}</p>
+    <ul class="govuk-list govuk-list--bullet">
+      <li>{{ confirmingDirection }}</li>
+      <li>{{ confirmingUpdates }}</li>
+      <li>{{ confirmingWorklist }}</li>
+    </ul>
+
+    <p class="govuk-body">{{ irreversible }}</p>
+
+    <form method="post" action="{{ closeHref }}" novalidate>
+      <div class="govuk-button-group">
+        {{ govukButton({ text: confirm }) }}
+        <a class="govuk-link" href="{{ referralHref }}">{{ cancel }}</a>
+      </div>
+    </form>
+
+  </div>
+</div>
+{% endblock %}

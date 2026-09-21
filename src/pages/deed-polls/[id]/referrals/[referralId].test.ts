@@ -276,6 +276,49 @@ describe("referral view page", () => {
     expect(res.render.mock.calls[0][1].withdrawRefused).toBe("");
   });
 
+  it("should confirm a closure that landed, against the state api has just published", async () => {
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED, state: "Closed" } as never);
+    const res = response();
+
+    await GET(request({ close: "actioned" }), res);
+
+    expect(res.render.mock.calls[0][1].directionActioned).toBe("The direction has been marked as actioned.");
+    expect(res.render.mock.calls[0][1].referral.state).toBe("Direction actioned");
+    expect(res.render.mock.calls[0][1].referral.canClose).toBe(false);
+    expect(res.render.mock.calls[0][1].closeRefused).toBe("");
+  });
+
+  it("should say a refused closure was already actioned when api's fresh state says it was", async () => {
+    // The likely race: two caseworkers on the same returned direction. Naming it is the difference between
+    // "somebody has done this" and "something changed".
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED, state: "Closed" } as never);
+    const res = response();
+
+    await GET(request({ close: "conflict" }), res);
+
+    expect(res.render.mock.calls[0][1].closeRefused).toBe("This referral has already been marked as actioned.");
+    expect(res.render.mock.calls[0][1].directionActioned).toBe("");
+  });
+
+  it.each(["Withdrawn", "Open", "Claimed", null])("should not claim a %s referral was already actioned when api refused the closure", async (state) => {
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, state } as never);
+    const res = response();
+
+    await GET(request({ close: "conflict" }), res);
+
+    expect(res.render.mock.calls[0][1].closeRefused).toContain("no longer waiting for a direction to be actioned");
+    expect(res.render.mock.calls[0][1].closeRefused).not.toContain("already been marked as actioned");
+  });
+
+  it("should show neither closure message on an ordinary visit", async () => {
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].directionActioned).toBe("");
+    expect(res.render.mock.calls[0][1].closeRefused).toBe("");
+  });
+
   it("should 404 for a referral that is not under this case, which is api's answer and not a local check", async () => {
     vi.mocked(findReferral).mockRejectedValue(new NotFoundError("Referral ref-1 not found"));
 

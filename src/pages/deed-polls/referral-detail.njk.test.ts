@@ -67,7 +67,16 @@ const DIRECTED = {
   decidedBy: "A Judge"
 };
 
-const html = (model: Record<string, unknown>): string => environment.render("deed-polls/referral-detail.njk", { ...model, ...(model.en as object) });
+/**
+ * The model as the real render would see it: the content pair first, the handler's own values **over** it.
+ *
+ * That order is `renderInterceptorMiddleware`'s (`libs/express-govuk-starter/src/i18n/locale-middleware.ts`)
+ * and not a preference. A handler that resolves a sentence itself — `directionActioned`, chosen from the same
+ * `en` the template also receives — has the resolved value win, so an empty one means "no banner". Spread the
+ * other way round and the unresolved `en` entry wins instead, and every conditional the handler owns renders
+ * unconditionally in the test while behaving correctly in the app.
+ */
+const html = (model: Record<string, unknown>): string => environment.render("deed-polls/referral-detail.njk", { ...(model.en as object), ...model });
 
 async function page(referral: Record<string, unknown>, query: Record<string, unknown> = {}): Promise<string> {
   vi.mocked(findReferral).mockResolvedValue(referral as never);
@@ -208,6 +217,32 @@ describe("referral view template", () => {
 
     expect(rendered).toContain("This referral has already been closed or withdrawn.");
     expect(rendered.indexOf("govuk-error-summary")).toBeLessThan(rendered.indexOf("<h1"));
+  });
+
+  it("should announce a closure as a success banner above the state it produced", async () => {
+    const rendered = await page({ ...REFERRAL, ...DIRECTED, state: "Closed" }, { close: "actioned" });
+
+    expect(rendered).toContain("govuk-notification-banner--success");
+    expect(rendered).toContain("The direction has been marked as actioned.");
+    // The state below it, freshly read, so the banner and the page agree — and the direction is still there.
+    expect(rendered).toContain("Direction actioned");
+    expect(rendered).toContain("Serve the notice on the second respondent.");
+    expect(rendered).not.toContain("Mark direction as actioned");
+  });
+
+  it("should show no banner on an ordinary visit", async () => {
+    const rendered = await page({ ...REFERRAL, ...DIRECTED, state: "Closed" });
+
+    expect(rendered).not.toContain("govuk-notification-banner");
+  });
+
+  it("should show a refused closure as an error summary naming the state api published instead", async () => {
+    const rendered = await page({ ...REFERRAL, ...DIRECTED, state: "Closed" }, { close: "conflict" });
+
+    expect(rendered).toContain("This referral has already been marked as actioned.");
+    expect(rendered.indexOf("govuk-error-summary")).toBeLessThan(rendered.indexOf("<h1"));
+    // Not the banner: nothing this caseworker did succeeded.
+    expect(rendered).not.toContain("govuk-notification-banner");
   });
 
   it("should link back to the case's referrals tab", async () => {

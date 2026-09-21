@@ -3,6 +3,7 @@
 {% from "govuk/components/tag/macro.njk" import govukTag %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
 
 {#
   One referral, read-only apart from the one control its state allows. The rows are the referral's own fields and
@@ -25,8 +26,22 @@
 <div class="govuk-grid-row">
   <div class="govuk-grid-column-two-thirds">
 
-    {% if withdrawRefused %}
-      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [{ text: withdrawRefused }] }) }}
+    {#
+      A closure that landed, as a banner rather than an error summary: it announces something not tied to any
+      one control on the page, which is what a banner is for, and the state below it is the one it produced.
+
+      The two refusals share one summary, because a caseworker arrives here through one redirect or the other and
+      never both — the judicial referral page makes the same call for the same reason. The sentences are chosen in
+      the handler, against the state api has just published.
+    #}
+    {% if directionActioned %}
+      {% set actionedHtml %}<p class="govuk-notification-banner__heading">{{ directionActioned }}</p>{% endset %}
+      {{ govukNotificationBanner({ type: "success", titleText: successTitle, html: actionedHtml }) }}
+    {% endif %}
+
+    {% set refused = withdrawRefused or closeRefused %}
+    {% if refused %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [{ text: refused }] }) }}
     {% endif %}
 
     <span class="govuk-caption-l">{{ case.displayReference }}</span>

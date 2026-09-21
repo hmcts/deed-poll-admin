@@ -27,6 +27,12 @@ import { callerFromRequest } from "../../../../auth/current-user.js";
 /** What `withdraw.ts` redirects back with when api refused the withdrawal. */
 const WITHDRAW_CONFLICT = "conflict";
 
+/** What `close.ts` redirects back with once api has closed the referral. */
+const CLOSE_ACTIONED = "actioned";
+
+/** And when api refused the closure, because somebody or something got to the referral first. */
+const CLOSE_CONFLICT = "conflict";
+
 const en = {
   title: "Referral to the judiciary",
   heading: "Referral to the judiciary",
@@ -73,7 +79,17 @@ const en = {
   withdrawRefusedTerminal: "This referral has already been closed or withdrawn.",
   // The one that must not borrow the sentence above: a caseworker looking at a returned direction would read
   // "already withdrawn" as their own doing. It points at the control that does apply instead.
-  withdrawRefusedDecided: "A direction has been recorded on this referral, so it can no longer be withdrawn. Carry out the direction and mark it as actioned."
+  withdrawRefusedDecided: "A direction has been recorded on this referral, so it can no longer be withdrawn. Carry out the direction and mark it as actioned.",
+  successTitle: "Success",
+  // The closure landed, said here rather than on a page of its own: the referral is where the closed state and
+  // the preserved direction are, and a confirmation page showing neither would be a screen to click past.
+  directionActioned: "The direction has been marked as actioned.",
+  // api's refusal of a closure, in the two forms a caseworker can reach. The likely one by far: two caseworkers
+  // on the same returned direction, one a moment behind.
+  closeRefusedClosed: "This referral has already been marked as actioned.",
+  // Everything else api refuses a closure for — withdrawn, back with the judiciary, or a state this app cannot
+  // read. It claims nothing about which, because the fresh status beside it says.
+  closeRefusedChanged: "This referral is no longer waiting for a direction to be actioned, so it could not be marked as actioned."
 };
 
 // English content in the cy shape — see the note in ../../index.ts.
@@ -97,6 +113,10 @@ export const GET = async (req: Request, res: Response) => {
     // the state api has just published, so the sentence and the page agree — and so a `Decided` referral is not
     // described as one the caseworker has already withdrawn.
     withdrawRefused: req.query.withdraw === WITHDRAW_CONFLICT ? withdrawRefusal(view.canClose, content) : "",
+    // A closure that landed, as a success banner above the state it produced.
+    directionActioned: req.query.close === CLOSE_ACTIONED ? content.directionActioned : "",
+    // And one api refused, keyed on the state it published instead — see `closeRefusal`.
+    closeRefused: req.query.close === CLOSE_CONFLICT ? closeRefusal(referral.state, content) : "",
     // Stated by the page that offers the control, rather than assembled from fragments in the template.
     closeHref: `/deed-polls/${req.params.id}/referrals/${encodeURIComponent(req.params.referralId)}/close`,
     en,
@@ -113,6 +133,19 @@ export const GET = async (req: Request, res: Response) => {
  */
 function withdrawRefusal(canClose: boolean, content: typeof en): string {
   return canClose ? content.withdrawRefusedDecided : content.withdrawRefusedTerminal;
+}
+
+/**
+ * Which of api's closure refusals this is.
+ *
+ * **Keyed on the state api has just published, unlike `withdrawRefusal`.** That one keys on a capability because
+ * its two answers name the two controls this page offers; a refused closure offers nothing — `Closed` and
+ * `Withdrawn` both end the referral — so there is no capability that tells them apart. The distinction worth
+ * making is the likely race from the rest: a caseworker whose colleague marked the same direction actioned a
+ * moment earlier should be told that, not that the status "changed".
+ */
+function closeRefusal(state: string | null | undefined, content: typeof en): string {
+  return state === "Closed" ? content.closeRefusedClosed : content.closeRefusedChanged;
 }
 
 /**
