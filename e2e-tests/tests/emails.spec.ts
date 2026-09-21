@@ -322,7 +322,7 @@ function bearer(subject: string): Record<string, string> {
  * as the other tabs' Add controls are in `deed-polls.spec.ts`.
  */
 function sendButton(page: Page): Locator {
-  return page.getByRole("button", { name: "Send an email: Application refused" });
+  return page.getByRole("button", { name: "Send an email: Application rejected" });
 }
 
 /** The judge's words, which the applicant will read as a quotation. `judges_reason` on the wire. */

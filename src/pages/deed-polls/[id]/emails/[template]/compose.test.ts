@@ -53,7 +53,7 @@ describe("email compose page", () => {
 
     expect(res.render.mock.calls[0][0]).toBe("deed-polls/email-compose");
     expect(res.render.mock.calls[0][1].case.displayReference).toBe("KBDP2026-00001");
-    expect(res.render.mock.calls[0][1].compose.name).toBe("Application refused");
+    expect(res.render.mock.calls[0][1].compose.name).toBe("Application rejected");
   });
 
   it("should open the slots pre-populated from api's defaults rather than empty", async () => {

@@ -217,6 +217,18 @@ function emailBanner(req: Request, emails: Awaited<ReturnType<typeof findCaseEma
   const id = typeof req.query.emailId === "string" ? req.query.emailId : "";
   const known = emails?.history.some((email) => email.id === id) === true;
 
+  // **The query string is user input, so the banner's words are gated on the history and not only its link.**
+  // Telling a caseworker an applicant has been informed their application was refused, when they have not been, is
+  // the failure decision 10 exists to prevent — and `?email=sent` alone used to be enough to produce that sentence
+  // for anyone who could be handed a URL. An id the history does not carry means the parameter was fabricated or
+  // the send it refers to belongs to another case, and neither is something to confirm.
+  //
+  // **A failed history read is the exception, and it stays confirmed.** `emails` is null when that read degraded
+  // (see `unavailableEmailsView`), so there is nothing to check the id against — and suppressing the banner then
+  // would lose a genuine confirmation for a send that did happen, which is the worse of the two errors. The link
+  // is withheld because it cannot be built, and that is the same in both cases.
+  if (emails !== null && !known) return null;
+
   return {
     text: outcome === "sent" ? en.emailSent : en.emailAlreadySent,
     href: known ? `/deed-polls/${req.params.id}/emails/${encodeURIComponent(id)}` : null

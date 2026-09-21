@@ -103,7 +103,7 @@ describe("emails/emails-view", () => {
     it("should fall back to the local wording for a row api sent no templateName for", () => {
       const view = buildEmailsView(emails({ history: [{ ...SENT, templateName: null }] }));
 
-      expect(view.rows[0]?.template).toBe("Application refused");
+      expect(view.rows[0]?.template).toBe("Application rejected");
     });
 
     it("should humanise a template key this repo has no wording for, rather than dropping the row's label", () => {
@@ -123,7 +123,7 @@ describe("emails/emails-view", () => {
     it("should offer the template api says is applicable and provisioned", () => {
       const view = buildEmailsView(emails());
 
-      expect(view.sendable).toEqual([{ template: TEMPLATE, name: "Application refused" }]);
+      expect(view.sendable).toEqual([{ template: TEMPLATE, name: "Application rejected" }]);
       expect(view.unsendable).toEqual([]);
     });
 
@@ -141,7 +141,7 @@ describe("emails/emails-view", () => {
       );
 
       expect(view.sendable).toEqual([
-        { template: TEMPLATE, name: "Application refused" },
+        { template: TEMPLATE, name: "Application rejected" },
         { template: "chase-missing-documents", name: "Chase missing documents" }
       ]);
     });
@@ -151,7 +151,20 @@ describe("emails/emails-view", () => {
       const view = buildEmailsView(emails({ availability: [{ template: TEMPLATE, applicable: false, reason, provisioned: true, slots: SLOTS }] }));
 
       expect(view.sendable).toEqual([]);
-      expect(view.unsendable).toEqual([{ template: TEMPLATE, name: "Application refused", reason }]);
+      expect(view.unsendable).toEqual([{ template: TEMPLATE, name: "Application rejected", reason }]);
+    });
+
+    it("should not blame provisioning for a row that is provisioned but has no template key", () => {
+      // `sendableTemplates` needs three things — applicable, provisioned, and a usable key — so an applicable and
+      // provisioned row with a null `template` lands in `unsendable` while provisioning is not what is wrong with
+      // it. Branching the reason on `applicable` alone stated the Notify sentence about a provisioned template: a
+      // claim that is false, and one the caseworker reading it has no way to check.
+      const view = buildEmailsView(emails({ availability: [{ template: null, applicable: true, reason: null, provisioned: true, slots: SLOTS }] }));
+
+      expect(view.sendable).toEqual([]);
+      expect(view.unsendable).toHaveLength(1);
+      expect(view.unsendable[0]?.reason).not.toContain("GOV.UK Notify");
+      expect(view.unsendable[0]?.reason).toBe("This email cannot be sent for this case at the moment");
     });
 
     it("should withhold an applicable template this environment has not provisioned, and say so", () => {
@@ -213,7 +226,7 @@ describe("emails/emails-view", () => {
 
       expect(view).toEqual({
         template: TEMPLATE,
-        name: "Application refused",
+        name: "Application rejected",
         fields: [
           {
             name: "judges_reason",
@@ -449,7 +462,7 @@ describe("emails/emails-view", () => {
 
   describe("emailTemplateLabel", () => {
     it("should give the business's wording for the template api ships", () => {
-      expect(emailTemplateLabel(TEMPLATE)).toBe("Application refused");
+      expect(emailTemplateLabel(TEMPLATE)).toBe("Application rejected");
     });
 
     it("should humanise an unrecognised key rather than hiding the row behind a placeholder", () => {

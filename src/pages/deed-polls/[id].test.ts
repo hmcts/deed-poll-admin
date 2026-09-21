@@ -304,7 +304,7 @@ describe("case detail page", () => {
     await GET(request(), res);
 
     expect(res.render.mock.calls[0][1].emails.sendable).toEqual([
-      { template: "application-rejected", name: "Application refused" },
+      { template: "application-rejected", name: "Application rejected" },
       { template: "chase-missing-documents", name: "Chase missing documents" }
     ]);
   });
@@ -414,14 +414,17 @@ describe("case detail page", () => {
     expect(res.render.mock.calls[0][1].emailBanner.text).toBe("This email had already been sent for this case, so it was not sent again.");
   });
 
-  it("offers no link for an email id this case's history does not carry", async () => {
-    // `emailId` is a query parameter and therefore user input: an invented one must not reach an href, and the
-    // banner still says what happened.
+  it("shows no banner at all for an email id this case's history does not carry", async () => {
+    // **The whole banner, not just its href.** This test previously asserted that an invented `emailId` still
+    // produced the sentence and merely withheld the link — which meant `?email=sent` alone told a caseworker an
+    // applicant had been informed their application was refused. Anyone who could hand a caseworker a URL could
+    // produce that sentence, and it is the exact misinformation decision 10 exists to prevent. The history is the
+    // only thing that knows whether a send happened, so an id it does not carry confirms nothing.
     const res = response();
 
     await GET(pageRequest({ params: { id: "case-1" }, query: { email: "sent", emailId: "../../somebody-elses" } }), res);
 
-    expect(res.render.mock.calls[0][1].emailBanner).toEqual({ text: expect.stringContaining("accepted by GOV.UK Notify"), href: null });
+    expect(res.render.mock.calls[0][1].emailBanner).toBeNull();
   });
 
   it("shows no banner for a query value the journey never produces", async () => {

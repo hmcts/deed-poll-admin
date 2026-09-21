@@ -71,8 +71,20 @@ export function validateEmailSlots(slots: readonly EmailSlot[], values: Record<s
 
     const value = typeof submitted === "string" ? submitted.trim() : "";
     if (value === "") {
-      // Required-and-blank only. An absent optional slot is omitted from the body rather than sent as `""`,
-      // because api pre-populates an omitted slot and an empty string is a caseworker's answer to it.
+      // Required-and-blank only. A blank optional slot is omitted from the body rather than sent as `""`, and
+      // **the two are the same thing to api, which is why this is not a choice we are making.**
+      // `EmailSlots.value` trims what it is given and tests `!supplied.isEmpty()`, so an empty string falls through
+      // to the pre-population branch exactly as an absent key does. Sending `""` to express "the caseworker cleared
+      // this" would therefore change nothing on the wire — it is not an available message.
+      //
+      // **The consequence is a real gap, and it is api's to close rather than this repo's.** api cannot distinguish
+      // a cleared slot from an unsent one, so the first template with an optional slot that *has* a default will
+      // send the applicant text the caseworker deliberately deleted. Nothing here can prevent that: the fix is an
+      // explicit-empty representation in api's parse. Harmless today — only `judges_reason` has a default and it is
+      // `required`, so the deletable slots are the ones with nothing to fall back to.
+      //
+      // An earlier version of this comment said "an empty string is a caseworker's answer to it", which argued for
+      // the opposite of what the code does and invited a fix that would have been a no-op wearing a fix's clothes.
       if (slot.required) errors.push({ field: name, message: requiredMessage(name) });
       continue;
     }

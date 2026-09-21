@@ -129,6 +129,16 @@ export function renderContentRejection(res: Response, journey: EmailJourney, slo
   const unplaceable = error.errors.filter((rejection) => !hasControl(journey.compose, rejection.field));
 
   if (placeable.length === 0) {
+    // A refusal is a 4xx even when this form has nowhere to put it. Without the status the documented 422 for a
+    // case with no applicant email renders the check page at 200 OK, which makes a refused send indistinguishable
+    // from an accepted one to logs, monitoring and anything between us and the browser — while the three sibling
+    // refusal paths (`res.status(400)` below, and 400 and 409 in `send.ts`) all set one.
+    //
+    // 400 rather than api's own status, because `InvalidInputError` does not carry it: the adapter classifies a
+    // 400 and a 422 into the same domain error, so this cannot distinguish them and neither can the branch below.
+    // Preserving api's exact status would mean threading it through `libs/deed-poll/src/errors.ts`, which is a
+    // wider change than this fix and is worth doing on its own terms rather than here.
+    res.status(400);
     renderRefusal(res, journey, slots, error.message);
     return;
   }

@@ -192,6 +192,10 @@ describe("email preview page", () => {
     expect(res.render.mock.calls[0][1].refusal).toContain("This applicant has no email address");
     expect(res.render.mock.calls[0][1].canSend).toBe(false);
     expect(res.render.mock.calls[0][1].slots).toHaveLength(1);
+    // A refusal is a 4xx even with nothing to place it against. Without this the 422 rendered at 200 OK, which
+    // made a refused preview indistinguishable from an accepted one to logs, monitoring and anything in between —
+    // while the three sibling refusal paths all set a status.
+    expect(res.status).toHaveBeenCalledWith(400);
   });
 
   it("should never send anything, whatever the outcome", async () => {

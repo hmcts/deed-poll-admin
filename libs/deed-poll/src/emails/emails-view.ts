@@ -52,9 +52,23 @@ export const NOTIFY_STATE_TAG: Record<NotifyState, string> = {
   Failed: "govuk-tag--red"
 };
 
-/** The business's wording for the template keys api ships. Unknown keys are humanised — see `emailTemplateLabel`. */
+/**
+ * The business's wording for the template keys api ships. Unknown keys are humanised — see `emailTemplateLabel`.
+ *
+ * **These must match api's `templateName` for the same key, because both appear in the same panel.** The history
+ * table renders api's `templateName` (`orLabel` prefers it) while the Send button renders this map, since the
+ * availability list publishes no name. This said "Application refused" against api's "Application rejected", so one
+ * template was called two things a few lines apart on one screen — and `orLabel`'s own docblock claimed the map
+ * existed to stop exactly that.
+ *
+ * Aligned to api rather than the other way round: api's value is already on the caseworker's screen in every
+ * history row, so changing this one is the smaller change and leaves a single source. **Whether "rejected" or
+ * "refused" is the right word is a copy question for the business** — api's `EmailTemplate` javadoc calls the
+ * template "Enrolment refused" while its `displayName` says "Application rejected", so the inconsistency exists
+ * upstream too. If the answer is "refused", it changes in api's `displayName` and follows here.
+ */
 const EMAIL_TEMPLATE_LABEL: Record<string, string> = {
-  "application-rejected": "Application refused"
+  "application-rejected": "Application rejected"
 };
 
 /** Why an applicable template still cannot be sent: api has the key but this environment has no Notify template. */
@@ -275,7 +289,13 @@ function buildUnsendable(type: EmailType): UnsendableEmailView {
   return {
     template: type.template ?? "",
     name: emailTemplateLabel(type.template),
-    reason: type.applicable ? NOT_PROVISIONED : orPlaceholder(type.reason, NO_REASON_GIVEN)
+    // **`provisioned === false`, not `applicable` alone.** `sendableTemplates` requires three things — applicable,
+    // provisioned, and a usable template key — so a row can land here while being both applicable and provisioned,
+    // by having a null or empty `template`. Branching on `applicable` then stated the provisioning sentence about a
+    // row that *is* provisioned: a claim that is simply false, and unfalsifiable by the caseworker reading it. The
+    // sentence now appears only when provisioning is genuinely what is missing; anything else falls to api's own
+    // `reason` or, failing that, the generic one that claims nothing about a cause.
+    reason: type.applicable && type.provisioned === false ? NOT_PROVISIONED : orPlaceholder(type.reason, NO_REASON_GIVEN)
   };
 }
 

@@ -368,7 +368,7 @@ describe("case detail template — the emails tab", () => {
     const panel = panelFor(await emailsPage(CASE_EMAILS), "emails");
 
     expect(panel).toContain('href="/deed-polls/case-1/emails/application-rejected/compose"');
-    expect(panel).toContain("Send an email: Application refused");
+    expect(panel).toContain("Send an email: Application rejected");
     expect(panel).not.toContain('href="/deed-polls/case-1/emails/new"');
   });
 
@@ -493,11 +493,29 @@ describe("case detail template — the banner a send comes back to", () => {
     expect(rendered).toContain("This email had already been sent for this case, so it was not sent again.");
   });
 
-  it("should still say what happened when there is no email to link to", async () => {
+  it("should render no banner for an email id the history does not carry", async () => {
+    // Was "should still say what happened when there is no email to link to", asserting the sentence survived an
+    // unknown id with only the link withheld. That is the defect: the query string is user input, so the sentence
+    // has to be earned by the history rather than by the URL.
     const rendered = await sentPage({ email: "sent", emailId: "email-nope" });
 
-    expect(rendered).toContain("accepted by GOV.UK Notify");
+    expect(rendered).not.toContain("govuk-notification-banner--success");
     expect(rendered).not.toContain('href="/deed-polls/case-1/emails/email-nope"');
+  });
+
+  it("should still confirm the send, unlinked, when the history could not be read", async () => {
+    // The one case where an unverifiable id still earns the sentence, and the reason the fix above is a condition
+    // rather than a blanket check: with the emails read degraded there is nothing to check the id against, and
+    // swallowing the confirmation for a send that did happen is the worse of the two errors. This is the template
+    // side of `[id].test.ts`'s "still confirms the send when the emails read failed".
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(findCaseEmails).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): nope"));
+
+    const rendered = await sentPage({ email: "sent", emailId: "email-1" });
+
+    expect(rendered).toContain("accepted by GOV.UK Notify");
+    expect(rendered).not.toContain('href="/deed-polls/case-1/emails/email-1"');
+    logged.mockRestore();
   });
 
   it("should render no banner on an ordinary visit", async () => {
