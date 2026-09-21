@@ -71,3 +71,18 @@
 .app-nowrap {
   white-space: nowrap;
 }
+
+/*
+ * The wording of a sent email, on the per-email page. api's `body` is the plain-text rendering Notify
+ * produced, so its paragraph and list breaks are newlines and nothing else: `pre-wrap` keeps them while
+ * still wrapping long lines to the column.
+ *
+ * This is why that body needs no markup around it, which is the point — it renders through Nunjucks
+ * autoescaping (decision 12 of docs/plans/notify-2-caseworker-email-tab.md). Turning the newlines into
+ * <p> or <li> elements would mean building HTML from text a caseworker typed, which is the escaping
+ * problem the preview's sandboxed iframe exists to avoid. Do not replace this with a Markdown renderer
+ * because Notify's bullets arrive as `*`.
+ */
+.app-email-body {
+  white-space: pre-wrap;
+}

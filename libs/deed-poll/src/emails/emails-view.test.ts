@@ -1,6 +1,14 @@
 import { type CaseEmails, NOTIFY_STATE } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
-import { buildComposeView, buildEmailsView, emailTemplateLabel, NOTIFY_STATE_LABEL, NOTIFY_STATE_TAG, unavailableEmailsView } from "./emails-view.js";
+import {
+  buildComposeView,
+  buildEmailDetail,
+  buildEmailsView,
+  emailTemplateLabel,
+  NOTIFY_STATE_LABEL,
+  NOTIFY_STATE_TAG,
+  unavailableEmailsView
+} from "./emails-view.js";
 
 const TEMPLATE = "application-rejected";
 
@@ -298,6 +306,144 @@ describe("emails/emails-view", () => {
         name: "Chase missing documents",
         fields: [{ name: "days_outstanding", label: "Days outstanding", maxLength: 3, required: true, value: "" }]
       });
+    });
+  });
+
+  describe("buildEmailDetail", () => {
+    it("should render one email's content and its fate, every field a display string", () => {
+      const detail = buildEmailDetail(emails({ history: [SENT] }), "email-1");
+
+      expect(detail).toEqual({
+        id: "email-1",
+        template: "Application refused",
+        subject: "Your application has been refused",
+        recipient: "applicant@example.com",
+        state: "Accepted by Notify",
+        stateTagClasses: "govuk-tag--green",
+        sentOn: "18 March 2026 at 11:05am",
+        sentBy: "caseworker@example.com",
+        failureReason: null,
+        body: "Dear applicant,\n\nThe Master has refused your application.",
+        missingBody: null,
+        documents: []
+      });
+    });
+
+    it("should keep the body's own line breaks, because the text layout is the email's layout", () => {
+      const detail = buildEmailDetail(emails({ history: [{ ...SENT, body: "One\n\n* two\n* three" }] }), "email-1");
+
+      expect(detail?.body).toBe("One\n\n* two\n* three");
+    });
+
+    it("should be null for an id this case's history does not carry, so the page answers 404", () => {
+      // api scopes the payload to the case, so another case's email is simply absent from it — there is no
+      // filter here and no second read to check ownership with.
+      expect(buildEmailDetail(emails({ history: [SENT] }), "email-9")).toBeNull();
+    });
+
+    it("should be null when the case has had no emails at all", () => {
+      expect(buildEmailDetail(emails(), "email-1")).toBeNull();
+    });
+
+    it("should carry api's failure prose on a failed email, because it is what makes the row actionable", () => {
+      const detail = buildEmailDetail(emails({ history: [FAILED] }), "email-2");
+
+      expect(detail?.failureReason).toBe("GOV.UK Notify rejected the recipient address (PERMANENT, status 400)");
+      expect(detail?.state).toBe("Failed");
+    });
+
+    it("should treat a failure reason of only whitespace as absent rather than rendering an empty row", () => {
+      const detail = buildEmailDetail(emails({ history: [{ ...FAILED, failureReason: "   " }] }), "email-2");
+
+      expect(detail?.failureReason).toBeNull();
+    });
+
+    it.each([
+      ["Pending", "This email has not been sent yet, so there is no wording to show."],
+      ["Failed", "This email was not sent, so there is no wording to show."],
+      ["Sent", "This email was sent before the service began keeping the wording, so no copy of it was stored here and none can be recovered."]
+    ] as const)("should explain an absent body in its own words when the email is %s", (notifyState, sentence) => {
+      // Decision 15: three states produce no body and they are not the same thing. "Sent before we started
+      // keeping the text" is a different reassurance from "this has not gone yet", and a blank panel is neither.
+      const detail = buildEmailDetail(emails({ history: [{ ...SENT, notifyState, body: null }] }), "email-1");
+
+      expect(detail?.body).toBeNull();
+      expect(detail?.missingBody).toBe(sentence);
+    });
+
+    it("should not borrow one of the three sentences for an email whose state api did not record", () => {
+      // Each of them asserts a history this row does not have, and the state cell already says it is unknown.
+      const detail = buildEmailDetail(emails({ history: [{ ...SENT, notifyState: null, body: null }] }), "email-1");
+
+      expect(detail?.missingBody).toBe("No wording was recorded for this email.");
+      expect(detail?.state).toBe("Not recorded");
+    });
+
+    it("should treat a body of only whitespace as absent, because a blank panel reads as a fault", () => {
+      const detail = buildEmailDetail(emails({ history: [{ ...SENT, body: "  \n  " }] }), "email-1");
+
+      expect(detail?.body).toBeNull();
+      expect(detail?.missingBody).toBeTruthy();
+    });
+
+    it("should set exactly one of body and missingBody, whatever api published", () => {
+      // They are alternatives: both set would render the wording and an explanation of its absence together, and
+      // neither set would render nothing at all — which is the blank panel decision 15 exists to prevent.
+      const history = [
+        SENT,
+        FAILED,
+        { ...SENT, body: null, notifyState: "Pending" as const },
+        { ...SENT, body: "", notifyState: null },
+        { ...SENT, body: "   " }
+      ].map((email, index) => ({ ...email, id: `email-${index}` }));
+
+      for (const email of history) {
+        const detail = buildEmailDetail(emails({ history }), email.id);
+
+        expect(detail?.body === null).not.toBe(detail?.missingBody === null);
+      }
+    });
+
+    it("should say what was not recorded rather than leaving a cell empty", () => {
+      const detail = buildEmailDetail(emails({ history: [{ ...SENT, subject: null, recipient: null, createdBy: null, createdOn: null }] }), "email-1");
+
+      expect(detail?.subject).toBe("Not recorded");
+      expect(detail?.recipient).toBe("Not recorded");
+      expect(detail?.sentBy).toBe("Not recorded");
+      expect(detail?.sentOn).toBe("Not recorded");
+    });
+
+    it("should list the documents the email carried", () => {
+      const documents = [
+        { id: "doc-1", name: "Deed poll.pdf" },
+        { id: "doc-2", name: "Covering letter.pdf" }
+      ];
+      const detail = buildEmailDetail(emails({ history: [{ ...SENT, documents }] }), "email-1");
+
+      expect(detail?.documents).toEqual(documents);
+    });
+
+    it("should name an attachment api published no name for, rather than dropping it from the list", () => {
+      // A document the applicant received and this page does not list is the one omission a caseworker cannot see.
+      const detail = buildEmailDetail(emails({ history: [{ ...SENT, documents: [{ id: "doc-1", name: null }] }] }), "email-1");
+
+      expect(detail?.documents).toEqual([{ id: "doc-1", name: "Unnamed document" }]);
+    });
+
+    it("should read its row out of the same payload the tab rendered, not a shape of its own", () => {
+      // Decision 14: api answers the tab, the compose form and this page from one response, so a row on the tab
+      // and the page behind it can never disagree about which emails a case has had.
+      const payload = emails({ history: [SENT, FAILED] });
+
+      for (const row of buildEmailsView(payload).rows) {
+        expect(buildEmailDetail(payload, row.id)?.template).toBe(row.template);
+      }
+    });
+
+    it("should never imply the applicant received, opened or downloaded anything", () => {
+      const detail = buildEmailDetail(emails({ history: [SENT] }), "email-1");
+
+      expect(detail?.state).not.toMatch(/delivered|viewed|opened|downloaded|received|read/i);
     });
   });
 

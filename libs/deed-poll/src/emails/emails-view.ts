@@ -64,6 +64,37 @@ const NOT_PROVISIONED = "This email cannot be sent in this environment yet, beca
 const NO_REASON_GIVEN = "This email cannot be sent for this case at the moment";
 
 /**
+ * Why an email has no wording to show, per state — decision 15, and the three are not the same thing.
+ *
+ * A `Pending` row has not gone yet, a `Failed` one never went, and a `Sent` one with nothing stored was sent
+ * before api began capturing the text and never will have any: api refuses to fetch it back from Notify, which
+ * is notify-5's own constraint on backfill. "Sent before we started keeping the text" is a different
+ * reassurance from "this has not gone yet", so each gets its own sentence and none of them is a blank panel —
+ * which is what a caseworker reads as a fault.
+ */
+const NO_BODY: Record<NotifyState, string> = {
+  Pending: "This email has not been sent yet, so there is no wording to show.",
+  Failed: "This email was not sent, so there is no wording to show.",
+  Sent: "This email was sent before the service began keeping the wording, so no copy of it was stored here and none can be recovered."
+};
+
+/**
+ * No wording and no state either, which is a claim about the read rather than about the email.
+ *
+ * `notifyState` is nullable on the wire, so this is reachable, and none of `NO_BODY`'s three sentences may be
+ * borrowed for it — each asserts a history this row does not have.
+ */
+const NO_BODY_NO_STATE = "No wording was recorded for this email.";
+
+/**
+ * An attachment api published with no name, which its schema permits.
+ *
+ * Named rather than dropped, because a document the applicant received and this page does not list is the one
+ * omission a caseworker cannot see — where a row saying only that something was attached is at least true.
+ */
+const UNNAMED_DOCUMENT = "Unnamed document";
+
+/**
  * The tab: every email this case has had, and which ones may be sent now.
  *
  * **api's order is kept.** Its history answers newest first, which is the order correspondence is read in, and a
@@ -133,6 +164,56 @@ export function buildComposeView(emails: CaseEmails, template: string, submitted
     template,
     name: emailTemplateLabel(template),
     fields: type.slots.filter(hasName).map((slot) => buildComposeField(slot, submitted, defaults))
+  };
+}
+
+/**
+ * One email's own page: what it said, who it went to, what became of it, and what it carried.
+ *
+ * **Read out of the payload the tab already fetched, not from a call of its own.** api answers the whole tab —
+ * availability, history and slot defaults — in one response (decision 8), so the content page reads its row from
+ * the same `history` the table rendered. There is no per-notification endpoint and nothing here needs one.
+ *
+ * `null` for an id that is not in this case's history, which the caller answers 404 to: the id is a route
+ * parameter and therefore user input, and api's scoping is what makes another case's email absent from this
+ * payload rather than a filter written here.
+ *
+ * **`body` is plain text and stays that way.** `EmailHistoryResponse.body` is the text rendering of the template
+ * api captured from Notify's send acceptance, so it goes through Nunjucks autoescaping — never `| safe` and never
+ * the preview's `srcdoc` iframe, which is a different field of a different shape (decision 12). Notify's body is
+ * Markdown-flavoured, so bullets arrive as `*`; they are rendered as they are rather than passed through a
+ * Markdown renderer, which would put caseworker free text back through exactly the escaping problem the iframe
+ * exists to avoid.
+ *
+ * **`body` and `missingBody` are alternatives and exactly one of them is set.** A body that is only whitespace
+ * counts as absent, because a panel with nothing visible in it reads as a fault rather than as an explanation.
+ */
+export function buildEmailDetail(emails: CaseEmails, notificationId: string): EmailDetailView | null {
+  const email = emails.history.find((candidate) => candidate.id === notificationId);
+  if (!email) return null;
+
+  // Untrimmed for the render — the text is the email's own layout, and its leading blank line is part of it —
+  // but trimmed to decide whether there is anything to render at all.
+  const body = typeof email.body === "string" ? email.body : "";
+  const hasBody = body.trim().length > 0;
+
+  return {
+    id: email.id,
+    template: orLabel(email.templateName, email.template),
+    subject: orPlaceholder(email.subject, NOT_RECORDED),
+    recipient: orPlaceholder(email.recipient, NOT_RECORDED),
+    state: email.notifyState ? NOTIFY_STATE_LABEL[email.notifyState] : NOT_RECORDED,
+    stateTagClasses: email.notifyState ? NOTIFY_STATE_TAG[email.notifyState] : "govuk-tag--grey",
+    sentOn: formatTimestamp(email.createdOn),
+    sentBy: orPlaceholder(email.createdBy, NOT_RECORDED),
+    // api's own prose, and the field that makes a failure actionable — a caseworker reading "the recipient
+    // address was rejected" knows to ring the applicant, where "Failed" alone tells them only to worry.
+    failureReason: typeof email.failureReason === "string" && email.failureReason.trim().length > 0 ? email.failureReason : null,
+    body: hasBody ? body : null,
+    missingBody: hasBody ? null : email.notifyState ? NO_BODY[email.notifyState] : NO_BODY_NO_STATE,
+    // Empty for every email today: the one shipped template carries no attachments, and notify-4 is blocked on
+    // document generation. Rendered anyway, so the first email that does carry one needs no change here.
+    documents: email.documents.map((document) => ({ id: document.id, name: orPlaceholder(document.name, UNNAMED_DOCUMENT) }))
   };
 }
 
@@ -260,6 +341,37 @@ export interface EmailRow {
   sentOn: string;
   /** The caseworker api stamped on the row from their own token. */
   sentBy: string;
+}
+
+/** One attachment an email carried, as its own page lists it. */
+export interface EmailDocumentView {
+  id: string;
+  name: string;
+}
+
+/** One email's content and its fate, as the per-email page renders it. Every field is already a display string. */
+export interface EmailDetailView {
+  id: string;
+  template: string;
+  subject: string;
+  /** The address api froze into the outbox row, which is not necessarily the case's address today. */
+  recipient: string;
+  /** Notify's acceptance, never its delivery. See `NOTIFY_STATE_LABEL`. */
+  state: string;
+  stateTagClasses: string;
+  sentOn: string;
+  sentBy: string;
+  /** api's prose on a failure, where it published any. `null` is the absence of one, not a success. */
+  failureReason: string | null;
+  /**
+   * The wording that was sent, as plain text. **Rendered through autoescaping with newlines preserved in CSS** —
+   * decision 12. `null` when there is none, and `missingBody` then says which of the reasons it is.
+   */
+  body: string | null;
+  /** The sentence explaining an absent body. `null` exactly when `body` is set, and never both. */
+  missingBody: string | null;
+  /** Empty for every email today — the one shipped template has no attachments. */
+  documents: EmailDocumentView[];
 }
 
 /** One email type the caseworker may send now, and where the button goes. */

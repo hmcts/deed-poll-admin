@@ -767,9 +767,46 @@ Read first: decisions 12, 13, 14 and 15, and Task 4's view model to extend.
   not reuse the iframe; each of the three no-content cases renders its own wording rather than a blank; an
   unknown id is a 404; and the page makes no second api call.
 
-- [ ] One email's content renders as escaped text with its documents, markup in the body is inert and proven
+- [x] One email's content renders as escaped text with its documents, markup in the body is inert and proven
       so by test, all three no-content cases are explained rather than blank, an unknown id is a 404, and the
       validation commands green
+
+      **Done 2026-09-21.** `buildEmailDetail` in `emails-view.ts`, the page at
+      `src/pages/deed-polls/[id]/emails/[notificationId].ts`, its template `deed-polls/email-detail.njk` and an
+      `.app-email-body { white-space: pre-wrap }` rule in `src/assets/css/index.scss`. Test count **2,782**
+      against Task 4's 2,740: +42, 19 in `@hmcts/deed-poll` and 23 in the root app. No new adapter function and
+      no new api call — the row comes out of the `findCaseEmails` payload, asserted by a test that pins
+      `findCaseEmails` at one call and both write functions at none.
+
+      **Four decisions Task 5 and Task 6 inherit.**
+
+      1. **The four no-content cases are four, not three.** Decision 15 names `Pending`, `Failed` and
+         "sent before the text was kept"; `notifyState` is *nullable* on the wire, so a row with neither a state
+         nor a body is reachable and none of the three sentences may be borrowed for it — each asserts a history
+         that row does not have. It gets its own (`No wording was recorded for this email.`), and the state cell
+         already reads "Not recorded". `body` and `missingBody` are alternatives with **exactly one set**, pinned
+         across all five shapes api can publish, because both set renders the wording and an explanation of its
+         absence together while neither set is the blank panel decision 15 exists to prevent.
+      2. **A body of only whitespace counts as absent.** api sends `""` rather than null for an absent rendering
+         (Task 1's correction to `html` is the same defect one field over), so a null check alone renders a panel
+         with nothing visible in it — which is the outcome the sentence exists to replace. **Task 5's `html`
+         fallback has to test for empty *or* null for the same reason**, and this is the second instance of it.
+      3. **Both calls on this page are load-bearing, which inverts the tab's rule rather than contradicting it.**
+         `[id].ts` reads emails with `Promise.allSettled` and degrades the panel because there it is one tab out
+         of several; this page *is* the email, so `Promise.all` and the error reaches the page. `findDeedPoll` is
+         the second call and is the case reference in the caption, exactly as `referrals/[referralId].ts` does it.
+      4. **`failureReason` is rendered whenever api published one, not only on a `Failed` row**, and a reason of
+         only whitespace reads as absent. It is the field that makes a failure actionable — "the recipient address
+         was rejected" tells a caseworker to ring the applicant where "Failed" alone tells them only to worry.
+
+      The `<script>` test is the one the plan called for and it is worth knowing what it pins: the body reaches
+      the page through **autoescaping with `pre-wrap`**, so the newlines are CSS and not markup. Turning them into
+      `<p>` or `<li>` would mean building HTML out of caseworker free text, which is decision 3's problem arriving
+      by the back door — the reason is now in the SCSS comment as well as the template's.
+
+      **One thing checked and deliberately not changed:** `yarn welsh:check` exits 1 on `master` too (342 prose
+      strings identical in `cy`, the repo-wide `cy = { ...en }` state). Measured by stashing this task's work, not
+      assumed. It is not one of the six pipeline scripts and this page adds to the count rather than causing it.
 
 ### Task 5: The journey
 
