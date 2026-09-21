@@ -143,17 +143,23 @@ single file:
   bounce to the list would tell a judge somebody else has work that is in fact theirs. The pool therefore carries
   one refusal, not two. A caseworker's 409s are a different thing entirely (two caseworkers racing), which is why
   `referrals/new.ts` re-renders at 409 instead.
-- **A user holding both roles has no link to `/judicial/**`.** Decision 8 builds no judicial navigation and the
-  shared chrome renders no service-navigation, so the caseworker-first landing in `src/pages/index.ts` leaves such
-  a user typing the URL. The gate admits them, so this is a missing route rather than a refusal; it is the plan's
-  flagged open question, and the fix if the business confirms such a user is a conditional link on the case list,
-  not a change to the landing.
-- **The pool is `Open` only, so claiming a referral takes it off the only list that links to it.** api filters
-  `GET /judicial/referrals` to `Open` — the plan's "plus the judge's own `Claimed`/`Decided`" describes decision
-  3's *read* visibility, not its list — and there is no query for a judge's own claims. A judge who claims one and
-  then follows "Back to referrals" cannot reach it again until api's inactivity sweep returns it. Do not try to fix
-  that here by re-listing or by filtering client-side: the missing query is api's, and it is recorded as an open
-  question on `referrals-admin-3`.
+- **A user holding both roles still has no link to `/judicial/**`.** There is judicial navigation now, but it is
+  the two judicial lists' own (`src/pages/judicial/referrals/list-navigation.njk`) and it renders only on pages
+  inside the area; the shared chrome renders no service-navigation, so the caseworker-first landing in
+  `src/pages/index.ts` leaves such a user typing the URL. The gate admits them, so this is a missing route rather
+  than a refusal; it is `referrals-admin-3`'s flagged open question, and the fix if the business confirms such a
+  user is a conditional link on the case list, not a change to the landing.
+- **The pool is `Open` only, so claiming a referral takes the row off it — and onto `/judicial/referrals/mine`.**
+  api filters `GET /judicial/referrals` to `Open` (the plan's "plus the judge's own `Claimed`/`Decided`" describes
+  `referrals-admin-3` decision 3's *read* visibility, not its list), and `GET /judicial/referrals/mine` is the
+  second collection that answers for the judge's own `Claimed`/`Decided` work — added by api follow-up 6 and
+  consumed by `referrals-admin-6`. **Membership is api's answer about the token's IDAM subject**: do not derive
+  "mine" from rows previously seen, session state, browser history or `claimedBy` display text, and do not filter
+  or re-sort either list here. The states the personal list admits live in one predicate —
+  `isMyListState` in `libs/deed-poll/src/judicial/view.ts` — which is also what decides whether a referral's detail
+  page links back to the pool or to My referrals, so the two cannot drift into returning a judge to a list their
+  referral is not on. A lapsed claim is keyed on the state, not the holder: api's inactivity sweep makes the row
+  `Open` again and it leaves the personal list even though the name is still on it.
 - **A new page area must be added to `scripts/extract-welsh-strings.mjs`'s `INCLUDE`.** The script's scope is a
   list of directories, so a page area that is not on it contributes nothing to
   `.business_context/welsh-translation-request.csv` and nothing to `yarn welsh:check` — with no failure anywhere,

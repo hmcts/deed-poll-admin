@@ -23,8 +23,9 @@ describe("service root", () => {
     });
 
     // Caseworker-first, deliberately: the caseworker surface is the richer one, where the reverse leaves a
-    // caseworker on a screen with no case list. It is not free — there is no judicial navigation to reach the
-    // pool from, so such a user types the URL. See the `landingPath` docblock, which states the cost.
+    // caseworker on a screen with no case list. It is not free — the judicial lists' own navigation renders only
+    // inside that area, so there is nothing on the caseworker surface that reaches the pool and such a user types
+    // the URL. See the `landingPath` docblock, which states the cost.
     it("should redirect a user holding both roles to the case list", async () => {
       const res = pageResponse();
 

@@ -500,7 +500,8 @@ test.describe("without the judicial role", () => {
 
   test("administrator is refused the judicial area and is not sent to it", async ({ page }) => {
     // `/` resolves the persona, and an administrator's is the case list — a judge's pool is not one link away
-    // from it, because there is no judicial nav to put it in (decision 8).
+    // from it, because the judicial lists' navigation renders only on pages inside the judicial area and the
+    // caseworker chrome has nothing to put such a link in (admin-3 decision 8, still true after admin-6).
     await page.goto("/");
     await expect(page).toHaveURL("/deed-polls");
     await expect(page.locator(`a[href^="${POOL_PATH}"]`)).toHaveCount(0);

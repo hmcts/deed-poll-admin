@@ -386,5 +386,5 @@ scripts remain.
 - New production admin pages or service calls.
 - A generated-note badge or immutable-note controls.
 - A new note/referral API contract.
-- A judicial “My referrals” list, planned in `referrals-admin-6-judicial-my-referrals.md`.
+- A judicial “My referrals” list, **delivered 2026-09-21 by `referrals-admin-6-judicial-my-referrals.md`**.
 - Claim-lapse scheduling that the mock does not already implement.

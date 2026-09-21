@@ -327,27 +327,31 @@ admin-0.
   labels — working text; a judicial-facing wording/Welsh pass can revise. Display-only.
 - **Dual-role users** (decision 2 — a user with both caseworker and judicial roles) — defaulted to
   caseworker-first landing; confirm the business has no such user, or wants a chooser. Flagged. **What that
-  default actually costs, now that decision 8 has shipped no judicial navigation:** such a user has *no* control
+  default actually costs, and it is still what it was after admin-6:** admin-6 built judicial navigation, but it
+  is the two judicial lists' own and renders only on pages inside the area, so such a user still has *no* control
   anywhere in the UI that reaches `/judicial/referrals` — they must type it. `requireRole` admits them, so it is
   a missing route into a permitted area rather than a refusal, and `src/pages/index.ts`'s docblock says so
   plainly (an earlier version claimed the judge's area was "one link away", which was never true). If the
   business confirms such a user exists, the fix is one conditional link on the case list rendered when
   `isJudicial`, which stays inside decision 8 — and `judicial.spec.ts`'s "no judicial link" assertion would then
   need scoping to the admin-only fixture.
-- **A judge's "my decided referrals" history view** — api-3's visibility already permits a judge to read their
-  own `Decided` referrals, so the data is reachable, but a dedicated history list is additive and not asked for
-  (api-3 "deliberately not in this plan"). Out of scope here.
-- **Superseded by `../referrals-admin-6-judicial-my-referrals.md`: a referral a judge has claimed but not yet
+- ~~**A judge's "my decided referrals" history view**~~ — **shipped as part of admin-6's My referrals**, which
+  carries the caller's `Decided` referrals alongside their `Claimed` ones until a caseworker actions the direction.
+  It is deliberately not the history list this item imagined: `Withdrawn` and `Closed` are still not on any
+  judicial list, and permanent history remains out of scope (admin-6 "Out of scope").
+- ~~**Superseded by `../referrals-admin-6-judicial-my-referrals.md`: a referral a judge has claimed but not yet
   directed has no route back to it, and that is api's to fix before admin can consume it, not
-  this screen's.** Item 1 above says the pool carries "the judge's own `Claimed`/`Decided` referrals"; that
-  conflates api-3 decision 3's *read* visibility with its list, and Task 0's verification of the contract found
-  what api actually does — `GET /judicial/referrals` filters to `Open`. So a claim takes the referral off the
-  only list that links to it, and the referral view's own "Back to referrals" leads to a page it is not on.
-  A judge who claims one and then navigates away is left with the browser's history or a remembered URL until
-  api's inactivity sweep returns it to the pool. Not fixable here: api's four judicial operations offer no
-  query for a judge's own `Claimed` referrals, so the fix required an API query and a second list here.
-  Follow-up 6 chooses the literal `GET /judicial/referrals/mine` collection and covers both the caller's
-  `Claimed` and `Decided` work.
+  this screen's.**~~ **Fixed. `referrals-admin-6` shipped `/judicial/referrals/mine` on 2026-09-21**, against api
+  follow-up 6's `GET /judicial/referrals/mine` (api PR #36). For the record of what the gap was: item 1 above says
+  the pool carries "the judge's own `Claimed`/`Decided` referrals"; that conflates api-3 decision 3's *read*
+  visibility with its list, and Task 0's verification of the contract found what api actually does —
+  `GET /judicial/referrals` filters to `Open`. So a claim took the referral off the only list that linked to it,
+  and the referral view's own "Back to referrals" led to a page it was not on, leaving a judge who navigated away
+  with the browser's history or a remembered URL until api's inactivity sweep returned it to the pool. It was not
+  fixable here, because api's four judicial operations offered no query for a judge's own `Claimed` referrals.
+  There are **five** now, and the second list is `src/pages/judicial/referrals/mine.ts`; the detail page's back
+  link is derived from the referral's own state (`isOnMyList`), so a claimed or decided referral returns to My
+  referrals and an `Open` or unavailable one to the pool.
 - **A session-backed direction wizard** vs the request-carried approach (decision 7) — recommended
   request-carried (repo norm); flagged in case a reviewer prefers session.
 

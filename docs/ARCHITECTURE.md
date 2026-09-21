@@ -102,6 +102,13 @@ The application uses Simple Router for automatic route discovery from the `src/p
    - `pages/deed-polls/[id]/notes/[noteId]/edit.ts` → `/deed-polls/:id/notes/:noteId/edit`
 3. **HTTP Methods**: Files export named functions (`GET`, `POST`) per HTTP method
 4. **Views**: Nunjucks templates co-located with controllers; `(group)` directories are added as view paths so templates remain discoverable
+5. **Precedence**: `sortRoutes` registers routes with fewer parameters first, then shorter paths, then static
+   segments before parameterised ones — so `pages/judicial/referrals/mine.ts` is matched before
+   `pages/judicial/referrals/[referralId].ts` and `/judicial/referrals/mine` is never read as a referral id.
+   A literal path alongside a sibling `[param]` needs no registration order of its own; **test the dispatch
+   rather than the sort** (`src/pages/judicial/referrals/mine.test.ts` drives a real router over the real
+   `src/pages` tree), because an assertion about the sorted array passes on a router that then dispatches the
+   other way
 
 ## Core Components
 

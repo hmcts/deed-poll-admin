@@ -516,7 +516,52 @@ yarn test:e2e
 
 Record final totals against Task 0 and verify the six Jenkins-owned package scripts remain.
 
-- [ ] Documentation current; full app, lint, Welsh and E2E validation green; final totals recorded
+- [x] Documentation current; full app, lint, Welsh and E2E validation green; final totals recorded
+
+> **DONE 2026-09-21.** Documentation only — no behaviour changed, and the totals are Task 4's to the test:
+> **166 test files, 3,087 tests, `8 successful, 8 total`**, `yarn lint` exit 0, `yarn welsh:check` **466 strings,
+> 441 still identical** (exit 1, as this section says it must be), and `npx playwright test` **39 passed**, the whole
+> suite including both judicial journeys. Against Task 0: **+2 test files, +96 tests, +20 Welsh strings** — the 20
+> being this plan's own new keys and nothing else. The six Jenkins-owned scripts are all present and unchanged
+> (`lint`, `test`, `test:coverage`, `test:a11y`, `test:smoke`, `test:functional`), asserted by `src/pipeline.test.ts`
+> as well as read off `package.json` here.
+>
+> **What was actually stale, and it was never the API-client comments.** Task 1 had already moved those to "five
+> judicial operations" as it added the fifth, and every page, service and mock docblock was written by the task that
+> shipped it. What survived was **one count and one claim made in six places**: `libs/deed-poll/src/referrals/service.ts`
+> still said the adapter carried "the four `/judicial/**` operations", and `CLAUDE.md`, `src/pages/index.ts`,
+> `src/pages/index.test.ts`, `judicial.spec.ts` and admin-3's own gap note all said there was **no judicial
+> navigation**. That is now false as written and true only as scoped: there *is* navigation, it is the two lists'
+> own, and it renders only on pages inside `/judicial/**` — so the dual-role user's cost is unchanged and the reason
+> for it is different. Each of the five now says the scoped version, because "no judicial navigation anywhere" is the
+> sentence that would make the next reader build a second one.
+>
+> **`CLAUDE.md`'s "the pool is `Open` only" bullet was the one that would have caused work.** It ended "the missing
+> query is api's… do not try to fix that here by re-listing or filtering client-side", which after admin-6 reads as
+> an instruction to leave a shipped page unbuilt. It now names `GET /judicial/referrals/mine`, keeps the half of the
+> prohibition that is still load-bearing (**membership is api's answer about the token** — no deriving "mine" from
+> session, history or `claimedBy`, no filtering or re-sorting either list here), and points at `isMyListState` as the
+> one predicate both the list and the detail page's back link ask, since two copies of that condition is how a judge
+> gets returned to a list their referral is not on — the bug this plan exists to fix, arriving from the other
+> direction.
+>
+> **Two additions rather than corrections.** Admin-3's "my decided referrals history view" gap is struck as shipped
+> *in part*, with what was not shipped stated: `Withdrawn` and `Closed` are still on no judicial list and permanent
+> history is still out of scope, so a reader does not take "delivered" for more than it was. And
+> `docs/ARCHITECTURE.md`'s route-discovery section gained a fifth item for **precedence** — `sortRoutes` puts static
+> segments ahead of parameterised ones, so a literal sibling of a `[param]` needs no registration order of its own —
+> with decision 6's lesson attached: **test the dispatch, not the sort**, because an assertion about the sorted array
+> passes on a router that then dispatches the other way.
+>
+> **E2E was run the way Task 4 documented and the note is worth keeping**: `yarn mock:api`, `yarn build:app:dev`,
+> `NODE_ENV=development ENVIRONMENT_NAME=development PERSONA_SWITCHER_ENABLED=true VITE_MIDDLEWARE=false npx tsx
+> src/server.ts`, then `npx playwright test` from `e2e-tests/` — no `dev:up`, against the main checkout's existing
+> `deed-poll-redis`/`deed-poll-idam` containers. Port 3200 was free before starting and both servers were stopped
+> afterwards.
+>
+> **This plan has not been moved to `docs/plans/completed/`.** Every completed plan lives there and this one should
+> join them, but the two references to it that Task 5 updated (admin-4 and admin-5's out-of-scope lists) name it by
+> its current path, and a move belongs with whatever lands the branch rather than inside it.
 
 ## Out of scope
 

@@ -31,7 +31,7 @@
  * a name alongside it would let this app attribute a referral to whoever it liked. The same token is how api
  * decides whether the caller may raise one at all — there is no role check here.
  *
- * **Claiming and directing are not here on purpose.** The adapter carries the four `/judicial/**` operations
+ * **Claiming and directing are not here on purpose.** The adapter carries the five `/judicial/**` operations
  * because it tracks the whole of api, and the judge's own screens call them through `../judicial/service.ts`;
  * a caseworker never claims or directs. Closing *is* here, as of `referrals-admin-4`: it is how a caseworker
  * records that a returned direction has been carried out, and without it a case could not leave the
