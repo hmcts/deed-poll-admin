@@ -96,7 +96,7 @@ describe("email send route", () => {
     expect(res.redirect).not.toHaveBeenCalled();
   });
 
-  it("should keep the wording and the token through a refused send, so nothing has to be retyped", async () => {
+  it("should keep the wording through a refused send, so nothing has to be retyped", async () => {
     vi.mocked(sendCaseEmail).mockRejectedValue(new ConflictError("This case has no referral that a Master has refused"));
     const res = response();
 
@@ -106,7 +106,8 @@ describe("email send route", () => {
       { name: "judges_reason", value: "Identity not established." },
       { name: "additional_notes", value: "Ring us" }
     ]);
-    expect(res.render.mock.calls[0][1].token).toBe(TOKEN);
+    // The token this also asserted is gone: it compared against nothing, so it kept no guarantee to lose.
+    expect(res.render.mock.calls[0][1]).not.toHaveProperty("token");
   });
 
   it("should still refuse with its own sentence when api's 409 carried no message of its own", async () => {

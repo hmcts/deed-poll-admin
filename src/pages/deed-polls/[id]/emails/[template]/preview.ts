@@ -10,7 +10,27 @@
  * decision 3, and `../../../email-preview.njk.test.ts` asserts the attribute so a later tidy-up fails a test
  * rather than shipping. It comes from Notify by way of api and contains text a caseworker typed, so showing it in
  * the page would mean `| safe` on a string that has been through two services and a human. The sandbox also keeps
- * the email's own styles out of the admin page, so what is checked looks more like what the applicant will read.
+ * the email's own styles out of the admin page.
+ *
+ * **The preview is unbranded, and decision 3's "looks more like what the applicant will read" overstated it.**
+ * A `srcdoc` document inherits the embedder's Content-Security-Policy, and `configureHelmet()` sends
+ * `img-src 'self' data:` (plus the analytics hosts) — so a remote image in Notify's HTML, which is how its crest
+ * and branding arrive, is refused. Only a console message says so. **`sandbox=""` compounds it**: with no
+ * `allow-same-origin` the frame has an opaque origin, and `'self'` can never match an opaque origin, so even a
+ * same-origin image would be blocked. `data:` URIs would still render.
+ *
+ * **Nothing in the suite can catch this**, which is worth knowing before trusting a green run here: the in-memory
+ * mock's rendered HTML contains no images at all, the template test only renders, and the e2e only asserts the
+ * `sandbox` and `srcdoc` attributes. It was found by reading the policy, not by a failure.
+ *
+ * **Left as it is, deliberately, and the caption was corrected instead.** What this page exists to do is get a
+ * caseworker to approve *wording* before an irreversible send, and the wording is exact — so the honest fix was to
+ * stop the caption claiming appearance fidelity it does not have. Restoring the branding would mean allowing
+ * Notify's static-image host in `img-src`, and **the directive lives in `libs/express-govuk-starter`, which is
+ * template-provided**: an edit there is lost at the next re-scaffold with nothing failing, exactly as the
+ * app-owned layouts in `src/pages/layouts/` exist to avoid. So it would need an app-owned override, widening the
+ * policy on every page of a caseworker application for a cosmetic gain. That is a trade for the business to make
+ * rather than a bug to fix quietly.
  *
  * **A `POST`, because a preview costs one of Notify's rate-limited calls** and that allowance is shared with real
  * sends — decision 9. It happens on an explicit action and never on a keystroke, a blur or an autosave; a tab that
@@ -24,7 +44,7 @@
 import { InvalidInputError, previewCaseEmail, validateEmailSlots } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
-import { en as composeEn, type EmailJourney, hasControl, JOURNEY_FIELD, loadEmailJourney, renderCompose, submittedSlots } from "./compose.js";
+import { en as composeEn, type EmailJourney, hasControl, loadEmailJourney, renderCompose, submittedSlots } from "./compose.js";
 
 export const en = {
   title: "Check the email before sending",
@@ -32,7 +52,11 @@ export const en = {
   templateLabel: "Email",
   subjectLabel: "Subject",
   previewHeading: "The email",
-  previewCaption: "This is the email GOV.UK Notify will send, as the applicant will see it.",
+  // **Claims the wording and not the appearance, because the appearance is not faithful here.** This said "as the
+  // applicant will see it", which is false: no image in Notify's HTML can render inside the frame, so the crest
+  // and any branding are missing. The caseworker's job on this page is to approve words before an irreversible
+  // send, and the words *are* exact — so the caption says that and stops. See the CSP note in the docblock.
+  previewCaption: "This is the wording GOV.UK Notify will send. The email's branding and images are not shown here.",
   // The iframe's accessible name. Decision 3's sandbox must not cost a screen-reader user the ability to read
   // what they are about to send, so this is not optional decoration.
   frameTitle: "Preview of the email that will be sent to the applicant",
@@ -168,8 +192,6 @@ function render(res: Response, journey: EmailJourney, slots: Record<string, stri
   res.render("deed-polls/email-preview", {
     case: journey.found,
     compose: journey.compose,
-    token: journey.token,
-    journeyField: JOURNEY_FIELD,
     // The checked values, carried as hidden controls: what was approved is what the send posts, so nothing can be
     // rendered for approval and then sent different.
     slots: Object.entries(slots).map(([name, value]) => ({ name, value })),
