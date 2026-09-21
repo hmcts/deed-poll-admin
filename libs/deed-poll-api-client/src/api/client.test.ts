@@ -29,6 +29,7 @@ import {
   getCase,
   getCaseEmails,
   getFieldRules,
+  getJudicialMyReferrals,
   getJudicialPool,
   getJudicialReferral,
   getNote,
@@ -1068,9 +1069,10 @@ describe("saved queries", () => {
 });
 
 /**
- * The four judicial operations, which have no caller in this app until the judicial screen is built.
+ * The five judicial operations — the shared pool, one judge's own list, one referral, and the two writes.
  *
- * A judge is the token's subject here, because that is what the mock reads and what api's `claimedBy` holds.
+ * A judge is the token's subject here, because that is what the mock keys ownership on and what api's
+ * `claimedById` holds. The display name beside it (`claimedBy`) authorises nothing — see `mock/server.ts`.
  * The `caseworker-deedpoll-judicial` role gate is api's and is not arranged: nothing in this adapter differs
  * with a role, so there is nothing here it could pin.
  */
@@ -1213,6 +1215,94 @@ describe("the judicial surface", () => {
     if (result.ok) return;
     expect(result.error.kind).toBe("validation");
     expect(result.error.fieldErrors?.map((error) => error.field)).toContain("decision");
+  });
+
+  it("should answer this judge's own claimed and decided referrals, and no other judge's", async () => {
+    const claimed = await referralOn(await caseId());
+    await claimJudicialReferral(claimed, judge(JUDGE));
+    const decided = await referralOn(await caseId());
+    await claimJudicialReferral(decided, judge(JUDGE));
+    await directJudicialReferral(decided, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+    // The two exclusions that make this a personal list rather than a second pool.
+    const open = await referralOn(await caseId());
+    const theirs = await referralOn(await caseId());
+    await claimJudicialReferral(theirs, judge(ANOTHER_JUDGE));
+
+    const result = await getJudicialMyReferrals({}, judge(JUDGE));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.referrals.map((referral) => referral.id).sort()).toEqual([claimed, decided].sort());
+    expect(result.data).toMatchObject({ page: 1, size: 10, total: 2, totalPages: 1 });
+    expect(result.data.referrals.map((referral) => referral.id)).not.toContain(open);
+    expect(result.data.referrals.map((referral) => referral.id)).not.toContain(theirs);
+  });
+
+  it("should encode the page and the size on the literal path, and send neither when it asks for neither", async () => {
+    // The whole operation this adapter contributes is a path and two parameters, so the path is what there is to
+    // get wrong: `/judicial/referrals/mine` and never `/judicial/referrals?mine`, and never an owner parameter.
+    await claimJudicialReferral(await referralOn(await caseId()), judge(JUDGE));
+    await claimJudicialReferral(await referralOn(await caseId()), judge(JUDGE));
+
+    const paged = await getJudicialMyReferrals({ page: 2, size: 1 }, judge(JUDGE));
+    const unpaged = await getJudicialMyReferrals({}, judge(JUDGE));
+
+    expect(paged.ok).toBe(true);
+    if (!paged.ok) return;
+    expect(paged.data.referrals).toHaveLength(1);
+    // api's applied size and the whole list's total, not the page's — the distinction the envelope exists for.
+    expect(paged.data).toMatchObject({ page: 2, size: 1, total: 2, totalPages: 2 });
+    expect(unpaged.ok).toBe(true);
+    if (!unpaged.ok) return;
+    // Omitted rather than defaulted here, so api's own default is what applies: ten, and not the case list's 25.
+    expect(unpaged.data).toMatchObject({ page: 1, size: 10 });
+  });
+
+  it("should answer an empty page for a judge holding nothing, rather than a refusal", async () => {
+    await referralOn(await caseId());
+
+    const result = await getJudicialMyReferrals({}, judge(JUDGE));
+
+    // The collection always exists, so "I have nothing outstanding" is a success the page renders as a sentence.
+    expect(result).toEqual({ ok: true, data: { referrals: [], page: 1, size: 10, total: 0, totalPages: 0 } });
+  });
+
+  it("should report a page api cannot read as a validation failure, as the pool's is", async () => {
+    const result = await getJudicialMyReferrals({ page: 0 }, judge(JUDGE));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("validation");
+  });
+
+  it("should report unavailable when api is not answering, rather than an empty list", async () => {
+    // The failure this page must not disguise: an empty success and an outage render the same way unless the
+    // adapter classifies, and "you have nothing outstanding" is the wrong thing to tell a judge who has.
+    mock.setScenario("api-unavailable");
+
+    const result = await getJudicialMyReferrals({}, judge(JUDGE));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("unavailable");
+    expect(result.error.status).toBe(503);
+  });
+
+  it("should parse the rows into the same summary the pool publishes, dates included", async () => {
+    const referralId = await referralOn(await caseId(), { reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Risk to the applicant" });
+    await claimJudicialReferral(referralId, judge(JUDGE));
+
+    const result = await getJudicialMyReferrals({}, judge(JUDGE));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [row] = result.data.referrals;
+    expect(row).toMatchObject({ id: referralId, state: "Claimed", reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Risk to the applicant" });
+    // Converted from api's zoneless date-time, like every other row this adapter parses.
+    expect(row?.createdOn).toBeInstanceOf(Date);
+    // No application and no holder on a row: the personal list is the pool's summary, which carries neither.
+    expect(row).not.toHaveProperty("application");
+    expect(row).not.toHaveProperty("claimedBy");
   });
 });
 

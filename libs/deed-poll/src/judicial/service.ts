@@ -1,7 +1,7 @@
 /**
- * The judicial surface — the shared pool a judge pulls from, and the two writes they make on a referral.
+ * The judicial surface — the two lists a judge works from, and the two writes they make on a referral.
  *
- * Four thin functions over `/judicial/**`, and they are a **sibling** of `../referrals/service.ts` rather than
+ * Five thin functions over `/judicial/**`, and they are a **sibling** of `../referrals/service.ts` rather than
  * a section of it. Three things follow from that, and all three are api's decisions rather than this file's:
  *
  * **No case id, anywhere.** api keys the whole judicial surface on the referral so a judge cannot name an
@@ -37,8 +37,10 @@
 import {
   claimJudicialReferral,
   directJudicialReferral,
+  getJudicialMyReferrals,
   getJudicialPool,
   getJudicialReferral,
+  type JudicialMyReferrals,
   type JudicialPool,
   type JudicialPoolQuery,
   type JudicialReferralDetail
@@ -59,13 +61,37 @@ import type { DirectionInput } from "./schemas.js";
  * the whole pool.
  *
  * `Open` only, which is what makes this a pool rather than a list of everything a judge may see: their own
- * claimed and decided referrals are reachable by id, and putting them here would show them to every other judge.
+ * claimed and decided referrals are {@link listMyReferrals}'s, and putting them here would show them to every
+ * other judge.
  *
  * `paging` last-but-one and `caller` last, as every service in this repo orders them — the plan writes
  * `listPool(caller, paging)`, and matching `findDeedPolls(query, caller)` matters more than matching its prose.
  */
 export function listPool(paging: JudicialPoolQuery, caller: Caller): Promise<JudicialPool> {
   return callApi(caller, (config) => getJudicialPool(paging, config));
+}
+
+/**
+ * One page of the referrals this judge has in hand: the ones they are holding, and the directions the office has
+ * not yet actioned.
+ *
+ * **The list `referrals-admin-6` exists for, and it is a second API-backed collection rather than a filter of the
+ * first** (decision 1). Claiming a referral takes it out of `listPool`, which was the only judicial list, so a
+ * judge who left the papers could not find them again. Nothing here derives "mine" from rows previously seen, from
+ * the session, from `claimedBy` or from anything else this app holds: api keys ownership on the token's IDAM
+ * subject and returns the complete page, which is why this function takes no judge and there is none to forge.
+ *
+ * **Membership, order, paging and the total are all api's** (decision 2). `Claimed` and `Decided` only — no
+ * `Open`, which belongs to the pool, and no `Withdrawn` or `Closed`, because this is current work rather than an
+ * audit screen — ordered unfinished-work-first and then by the pool's own keys. **Do not filter, regroup or sort
+ * what comes back**: api's membership rule is its visibility rule, so a row this list offers is one whose detail
+ * read answers 200, and a client-side opinion about either would be a second answer to a question api has settled.
+ *
+ * `paging` and `caller` in the order every service in this repo takes them, and `JudicialPoolQuery` for the paging
+ * because api parses both lists' parameters identically.
+ */
+export function listMyReferrals(paging: JudicialPoolQuery, caller: Caller): Promise<JudicialMyReferrals> {
+  return callApi(caller, (config) => getJudicialMyReferrals(paging, config));
 }
 
 /**

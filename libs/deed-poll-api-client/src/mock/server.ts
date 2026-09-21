@@ -35,9 +35,13 @@
  *      answering 200 where api answers 409 is how a page ships with no conflict handling at all.
  *   9. `currentReferralState` recomputed from the case's referrals at every transition — never pushed per
  *      site. See `refreshCurrentReferralState`, which is also why closing a referral leaves the case null.
- *  10. The judicial surface's visibility rule and the pool's order — an `Open` referral is every judge's, a
- *      claimed or decided one is only its holder's, and a closed or withdrawn one is nobody's. Urgent
- *      first, then longest-waiting. See `visibleToJudge` and `poolOrder`.
+ *  10. The judicial surface's visibility rule, and the order of each of its two lists — an `Open` referral is
+ *      every judge's, a claimed or decided one is only its holder's, and a closed or withdrawn one is nobody's.
+ *      The pool is urgent first then longest-waiting; a judge's own list is unfinished work first, then the
+ *      pool's keys, then the id. See `visibleToJudge`, `poolOrder` and `myReferralsOrder`. **Ownership is the
+ *      token's subject and never the display name** (api's `claimedById`/`decidedById`), which is why
+ *      `callerSubject` exists beside `auditName`: keyed on the name, one judge's list would enumerate a
+ *      namesake's work.
  *  11. The email rules — what makes a template applicable, what a slot payload may contain, the 422 for a case
  *      with no applicant email address, and one email per referral. Restated because every one of them is a
  *      state the Email tab has to render, and the last is the difference between a redundant send being a
@@ -100,7 +104,7 @@ import type {
   WireSavedQuery,
   WireWitness
 } from "../api/wire.js";
-import { URGENCY, WIRE_SCHEMAS } from "../api/wire.js";
+import { REFERRAL_STATE, URGENCY, WIRE_SCHEMAS } from "../api/wire.js";
 import {
   APPLICATION_REJECTED,
   DEFAULT_SCENARIO,
@@ -295,6 +299,16 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     // the referral precisely so a judge cannot name an application.
     if (pathname === "/judicial/referrals") {
       if (method === "GET") return judicialPool(res, searchParams);
+      return send(res, 405, { error: `no such route: ${method} ${pathname}` });
+    }
+
+    // **Before the referral pattern below, and that ordering is load-bearing.** api gets it from Spring, which
+    // resolves a literal path segment ahead of a template one; here the patterns are tried in the order they are
+    // written, so matched the other way round `mine` would be read as a referral id and answer the 404 an unknown
+    // one gets — for a page that exists. `referrals-admin-6` decision 6, and `server.test.ts` asserts the dispatch
+    // rather than trusting this comment.
+    if (pathname === "/judicial/referrals/mine") {
+      if (method === "GET") return myReferrals(req, res, searchParams);
       return send(res, 405, { error: `no such route: ${method} ${pathname}` });
     }
 
@@ -751,12 +765,14 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       urgencyReason: parsed.data.urgencyReason?.trim() || null,
       migrated: false,
       claimedBy: null,
+      claimedById: null,
       claimedAt: null,
       decision: null,
       directionsText: null,
       publishToGazette: null,
       decisionDate: null,
       decidedBy: null,
+      decidedById: null,
       createdBy: author,
       modifiedBy: author,
       createdOn: now,
@@ -897,6 +913,51 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   }
 
   /**
+   * The referrals one judge has in hand: the ones they are holding, and the directions the office has not yet
+   * actioned.
+   *
+   * **Membership is `visibleToJudge` restricted to the two states a judge owns**, which is api's own rule and the
+   * reason the two are stated together here: a list that offered a referral whose own link answered 404 would be
+   * worse than no list. `Open` is the shared pool's, and `Closed`/`Withdrawn` are the judiciary's involvement being
+   * over.
+   *
+   * **Keyed on the token's subject, so there is nothing a caller can ask for.** api takes no owner parameter and
+   * neither does this: `?claimedBy=` would make whose list this is something a judge types, and one who typed a
+   * colleague's would be *enumerating* their work — a sharper disclosure than the individual read, which at least
+   * needed an id. A referral with no owner subject is on nobody's list, exactly as it is visible to nobody.
+   *
+   * **api's order, reproduced rather than approximated** — `MINE_ORDER`: unfinished work first, then the pool's own
+   * two keys, then the id. See `myReferralsOrder` for why each is there. A page must not compensate for this, so
+   * getting it wrong here is worse than not modelling it at all.
+   *
+   * The inactivity sweep api runs before this query is the one thing not modelled — it is a two-hour window on
+   * api's clock, and the file's docblock says why there is no timer here. A lapsed claim therefore stays on this
+   * list locally where api would have returned it to the pool.
+   */
+  function myReferrals(req: IncomingMessage, res: ServerResponse, parameters: URLSearchParams): void {
+    const paging = parsePaging(parameters.get("page"), parameters.get("size"), POOL_PAGE_SIZE);
+    if ("errors" in paging) {
+      send(res, 400, { error: "Case list paging is not valid", errors: paging.errors });
+      return;
+    }
+
+    const subject = callerSubject(req);
+    const mine = [...cases.values()]
+      .flatMap((record) => record.referrals)
+      .filter((referral) => (referral.state === "Claimed" || referral.state === "Decided") && visibleToJudge(referral, subject))
+      .sort(myReferralsOrder);
+    const from = (paging.page - 1) * paging.size;
+
+    send(res, 200, {
+      referrals: mine.slice(from, from + paging.size).map(toWireJudicialSummary),
+      page: paging.page,
+      size: paging.size,
+      total: mine.length,
+      totalPages: Math.ceil(mine.length / paging.size)
+    });
+  }
+
+  /**
    * One referral as a judge reads it, the claim that takes it out of the pool, and the direction that ends it.
    *
    * **Every way this caller may not have the referral is the same 404** — an id nothing was stored under, one
@@ -908,9 +969,12 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
    * against, since the sweep that would read it is not modelled.
    */
   async function judicialReferral(req: IncomingMessage, res: ServerResponse, method: string, referralId: string, action: string | undefined): Promise<void> {
+    // Two identities from one token, because api keeps two: the subject decides what this caller may see and
+    // hold, and the name is what a caseworker reads afterwards. See `callerSubject`.
     const judge = auditName(req);
+    const subject = callerSubject(req);
     const located = locateReferral(referralId);
-    if (!located || !visibleToJudge(located.referral, judge)) return send(res, 404, { error: `Referral ${referralId} not found` });
+    if (!located || !visibleToJudge(located.referral, subject)) return send(res, 404, { error: `Referral ${referralId} not found` });
 
     const { record, referral } = located;
 
@@ -922,7 +986,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       if (referral.state !== "Open") return send(res, 409, { error: `Referral ${referralId} is ${referral.state} and can only be claimed while it is Open` });
 
       const now = new Date();
-      transition(record, referral, judge, { state: "Claimed", claimedBy: judge, claimedAt: now, modifiedOn: now });
+      // Both halves of the identity: the subject is what makes it theirs, the name is what says whose it is.
+      transition(record, referral, judge, { state: "Claimed", claimedBy: judge, claimedById: subject, claimedAt: now, modifiedOn: now });
       // The claiming judge, not the service account: a person did this, and their name in `createdBy` is why the
       // prose does not name them a second time.
       appendNote(record, referralClaimedNote(referral), judge);
@@ -934,9 +999,10 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       const parsed = WIRE_SCHEMAS.JudicialDirectionRequest.safeParse(await readJsonBody(req));
       if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
 
-      // Both halves, as api asks both: the state says a claim exists and the name says whose. This is what
-      // refuses a direction on a referral withdrawn under the judge who was reading it.
-      if (referral.state !== "Claimed" || referral.claimedBy !== judge) {
+      // Both halves, as api asks both: the state says a claim exists and the subject says whose. This is what
+      // refuses a direction on a referral withdrawn under the judge who was reading it. The SUBJECT and not the
+      // name, for `visibleToJudge`'s reason — api's `requireHeldBy` compares the same column.
+      if (referral.state !== "Claimed" || referral.claimedById !== subject) {
         return send(res, 409, { error: `Referral ${referralId} is not claimed by ${judge} -- it is ${referral.state}` });
       }
 
@@ -950,6 +1016,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
         // carries neither.
         decisionDate: now,
         decidedBy: judge,
+        decidedById: subject,
         modifiedOn: now
       });
       // Composed after the transition, so the note reads the decision and the Gazette answer as they were
@@ -1199,6 +1266,15 @@ export async function startMockApi(options: MockApiOptions & { port?: number } =
 const MOCK_USER_NAME = "Mock Caseworker";
 
 /**
+ * Whose work a caller owns when they forwarded no readable token.
+ *
+ * Deliberately not `MOCK_USER_NAME`: the two are different fields at api, so a mock that used one string for both
+ * could not tell a test keyed on attribution from one keyed on ownership — see `callerSubject`. Not a plausible
+ * subject either, for the same reason the name is not a plausible name.
+ */
+const MOCK_SUBJECT = "mock-subject";
+
+/**
  * Who a write is attributed to: the caller the forwarded token names.
  *
  * **Modelled because a page depends on it.** api derives the audit author from the caller's token and takes
@@ -1216,17 +1292,57 @@ const MOCK_USER_NAME = "Mock Caseworker";
  * an error, so a hand-rolled `curl` against the mock still works.
  */
 function auditName(req: IncomingMessage): string {
+  const claims = tokenClaims(req);
+  const name = claims?.name;
+  if (typeof name === "string" && name.length > 0) return name;
+
+  const subject = claims?.sub;
+
+  return typeof subject === "string" && subject.length > 0 ? subject : MOCK_USER_NAME;
+}
+
+/**
+ * The caller's stable identity: the token's subject, and nothing that could collide with another person's.
+ *
+ * **Separate from `auditName` because ownership and attribution are separate things, and api-6 separated
+ * them.** Every judicial owner check was the display name until `V14__referral_owner_subjects.sql` added
+ * `claimedById`/`decidedById`: two judges sharing a display name saw and directed each other's referrals, and a
+ * judge whose name changed lost their own. api's `visibleTo` and `mine` now compare the subject; `claimedBy` and
+ * `decidedBy` stay as the attribution a caseworker reads, and **authorise nothing**.
+ *
+ * So this mock has to be able to tell them apart, or a page could ship keyed on the wrong one with every test
+ * green. `auditName` above therefore prefers a `name` claim where the token carries one — which is also closer to
+ * api, whose display name comes from IDAM's `/o/userinfo` rather than from the token — and this returns the `sub`
+ * regardless. A token with only a `sub` makes them equal, which is the ordinary case and the reason the
+ * distinction had to be asserted deliberately: see the same-display-name test in `server.test.ts`.
+ *
+ * **`MOCK_SUBJECT` for a caller with no readable token, not `null`.** api answers 401 to a judicial token with no
+ * subject, which is a refusal this mock cannot produce for the reason it cannot produce the role gate's 403 — it
+ * verifies nothing. So an anonymous caller is one consistent identity here rather than an unidentified one, and
+ * what that leaves untested locally is api's own 401.
+ */
+function callerSubject(req: IncomingMessage): string {
+  const subject = tokenClaims(req)?.sub;
+
+  return typeof subject === "string" && subject.length > 0 ? subject : MOCK_SUBJECT;
+}
+
+/**
+ * The claims of the forwarded bearer token, **decoded and never verified**.
+ *
+ * Verification needs IDAM's JWKS, and a mock that refused a badly-signed token would be asserting something no
+ * page depends on. Anything undecodable is `null` rather than an error, so a hand-rolled `curl` against the mock
+ * still works.
+ */
+function tokenClaims(req: IncomingMessage): { sub?: unknown; name?: unknown } | null {
   const bearer = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? "");
   const payload = bearer?.[1].split(".")[1];
-  if (payload === undefined) return MOCK_USER_NAME;
+  if (payload === undefined) return null;
 
   try {
-    const claims: unknown = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    const subject = (claims as { sub?: unknown } | null)?.sub;
-
-    return typeof subject === "string" && subject.length > 0 ? subject : MOCK_USER_NAME;
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: unknown; name?: unknown };
   } catch {
-    return MOCK_USER_NAME;
+    return null;
   }
 }
 
@@ -2151,13 +2267,19 @@ function renderEmail(record: MockCase, template: MockEmailTemplate, slots: Recor
  * a claim is exclusive and two judges reading the same papers is the duplication the pool exists to prevent; a
  * `Decided` one is only the judge's who directed it; and a `Closed` or `Withdrawn` one is nobody's.
  *
- * The identity compared is the name, because that is what `claimedBy` and `decidedBy` hold — api's own
- * consequence of those columns rather than a choice made here.
+ * **The identity compared is the token's subject and never the display name** — api's `claimedById`/`decidedById`
+ * since `V14__referral_owner_subjects.sql`. Comparing names was the defect that migration fixed: two judges
+ * sharing one saw and directed each other's referrals, and a judge whose name changed lost their own.
+ *
+ * A row with no owner subject is visible to nobody, and there is deliberately **no fall back to the name**: that
+ * row is a pre-migration claim, and comparing names on exactly the rows where identity is least certain would keep
+ * the collision where it does most harm.
  */
-function visibleToJudge(referral: MockReferral, judge: string): boolean {
+function visibleToJudge(referral: MockReferral, subject: string): boolean {
   if (referral.state === "Open") return true;
-  if (referral.state === "Claimed") return referral.claimedBy === judge;
-  if (referral.state === "Decided") return referral.decidedBy === judge;
+  // `subject ===`, so a null owner is false rather than a match on two absent values.
+  if (referral.state === "Claimed") return subject === referral.claimedById;
+  if (referral.state === "Decided") return subject === referral.decidedById;
 
   return false;
 }
@@ -2182,8 +2304,44 @@ function urgencyRank(urgency: MockReferral["urgency"]): number {
   return urgency ? URGENCY.indexOf(urgency) : -1;
 }
 
+/**
+ * The order a judge's own referrals are listed in, from api's `MINE_ORDER`: unfinished work first, then the pool's
+ * own two keys within each state, then the id.
+ *
+ * **`Claimed` before `Decided` is ascending the lifecycle**, which is the same fact about Postgres that
+ * `poolOrder` relies on rather than a second trick: `"ReferralState"` is declared `('Open', 'Claimed', 'Decided',
+ * 'Closed', 'Withdrawn')`, and Postgres orders an enum by its declared order. Only two of the five can appear on
+ * this list, so what it says is that a referral still waiting for a direction sorts above one the office is
+ * already actioning — the point of the list is resuming outstanding work, and a page of finished directions above
+ * it would have to be scrolled past.
+ *
+ * **Then the id, which the pool does not need and this does.** Two referrals in the same state, urgency and
+ * instant are common here where they are not in a pool of one per case — a judge claims several in a sitting —
+ * and without a final key the order between one page and the next is arbitrary, which is how a row appears twice
+ * or not at all while a judge pages through. Arbitrary as an order and deterministic as a tie-break, which is
+ * exactly what is wanted.
+ */
+function myReferralsOrder(left: MockReferral, right: MockReferral): number {
+  const byState = REFERRAL_STATE.indexOf(left.state) - REFERRAL_STATE.indexOf(right.state);
+  if (byState !== 0) return byState;
+
+  const byPool = poolOrder(left, right);
+
+  return byPool === 0 ? rank(left.id, right.id) : byPool;
+}
+
+/**
+ * One referral as the caseworker surface publishes it — every stored field except the two owner subjects.
+ *
+ * **Named out rather than filtered by a rule**, because a spread is what this is: `isoDates` copies the record, so
+ * any field added to `MockReferral` reaches the wire unless it is destructured away here. api publishes
+ * `claimedById`/`decidedById` on no DTO, and a mock that leaked them would let a page key authorisation off a
+ * subject api never sends.
+ */
 function toWireReferral(referral: MockReferral): unknown {
-  return isoDates(referral);
+  const { claimedById, decidedById, ...published } = referral;
+
+  return isoDates(published);
 }
 
 /**
@@ -2414,6 +2572,22 @@ type MockReferral = Omit<WireReferral, "state" | "claimedAt" | "decisionDate" | 
   decisionDate: Date | null;
   createdOn: Date;
   modifiedOn: Date;
+  /**
+   * Who holds it and who directed it, as their IDAM subject — api's `claimedById`/`decidedById`, added by
+   * `V14__referral_owner_subjects.sql` and published by **no** DTO.
+   *
+   * **Stored here and stripped on the way out**, which is the point rather than an oddity: these are what
+   * `visibleToJudge` and `myReferrals` compare, and `claimedBy`/`decidedBy` beside them are attribution that
+   * authorises nothing. `toWireReferral` omits them explicitly — it spreads the record, so a new field reaches
+   * the caseworker referral response unless it is named there — and the two judicial serialisers build their
+   * fields one at a time and never could.
+   *
+   * `null` on a referral nobody has claimed, and also on one this mock seeded with a `claimedBy` and no subject:
+   * that is api's pre-migration row, and it is visible to nobody and on nobody's list, exactly as api fails it
+   * closed rather than falling back to the name.
+   */
+  claimedById: string | null;
+  decidedById: string | null;
 };
 
 type ReferralState = NonNullable<WireReferral["state"]>;

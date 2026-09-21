@@ -1,7 +1,15 @@
-import { claimJudicialReferral, directJudicialReferral, getCase, getJudicialPool, getJudicialReferral, listReferrals } from "@hmcts/deed-poll-api-client";
+import {
+  claimJudicialReferral,
+  directJudicialReferral,
+  getCase,
+  getJudicialMyReferrals,
+  getJudicialPool,
+  getJudicialReferral,
+  listReferrals
+} from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConflictError, InvalidInputError, NotFoundError } from "../errors.js";
-import { claimReferral, getReferral, listPool, recordDirection } from "./service.js";
+import { claimReferral, getReferral, listMyReferrals, listPool, recordDirection } from "./service.js";
 
 // The adapter is mocked and nothing else. What is worth pinning at this seam is that each function reaches the
 // right judicial operation with no case id in sight, that the judge's token travels and no holder does, and that
@@ -10,6 +18,7 @@ import { claimReferral, getReferral, listPool, recordDirection } from "./service
 vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll-api-client")>()),
   getJudicialPool: vi.fn(),
+  getJudicialMyReferrals: vi.fn(),
   getJudicialReferral: vi.fn(),
   claimJudicialReferral: vi.fn(),
   directJudicialReferral: vi.fn(),
@@ -84,6 +93,95 @@ describe("judicial/service", () => {
       vi.mocked(getJudicialPool).mockResolvedValue({ ok: false, error: { kind: "unavailable", status: 0, message: "fetch failed" } } as never);
 
       await expect(listPool({}, CALLER)).rejects.toThrow("deed-poll-api call failed (unavailable): fetch failed");
+    });
+  });
+
+  describe("listMyReferrals", () => {
+    it("should ask api for the caller's own page, carrying the token and naming no judge", async () => {
+      const mine = {
+        referrals: [
+          { id: "claimed", state: "Claimed" },
+          { id: "decided", state: "Decided" }
+        ],
+        page: 1,
+        size: 10,
+        total: 2,
+        totalPages: 1
+      };
+      vi.mocked(getJudicialMyReferrals).mockResolvedValue(ok(mine) as never);
+
+      expect(await listMyReferrals({ page: 1 }, CALLER)).toEqual(mine);
+      expect(getJudicialMyReferrals).toHaveBeenCalledWith({ page: 1 }, expect.objectContaining({ baseUrl: "http://api.test", accessToken: "judge-token" }));
+    });
+
+    it("should send nothing but the paging, because whose list it is comes from the token", async () => {
+      vi.mocked(getJudicialMyReferrals).mockResolvedValue(ok({ referrals: [], page: 2, size: 10, total: 0, totalPages: 0 }) as never);
+
+      await listMyReferrals({ page: 2, size: 10 }, CALLER);
+
+      // The security property of decision 1, asserted as the absence it is: an owner key here — read off the
+      // session, off a row previously seen, off anything — would be a way to ask for a colleague's work.
+      expect(Object.keys(vi.mocked(getJudicialMyReferrals).mock.calls[0][0])).toEqual(["page", "size"]);
+    });
+
+    it("should return api's rows in api's order, filtering and sorting nothing", async () => {
+      // Membership and order are api's (decision 2): `Claimed` above `Decided` is unfinished work first, and a
+      // service that re-sorted or dropped a row would make the page disagree with its own total and pagination.
+      const referrals = [{ id: "claimed-urgent" }, { id: "claimed-older" }, { id: "decided" }];
+      vi.mocked(getJudicialMyReferrals).mockResolvedValue(ok({ referrals, page: 1, size: 10, total: 3, totalPages: 1 }) as never);
+
+      const mine = await listMyReferrals({}, CALLER);
+
+      expect(mine.referrals.map((referral) => referral.id)).toEqual(["claimed-urgent", "claimed-older", "decided"]);
+    });
+
+    it("should read the personal list and never the pool, since they are two collections", async () => {
+      vi.mocked(getJudicialMyReferrals).mockResolvedValue(ok({ referrals: [], page: 1, size: 10, total: 0, totalPages: 0 }) as never);
+
+      await listMyReferrals({}, CALLER);
+
+      // Decision 1 in one assertion: "mine" is a second API-backed collection, not the pool read and narrowed.
+      expect(getJudicialPool).not.toHaveBeenCalled();
+    });
+
+    it("should return an empty page as the state it is, rather than treating it as a failure", async () => {
+      const empty = { referrals: [], page: 1, size: 10, total: 0, totalPages: 0 };
+      vi.mocked(getJudicialMyReferrals).mockResolvedValue(ok(empty) as never);
+
+      await expect(listMyReferrals({}, CALLER)).resolves.toEqual(empty);
+    });
+
+    it("should throw a plain Error naming api when it cannot be reached, so the page is never a false empty list", async () => {
+      // The failure this page must not disguise: "you have nothing outstanding" is the wrong thing to tell a judge
+      // whose api is down (decision 8).
+      vi.mocked(getJudicialMyReferrals).mockResolvedValue({
+        ok: false,
+        error: { kind: "unavailable", status: 503, message: "deed-poll-api is unavailable" }
+      } as never);
+
+      await expect(listMyReferrals({}, CALLER)).rejects.toThrow("deed-poll-api call failed (unavailable): deed-poll-api is unavailable");
+    });
+
+    it("should raise api's refusal of an unreadable page as the domain error a page renders", async () => {
+      vi.mocked(getJudicialMyReferrals).mockResolvedValue({
+        ok: false,
+        error: {
+          kind: "validation",
+          status: 400,
+          message: "Case list paging is not valid",
+          fieldErrors: [{ field: "page", message: "must be a whole number of 1 or more" }]
+        }
+      } as never);
+
+      await expect(listMyReferrals({ page: 0 }, CALLER)).rejects.toBeInstanceOf(InvalidInputError);
+    });
+
+    it("should raise api's 401 as the unauthorized error, because an unidentified caller has no list", async () => {
+      // api answers 401 to a judicial token carrying no subject: ownership comes from the subject, so there is no
+      // list that is theirs. Re-authentication is `requireAuth`'s, which is why this is not mapped to a redirect.
+      vi.mocked(getJudicialMyReferrals).mockResolvedValue({ ok: false, error: { kind: "unauthorized", status: 401, message: "no subject" } } as never);
+
+      await expect(listMyReferrals({}, CALLER)).rejects.toThrow(/no subject/);
     });
   });
 

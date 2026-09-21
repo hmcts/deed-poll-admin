@@ -36,6 +36,7 @@ import {
   type WireJudicialCaseNote,
   type WireJudicialCaseView,
   type WireJudicialDirection,
+  type WireJudicialMyReferrals,
   type WireJudicialPool,
   type WireJudicialReferralDetail,
   type WireJudicialReferralSummary,
@@ -524,7 +525,7 @@ export function deselectSavedQuery(id: string, config: ApiConfig): Promise<ApiRe
  * One page of the shared judicial pool: the referrals waiting to be picked up, urgent first then
  * longest-waiting.
  *
- * The four judicial operations are a sibling namespace to the caseworker surface rather than a section of it,
+ * The five judicial operations are a sibling namespace to the caseworker surface rather than a section of it,
  * which is why none of them takes a case id: api keys the judicial surface on the referral so a judge cannot
  * name an application, and the case is resolved from the referral at api's end. The role that reaches these
  * routes is api's to enforce — this adapter presents the same bearer token it presents everywhere.
@@ -541,6 +542,37 @@ export function getJudicialPool(query: JudicialPoolQuery, config: ApiConfig): Pr
   const search = parameters.toString();
 
   return request(config, "GET", `/judicial/referrals${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.JudicialPoolResponse);
+}
+
+/**
+ * One page of the referrals this judge has in hand: the ones they are holding, and the directions the office has
+ * not yet actioned.
+ *
+ * **`/mine` is a literal path segment and not a query parameter, and that is the security decision.** A
+ * `?claimedBy=` would make whose list this is something a caller types, and a judge who typed a colleague's would
+ * be enumerating their work — which is what every 404 on this surface exists to prevent. Ownership comes from the
+ * token's subject, so this function takes nothing identifying a judge and there is nothing to forge.
+ *
+ * It is also why this call sits **above** {@link getJudicialReferral} in every router that dispatches it: the
+ * literal segment must win over the `{referralId}` template, or the word is read as a referral id and answers
+ * `not-found` for a page that exists. Spring resolves that by specificity; this adapter's paths are built here, so
+ * the ordering that matters is the mock's (`referrals-admin-6` decision 6).
+ *
+ * `page` and `size` are the pool's, encoded the same way and defaulting to api's same ten: the same dashboard and
+ * the same screenful.
+ *
+ * **No `not-found` and no membership surprises.** The collection always exists, so a judge holding nothing is an
+ * empty page and a total of zero rather than a refusal; `unauthorized` is api's answer to a judicial token
+ * carrying no subject, because an unidentified caller owns nothing and has no list.
+ */
+export function getJudicialMyReferrals(query: JudicialPoolQuery, config: ApiConfig): Promise<ApiResult<JudicialMyReferrals>> {
+  const parameters = new URLSearchParams();
+  if (query.page !== undefined) parameters.set("page", String(query.page));
+  if (query.size !== undefined) parameters.set("size", String(query.size));
+
+  const search = parameters.toString();
+
+  return request(config, "GET", `/judicial/referrals/mine${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.JudicialMyReferralsResponse);
 }
 
 /**
@@ -930,6 +962,11 @@ export type ReferralCreate = WireReferralCreate;
  * case (see `wire.ts`).
  */
 export type JudicialPool = WireJudicialPool;
+/**
+ * Its own type beside `JudicialPool` and not an alias of it, because api publishes two records: the two carry the
+ * same five properties and name opposite collections — the shared pool, and one judge's own work.
+ */
+export type JudicialMyReferrals = WireJudicialMyReferrals;
 export type JudicialReferralSummary = WireJudicialReferralSummary;
 export type JudicialReferralDetail = WireJudicialReferralDetail;
 export type JudicialCaseView = WireJudicialCaseView;
@@ -1024,11 +1061,16 @@ export interface CaseListQuery {
 }
 
 /**
- * Which page of the shared pool to read.
+ * Which page of a judicial list to read — the shared pool's, and the caller's own.
  *
- * No filter, no sort and no search: the pool is one queue in one order, which api fixes — urgent first, then
- * longest-waiting — so a judge choosing their next piece of work is choosing from the top rather than
- * composing a query.
+ * No filter, no sort and no search: each list is one queue in one order api fixes — the pool urgent-first then
+ * longest-waiting, the personal list unfinished work first — so a judge choosing their next piece of work is
+ * choosing from the top rather than composing a query.
+ *
+ * **One type for both, and deliberately no owner field.** api takes the same two parameters on each and parses
+ * them with the same `CasePaging`, so a second identical interface would be one more to keep in step. What must
+ * never be added is a judge: whose list `/judicial/referrals/mine` returns comes from the token, and a property
+ * here would be a way to ask for somebody else's — see {@link getJudicialMyReferrals}.
  */
 export interface JudicialPoolQuery {
   /** 1-based. */

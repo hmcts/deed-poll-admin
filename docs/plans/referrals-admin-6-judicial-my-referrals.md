@@ -282,8 +282,41 @@ ordering, paging, lifecycle changes and same-display-name isolation.
 
 Do not change existing pool semantics or sort/filter in the domain/view layer.
 
-- [ ] Contract-equal client, thin domain service, formatting-only view model and faithful owner-scoped mock
+- [x] Contract-equal client, thin domain service, formatting-only view model and faithful owner-scoped mock
       implemented; focused tests green
+
+> **DONE 2026-09-21.** `yarn lint` exits 0 and `npx turbo test test:app --concurrency=1` is `8 successful, 8
+> total` across **164 test files, 3,040 tests** — Task 0's 2,991 plus **49**, and no new test file, because every
+> one went into a suite that already existed.
+>
+> **The spec refresh is exactly the predicted delta, measured rather than trusted**: 37 → 38 schemas, 38 → 39
+> operations, **63 insertions and 0 deletions**, every pre-existing schema and operation byte-identical and **not
+> one `operationId` shifted**. All three stop conditions clear; `contract.test.ts` now pins two of them itself —
+> no `claimedById`/`decidedById`/`ownerId`/`subject`/`userId` on any of the seven `Judicial*` schemas, and
+> `JudicialMyReferralsResponse.referrals` `$ref`ing `JudicialReferralSummary` rather than a second row shape.
+>
+> **The mock's owner ids needed a second identity, not just a second field.** `auditName` returned the token's
+> `sub`, so subject and display name were one string and "keyed on the name" was **unfalsifiable**: every
+> ownership test would have passed against either. So `callerSubject` is new beside it, `auditName` now prefers a
+> `name` claim where the token carries one — which is also closer to api, whose display name comes from IDAM's
+> `/o/userinfo` — and `asPerson(name, subject)` in the tests is what makes two judges share a display name while
+> owning separate work. `visibleToJudge` and the direction's holder check both compare the **subject** now, and a
+> row with a `claimedBy` and no subject is on nobody's list, exactly as api fails a pre-migration row closed.
+>
+> **`toWireReferral` was the leak to close.** It is `isoDates(referral)` — a spread — so the two new fields
+> reached the caseworker referral response the moment they existed, and zod would have stripped them on the way
+> back in without a word. They are now destructured out by name, with a test that fails on the subject appearing
+> in either serialisation.
+>
+> **`MY_REFERRAL_STATE_LABEL` is keyed on `"Claimed" | "Decided"` and not on `ReferralState`**, against this
+> repo's usual "key the map on the enum so a new member is a type error": only those two states can be on this
+> list, and a judicial wording for `Open` would be a label for a row that must not exist. Anything else answers
+> `NOT_RECORDED` rather than api's raw member.
+>
+> **One thing Task 2 should know, and it is not a defect here.** `scripts/seed-local-cases.mjs` claims and
+> directs as `seed.judge@example.com`, so after `yarn mock:seed` the seeded `Claimed`/`Decided` referrals belong
+> to **that** subject and the persona judge's own My referrals is empty until they claim something. That was
+> invisible while ownership was the display name only because nothing listed it.
 
 ### Task 2: Add the My referrals page and navigation
 

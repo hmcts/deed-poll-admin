@@ -1236,6 +1236,42 @@
         "tags": ["judicial-referral-controller"]
       }
     },
+    "/judicial/referrals/mine": {
+      "get": {
+        "operationId": "mine",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudicialMyReferralsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["judicial-referral-controller"]
+      }
+    },
     "/judicial/referrals/{referralId}": {
       "get": {
         "operationId": "referral",
@@ -2377,6 +2413,33 @@
           }
         },
         "required": ["decision", "publishToGazette"]
+      },
+      "JudicialMyReferralsResponse": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "referrals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudicialReferralSummary"
+            }
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "JudicialPoolResponse": {
         "type": "object",
