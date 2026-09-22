@@ -48,6 +48,7 @@ import {
   queryBuilderMetadata,
   queryErrors,
   returnedForActionConditions,
+  type SavedQueryNavGroups,
   serialiseConditions,
   serialiseSort,
   unusedConditionRows
@@ -86,8 +87,11 @@ const en = {
   // The first group's own label. Labelled because plan 11 puts saved queries in a second group beside it,
   // and an unlabelled bar of both reads as one list — decision 8.
   statusGroupLabel: "Status",
-  // The second group's label, rendered only when the caseworker has queries in their own list.
-  savedQueryGroupLabel: "Saved queries",
+  // The saved-query groups' labels, each rendered only when the caseworker has queries of that kind in their
+  // own bar — plan 14. They match the library screen's two headings word for word on purpose: the same query
+  // must not appear under "Your queries" on one screen and something else on the other.
+  yourQueriesGroupLabel: "Your queries",
+  libraryGroupLabel: "Query library",
   empty: "No cases match this filter.",
   // "Returned — action needed" — decisions 4 and 7. Count-sensitive because "1 applications have" is the
   // kind of thing a caseworker stops trusting a service over, and the number is the whole of the message.
@@ -255,7 +259,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
  * Logged without the caller or the query, per `client.ts`'s no-PII rule: what a search of the logs needs
  * to answer is whether the nav is degrading, not whose nav it was.
  */
-async function savedQueryEntries(caller: Caller, { filter, conditions, sort }: ListView): Promise<NavEntry[]> {
+async function savedQueryEntries(caller: Caller, { filter, conditions, sort }: ListView): Promise<SavedQueryNavGroups> {
   try {
     const queries = await findSavedQueries(caller);
 
@@ -266,7 +270,9 @@ async function savedQueryEntries(caller: Caller, { filter, conditions, sort }: L
   } catch (error) {
     console.error(`saved queries unavailable: ${error instanceof Error ? error.message : String(error)}`);
 
-    return [];
+    // Both groups empty, so the degraded bar is the status group alone — **not** a labelled group over
+    // nothing, and not one empty group beside a populated one. Same sentinel shape as before, one level down.
+    return { yours: [], library: [] };
   }
 }
 
@@ -298,7 +304,7 @@ async function returnedForActionCount(caller: Caller): Promise<number | null> {
 function render(
   res: Response,
   view: ListView,
-  savedQueries: NavEntry[],
+  savedQueries: SavedQueryNavGroups,
   returnedForAction: number | null,
   cases: CaseListRow[],
   paging: CaseListPaging | null,
@@ -362,16 +368,23 @@ function render(
 }
 
 /**
- * The bar's groups: the statuses, and the caseworker's own selected queries beside them.
+ * The bar's groups: the statuses, then the caseworker's own selected queries and the library's.
  *
- * One data shape for every group, so a third costs no template change — decision 4. An empty selection
- * renders **no** second group rather than an empty one: a labelled group over nothing announces a list that
- * is not there, and to a screen-reader user a heading is a promise of content.
+ * One data shape for every group, so a third costs no template change — decision 4, and plan 14 is what
+ * cashed that in: `index.njk` iterates `filterGroups` and names no group, so **the bar went from two groups
+ * to three without a markup change**. Verified in the template rather than assumed.
+ *
+ * An empty group renders **nothing** rather than an empty one: a labelled group over nothing announces a list
+ * that is not there, and to a screen-reader user a heading is a promise of content. With two saved-query
+ * groups that rule now applies twice and independently, so the bar may carry one, two or three groups.
  */
-function filterGroups(view: ListView, content: typeof en, savedQueries: NavEntry[]): FilterGroup[] {
-  const status = statusGroup(view, content);
+function filterGroups(view: ListView, content: typeof en, savedQueries: SavedQueryNavGroups): FilterGroup[] {
+  const groups = [statusGroup(view, content)];
 
-  return savedQueries.length === 0 ? [status] : [status, { label: content.savedQueryGroupLabel, entries: savedQueries }];
+  if (savedQueries.yours.length > 0) groups.push({ label: content.yourQueriesGroupLabel, entries: savedQueries.yours });
+  if (savedQueries.library.length > 0) groups.push({ label: content.libraryGroupLabel, entries: savedQueries.library });
+
+  return groups;
 }
 
 /**

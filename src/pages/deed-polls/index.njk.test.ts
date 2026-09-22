@@ -570,9 +570,48 @@ describe("deed-polls list template", () => {
       const nav = filterNav(await render({ filter: "open", where: "type:is:Adult" }));
 
       expect([...nav.matchAll(/<div class="app-filter-nav__group">/g)]).toHaveLength(2);
-      expect(group(nav, 1)).toContain('<h2 class="app-filter-nav__group-label">Saved queries</h2>');
+      // Unpublished, so it is the caller's own group rather than the library's — plan 14.
+      expect(group(nav, 1)).toContain('<h2 class="app-filter-nav__group-label">Your queries</h2>');
       // The request is that query, so its entry says "you are here" rather than linking to where you are.
       expect(group(nav, 1)).toContain('<span class="app-filter-nav__current" aria-current="page">Adult, open</span>');
+    });
+
+    it("renders a third group of the same markup when the selection spans both kinds, with no template change", async () => {
+      // The markup names no group and simply iterates `filterGroups`, which is what let the bar grow from two
+      // groups to three. This test is the proof of that claim rather than the plan's assertion of it.
+      vi.mocked(findSavedQueries).mockResolvedValue([
+        {
+          id: "mine",
+          name: "Mine",
+          description: null,
+          filter: "open",
+          conditions: [],
+          sortField: null,
+          sortDirection: null,
+          shared: false,
+          selected: true,
+          editable: true
+        },
+        {
+          id: "theirs",
+          name: "Everyone's",
+          description: null,
+          filter: "returned",
+          conditions: [],
+          sortField: null,
+          sortDirection: null,
+          shared: true,
+          selected: true,
+          editable: false
+        }
+      ] as never);
+
+      const nav = filterNav(await render({ filter: "open" }));
+
+      expect([...nav.matchAll(/<div class="app-filter-nav__group">/g)]).toHaveLength(3);
+      expect(group(nav, 1)).toContain('<h2 class="app-filter-nav__group-label">Your queries</h2>');
+      expect(group(nav, 2)).toContain('<h2 class="app-filter-nav__group-label">Query library</h2>');
+      expect(group(nav, 2)).toContain("Everyone&#39;s");
     });
 
     it("links a selected query that is not the one being looked at, carrying its whole query in the URL", async () => {

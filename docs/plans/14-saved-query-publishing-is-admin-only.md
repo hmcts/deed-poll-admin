@@ -306,13 +306,50 @@ turbo `env` declarations, and the infos are `biome.json`'s `$schema` pinned at `
 
 ### Task 3: Split the filter-bar nav
 
-- [ ] `view.ts`: `buildSavedQueryNav` splits on the same axis, still filtering to `selected` only
-- [ ] `deed-polls/index.ts`: `savedQueryGroupLabel` becomes two labels; `filterGroups` emits each group only
+- [x] `view.ts`: `buildSavedQueryNav` splits on the same axis, still filtering to `selected` only
+- [x] `deed-polls/index.ts`: `savedQueryGroupLabel` becomes two labels; `filterGroups` emits each group only
       when non-empty (decision 5), so the bar may now carry one, two or three groups
-- [ ] The degraded path is unchanged: `savedQueryEntries` catches, logs without PII, and returns empty — which
+- [x] The degraded path is unchanged: `savedQueryEntries` catches, logs without PII, and returns empty — which
       must now mean **both** groups absent, not one empty group
-- [ ] Tests: `filterGroups` with each combination of the two groups empty and non-empty
-- [ ] Mark completed
+- [x] Tests: `filterGroups` with each combination of the two groups empty and non-empty
+- [x] Task 3 complete
+
+#### What Task 3 did, 2026-09-22
+
+**Finding A holds: no template change was needed.** Verified in the markup rather than inferred —
+`index.njk:98` is `{% for group in filterGroups %}` and names no group, so the bar went from two groups to
+three with the markup untouched. `filterGroups`' own docblock had predicted this ("one data shape for every
+group, so a third costs no template change — decision 4"); this plan is what cashed it in. There is now a
+template test asserting three `app-filter-nav__group` divs with the right two labels, so the claim is pinned
+rather than just recorded.
+
+`buildSavedQueryNav` returns `SavedQueryNavGroups` — `{ yours, library }`, on the identical axis to
+`buildSavedQueryGroups`. **`selected` is applied before the split**, which is the one behavioural subtlety: a
+published query the caseworker has not added is on the library *screen* but in nobody's bar, so it belongs to
+neither nav group. There is a test for exactly that.
+
+`filterGroups` now builds its array conditionally instead of returning one of two fixed shapes, so the bar
+carries **one, two or three** groups and the empty-group rule applies to each independently. Both are tested,
+including each-one-empty — they are separate conditions and neither implies the other.
+
+The degraded sentinel became `{ yours: [], library: [] }`. The existing test *"still renders the cases when the
+saved queries cannot be read"* asserts `filterGroups` has length 1 and therefore **now asserts something
+stronger than when it was written**: one labelled empty group beside the statuses would show as length 2. Its
+comment says so; no new test was needed.
+
+The two labels match the library screen's headings word for word, deliberately — the same query must not sit
+under "Your queries" on one screen and something else on the other.
+
+**Measured.** `yarn build` EXIT 0 (the real typecheck for the changed signatures: `savedQueryEntries`'s return
+and `render`'s third parameter). `npx turbo test test:app --concurrency=1` EXIT 0, 8/8, **3,120 tests across
+166 files** — +7 here (5 in the app, 2 in the lib), +33 since the 3,087 baseline.
+
+**A process note worth acting on.** `yarn lint` has now gone red twice in this plan, both times purely on the
+160-column width and both times fixed by `yarn lint:fix`. The cheap habit is to run `lint:fix` *before* `lint`
+rather than diagnosing a formatting failure — and the first time it cost real time, because the failure was
+mis-attributed to a pre-existing warning in an unrelated file. Also worth knowing that an incomplete turbo run
+(`Tasks: 1 successful, 8 total`) was a **genuine test failure stopping the dependents**, not the worker-boot
+flakiness the repo has previously seen: read the output before re-running.
 
 ### Task 4: One e2e journey
 

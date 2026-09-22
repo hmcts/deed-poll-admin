@@ -91,34 +91,42 @@ export function savedQueryStored(link: CaseListLink): StoredQueryParts {
 }
 
 /**
- * The caseworker's selected queries, as the filter nav's second group.
+ * The caseworker's selected queries, as the filter nav's groups beside the statuses.
  *
- * Only the selected ones: the same response feeds the library, so the nav is a filter over data already
- * held. In api's order and not re-sorted — it orders by name, and a local sort would hide the day api
- * grows a position column.
+ * Only the selected ones: the same response feeds the library screen, so the nav is a filter over data
+ * already held. In api's order and not re-sorted — it orders by name, and a local sort would hide the day
+ * api grows a position column.
+ *
+ * **Split on published-ness, identically to {@link buildSavedQueryGroups}** — plan 14's decision 3. The two
+ * screens have to agree about which group a query is in, which is the whole reason both splits are in this
+ * file rather than one here and one in a template. `selected` is applied *first*: a published query the
+ * caseworker has not added is in the library screen but in nobody's bar.
  *
  * `current` is decided on the **serialised** link rather than by comparing objects, because that is the
  * form the URL carries and two structurally different conditions arrays can describe one query. `page` is
  * excluded from the comparison on both sides: a caseworker on page 2 of a saved query is still looking at
  * that query, and a nav entry that stopped being current when they paged would be telling them otherwise.
  */
-export function buildSavedQueryNav(queries: SavedQuery[], options: { listPath: string; current?: CaseListLink }): SavedQueryNavEntry[] {
+export function buildSavedQueryNav(queries: SavedQuery[], options: { listPath: string; current?: CaseListLink }): SavedQueryNavGroups {
   const current = options.current === undefined ? undefined : linkKey(options.current);
+  const selected = queries.filter((query) => query.selected);
+  const entryFor = (query: SavedQuery): SavedQueryNavEntry => {
+    // The same string twice over, and only because a saved query never carries a page: it is both the
+    // link and what the request is compared against.
+    const search = caseListSearch(savedQueryLink(query));
 
-  return queries
-    .filter((query) => query.selected)
-    .map((query) => {
-      // The same string twice over, and only because a saved query never carries a page: it is both the
-      // link and what the request is compared against.
-      const search = caseListSearch(savedQueryLink(query));
+    return {
+      key: query.id,
+      label: query.name,
+      href: `${options.listPath}${search}`,
+      current: current !== undefined && search === current
+    };
+  };
 
-      return {
-        key: query.id,
-        label: query.name,
-        href: `${options.listPath}${search}`,
-        current: current !== undefined && search === current
-      };
-    });
+  return {
+    yours: selected.filter((query) => !query.shared).map(entryFor),
+    library: selected.filter((query) => query.shared).map(entryFor)
+  };
 }
 
 /**
@@ -199,7 +207,20 @@ function owner(name: string | null | undefined): string {
  */
 export type StoredQueryParts = Pick<SavedQueryCreate, "filter" | "conditions" | "sortField" | "sortDirection" | "searchTerm">;
 
-/** One entry of the filter nav's saved-query group. Structurally a status tab's entry, deliberately. */
+/**
+ * The filter bar's saved-query groups, on the same axis as {@link SavedQueryGroups}.
+ *
+ * Both hold only the caller's **selected** queries, so either may be empty where the library screen's
+ * equivalent is not — and an empty one must render no group at all rather than a labelled empty one.
+ */
+export interface SavedQueryNavGroups {
+  /** Selected and not published: the caller's own. */
+  yours: SavedQueryNavEntry[];
+  /** Selected and published, whoever owns them. */
+  library: SavedQueryNavEntry[];
+}
+
+/** One entry of a filter-nav saved-query group. Structurally a status tab's entry, deliberately. */
 export interface SavedQueryNavEntry {
   /** The query's id. Not its label: two queries may be named the same and a label is not an identity. */
   key: string;
