@@ -53,7 +53,22 @@ describe("save a query template", () => {
     expect(page).not.toContain('name="filter"');
   });
 
-  it("should offer the three controls the form asks for, and a share box that is not ticked by default", async () => {
+  it("should offer an Administrator three controls, with a share box that is not ticked by default", async () => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ query: QUERY, accessToken: "session-token", admin: true }), res);
+    const page = html(res.render.mock.calls[0][1]);
+
+    expect(page).toContain('id="name"');
+    expect(page).toContain('id="description"');
+    expect(page).toContain('name="shared"');
+    expect(page).not.toContain("checked");
+  });
+
+  it("should offer a caseworker the same form with no share box at all", async () => {
+    // Absent rather than disabled, per `witness-edit.njk`: a disabled control has no value to read. And no
+    // sentence replaces it, unlike the amend page's write controls -- a caseworker who never had the right to
+    // publish is not looking at a broken form, and explaining the gap would advertise a power they lack.
     const res = pageResponse();
 
     await GET(pageRequest({ query: QUERY, accessToken: "session-token" }), res);
@@ -61,8 +76,8 @@ describe("save a query template", () => {
 
     expect(page).toContain('id="name"');
     expect(page).toContain('id="description"');
-    expect(page).toContain('name="shared"');
-    expect(page).not.toContain("checked");
+    expect(page).not.toContain('name="shared"');
+    expect(page).not.toContain("Publish this query");
   });
 
   it("should show a rejected name in the summary and against the input, so it can be corrected in place", async () => {

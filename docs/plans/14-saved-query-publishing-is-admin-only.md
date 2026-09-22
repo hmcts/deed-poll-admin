@@ -196,17 +196,58 @@ The tests that **will** need updating are three others, and they are the real in
 
 ### Task 1: Hide the Publish control from a caseworker
 
-- [ ] `queries/new.ts` and `queries/[queryId]/edit.ts`: read `isAdmin` from `userFromRequest(req)` and pass it
+- [x] `queries/new.ts` and `queries/[queryId]/edit.ts`: read `isAdmin` from `userFromRequest(req)` and pass it
       into the render model, on both the GET and the re-render-with-errors path — **a validation failure must
       not make the control reappear or vanish**
-- [ ] Both templates: render the checkbox only when the flag is set
-- [ ] `edit.ts`'s POST already reads the **stored** `shared` rather than the checkbox's value for its
+- [x] Both templates: render the checkbox only when the flag is set
+- [x] `edit.ts`'s POST already reads the **stored** `shared` rather than the checkbox's value for its
       delete-confirmation branch. Confirm that still holds — a caseworker's submit now sends no `shared` key
       at all, and the stored value must continue to decide
-- [ ] Page tests for both, with the flag given **both** values; template tests for both. **Spread the content
+- [x] Page tests for both, with the flag given **both** values; template tests for both. **Spread the content
       pair first and the handler's values over it** (`{ ...(model.en as object), ...model }`) — the reverse
       order makes a handler-resolved string win in the test and pins nothing
-- [ ] Mark completed
+- [x] **Added, not in the original list:** omit `shared` from the amend patch when the caller may not publish
+- [x] Task 1 complete
+
+#### What Task 1 did, 2026-09-22
+
+`canPublish: userFromRequest(req).isAdmin` goes into both pages' render models, and both templates wrap the
+share box in `{% if canPublish %}`. Both handlers already funnelled every path through a single `render()`
+helper, so the GET and every re-render are covered by one line each rather than two — nothing was needed at
+the handler level.
+
+**A defect this task's checklist did not anticipate, and the substantive part of the work.** The amend page
+built its patch as `{ name, description, shared: parsed.data.shared }` unconditionally. With the checkbox
+hidden, a caseworker's body carries no `shared`, the schema yields `false` — and sending that **silently
+unpublishes the query on an edit to its name**, taking it out of every colleague's filter bar. Its own copy
+says what that costs: *"Colleagues who added it lose it."*
+
+It is reachable without any hand-crafting: **an Administrator publishes a query, later loses the role, and
+keeps ownership.** They may still amend it (api's `editable` is owner-or-admin-of-shared), so they can still
+reach the form — and renaming it would unpublish it.
+
+The fix is the three-state patch the wire schema already supports (`shared: z.boolean().optional()`, and
+`JSON.stringify` drops an undefined property, so omitted genuinely means "leave as stored"):
+
+```ts
+...(userFromRequest(req).isAdmin ? { shared: parsed.data.shared } : {})
+```
+
+**Two existing tests had encoded the old behaviour**, and neither was wrong — both were under-specified about
+*who* was acting, which `pageRequest({ admin: true })` expresses directly:
+
+- *"should send the three controls the form showed"* — asserts `shared` is sent, so it needs an Administrator.
+- *"should unpublish a query whose share box was unticked"* — an Administrator unticking the box **should**
+  unpublish, so the test's intent was right. Renamed to name the persona rather than deleted.
+
+**One existing test got stronger for free and passes unchanged:** *"should decide on the stored share flag, not
+on a box unticked without saving"* drives a caseworker, who now has no box to untick at all — so the stored
+flag is the only thing that could decide the delete-confirmation branch. Its comment now says so.
+
+**Measured, not asserted.** `yarn lint` EXIT 0, 385 files, 3 warnings and 2 infos — the same as the baseline,
+so no new ones. `npx turbo test test:app --concurrency=1` EXIT 0, 8/8 packages, **3,102 tests across 166
+files**, up exactly 15 from the 3,087 baseline. The six lines matching "failed" in that output are
+`console.error` from tests that deliberately drive failure paths; no non-zero failure count appears anywhere.
 
 ### Task 2: Split the library page into two groups
 

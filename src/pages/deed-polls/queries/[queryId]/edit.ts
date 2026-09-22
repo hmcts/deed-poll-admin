@@ -1,5 +1,14 @@
 /**
- * Amend a saved query: its name, its description, and whether it is published.
+ * Amend a saved query: its name, its description, and — for an Administrator — whether it is published.
+ *
+ * **Two different flags decide what renders, and conflating them is the mistake to avoid.** `canAmend` is
+ * api's per-query `editable`; `canPublish` is this app's own `isAdmin`. Publishing is a property of the
+ * *caller* and amending is a property of the *row*, so there is no flag api could return for the first and no
+ * reason to ask it for one. Plan 14.
+ *
+ * **A caller who may not publish sends no `shared` at all, and the patch must omit it rather than send
+ * `false`.** See the call site: sending `false` would silently unpublish a query on an edit to its name, for
+ * an owner who published it while an Administrator and has since lost the role.
  *
  * **Not its conditions.** A query's filters are amended by opening it, changing them in the builder and
  * saving again — the URL is the query, so there is nothing here for a second copy of the builder to edit that
@@ -38,7 +47,7 @@ import {
   zodErrorToFieldErrors
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { callerFromRequest } from "../../../../auth/current-user.js";
+import { callerFromRequest, userFromRequest } from "../../../../auth/current-user.js";
 
 const LIST_PATH = "/deed-polls";
 
@@ -112,7 +121,18 @@ export const POST = async (req: Request, res: Response) => {
     // difference between this patch and the note and witness ones, whose columns are not nullable.
     await updateSavedQuery(
       req.params.queryId,
-      { name: parsed.data.name, description: parsed.data.description ?? null, shared: parsed.data.shared },
+      {
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+        // **Omitted rather than `false` when this caller may not publish, and the difference is a real
+        // defect otherwise.** The checkbox is absent for them, so the body carries no `shared` and the schema
+        // yields `false` — sending that would silently *unpublish* a query on an edit to its name, and
+        // "colleagues who added it lose it" is what the copy says that costs. It is reachable without any
+        // hand-crafting: an Administrator publishes a query and later loses the role, keeping ownership.
+        // Omitting the property is exactly what the three-state patch is for, and it is distinguishable on
+        // the wire because `JSON.stringify` drops an undefined one.
+        ...(userFromRequest(req).isAdmin ? { shared: parsed.data.shared } : {})
+      },
       callerFromRequest(req)
     );
   } catch (error) {
@@ -158,6 +178,11 @@ async function render(
     errorList: [...formErrors, ...summaryFor(errors)],
     // api's statement, never this app's. Both write controls hang off it.
     canAmend: query.editable,
+    // **This app's own statement, and the contrast with `canAmend` above is the point.** `editable` asks
+    // whether this caller may change *this row*; publishing asks whether they may publish *at all*, which is
+    // a property of the caller and so not something api could return per query. Read on every render for the
+    // same reason `canAmend` is.
+    canPublish: userFromRequest(req).isAdmin,
     libraryPath: LIBRARY_PATH,
     en,
     cy
