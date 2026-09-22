@@ -399,10 +399,50 @@ followed by its list directly (`h2 + ul`). One shared selector would be silently
 
 ### Task 5: Full validation
 
-- [ ] Run both validation commands and **record the counts here** rather than asserting green
-- [ ] Confirm the total rose by the number of tests added, and that no package dropped to zero
-- [ ] Note the new `welsh:check` identical-string count, which is expected to rise
-- [ ] Mark completed
+- [x] Run both validation commands and **record the counts here** rather than asserting green
+- [x] Confirm the total rose by the number of tests added, and that no package dropped to zero
+- [x] Note the new `welsh:check` identical-string count, which is expected to rise
+- [x] Task 5 complete
+
+#### What Task 5 measured, 2026-09-22
+
+Run against the committed tree at `4c6f201`, working directory clean. **Six commands, not two** — the plan's
+two validation commands plus the three the work touched (`build`, e2e, `test:smoke`), because a rename and a
+signature change are not what a vitest run checks and the e2e suite is what Task 4 added to.
+
+| Command | Result |
+|---|---|
+| `yarn lint` | **EXIT 0** — 385 files, 3 warnings, 2 infos |
+| `npx turbo test test:app --concurrency=1` | **EXIT 0** — 8/8 packages, **3,120 tests across 166 files** |
+| `yarn build` | **EXIT 0** — 8/8 |
+| `npx playwright test` (full suite) | **EXIT 0** — **40 passed** |
+| `yarn test:smoke` | **EXIT 0** — 4 passed |
+| `yarn welsh:check` | **EXIT 1**, as expected — see below |
+
+**The unit total reconciles exactly.** 3,087 at the Task 0 baseline → 3,120, a rise of **33**: 15 in Task 1,
+11 in Task 2, 7 in Task 3. Per package: `//` 1,304 · `@hmcts/deed-poll` 1,056 · `@hmcts/deed-poll-api-client`
+422 · `cloud-native-platform` 140 · `express-govuk-starter` 127 · `simple-router` 41 ·
+`express-session-postgres` 23 · `express-session-redis` 7. **No package reports zero**, which is the check that
+would catch a workspace silently selecting nothing.
+
+**e2e:** `deed-polls.spec.ts` went from 14 tests to 15 — measured by counting declarations at `04cee9a` and at
+`HEAD`, so exactly the one Task 4 added and nothing displaced. The suite's 40 includes the three `setup`
+sign-ins and the tests nested in `describe` blocks, so it is not the same number as a count of top-level
+declarations; don't compare the two.
+
+**`welsh:check` exits 1 by design and its numbers moved as predicted.** 466 strings → **469**, of which 441
+identical → **444**. Net +3, which is exactly right: two new keys on the library page (`yoursHeading`,
+`libraryHeading`) and a net one on the case list, where `savedQueryGroupLabel` was replaced by
+`yourQueriesGroupLabel` and `libraryGroupLabel`. Every new string is English-in-`cy` per decision 6, so the
+identical count rising by the same 3 is the expected outcome rather than a regression. **The 3 pre-existing lint
+warnings and 2 infos are unchanged** and none are this plan's — see Task 2's note for what they are.
+
+#### Not done, and it is not this plan's to do
+
+`deed-poll-api`'s half — [`gate-saved-query-publishing.md`](https://github.com/hmcts/deed-poll-api/blob/master/docs/plans/gate-saved-query-publishing.md),
+merged as a plan in `#39` but **not yet implemented**. Until it is, **the rule is enforced only in the UI**: a
+hand-crafted `POST` with `shared: true` from a caseworker still publishes. That is stated in the Overview as a
+known interim gap and is restated here so that closing this plan is not read as closing the rule.
 
 ## Out of scope
 
