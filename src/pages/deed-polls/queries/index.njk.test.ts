@@ -125,4 +125,49 @@ describe("saved query library template", () => {
     expect(html).toContain("No queries have been saved yet");
     expect(html).not.toContain("Add to my filter bar");
   });
+
+  it("should head both groups when the caller has queries of each kind", async () => {
+    const html = await render([
+      savedQuery({ id: "mine", name: "Mine only", shared: false }),
+      savedQuery({ id: "theirs", name: "Published one", shared: true })
+    ]);
+
+    expect(html).toContain("Your queries");
+    expect(html).toContain("Query library");
+    expect(html).toContain("Mine only");
+    expect(html).toContain("Published one");
+  });
+
+  it("should render no library heading when nothing is published, rather than a heading over nothing", async () => {
+    // To a screen-reader user a heading is a promise of content — the rule `deed-polls/index.ts`'s
+    // `filterGroups` states for the filter bar, which now has to hold twice over here.
+    const html = await render([savedQuery({ shared: false })]);
+
+    expect(html).toContain("Your queries");
+    expect(html).not.toContain("Query library");
+  });
+
+  it("should render no 'Your queries' heading when everything visible is published", async () => {
+    const html = await render([savedQuery({ shared: true })]);
+
+    expect(html).toContain("Query library");
+    expect(html).not.toContain("Your queries");
+  });
+
+  it("should render neither heading for a caller with nothing, only the empty message", async () => {
+    const html = await render([]);
+
+    expect(html).not.toContain("Your queries");
+    expect(html).not.toContain("Query library");
+  });
+
+  it("should put the live-reference note under the library, where it is the only thing true", async () => {
+    // It warns that an added query stays its owner's and changes under you. A caller with nothing published
+    // has nothing to be warned about, so the note goes with the group rather than under the page title.
+    const published = await render([savedQuery({ shared: true })]);
+    const privateOnly = await render([savedQuery({ shared: false })]);
+
+    expect(published).toContain("stays its owner");
+    expect(privateOnly).not.toContain("stays its owner");
+  });
 });

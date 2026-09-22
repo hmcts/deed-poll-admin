@@ -45,6 +45,16 @@ function request(body?: Record<string, unknown>): Request {
   return pageRequest({ params: PARAMS, body, accessToken: "session-token" });
 }
 
+/**
+ * An Administrator, who is the only caller the share box renders for.
+ *
+ * Every assertion about `shared` needs one: for anybody else the control is absent, so the body carries no
+ * `shared` key and the patch omits the property rather than sending `false`.
+ */
+function adminRequest(body?: Record<string, unknown>): Request {
+  return pageRequest({ params: PARAMS, body, accessToken: "session-token", admin: true });
+}
+
 const response = pageResponse;
 
 describe("amend a saved query page", () => {
@@ -105,6 +115,34 @@ describe("amend a saved query page", () => {
       expect(res.render.mock.calls[0][1].canAmend).toBe(false);
     });
 
+    it("should offer the share box to an Administrator", async () => {
+      const res = response();
+
+      await GET(adminRequest(), res);
+
+      expect(res.render.mock.calls[0][1].canPublish).toBe(true);
+    });
+
+    it("should hide the share box from a caseworker", async () => {
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].canPublish).toBe(false);
+    });
+
+    it("should decide the share box on the caller's role and the write controls on api's flag, which are different questions", async () => {
+      // An Administrator amending somebody else's published query: api says they may amend it, and their own
+      // role says they may publish. The two flags come from different places and must not be conflated --
+      // `canAmend` is about this row, `canPublish` is about this caller.
+      vi.mocked(findSavedQuery).mockResolvedValue(savedQuery({ editable: false }) as never);
+      const res = response();
+
+      await GET(adminRequest(), res);
+
+      expect(res.render.mock.calls[0][1]).toMatchObject({ canAmend: false, canPublish: true });
+    });
+
     it("should 404 a query the caller cannot see, which api does not distinguish from one that never existed", async () => {
       vi.mocked(findSavedQuery).mockRejectedValue(new NotFoundError("Saved query sq-9 not found"));
 
@@ -116,7 +154,7 @@ describe("amend a saved query page", () => {
     it("should send the three controls the form showed, then redirect to the library", async () => {
       const res = response();
 
-      await POST(request(SUBMITTED), res);
+      await POST(adminRequest(SUBMITTED), res);
 
       expect(updateSavedQuery).toHaveBeenCalledWith("sq-1", { name: "Awaiting enrolment", description: "Received cases", shared: true }, CALLER);
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls/queries");
@@ -136,10 +174,26 @@ describe("amend a saved query page", () => {
       expect(updateSavedQuery).toHaveBeenCalledWith("sq-1", expect.objectContaining({ description: null }), CALLER);
     });
 
-    it("should unpublish a query whose share box was unticked", async () => {
-      await POST(request({ name: "Awaiting enrolment" }), response());
+    it("should unpublish a query whose share box an Administrator unticked", async () => {
+      await POST(adminRequest({ name: "Awaiting enrolment" }), response());
 
       expect(updateSavedQuery).toHaveBeenCalledWith("sq-1", expect.objectContaining({ shared: false }), CALLER);
+    });
+
+    it("should omit shared entirely for a caseworker, rather than unpublishing a query they may not publish", async () => {
+      // The defect this guards against is reachable without any hand-crafting: an Administrator publishes a
+      // query and later loses the role, keeping ownership. The share box is then absent, so the body carries
+      // no `shared`, the schema yields `false` — and sending that would unpublish the query on an edit to its
+      // name, taking it out of every colleague's filter bar. An omitted property means "leave it as stored".
+      await POST(request({ name: "Renamed" }), response());
+
+      expect(updateSavedQuery).toHaveBeenCalledWith("sq-1", expect.not.objectContaining({ shared: expect.anything() }), CALLER);
+    });
+
+    it("should still send the name and description for a caseworker, so omitting shared costs nothing else", async () => {
+      await POST(request({ name: "Renamed", description: "Still useful" }), response());
+
+      expect(updateSavedQuery).toHaveBeenCalledWith("sq-1", { name: "Renamed", description: "Still useful" }, CALLER);
     });
 
     it("should keep the submitted values on screen when validation fails, not the stored ones", async () => {
@@ -151,6 +205,24 @@ describe("amend a saved query page", () => {
       expect(updateSavedQuery).not.toHaveBeenCalled();
       expect(res.render.mock.calls[0][1].values.name).toBe("n".repeat(101));
       expect(res.render.mock.calls[0][1].errorList).toEqual([{ text: "Name must be 100 characters or fewer", href: "#name" }]);
+    });
+
+    it("should keep the share box hidden from a caseworker when validation fails", async () => {
+      // A flag resolved only in `GET` would put the control back the moment a caseworker submitted an
+      // over-long name -- the same failure `canAmend`'s docblock records, one render later.
+      const res = response();
+
+      await POST(request({ ...SUBMITTED, name: "n".repeat(101) }), res);
+
+      expect(res.render.mock.calls[0][1].canPublish).toBe(false);
+    });
+
+    it("should keep the share box offered to an Administrator when validation fails", async () => {
+      const res = response();
+
+      await POST(adminRequest({ ...SUBMITTED, name: "n".repeat(101) }), res);
+
+      expect(res.render.mock.calls[0][1].canPublish).toBe(true);
     });
 
     it("should reject a blank name", async () => {
@@ -227,6 +299,10 @@ describe("amend a saved query page", () => {
 
     it("should decide on the stored share flag, not on a box unticked without saving", async () => {
       // Everybody who has the query in their filter bar still has it, so the warning is still owed.
+      //
+      // This caller is a caseworker, so since plan 14 there is no share box for them to untick at all -- the
+      // body carries no `shared` either way, and the stored flag is the only thing that could decide. The test
+      // covers the stronger case now than when it was written, and passes unchanged.
       const res = response();
 
       await POST(request({ name: "Awaiting enrolment", action: "delete" }), res);

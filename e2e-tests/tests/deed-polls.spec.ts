@@ -1094,9 +1094,11 @@ test("caseworker saves the query they built, follows it from the filter bar, and
   await expect(page).toHaveURL(`/deed-polls?where=newForename%3Ais%3A${forename}`);
 
   // The filter bar's second group, which exists only because something is in it — an empty labelled group is
-  // a heading over nothing, so its presence is the assertion that the selection reached api.
+  // a heading over nothing, so its presence is the assertion that the selection reached api. **"Your queries"
+  // rather than "Query library" since plan 14**, because the checkbox was left alone and an unpublished query
+  // is the caller's own.
   const savedQueries = savedQueryGroup(page);
-  await expect(savedQueries.getByRole("heading", { level: 2 })).toHaveText("Saved queries");
+  await expect(savedQueries.getByRole("heading", { level: 2 })).toHaveText("Your queries");
   await expect(savedQueries.getByText(queryName)).toHaveAttribute("aria-current", "page");
   await expectNoAccessibilityViolations(page);
 
@@ -1138,6 +1140,106 @@ test("caseworker saves the query they built, follows it from the filter bar, and
 
   await page.getByRole("link", { name: "Back to the case list" }).click();
   await expect(page.getByRole("navigation", { name: "Filter cases" })).not.toContainText(queryName);
+});
+
+/**
+ * Publishing is an Administrator's act — plan 14, and the half of it only a browser shows.
+ *
+ * **What the unit suite cannot reach.** The gate is `canPublish` in two render models and an `{% if %}` in two
+ * templates, and a page test can only assert the flag it was handed. What is asserted here is that the flag
+ * comes from **the roles IDAM issued for the session that actually signed in** — this file's fixture is
+ * `admin@example.com` and the second context's is the roleless `caseworker@example.com`, so the control
+ * appearing on one and absent from the other is the real derivation working, not a boolean a test passed in.
+ *
+ * **The caseworker's half only reads**, which is what makes restoring `CASEWORKER_STORAGE_STATE` safe here —
+ * the hazard the persona-switcher spec documents is a *sign-in*, which regenerates the session id and would
+ * sign every other spec sharing that state out mid-run. Navigating a restored session does not.
+ *
+ * **It deletes the query it publishes, and that is not tidiness.** The mock's saved queries are shared with
+ * every spec and outlive the run, and a *published* one is visible to every caller rather than just its
+ * owner — so leaving one behind would put a row in every later journey's library view and in the filter bar of
+ * anybody who added it. The delete also exercises the published-query confirmation, which is the one
+ * interstitial in this repo.
+ */
+test("administrator publishes a query to the library, where a caseworker finds it but cannot publish one", async ({ page, browser, request }) => {
+  const forename = seedForename();
+  await seedCasesToFilter(request, forename);
+  const queryName = `Published by ${forename}`;
+  const savePath = `/deed-polls/queries/new?where=newForename%3Ais%3A${forename}`;
+
+  await page.goto(`/deed-polls?where=newForename%3Ais%3A${forename}`);
+  await page.getByRole("link", { name: "Save this query" }).click();
+  await expect(page).toHaveURL(savePath);
+
+  // The control the rule is about, offered because this session holds `caseworker-deedpoll-admin`.
+  const publish = page.getByLabel("Add this query to the library, so colleagues can find it");
+  await expect(publish).toBeVisible();
+
+  await page.getByLabel("Name").fill(queryName);
+  await publish.check();
+  await expectNoAccessibilityViolations(page);
+  await page.getByRole("button", { name: "Save query" }).click();
+
+  await expect(page).toHaveURL(`/deed-polls?where=newForename%3Ais%3A${forename}`);
+
+  // Published and selected, so it is in the bar's **library** group and not the caller's own — decision 3,
+  // and the one case where the two possible axes disagree: the Administrator owns this query and it still
+  // belongs to the group that says who else can see it. Addressed by heading rather than by index, because
+  // the bar may now carry three groups.
+  await expect(savedQueryGroupNamed(page, "Query library").getByText(queryName)).toHaveAttribute("aria-current", "page");
+
+  await page.getByRole("link", { name: "All saved queries" }).click();
+  await expect(page).toHaveURL("/deed-polls/queries");
+
+  // Under the library heading on the screen as well, tagged, and attributed to the administrator who saved it.
+  await expect(librarySection(page, "Query library")).toContainText(queryName);
+  await expect(libraryRow(page, queryName)).toContainText("Published");
+  await expect(libraryRow(page, queryName)).toContainText(ADMIN_EMAIL);
+  await expectNoAccessibilityViolations(page);
+
+  // ── the caseworker, in a session of its own ───────────────────────────────────────────────────────────────
+  const context = await browser.newContext({ storageState: CASEWORKER_STORAGE_STATE });
+  const caseworker = await context.newPage();
+
+  try {
+    await caseworker.goto("/deed-polls/queries");
+
+    // Somebody who does not own it can find it, which is the whole point of publishing.
+    await expect(librarySection(caseworker, "Query library")).toContainText(queryName);
+    await expect(libraryRow(caseworker, queryName)).toContainText("Published");
+
+    // And the control that put it there is not theirs. **Absent from the markup rather than disabled** — a
+    // `not.toBeVisible()` would also pass against a control merely styled away, which is not what the
+    // `{% if canPublish %}` does. Checked as both the fieldset and the input name, because either surviving
+    // alone would be a half-rendered control.
+    await caseworker.goto(savePath);
+    await expect(caseworker.getByRole("heading", { level: 1 })).toHaveText("Save this query");
+    await expect(caseworker.getByLabel("Name")).toBeVisible();
+    await expect(caseworker.getByRole("group", { name: "Publish this query" })).toHaveCount(0);
+    await expect(caseworker.locator('[name="shared"]')).toHaveCount(0);
+    await expectNoAccessibilityViolations(caseworker);
+  } finally {
+    await context.close();
+  }
+
+  // ── and away, so nothing published survives the run ───────────────────────────────────────────────────────
+  await page.goto("/deed-polls/queries");
+  await libraryRow(page, queryName).getByRole("link", { name: "Amend" }).click();
+
+  // The amend form offers the share box to this persona, and it is ticked because the query is published —
+  // the same flag on the way back in.
+  await expect(page.getByLabel("Keep this query in the library, so colleagues can find it")).toBeChecked();
+
+  await page.getByRole("button", { name: "Delete query" }).click();
+
+  // The interstitial, because colleagues may hold a published query and this app cannot know whose.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Are you sure you want to delete this query?");
+  await expectNoAccessibilityViolations(page);
+  await page.getByRole("button", { name: "Delete query" }).click();
+
+  await expect(page).toHaveURL("/deed-polls/queries");
+  // Scoped to the row rather than to a `ul`, which also matches the persona strip's list and the footer's.
+  await expect(libraryRow(page, queryName)).toHaveCount(0);
 });
 
 /**
@@ -1676,11 +1778,39 @@ function bearer(subject: string): Record<string, string> {
 
 /**
  * The filter bar's saved-query group, addressed by position because a group has no accessible name of its
- * own — the `<nav>` carries the label and each group carries an `<h2>`. It is the second group because the
- * statuses are the first, and there is no third.
+ * own — the `<nav>` carries the label and each group carries an `<h2>`.
+ *
+ * **There can now be a third group**, since plan 14 split the saved queries into the caller's own and the
+ * library's: the order is statuses, then "Your queries", then "Query library", each rendered only when it has
+ * entries. So `nth(1)` is the caller's own group **whenever they have one selected that is not published**,
+ * and is the library's when they do not. A caller of this helper that means one specifically should say which
+ * by heading rather than trusting the index — {@link savedQueryGroupNamed} is that.
  */
 function savedQueryGroup(page: Page): Locator {
   return page.locator(".app-filter-nav__group").nth(1);
+}
+
+/**
+ * A named filter-bar group, which is index-independent and so survives a third group appearing.
+ *
+ * Filtered on the `<h2>` rather than on the group's whole text: a group's *entries* carry query names, and a
+ * query called "Query library" would otherwise answer to the library's heading.
+ */
+function savedQueryGroupNamed(page: Page, heading: string): Locator {
+  return page.locator(".app-filter-nav__group").filter({ has: page.locator(".app-filter-nav__group-label", { hasText: heading }) });
+}
+
+/**
+ * The list under one of the library page's two headings — plan 14.
+ *
+ * Addressed through the sibling combinator because the sections are flat siblings rather than nested. **The two
+ * selectors differ on purpose:** the library's heading is followed by its live-reference hint before its list,
+ * where the caller's own heading is followed by its list directly, so one shared selector would be wrong for
+ * one of them. `:text-is` rather than `:has-text`, since "Query library" contains neither heading as a
+ * substring but a future third heading might.
+ */
+function librarySection(page: Page, heading: "Your queries" | "Query library"): Locator {
+  return heading === "Query library" ? page.locator("h2:text-is('Query library') + p + ul") : page.locator("h2:text-is('Your queries') + ul");
 }
 
 /**

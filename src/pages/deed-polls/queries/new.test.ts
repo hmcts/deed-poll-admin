@@ -22,6 +22,11 @@ function request(body?: Record<string, unknown>, query: Record<string, unknown> 
   return pageRequest({ query, body, accessToken: "session-token" });
 }
 
+/** An Administrator, who is the only caller the share box renders for. */
+function adminRequest(body?: Record<string, unknown>, query: Record<string, unknown> = QUERY): Request {
+  return pageRequest({ query, body, accessToken: "session-token", admin: true });
+}
+
 const response = pageResponse;
 
 describe("save a query page", () => {
@@ -40,6 +45,32 @@ describe("save a query page", () => {
       expect(res.render.mock.calls[0][0]).toBe("deed-polls/queries/new");
       expect(res.render.mock.calls[0][1].values).toEqual({});
       expect(res.render.mock.calls[0][1].errorList).toEqual([]);
+    });
+
+    it("should offer the share box to an Administrator", async () => {
+      const res = response();
+
+      await GET(adminRequest(), res);
+
+      expect(res.render.mock.calls[0][1].canPublish).toBe(true);
+    });
+
+    it("should hide the share box from a caseworker, because publishing is an Administrator's act", async () => {
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].canPublish).toBe(false);
+    });
+
+    it("should hide the share box from a judge, so holding any role is not holding the admin one", async () => {
+      // `isAdmin` and `isJudicial` are alternatives rather than a ladder, so this is not implied by the
+      // caseworker case above.
+      const res = response();
+
+      await GET(pageRequest({ query: QUERY, accessToken: "session-token", judicial: true }), res);
+
+      expect(res.render.mock.calls[0][1].canPublish).toBe(false);
     });
 
     it("should post back to the same query it was opened with, so the query needs no hidden inputs", async () => {
@@ -167,6 +198,24 @@ describe("save a query page", () => {
 
       expect(createSavedQuery).not.toHaveBeenCalled();
       expect(res.render.mock.calls[0][1].errors.name).toBe("Name must be 100 characters or fewer");
+    });
+
+    it("should keep the share box hidden from a caseworker when validation fails", async () => {
+      // A flag resolved only in `GET` would put the control back the moment a caseworker submitted a blank
+      // name, which is the whole reason it is read in `render` rather than in the handler.
+      const res = response();
+
+      await POST(request({ name: "" }), res);
+
+      expect(res.render.mock.calls[0][1].canPublish).toBe(false);
+    });
+
+    it("should keep the share box offered to an Administrator when validation fails", async () => {
+      const res = response();
+
+      await POST(adminRequest({ name: "" }), res);
+
+      expect(res.render.mock.calls[0][1].canPublish).toBe(true);
     });
 
     it("should keep the query in the failed form's action, so a corrected name saves the same query", async () => {

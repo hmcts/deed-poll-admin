@@ -1,6 +1,6 @@
 import type { SavedQuery } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
-import { buildSavedQueryLibrary, buildSavedQueryNav, savedQueryHref, savedQueryLink, savedQueryStored } from "./view.js";
+import { buildSavedQueryGroups, buildSavedQueryNav, savedQueryHref, savedQueryLink, savedQueryStored } from "./view.js";
 
 const LIST_PATH = "/deed-polls";
 
@@ -93,28 +93,49 @@ describe("saved-queries/view", () => {
   });
 
   describe("buildSavedQueryNav", () => {
+    /** Both groups as one list, for the assertions that are about an entry rather than about the grouping. */
+    const navEntries = (queries: SavedQuery[], options: { listPath: string; current?: Parameters<typeof buildSavedQueryNav>[1]["current"] }) => {
+      const { yours, library } = buildSavedQueryNav(queries, options);
+
+      return [...yours, ...library];
+    };
+
     it("should render only the queries the caller has selected", () => {
       const queries = [savedQuery({ id: "sq-1", selected: true }), savedQuery({ id: "sq-2", name: "Somebody else's", selected: false })];
 
-      expect(buildSavedQueryNav(queries, { listPath: LIST_PATH }).map((entry) => entry.key)).toEqual(["sq-1"]);
+      expect(navEntries(queries, { listPath: LIST_PATH }).map((entry) => entry.key)).toEqual(["sq-1"]);
+    });
+
+    it("should split the selection on published-ness, the same way the library screen does", () => {
+      const queries = [savedQuery({ id: "private" }), savedQuery({ id: "published", shared: true })];
+      const { yours, library } = buildSavedQueryNav(queries, { listPath: LIST_PATH });
+
+      expect(yours.map((entry) => entry.key)).toEqual(["private"]);
+      expect(library.map((entry) => entry.key)).toEqual(["published"]);
+    });
+
+    it("should apply the selection before the split, so a published query nobody added is in neither group", () => {
+      const queries = [savedQuery({ id: "unselected-published", shared: true, selected: false })];
+
+      expect(buildSavedQueryNav(queries, { listPath: LIST_PATH })).toEqual({ yours: [], library: [] });
     });
 
     it("should keep api's order rather than sorting locally", () => {
       const queries = [savedQuery({ id: "sq-1", name: "Beta" }), savedQuery({ id: "sq-2", name: "Alpha" })];
 
-      expect(buildSavedQueryNav(queries, { listPath: LIST_PATH }).map((entry) => entry.label)).toEqual(["Beta", "Alpha"]);
+      expect(navEntries(queries, { listPath: LIST_PATH }).map((entry) => entry.label)).toEqual(["Beta", "Alpha"]);
     });
 
     it("should key an entry on the query's id rather than its name, which is not an identity", () => {
       const queries = [savedQuery({ id: "sq-1", name: "Mine" }), savedQuery({ id: "sq-2", name: "Mine" })];
 
-      expect(buildSavedQueryNav(queries, { listPath: LIST_PATH }).map((entry) => entry.key)).toEqual(["sq-1", "sq-2"]);
+      expect(navEntries(queries, { listPath: LIST_PATH }).map((entry) => entry.key)).toEqual(["sq-1", "sq-2"]);
     });
 
     it("should mark an entry current when the request describes the same query", () => {
       const query = savedQuery({ filter: "received", conditions: ["parents:isEmpty"], sortField: "dateReceived", sortDirection: "desc" });
 
-      const entries = buildSavedQueryNav([query], {
+      const entries = navEntries([query], {
         listPath: LIST_PATH,
         current: { filter: "received", conditions: [{ field: "parents", operator: "isEmpty", values: [] }], sort: "dateReceived:desc" }
       });
@@ -127,7 +148,7 @@ describe("saved-queries/view", () => {
       // same question, and `values` differs in shape for a no-value operator depending on which produced it.
       const query = savedQuery({ filter: "all", conditions: ["newSurname:contains:Smith"] });
 
-      const entries = buildSavedQueryNav([query], {
+      const entries = navEntries([query], {
         listPath: LIST_PATH,
         current: { filter: "all", conditions: [{ field: "newSurname", operator: "contains", values: ["Smith"] }] }
       });
@@ -138,7 +159,7 @@ describe("saved-queries/view", () => {
     it("should not mark an entry current when the request narrows the same conditions under another tab", () => {
       const query = savedQuery({ filter: "received", conditions: ["parents:isEmpty"] });
 
-      const entries = buildSavedQueryNav([query], {
+      const entries = navEntries([query], {
         listPath: LIST_PATH,
         current: { filter: "enroled", conditions: [{ field: "parents", operator: "isEmpty", values: [] }] }
       });
@@ -149,7 +170,7 @@ describe("saved-queries/view", () => {
     it("should not mark an entry current when the order differs", () => {
       const query = savedQuery({ filter: "all", conditions: [], sortField: "dateReceived", sortDirection: "desc" });
 
-      const entries = buildSavedQueryNav([query], { listPath: LIST_PATH, current: { filter: "all", conditions: [], sort: "dateReceived:asc" } });
+      const entries = navEntries([query], { listPath: LIST_PATH, current: { filter: "all", conditions: [], sort: "dateReceived:asc" } });
 
       expect(entries[0].current).toBe(false);
     });
@@ -159,21 +180,29 @@ describe("saved-queries/view", () => {
       // they paged would be telling them otherwise.
       const query = savedQuery({ filter: "received", conditions: [] });
 
-      const entries = buildSavedQueryNav([query], { listPath: LIST_PATH, current: { filter: "received", conditions: [], page: 2 } });
+      const entries = navEntries([query], { listPath: LIST_PATH, current: { filter: "received", conditions: [], page: 2 } });
 
       expect(entries[0].current).toBe(true);
     });
 
     it("should mark nothing current when the page has no request to compare", () => {
-      expect(buildSavedQueryNav([savedQuery()], { listPath: LIST_PATH })[0].current).toBe(false);
+      expect(navEntries([savedQuery()], { listPath: LIST_PATH })[0].current).toBe(false);
     });
 
-    it("should render nothing for an empty selection, leaving the page to omit the group", () => {
-      expect(buildSavedQueryNav([], { listPath: LIST_PATH })).toEqual([]);
+    it("should render nothing for an empty selection, leaving the page to omit both groups", () => {
+      // Both keys present and empty rather than absent, because `filterGroups` asks each for its `length`.
+      expect(buildSavedQueryNav([], { listPath: LIST_PATH })).toEqual({ yours: [], library: [] });
     });
   });
 
-  describe("buildSavedQueryLibrary", () => {
+  describe("buildSavedQueryGroups", () => {
+    /** Both groups as one list, for the assertions that are about a row rather than about the grouping. */
+    const allRows = (queries: SavedQuery[]) => {
+      const { yours, library } = buildSavedQueryGroups(queries, LIST_PATH);
+
+      return [...yours, ...library];
+    };
+
     it("should carry api's flags through untouched, both ways", () => {
       // `editable` is api's statement, derived from the predicate its write paths refuse on. The row
       // repeats it and never computes it — a client rendering an edit button on its own reasoning would be
@@ -182,39 +211,70 @@ describe("saved-queries/view", () => {
         savedQuery({ id: "sq-1", shared: true, selected: true, editable: false }),
         savedQuery({ id: "sq-2", shared: false, selected: false, editable: true })
       ];
+      const { yours, library } = buildSavedQueryGroups(queries, LIST_PATH);
 
-      expect(buildSavedQueryLibrary(queries, LIST_PATH).map(({ id, shared, selected, editable }) => ({ id, shared, selected, editable }))).toEqual([
-        { id: "sq-1", shared: true, selected: true, editable: false },
+      expect(library.map(({ id, shared, selected, editable }) => ({ id, shared, selected, editable }))).toEqual([
+        { id: "sq-1", shared: true, selected: true, editable: false }
+      ]);
+      expect(yours.map(({ id, shared, selected, editable }) => ({ id, shared, selected, editable }))).toEqual([
         { id: "sq-2", shared: false, selected: false, editable: true }
       ]);
     });
 
-    it("should include the link to each query's own list URL", () => {
-      const rows = buildSavedQueryLibrary([savedQuery({ filter: "enroled", conditions: [] })], LIST_PATH);
+    it("should split on published-ness: unpublished are the caller's own, published are the library", () => {
+      const queries = [savedQuery({ id: "private" }), savedQuery({ id: "published", shared: true })];
+      const { yours, library } = buildSavedQueryGroups(queries, LIST_PATH);
 
-      expect(rows[0].href).toBe("/deed-polls?filter=enroled");
+      expect(yours.map((row) => row.id)).toEqual(["private"]);
+      expect(library.map((row) => row.id)).toEqual(["published"]);
+    });
+
+    it("should put a published query in the library even when the caller owns it", () => {
+      // Decision 3, and the one case where the two possible axes disagree — an Administrator who published
+      // their own. Ownership does not move it out of the group that says who else can see it. `editable`
+      // being true is api saying it is theirs.
+      const { yours, library } = buildSavedQueryGroups([savedQuery({ id: "mine", shared: true, editable: true })], LIST_PATH);
+
+      expect(yours).toEqual([]);
+      expect(library.map((row) => row.id)).toEqual(["mine"]);
+    });
+
+    it("should give both groups as empty arrays for a caller with no queries, not omit them", () => {
+      // The template asks `groups.yours.length`, so an absent key would throw rather than render the empty
+      // state.
+      expect(buildSavedQueryGroups([], LIST_PATH)).toEqual({ yours: [], library: [] });
+    });
+
+    it("should keep api's order within each group rather than re-sorting", () => {
+      const queries = [savedQuery({ id: "b", shared: true }), savedQuery({ id: "a", shared: true })];
+
+      expect(buildSavedQueryGroups(queries, LIST_PATH).library.map((row) => row.id)).toEqual(["b", "a"]);
+    });
+
+    it("should include the link to each query's own list URL", () => {
+      expect(allRows([savedQuery({ filter: "enroled", conditions: [] })])[0].href).toBe("/deed-polls?filter=enroled");
     });
 
     it("should render the owner's name as api sends it", () => {
-      expect(buildSavedQueryLibrary([savedQuery({ ownerName: "A Caseworker" })], LIST_PATH)[0].ownerName).toBe("A Caseworker");
+      expect(allRows([savedQuery({ ownerName: "A Caseworker" })])[0].ownerName).toBe("A Caseworker");
     });
 
     it("should show the placeholder for a query api recorded no owner name for", () => {
-      expect(buildSavedQueryLibrary([savedQuery({ ownerName: null })], LIST_PATH)[0].ownerName).toBe("Not recorded");
+      expect(allRows([savedQuery({ ownerName: null })])[0].ownerName).toBe("Not recorded");
     });
 
     it("should show the placeholder for an owner name that is only whitespace", () => {
-      expect(buildSavedQueryLibrary([savedQuery({ ownerName: "   " })], LIST_PATH)[0].ownerName).toBe("Not recorded");
+      expect(allRows([savedQuery({ ownerName: "   " })])[0].ownerName).toBe("Not recorded");
     });
 
     it("should give an absent description as an empty string, so a template can ask rather than render null", () => {
-      expect(buildSavedQueryLibrary([savedQuery({ description: null })], LIST_PATH)[0].description).toBe("");
+      expect(allRows([savedQuery({ description: null })])[0].description).toBe("");
     });
 
     it("should list every query the caller can see, not only their selection", () => {
       const queries = [savedQuery({ id: "sq-1", selected: true }), savedQuery({ id: "sq-2", selected: false })];
 
-      expect(buildSavedQueryLibrary(queries, LIST_PATH)).toHaveLength(2);
+      expect(allRows(queries)).toHaveLength(2);
     });
   });
 

@@ -91,46 +91,71 @@ export function savedQueryStored(link: CaseListLink): StoredQueryParts {
 }
 
 /**
- * The caseworker's selected queries, as the filter nav's second group.
+ * The caseworker's selected queries, as the filter nav's groups beside the statuses.
  *
- * Only the selected ones: the same response feeds the library, so the nav is a filter over data already
- * held. In api's order and not re-sorted — it orders by name, and a local sort would hide the day api
- * grows a position column.
+ * Only the selected ones: the same response feeds the library screen, so the nav is a filter over data
+ * already held. In api's order and not re-sorted — it orders by name, and a local sort would hide the day
+ * api grows a position column.
+ *
+ * **Split on published-ness, identically to {@link buildSavedQueryGroups}** — plan 14's decision 3. The two
+ * screens have to agree about which group a query is in, which is the whole reason both splits are in this
+ * file rather than one here and one in a template. `selected` is applied *first*: a published query the
+ * caseworker has not added is in the library screen but in nobody's bar.
  *
  * `current` is decided on the **serialised** link rather than by comparing objects, because that is the
  * form the URL carries and two structurally different conditions arrays can describe one query. `page` is
  * excluded from the comparison on both sides: a caseworker on page 2 of a saved query is still looking at
  * that query, and a nav entry that stopped being current when they paged would be telling them otherwise.
  */
-export function buildSavedQueryNav(queries: SavedQuery[], options: { listPath: string; current?: CaseListLink }): SavedQueryNavEntry[] {
+export function buildSavedQueryNav(queries: SavedQuery[], options: { listPath: string; current?: CaseListLink }): SavedQueryNavGroups {
   const current = options.current === undefined ? undefined : linkKey(options.current);
+  const selected = queries.filter((query) => query.selected);
+  const entryFor = (query: SavedQuery): SavedQueryNavEntry => {
+    // The same string twice over, and only because a saved query never carries a page: it is both the
+    // link and what the request is compared against.
+    const search = caseListSearch(savedQueryLink(query));
 
-  return queries
-    .filter((query) => query.selected)
-    .map((query) => {
-      // The same string twice over, and only because a saved query never carries a page: it is both the
-      // link and what the request is compared against.
-      const search = caseListSearch(savedQueryLink(query));
+    return {
+      key: query.id,
+      label: query.name,
+      href: `${options.listPath}${search}`,
+      current: current !== undefined && search === current
+    };
+  };
 
-      return {
-        key: query.id,
-        label: query.name,
-        href: `${options.listPath}${search}`,
-        current: current !== undefined && search === current
-      };
-    });
+  return {
+    yours: selected.filter((query) => !query.shared).map(entryFor),
+    library: selected.filter((query) => query.shared).map(entryFor)
+  };
 }
 
 /**
- * The library: every query the caller can see, each with what it is, whose it is, and whether it is in
- * their own list.
+ * Every query the caller can see, in the two groups the screen shows: their own, and the library.
  *
- * One row shape for both halves of the screen. Shared-versus-own is `shared` and `editable` on the row
- * rather than two lists, so the template decides how to group them and this file makes no claim about
- * which grouping reads better.
+ * **Split on published-ness, not on ownership** — plan 14's decision 3. `yours` is everything not published;
+ * `library` is everything published, *including the caller's own*. For a caseworker the two axes are
+ * indistinguishable, because their queries are always unpublished and everything published belongs to
+ * somebody else; they diverge only for an Administrator who published their own, and published-ness puts it
+ * in the group that tells the truth about who else can see it.
+ *
+ * **This replaced a deliberate refusal to group, and the reasoning is worth keeping.** The previous version
+ * returned one flat list and said grouping was the template's business, "and this file makes no claim about
+ * which grouping reads better". That was right while grouping was undecided. It is now decided *and* it has
+ * to hold identically on two different screens — this list and the case list's filter bar — so it belongs in
+ * one tested function rather than being re-derived in two templates.
+ *
+ * One row shape serves both groups. `shared` stays on the row even though it is now implied by which group
+ * the row is in: it is what a row keeps when read on its own, and the template still tags it.
  */
-export function buildSavedQueryLibrary(queries: SavedQuery[], listPath: string): SavedQueryRow[] {
-  return queries.map((query) => ({
+export function buildSavedQueryGroups(queries: SavedQuery[], listPath: string): SavedQueryGroups {
+  const rows = queries.map((query) => savedQueryRow(query, listPath));
+
+  return { yours: rows.filter((row) => !row.shared), library: rows.filter((row) => row.shared) };
+}
+
+/** One row of either group: what the query is, whose it is, and whether the caller has it in their bar. */
+function savedQueryRow(query: SavedQuery, listPath: string): SavedQueryRow {
+  return {
     id: query.id,
     name: query.name,
     description: query.description ?? "",
@@ -141,7 +166,7 @@ export function buildSavedQueryLibrary(queries: SavedQuery[], listPath: string):
     shared: query.shared,
     selected: query.selected,
     editable: query.editable
-  }));
+  };
 }
 
 /**
@@ -182,7 +207,20 @@ function owner(name: string | null | undefined): string {
  */
 export type StoredQueryParts = Pick<SavedQueryCreate, "filter" | "conditions" | "sortField" | "sortDirection" | "searchTerm">;
 
-/** One entry of the filter nav's saved-query group. Structurally a status tab's entry, deliberately. */
+/**
+ * The filter bar's saved-query groups, on the same axis as {@link SavedQueryGroups}.
+ *
+ * Both hold only the caller's **selected** queries, so either may be empty where the library screen's
+ * equivalent is not — and an empty one must render no group at all rather than a labelled empty one.
+ */
+export interface SavedQueryNavGroups {
+  /** Selected and not published: the caller's own. */
+  yours: SavedQueryNavEntry[];
+  /** Selected and published, whoever owns them. */
+  library: SavedQueryNavEntry[];
+}
+
+/** One entry of a filter-nav saved-query group. Structurally a status tab's entry, deliberately. */
 export interface SavedQueryNavEntry {
   /** The query's id. Not its label: two queries may be named the same and a label is not an identity. */
   key: string;
@@ -191,7 +229,21 @@ export interface SavedQueryNavEntry {
   current: boolean;
 }
 
-/** One row of the library. */
+/**
+ * The library screen's two groups.
+ *
+ * Both may be empty and each is rendered independently, because a labelled group over nothing announces a
+ * list that is not there — the same rule `src/pages/deed-polls/index.ts`'s `filterGroups` states for the
+ * filter bar. A caller with neither gets the page's single "nothing saved yet" message rather than two.
+ */
+export interface SavedQueryGroups {
+  /** Not published: the caller's own, private to them. */
+  yours: SavedQueryRow[];
+  /** Published, and so findable by everyone — **including the caller's own published queries**. */
+  library: SavedQueryRow[];
+}
+
+/** One row of either group. */
 export interface SavedQueryRow {
   id: string;
   name: string;

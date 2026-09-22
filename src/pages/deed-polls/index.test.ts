@@ -164,8 +164,15 @@ describe("deed-polls list page", () => {
   });
 
   describe("the saved-query group", () => {
-    /** The nav's second group, or undefined when the bar holds only the statuses. */
+    /**
+     * The bar's first saved-query group, or undefined when it holds only the statuses.
+     *
+     * The fixture is unpublished, so for most of these that group is "Your queries". The tests that care
+     * about which group a query lands in name the index explicitly instead.
+     */
     const savedGroup = (res: ReturnType<typeof pageResponse>) => res.render.mock.calls[0][1].filterGroups[1];
+
+    const groupLabels = (res: ReturnType<typeof pageResponse>) => res.render.mock.calls[0][1].filterGroups.map((group: { label: string }) => group.label);
 
     it("appends the caseworker's selected queries as a second labelled group", async () => {
       vi.mocked(findSavedQueries).mockResolvedValue([
@@ -176,11 +183,57 @@ describe("deed-polls list page", () => {
       await GET(pageRequest(), res);
 
       expect(res.render.mock.calls[0][1].filterGroups).toHaveLength(2);
-      expect(savedGroup(res).label).toBe("Saved queries");
+      // The fixture is unpublished, so it is the caller's own rather than the library's.
+      expect(savedGroup(res).label).toBe("Your queries");
       // Keyed on the id, not the name: two queries may be called the same thing.
       expect(savedGroup(res).entries).toEqual([
         { key: "q-1", label: "Adult, this month", href: "/deed-polls?filter=open&where=type%3Ais%3AAdult", current: false }
       ]);
+    });
+
+    it("puts a selected published query under the library rather than the caller's own", async () => {
+      vi.mocked(findSavedQueries).mockResolvedValue([savedQuery({ id: "q-1", name: "Everyone's", filter: "open", conditions: [], shared: true })] as never);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(groupLabels(res)).toEqual(["Status", "Query library"]);
+      expect(savedGroup(res).entries.map((entry: { key: string }) => entry.key)).toEqual(["q-1"]);
+    });
+
+    it("carries three groups when the caseworker has selected queries of both kinds, in a fixed order", async () => {
+      // The template names no group and simply iterates, so the bar went from two groups to three with no
+      // markup change — which is what "one data shape for every group" was for.
+      vi.mocked(findSavedQueries).mockResolvedValue([
+        savedQuery({ id: "mine", name: "Mine", filter: "open", conditions: [] }),
+        savedQuery({ id: "theirs", name: "Theirs", filter: "returned", conditions: [], shared: true })
+      ] as never);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(groupLabels(res)).toEqual(["Status", "Your queries", "Query library"]);
+      expect(res.render.mock.calls[0][1].filterGroups[1].entries.map((entry: { key: string }) => entry.key)).toEqual(["mine"]);
+      expect(res.render.mock.calls[0][1].filterGroups[2].entries.map((entry: { key: string }) => entry.key)).toEqual(["theirs"]);
+    });
+
+    it("renders no 'Your queries' group when every selected query is published", async () => {
+      // The two empty-group rules are independent, so this is not implied by the both-empty case below.
+      vi.mocked(findSavedQueries).mockResolvedValue([savedQuery({ id: "q-1", filter: "all", conditions: [], shared: true })] as never);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(groupLabels(res)).not.toContain("Your queries");
+    });
+
+    it("renders no library group when nothing selected is published", async () => {
+      vi.mocked(findSavedQueries).mockResolvedValue([savedQuery({ id: "q-1", filter: "all", conditions: [], shared: false })] as never);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(groupLabels(res)).not.toContain("Query library");
     });
 
     it("reads the selection from the one call that answers both screens, with the caseworker's own token", async () => {
@@ -237,6 +290,9 @@ describe("deed-polls list page", () => {
 
       const model = res.render.mock.calls[0][1];
       expect(model.cases).toHaveLength(1);
+      // The status group alone. Since plan 14 this asserts something stronger than when it was written: the
+      // sentinel is `{ yours: [], library: [] }`, so BOTH saved-query groups must be absent — one labelled
+      // empty group beside the statuses would show up here as a length of 2.
       expect(model.filterGroups).toHaveLength(1);
       expect(res.status).not.toHaveBeenCalled();
       expect(logged).toHaveBeenCalledWith(expect.stringContaining("saved queries unavailable"));

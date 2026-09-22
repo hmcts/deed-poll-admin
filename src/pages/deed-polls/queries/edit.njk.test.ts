@@ -54,11 +54,16 @@ const savedQuery = (overrides: Partial<SavedQuery> = {}): SavedQuery =>
     ...overrides
   }) as SavedQuery;
 
-/** The amend form as a browser receives it, for the query api answers with. */
-const render = async (query: SavedQuery): Promise<string> => {
+/**
+ * The amend form as a browser receives it, for the query api answers with.
+ *
+ * `admin` decides the share box and **api's `editable` decides the write controls** — two different flags from
+ * two different places, so a test about one must not assume the other.
+ */
+const render = async (query: SavedQuery, { admin = false }: { admin?: boolean } = {}): Promise<string> => {
   vi.mocked(findSavedQuery).mockResolvedValue(query as never);
   const res = pageResponse();
-  await GET(pageRequest({ params: { queryId: "sq-1" }, accessToken: "session-token" }), res);
+  await GET(pageRequest({ params: { queryId: "sq-1" }, accessToken: "session-token", admin }), res);
   const model = res.render.mock.calls[0][1];
 
   return environment.render("deed-polls/queries/edit.njk", { ...model.en, ...model });
@@ -70,11 +75,29 @@ describe("amend a saved query template", () => {
   });
 
   it("should render the stored query in its controls, with the share box ticked for a published one", async () => {
-    const page = await render(savedQuery());
+    const page = await render(savedQuery(), { admin: true });
 
     expect(page).toContain('value="Awaiting enrolment"');
     expect(page).toContain("Received cases with a Gazette notice");
     expect(page).toContain("checked");
+  });
+
+  it("should render a caseworker the stored query with no share box, published or not", async () => {
+    const page = await render(savedQuery());
+
+    expect(page).toContain('value="Awaiting enrolment"');
+    expect(page).not.toContain('name="shared"');
+    expect(page).not.toContain("Publish this query");
+  });
+
+  it("should keep the write controls and the share box independent, because they answer different questions", async () => {
+    // An Administrator on somebody else's unpublished query is impossible (they cannot see it), but an
+    // Administrator on a query api marks read-only is not -- and they may still publish in general. The
+    // template must not have tied the share box to `canAmend`.
+    const page = await render(savedQuery({ editable: false }), { admin: true });
+
+    expect(page).not.toContain("Save changes");
+    expect(page).toContain('name="shared"');
   });
 
   it("should offer save and delete when api says the query is editable, with delete styled as a warning", async () => {

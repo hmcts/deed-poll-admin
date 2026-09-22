@@ -1,5 +1,10 @@
 /**
- * The library: every saved query this caseworker can see, and whether it is in their own filter bar.
+ * Saved queries: every one this caseworker can see, in two groups, and whether each is in their filter bar.
+ *
+ * **Two groups, split on published-ness** — "Your queries" for the unpublished and "Query library" for the
+ * published, including the caller's own published ones. Plan 14's decision 3. The split lives in `view.ts`
+ * because the case list's filter bar has to make the identical split, and an empty group renders **no
+ * heading** rather than an empty one: to a screen-reader user a heading is a promise of content.
  *
  * One api call answers the whole page. `GET /caseworker/saved-queries` takes no parameters and returns the
  * shared queries plus the caller's own, each already flagged `selected` and `editable`, so the shared/own
@@ -16,7 +21,7 @@
  * to render. The control is hidden rather than disabled, for the reason `witness-edit.njk` records — a
  * disabled button has no value to read.
  */
-import { buildSavedQueryLibrary, deselectSavedQuery, findSavedQueries, selectSavedQuery } from "@hmcts/deed-poll";
+import { buildSavedQueryGroups, deselectSavedQuery, findSavedQueries, selectSavedQuery } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../auth/current-user.js";
 
@@ -28,7 +33,11 @@ const en = {
   title: "Saved queries",
   heading: "Saved queries",
   intro: "Queries you have saved, and queries colleagues have published. Adding one puts it in your filter bar above the case list.",
+  yoursHeading: "Your queries",
+  libraryHeading: "Query library",
   // Decision 6, said where somebody is about to add one: a shared query is a live reference, not a copy.
+  // Rendered under the library heading rather than under the page title, because that is the only group it is
+  // true of — and a caller with nothing published has nothing to be warned about.
   sharedNote: "A query you add stays its owner's. If they change it, what you see changes with it.",
   sharedTag: "Published",
   selectedTag: "In your filter bar",
@@ -49,7 +58,11 @@ export const GET = async (req: Request, res: Response) => {
   res.render("deed-polls/queries/index", {
     // Each row carries the list URL its query stands for, built by `caseListSearch` like every other link to
     // the list, so a library entry and a filter-bar entry cannot point at different results.
-    rows: buildSavedQueryLibrary(queries, LIST_PATH),
+    //
+    // Two groups rather than one list — plan 14. Split in `view.ts` rather than here or in the template,
+    // because the case list's filter bar has to split the same way and one tested function is what keeps the
+    // two screens honest with each other.
+    groups: buildSavedQueryGroups(queries, LIST_PATH),
     backHref: LIST_PATH,
     libraryPath: LIBRARY_PATH,
     en,

@@ -1,5 +1,15 @@
 /**
- * Save this query: name it, describe it, and optionally publish it to the library.
+ * Save this query: name it, describe it, and — if you are an Administrator — publish it to the library.
+ *
+ * **Publishing is an Administrator's act, and the checkbox is hidden rather than disabled** for the reason
+ * `witness-edit.njk` records: a disabled control has no value to read. Saving a query for yourself is every
+ * caseworker's, so the form itself is unchanged for them; only the third control goes. The gate is
+ * presentational — api refuses a non-Administrator's `shared: true` with a 403, which is what makes a
+ * hand-crafted POST fail rather than publish. Plan 14.
+ *
+ * **Nothing forces `shared` false here for a caseworker, deliberately.** The schema already yields `false`
+ * from an absent checkbox, and a local refusal as well would put the authority in two places — the same
+ * argument the amend page's ungated write branches make.
  *
  * **A page rather than a control in the builder** — plan 11's decision 9. The list page's `GET` already does
  * two jobs, rendering the canonical URL and redirecting a builder submission to it, and a
@@ -35,7 +45,7 @@ import {
   zodErrorToFieldErrors
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { callerFromRequest } from "../../../auth/current-user.js";
+import { callerFromRequest, userFromRequest } from "../../../auth/current-user.js";
 
 const LIST_PATH = "/deed-polls";
 
@@ -162,6 +172,12 @@ function render(
     values,
     errors,
     errorList: [...formErrors, ...summaryFor(errors)],
+    // Whether to offer publishing at all. **This app's own statement, unlike `canAmend` on the amend page**,
+    // which is api's per-query `editable`: publishing eligibility is a property of the caller rather than of a
+    // row, so there is no flag api could return for it. Resolved here rather than in `GET` for the reason
+    // `canAmend` is read on every render — a flag read once puts the control back the moment a caseworker
+    // submits an over-long name.
+    canPublish: userFromRequest(req).isAdmin,
     en,
     cy
   });
