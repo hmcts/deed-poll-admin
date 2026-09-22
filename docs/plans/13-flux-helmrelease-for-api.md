@@ -27,10 +27,17 @@
 > to the backend, so a TLS-only ingress leaves both its requests and its probe unmatched and every backend
 > reports unhealthy. `deed-poll` having no HelmRelease at all while `apps/pcs/` has ten is still a real gap.
 >
-> **Status:** the `backend_lb_config.yaml` request is **raised** as
-> [`azure-platform-terraform#3163`](https://github.com/hmcts/azure-platform-terraform/pull/3163) — AAT only,
-> no `ssl_enabled`, since nothing reaches api by its `platform.hmcts.net` name. **Sequence the HelmRelease
-> after it merges**, so that a failing readiness probe afterwards means something new.
+> **Status:** the `backend_lb_config.yaml` request is **raised and still open** as
+> [`azure-platform-terraform#3161`](https://github.com/hmcts/azure-platform-terraform/pull/3161),
+> "Give deed-poll-api an internal address in AAT" — AAT only, no `ssl_enabled`, since nothing reaches api by
+> its `platform.hmcts.net` name. **Sequence the HelmRelease after it merges**, so that a failing readiness
+> probe afterwards means something new.
+>
+> **#3161 is the one to watch, not #3163.** Two agents raised this in parallel;
+> [`#3163`](https://github.com/hmcts/azure-platform-terraform/pull/3163) ("Add deed-poll/api to the AAT
+> internal gateway") was the duplicate and is **closed**. An earlier version of this line cited #3163, so a
+> status check against it would have read a closed PR as a rejected request. Verified 2026-09-22: #3161
+> `OPEN`, #3163 `CLOSED`.
 
 ## Overview
 
