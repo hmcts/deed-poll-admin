@@ -353,10 +353,49 @@ flakiness the repo has previously seen: read the output before re-running.
 
 ### Task 4: One e2e journey
 
-- [ ] A spec proving the control is present for `admin@example.com` and absent for `caseworker@example.com`,
-      via the persona switcher, and that the two groups render
-- [ ] Run it. If the browser cannot be provisioned, record that rather than ticking it (decision 9)
-- [ ] Mark completed
+- [x] A spec proving the control is present for `admin@example.com` and absent for `caseworker@example.com`,
+      ~~via the persona switcher~~ **via two sessions**, and that the two groups render
+- [x] Run it. If the browser cannot be provisioned, record that rather than ticking it (decision 9)
+- [x] Task 4 complete
+
+#### What Task 4 did, 2026-09-22
+
+**It ran. `chromium-1243` was already in `~/.cache/ms-playwright` and is exactly the revision Playwright
+1.63.0 asks for** (read from `playwright-core/browsers.json`), so decision 9's symlink workaround was not
+needed and the contingency did not arise. **New test passes; the whole e2e suite passes: 40 tests.**
+
+**Decision 9 said "via the persona switcher" and that was the wrong mechanism.** The journey uses two
+sessions — this file's `ADMIN_STORAGE_STATE` and a second context restoring `CASEWORKER_STORAGE_STATE` —
+because `persona-switcher.spec.ts`'s docblock records that a switch calls `signIn`, which regenerates the
+session id and **destroys the server-side session behind every other spec's restored cookie**. A switcher-based
+spec would have signed the rest of the run out mid-flight, and the symptom would have surfaced as an unrelated
+file timing out on a locator. The caseworker half therefore only *reads*, which is what makes restoring a
+shared state safe.
+
+It lives in `deed-polls.spec.ts` beside the existing saved-query journey rather than in a new file, since that
+file already carries the library's helpers and its session is the administrator's.
+
+**It deletes the query it publishes, and that is correctness rather than tidiness.** The mock's saved queries
+are shared across specs and outlive the run, and a *published* one is visible to **every** caller rather than
+only its owner — so leaving one behind would put a row in every later journey's library view. The delete also
+exercises the published-query confirmation, the one interstitial in this repo.
+
+**Two existing things needed correcting, both of which would have failed the suite:**
+
+1. `savedQueryGroup`'s docblock claimed "the statuses are the first, and there is no third" — no longer true.
+   It now explains that `nth(1)` is the caller's own group only when they have an unpublished selection, and a
+   new `savedQueryGroupNamed` addresses a group by heading so a test that means one specifically says so.
+2. The existing journey asserted the bar's group heading was `"Saved queries"`; it is `"Your queries"` now,
+   because that journey deliberately leaves its query unpublished.
+
+**One thing I got wrong and fixed:** the final assertion was `expect(page.locator("ul")).not.toContainText(…)`,
+which fails strict mode — `ul` also matches the persona strip's list and the footer's. Scoped to the row
+instead. Worth noting because it failed *after* every substantive assertion had passed, so the first run's red
+was a bad locator rather than a defect in the feature.
+
+**`librarySection` needs two different selectors and that asymmetry is deliberate:** the library heading is
+followed by its live-reference hint *before* its list (`h2 + p + ul`), where the caller's own heading is
+followed by its list directly (`h2 + ul`). One shared selector would be silently wrong for one of them.
 
 ### Task 5: Full validation
 
