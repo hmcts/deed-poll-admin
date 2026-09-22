@@ -122,15 +122,32 @@ export function buildSavedQueryNav(queries: SavedQuery[], options: { listPath: s
 }
 
 /**
- * The library: every query the caller can see, each with what it is, whose it is, and whether it is in
- * their own list.
+ * Every query the caller can see, in the two groups the screen shows: their own, and the library.
  *
- * One row shape for both halves of the screen. Shared-versus-own is `shared` and `editable` on the row
- * rather than two lists, so the template decides how to group them and this file makes no claim about
- * which grouping reads better.
+ * **Split on published-ness, not on ownership** — plan 14's decision 3. `yours` is everything not published;
+ * `library` is everything published, *including the caller's own*. For a caseworker the two axes are
+ * indistinguishable, because their queries are always unpublished and everything published belongs to
+ * somebody else; they diverge only for an Administrator who published their own, and published-ness puts it
+ * in the group that tells the truth about who else can see it.
+ *
+ * **This replaced a deliberate refusal to group, and the reasoning is worth keeping.** The previous version
+ * returned one flat list and said grouping was the template's business, "and this file makes no claim about
+ * which grouping reads better". That was right while grouping was undecided. It is now decided *and* it has
+ * to hold identically on two different screens — this list and the case list's filter bar — so it belongs in
+ * one tested function rather than being re-derived in two templates.
+ *
+ * One row shape serves both groups. `shared` stays on the row even though it is now implied by which group
+ * the row is in: it is what a row keeps when read on its own, and the template still tags it.
  */
-export function buildSavedQueryLibrary(queries: SavedQuery[], listPath: string): SavedQueryRow[] {
-  return queries.map((query) => ({
+export function buildSavedQueryGroups(queries: SavedQuery[], listPath: string): SavedQueryGroups {
+  const rows = queries.map((query) => savedQueryRow(query, listPath));
+
+  return { yours: rows.filter((row) => !row.shared), library: rows.filter((row) => row.shared) };
+}
+
+/** One row of either group: what the query is, whose it is, and whether the caller has it in their bar. */
+function savedQueryRow(query: SavedQuery, listPath: string): SavedQueryRow {
+  return {
     id: query.id,
     name: query.name,
     description: query.description ?? "",
@@ -141,7 +158,7 @@ export function buildSavedQueryLibrary(queries: SavedQuery[], listPath: string):
     shared: query.shared,
     selected: query.selected,
     editable: query.editable
-  }));
+  };
 }
 
 /**
@@ -191,7 +208,21 @@ export interface SavedQueryNavEntry {
   current: boolean;
 }
 
-/** One row of the library. */
+/**
+ * The library screen's two groups.
+ *
+ * Both may be empty and each is rendered independently, because a labelled group over nothing announces a
+ * list that is not there — the same rule `src/pages/deed-polls/index.ts`'s `filterGroups` states for the
+ * filter bar. A caller with neither gets the page's single "nothing saved yet" message rather than two.
+ */
+export interface SavedQueryGroups {
+  /** Not published: the caller's own, private to them. */
+  yours: SavedQueryRow[];
+  /** Published, and so findable by everyone — **including the caller's own published queries**. */
+  library: SavedQueryRow[];
+}
+
+/** One row of either group. */
 export interface SavedQueryRow {
   id: string;
   name: string;

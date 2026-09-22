@@ -3,56 +3,93 @@
 {% from "govuk/components/tag/macro.njk" import govukTag %}
 
 {#
-  The library. A list because it is one, and not a table: every row carries a form and a conditional link,
-  which a table macro can only take as pre-built HTML — and building markup in a handler is how a page stops
-  being reviewable.
+  Saved queries, in two groups. A list because it is one, and not a table: every row carries a form and a
+  conditional link, which a table macro can only take as pre-built HTML — and building markup in a handler is
+  how a page stops being reviewable.
 
   Add and Remove are the same control in two states rather than two controls, so there is never a button
   offering what the row already is. Amend renders only when api says `editable`, and is absent rather than
   disabled when it does not — `witness-edit.njk` holds the reasoning.
+
+  The two groups come pre-split from `view.ts` and are NOT filtered here: the filter bar splits the same way,
+  and a second opinion in markup is how the two screens would drift. `queryGroup` exists so the row markup is
+  written once — duplicating it is how one group grows a control the other lacks.
+
+  **An empty group renders nothing at all, not an empty heading**, because to a screen-reader user a heading
+  is a promise of content — the same rule `deed-polls/index.ts`'s `filterGroups` states for the bar. When both
+  are empty the page falls back to its single `empty` message rather than showing two.
 #}
+
+{% macro queryGroup(rows, libraryPath, content) %}
+  <ul class="govuk-list">
+    {% for row in rows %}
+      <li class="govuk-!-margin-bottom-7">
+        <h3 class="govuk-heading-s govuk-!-margin-bottom-2">
+          <a class="govuk-link govuk-link--no-visited-state" href="{{ row.href }}">{{ row.name }}</a>
+        </h3>
+
+        {% if row.shared %}{{ govukTag({ text: content.sharedTag, classes: "govuk-tag--blue" }) }}{% endif %}
+        {% if row.selected %}{{ govukTag({ text: content.selectedTag, classes: "govuk-tag--green" }) }}{% endif %}
+
+        {% if row.description %}
+          <p class="govuk-body govuk-!-margin-top-2">{{ row.description }}</p>
+        {% endif %}
+
+        <p class="govuk-body-s govuk-!-margin-bottom-2">{{ content.ownerLabel }}: {{ row.ownerName }}</p>
+
+        <form method="post" action="{{ libraryPath }}" novalidate>
+          <input type="hidden" name="queryId" value="{{ row.id }}">
+          <div class="govuk-button-group">
+            {% if row.selected %}
+              {{ govukButton({ text: content.remove, name: "action", value: "remove", classes: "govuk-button--secondary" }) }}
+            {% else %}
+              {{ govukButton({ text: content.add, name: "action", value: "add", classes: "govuk-button--secondary" }) }}
+            {% endif %}
+            {% if row.editable %}
+              <a class="govuk-link" href="{{ libraryPath }}/{{ row.id }}/edit">{{ content.amend }}</a>
+            {% endif %}
+          </div>
+        </form>
+      </li>
+    {% endfor %}
+  </ul>
+{% endmacro %}
 {% block content %}
 <div class="govuk-grid-row">
   <div class="govuk-grid-column-two-thirds">
 
     <h1 class="govuk-heading-xl">{{ heading }}</h1>
     <p class="govuk-body">{{ intro }}</p>
-    <p class="govuk-hint">{{ sharedNote }}</p>
 
-    {% if rows.length %}
-      <ul class="govuk-list">
-        {% for row in rows %}
-          <li class="govuk-!-margin-bottom-7">
-            <h2 class="govuk-heading-m govuk-!-margin-bottom-2">
-              <a class="govuk-link govuk-link--no-visited-state" href="{{ row.href }}">{{ row.name }}</a>
-            </h2>
+    {#
+      Passed to the macro explicitly so its inputs are visible at the call site — a Nunjucks macro *can* read
+      the template context, so this is for legibility rather than necessity (measured, not assumed).
 
-            {% if row.shared %}{{ govukTag({ text: sharedTag, classes: "govuk-tag--blue" }) }}{% endif %}
-            {% if row.selected %}{{ govukTag({ text: selectedTag, classes: "govuk-tag--green" }) }}{% endif %}
+      What does matter: these are the top-level names and **not** `en.*`. The locale middleware spreads the
+      SELECTED content pair over the model, so reaching into `en` would render English to a Welsh caseworker
+      while every test here still passed, because the tests render with English selected.
+    #}
+    {% set content = {
+      sharedTag: sharedTag,
+      selectedTag: selectedTag,
+      ownerLabel: ownerLabel,
+      add: add,
+      remove: remove,
+      amend: amend
+    } %}
 
-            {% if row.description %}
-              <p class="govuk-body govuk-!-margin-top-2">{{ row.description }}</p>
-            {% endif %}
+    {% if groups.yours.length %}
+      <h2 class="govuk-heading-l">{{ yoursHeading }}</h2>
+      {{ queryGroup(groups.yours, libraryPath, content) }}
+    {% endif %}
 
-            <p class="govuk-body-s govuk-!-margin-bottom-2">{{ ownerLabel }}: {{ row.ownerName }}</p>
+    {% if groups.library.length %}
+      <h2 class="govuk-heading-l">{{ libraryHeading }}</h2>
+      <p class="govuk-hint">{{ sharedNote }}</p>
+      {{ queryGroup(groups.library, libraryPath, content) }}
+    {% endif %}
 
-            <form method="post" action="{{ libraryPath }}" novalidate>
-              <input type="hidden" name="queryId" value="{{ row.id }}">
-              <div class="govuk-button-group">
-                {% if row.selected %}
-                  {{ govukButton({ text: remove, name: "action", value: "remove", classes: "govuk-button--secondary" }) }}
-                {% else %}
-                  {{ govukButton({ text: add, name: "action", value: "add", classes: "govuk-button--secondary" }) }}
-                {% endif %}
-                {% if row.editable %}
-                  <a class="govuk-link" href="{{ libraryPath }}/{{ row.id }}/edit">{{ amend }}</a>
-                {% endif %}
-              </div>
-            </form>
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
+    {% if not groups.yours.length and not groups.library.length %}
       <p class="govuk-body">{{ empty }}</p>
     {% endif %}
 

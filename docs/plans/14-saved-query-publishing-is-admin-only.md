@@ -251,16 +251,58 @@ files**, up exactly 15 from the 3,087 baseline. The six lines matching "failed" 
 
 ### Task 2: Split the library page into two groups
 
-- [ ] `view.ts`: replace `buildSavedQueryLibrary`'s single list with the two-group shape, keeping
+- [x] `view.ts`: replace `buildSavedQueryLibrary`'s single list with the two-group shape, keeping
       `SavedQueryRow` as it is. Update the docblock per decision 4
-- [ ] `queries/index.ts`: new `en` keys for the two headings, `cy` per decision 6
-- [ ] `queries/index.njk`: two headed sections, each omitted entirely when empty (decision 5); the existing
+- [x] `queries/index.ts`: new `en` keys for the two headings, `cy` per decision 6
+- [x] `queries/index.njk`: two headed sections, each omitted entirely when empty (decision 5); the existing
       `empty` message when both are
-- [ ] Keep the `Published` and `In your filter bar` tags. `Published` is now partly redundant with its
+- [x] Keep the `Published` and `In your filter bar` tags. `Published` is now partly redundant with its
       group, but it is what a row keeps when read on its own, and the green tag is a different fact
-- [ ] Tests: the split function directly, the page handler, the template — including a caseworker with only
+- [x] Tests: the split function directly, the page handler, the template — including a caseworker with only
       library queries and one with only their own
-- [ ] Mark completed
+- [x] Task 2 complete
+
+#### What Task 2 did, 2026-09-22
+
+**`buildSavedQueryLibrary` is renamed to `buildSavedQueryGroups`** and returns `{ yours, library }`. The
+rename is not cosmetic: a function called `…Library` returning both groups would be a name that lies, and
+`libs/deed-poll/src/index.ts` re-exports with `export *`, so nothing else needed touching. `SavedQueryRow` is
+unchanged; a private `savedQueryRow()` builds one and the exported function only partitions.
+
+Its docblock was rewritten per decision 4, and **the old reasoning is preserved rather than deleted** — it
+used to say grouping was the template's business and that the file "makes no claim about which grouping reads
+better". That was right while grouping was undecided; the new docblock says why it stopped being right.
+
+The template uses a `queryGroup` macro so the row markup is written once — duplicating it is how one group
+grows a control the other lacks.
+
+**Three things beyond the checklist:**
+
+1. **Heading levels moved.** Row titles were `h2`; with group headings now `h2`, rows became `h3`. Skipping or
+   repeating a level breaks the hierarchy `.claude/rules/frontend.md` requires (h1 → h2 → h3).
+2. **`sharedNote` moved under the library heading.** It warns that an added query stays its owner's and
+   changes under you — true only of published queries, and a caller with nothing published has nothing to be
+   warned about. It was previously under the page title, where it addressed everyone.
+3. **A Welsh trap avoided, and a claim I had to correct.** The macro receives the *top-level* content names
+   rather than `en.*`: the locale middleware spreads the **selected** pair over the model, so reaching into
+   `en` would render English to a Welsh caseworker **while every test here still passed**, because the tests
+   render with English selected. I first wrote that the macro *could not* see the template context; that was
+   wrong — measured with a one-line Nunjucks render, a macro can. The comment now says the explicit parameter
+   is for legibility, not necessity, because an inaccurate "why" is worse than none.
+
+**Measured.** `npx turbo test test:app --concurrency=1` EXIT 0, 8/8, **3,113 tests across 166 files** — +11
+for this task, +26 since the 3,087 baseline, which matches the 15 added in Task 1 exactly.
+`@hmcts/deed-poll` went 1,050 → 1,054 and the root app 1,277 → 1,299. **`yarn build` EXIT 0**, which is what
+actually typechecks the rename — vitest transpiles without checking types, so a missed usage would not have
+shown up in the suite.
+
+**`yarn lint` went red once and the cause is worth recording.** One assertion of mine exceeded the 160-column
+width; `yarn lint:fix` rewrapped it and lint returned to EXIT 0. While diagnosing it I mis-attributed the
+failure to an unused `UUID` const in `emails/[template]/compose.test.ts` — that is a real pre-existing
+**warning**, left behind by notify-2's `2546c95` when it deleted the three tests that used it, and it is on
+master. So the baseline's "3 warnings, 2 infos" is not noise: the warnings are that unused const plus two
+turbo `env` declarations, and the infos are `biome.json`'s `$schema` pinned at `2.1.4` against a CLI at
+`2.5.13`. None are this plan's, and none fail the build — but a future task should not read them as its own.
 
 ### Task 3: Split the filter-bar nav
 

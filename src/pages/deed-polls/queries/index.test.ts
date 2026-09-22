@@ -58,18 +58,45 @@ describe("saved query library page", () => {
       await GET(request(), res);
 
       expect(res.render.mock.calls[0][0]).toBe("deed-polls/queries/index");
-      expect(res.render.mock.calls[0][1].rows).toEqual([
-        {
-          id: "sq-1",
-          name: "Awaiting enrolment",
-          description: "Received cases with a Gazette notice",
-          ownerName: "A Caseworker",
-          href: "/deed-polls?filter=received",
-          shared: true,
-          selected: false,
-          editable: false
-        }
-      ]);
+      // The fixture is published, so it belongs to the library group rather than the caller's own.
+      expect(res.render.mock.calls[0][1].groups).toEqual({
+        yours: [],
+        library: [
+          {
+            id: "sq-1",
+            name: "Awaiting enrolment",
+            description: "Received cases with a Gazette notice",
+            ownerName: "A Caseworker",
+            href: "/deed-polls?filter=received",
+            shared: true,
+            selected: false,
+            editable: false
+          }
+        ]
+      });
+    });
+
+    it("should put an unpublished query under the caller's own and a published one in the library", async () => {
+      vi.mocked(findSavedQueries).mockResolvedValue([savedQuery({ id: "mine", shared: false }), savedQuery({ id: "theirs", shared: true })] as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      const { yours, library } = res.render.mock.calls[0][1].groups;
+      expect(yours.map((row: { id: string }) => row.id)).toEqual(["mine"]);
+      expect(library.map((row: { id: string }) => row.id)).toEqual(["theirs"]);
+    });
+
+    it("should put the caller's OWN published query in the library, because the split is on published-ness", async () => {
+      // Decision 3, and the only case where the two possible axes disagree: an Administrator who published
+      // their own query. It goes in the group that tells the truth about who else can see it.
+      vi.mocked(findSavedQueries).mockResolvedValue([savedQuery({ id: "mine-published", shared: true, editable: true })] as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].groups.yours).toEqual([]);
+      expect(res.render.mock.calls[0][1].groups.library.map((row: { id: string }) => row.id)).toEqual(["mine-published"]);
     });
 
     it("should ask api once for the whole page, because one response holds both halves of it", async () => {
@@ -85,7 +112,7 @@ describe("saved query library page", () => {
 
       await GET(request(), res);
 
-      expect(res.render.mock.calls[0][1].rows.map((row: { id: string; editable: boolean }) => [row.id, row.editable])).toEqual([
+      expect(res.render.mock.calls[0][1].groups.library.map((row: { id: string; editable: boolean }) => [row.id, row.editable])).toEqual([
         ["mine", true],
         ["theirs", false]
       ]);
@@ -97,7 +124,7 @@ describe("saved query library page", () => {
 
       await GET(request(), res);
 
-      expect(res.render.mock.calls[0][1].rows[0].selected).toBe(true);
+      expect(res.render.mock.calls[0][1].groups.library[0].selected).toBe(true);
     });
 
     it("should render an empty library rather than treating no queries as a failure", async () => {
@@ -106,7 +133,9 @@ describe("saved query library page", () => {
 
       await GET(request(), res);
 
-      expect(res.render.mock.calls[0][1].rows).toEqual([]);
+      // Both groups empty, which is what the template answers with its single "nothing saved yet" message
+      // rather than two headings over nothing.
+      expect(res.render.mock.calls[0][1].groups).toEqual({ yours: [], library: [] });
     });
 
     it("should let an unreachable api reach the error handler, because the queries ARE this page", async () => {
