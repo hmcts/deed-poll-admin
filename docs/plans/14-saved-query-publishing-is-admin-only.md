@@ -146,13 +146,53 @@ Notes so no task rediscovers them:
 
 ### Task 0: Reconcile before changing anything
 
-- [ ] Confirm the checkbox is still unconditional in `queries/new.njk` and `queries/edit.njk`, and that
+- [x] Confirm the checkbox is still unconditional in `queries/new.njk` and `queries/edit.njk`, and that
       neither handler passes an admin flag
-- [ ] Confirm `buildSavedQueryLibrary` and `buildSavedQueryNav` still return one flat list each
-- [ ] Confirm `filterGroups` still omits the second group when empty, and note its test
-- [ ] Re-read `libs/deed-poll/src/saved-queries/view.test.ts` for the round-trip it pins, so the split does
+- [x] Confirm `buildSavedQueryLibrary` and `buildSavedQueryNav` still return one flat list each
+- [x] Confirm `filterGroups` still omits the second group when empty, and note its test
+- [x] Re-read `libs/deed-poll/src/saved-queries/view.test.ts` for the round-trip it pins, so the split does
       not break it
-- [ ] Record anything that has moved, in this file, before writing code
+- [x] Record anything that has moved, in this file, before writing code
+- [x] Task 0 complete
+
+#### What Task 0 found, 2026-09-22 — read this rather than repeating it
+
+Reconciled at `a451833` (master, this plan's own merge commit). **Nothing has moved:** every premise in the
+Decisions section still holds as written. Four confirmations, and two findings that change the work.
+
+**Confirmed as stated.**
+
+1. **The checkbox is unconditional in both templates** — `new.njk:50` and `edit.njk:59`, each a bare
+   `govukCheckboxes({ name: "shared", … })` with no enclosing `{% if %}`. Neither `new.ts` nor
+   `[queryId]/edit.ts` mentions `isAdmin` or `userFromRequest` at all, so Task 1 adds the first role-awareness
+   these two pages have ever had.
+2. **Both builders return flat lists** — `buildSavedQueryNav(…): SavedQueryNavEntry[]` (`view.ts:105`) and
+   `buildSavedQueryLibrary(…): SavedQueryRow[]` (`view.ts:132`).
+3. **`filterGroups`' empty-group rule is pinned**, by `src/pages/deed-polls/index.test.ts:221` — *"renders no
+   second group when the caseworker has selected nothing, rather than a heading over nothing"* — with the
+   populated case at `:178` asserting `filterGroups` has length 2.
+4. **The test baseline still stands**, because everything merged since it was measured is documentation:
+   **3,087 tests across 166 files, 8/8 packages.** No need to re-measure before Task 1.
+
+**Finding A — Task 3 may need no template change at all.** `index.test.ts:127` reads *"groups the nav's
+entries under a label, so a second group costs no template change"*, so the filter-bar template already
+iterates an arbitrary number of groups rather than naming two. If that holds, Task 3 reduces to `view.ts` and
+`filterGroups`, touching no `.njk`. **Verify it at Task 3 rather than assuming** — that test's wording is
+about a *second* group, and this plan may produce a third.
+
+**Finding B — the round-trip this task was told to protect cannot be broken by this plan.**
+`view.test.ts:239` round-trips a link through `savedQueryLink` ↔ `savedQueryStored` to keep those two
+inverses. That is a **different pair** from the two builders being split, so the split cannot reach it. The
+concern was misplaced; recorded as answered rather than quietly dropped.
+
+The tests that **will** need updating are three others, and they are the real inventory for Tasks 2 and 3
+(`view.test.ts` holds 37 tests in total):
+
+| Test | Why it changes |
+|---|---|
+| `:214` "should list every query the caller can see, not only their selection" | asserts the library's flat shape |
+| `:171` "should render nothing for an empty selection, leaving the page to omit the group" | singular "the group" becomes two |
+| `:177` "should carry api's flags through untouched, both ways" | must keep passing **unchanged** — it is the guard on decision 2 |
 
 ### Task 1: Hide the Publish control from a caseworker
 
