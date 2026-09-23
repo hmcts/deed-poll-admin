@@ -19,17 +19,54 @@ place and requires caseworker text. That assumption unblocks writing notify-6; i
 item below complete or supersede the last operational verification. notify-6 Task 0 records the real template
 evidence before implementation.
 
+**Update 2026-09-23 — "nothing exists" is no longer true.** A **non-prod Notify service has been created** and
+HMCTS branding selected. Two consequences: the service section below is restructured for a **two-service**
+model, and the 2026-09-20 assumption is now unnecessary for notify-6 as soon as the template is authored —
+Task 0 can verify against real evidence, which is what it asks for. Task 0 needs **no live service and no
+send**: it reads template metadata in the UI.
+
 ## Checklist
 
-### A GOV.UK Notify service — **blocking**
+### GOV.UK Notify services — **blocking**
 
-- [ ] A Notify service created for deed poll, on the **central government** organisation so it inherits
-      HMCTS's agreement rather than a trial account's limits
+**Two services, not one — changed 2026-09-23.** This section originally assumed a single service moved live,
+with the environment distinction carried entirely by the key type. A **non-prod service has been created
+instead**, so the split is now per *service* as well as per key. That is a normal Notify pattern and is kept
+deliberately: a trial-mode non-prod service **cannot** email anyone off the team and guest list, so it cannot
+accidentally email a real applicant — and `DeedPollType` has `AdultTransgender` and `MinorTransgender`
+members, which makes an accidental send from a test environment worse than a little guest-list admin.
+
+**Trial-vs-live and the key kinds are independent controls**, and conflating them is the easy mistake: the
+mode decides who the *service* may email at all and what its allowance is, the key kind decides what a
+*given key* may do inside that mode.
+
+- [x] A Notify service created for deed poll, on the **central government** organisation so it inherits
+      HMCTS's agreement rather than a trial account's limits — **non-prod created 2026-09-23**
 - [ ] Team members added, with at least two people holding the permission to manage API keys, so a single
       leaver does not lock the service
-- [ ] The service moved **live**. A trial-mode service can only email team members and guest-list addresses,
-      which means AAT testing against real applicant addresses fails in a way that looks like a code bug
+- [ ] **Non-prod: left in trial mode deliberately.** Guest-list every address AAT will actually send to. The
+      original warning still applies and is the thing to watch — a send to an address that is *not*
+      guest-listed fails in a way that looks like a code bug, so when an AAT send fails, check the guest list
+      before reading any stack trace
+- [ ] **Non-prod: the trial daily allowance read off the UI and recorded here.** Not quoted in this file
+      because `docs.notifications.service.gov.uk` is blocked from the devcontainer — do not trust a figure
+      that has not been read off the service
+- [ ] **Non-prod: confirm whether previews consume that allowance.** The Email tab previews *through* Notify
+      (`generateTemplatePreview`), so this matters far more on a trial allowance than a live one. See the rate
+      limit section, where it is also unresolved
+- [ ] **A separate prod service, moved live**, with the Live key. Not needed until there is something to
+      deploy to prod
 - [ ] Sending limits confirmed against expected volume, and the daily limit noted here once known
+
+**What the split duplicates.** Each of these is per service, so it is done twice and can drift:
+
+| Per service | Consequence |
+|---|---|
+| Template UUIDs | Already anticipated — `notify.templates.*` is per environment |
+| HMCTS branding | Requested separately on each |
+| Reply-to addresses | Registered **and verified** separately; Notify emails a confirmation link to each |
+| Rate and daily limits | Measured separately |
+| Template content | The same wording authored twice, and free to diverge |
 
 ### API keys — **blocking**
 
@@ -41,7 +78,10 @@ Notify issues three kinds and the distinction matters:
 | **Team and guest list** | Only to team/guest-list addresses | `aat`, `demo`, `ithc` |
 | **Test** | No — returns a realistic response, sends nothing | Smoke tests, and useful in `perftest` |
 
-- [ ] A key per environment, never one shared
+- [ ] A key per environment, never one shared. **Under the two-service split (2026-09-23):** a **Team and
+      guest list** key on the non-prod service for `aat`/`demo`/`ithc`, a **Test** key on the same service for
+      smoke tests and `perftest`, and the **Live** key only ever on the prod service. A Live key cannot exist
+      on a trial-mode service at all, which is the split doing its job rather than an obstacle
 - [ ] Each key stored as a key vault secret in `deed-poll-infra` — a **manually-seeded** secret, since the
       value comes from the Notify UI and cannot be Terraformed
 - [ ] `charts/deed-poll-api` maps the secret to `NOTIFY_API_KEY`
