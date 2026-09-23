@@ -94,3 +94,16 @@ steve*.md
 # is per-engineer, not per-repo. `deed-poll-api` already names it `rules-of-engagement.local.md` for this
 # reason, so the suffix is the convention worth sharing across the four repos.
 *.local.md
+
+# HMCTS brand assets — logos, colour and typography guides, the letterhead and the icon pack.
+#
+# Ignored rather than committed because `.business_context/` is NOT ignored (57 files in it are tracked), so
+# these would land in the repo permanently: 11 MB against a 33 MB repo, including a 7 MB .pptx, none of it
+# diffable and none of it read by any build. The canonical copies belong in SharePoint.
+#
+# They are **not** needed for Notify: email branding is a service-level setting and HMCTS is one of Notify's
+# pre-approved government brands, so it is requested rather than uploaded — see
+# .business_context/NOTIFY_PROVISIONING_REQUEST.md. Where they WILL be needed is notify-4's generated
+# documents, which this service produces itself and Notify never sees. At that point commit only the specific
+# assets the generator consumes, rather than un-ignoring the folder.
+.business_context/branding/

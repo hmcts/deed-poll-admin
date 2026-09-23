@@ -105,10 +105,28 @@ Kind regards,
   **not** wrapped in a conditional — a Notify conditional expects a yes/no field, and this is free text.
 - No reply-to is needed for this template. ③ does not invite a reply; reply-to is blocking for ①②④⑤ only.
 
+## Authored 2026-09-23 — the non-prod template id
+
+| Service | Template UUID |
+|---|---|
+| **non-prod** | `b2cb5754-591d-40c0-b961-b2823a5792eb` |
+| prod | not yet — the prod service does not exist |
+
+**It saved with both conditionals**, including the paper branch wrapping a paragraph *and* a bullet list, so
+the one-template-with-a-switch shape is confirmed viable and the two-template fallback is not needed.
+
+**Where this id goes, and it is not `application.yaml`.** That file reads
+`application-rejected: ${NOTIFY_TEMPLATE_APPLICATION_REJECTED:DEED_POLL_PLACEHOLDER}` — the default stays the
+placeholder deliberately, so one grep still lists every external identifier the service is waiting on. The real
+value is an **environment variable per environment**, set in `charts/deed-poll-api`, which today sets no
+`NOTIFY_*` variables at all. Adding it is a chart change, and it is safe to make before the API key exists:
+`NotifyProperties.isProvisioned` gates the send, so a real template id with no key sends nothing rather than
+half-sending.
+
 ## After it is authored
 
-- Record the **template UUID per environment** into `deed-poll-api`'s `application.yaml` under
-  `notify.templates.*`. These are **not secrets** — config, not key vault.
+- Record the **template UUID per environment** — see the table above. These are **not secrets**: config and
+  environment variables, not key vault.
 - Branding is a **service** setting and applies to every template automatically; nothing to do per template.
 - The caseworker Email tab's preview **will still render unbranded**. That is a known
   Content-Security-Policy effect in `deed-poll-admin`, not a branding failure. The wording is exact; only the
