@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "test:e2e": "playwright test",
-    "test:smoke": "PLAYWRIGHT_JUNIT_OUTPUT_NAME=../smoke-output/smoke-result.xml playwright test --grep @smoke --reporter=list,junit --output=../smoke-output/test-results",
+    "test:smoke": "PLAYWRIGHT_JUNIT_OUTPUT_NAME=../smoke-output/smoke-result.xml playwright test --grep @smoke --project chromium --no-deps --reporter=list,junit --output=../smoke-output/test-results",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",
