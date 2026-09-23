@@ -26,7 +26,15 @@ Names must match character-for-character or **Notify rejects the send with a 400
 **A slot with no matching placeholder makes Notify refuse the send**, so do not add a caseworker box here
 without the api gaining the slot, and do not drop one without the api losing it.
 
-## 🔴 Blocker: the two-way refund branch needs a second flag
+## ✅ Resolved: the two-way refund branch needs a second flag
+
+**Done 2026-09-23.** `applied_on_paper` is now sent by the api, derived as the negation of `applied_online` in
+`ApplicationRejectedPersonalisation.toMap()` — a second record component could be set inconsistently with the
+first, where a negation cannot. Applied to `RequestConfirmationToProceedPersonalisation` at the same time, since
+④ carries the same two refund paragraphs; doing it then is what stops the defect being rediscovered when ④ is
+authored. Original reasoning kept below.
+
+### The original finding
 
 The source document has two mutually exclusive paragraphs — one for applicants who paid online, one for
 paper. **Notify's conditional has no `else`**: `((applied_online??…))` shows text when true and there is no
@@ -42,7 +50,19 @@ Rejected alternative: having the api resolve the whole refund paragraph as a tex
 code, which notify-1's decision 11 rules out — structure and wording live in the template, the api supplies
 values.
 
-## 🔴 Two things to verify in the Notify UI
+## Verified in the Notify UI — 2026-09-23
+
+1. **A conditional may span multiple paragraphs and a bullet list.** ✅ The template saved with the paper branch
+   wrapping a paragraph and five list items, and a test send rendered it. So **one template with a switch** is
+   the shape, and the two-template fallback is not needed — no api-side template selection, and the shared ~90%
+   of the wording is not maintained twice.
+2. **🔴 How Notify treats a JSON boolean is STILL UNVERIFIED, and it fails silently.** The test sends entered
+   `yes`/`no` through Notify's own UI. The api sends a **JSON boolean**. If Notify's API wants the strings,
+   *neither* conditional fires on a real send: the applicant gets no refund paragraph at all and nothing errors.
+   One real send once `NOTIFY_API_KEY` exists settles it — do that before anything reaches an applicant. The
+   note lives at the call site in `ApplicationRejectedPersonalisation.toMap()` as well, so it is not only here.
+
+### Original wording of the two unknowns
 
 Neither could be checked from the devcontainer (`docs.notifications.service.gov.uk` is blocked), so read them
 off Notify rather than trusting this file:
@@ -90,8 +110,27 @@ The court has been unable to enrol the deed poll. We received the judge's instru
 ((additional_notes))
 
 Kind regards,
-[SIGN-OFF TO BE DECIDED — see above]
+King's Bench
 ```
+
+## Three corrections to apply in the Notify portal — 2026-09-23
+
+Read off the saved template. All three are cosmetic in the sense that nothing errors, which is why they are
+worth writing down: none of them would fail a test or a send.
+
+1. **The five refund lines have lost their `*` bullet markers.** Without them Notify renders five separate
+   paragraphs rather than a list. For an instruction an applicant has to work through item by item, the list
+   is materially easier to act on. (It is possible the markers are present and were lost copying out of a
+   rendered preview rather than the editor — worth confirming in the edit view.)
+
+2. **`((additional_notes))` needs a blank line above it.** As saved it sits directly after the conditional's
+   closing `))`, and Notify's markdown treats consecutive lines as one paragraph — so a caseworker's note runs
+   on from the last refund line instead of starting its own.
+
+3. **The sign-off reads `Kings Bench`; it should be `King's Bench`.** The division is the King's Bench
+   Division, which is what the `KBDP` reference prefix stands for. A missing apostrophe in the court's own name
+   in applicant-facing correspondence is the kind of thing that gets noticed. Whether the sign-off should be
+   fuller — "King's Bench Division", an office name, a contact line — is still a content decision.
 
 ## Notes on the layout
 
