@@ -56,11 +56,19 @@ values.
    wrapping a paragraph and five list items, and a test send rendered it. So **one template with a switch** is
    the shape, and the two-template fallback is not needed — no api-side template selection, and the shared ~90%
    of the wording is not maintained twice.
-2. **🔴 How Notify treats a JSON boolean is STILL UNVERIFIED, and it fails silently.** The test sends entered
-   `yes`/`no` through Notify's own UI. The api sends a **JSON boolean**. If Notify's API wants the strings,
-   *neither* conditional fires on a real send: the applicant gets no refund paragraph at all and nothing errors.
-   One real send once `NOTIFY_API_KEY` exists settles it — do that before anything reaches an applicant. The
-   note lives at the call site in `ApplicationRejectedPersonalisation.toMap()` as well, so it is not only here.
+2. **✅ Notify reads a JSON boolean directly.** Verified 2026-09-23 against the real Notify API — not the UI —
+   by calling `generateTemplatePreview` through this service for a case with `postCounter = Online`. The
+   rendered body carried the online refund paragraph and **not** the paper bullet list, so `true`/`false` drive
+   both conditionals as intended and no string conversion is needed.
+
+   Worth recording *why a preview* settled it: Notify's UI takes `yes`/`no` for a conditional, so a test send
+   from the UI proves the template and says nothing about the value type the client sends. Had this been wrong
+   it would have failed silently — no refund paragraph, no error. The same note is at the call site in
+   `ApplicationRejectedPersonalisation.toMap()`.
+
+   **Not yet transferred to ④.** `is_minor` drives ④'s `[child's]` conditional the same way and has had no
+   template to verify against. Same value type, different template and placeholder — check it renders when ④ is
+   authored rather than assuming this result carries over.
 
 ### Original wording of the two unknowns
 
@@ -73,10 +81,14 @@ off Notify rather than trusting this file:
    `"no"`. If Notify expects `yes`/`no`, the api must send strings instead — which is a code change, so worth
    knowing before the first send rather than after.
 
-## 🔴 The sign-off is missing
+## ✅ The sign-off
 
-The source document ends `Kind regards,` with **nothing after it** — today a caseworker types it. The template
-needs a real sign-off, and it is a business decision what it says (team name, office, contact line).
+The source document ends `Kind regards,` with **nothing after it** — a caseworker types it today. The template
+now signs off **`King's Bench Division`**, confirmed in the rendered preview on 2026-09-23.
+
+Still open if the business wants it: whether the sign-off should carry an office name or a contact line as well.
+The email's own footer is Notify's, not ours, so there is nowhere else a phone number would appear — worth
+deciding deliberately rather than by omission, since this email starts a refund the applicant may want to chase.
 
 ---
 
@@ -113,7 +125,13 @@ Kind regards,
 King's Bench
 ```
 
-## Three corrections to apply in the Notify portal — 2026-09-23
+## ✅ Three corrections — applied 2026-09-23
+
+All three were made in the portal and confirmed in the rendered preview: the judge's direction and the refund
+paragraph each sit in their own block, and the sign-off reads `King's Bench Division`. Kept below as the record
+of what was wrong, since each was something nothing would have errored on.
+
+### What they were
 
 Read off the saved template. All three are cosmetic in the sense that nothing errors, which is why they are
 worth writing down: none of them would fail a test or a send.

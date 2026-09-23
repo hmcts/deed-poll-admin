@@ -25,6 +25,41 @@ model, and the 2026-09-20 assumption is now unnecessary for notify-6 as soon as 
 Task 0 can verify against real evidence, which is what it asks for. Task 0 needs **no live service and no
 send**: it reads template metadata in the UI.
 
+## ✅ The first real email has been sent — 2026-09-23
+
+**This service has now sent an email to a real inbox, end to end.** It is the headline this file was missing,
+and it retires a line in the daily update that had run for days: *"five built features depend on Notify and none
+can be demonstrated"*. One of them now can.
+
+| | |
+|---|---|
+| Template | ③ `application-rejected` |
+| Recipient | a team member's real inbox, delivered |
+| Stored state | `Sent`, with a `providerNotificationId` from Notify |
+| Route | admin UI → api → outbox → drain → Notify → inbox |
+| Environment | **local only** — api on `bootRun`, admin pointed at it, non-prod Notify service |
+
+**What it proves beyond "an email arrived":**
+
+- **Notify reads a JSON boolean for conditionals.** Settled by calling `generateTemplatePreview` through the
+  service, not by the send — Notify's UI takes yes/no, so a UI test proves the template and says nothing about
+  the value type a client sends. Had it been wrong, no refund paragraph would have rendered and nothing would
+  have errored.
+- **The seven-key personalisation contract matches the authored template exactly** — a mismatch is a 400.
+- **The outbox drains off caseworker traffic with no scheduler**, so a send is attempted immediately.
+- **`providerNotificationId` is stored**, which keeps delivery callbacks additive later rather than a rework.
+
+**What it does not prove.** Nothing is deployed: this was a local api against the non-prod Notify service, so
+the vault secret, the chart's secret mapping and any deployed environment remain untouched. And the **next two
+templates both invite a reply**, so they are blocked on a verified reply-to rather than on anything ③ proved.
+
+**One trap this cost an hour to find, worth knowing before the next local test.** `deed-poll-admin`'s
+`turbo.json` declares no `env`/`passThroughEnv`/`globalEnv`, and Turbo filters environment variables — so
+`DEED_POLL_API_URL=… yarn dev` silently does **not** reach the app, which falls back to its in-memory mock. The
+mock accepts a send and delivers nothing, so the admin UI reported success while the api's database held zero
+cases and zero notifications. Run `yarn dev:app` directly to bypass Turbo, or fix `turbo.json`. Deployed pods
+are unaffected: they run `node dist/server.js` with no Turbo involved.
+
 ## Checklist
 
 ### GOV.UK Notify services — **blocking**
@@ -82,24 +117,40 @@ Notify issues three kinds and the distinction matters:
       guest list** key on the non-prod service for `aat`/`demo`/`ithc`, a **Test** key on the same service for
       smoke tests and `perftest`, and the **Live** key only ever on the prod service. A Live key cannot exist
       on a trial-mode service at all, which is the split doing its job rather than an obstacle
+      **Partly done 2026-09-23:** a Team-and-guest-list key and a Test key both exist on the non-prod service.
+      Neither is per-environment yet and neither is in a vault — they have only been used locally. **The Test key
+      is the trap worth remembering: it returns a realistic success and sends nothing**, so a send through it
+      looks like a working feature and delivers no email.
 - [ ] Each key stored as a key vault secret in `deed-poll-infra` — a **manually-seeded** secret, since the
       value comes from the Notify UI and cannot be Terraformed
-- [ ] `charts/deed-poll-api` maps the secret to `NOTIFY_API_KEY`
-- [ ] Confirm the secret name matches what `application.yaml` expects, and that nothing logs it
+- [ ] `charts/deed-poll-api` maps the secret to `NOTIFY_API_KEY` — the chart names no Notify **secret** yet,
+      though it does now set the template id, which is not a secret
+- [ ] Confirm the secret name matches what `application.yaml` expects, and that nothing logs it.
+      **Half-verified 2026-09-23: nothing logs it today**, checked by grep. But `NotifyProperties` is a
+      `record` with no `toString()` override, and a record's default `toString()` prints every component —
+      including `apiKey`. So the guarantee rests on nobody ever writing `log.info("{}", properties)` or letting
+      the object reach an exception message. **A `toString()` override would make it safe by construction rather
+      than by vigilance**, and is worth doing before a real key is in a deployed environment
 
 ### Templates — **blocking for the template it belongs to**
 
 Template IDs are UUIDs minted in the Notify UI by whoever authors the content. Engineering cannot generate
 them, and notify-1 carries a placeholder until they exist.
 
-- [ ] `application-rejected` authored — **the only one notify-1 needs**
-- [ ] `request-confirmation-to-proceed` authored (notify-3)
-- [ ] `chase-missing-documents` authored (notify-6; assumed available for planning, verify in its Task 0)
+- [x] `application-rejected` authored — **the only one notify-1 needs.** Done 2026-09-23 on the non-prod
+      service, `b2cb5754-591d-40c0-b961-b2823a5792eb`. Draft, placeholder contract and the corrections applied
+      are in [`notify-templates/application-rejected.md`](notify-templates/application-rejected.md)
+- [ ] `request-confirmation-to-proceed` authored (notify-3) — **needs a verified reply-to, see below**
+- [ ] `chase-missing-documents` authored (notify-6; assumed available for planning, verify in its Task 0) —
+      **needs a verified reply-to, see below.** This is the one that unblocks the next plan
 - [ ] `forms-for-completion-adult` authored (notify-4; also needs the five static forms sourced, and *send a
       file by email* enabled below)
 - [ ] `forms-for-completion-minor` authored (notify-4, same)
-- [ ] Each template's UUID recorded per environment and added to `application.yaml` under `notify.templates.*`
-      — these are **not secrets** and belong in config, not the key vault
+- [ ] Each template's UUID recorded per environment. **Corrected 2026-09-23: NOT in `application.yaml`.** That
+      file deliberately keeps `${NOTIFY_TEMPLATE_*:DEED_POLL_PLACEHOLDER}`, so one grep still lists every
+      external identifier the service is waiting on. The real value is an **environment variable per
+      environment**, set in `charts/deed-poll-api`. Still correct that these are **not secrets** — config, not
+      key vault. ③'s is set; prod must override in its own Flux HelmRelease rather than inherit the non-prod id
 
 Content notes for whoever authors them, from the taxonomy:
 
@@ -166,12 +217,16 @@ unformatted prose and need to sit somewhere the surrounding wording still reads 
 The requirement that these look like official GOV.UK correspondence is met by **Notify's branding**, not by
 styling a body in our code. Notify renders the email; a service's brand decides the header and logo.
 
-- [ ] HMCTS email branding applied to the service. Notify holds pre-approved government brands and HMCTS is
-      one of them — request it on the service rather than uploading a logo, so it stays consistent with every
-      other HMCTS service
-- [ ] A sent test email checked on a phone as well as a desktop client
+- [x] HMCTS email branding applied to the service. Notify holds pre-approved government brands and HMCTS is
+      one of them — requested on the service rather than uploading a logo, so it stays consistent with every
+      other HMCTS service. **Done 2026-09-23**, and the assets in `branding/` were deliberately *not* uploaded
+      for this reason — they are for notify-4's generated documents, which Notify never renders
+- [ ] A sent test email checked on a phone as well as a desktop client — the first real send landed on
+      2026-09-23 but was not checked on a phone
 - [ ] Confirm the branding applies to **all** templates on the service, so a later template does not need it
-      re-requested
+      re-requested — **cannot be confirmed yet: there is only one template.** Re-check when ④ or ⑤ is authored,
+      because a brand that turned out to be per-template is far cheaper to discover on the second one than the
+      fifth
 
 > **⚠️ When you tick the first box, the caseworker Email tab's preview will still look unbranded. That is a
 > known Content-Security-Policy effect in `deed-poll-admin`, not a sign the branding failed — do not go looking
@@ -213,7 +268,19 @@ sends.
 - [ ] Confirm preview requests count against it, and at what cost
 - [ ] Sanity-check it against the worst case: a caseworker editing a long judge's reason and re-previewing
 
-### A reply-to address — **blocking for templates ① ② ④ ⑤**
+### A reply-to address — **blocking for templates ① ② ④ ⑤** · **now the single bottleneck**
+
+**Promoted 2026-09-23.** ③ needed no reply-to, which is why it was the right first slice and why it is done.
+Every remaining near-term template invites a reply, so this one item gates all of them —
+`NotifyProperties.isProvisioned` refuses to send a reply-inviting template while `emailReplyToId` is blank, and
+it refuses *deliberately*: Notify drops a blank reply-to and sends from no-reply, which loses the applicant's
+answer and says nothing about why.
+
+Concretely, it blocks: **⑤**, and therefore notify-6, the next plan queued to run; and **④**, and therefore
+notify-3 and notify-3b — both **merged and unusable** today, exactly where notify-1 was before ③ was authored.
+
+Note the verification step needs access to the inbox itself, not just to Notify: the confirmation link is
+emailed to the address being registered.
 
 The two forms emails, request-confirmation email and assumed missing-documents chase invite a reply.
 Notify sends from a no-reply address unless a reply-to is registered and verified.

@@ -643,6 +643,26 @@ The first two should be asked before Stage 2, because they can invalidate work:
    external critical path and no second language. It is recorded as asked and answered so that the
    Blob off-ramp in `MIGRATION_PLAN.md` is understood as a fallback for a failure, not an alternative
    design still under consideration.
+
+   **REOPENED 2026-09-22** — Steve is reconsidering, having found that Fees & Pay is gated behind a
+   four-link chain ending in an unraised case-type onboarding request. Written up as
+   **`deed-poll-documentation/decisions/0005-whether-to-drop-ccd-and-store-documents-in-azure-blob.md`**
+   (status: *proposed*, no decision taken). Read that before acting on either answer. Three findings from
+   it that bear directly on this entry, each measured rather than assumed:
+
+   - **Fees & Pay does not need CCD.** Nothing on the card path dereferences `ccd_case_number` — it is a
+     `@Pattern(regexp = "^[0-9]{16}")` and no more; `CcdDataStoreClientService.getCase()` has no callers in
+     `ccpay-payment-app`; Case Payment Orders are not on that path. So the "CCD is needed for payment"
+     assumption is false, and this entry's premise — that documents are the only driver — still holds.
+   - **The Blob off-ramp does not inherit malware scanning, which had been assumed the other way.** Palo
+     Alto AV sits at infrastructure level in front of the **dm-store ingress**, not in front of blob
+     storage. Azure's equivalent is Defender for Storage *Standard*, an opt-in paid extension, and a
+     Resource Graph query returned **35 of 35 subscriptions on `Free`** — it is enabled nowhere in the
+     estate. Add it to the off-ramp's cost, along with dm-store's extension and Tika MIME allow-lists,
+     which are the only application-layer gates (CDAM validates no content at all).
+   - **Dropping CCD does not cost the XUI payment screens.** `ccpay-bubble` takes the case number as a
+     string in a URL and reads ccpay's own APIs, never CCD — but deed-poll appears nowhere in XUI and has
+     its own caseworker app, so those screens were never available. Do not cite them as a cost either way.
 4. **Who creates the S2S microservice key?** The vault mechanism is verified;
    `rpe-service-auth-provider` 404s for the token in this container, so the request route is not.
 5. **Can `PATCH /cases/documents/{documentId}` extend or clear a TTL on our own authority?** It is
