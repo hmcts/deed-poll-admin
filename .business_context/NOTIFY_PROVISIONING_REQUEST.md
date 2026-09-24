@@ -147,14 +147,17 @@ them, and notify-1 carries a placeholder until they exist.
       service, `b2cb5754-591d-40c0-b961-b2823a5792eb`. Draft, placeholder contract and the corrections applied
       are in [`notify-templates/application-rejected.md`](notify-templates/application-rejected.md)
 - [ ] `request-confirmation-to-proceed` authored (notify-3) — **needs a verified reply-to, see below**
-- [ ] `chase-missing-documents` authored (notify-6; verify in its Task 0). **This is the one that unblocks the
-      next plan**, and it has moved a long way on 2026-09-24 without being done.
-      **Content drafted and signed off:** [`notify-templates/chase-missing-documents.md`](notify-templates/chase-missing-documents.md)
-      holds subject, body and the five-placeholder contract, with Steve's "fine to be getting on with, and no
-      consequence at present". It was the only one of the six with **no supplied `.docx`**, so that draft is the
-      source rather than a port of one — which is also why it is product-owner-accepted rather than court-approved.
-      **What remains is authoring it in the Notify UI** and recording the UUID, then reading the reply-to id
-      (below). The reply-to inbox itself — `KBDEEDSPOLL@justice.gov.uk` — is no longer outstanding
+- [x] `chase-missing-documents` **authored 2026-09-24** —
+      **`a67e7dd1-0f8c-4366-a1de-ca5fbc24ec98`**, version 1 on the non-prod service. Content drafted and signed
+      off in [`notify-templates/chase-missing-documents.md`](notify-templates/chase-missing-documents.md); it was
+      the only one of the six with **no supplied `.docx`**, so that draft is the source rather than a port, and
+      it is product-owner-accepted rather than court-approved.
+      **Ticked from evidence, not from the statement:** read back through `GET /v2/template/{id}` with the
+      non-prod key, and the placeholder set is **exactly the five** the plan assumed, with subject and body
+      matching character-for-character. So `deed-poll-api` notify-6's **Task 0 needs no plan amendment**.
+      One tidy-up that affects nothing: it is **named `case_documents`** in Notify where ③ is named
+      `application-rejected`, so the service now has two naming conventions — worth renaming while there are
+      only two templates
 - [ ] `forms-for-completion-adult` authored (notify-4; also needs the five static forms sourced, and *send a
       file by email* enabled below)
 - [ ] `forms-for-completion-minor` authored (notify-4, same)

@@ -162,17 +162,40 @@ differently is the kind of difference nobody notices until an applicant has both
    missing-document list is the caseworker's text either way and nothing else in the wording differs. Splitting it
    later means a second UUID and a `type` branch in applicability.
 
-## After it is authored
+## ✅ Authored 2026-09-24 — the non-prod template id, verified against Notify
 
-Whoever authors it in the Notify UI should record here, exactly as `application-rejected.md` does:
+**Template UUID: `a67e7dd1-0f8c-4366-a1de-ca5fbc24ec98`**, version 1, on the non-prod service. This is the value
+`NOTIFY_TEMPLATE_CHASE_MISSING_DOCUMENTS` takes — **configuration, not a secret**, and it differs per service, so
+prod must override it in its own Flux HelmRelease rather than inherit this one.
 
-- the **non-prod template UUID**, which is the value
-  `NOTIFY_TEMPLATE_CHASE_MISSING_DOCUMENTS` takes (it is configuration, not a secret, and differs per service);
-- confirmation that the five placeholder names match **character-for-character**;
-- that the configured **reply-to** is the monitored office inbox, verified — Notify emails it a confirmation
-  link, and an unverified address cannot be used;
-- any wording the court changed, so notify-6's Task 0 can be ticked from evidence rather than assumption.
+**Verified by reading the template out of Notify, not by being told.** `GET /v2/template/{id}` through the
+non-prod key, and the evidence is that it matched:
 
-Then tick the `chase-missing-documents` line in
-[`NOTIFY_PROVISIONING_REQUEST.md`](../NOTIFY_PROVISIONING_REQUEST.md), which names itself as *"the one that
-unblocks the next plan"*.
+| Checked | Result |
+|---|---|
+| Placeholder set | **Exactly the five** — `documents_required`, `old_forename`, `old_surname`, `online_application_reference`, `reference_number`. No sixth, none missing, all character-for-character |
+| Subject | Identical to this file's |
+| Body | Identical, including the `King's Bench Division` sign-off and the post-or-`KBDEEDSPOLL@justice.gov.uk` sentence |
+| `documents_required` required? | **Yes** — it sits unconditionally in the body, with no `((…??…))` around it, so Notify refuses a send that omits it. That is the api's `EmailSlot.DOCUMENTS_REQUIRED` being required at both ends |
+| Type | `email`, version 1 |
+
+So **notify-6's Task 0 has its evidence**: nothing in the plan needs amending, because no placeholder or wording
+differs from what it assumed. The remaining half of that task is the reply-to, below.
+
+**One thing to tidy, which does not affect the contract.** The template is **named `case_documents`** in Notify,
+where ③ is named `application-rejected` — matching its config key and this repo's file name. The name is only how
+a human finds it in the UI; api resolves by UUID, so nothing breaks. But a service whose templates are named on
+two different conventions gets harder to navigate as the other three arrive, so renaming it to
+`chase-missing-documents` is worth doing while there are only two.
+
+## Still outstanding: the reply-to id
+
+`CHASE_MISSING_DOCUMENTS` has `invitesReply = true`, so **the template id alone does not make it sendable.**
+`NotifyProperties.isProvisioned` needs `emailReplyToId` as well, and that is a *different* UUID from this one —
+the id of the registered reply-to address, not of the template. `KBDEEDSPOLL@justice.gov.uk` is registered and
+verified, but its id has to be read from the Notify UI (Settings → Email reply-to addresses); there is no public
+API for it, which is why this cannot be fetched the way the template was.
+
+Until it is set, Notify **silently drops the blank reply-to and sends from no-reply** — so the email goes out and
+the "reply to this email" sentence quietly points nowhere. Its config key is `NOTIFY_EMAIL_REPLY_TO_ID`, it is
+not a secret, and it is one value for the whole service rather than one per template.
