@@ -338,9 +338,10 @@ function buildDirectionView(referral: Referral): ReferralDirectionView | null {
  * **`recordedOn` is when the caseworker recorded the answer and never when the applicant replied.** api stamps it
  * from its own clock, so no wording built on it may present it as the date of the reply.
  *
- * `outcome` is the label and `outcomeMember` api's member beside it, for the same reason `publishToGazette` stays
- * a boolean: a page may have to key a class or a banner off the answer, and re-deriving one from the English
- * sentence is how the two come apart.
+ * `outcome` is the label and **not** api's member: every page that has the answer prints it, and the two pages that
+ * branch on one branch on `awaiting` instead. A page that has to key a class off the member can read it from the
+ * `Referral` it already has — publishing it here against that day would be a field nothing reads, which is how a
+ * view model comes to be tested for its own sake.
  */
 function buildConfirmationView(referral: Referral): ReferralConfirmationView | null {
   const requested = referral.confirmationRequestedAt ?? null;
@@ -351,7 +352,6 @@ function buildConfirmationView(referral: Referral): ReferralConfirmationView | n
     requestedOn: formatTimestamp(requested),
     awaiting: requested !== null && outcome === null,
     outcome: outcome ? CONFIRMATION_OUTCOME_LABEL[outcome] : null,
-    outcomeMember: outcome,
     recordedOn: outcome ? formatTimestamp(referral.confirmationReceivedAt) : null,
     recordedBy: outcome ? orPlaceholder(referral.confirmationRecordedBy, NOT_RECORDED) : null
   };
@@ -427,8 +427,6 @@ export interface ReferralConfirmationView {
   awaiting: boolean;
   /** What they said, in the words the form asked it in — or null while no answer is recorded. */
   outcome: string | null;
-  /** api's member beside the label, for a page that keys anything off the answer rather than printing it. */
-  outcomeMember: ConfirmationOutcome | null;
   /** When a caseworker RECORDED the answer, never when the applicant sent it. Null until one is recorded. */
   recordedOn: string | null;
   /** Who recorded it, from api's token-derived name. Null until one is recorded. */

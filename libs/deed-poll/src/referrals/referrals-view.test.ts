@@ -317,7 +317,6 @@ describe("referrals/referrals-view", () => {
         requestedOn: "21 March 2026 at 9:00am",
         awaiting: true,
         outcome: null,
-        outcomeMember: null,
         recordedOn: null,
         recordedBy: null
       });
@@ -329,7 +328,6 @@ describe("referrals/referrals-view", () => {
       expect(view.confirmation).toMatchObject({
         awaiting: false,
         outcome: "The applicant wants to proceed",
-        outcomeMember: "Confirmed",
         recordedBy: "Ada Caseworker"
       });
     });
@@ -369,7 +367,7 @@ describe("referrals/referrals-view", () => {
       // told it was never asked. Unreachable through the contract; the view must not claim it is waiting.
       const view = buildReferralDetail({ ...CONFIRMED, confirmationRequestedAt: null });
 
-      expect(view.confirmation).toMatchObject({ awaiting: false, requestedOn: "Not recorded", outcomeMember: "Confirmed" });
+      expect(view.confirmation).toMatchObject({ awaiting: false, requestedOn: "Not recorded", outcome: "The applicant wants to proceed" });
     });
 
     it("should label every outcome api publishes and offer them as radios in its own order", () => {

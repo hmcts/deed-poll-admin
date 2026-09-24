@@ -1,4 +1,4 @@
-import { ConflictError, findDeedPoll, findReferral, InvalidInputError, NotFoundError, recordConfirmation } from "@hmcts/deed-poll";
+import { ConflictError, findDeedPoll, findReferral, InvalidInputError, NotFoundError, recordConfirmation, updateDeedPoll } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../../express-doubles.js";
 import { GET, POST } from "./confirmation.js";
@@ -6,11 +6,14 @@ import { GET, POST } from "./confirmation.js";
 // `buildReferralDetail` and `recordConfirmationSchema` run for real: `confirmation.awaiting` is the rule this
 // page's guard is made of and the schema's messages are what its error summary shows, so stubbing either would
 // leave the test asserting against values it chose itself.
+// `updateDeedPoll` is stubbed although this page must never call it: unstubbed it would be the real function, so
+// "no case write" could only be asserted as an absence of a *different* call and a regression would reach api.
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
   findDeedPoll: vi.fn(),
   findReferral: vi.fn(),
-  recordConfirmation: vi.fn()
+  recordConfirmation: vi.fn(),
+  updateDeedPoll: vi.fn()
 }));
 
 const found = { id: "case-1", displayReference: "KBDP2026-00001", notes: [], witnesses: [], documents: [] };
@@ -177,11 +180,13 @@ describe("record the applicant's response", () => {
     });
 
     it("should write no case date or state, because recording the answer is not a case change", async () => {
-      // Decision 8: api moves neither, and this page must not invent a second write that does. The service call
-      // above is the only thing this handler does.
+      // Decision 8: api moves neither, and this page must not invent a second write that does. Asserted against
+      // the case writer by name rather than by counting the recording — `recordConfirmation` having been called
+      // once says nothing about a second call to something else.
       await POST(request({ outcome: "Withdrawn" }), response());
 
       expect(recordConfirmation).toHaveBeenCalledTimes(1);
+      expect(updateDeedPoll).not.toHaveBeenCalled();
     });
   });
 
@@ -260,6 +265,23 @@ describe("record the applicant's response", () => {
       expect(logged).toHaveBeenCalledWith(expect.stringContaining("referralState"));
       // The caseworker's text is the one field here that could carry an applicant's words, so it stays off the log.
       expect(logged).not.toHaveBeenCalledWith(expect.stringContaining("Replied by post."));
+      logged.mockRestore();
+    });
+
+    it("should stand in its own words for an api rejection that names no field at all", async () => {
+      // The other half of the same branch, and the likelier one on this form: api's published validation for the
+      // request constrains only the two controls the schema has already checked, so a 400 that reaches here has
+      // usually named nothing. The log says so rather than printing an empty list of fields.
+      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      vi.mocked(recordConfirmation).mockRejectedValue(new InvalidInputError("Confirmation cannot be recorded", []));
+      const res = response();
+
+      await POST(request({ outcome: "Confirmed" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errors).toEqual({});
+      expect(res.render.mock.calls[0][1].errorList).toEqual([{ text: "The response could not be recorded. Check your answer and try again." }]);
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("no field named"));
       logged.mockRestore();
     });
   });

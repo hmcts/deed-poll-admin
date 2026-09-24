@@ -71,8 +71,8 @@ export function savedQueryHref(query: SavedQuery, listPath: string): string {
  *     than as one that reorders the rows by a cell nobody can see.
  *
  * The filter is narrowed against the adapter's published vocabulary rather than cast: `filterFor` answers
- * one of this app's five keys and api's enum is the same five, and going through the array is what fails
- * to compile on the day it is not.
+ * one of this app's tab keys and api's enum holds the same set, and going through the array is what fails
+ * to compile on the day it does not.
  */
 export function savedQueryStored(link: CaseListLink): StoredQueryParts {
   const sort = parseSort(link.sort);

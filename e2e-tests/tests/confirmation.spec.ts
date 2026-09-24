@@ -605,17 +605,17 @@ async function expectWelshKeysResolve(browser: Browser, path: string, reference:
 /**
  * Checked inline at each point of a journey rather than in a test of its own, per `.claude/rules/e2e-testing.md`.
  *
- * **No exclusions, deliberately** — every page in these journeys passes without one, including the question page
- * with its character count and its warning. A waiver would name the rule *and* the element, so the same rule
- * anywhere else on the page still fails; see `deed-polls.spec.ts`, which needs one for a govuk-frontend radio
- * reveal.
+ * **No waiver parameter, because no page here needs one** — every page in these journeys passes clean, including
+ * the question page with its character count and its warning. The same signature as `judicial.spec.ts`; the
+ * waiver-taking variant lives in `deed-polls.spec.ts`, which needs one for a govuk-frontend radio reveal, and
+ * carrying an always-empty exclusion list here would be a way of not failing that nothing asks for.
  *
  * Reported as `id: selector` strings rather than raw violation objects so a failure names the rule and the element
  * instead of printing an unreadable object graph.
  */
-async function expectNoAccessibilityViolations(page: Page, allowed: string[] = []): Promise<void> {
+async function expectNoAccessibilityViolations(page: Page): Promise<void> {
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   const findings = results.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target).join(", ")}`);
 
-  expect(findings.filter((finding) => !allowed.includes(finding))).toEqual([]);
+  expect(findings).toEqual([]);
 }

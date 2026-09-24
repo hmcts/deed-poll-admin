@@ -274,9 +274,21 @@
                 {{ noneRecorded }}
               {% endif %}
             {% endset %}
+            {#
+              The status, and beneath it the one thing about a referral this table would otherwise be silent
+              about: that the applicant was asked whether they want to proceed and has not answered. The case's
+              inset notice sends the caseworker here for it, and on a case with two referrals in its history
+              only the row can say which one. `r.confirmation` is null on a referral nobody asked.
+            #}
+            {% set statusCell %}
+              {{ govukTag({ text: r.state, classes: r.stateTagClasses }) }}
+              {% if r.confirmation and r.confirmation.awaiting %}
+                <p class="govuk-hint govuk-!-font-size-16 govuk-!-margin-top-1 govuk-!-margin-bottom-0">{{ referralAwaitingConfirmation }}</p>
+              {% endif %}
+            {% endset %}
             {% set referralRows = (referralRows.push([
               { html: raisedCell },
-              { html: govukTag({ text: r.state, classes: r.stateTagClasses }) },
+              { html: statusCell },
               { html: reasonsCell },
               { text: r.urgency }
             ]), referralRows) %}

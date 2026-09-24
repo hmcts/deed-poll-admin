@@ -93,6 +93,15 @@ const en = {
   // Decision 3: "Referral status" and not "Status". This table sits on a case whose own header carries a
   // `DeedPollState`, and a referral decision does not determine that — so the column says which status it is.
   referralColumns: ["Raised", "Referral status", "Reasons", "Urgency"],
+  // Which row the inset notice above is about. Without it the notice sends a caseworker to a tab that lists
+  // dates, statuses and reasons and says nothing about a confirmation, so a case with more than one referral in
+  // its history has to be opened row by row to find the one that was asked.
+  //
+  // Beside the status rather than instead of it, and not a tag: a referral's state and its confirmation are two
+  // different facts about the same row — `Closed` clears neither confirmation column, so "Direction actioned"
+  // and "waiting for the applicant" are a pair that can both be true. It says nothing about what to do next,
+  // for the reason the notice says nothing (decision 8).
+  referralAwaitingConfirmation: "Awaiting the applicant's response",
   raiseReferral: "Refer this case to the judiciary",
   viewReferralHint: "view this referral",
   // Decision 9: the previous system recorded no reasons, so a migrated referral has none and says which it is.

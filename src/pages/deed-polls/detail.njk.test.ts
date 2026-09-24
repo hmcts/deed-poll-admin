@@ -690,4 +690,44 @@ describe("case detail template — the awaiting-confirmation notice", () => {
     expect(rendered).not.toContain("govuk-inset-text");
     expect(rendered).not.toContain("whether they want to proceed");
   });
+
+  it("should say which referral is waiting on the tab the notice sends the caseworker to", async () => {
+    // The notice's last sentence promises the answer is against a referral "see the Referrals tab", and this
+    // table otherwise lists dates, statuses and reasons only — so on a case with a history the caseworker would
+    // have to open each row to find the one that was asked.
+    const asked = { ...REFERRAL, id: "ref-2", state: "Decided", confirmationRequestedAt: new Date("2026-05-12T08:44:00Z"), confirmationOutcome: null };
+
+    const rendered = await page([asked, REFERRAL], waiting);
+
+    expect(rendered).toContain("Awaiting the applicant&#39;s response");
+    // Beside the status rather than instead of it: the referral's own state is still a fact about the row.
+    expect(rendered).toContain("Direction received");
+  });
+
+  it("should mark only the referral that is waiting, not every row on a case that is", async () => {
+    const asked = { ...REFERRAL, id: "ref-2", state: "Decided", confirmationRequestedAt: new Date("2026-05-12T08:44:00Z"), confirmationOutcome: null };
+    const answered = { ...asked, id: "ref-3", confirmationOutcome: "Confirmed", confirmationReceivedAt: new Date("2026-05-14T09:00:00Z") };
+
+    const rendered = await page([asked, answered, REFERRAL], waiting);
+
+    expect(rendered.match(/Awaiting the applicant&#39;s response/g)).toHaveLength(1);
+  });
+
+  it("should mark a closed referral that is still waiting, because closing clears neither column", async () => {
+    // The same reason `awaiting` is api's two-column predicate rather than a question about the state: this row
+    // is what keeps the case on the worklist, and a table that showed "Direction actioned" alone would read as
+    // finished.
+    const closed = { ...REFERRAL, state: "Closed", confirmationRequestedAt: new Date("2026-05-12T08:44:00Z"), confirmationOutcome: null };
+
+    const rendered = await page([closed], waiting);
+
+    expect(rendered).toContain("Awaiting the applicant&#39;s response");
+    expect(rendered).toContain("Direction actioned");
+  });
+
+  it("should mark no row on a case whose referrals were never asked", async () => {
+    const rendered = await page([REFERRAL], found);
+
+    expect(rendered).not.toContain("Awaiting the applicant&#39;s response");
+  });
 });

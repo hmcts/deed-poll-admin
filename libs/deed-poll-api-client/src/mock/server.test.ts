@@ -500,7 +500,7 @@ describe("the saved-query routes", () => {
     expect((await response.json()).errors[0].field).toBe("conditions");
   });
 
-  it("should refuse a filter that is not one of api's five tabs", async () => {
+  it("should refuse a filter that is not one of api's published tabs", async () => {
     const response = await post("/caseworker/saved-queries", { name: "Bad tab", filter: "in-progress" });
 
     expect(response.status).toBe(400);
@@ -2217,19 +2217,6 @@ async function currentReferralState(caseId: string): Promise<string | null> {
 }
 
 /**
- * One referral as the mock stores it, for a case seeded mid-lifecycle.
- *
- * `Date` values rather than the ISO strings the wire carries, because `mock.seed` holds a `MockCase` — which is
- * also why a case with children is seeded in process rather than over `POST /__mock/cases`.
- */
-/**
- * A seeded case whose referral a Master has refused, with an applicant to write to.
- *
- * Seeded rather than driven through the judicial surface, which is what `client.test.ts` does: these tests are
- * about the email rules, and arranging a claim and a direction per test would put three round trips in front of
- * every assertion. The refusal itself is what makes the email applicable, so the state is the arrangement.
- */
-/**
  * A seeded case whose referral has been asked whether the applicant still wants to proceed, and has not answered.
  *
  * **Seeded and not driven, because the write that starts the wait is the email** — notify-3's *Request
@@ -2255,6 +2242,13 @@ function awaitingConfirmation(asked: Date, overrides: Partial<MockCase["referral
   return { caseId: seeded.id, referralId: waiting.id };
 }
 
+/**
+ * A seeded case whose referral a Master has refused, with an applicant to write to.
+ *
+ * Seeded rather than driven through the judicial surface, which is what `client.test.ts` does: these tests are
+ * about the email rules, and arranging a claim and a direction per test would put three round trips in front of
+ * every assertion. The refusal itself is what makes the email applicable, so the state is the arrangement.
+ */
 function refusedCase(overrides: Partial<MockCase["referrals"][number]> = {}): { caseId: string; referralId: string } {
   const refused = referral({ state: "Decided", decision: "Rejected", directionsText: JUDGES_REASON, decidedBy: "judge@example.com", ...overrides });
   const seeded = mock.seed({ applicantEmail: "applicant@example.com", referrals: [refused] });
@@ -2262,6 +2256,12 @@ function refusedCase(overrides: Partial<MockCase["referrals"][number]> = {}): { 
   return { caseId: seeded.id, referralId: refused.id };
 }
 
+/**
+ * One referral as the mock stores it, for a case seeded mid-lifecycle.
+ *
+ * `Date` values rather than the ISO strings the wire carries, because `mock.seed` holds a `MockCase` — which is
+ * also why a case with children is seeded in process rather than over `POST /__mock/cases`.
+ */
 function referral(overrides: Partial<MockCase["referrals"][number]> = {}): MockCase["referrals"][number] {
   const raised = new Date("2026-03-01T09:00:00");
 

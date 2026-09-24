@@ -56,6 +56,7 @@ src/pages/deed-polls/[id].ts,noneRecorded,"None recorded.","None recorded.",YES,
 src/pages/deed-polls/[id].ts,notEdited,"Not edited","Not edited",YES,"Heb ei olygu",medium,"Assumes a masculine singular referent. If it describes a feminine noun it becomes ""Heb ei golygu"" — the mutation differs. A translator needs to see what it labels."
 src/pages/deed-polls/[id].ts,privateTag,"Private","Private",YES,"Preifat",high,"Case privacy tag."
 src/pages/deed-polls/[id].ts,raiseReferral,"Refer this case to the judiciary","Refer this case to the judiciary",YES,"",,""
+src/pages/deed-polls/[id].ts,referralAwaitingConfirmation,"Awaiting the applicant's response","Awaiting the applicant's response",YES,"",,""
 src/pages/deed-polls/[id].ts,referralsUnavailable,"Referral information could not be loaded, so this tab cannot say whether the case is with the judiciary. The rest of the case is shown as normal. Try again shortly.","Referral information could not be loaded, so this tab cannot say whether the case is with the judiciary. The rest of the case is shown as normal. Try again shortly.",YES,"",,""
 src/pages/deed-polls/[id].ts,sendEmail,"Send an email","Send an email",YES,"",,""
 src/pages/deed-polls/[id].ts,successTitle,"Success","Success",YES,"",,""
