@@ -291,9 +291,19 @@ emailed to the address being registered.
 The two forms emails, request-confirmation email and assumed missing-documents chase invite a reply.
 Notify sends from a no-reply address unless a reply-to is registered and verified.
 
-- [ ] A monitored Deed Poll office inbox identified
-- [ ] Registered in Notify and **verified** (Notify emails it a confirmation link)
-- [ ] Its `emailReplyToId` recorded and configured per template that needs it
+- [x] A monitored Deed Poll office inbox identified — **`KBDEEDSPOLL@justice.gov.uk`**, confirmed by Steve
+      2026-09-24
+- [x] Registered in Notify and **verified** (Notify emails it a confirmation link) — confirmed by Steve
+      2026-09-24. Recorded on his statement rather than read off the UI, so if a send later fails with a
+      no-reply sender, re-check this before reading any stack trace
+- [ ] Its **`emailReplyToId` recorded** and configured per template that needs it. **This is the remaining
+      blocker and it is mechanical, not a decision.** The two boxes above are about the *address*;
+      `NotifyProperties.isProvisioned` checks the **id**, which is a UUID only readable from the Notify UI. So a
+      verified inbox alone does not make ④ or ⑤ sendable — until the id is set, Notify **silently drops the blank
+      reply-to and sends from no-reply**, which is worse than a refusal because the email goes out and the reply
+      goes nowhere. Its config key is `NOTIFY_EMAIL_REPLY_TO_ID`, and it is **not** a secret: it identifies an
+      address the recipient reads on the email anyway, so it belongs in the chart's environment rather than the
+      vault
 
 ### Not needed yet
 
