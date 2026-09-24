@@ -12,18 +12,24 @@ This is deliberately a separate plan rather than an addendum to
 this plan manages the work created by one particular email after it has been sent. Combining them would put a
 case-list work queue and a referral outcome journey inside a plan whose unit is the Email tab.
 
-**This plan is provisional until api notify-3b is implemented and its OpenAPI document is imported.** The api
-plan names the intended operation and fields, but this repo's rule is that
-`libs/deed-poll-api-client/openapi.json` is the wire authority. Task 0 replaces every provisional name below
-with the published one before implementation begins.
+**No longer provisional — reconciled against the published document by Task 0 on 2026-09-24.** Every name
+below is the one api publishes, read from api's generated document at `master` = `83ec959`, not from the api
+plan's prose. `libs/deed-poll-api-client/openapi.json` remains the wire authority and Task 1 is the import.
 
-**Dependencies:**
+**Dependencies — all three resolved:**
 
-1. api notify-3 must be implemented and merged, because it introduces the email that starts the wait;
-2. api notify-3b must be implemented and merged, because it owns the wait, outcome, filter and write;
-3. the generated-client refresh must be coordinated with notify-2. Whichever admin plan runs first after the
-   api work adopts the whole OpenAPI delta atomically; the other verifies and reuses it rather than refreshing
-   the same contract a second time.
+1. api notify-3 is merged — PR #38, `7914406`. It introduces the email that starts the wait, and its only
+   contract-visible delta is the `template` path parameter's description on both email operations, which now
+   names `request-confirmation-to-proceed` alongside `application-rejected`. Description-only: no schema, no
+   operation, nothing to register.
+2. api notify-3b is merged — PR #42, `1e322e1`. It owns the wait, the outcome, the filter and the write, and it
+   is the whole of the rest of the delta.
+3. **This plan owns the atomic import, and there is nothing to coordinate.** notify-2 is *complete* —
+   `docs/plans/completed/notify-2-caseworker-email-tab.md` — and its contract gate was satisfied by its own
+   import of api `09d70e3` (#33), which is two provenance entries back. So no email schema is outstanding, and
+   the refresh this plan performs carries notify-3 and notify-3b and nothing else. The sentence under
+   "Constraints" about registering email schemas notify-2 will later consume is therefore moot rather than
+   pending.
 
 ---
 
@@ -36,22 +42,27 @@ with the published one before implementation begins.
    the access token.
 
 2. **Waiting is shown beside the case state, never as a new state.** `Returned` remains the case's derived
-   state. Where api publishes `awaitingConfirmationSince`, the case page says that the case is awaiting the
-   applicant's confirmation and gives the date. Do not add an option-set value, relabel `Returned`, or infer
-   waiting from correspondence history.
+   state. api publishes `awaitingConfirmationSince` on `CaseDetailResponse` — and on `SavedCaseResponse`, which
+   this feature does not read but Task 1 must register — and added **no** ninth case state, so the case page says
+   that the case is awaiting the applicant's confirmation and gives that date. Do not add an option-set value,
+   relabel `Returned`, or infer waiting from correspondence history.
 
 3. **The service has a visible waiting worklist and a count that links to the same query.** Add api's published
-   awaiting-confirmation filter to the case-list navigation. As with
+   `awaitingConfirmation` filter — label "Awaiting confirmation" — to the case-list navigation, appended after
+   `returned` as api appends it, so a caseworker's existing tab bar keeps its shape. As with
    `returnedForActionConditions()`/`countReturnedForAction()`, write the selection once and use it for both
    the count and the link, except this feature sends api's filter key rather than recreating the predicate as
    client-side conditions. The count is global, starts in parallel with the list read, and degrades
    independently: failure must not lose the case list, and it must not look like zero.
 
 4. **The waiting list is server-filtered, server-sorted and server-paged.** Admin does not fetch ordinary
-   cases and narrow them. api notify-3b promises longest-waiting first and a days-waiting value on each row;
-   the view model renders those published values. When the awaiting-confirmation filter is active, the table
-   adds a **Waiting** column. Other filters keep the existing table unchanged, so a workflow-specific column
-   does not occupy space on every case list.
+   cases and narrow them. api gives the `awaitingConfirmation` tab its own default order,
+   `awaitingConfirmationSince:asc` — longest wait first, and **only a default**, so a `sort` this app sent would
+   override it: send none. Each row carries `daysAwaitingConfirmation`, an integer api computed; the view model
+   renders it and does no arithmetic. When the `awaitingConfirmation` filter is active, the table adds a
+   **Waiting** column. Other filters keep the existing table unchanged, so a workflow-specific column does not
+   occupy space on every case list — a choice about space, not about availability, since api publishes the value
+   on every row and leaves it `null` for a case waiting for nothing.
 
 5. **Recording the reply is one GOV.UK question page.** Route:
    `GET,POST /deed-polls/{id}/referrals/{referralId}/confirmation`. It asks one question with radios:
@@ -59,6 +70,10 @@ with the published one before implementation begins.
    (`Withdrawn`), followed by the note field in the same form because the note is evidence for that answer,
    not a second workflow decision. The submit label is **Record response**, with warning text that it cannot
    be replaced through this service.
+
+   The note is **optional and capped at 1,000 characters** — api's `maxLength`, so validate it here rather than
+   letting a 1,001st character become a 400 a caseworker cannot act on. api trims it and treats whitespace-only
+   as none, so this app need not, but it must not *require* it: `outcome` is the only required property.
 
    There is no separate check-answers page. This operation records a fact from a monitored inbox and does not
    itself alter the case-state dates, issue a refund or enrol the deed. A second page would require holding or
@@ -91,20 +106,74 @@ with the published one before implementation begins.
 
 ---
 
-## Expected contract `[PROVISIONAL]`
+## The published contract — measured, not expected
 
-Task 0 replaces these names with the document's actual schemas, properties and filter key.
+Read from api's generated document on 2026-09-24 at `master` = `83ec959`, via
+`curl -s http://127.0.0.1:4550/v3/api-docs` against a local api built from that commit. The provisional guesses
+were close, and the four corrections are called out below rather than quietly overwritten, because two of them
+change what a task has to do.
 
-| Surface | Expected from api notify-3b |
+**The whole delta from admin's checked-in document (`227b714`, #36) is one operation and one schema**, plus
+properties on four existing schemas and two parameter descriptions. Nothing was removed and nothing was
+renamed: 39 → 40 operations, 38 → 39 schemas.
+
+| Surface | What api publishes |
 |---|---|
-| `POST /caseworker/cases/{id}/referrals/{referralId}/confirmation` | Request containing `outcome` and `note`; updated referral response |
-| `ReferralResponse` | `confirmationRequestedAt`, `confirmationOutcome`, `confirmationReceivedAt`, `confirmationRecordedBy` |
-| `CaseDetailResponse` | `awaitingConfirmationSince`, alongside `state` |
-| `CaseSummaryResponse` | Days waiting while returned by the awaiting-confirmation filter |
-| `GET /caseworker/cases` | A named awaiting-confirmation filter, longest wait first |
+| `POST /caseworker/cases/{id}/referrals/{referralId}/confirmation` | `operationId` `recordConfirmation`, tag `caseworker-referral-controller`. Path params `id` and `referralId`, both required strings. Request body **required**, `$ref` `RecordConfirmationRequest`. The only documented response is **`200` → `ReferralResponse`** — the saved referral, so the page has the recorded outcome without a re-read |
+| `RecordConfirmationRequest` | `{ outcome, note }`, `required: ["outcome"]`, `additionalProperties: true`. `outcome` is an **inline** `string` enum `["Confirmed", "Withdrawn"]`. `note` is `string`, `maxLength: 1000`, optional, trimmed by api, and whitespace-only counts as none |
+| `ReferralResponse` | Gains `confirmationRequestedAt` and `confirmationReceivedAt` (`date-time`), `confirmationRecordedBy` (`string`), and `confirmationOutcome` — again an **inline** `string` enum `["Confirmed", "Withdrawn"]`, not a named schema, so there is no `ConfirmationOutcome` to register |
+| `CaseDetailResponse` | Gains `awaitingConfirmationSince` (`date-time`), alongside the existing `state` |
+| `SavedCaseResponse` | **Also** gains `awaitingConfirmationSince` (`date-time`) — not in the provisional table |
+| `CaseSummaryResponse` | Gains `daysAwaitingConfirmation` (`integer`, `int32`) — on **every** row, not only the filter's |
+| `GET /caseworker/cases` | `filter` gains the key **`awaitingConfirmation`** (label "Awaiting confirmation") and its first-ever description; `sort` gains `awaitingConfirmationSince` as a sortable field and documents the tab's own default, `awaitingConfirmationSince:asc` |
+| `CreateSavedQueryRequest`, `UpdateSavedQueryRequest` | `filter` enum gains `awaitingConfirmation`, so the new tab is savable like any other |
 
-Expected enum values are `Confirmed` and `Withdrawn`. Do not encode them until the OpenAPI schema confirms
-their spelling and casing.
+Enum values are confirmed as exactly `Confirmed` and `Withdrawn` — api matches them exactly, "as the stored
+form is the wire form".
+
+### The four corrections
+
+1. **`daysAwaitingConfirmation` is on every case-list row, not only on rows the filter returned.** It is `null`
+   for a case waiting for nothing, which is nearly all of them, and `0` on the day the email was sent — api's
+   own words, "never 1". Decision 4's **Waiting** column is therefore still a choice about which tab shows the
+   column, but not a consequence of where the value exists. The reason to keep it filter-only is unchanged:
+   a workflow column should not occupy space on every list.
+2. **`SavedCaseResponse` carries `awaitingConfirmationSince` too.** Task 1 must register it there as well as on
+   `CaseDetailResponse`, or the set-equality response check fails on a schema this feature never reads.
+3. **The write's response is the referral**, so the post-success GET is a *freshness* decision, not a necessity.
+   Decision 7's redirect-and-re-read stands on its own merits — a 409 has no body to trust — and Task 4 must not
+   quietly switch to rendering the POST's response instead, because that would bypass the re-read the conflict
+   path depends on.
+4. **Neither new enum is a named schema.** Both are inline, so `WIRE_SCHEMAS` gains exactly one entry
+   (`RecordConfirmationRequest`) and the outcome values are encoded where the referral schema is.
+
+### The two 409s, verbatim from api
+
+`ReferralService.recordConfirmation` checks **already-recorded first**, then never-asked — so a referral that
+somehow holds an outcome without a request still answers the first message:
+
+- **Already recorded:** `Referral <id> already has a confirmation outcome of <Outcome>, recorded on
+  <d MMMM yyyy>. Recording a second answer would overwrite it, so it is refused`. It deliberately does **not**
+  name who recorded it: "naming a colleague in a refusal turns a correction into an accusation". `Locale.UK`,
+  day precision. Where the date is somehow absent it says "a date that was not recorded" rather than throwing.
+- **Never asked:** `Referral <id> has not been asked to confirm whether the applicant wants to proceed, so
+  there is no answer to record`.
+
+So the two are distinguishable, but **only by their prose**, which is exactly why this UI must not parse them —
+Task 4 renders its own sentence per case, as decision 7 already says.
+
+### Three api-side facts the document cannot carry
+
+- **Scoping is a 404, through `findReferralForUpdate(deedPollId, id)`** — `findByIdAndDeedPollIdForUpdate`, so a
+  referral belonging to another case is `Referral <id> not found` and discloses nothing. No new work for this
+  plan; it is the same behaviour every other nested referral operation already has.
+- **`confirmationRecordedBy` comes from `caller.name()`** and `confirmationReceivedAt` from `AuditClock.now()`,
+  which is *when the caseworker recorded it* and never when the applicant replied. A body that sends either is
+  **ignored, not refused** (`additionalProperties: true`), so nothing fails if this app wrongly sends one —
+  Task 2's "absence of a client-supplied recorder" test is the only thing that would catch it.
+- **Recording writes a case note and recomputes `awaitingConfirmationSince`,** in the write's own transaction,
+  and moves no case state or date. That is how a case leaves the worklist, and it confirms decision 8: there is
+  no date consequence for this UI to announce. api also added no ninth case state, so decision 2 holds.
 
 ---
 
@@ -116,13 +185,13 @@ HTTP except through `libs/deed-poll-api-client`.
 
 Additional constraints:
 
-- **Do not start before api notify-3b is merged.** A plan file is not an API contract.
+- **Do not start before api notify-3b is merged.** Satisfied: PR #42, `1e322e1`, on api `master`.
 - **Do not hand-edit a guessed wire shape.** Refresh `openapi.json`, update `SPEC-PROVENANCE.md`, and satisfy
   the set-equality contract tests atomically.
-- **Do not duplicate notify-2's contract refresh.** If notify-2 already imported the api commit containing
-  notify-3b, Task 1 is verification only. If this plan imports it first, it must register every outstanding
-  schema and operation—including email schemas notify-2 will later consume—because the contract test does not
-  permit partial adoption.
+- **Resolved — this plan performs the one refresh, and it is not verification-only.** notify-2 is complete and
+  imported api `09d70e3` (#33); its email schemas are already registered. Nothing else is outstanding, so the
+  import Task 1 performs is exactly notify-3 + notify-3b: one operation, one schema, properties on four
+  schemas, two parameter descriptions. There is no second plan to coordinate with and no email schema to adopt.
 - **Do not add client-side filtering, sorting or days arithmetic.** api owns all three.
 - **Do not send `confirmationRecordedBy`.** The token is the identity.
 - **Do not change case dates or state.** The outcome endpoint does not authorize this app to decide the
@@ -148,9 +217,14 @@ yarn turbo test test:app --concurrency=1
 **Green before any task runs — measured 2026-09-24 on `master` at `f5d427e`:** `yarn lint` exits **0** (one
 pre-existing warning, `noUnusedVariables` in `emails/[template]/compose.test.ts`, plus two `biome.json` schema
 notices — none of them errors, so the gate starts green); `yarn build` exits **0**, 8 of 8 turbo tasks;
-`yarn turbo test test:app --concurrency=1` exits **0** with **3,125 tests across 166 files**. That is the
-baseline Task 1 was told to record, so it does not need rediscovering — but re-measure rather than quoting it if
-anything has merged since.
+`yarn turbo test test:app --concurrency=1` exits **0** with **3,120 tests across 166 files**.
+
+**The count was 3,125 here until Task 0 re-measured it, and 3,120 is the right number.** Measured with `--force`
+on the branch tip (`75ee155`) and again with the working tree stashed, which produced the same eight per-package
+figures both times: `deed-poll` 1,056, app 1,304, `deed-poll-api-client` 422, `cloud-native-platform` 140,
+`express-govuk-starter` 127, `simple-router` 41, `express-session-postgres` 23, `express-session-redis` 7. The
+file count of 166 was right. Nothing on this branch removed a test — every commit since `f5d427e` is
+documentation — so 3,125 was a mis-transcription rather than a regression. **Task 5 must compare against 3,120.**
 
 Notes so no task rediscovers them:
 
@@ -187,7 +261,39 @@ Task 5 additionally runs `yarn test:coverage`, `yarn test:e2e` and `yarn test:a1
 - Confirm which response is returned by the write and whether 409 distinguishes “never requested” from
   “already recorded” in its message.
 
-- [ ] api notify-3b is merged, every provisional contract name is replaced by the published one, the atomic
+**Done, 2026-09-24. The findings are "The published contract — measured, not expected" above; this is the
+method, so the next task does not repeat the work.** api `master` is `83ec959`; notify-3 is `7914406` (#38) and
+notify-3b is `1e322e1` (#42). The document was read live from the local api on `:4550` and diffed against
+`libs/deed-poll-api-client/openapi.json` programmatically — operations, schema names, then every shared schema
+and operation serialised and compared one at a time, which is `SPEC-PROVENANCE.md`'s standard and not a count.
+
+Four things worth not rediscovering:
+
+- **The live document and `/tmp/openapi-specs.json` differ in exactly one byte-range: `servers[0].url`.** Live
+  says `http://127.0.0.1:4550`, the test artefact and the checked-in file both say `http://localhost`. So Task 1
+  must either take the artefact or normalise that one value — a refresh straight from `curl` would otherwise
+  commit the local port as the published server URL, which no test in this repo looks at.
+- **PRs #44, #45 and #48 have zero contract delta**, measured rather than assumed: no file under
+  `api/caseworker/dto/` changed between `1e322e1` and `83ec959`, and the one controller that did
+  (`CaseworkerEmailController`) changed javadoc only. So importing at `83ec959` and importing at `1e322e1` would
+  produce the same document, and `83ec959` is the honest provenance commit because it is what was generated.
+- **notify-2 is complete and is not a coordination problem** — see the dependencies note at the top.
+- **notify-3's `request-confirmation-to-proceed` is invisible to the contract test but not to this app.** api
+  publishes template keys as bare strings inside `EmailTypeResponse`, never as an enum, so the key arrives as
+  *data* and `contract.test.ts` cannot pin the set — which is deliberate, and it is why notify-3's whole delta is
+  two descriptions. Two consequences Task 2 owns, neither of which the import will surface:
+  - **The mock does not know the template exists.** `MOCK_EMAIL_TEMPLATES` in
+    `libs/deed-poll-api-client/src/mock/fixtures.ts` has `application-rejected` and nothing else, so nothing can
+    currently *send* the email that sets `confirmationRequestedAt`. Decision 10 needs the mock to model the wait,
+    so the seeded waiting referral either comes from a second mock template or is seeded already-waiting; either
+    way it is a mock gap, not a contract gap.
+  - **`emailTemplateLabel` degrades correctly and needs no change.** `EMAIL_TEMPLATE_LABEL` in
+    `libs/deed-poll/src/emails/emails-view.ts` lists only `application-rejected`, and an unlisted key falls
+    through to `humaniseKey`, which turns `request-confirmation-to-proceed` into "Request confirmation to
+    proceed" — the same string api's `displayName` carries. So do not add a map entry to "fix" a label that is
+    already right; that fallback is the documented intent.
+
+- [x] api notify-3b is merged, every provisional contract name is replaced by the published one, the atomic
       refresh has one named owner, and the validation commands are green without behavior changes
 
 ### Task 1: Adopt the OpenAPI contract atomically
@@ -198,12 +304,18 @@ Task 5 additionally runs `yarn test:coverage`, `yarn test:e2e` and `yarn test:a1
 > `curl -s http://127.0.0.1:4550/v3/api-docs` is the generated document, live. If it is not running, api's
 > `OpenAPIPublisherTest` writes the same thing to `/tmp/openapi-specs.json` when its `integration` source set
 > runs — note that source set is **excluded in CI** (`INTEGRATION_TESTS_ENABLED=false`), so the file is a local
-> artefact only.
+> artefact only. **Prefer the artefact, or normalise `servers[0].url`:** it is the one field in which the live
+> document and the artefact disagree, because springdoc reports the port it is actually listening on.
 >
-> **Expect the refresh to be atomic and to carry more than this feature.** `contract.test.ts` is set-equality in
-> **both** directions, so importing the document pulls in every operation api has added since the last
-> provenance entry — not just the confirmation one. That is the plan's "account property-by-property" bullet and
-> the reason this task is separate from Task 2. The one green seam to split on, if it has to be split, is an
+> **The refresh is atomic but Task 0 measured it, and it is small.** `contract.test.ts` is set-equality in
+> **both** directions, so importing the document pulls in everything api has added since the provenance entry —
+> which here is notify-3 and notify-3b and nothing else, because notify-2 already imported the email surface and
+> PRs #44/#45/#48 changed no DTO. The full list is in "The published contract" above: **one** operation
+> (`POST …/referrals/{referralId}/confirmation`), **one** schema (`RecordConfirmationRequest`), properties on
+> `ReferralResponse`, `CaseDetailResponse`, `SavedCaseResponse` and `CaseSummaryResponse`, the
+> `awaitingConfirmation` filter key on three schemas' enums, and description-only changes to `filter`, `sort` and
+> both `template` parameters. Do not go looking for a larger delta; do still account property-by-property, since
+> that is what found `SavedCaseResponse`. The one green seam to split on, if it has to be split, is an
 > unregistered schema plus an unlisted function: both are invisible to the contract test until registered.
 
 If the exact api commit is already the provenance entry, verify this task and make no duplicate change.
@@ -216,8 +328,11 @@ Otherwise:
 - Register every new schema in `WIRE_SCHEMAS`, every operation in `IMPLEMENTED_OPERATIONS`, and every response
   in `STRICT_RESPONSE_PROPERTIES`; update request-schema completeness checks.
 - Verify the confirmation request is not published as `{}` and the filter/sort vocabulary is present in the
-  case-list parameter descriptions.
-- Update notify-2's Task 0/1 status if this import also satisfies its contract gate.
+  case-list parameter descriptions. Task 0 confirmed both — `RecordConfirmationRequest` carries `outcome` and
+  `note` (api registers it in `OpenAPIWriteBodies`), and `awaitingConfirmation` /
+  `awaitingConfirmationSince:asc` are both in the descriptions — so this is a regression check on the import,
+  not a discovery.
+- **No notify-2 status update is needed**: it is complete and its contract gate was satisfied by its own import.
 
 - [ ] the generated document and provenance name the merged api commit, all outstanding contract additions
       are registered atomically, keyed request bodies are non-empty, and the contract tests are green
@@ -284,8 +399,9 @@ Otherwise:
 - Assert no inbound-email content, access token, recorder override or applicant personal data is logged.
 - Prove directly that a cross-case referral id discloses no confirmation state and that an ordinary
   caseworker can use the journey without a new UI-only role gate.
-- Run the full validation commands, record final test counts against the baseline, and remove every
-  `[PROVISIONAL]` marker.
+- Run the full validation commands and record final test counts against the baseline. **There is no
+  `[PROVISIONAL]` marker left to remove** — Task 0 resolved the only one against the published document — so
+  what is left to check here is that no *claim* in this plan still disagrees with `openapi.json`.
 
 - [ ] the complete waiting-to-recorded journey passes against the stateful mock, axe is clean, security and
       scoping are explicit tests, every provisional contract claim is resolved, and all validation is green
