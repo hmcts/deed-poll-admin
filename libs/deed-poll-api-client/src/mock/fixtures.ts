@@ -59,9 +59,21 @@ export const APPLICATION_REJECTED = "APPLICATION_REJECTED";
 /**
  * The email types the mock serves, restating api's `EmailTemplate` enum as data.
  *
- * One member, because api ships one: the other three in `NOTIFY_TEMPLATE_TAXONOMY.md` §6 are notify-3 and
- * notify-4. Here for the reason `MOCK_DOCUMENT_TYPES` is here — it is reference data api owns and the mock has
- * to serve, and a page under test has to be able to name one.
+ * **One member, and api now ships two — this is a known gap, not the current state of api.** It said "because
+ * api ships one", which stopped being true when notify-3 added `REQUEST_CONFIRMATION_TO_PROCEED`. The missing
+ * member is deliberately **not** added here: it invites a reply, so it needs the confirmation clock, the
+ * `awaitingConfirmationSince` read-model, the `awaitingConfirmation` worklist and the "already awaiting an
+ * answer" guard with it — which is `notify-3b-admin-confirmation-tracking.md`'s **Task 2**, where it belongs
+ * alongside the adapter and domain function that read the same surface. Adding it here first would be a second
+ * author for the same behaviour.
+ *
+ * So a page that needs ④ cannot be developed against this mock yet. That is a real limitation to know about
+ * rather than a bug: nothing can *send* ④ in any environment either, because `NotifyProperties.isProvisioned`
+ * requires a reply-to id for a reply-inviting template and the monitored inbox is not registered yet.
+ *
+ * The remaining two in `NOTIFY_TEMPLATE_TAXONOMY.md` §6 are notify-6 and notify-4. Here for the reason
+ * `MOCK_DOCUMENT_TYPES` is here — it is reference data api owns and the mock has to serve, and a page under test
+ * has to be able to name one.
  *
  * **`key` and `member` are two spellings of one template and both are on the wire.** The key is the URL token
  * and what `EmailTypeResponse.template` and `EmailHistoryResponse.template` publish; the member name is what the
