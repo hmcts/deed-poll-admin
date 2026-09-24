@@ -227,7 +227,8 @@ file count of 166 was right. Nothing on this branch removed a test — every com
 documentation — so 3,125 was a mis-transcription rather than a regression. **Task 5 must compare against 3,120.**
 
 **Running count as each task lands, so Task 5 compares against a figure rather than reconstructing one:** Task 1
-took it to **3,125 across 166 files** (five contract-test cases, no new file).
+took it to **3,125 across 166 files** (five contract-test cases, no new file); Task 2 to **3,182 across 166 files**
+(57 cases across four existing test files, still no new file).
 
 Notes so no task rediscovers them:
 
@@ -385,7 +386,45 @@ written here, plus the two the per-schema loop generates for `RecordConfirmation
 - Tests cover the happy path, both 409s, cross-case 404, malformed response, timeout/unavailable result, enum
   parsing and the absence of a client-supplied recorder.
 
-- [ ] the adapter and domain own no process rule, the mock changes the worklist when an outcome is recorded,
+**Done, 2026-09-24.** `recordConfirmation` in `client.ts` (`RecordConfirmation` and `ConfirmationOutcome` beside
+it), `recordConfirmation` in `libs/deed-poll/src/referrals/service.ts`, `recordConfirmationSchema` +
+`MAX_CONFIRMATION_NOTE` in its `schemas.ts`, and `CONFIRMATION_OUTCOME_LABEL` /
+`CONFIRMATION_OUTCOME_CHOICES` / a `confirmation` view on every referral row in `referrals-view.ts`.
+
+Six things worth not rediscovering:
+
+- **The mock's own rules were read out of api's source, not inferred from the document.** `ReferralService`,
+  `ReferralNotes`, `ConfirmationWait` and `ListFilters` are all in the local api clone at `83ec959`, so the two
+  refusal sentences, the note's prose and the recompute are copies rather than guesses. The one that would not
+  have been guessed: **`awaitingConfirmationSince` is the EARLIEST outstanding request and the referral's state is
+  not consulted** — closing a referral clears neither confirmation column, so a case can hold two outstanding
+  requests and answering the newer one leaves it on the worklist under the older one's date. `refreshAwaitingConfirmation`
+  and two tests pin it.
+- **`FILTERS` in the mock now matches on the whole case rather than on its state**, because `awaitingConfirmation`
+  is the one tab whose criterion is not a state, and it carries a `defaultSort`. That made the list handler resolve
+  the filter **before** parsing `sort` — which changes no refusal order, since an unrecognised filter key falls back
+  rather than failing.
+- **Recording is the only referral write that does not go through `transition`.** It moves no state, so there is
+  nothing for `refreshCurrentReferralState` to recompute; asserting `currentReferralState` and `dateReturned`
+  unchanged afterwards is decision 8's test.
+- **The body is parsed before either 409**, as Spring validates a payload before the service's guards run. A
+  request that is both malformed and unasked answers 400.
+- **`buildConfirmationView` is private and reached through `buildReferralDetail`**, following `buildClaimView` and
+  `buildDirectionView` — so Task 4 wires a template to a view model that already exists and is already tested.
+  `confirmation` is `null` for a referral never asked, which is most of them: "not recorded" would answer a
+  question nobody put.
+- **A waiting referral is SEEDED, in process, and cannot yet be arranged over HTTP.** The write that starts the
+  wait is notify-3's email, which the mock has no template for and this plan does not send, so
+  `awaitingConfirmation()` in both test files builds a `MockReferral` and calls `mock.seed`. `POST /__mock/cases`
+  still coerces only the case's own fields, so a referral seeded through it would arrive with string dates —
+  **Task 5's Playwright journey needs one of: a second mock email template, or referral coercion added to that
+  route.** Not done here because neither is in this task's scope and the choice belongs with the journey.
+
+Test count: **3,182 across 166 files**, up 57 from Task 1's 3,125 — 28 in `libs/deed-poll` (service, schema and
+view) and 29 in `libs/deed-poll-api-client` (11 adapter, 18 mock). No new file: every test joined the colocated
+one for the code it covers.
+
+- [x] the adapter and domain own no process rule, the mock changes the worklist when an outcome is recorded,
       all errors preserve their API classification, and validation is green
 
 ### Task 3: Show the waiting worklist and case status

@@ -1,7 +1,7 @@
-import { REFERRAL_REASON, URGENCY } from "@hmcts/deed-poll-api-client";
+import { CONFIRMATION_OUTCOME, REFERRAL_REASON, URGENCY } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
 import { zodErrorToFieldErrors } from "../errors.js";
-import { createReferralSchema, MAX_REFERRAL_NOTES, MAX_REFERRAL_URGENCY_REASON } from "./schemas.js";
+import { createReferralSchema, MAX_CONFIRMATION_NOTE, MAX_REFERRAL_NOTES, MAX_REFERRAL_URGENCY_REASON, recordConfirmationSchema } from "./schemas.js";
 
 describe("referrals/schemas", () => {
   describe("createReferralSchema", () => {
@@ -166,6 +166,79 @@ describe("referrals/schemas", () => {
     it("should keep the bounds no wider than api's, which is the rule that may only be tightened", () => {
       expect(MAX_REFERRAL_NOTES).toBeLessThanOrEqual(1000);
       expect(MAX_REFERRAL_URGENCY_REASON).toBeLessThanOrEqual(500);
+    });
+  });
+
+  describe("recordConfirmationSchema", () => {
+    it("should accept an answer with no note, because the note is evidence and not a second decision", () => {
+      const parsed = recordConfirmationSchema.safeParse({ outcome: "Confirmed" });
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.data).toEqual({ outcome: "Confirmed", note: undefined });
+    });
+
+    it("should accept every outcome api publishes, so a member added at its end needs no edit here", () => {
+      for (const outcome of CONFIRMATION_OUTCOME) {
+        const parsed = recordConfirmationSchema.safeParse({ outcome, note: "Replied by email" });
+
+        expect(parsed.success, outcome).toBe(true);
+        expect(parsed.data).toEqual({ outcome, note: "Replied by email" });
+      }
+    });
+
+    it("should reject an untouched radio group, addressed to the control the summary links to", () => {
+      const parsed = recordConfirmationSchema.safeParse({ note: "They replied by post" });
+
+      expect(parsed.success).toBe(false);
+      expect(zodErrorToFieldErrors(parsed.error!)).toContainEqual({ field: "outcome", message: "Select what the applicant said about proceeding" });
+    });
+
+    it("should say the same sentence for an outcome api does not publish, rather than printing its members", () => {
+      // Only a tampered or stale post reaches this, and zod's default message for an enum lists api's whole
+      // vocabulary — which is a wire contract and not something to show a caseworker.
+      const parsed = recordConfirmationSchema.safeParse({ outcome: "Maybe" });
+
+      expect(zodErrorToFieldErrors(parsed.error!)).toContainEqual({ field: "outcome", message: "Select what the applicant said about proceeding" });
+      expect(parsed.error?.issues[0].message).not.toContain("Withdrawn");
+    });
+
+    it("should treat a note of nothing but whitespace as none, as api treats it", () => {
+      const parsed = recordConfirmationSchema.safeParse({ outcome: "Withdrawn", note: "   " });
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.data?.note).toBeUndefined();
+    });
+
+    it("should trim a note before measuring it, so padding cannot push it past the cap", () => {
+      const parsed = recordConfirmationSchema.safeParse({ outcome: "Confirmed", note: `  ${"x".repeat(MAX_CONFIRMATION_NOTE)}  ` });
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.data?.note).toHaveLength(MAX_CONFIRMATION_NOTE);
+    });
+
+    it("should reject a note past the cap against the field, rather than letting api answer 400", () => {
+      const parsed = recordConfirmationSchema.safeParse({ outcome: "Confirmed", note: "x".repeat(MAX_CONFIRMATION_NOTE + 1) });
+
+      expect(parsed.success).toBe(false);
+      expect(zodErrorToFieldErrors(parsed.error!)).toContainEqual({ field: "note", message: `The note must be ${MAX_CONFIRMATION_NOTE} characters or fewer` });
+    });
+
+    it("should accept no property but the two api takes, so nothing can assert an identity api never verified", () => {
+      const parsed = recordConfirmationSchema.safeParse({
+        outcome: "Confirmed",
+        confirmationRecordedBy: "Somebody Else",
+        confirmationReceivedAt: "2020-01-01"
+      });
+
+      expect(parsed.success).toBe(true);
+      // Stripped rather than refused, which is zod's default for an object — but stripped is what matters: api
+      // publishes this body with `additionalProperties: true`, so anything that reached the wire would be
+      // silently ignored instead of answered with a 400.
+      expect(Object.keys(parsed.data ?? {})).toEqual(["outcome"]);
+    });
+
+    it("should keep the note's bound no wider than api's, which is the rule that may only be tightened", () => {
+      expect(MAX_CONFIRMATION_NOTE).toBeLessThanOrEqual(1000);
     });
   });
 });

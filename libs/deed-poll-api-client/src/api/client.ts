@@ -41,6 +41,7 @@ import {
   type WireJudicialReferralDetail,
   type WireJudicialReferralSummary,
   type WireNote,
+  type WireRecordConfirmation,
   type WireReferral,
   type WireReferralCreate,
   type WireSavedCase,
@@ -395,6 +396,27 @@ export function withdrawReferral(caseId: string, referralId: string, config: Api
  */
 export function closeReferral(caseId: string, referralId: string, config: ApiConfig): Promise<ApiResult<Referral>> {
   return request(config, "POST", `${referralPath(caseId, referralId)}/closure`, WIRE_SCHEMAS.ReferralResponse);
+}
+
+/**
+ * Record the applicant's answer to *Request confirmation to proceed* — `Confirmed` or `Withdrawn`, with the
+ * caseworker's note as its evidence.
+ *
+ * **A body, unlike the two transitions above**, because the outcome is a fact a person read out of a mailbox
+ * rather than a transition the sub-resource can name. What it may carry is `outcome` and `note` and nothing
+ * else: `confirmationRecordedBy` comes from the token and `confirmationReceivedAt` from api's clock, and this
+ * is the one write body api publishes `additionalProperties: true` on — so either one sent from here would be
+ * **ignored rather than refused**, which is why `contract.test.ts` pins their absence from the schema.
+ *
+ * The **saved referral** comes back, so a caller holds the recorded outcome without a re-read. `conflict` for
+ * both of api's refusals — a second answer, and an answer on a referral nobody asked — and they are
+ * distinguishable only by their prose, so nothing above here may branch on the message.
+ *
+ * Recording moves no case state and no case date: it writes the four confirmation columns, a case note, and
+ * the case's `awaitingConfirmationSince`, which is how the case leaves the awaiting-confirmation worklist.
+ */
+export function recordConfirmation(caseId: string, referralId: string, confirmation: RecordConfirmation, config: ApiConfig): Promise<ApiResult<Referral>> {
+  return request(config, "POST", `${referralPath(caseId, referralId)}/confirmation`, WIRE_SCHEMAS.ReferralResponse, confirmation);
 }
 
 /**
@@ -962,6 +984,11 @@ export type SavedQueryPatch = WireSavedQueryUpdate;
 export type Referral = WireReferral;
 export type ReferralCreate = WireReferralCreate;
 /**
+ * The applicant's answer as it goes OUT, so `z.input`: `note` is optional, and the two fields api derives from
+ * the token and its own clock are absent from the type as well as from the schema.
+ */
+export type RecordConfirmation = WireRecordConfirmation;
+/**
  * The judicial read types, which are a separate vocabulary from the caseworker ones rather than narrower
  * versions of them — api publishes different records, and `JudicialCaseView` is deliberately not a subset of a
  * case (see `wire.ts`).
@@ -1034,6 +1061,14 @@ export type ReferralState = NonNullable<Referral["state"]>;
  */
 export type ReferralReason = ReferralCreate["reasons"][number];
 export type ReferralDecision = JudicialDirection["decision"];
+/**
+ * The applicant's two possible answers, from the **response** rather than from the request body.
+ *
+ * Either would do — api publishes the same two members inline on both — and the response is the one every
+ * reader of a referral already holds, so a page rendering a recorded outcome and a form offering the choices
+ * annotate with one type.
+ */
+export type ConfirmationOutcome = NonNullable<Referral["confirmationOutcome"]>;
 
 /**
  * What to ask the case list for, in api's own vocabulary.

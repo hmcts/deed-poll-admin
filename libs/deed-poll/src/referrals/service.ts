@@ -1,7 +1,7 @@
 /**
  * Referrals to the judiciary, read and written through `deed-poll-api`.
  *
- * Five thin functions and no rules of their own. What is worth knowing before reading a caller of these:
+ * Six thin functions and no rules of their own. What is worth knowing before reading a caller of these:
  *
  * **The reads are dedicated calls, unlike witnesses.** `GET /caseworker/cases/{id}` carries a case's notes,
  * witnesses and documents, so `findWitnesses` reads them off the case rather than paying for a second round
@@ -18,8 +18,9 @@
  *
  * **Every 409 reaches a caller as `ConflictError`, and all of them are expected states rather than faults.**
  * api answers 409 on create when the case already has a referral that is not terminal, on withdraw for
- * anything but `Open`/`Claimed`, and on close for anything but `Decided`. The page catches it; reaching the
- * 500 page with one means a handler did not, which is a bug in that handler.
+ * anything but `Open`/`Claimed`, on close for anything but `Decided`, and on a confirmation that has already
+ * been answered or was never asked for. The page catches it; reaching the 500 page with one means a handler did
+ * not, which is a bug in that handler.
  *
  * **Withdrawable and terminal are two different questions, both api's.** `Decided` is not terminal — the case
  * still holds it as its live referral and still counts as returned for action — and is still refused a
@@ -40,13 +41,14 @@
 import {
   closeReferral as apiCloseReferral,
   createReferral as apiCreateReferral,
+  recordConfirmation as apiRecordConfirmation,
   withdrawReferral as apiWithdrawReferral,
   getReferral,
   listReferrals,
   type Referral
 } from "@hmcts/deed-poll-api-client";
 import { type Caller, callApi } from "../api/deed-poll-api.js";
-import type { CreateReferralInput } from "./schemas.js";
+import type { CreateReferralInput, RecordConfirmationInput } from "./schemas.js";
 
 /**
  * Every referral a case has ever had, newest first as api orders them — the order the tab renders.
@@ -105,4 +107,27 @@ export function withdrawReferral(deedPollId: string, id: string, caller: Caller)
  */
 export function closeReferral(deedPollId: string, id: string, caller: Caller): Promise<Referral> {
   return callApi(caller, (config) => apiCloseReferral(deedPollId, id, config));
+}
+
+/**
+ * Record what the applicant said when they were asked whether they still want the deed enrolled.
+ *
+ * `dto` is already validated by the page that took the form and goes on the wire unchanged: `outcome` and an
+ * optional `note` are the whole body api takes, and **no author** — api stamps the recorder from the token, as
+ * everywhere else. The saved referral comes back, so a caller holds the recorded answer without a re-read.
+ *
+ * **No pre-read of the referral's state.** api refuses a second answer and an answer on a referral nobody asked
+ * with 409s the page renders, and a read first would be a round trip for a fact another caseworker can change
+ * between the two calls — which is the race the 409 exists for.
+ *
+ * **The two 409s are distinguishable only by their prose, so nothing here or above may branch on the message.**
+ * `callApi` turns both into one `ConflictError`; the page decides what to say from the referral it re-reads.
+ *
+ * **Recording changes no case state and no case date** (`notify-3b` decision 8). api writes the four confirmation
+ * columns, a case note, and the case's `awaitingConfirmationSince` — which is how the case leaves the
+ * awaiting-confirmation worklist — and nothing else. What a caseworker should do next about the case's dates is
+ * an open business question, so this app must not answer it.
+ */
+export function recordConfirmation(deedPollId: string, id: string, dto: RecordConfirmationInput, caller: Caller): Promise<Referral> {
+  return callApi(caller, (config) => apiRecordConfirmation(deedPollId, id, dto, config));
 }

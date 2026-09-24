@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { Readable } from "node:stream";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { type RunningMockApi, startMockApi } from "../mock/server.js";
+import { type MockCase, type RunningMockApi, startMockApi } from "../mock/server.js";
 import {
   type ApiConfig,
   checkApiReachable,
@@ -47,6 +47,7 @@ import {
   patchSavedQuery,
   previewEmail,
   type ReferralCreate,
+  recordConfirmation,
   selectSavedQuery,
   sendEmail,
   updateWitness,
@@ -67,6 +68,17 @@ const DOCUMENT_TYPE_ID = "11111111-1111-4111-8111-111111111111";
  * reached the email" is the assertion rather than the words themselves.
  */
 const JUDGES_REASON = "The evidence supplied does not establish the applicant's identity.";
+
+/** `server.ts`'s `MOCK_USER_NAME` — who the mock attributes a write to when the token names nobody. */
+const MOCK_CASEWORKER = "Mock Caseworker";
+
+/**
+ * A referral as api publishes one, for the two tests that need a server of their own.
+ *
+ * The three properties `ReferralResponse` requires and nothing else, because what those tests are about is the
+ * request body and the response's enum — a fuller fixture would be a second place to keep the wire shape.
+ */
+const SAVED_REFERRAL = { id: "referral-1", reasons: ["NonPublication"], migrated: false };
 
 /** All four witness fields, because api requires all four on a create. */
 const WITNESS = { witnessName: "Alex Witness", witnessAddress: "1 Test Road, Testville", witnessOccupation: "Baker", declarant: false };
@@ -761,6 +773,154 @@ describe("referrals", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.kind).toBe("conflict");
+  });
+});
+
+describe("recordConfirmation", () => {
+  it.each(["Confirmed", "Withdrawn"] as const)("should record %s and answer with the saved referral, so no re-read is needed", async (outcome) => {
+    const { caseId: id, referralId } = awaitingConfirmation();
+
+    const result = await recordConfirmation(id, referralId, { outcome, note: "They replied by email" }, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.confirmationOutcome).toBe(outcome);
+    // From the token and api's own clock, neither of which this app sends — and parsed as a `Date`, like every
+    // other date-time on the referral.
+    expect(result.data.confirmationRecordedBy).toBe(MOCK_CASEWORKER);
+    expect(result.data.confirmationReceivedAt).toBeInstanceOf(Date);
+    expect(result.data.confirmationRequestedAt).toBeInstanceOf(Date);
+    // The referral has not moved, because recording an answer is not a transition.
+    expect(result.data.state).toBe("Decided");
+  });
+
+  it("should take the case off the awaiting-confirmation worklist it was counted in", async () => {
+    const { caseId: id, referralId } = awaitingConfirmation();
+    const before = await listCases({ filter: "awaitingConfirmation", size: 1 }, config);
+    expect(before.ok && before.data.total).toBe(1);
+
+    await recordConfirmation(id, referralId, { outcome: "Confirmed" }, config);
+
+    const after = await listCases({ filter: "awaitingConfirmation", size: 1 }, config);
+    expect(after.ok && after.data.total).toBe(0);
+    // The case itself says it is waiting for nothing, which is the same answer read a second way.
+    const read = await getCase(id, config);
+    expect(read.ok && read.data.awaitingConfirmationSince).toBe(null);
+  });
+
+  it("should send the outcome and the note and nothing else, because the recorder is the token", async () => {
+    // Recorded off a server of its own, because what is pinned is the BODY: api publishes this one schema with
+    // `additionalProperties: true`, so a `confirmationRecordedBy` sent from here would be ignored rather than
+    // refused and nothing else would catch it.
+    const bodies: unknown[] = [];
+    const recorder = await listen(
+      createServer(async (req, res) => {
+        bodies.push(JSON.parse(await collect(req)));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(SAVED_REFERRAL));
+      })
+    );
+
+    try {
+      await recordConfirmation("case-1", "referral-1", { outcome: "Confirmed", note: "Replied by post" }, { baseUrl: recorder.url, timeoutMs: 2000 });
+      await recordConfirmation("case-1", "referral-1", { outcome: "Withdrawn" }, { baseUrl: recorder.url, timeoutMs: 2000 });
+
+      expect(bodies).toEqual([{ outcome: "Confirmed", note: "Replied by post" }, { outcome: "Withdrawn" }]);
+    } finally {
+      await recorder.close();
+    }
+  });
+
+  it("should report conflict when the answer has already been recorded", async () => {
+    const { caseId: id, referralId } = awaitingConfirmation();
+    await recordConfirmation(id, referralId, { outcome: "Confirmed" }, config);
+
+    const result = await recordConfirmation(id, referralId, { outcome: "Withdrawn" }, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("conflict");
+    expect(result.error.status).toBe(409);
+  });
+
+  it("should report conflict, with the same kind, when the referral was never asked to confirm", async () => {
+    // The two 409s are distinguishable only by their prose, which is exactly why nothing above this line may
+    // parse one: the page says its own sentence per case.
+    const id = await caseId();
+    const referralId = await referralOn(id);
+
+    const result = await recordConfirmation(id, referralId, { outcome: "Confirmed" }, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("conflict");
+  });
+
+  it("should report not-found for a referral recorded through the wrong case", async () => {
+    const { referralId } = awaitingConfirmation();
+    const other = await caseId();
+
+    const result = await recordConfirmation(other, referralId, { outcome: "Confirmed" }, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("not-found");
+  });
+
+  it("should report an outcome api never published against the field, rather than sending it as a fault", async () => {
+    const { caseId: id, referralId } = awaitingConfirmation();
+
+    // Only a tampered post can do this — the form offers api's two members — so what matters is that it is
+    // classified as the caller's mistake and addressed to the control.
+    const result = await recordConfirmation(id, referralId, { outcome: "Maybe" } as never, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("validation");
+    expect(result.error.fieldErrors?.map((error) => error.field)).toEqual(["outcome"]);
+  });
+
+  it("should report invalid-response when the saved referral comes back with an outcome api never published", async () => {
+    const liar = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ...SAVED_REFERRAL, confirmationOutcome: "Maybe" }));
+      })
+    );
+
+    try {
+      const result = await recordConfirmation("case-1", "referral-1", { outcome: "Confirmed" }, { baseUrl: liar.url, timeoutMs: 2000 });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      // Not passed on as a recorded outcome: a member this app cannot read reaching a page would render as a
+      // blank status beside a referral that has in fact been answered.
+      expect(result.error.kind).toBe("invalid-response");
+    } finally {
+      await liar.close();
+    }
+  });
+
+  it("should report unavailable rather than throwing when api cannot be reached", async () => {
+    const result = await recordConfirmation("case-1", "referral-1", { outcome: "Confirmed" }, { baseUrl: "http://localhost:1", timeoutMs: 500 });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("unavailable");
+  });
+
+  it("should report a timeout, distinctly from unavailable, when api never answers", async () => {
+    const silent = await listen(createServer(() => {}));
+
+    try {
+      const result = await recordConfirmation("case-1", "referral-1", { outcome: "Confirmed" }, { baseUrl: silent.url, timeoutMs: 50 });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.kind).toBe("timeout");
+    } finally {
+      await silent.close();
+    }
   });
 });
 
@@ -1694,6 +1854,49 @@ async function enrollableCaseId(): Promise<string> {
   }
 
   return id;
+}
+
+/**
+ * A seeded case whose referral has been asked whether the applicant still wants to proceed, and has not answered.
+ *
+ * **Seeded rather than driven, unlike `decidedReferral` and `refusedCase`, because the write that starts the wait
+ * is an email this app does not send**: notify-3's *Request confirmation to proceed* stamps
+ * `confirmationRequestedAt` at api's end, and the mock has no template for it. Everything after the ask is the
+ * contract, which is what these tests drive.
+ *
+ * `Decided` with a refusal on it, because that is the only way a case reaches this state: a judge refused the
+ * non-publication request, so the office asked the applicant whether to enrol anyway.
+ */
+function awaitingConfirmation(): { caseId: string; referralId: string } {
+  const waiting: MockCase["referrals"][number] = {
+    id: randomUUID(),
+    state: "Decided",
+    reasons: ["NonPublication"],
+    notes: null,
+    urgency: "Normal",
+    urgencyReason: null,
+    migrated: false,
+    claimedBy: "judge.a@example.com",
+    claimedById: "judge.a@example.com",
+    claimedAt: new Date("2026-03-15T09:00:00"),
+    decision: "Rejected",
+    directionsText: JUDGES_REASON,
+    publishToGazette: false,
+    decisionDate: new Date("2026-03-18T09:00:00"),
+    decidedBy: "judge.a@example.com",
+    decidedById: "judge.a@example.com",
+    confirmationRequestedAt: new Date("2026-03-21T09:00:00"),
+    confirmationOutcome: null,
+    confirmationReceivedAt: null,
+    confirmationRecordedBy: null,
+    createdBy: MOCK_CASEWORKER,
+    modifiedBy: MOCK_CASEWORKER,
+    createdOn: new Date("2026-03-10T09:00:00"),
+    modifiedOn: new Date("2026-03-18T09:00:00")
+  };
+  const seeded = mock.seed({ state: "Returned", dateReceived: DATE_RECEIVED, dateReturned: new Date("2026-03-20T00:00:00Z"), referrals: [waiting] });
+
+  return { caseId: seeded.id, referralId: waiting.id };
 }
 
 /** A referral raised over the contract, which is where every referral journey starts. */

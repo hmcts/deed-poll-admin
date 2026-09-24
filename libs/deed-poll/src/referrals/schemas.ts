@@ -1,5 +1,9 @@
 /**
- * The raise-a-referral form: the four things a caseworker ticks, chooses or types.
+ * The two referral forms: raising one — the four things a caseworker ticks, chooses or types — and recording the
+ * applicant's answer to *Request confirmation to proceed*, which is one answer and a note.
+ *
+ * Everything below about members, bounds and where a message lives applies to both; `recordConfirmationSchema`
+ * carries what is particular to it.
  *
  * **The members are never restated.** `reasons` and `urgency` are built from the client's published member
  * arrays, exactly as `../deed-poll/enums/option-sets.ts` builds its objects, so a member added at api's end
@@ -32,11 +36,14 @@
  * per field cannot say both. The *labels* are the page's, per the plan's decision 2: the wire values are
  * api's enum members, the human wording is ours.
  */
-import { REFERRAL_REASON, URGENCY } from "@hmcts/deed-poll-api-client";
+import { CONFIRMATION_OUTCOME, REFERRAL_REASON, URGENCY } from "@hmcts/deed-poll-api-client";
 import { z } from "zod";
 
 /** api's `CreateReferralRequest.notes` maxLength. */
 export const MAX_REFERRAL_NOTES = 1000;
+
+/** api's `RecordConfirmationRequest.note` maxLength. Same cap as a referral's notes, a different field. */
+export const MAX_CONFIRMATION_NOTE = 1000;
 
 /** api's `CreateReferralRequest.urgencyReason` maxLength. */
 export const MAX_REFERRAL_URGENCY_REASON = 500;
@@ -93,5 +100,35 @@ export const createReferralSchema = z
     }
   });
 
+/**
+ * The record-the-applicant's-response form: one answer, and the note that evidences it.
+ *
+ * **`outcome` is the only required property, as it is at api's end**, and the members are api's published array
+ * rather than two strings typed out again — so a third answer added there is a type error here instead of a
+ * radio nobody rendered. The absent-value message and the member message say the same thing: a post naming a
+ * value the form never offered is tampering, and zod's default for an enum prints api's whole vocabulary.
+ *
+ * **The note is optional and must stay optional.** api trims it and treats whitespace-only as none, which is why
+ * the transform below matches `createReferralSchema`'s rather than doing something of its own — and it is capped
+ * at api's published 1,000, enforced here so a 1,001st character is a message beside the field rather than a 400
+ * a caseworker cannot act on. Widen the cap and api's 400 is what they meet.
+ *
+ * **Nothing here refuses a second answer or an unasked referral.** Both are states of the referral rather than
+ * facts about this form, api answers 409 for each, and a schema that guessed would be a second authority going
+ * stale the moment another caseworker recorded the answer.
+ */
+export const recordConfirmationSchema = z.object({
+  outcome: z.enum(CONFIRMATION_OUTCOME, { error: "Select what the applicant said about proceeding" }),
+  note: z
+    .string({ error: `The note must be ${MAX_CONFIRMATION_NOTE} characters or fewer` })
+    .trim()
+    .max(MAX_CONFIRMATION_NOTE, `The note must be ${MAX_CONFIRMATION_NOTE} characters or fewer`)
+    .optional()
+    .transform((value) => (value === undefined || value === "" ? undefined : value))
+});
+
 /** What a validated raise-a-referral form holds. The referral's state and author are api's, so neither is here. */
 export type CreateReferralInput = z.output<typeof createReferralSchema>;
+
+/** What a validated record-the-response form holds. The recorder and the date are api's, so neither is here. */
+export type RecordConfirmationInput = z.output<typeof recordConfirmationSchema>;
