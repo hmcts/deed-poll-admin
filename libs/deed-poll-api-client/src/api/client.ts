@@ -61,6 +61,11 @@ import {
  * enum members and Dynamics label maps out of them now that Prisma's generated ones are going.
  */
 export {
+  // The applicant's two possible answers to *Request confirmation to proceed*. Re-exported for the same reason
+  // as the option sets: the confirmation form renders a radio per member, and the members are api's. It is the
+  // one vocabulary here that is NOT a named schema in the document — api publishes both member lists inline —
+  // so `contract.test.ts` pins it against the two properties that carry it.
+  CONFIRMATION_OUTCOME,
   DEED_POLL_STATE,
   DEED_POLL_TYPE,
   DOCUMENT_DIRECTION,

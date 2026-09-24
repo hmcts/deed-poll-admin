@@ -49,6 +49,7 @@
         "operationId": "cases",
         "parameters": [
           {
+            "description": "Which tab of the case list to return: `all` (All applications), `open` (Open), `received` (Received), `enroled` (Enroled), `returned` (Returned), `awaitingConfirmation` (Awaiting confirmation). An unrecognised or repeated value falls back to `all` rather than being refused, because the key comes from a URL a caseworker may have bookmarked -- the response echoes the key that was actually applied, so the fallback is observable. ANDs with `q` and every `where` condition. `awaitingConfirmation` is the cases still waiting for an applicant's reply to the Request confirmation to proceed email, and each row on it carries `daysAwaitingConfirmation`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -79,7 +80,7 @@
             }
           },
           {
-            "description": "An order, as `field:asc|desc`. The direction may be omitted and defaults to ascending. Sortable fields are the columns the list shows: referencenumber, displayReference, dateOfApplication, inPerson, postCounter, feeReference, dateReceived, type, maritalStatus, minorDateOfBirth, ageOfMinor, ageOfMinorMonths, parents, privacy, state, currentReferralState, urgency, urgencyreason, onlineApplicationReference, retainPermanently, awaitingFurtherDocsInfo, newForename, newMiddleName, newSurname, oldForename, oldMiddleName, oldSurname, applicantBuildingNoName, applicantAddress1, applicantAddress2, applicantTownCity, applicantPostcode, applicantEmail, applicantTelephone, representativeName, representativeCompany, representativeEmail, representativeTelephone, representativeBuildingNoName, representativeAddress1, representativeAddress2, representativeTownCity, representativePostcode, nationality, nationalitySection, nationalitySectionOther, dateOfDeclaration, referToMasterChoice, dateReadyForMaster, dateReferred, referralNotes, masterName, masterDirections, masterDecision, masterDateOfDecision, dateDecisionDirectionsReceived, publishToLondonGazette, signatureRequestedDate, signatureReceivedDate, dateEnroled, dateNoticeSentToLondonGazette, dateReturned, returnReason, refundAmount, dateOfRefund, refundReference, createdOn, modifiedOn, createdBy, modifiedBy. Defaults to newest first.",
+            "description": "An order, as `field:asc|desc`. The direction may be omitted and defaults to ascending. Sortable fields are the columns the list shows: referencenumber, displayReference, dateOfApplication, inPerson, postCounter, feeReference, dateReceived, type, maritalStatus, minorDateOfBirth, ageOfMinor, ageOfMinorMonths, parents, privacy, state, currentReferralState, urgency, urgencyreason, onlineApplicationReference, retainPermanently, awaitingFurtherDocsInfo, newForename, newMiddleName, newSurname, oldForename, oldMiddleName, oldSurname, applicantBuildingNoName, applicantAddress1, applicantAddress2, applicantTownCity, applicantPostcode, applicantEmail, applicantTelephone, representativeName, representativeCompany, representativeEmail, representativeTelephone, representativeBuildingNoName, representativeAddress1, representativeAddress2, representativeTownCity, representativePostcode, nationality, nationalitySection, nationalitySectionOther, dateOfDeclaration, referToMasterChoice, dateReadyForMaster, dateReferred, referralNotes, masterName, masterDirections, masterDecision, masterDateOfDecision, dateDecisionDirectionsReceived, publishToLondonGazette, signatureRequestedDate, signatureReceivedDate, dateEnroled, dateNoticeSentToLondonGazette, dateReturned, returnReason, refundAmount, dateOfRefund, refundReference, awaitingConfirmationSince, createdOn, modifiedOn, createdBy, modifiedBy. Defaults to newest first, except on the `awaitingConfirmation` filter, which defaults to `awaitingConfirmationSince:asc` -- longest wait first.",
             "in": "query",
             "name": "sort",
             "required": false,
@@ -409,6 +410,7 @@
             }
           },
           {
+            "description": "Which email. Matched exactly -- a near miss is a 404 naming what would have been accepted, because this token is a value the caller read out of GET /caseworker/cases/{id}/emails. One of: application-rejected (Application rejected), request-confirmation-to-proceed (Request confirmation to proceed). That GET is also where a client learns which of them this case may have sent and whether this environment can send it at all: a template it reports as inapplicable is a 409 here, and an unprovisioned one fails at GOV.UK Notify.",
             "in": "path",
             "name": "template",
             "required": true,
@@ -454,6 +456,7 @@
             }
           },
           {
+            "description": "Which email. Matched exactly -- a near miss is a 404 naming what would have been accepted, because this token is a value the caller read out of GET /caseworker/cases/{id}/emails. One of: application-rejected (Application rejected), request-confirmation-to-proceed (Request confirmation to proceed). That GET is also where a client learns which of them this case may have sent and whether this environment can send it at all: a template it reports as inapplicable is a 409 here, and an unprovisioned one fails at GOV.UK Notify.",
             "in": "path",
             "name": "template",
             "required": true,
@@ -784,6 +787,52 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-referral-controller"]
+      }
+    },
+    "/caseworker/cases/{id}/referrals/{referralId}/confirmation": {
+      "post": {
+        "operationId": "recordConfirmation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordConfirmationRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1408,6 +1457,10 @@
           "applicantTownCity": {
             "type": "string"
           },
+          "awaitingConfirmationSince": {
+            "type": "string",
+            "format": "date-time"
+          },
           "awaitingFurtherDocsInfo": {
             "type": "string",
             "format": "date-time"
@@ -1734,6 +1787,10 @@
           "dateReceived": {
             "type": "string",
             "format": "date-time"
+          },
+          "daysAwaitingConfirmation": {
+            "type": "integer",
+            "format": "int32"
           },
           "displayReference": {
             "type": "string"
@@ -2097,7 +2154,7 @@
           "filter": {
             "type": "string",
             "description": "Which case-list filter tab the view opens on.",
-            "enum": ["all", "open", "received", "enroled", "returned"]
+            "enum": ["all", "open", "received", "enroled", "returned", "awaitingConfirmation"]
           },
           "name": {
             "type": "string",
@@ -2606,6 +2663,23 @@
           }
         }
       },
+      "RecordConfirmationRequest": {
+        "additionalProperties": true,
+        "description": "The applicant's answer to the Request confirmation to proceed email, as the caseworker who read their reply records it. Recording it does not move the case on: no date is set or cleared, and the caseworker then does whatever the process requires through the ordinary case edit. Idempotent by refusal rather than last-write-wins -- a second answer is a 409 naming what is already recorded and when, and an answer on a referral that was never asked to confirm is a 409 too. The referral comes from the path, and the recording caseworker and the date come from the token and the clock, so confirmationRecordedBy and confirmationReceivedAt are ignored rather than refused, as any unknown key is.",
+        "properties": {
+          "note": {
+            "type": "string",
+            "description": "What the caseworker wants the case timeline to say about the reply. Optional -- the outcome is the fact -- trimmed, and a whitespace-only value counts as none.",
+            "maxLength": 1000
+          },
+          "outcome": {
+            "type": "string",
+            "description": "What the applicant answered. Matched exactly, as the stored form is the wire form: Confirmed means they still want the deed enrolled knowing it will be published, and Withdrawn that they do not and want a refund.",
+            "enum": ["Confirmed", "Withdrawn"]
+          }
+        },
+        "required": ["outcome"]
+      },
       "ReferralResponse": {
         "type": "object",
         "properties": {
@@ -2615,6 +2689,21 @@
           },
           "claimedBy": {
             "type": "string"
+          },
+          "confirmationOutcome": {
+            "type": "string",
+            "enum": ["Confirmed", "Withdrawn"]
+          },
+          "confirmationReceivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "confirmationRecordedBy": {
+            "type": "string"
+          },
+          "confirmationRequestedAt": {
+            "type": "string",
+            "format": "date-time"
           },
           "createdBy": {
             "type": "string"
@@ -2713,6 +2802,10 @@
           },
           "applicantTownCity": {
             "type": "string"
+          },
+          "awaitingConfirmationSince": {
+            "type": "string",
+            "format": "date-time"
           },
           "awaitingFurtherDocsInfo": {
             "type": "string",
@@ -3339,7 +3432,7 @@
           "filter": {
             "type": "string",
             "description": "Which case-list filter tab the view opens on.",
-            "enum": ["all", "open", "received", "enroled", "returned"]
+            "enum": ["all", "open", "received", "enroled", "returned", "awaitingConfirmation"]
           },
           "name": {
             "type": "string",

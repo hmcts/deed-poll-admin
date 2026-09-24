@@ -71,14 +71,33 @@ export const REFERRAL_STATE = ["Open", "Claimed", "Decided", "Closed", "Withdraw
 export const REFERRAL_REASON = ["Minor", "DomesticAbuse", "NonPublication", "DeclarantRequirementsNotMet", "SeparatedOrEstranged", "Other"] as const;
 
 /**
+ * What an applicant answered when asked whether they still want their deed enrolled, as api's
+ * `ConfirmationOutcome` declares it.
+ *
+ * **Not a named schema in the document.** api publishes both member lists inline — on
+ * `RecordConfirmationRequest.outcome` and on `ReferralResponse.confirmationOutcome` — so there is no
+ * `ConfirmationOutcome` to register in `WIRE_SCHEMAS`, and the members are pinned by the enum comparison on
+ * each of those two properties instead.
+ *
+ * `Withdrawn` is a referral outcome and not a case state: a withdrawn applicant's case is still `Returned`,
+ * and nothing above this layer may read the member as terminal. It collides by name with
+ * `REFERRAL_STATE`'s `Withdrawn`, which is a caseworker withdrawing the *referral* — a different fact about a
+ * different thing, and both names are api's.
+ */
+export const CONFIRMATION_OUTCOME = ["Confirmed", "Withdrawn"] as const;
+
+/**
  * The case-list filter keys, as api's own `LIST_FILTERS` table orders them.
  *
  * Lower case, unlike every vocabulary above: these are URL parameter values rather than stored option-set
  * members. api publishes them as the `filter` enum on both saved-query bodies, and `contract.test.ts`
  * asserts these members against it — so a tab api adds fails here rather than becoming a saved query this
  * app cannot round-trip.
+ *
+ * `awaitingConfirmation` is appended rather than slotted beside the other state tabs, because api appends it:
+ * the order here is the order a saved query round-trips and the order the tabs render in.
  */
-export const LIST_FILTER = ["all", "open", "received", "enroled", "returned"] as const;
+export const LIST_FILTER = ["all", "open", "received", "enroled", "returned", "awaitingConfirmation"] as const;
 
 /** The two `sortDirection` tokens api matches exactly. A bare field with no direction means ascending. */
 export const SORT_DIRECTION = ["asc", "desc"] as const;
@@ -200,6 +219,12 @@ const savedCaseSchema = z.object({
   // never been referred, and a case whose referral closed has none live either.
   currentReferralState: z.enum(REFERRAL_STATE).nullish(),
 
+  // When the applicant was asked whether they still want their deed enrolled and has not yet answered, or
+  // null. api's denormalisation, recomputed in the transaction that records the answer, and the only thing
+  // that says a case is waiting: there is no ninth case state and `state` still reads `Returned`. Never
+  // derived here from a referral or from correspondence history.
+  awaitingConfirmationSince: wireDateTime.nullish(),
+
   returnReason: z.string().nullish(),
   refundAmount: z.number().nullish(),
   dateOfRefund: wireDateTime.nullish(),
@@ -274,6 +299,13 @@ const documentSchema = z.object({
  *
  * `publishToGazette` is nullable where `migrated` is not: api boxes it deliberately, because a referral with
  * no direction has not been asked the question and absent is not false.
+ *
+ * The four `confirmation*` fields are the applicant's answer to the *Request confirmation to proceed* email and
+ * api's record of who transcribed it. All four are nullable and they move in pairs rather than independently:
+ * `confirmationRequestedAt` alone is a referral still waiting, and the other three arrive together when the
+ * answer is recorded. **`confirmationReceivedAt` is when the caseworker recorded the reply and never when the
+ * applicant sent it** — api stamps it from its own clock — so nothing above here may present it as the date of
+ * the reply.
  */
 const referralSchema = z.object({
   id: z.string(),
@@ -290,6 +322,10 @@ const referralSchema = z.object({
   publishToGazette: z.boolean().nullish(),
   decisionDate: wireDateTime.nullish(),
   decidedBy: z.string().nullish(),
+  confirmationRequestedAt: wireDateTime.nullish(),
+  confirmationOutcome: z.enum(CONFIRMATION_OUTCOME).nullish(),
+  confirmationReceivedAt: wireDateTime.nullish(),
+  confirmationRecordedBy: z.string().nullish(),
   createdBy: z.string().nullish(),
   modifiedBy: z.string().nullish(),
   createdOn: wireDateTime.nullish(),
@@ -321,7 +357,13 @@ const caseSummarySchema = z.object({
   newSurname: z.string().nullish(),
   // On the summary as well as the detail so a worklist can show which rows are with the judiciary without a
   // read per row. Same value and same rule as `savedCaseSchema`'s.
-  currentReferralState: z.enum(REFERRAL_STATE).nullish()
+  currentReferralState: z.enum(REFERRAL_STATE).nullish(),
+  // How long the applicant has been asked to confirm, counted by api and rendered rather than recalculated —
+  // `int32`, so it is whole days. Published on EVERY row and null for a case waiting for nothing, which is
+  // nearly all of them; `0` on the day the email was sent, never 1. The `awaitingConfirmation` tab is the only
+  // one that shows it, which is a choice about which table needs a workflow column and not about where the
+  // value exists.
+  daysAwaitingConfirmation: z.int().nullish()
 });
 
 /**
@@ -490,6 +532,27 @@ const createReferralSchema = z.object({
   notes: z.string().max(1000).optional(),
   urgency: z.enum(URGENCY).optional(),
   urgencyReason: z.string().max(500).optional()
+});
+
+/**
+ * The applicant's answer to *Request confirmation to proceed*, as the caseworker who read the reply records it.
+ *
+ * `outcome` is the only required property and the only fact: `note` is the evidence for it, optional, and capped
+ * at api's published 1,000 — enforced here so a 1,001st character is a message against the field rather than a
+ * 400 a caseworker cannot act on. api trims it and treats a whitespace-only value as none, so neither is done
+ * here; a schema that trimmed would be a second opinion about what was stored.
+ *
+ * **No `confirmationRecordedBy` and no `confirmationReceivedAt`.** api takes the recorder from the token and the
+ * date from its own clock, and — alone among the write bodies that matter — it publishes
+ * `additionalProperties: true`, so either one sent from here would be **ignored rather than refused**. Their
+ * absence is therefore pinned by `contract.test.ts` and nothing else would catch them.
+ *
+ * Recording is idempotent by refusal: a second answer and an answer on a referral that was never asked are both
+ * 409s. Neither is a rule this schema can express or should try to.
+ */
+const recordConfirmationSchema = z.object({
+  outcome: z.enum(CONFIRMATION_OUTCOME),
+  note: z.string().max(1000).optional()
 });
 
 /**
@@ -901,6 +964,7 @@ export const WIRE_SCHEMAS = {
   CreateSavedQueryRequest: createSavedQuerySchema,
   UpdateSavedQueryRequest: updateSavedQuerySchema,
   CreateReferralRequest: createReferralSchema,
+  RecordConfirmationRequest: recordConfirmationSchema,
   ReferralResponse: referralSchema,
   JudicialDirectionRequest: judicialDirectionSchema,
   JudicialPoolResponse: judicialPoolSchema,
@@ -1036,6 +1100,8 @@ export type WireSavedQueryUpdate = z.input<typeof updateSavedQuerySchema>;
 export type WireReferral = z.infer<typeof referralSchema>;
 /** `z.input` for the write, as `WireCaseWrite` is: a body is what goes out, before any transform. */
 export type WireReferralCreate = z.input<typeof createReferralSchema>;
+/** `z.input` for the same reason. `outcome` is required, `note` is not, and neither audit field is here. */
+export type WireRecordConfirmation = z.input<typeof recordConfirmationSchema>;
 export type WireJudicialPool = z.infer<typeof judicialPoolSchema>;
 export type WireJudicialMyReferrals = z.infer<typeof judicialMyReferralsSchema>;
 export type WireJudicialReferralSummary = z.infer<typeof judicialReferralSummarySchema>;

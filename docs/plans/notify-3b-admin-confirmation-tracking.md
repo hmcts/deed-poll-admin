@@ -226,6 +226,9 @@ figures both times: `deed-poll` 1,056, app 1,304, `deed-poll-api-client` 422, `c
 file count of 166 was right. Nothing on this branch removed a test — every commit since `f5d427e` is
 documentation — so 3,125 was a mis-transcription rather than a regression. **Task 5 must compare against 3,120.**
 
+**Running count as each task lands, so Task 5 compares against a figure rather than reconstructing one:** Task 1
+took it to **3,125 across 166 files** (five contract-test cases, no new file).
+
 Notes so no task rediscovers them:
 
 - **`yarn build` is in the list and must stay.** `vitest` transpiles without type-checking, so `yarn test`
@@ -334,7 +337,39 @@ Otherwise:
   not a discovery.
 - **No notify-2 status update is needed**: it is complete and its contract gate was satisfied by its own import.
 
-- [ ] the generated document and provenance name the merged api commit, all outstanding contract additions
+**Done, 2026-09-24, and the delta was exactly what Task 0 measured.** The document came from
+`/tmp/openapi-specs.json` rather than `curl`, so `servers[0].url` stayed `http://localhost`; the file diff is **96
+insertions, 3 deletions**, and all three deletions are a line replaced by its longer self (the `sort` description
+and the two `filter` enums). 39 → 40 operations, 38 → 39 schemas, which are the numbers api's own
+`OpenAPIPublisherTest` fails on — `isEqualTo(34)` caseworker and `isEqualTo(5)` judicial at `83ec959`, read from
+the api clone rather than inferred. No `operationId` shifted and no pre-existing operation changed structurally.
+
+Registered: `RecordConfirmationRequest` in `WIRE_SCHEMAS` (and in the contract test's request list, so it is
+excluded from the response-strictness sweep rather than inheriting a blank one), the operation in
+`IMPLEMENTED_OPERATIONS`, `awaitingConfirmationSince` on `savedCaseSchema` — which `caseDetailSchema` extends, so
+**one** edit registers it on both schemas api added it to — `daysAwaitingConfirmation` on `caseSummarySchema`, the
+four `confirmation*` properties on `referralSchema`, and `awaitingConfirmation` appended to `LIST_FILTER`.
+`CONFIRMATION_OUTCOME` is a new exported member array beside `REFERRAL_STATE`, re-exported from `client.ts`
+because a radio per member is Task 4's, and it is pinned by the drift test's enum comparison on **both** inline
+properties rather than by a schema registration.
+
+Three things worth not rediscovering:
+
+- **`STRICT_RESPONSE_PROPERTIES` needed no change at all**, and that is the correct answer rather than an
+  oversight: all five new response properties are nullable — four of them move in pairs and the fifth is `null`
+  for nearly every case — and none is a Java primitive, a collection or an id, which are the only three kinds
+  that list admits.
+- **The sortable-field list went 70 → 71 and the determinism fix holds.** `awaitingConfirmationSince` is inserted
+  at index 66, the 70 shared names are in byte-identical order, and `createdOn, modifiedOn, createdBy, modifiedBy`
+  are still the last four. `where` and `q` are byte-identical, so nothing in `query-fields.ts` is affected.
+- **Adding `awaitingConfirmationSince` to `savedCaseSchema` also made it queryable in the mock**, because
+  `QUERYABLE_FIELDS` derives from that schema's shape minus `id` and the two day counts. That is right rather
+  than incidental — api publishes it as a sortable field — and it is why the mock needed no edit for the import.
+
+Test count: **3,125 across 166 files**, up 5 from the 3,120 baseline. All five are new contract-test cases (three
+written here, plus the two the per-schema loop generates for `RecordConfirmationRequest`); no file was added.
+
+- [x] the generated document and provenance name the merged api commit, all outstanding contract additions
       are registered atomically, keyed request bodies are non-empty, and the contract tests are green
 
 ### Task 2: Add the adapter, domain service and stateful mock
