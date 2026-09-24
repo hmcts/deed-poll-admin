@@ -1,4 +1,4 @@
-import { countReturnedForAction, findDeedPolls, findSavedQueries, InvalidInputError } from "@hmcts/deed-poll";
+import { countAwaitingConfirmation, countReturnedForAction, findDeedPolls, findSavedQueries, InvalidInputError } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET } from "./index.js";
@@ -6,11 +6,12 @@ import { GET } from "./index.js";
 // The filters and the row formatting are the domain's, and tested there. Only the api calls are
 // replaced, so this exercises the page against the real filter, nav and view-model logic.
 //
-// `countReturnedForAction` is stubbed alongside them rather than left to the spread original, which would
-// reach its own module-internal `findDeedPolls` and so the real api — the count is a third round trip, not a
+// Both counts are stubbed alongside them rather than left to the spread original, which would
+// reach its own module-internal `findDeedPolls` and so the real api — a count is a round trip of its own, not a
 // pure function of the two mocked here.
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  countAwaitingConfirmation: vi.fn(),
   countReturnedForAction: vi.fn(),
   findDeedPolls: vi.fn(),
   findSavedQueries: vi.fn()
@@ -64,6 +65,7 @@ describe("deed-polls list page", () => {
     vi.mocked(findDeedPolls).mockResolvedValue(page([]) as never);
     vi.mocked(findSavedQueries).mockResolvedValue([] as never);
     vi.mocked(countReturnedForAction).mockResolvedValue(0);
+    vi.mocked(countAwaitingConfirmation).mockResolvedValue(0);
   });
 
   it("renders its own template, qualified by directory so it cannot be shadowed by pages/index.njk", async () => {
@@ -132,7 +134,7 @@ describe("deed-polls list page", () => {
     const groups = res.render.mock.calls[0][1].filterGroups;
     expect(groups).toHaveLength(1);
     expect(groups[0].label).toBe("Status");
-    expect(groups[0].entries).toHaveLength(5);
+    expect(groups[0].entries).toHaveLength(6);
   });
 
   it("passes the filter tabs without their where clauses", async () => {
@@ -434,6 +436,205 @@ describe("deed-polls list page", () => {
     // string, including the English one, so it read as coverage of a bilingual path and verified nothing.
   });
 
+  /**
+   * The "awaiting confirmation" count — `notify-3b` decision 3, and the second worklist on this page.
+   *
+   * What the count IS is api's: it resolves the published `awaitingConfirmation` filter, and
+   * `awaiting-confirmation.test.ts` pins that the key rather than a client-side predicate is what goes on the
+   * wire. What this page owns is that the number reaches the screen in its own three states, that it is read as
+   * its own query, that its link is the same filter the count was read with, and that neither count can take the
+   * other — or the case list — down with it.
+   */
+  describe("the awaiting-confirmation count", () => {
+    /** The worklist as the URL states it: the same filter key the count is read with. */
+    const WORKLIST_HREF = "/deed-polls?filter=awaitingConfirmation";
+
+    it("reads the count with the caseworker's own token, once per page", async () => {
+      await GET(pageRequest({ accessToken: "caseworker-token" }), pageResponse());
+
+      expect(countAwaitingConfirmation).toHaveBeenCalledTimes(1);
+      expect(countAwaitingConfirmation).toHaveBeenCalledWith({ accessToken: "caseworker-token" });
+    });
+
+    it("states the count and links to the worklist when applications are waiting", async () => {
+      vi.mocked(countAwaitingConfirmation).mockResolvedValue(6);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.awaitingConfirmation).toBe("6 applications are waiting for the applicant to confirm they want to proceed");
+      expect(model.awaitingConfirmationHref).toBe(WORKLIST_HREF);
+    });
+
+    it("states a single application in the singular", async () => {
+      vi.mocked(countAwaitingConfirmation).mockResolvedValue(1);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].awaitingConfirmation).toBe("1 application is waiting for the applicant to confirm they want to proceed");
+    });
+
+    it("says nothing at all when nothing is waiting, because an alert with a zero in it is not an alert", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].awaitingConfirmation).toBe("");
+      expect(res.render.mock.calls[0][1].awaitingConfirmationFailed).toBe(false);
+    });
+
+    it("links to the exact filter it counted with, so clicking the number runs the query that produced it", async () => {
+      vi.mocked(countAwaitingConfirmation).mockResolvedValue(2);
+      const res = pageResponse();
+
+      await GET(pageRequest({ accessToken: "caseworker-token", query: { filter: "enroled", q: "Smith", sort: "state:desc", page: "2" } }), res);
+
+      // Global, and so not narrowed by the tab it was clicked from: no term, no order, no page.
+      expect(res.render.mock.calls[0][1].awaitingConfirmationHref).toBe(WORKLIST_HREF);
+      expect(vi.mocked(countAwaitingConfirmation).mock.calls).toEqual([[{ accessToken: "caseworker-token" }]]);
+    });
+
+    it("tells the page the count failed, so a missing banner cannot read as nothing waiting", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(findDeedPolls).mockResolvedValue(page([record]) as never);
+      vi.mocked(countAwaitingConfirmation).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.awaitingConfirmationFailed).toBe(true);
+      expect(model.awaitingConfirmation).toBe("");
+      expect(model.en.awaitingConfirmationUnavailable).toContain("could not be loaded");
+      // And the list is untouched: the count is one element above it, not the page.
+      expect(model.cases).toHaveLength(1);
+      expect(res.status).not.toHaveBeenCalled();
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("awaiting-confirmation count unavailable"));
+      logged.mockRestore();
+    });
+
+    it("logs which count degraded, and no caseworker, case or query with it", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(countAwaitingConfirmation).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+
+      await GET(pageRequest({ accessToken: "caseworker-token", query: { q: "Smith" } }), pageResponse());
+
+      const line = logged.mock.calls.flat().join(" ");
+      expect(line).toContain("awaiting-confirmation count unavailable");
+      expect(line).not.toContain("caseworker-token");
+      expect(line).not.toContain("Smith");
+      logged.mockRestore();
+    });
+
+    it("degrades each count on its own, so one unreadable number does not silence the other", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(countReturnedForAction).mockResolvedValue(4);
+      vi.mocked(countAwaitingConfirmation).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.returnedForAction).toBe("4 applications have a returned direction needing action");
+      expect(model.returnedForActionFailed).toBe(false);
+      expect(model.awaitingConfirmationFailed).toBe(true);
+      logged.mockRestore();
+    });
+
+    it("states both worklists when both have work, since they are two separate queues", async () => {
+      vi.mocked(countReturnedForAction).mockResolvedValue(4);
+      vi.mocked(countAwaitingConfirmation).mockResolvedValue(6);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.returnedForAction).toBe("4 applications have a returned direction needing action");
+      expect(model.awaitingConfirmation).toBe("6 applications are waiting for the applicant to confirm they want to proceed");
+      // Two links, and two different destinations: one is a condition, the other api's filter key.
+      expect(model.returnedForActionHref).not.toBe(model.awaitingConfirmationHref);
+    });
+
+    it("still counts when api refuses the caseworker's own query, which is a different query", async () => {
+      vi.mocked(countAwaitingConfirmation).mockResolvedValue(3);
+      vi.mocked(findDeedPolls).mockRejectedValue(new InvalidInputError("Case query is not valid", [{ field: "where.0", message: "names no case field" }]));
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: "nonsense:is:1" } }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].awaitingConfirmation).toBe("3 applications are waiting for the applicant to confirm they want to proceed");
+    });
+  });
+
+  /**
+   * The waiting worklist itself — `notify-3b` decision 4. api filters, orders and pages it; this page adds one
+   * column and otherwise gets out of the way.
+   */
+  describe("the awaiting-confirmation worklist", () => {
+    /** Two rows in the order api returned them: longest wait first, which is the tab's own default. */
+    const waiting = [
+      { ...record, id: "case-1", daysAwaitingConfirmation: 14 },
+      { ...record, id: "case-2", daysAwaitingConfirmation: 0 }
+    ];
+
+    it("sends api the filter key and no order, so the tab's longest-waiting default stands", async () => {
+      await GET(pageRequest({ query: { filter: "awaitingConfirmation" } }), pageResponse());
+
+      expect(findDeedPolls).toHaveBeenCalledWith({ filter: "awaitingConfirmation", conditions: [] }, expect.anything());
+    });
+
+    it("adds the Waiting column on this tab, where the wait is what the list is about", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue(page(waiting) as never);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "awaitingConfirmation" } }), res);
+
+      expect(res.render.mock.calls[0][1].waitingColumn).toBe("Waiting");
+    });
+
+    it.each(["all", "open", "received", "enroled", "returned"])(
+      "adds no Waiting column on the %s tab, so a workflow column does not occupy space on every list",
+      async (filter) => {
+        const res = pageResponse();
+
+        await GET(pageRequest({ query: { filter } }), res);
+
+        expect(res.render.mock.calls[0][1].waitingColumn).toBe("");
+      }
+    );
+
+    it("renders api's day count per row, including day zero, and does no arithmetic of its own", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue(page(waiting) as never);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "awaitingConfirmation" } }), res);
+
+      expect(res.render.mock.calls[0][1].cases.map((row: { waiting: string }) => row.waiting)).toEqual(["14 days", "Today"]);
+    });
+
+    it("keeps the rows in the order api sent them, longest wait first, rather than sorting locally", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue(page(waiting) as never);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "awaitingConfirmation" } }), res);
+
+      expect(res.render.mock.calls[0][1].cases.map((row: { id: string }) => row.id)).toEqual(["case-1", "case-2"]);
+    });
+
+    it("pages the worklist with api's own counts, so the tab is not a fetch-everything-and-narrow", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ filter: "awaitingConfirmation", cases: waiting, page: 2, size: 25, total: 31, totalPages: 2 } as never);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "awaitingConfirmation", page: "2" } }), res);
+
+      expect(findDeedPolls).toHaveBeenCalledWith({ filter: "awaitingConfirmation", conditions: [], page: 2 }, expect.anything());
+      expect(res.render.mock.calls[0][1].paging.total).toBe(31);
+    });
+  });
+
   describe("the query", () => {
     it("sends api the conditions the URL carries, so the query is the URL and not a session draft", async () => {
       await GET(pageRequest({ query: { where: ["type:is:Adult", "dateReceived:after:2026-01-01"] } }), pageResponse());
@@ -480,7 +681,8 @@ describe("deed-polls list page", () => {
         "/deed-polls?filter=open&where=type%3Ais%3AAdult",
         "/deed-polls?filter=received&where=type%3Ais%3AAdult",
         "/deed-polls?filter=enroled&where=type%3Ais%3AAdult",
-        "/deed-polls?filter=returned&where=type%3Ais%3AAdult"
+        "/deed-polls?filter=returned&where=type%3Ais%3AAdult",
+        "/deed-polls?filter=awaitingConfirmation&where=type%3Ais%3AAdult"
       ]);
     });
 
@@ -654,7 +856,8 @@ describe("deed-polls list page", () => {
         "/deed-polls?filter=open&q=Smith",
         "/deed-polls?filter=received&q=Smith",
         "/deed-polls?filter=enroled&q=Smith",
-        "/deed-polls?filter=returned&q=Smith"
+        "/deed-polls?filter=returned&q=Smith",
+        "/deed-polls?filter=awaitingConfirmation&q=Smith"
       ]);
     });
 

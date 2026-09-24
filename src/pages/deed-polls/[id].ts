@@ -46,6 +46,7 @@
  * nothing at all to show, where a failed referrals read still has the retired fields.
  */
 import {
+  awaitingConfirmationRequestedOn,
   buildCaseHeader,
   buildDetailTabs,
   buildDocumentsView,
@@ -71,6 +72,14 @@ const en = {
   privateTag: "Private",
   declarantTag: "Declarant",
   bannerTitle: "Important",
+  // Beside the case state and never instead of it — `notify-3b` decision 2. There is no ninth case state, so
+  // `Returned` is still what the header's State row reads and this sentence is the only thing that says the case
+  // is waiting. It states the fact and the date and stops: what a confirmed case is then ready for, and which
+  // date a caseworker should set next, is the open business question of `notify-3b` flag 1, so no wording here
+  // may imply one (decision 8). "was asked on" rather than "since" because the date is when the email was sent,
+  // and it is the EARLIEST outstanding request where a case holds two — see `awaitingConfirmationRequestedOn`.
+  awaitingConfirmationFor: (requestedOn: string) =>
+    `The applicant was asked on ${requestedOn} whether they want to proceed, and has not replied yet. Their reply is recorded against the referral it was requested for — see the Referrals tab.`,
   noneRecorded: "None recorded.",
   notEdited: "Not edited",
   addNote: "Add a note",
@@ -203,10 +212,19 @@ export const GET = async (req: Request, res: Response) => {
     caller
   );
 
+  // Resolved here as well as by the render interceptor, because the waiting sentence interpolates a date the
+  // template does not have — the pattern `.claude/rules/frontend.md` gives for an `en` entry that is a function.
+  const content = res.locals.locale === "cy" ? cy : en;
+  // Off the case, like the legacy referral snapshot: `awaitingConfirmationSince` is api's own denormalisation, so
+  // the sentence survives a failed referrals read and is never derived from the referrals or the email history
+  // (decision 2). Empty rather than null, so the template asks "is there something to say".
+  const requestedOn = awaitingConfirmationRequestedOn(found);
+
   res.render("deed-polls/detail", {
     // The page title is the reference, so it is passed rather than sitting in `en`: it is data.
     pageHeading: found.displayReference,
     case: found,
+    awaitingConfirmation: requestedOn === null ? "" : content.awaitingConfirmationFor(requestedOn),
     presentation,
     // `referrals` and `emails` merged in because they are the two subgrids whose rows are not on the case —
     // see the docblock. A failed read passes `null`, which `subgridCount` counts as 0 and so marks the tab

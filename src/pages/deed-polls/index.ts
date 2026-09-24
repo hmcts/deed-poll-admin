@@ -16,6 +16,7 @@
  * formatting moved into the view model — see `list-view.ts`.
  */
 import {
+  AWAITING_CONFIRMATION_FILTER,
   buildCaseList,
   builderAction,
   builderDateErrors,
@@ -30,6 +31,7 @@ import {
   type CaseListSort,
   caseListSearch,
   conditionsFromBuilder,
+  countAwaitingConfirmation,
   countReturnedForAction,
   type FieldError,
   fieldControlName,
@@ -51,7 +53,8 @@ import {
   type SavedQueryNavGroups,
   serialiseConditions,
   serialiseSort,
-  unusedConditionRows
+  unusedConditionRows,
+  WAITING_COLUMN_LABEL
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../auth/current-user.js";
@@ -70,6 +73,19 @@ const QUERIES_PATH = "/deed-polls/queries";
  * worklist is the same query for every caseworker on every tab.
  */
 const RETURNED_FOR_ACTION_PATH = `${LIST_PATH}${caseListSearch({ conditions: returnedForActionConditions() })}`;
+
+/**
+ * The "awaiting confirmation" worklist: api's own filter key, as a link — `notify-3b` decision 3.
+ *
+ * The same key `countAwaitingConfirmation` sends, so the number and the list behind it cannot be two
+ * different questions. Unlike the returned-direction worklist this is a *filter* rather than a condition,
+ * because api publishes the tab: recreating "has an outstanding confirmation request" as a client-side `where`
+ * would be a second opinion about which cases are waiting.
+ *
+ * It carries no order, for the reason `countAwaitingConfirmation` sends none: api gives this tab its own
+ * default of longest wait first, and a `sort` in the link would override the order the worklist is for.
+ */
+const AWAITING_CONFIRMATION_PATH = `${LIST_PATH}${caseListSearch({ filter: AWAITING_CONFIRMATION_FILTER })}`;
 
 const en = {
   title: "Deed poll cases",
@@ -103,6 +119,18 @@ const en = {
   // is precisely what its silent absence used to say — see `returnedForActionCount`.
   returnedForActionUnavailable:
     "The number of applications with a returned direction could not be loaded, so this page cannot say whether any need action. Try again shortly.",
+  // "Awaiting confirmation" — `notify-3b` decision 3, and the same three states as the count above it. The
+  // sentence is about the APPLICANT not having replied, and says nothing about what the office does next: the
+  // business question of what a confirmed case is then ready for is still open (decision 8).
+  awaitingConfirmationFor: (count: number) =>
+    count === 1
+      ? "1 application is waiting for the applicant to confirm they want to proceed"
+      : `${count} applications are waiting for the applicant to confirm they want to proceed`,
+  // Its own words rather than the other banner's "View these applications": both links sit in the one banner,
+  // and two links reading the same thing is a list of identical destinations to anyone tabbing through it.
+  awaitingConfirmationLink: "View applications awaiting confirmation",
+  awaitingConfirmationUnavailable:
+    "The number of applications waiting for the applicant to confirm could not be loaded, so this page cannot say whether any are waiting. Try again shortly.",
   // GOV.UK's own fallback for the warning icon, which is decorative and needs a text equivalent.
   warningIcon: "Warning",
   newCase: "New case",
@@ -218,9 +246,12 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
   // this page needs, and one waiting on the other's round trip would put a second api latency in front of
   // every case list for the sake of a navigation bar.
   const savedQueries = savedQueryEntries(caller, view);
-  // A third query, and a different one from the list on screen — decisions 2 and 5. Not narrowed by this
-  // request: "N need action" is a fact about the service rather than about the tab being looked at.
-  const returnedForAction = returnedForActionCount(caller);
+  // Two more queries, and different ones from the list on screen — decisions 2 and 5, and `notify-3b`'s
+  // decision 3 for the second. Neither is narrowed by this request: "N need action" and "N are waiting" are
+  // facts about the service rather than about the tab being looked at. Started here and awaited after the
+  // list, so the three round trips overlap rather than queueing — `notify-3b` flag 4 is the note that a
+  // third banner should make api publish one work summary rather than adding a fourth query.
+  const counts = worklistCounts(caller);
 
   try {
     const results = await findDeedPolls({ filter: filter.key, q, conditions, sort: serialiseSort(sort), page }, caller);
@@ -234,7 +265,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
     // inferred from the rows this one holds — decision 9.
     const paging = buildPaging(results, (wanted) => listHref({ filter: filter.key, q, conditions, sort, page: wanted }));
 
-    return render(res, view, await savedQueries, await returnedForAction, buildCaseList(results.cases), paging, rowErrors, [], submitted);
+    return render(res, view, await savedQueries, await counts, buildCaseList(results.cases), paging, rowErrors, [], submitted);
   } catch (error) {
     if (!(error instanceof InvalidInputError)) throw error;
 
@@ -242,9 +273,9 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
     if (refusals.unaddressed.length > 0) console.error(`case query refused: ${error.message}`);
     res.status(400);
 
-    // No paging: a refused query has no page of results to be one of. The count survives, because the
-    // query it reads is not the one that was refused — decision 5.
-    return render(res, view, await savedQueries, await returnedForAction, [], null, [...rowErrors, ...refusals.rows], refusals.unaddressed, submitted);
+    // No paging: a refused query has no page of results to be one of. The counts survive, because the
+    // queries they read are not the one that was refused — decision 5.
+    return render(res, view, await savedQueries, await counts, [], null, [...rowErrors, ...refusals.rows], refusals.unaddressed, submitted);
   }
 }
 
@@ -277,25 +308,47 @@ async function savedQueryEntries(caller: Caller, { filter, conditions, sort }: L
 }
 
 /**
- * How many cases have a returned direction needing action, or `null` if the count could not be read.
+ * The two worklist counts, read together and degrading independently.
  *
- * **A failure here must not cost anyone their case list.** The list is load-bearing and the count is one
+ * `Promise.all` rather than `allSettled` because each read has already caught its own failure — the settled
+ * shape would be a second way of saying the same thing — and neither can reject. They are separate reads
+ * because they are separate questions: a caseworker whose confirmation count failed must still be told about
+ * a returned direction, and the reverse.
+ */
+async function worklistCounts(caller: Caller): Promise<WorklistCounts> {
+  const [returnedForAction, awaitingConfirmation] = await Promise.all([
+    worklistCount("returned-for-action", () => countReturnedForAction(caller)),
+    worklistCount("awaiting-confirmation", () => countAwaitingConfirmation(caller))
+  ]);
+
+  return { returnedForAction, awaitingConfirmation };
+}
+
+/**
+ * One worklist count, or `null` if it could not be read.
+ *
+ * **A failure here must not cost anyone their case list.** The list is load-bearing and a count is one
  * element above it, so the rule `[id].ts` states for its referrals tab applies: an additive second query
- * degrades rather than taking the page with it. `countReturnedForAction` reads a `where` on a field the
- * caseworker did not choose, so a refusal of it is this app's own bug and not theirs to correct — which is
- * why every failure is caught here rather than only the unreachable ones.
+ * degrades rather than taking the page with it. Each count reads a query the caseworker did not write — a
+ * `where` on a field they did not choose, or a filter key they never selected — so a refusal of one is this
+ * app's own bug and not theirs to correct, which is why every failure is caught rather than only the
+ * unreachable ones.
  *
  * Logged **and** said on the page. "The count is the alert" has exactly one failure mode nobody would notice —
  * a silently absent banner looks identical to nothing needing action — and a log fixes that for an engineer
  * reading logs, not for the caseworker deciding whether there is work. So `null` is carried through to the
  * template as its own state rather than folded into the zero: three outcomes, three renderings. Same rule as
  * `[id].ts`'s referrals panel, where an unreadable panel says so instead of rendering "None recorded".
+ *
+ * `name` is the worklist's own, so the log line says which count degraded. It carries no caller, case or
+ * query, per `client.ts`'s no-PII rule: what a search of the logs needs to answer is which banner is
+ * degrading, not whose page it was.
  */
-async function returnedForActionCount(caller: Caller): Promise<number | null> {
+async function worklistCount(name: string, read: () => Promise<number>): Promise<number | null> {
   try {
-    return await countReturnedForAction(caller);
+    return await read();
   } catch (error) {
-    console.error(`returned-for-action count unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`${name} count unavailable: ${error instanceof Error ? error.message : String(error)}`);
 
     return null;
   }
@@ -305,7 +358,7 @@ function render(
   res: Response,
   view: ListView,
   savedQueries: SavedQueryNavGroups,
-  returnedForAction: number | null,
+  counts: WorklistCounts,
   cases: CaseListRow[],
   paging: CaseListPaging | null,
   rowErrors: QueryRowError[],
@@ -324,12 +377,21 @@ function render(
     cases,
     // Empty rather than a zero, so the template asks "is there something to say" rather than holding the
     // decision that a zero is not worth saying — decision 4: an alert with a zero in it is not an alert.
-    returnedForAction: returnedForAction === null || returnedForAction === 0 ? "" : content.returnedForActionFor(returnedForAction),
+    returnedForAction: counts.returnedForAction ? content.returnedForActionFor(counts.returnedForAction) : "",
     // The third state, and not folded into the empty one: a count that could not be read is not a count of
-    // zero, and the template must be able to tell them apart to say so. `returnedForActionCount` has already
+    // zero, and the template must be able to tell them apart to say so. `worklistCount` has already
     // logged it; this is what the caseworker is told.
-    returnedForActionFailed: returnedForAction === null,
+    returnedForActionFailed: counts.returnedForAction === null,
     returnedForActionHref: RETURNED_FOR_ACTION_PATH,
+    // The second worklist, in the same three states and read the same way — `notify-3b` decision 3. Two keys
+    // per count rather than one shared list, so neither count's failure can change how the other renders.
+    awaitingConfirmation: counts.awaitingConfirmation ? content.awaitingConfirmationFor(counts.awaitingConfirmation) : "",
+    awaitingConfirmationFailed: counts.awaitingConfirmation === null,
+    awaitingConfirmationHref: AWAITING_CONFIRMATION_PATH,
+    // The extra column, on the awaiting-confirmation tab and nowhere else — `notify-3b` decision 4. A heading
+    // or nothing, rather than a boolean, because it is the heading that decides whether the column exists:
+    // the rows carry `waiting` whatever tab they are on, since api publishes the value on every row.
+    waitingColumn: filter.key === AWAITING_CONFIRMATION_FILTER ? WAITING_COLUMN_LABEL : "",
     filterGroups: filterGroups(view, content, savedQueries),
     // The builder's own copy of the tab, and deliberately not the nav's: the hidden control is what carries
     // the filter through a GET submission, where a nav entry's `current` is what the bar draws. One value
@@ -515,6 +577,21 @@ interface ListView {
   conditions: CaseCondition[];
   sort?: CaseListSort;
   page?: number;
+}
+
+/**
+ * The counts the two worklist alerts are built from — `null` for one that could not be read.
+ *
+ * Held together rather than passed one per parameter because `render` already takes eight arguments and a
+ * third queue would make it ten. They stay two named fields rather than a list keyed by worklist, because the
+ * two banners are two facts with two links and nothing iterates them: see `notify-3b` flag 4 for the point at
+ * which this should become one work-summary read instead of one query per banner.
+ */
+interface WorklistCounts {
+  /** Cases whose live referral has a returned direction nobody has actioned. */
+  returnedForAction: number | null;
+  /** Cases whose applicant has been asked to confirm and has not replied. */
+  awaitingConfirmation: number | null;
 }
 
 /**

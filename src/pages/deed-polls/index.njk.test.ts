@@ -14,7 +14,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { countReturnedForAction, findDeedPolls, findSavedQueries, InvalidInputError } from "@hmcts/deed-poll";
+import { countAwaitingConfirmation, countReturnedForAction, findDeedPolls, findSavedQueries, InvalidInputError } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
@@ -22,6 +22,7 @@ import { GET } from "./index.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  countAwaitingConfirmation: vi.fn(),
   countReturnedForAction: vi.fn(),
   findDeedPolls: vi.fn(),
   findSavedQueries: vi.fn()
@@ -76,6 +77,7 @@ describe("deed-polls list template", () => {
     vi.mocked(findDeedPolls).mockResolvedValue({ filter: "all", cases: [], page: 1, size: 25, total: 0, totalPages: 0 } as never);
     vi.mocked(findSavedQueries).mockResolvedValue([] as never);
     vi.mocked(countReturnedForAction).mockResolvedValue(0);
+    vi.mocked(countAwaitingConfirmation).mockResolvedValue(0);
   });
 
   it("submits the builder as a GET, because the URL is the query and a POST could not be bookmarked", async () => {
@@ -442,6 +444,169 @@ describe("deed-polls list template", () => {
     });
   });
 
+  /**
+   * The "awaiting confirmation" alert — `notify-3b` decision 3. It shares the one notification banner with the
+   * returned-direction count, because GOV.UK's guidance is one banner per page: what these tests own is that
+   * sharing it has not made either count able to change how the other renders.
+   */
+  describe("the awaiting-confirmation banner", () => {
+    const banner = (markup: string): string => markup.match(/<div class="govuk-notification-banner[\s\S]*?<\/div>\s*<\/div>/)?.[0] ?? "";
+
+    it("renders nothing when nothing is waiting, so there is no permanent banner to learn to ignore", async () => {
+      const markup = await render();
+
+      expect(markup).not.toContain("govuk-notification-banner");
+      expect(markup).not.toContain("waiting for the applicant to confirm");
+      expect(markup).not.toContain("govuk-warning-text");
+    });
+
+    it("states the count above everything else on the page, with its own link to the worklist", async () => {
+      vi.mocked(countAwaitingConfirmation).mockResolvedValue(6);
+
+      const markup = await render();
+
+      expect(banner(markup)).toContain("6 applications are waiting for the applicant to confirm they want to proceed");
+      expect(banner(markup)).toContain(
+        '<a class="govuk-notification-banner__link" href="/deed-polls?filter=awaitingConfirmation">View applications awaiting confirmation</a>'
+      );
+      expect(markup.indexOf("govuk-notification-banner")).toBeLessThan(markup.indexOf("<h1"));
+    });
+
+    it("shares the one banner when both worklists have work, rather than stacking two Important banners", async () => {
+      vi.mocked(countReturnedForAction).mockResolvedValue(4);
+      vi.mocked(countAwaitingConfirmation).mockResolvedValue(6);
+
+      const markup = await render();
+
+      // Counted by the banner's own landmark, which the component renders once per banner.
+      expect(markup.match(/aria-labelledby="govuk-notification-banner-title"/g)).toHaveLength(1);
+      expect(banner(markup)).toContain("4 applications have a returned direction needing action");
+      expect(banner(markup)).toContain("6 applications are waiting for the applicant to confirm they want to proceed");
+      // Two links, because they are two worklists — and worded differently, since identical link text reads as
+      // two ways to the same place to anyone tabbing through them.
+      expect(banner(markup)).toContain("View these applications");
+      expect(banner(markup)).toContain("View applications awaiting confirmation");
+    });
+
+    it("drops only its own paragraph when nothing is waiting, leaving the other alert as it was", async () => {
+      vi.mocked(countReturnedForAction).mockResolvedValue(4);
+
+      const markup = await render();
+
+      expect(banner(markup)).toContain("4 applications have a returned direction needing action");
+      expect(banner(markup)).not.toContain("waiting for the applicant to confirm");
+    });
+
+    describe("when the count could not be read", () => {
+      /** Suppressed here; the handler's log line is asserted in `index.test.ts`, which owns that side. */
+      const failedRender = async (): Promise<string> => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        vi.mocked(countAwaitingConfirmation).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+        const markup = await render();
+        logged.mockRestore();
+
+        return markup;
+      };
+
+      it("says the count could not be loaded, rather than rendering the nothing a zero renders", async () => {
+        const markup = await failedRender();
+
+        expect(markup).toContain("govuk-warning-text");
+        expect(markup).toContain("cannot say whether any are waiting");
+      });
+
+      it("claims no count and offers no worklist link, which would lead to a list nothing vouched for", async () => {
+        const markup = await failedRender();
+
+        expect(markup).not.toContain("govuk-notification-banner");
+        expect(markup).not.toContain("View applications awaiting confirmation");
+      });
+
+      it("leaves the other count's alert alone, since one unreadable number says nothing about the other", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        vi.mocked(countReturnedForAction).mockResolvedValue(4);
+        vi.mocked(countAwaitingConfirmation).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+
+        const markup = await render();
+        logged.mockRestore();
+
+        expect(markup).toContain("govuk-warning-text");
+        expect(markup).toContain("4 applications have a returned direction needing action");
+      });
+
+      it("shows one warning per unreadable count, so neither failure hides the other", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        vi.mocked(countReturnedForAction).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+        vi.mocked(countAwaitingConfirmation).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+
+        const markup = await render();
+        logged.mockRestore();
+
+        // The component's own text element, which is one per warning — the class itself appears four times in each.
+        expect(markup.match(/class="govuk-warning-text__text"/g)).toHaveLength(2);
+        expect(markup).toContain("cannot say whether any need action");
+        expect(markup).toContain("cannot say whether any are waiting");
+      });
+
+      it("still renders the page around it, the count being one element and not the page", async () => {
+        const markup = await failedRender();
+
+        expect(markup).toContain("<h1");
+        expect(markup).toContain('role="search"');
+      });
+    });
+  });
+
+  /**
+   * The Waiting column — `notify-3b` decision 4. The cell is on every row of the view model, so what the
+   * template owns is that only the awaiting-confirmation tab renders it, and that it is plain text: no header
+   * link and no `aria-sort`, because api's longest-waiting order is the order the worklist exists to present.
+   */
+  describe("the waiting column", () => {
+    const waiting = { ...record, daysAwaitingConfirmation: 14 };
+
+    /** The head row on its own, so an assertion about the headings cannot be satisfied by a body cell. */
+    const head = (markup: string): string => markup.match(/<thead[\s\S]*?<\/thead>/)?.[0] ?? "";
+
+    it("adds the heading and the cell on the awaiting-confirmation tab", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ filter: "awaitingConfirmation", cases: [waiting], page: 1, size: 25, total: 1, totalPages: 1 } as never);
+
+      const markup = await render({ filter: "awaitingConfirmation" });
+
+      expect(head(markup)).toContain("Waiting");
+      expect(markup).toContain("14 days");
+    });
+
+    it("renders it as plain text with no sort link, so api's longest-waiting order cannot be replaced", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ filter: "awaitingConfirmation", cases: [waiting], page: 1, size: 25, total: 1, totalPages: 1 } as never);
+
+      const markup = await render({ filter: "awaitingConfirmation" });
+
+      // Every other heading is a link with an aria-sort; this one is the last cell of the head and neither.
+      expect(head(markup)).toMatch(/Waiting<\/th>\s*<\/tr>/);
+      expect(head(markup)).not.toMatch(/aria-sort="[a-z]+"[^>]*>\s*<a[^>]*>[^<]*Waiting/);
+    });
+
+    it("adds neither on any other tab, since a workflow column should not occupy space on every list", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ filter: "returned", cases: [waiting], page: 1, size: 25, total: 1, totalPages: 1 } as never);
+
+      const markup = await render({ filter: "returned" });
+
+      expect(head(markup)).not.toContain("Waiting");
+      expect(markup).not.toContain("14 days");
+    });
+
+    it("keeps the head and the body the same width, so the column lines up with its heading", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ filter: "awaitingConfirmation", cases: [waiting], page: 1, size: 25, total: 1, totalPages: 1 } as never);
+
+      const markup = await render({ filter: "awaitingConfirmation" });
+      const bodyRow = markup.match(/<tbody[\s\S]*?<\/tr>/)?.[0] ?? "";
+
+      expect(head(markup).match(/<th[ >]/g)).toHaveLength(8);
+      expect(bodyRow.match(/<t[hd]/g)).toHaveLength(8);
+    });
+  });
+
   describe("the search form", () => {
     /**
      * The search form on its own, so "the search carries the filter" cannot be satisfied by the builder
@@ -526,7 +691,7 @@ describe("deed-polls list template", () => {
       const nav = filterNav(await render());
 
       expect(nav).toContain('<ul class="app-filter-nav__list">');
-      expect([...group(nav, 0).matchAll(/<li class="app-filter-nav__item">/g)]).toHaveLength(5);
+      expect([...group(nav, 0).matchAll(/<li class="app-filter-nav__item">/g)]).toHaveLength(6);
     });
 
     it("marks the current tab with aria-current=page rather than a strong, since you-are-here is not importance", async () => {
@@ -535,14 +700,14 @@ describe("deed-polls list template", () => {
       expect(nav).toContain('<span class="app-filter-nav__current" aria-current="page">Enroled</span>');
       expect(nav).not.toContain("<strong");
       expect(nav).not.toContain('aria-current="true"');
-      // One current entry, so the other four are still links to somewhere.
+      // One current entry, so the other five are still links to somewhere.
       expect([...nav.matchAll(/aria-current=/g)]).toHaveLength(1);
     });
 
     it("does not fade the tabs a caseworker has already used, which would read as progress through them", async () => {
       const nav = filterNav(await render());
 
-      expect([...nav.matchAll(/class="govuk-link govuk-link--no-visited-state"/g)]).toHaveLength(4);
+      expect([...nav.matchAll(/class="govuk-link govuk-link--no-visited-state"/g)]).toHaveLength(5);
     });
 
     it("leaves the spacing to the component, so the markup carries no override utilities", async () => {

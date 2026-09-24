@@ -228,7 +228,8 @@ documentation — so 3,125 was a mis-transcription rather than a regression. **T
 
 **Running count as each task lands, so Task 5 compares against a figure rather than reconstructing one:** Task 1
 took it to **3,125 across 166 files** (five contract-test cases, no new file); Task 2 to **3,182 across 166 files**
-(57 cases across four existing test files, still no new file).
+(57 cases across four existing test files, still no new file); Task 3 to **3,243 across 167 files** (61 cases, one
+new file — `libs/deed-poll/src/referrals/awaiting-confirmation.test.ts`).
 
 Notes so no task rediscovers them:
 
@@ -442,7 +443,54 @@ one for the code it covers.
 - Tests cover zero, one, plural and unavailable counts; both alerts together; link/count query identity;
   longest-waiting order as received; day zero; conditional column rendering; and `Returned` remaining visible.
 
-- [ ] waiting work is visible and linked to the exact server-side filter that produced its count, failure
+**Done, 2026-09-24.** `AWAITING_CONFIRMATION_FILTER` and the sixth tab in `list-filters.ts`,
+`countAwaitingConfirmation` / `awaitingConfirmationRequestedOn` in a new
+`libs/deed-poll/src/referrals/awaiting-confirmation.ts`, `WAITING_COLUMN_LABEL` plus a `waiting` cell on every
+row in `list-view.ts`, the banner paragraph and the conditional column in `deed-polls/index.{ts,njk}`, and the
+inset notice below the case header in `deed-polls/[id].ts` / `detail.njk`.
+
+Six things worth not rediscovering:
+
+- **The key is written down once, in `list-filters.ts`, and the direction of the import decides that.** The count
+  and the link both read `AWAITING_CONFIRMATION_FILTER` from there; putting it in `awaiting-confirmation.ts`
+  instead and importing it *into* `list-filters.ts` closes a cycle — `list-filters → awaiting-confirmation →
+  deed-poll/service → case-query → list-filters`, because `caseListSearch` reads `LIST_FILTERS[0].key` to decide
+  whether to write `filter` into a URL at all.
+- **`filterTabs()` needed no change and neither did the saved-query pages.** The tab bar, every tab link, the
+  builder's hidden control and `saved-queries/view.ts`'s narrowing all derive from `LIST_FILTERS`, so appending
+  one entry made the tab savable as a query as well — which is what api's `CreateSavedQueryRequest` enum gaining
+  the key was for. The only page tests that had to change were the three counting five tabs.
+- **The tab bar is now pinned against api's published vocabulary rather than against a hand-written list.**
+  `list-filters.test.ts` asserts `LIST_FILTERS.map(key) === [...LIST_FILTER]`, so a tab this app adds alone earns
+  a 400 at api and a filter api adds alone is a worklist with no way to reach it — and the *order* is pinned with
+  it, which is what decision 3's "appended after `returned` as api appends it" actually needs.
+- **The Waiting column is deliberately not sortable, and that is a correctness argument rather than a
+  simplification.** It is absent from `CASE_LIST_COLUMNS`, so `parseSort` still drops `?sort=awaitingConfirmationSince`
+  and no header link can replace api's per-tab default. An ascending sort on the date the applicant was asked is
+  *descending* by the number of days in the cell, so a header carrying `aria-sort="ascending"` above a column
+  counting down from 14 would be a lie a screen-reader user cannot check.
+- **One notification banner holds both worklists, not two stacked "Important" banners** — GOV.UK's guidance is
+  one per page. Each paragraph is still its own `if` on its own model key, so a count that read zero or failed
+  removes only its own paragraph, and the two warnings for two failed counts are two separate elements. The
+  handler's keys for the existing count were left exactly as they were; what changed is that `render` now takes
+  one `WorklistCounts` rather than a parameter per count, and `worklistCount(name, read)` is the generalised
+  degrade-and-log helper (the existing `returned-for-action count unavailable` log line is unchanged, which the
+  old test still asserts).
+- **The case notice is inset text below the header summary list, not a sixth header row and not a banner.**
+  `case-header.ts` renders a fixed five rows and says why; the privacy banner already owns the "Important" slot
+  above the heading. It is resolved in the handler because the sentence interpolates a date, and it reads off
+  `awaitingConfirmationSince` alone — so it survives a failed referrals read, and a case with an outstanding
+  `confirmationRequestedAt` on a referral but no case column is *not* waiting. Two tests pin that.
+
+Test count: **3,243 across 167 files**, up 61 from Task 2's 3,182 — 18 in `libs/deed-poll` (the new file plus the
+filter and column tests) and 43 in the app (the count, the worklist, the two templates and the case notice). One
+new file, `libs/deed-poll/src/referrals/awaiting-confirmation.test.ts`.
+
+`yarn welsh:check` still exits 1, and did before this task: `cy` mirrors `en` across this app by design. What
+matters is that all five new strings appear in `.business_context/welsh-translation-request.csv` — they do, the
+count banner's as `awaitingConfirmationFor.1`/`.2`, so the singular and plural are briefed separately.
+
+- [x] waiting work is visible and linked to the exact server-side filter that produced its count, failure
       cannot masquerade as zero, the list is not filtered or sorted locally, and validation is green
 
 ### Task 4: Record the applicant's response

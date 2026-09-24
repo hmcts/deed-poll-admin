@@ -645,3 +645,49 @@ describe("case detail template — the banner a send comes back to", () => {
     expect(rendered).not.toContain("govuk-notification-banner--success");
   });
 });
+
+/**
+ * The awaiting-confirmation notice — `notify-3b` decision 2.
+ *
+ * `[id].test.ts` owns the sentence and where it comes from. What a model cannot show is the one thing the
+ * decision is about: that the notice sits *beside* the case state rather than replacing it, and that it is not
+ * the "Important" banner the privacy warning above the heading already is.
+ */
+describe("case detail template — the awaiting-confirmation notice", () => {
+  const waiting = { ...found, state: "Returned", awaitingConfirmationSince: new Date("2026-05-12T08:44:00.000Z") };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NODE_ENV = "test";
+    vi.mocked(findCaseEmails).mockResolvedValue(CASE_EMAILS as never);
+  });
+
+  it("should say the case is waiting, as inset text below the case header", async () => {
+    const rendered = await page([], waiting);
+
+    expect(rendered).toContain("govuk-inset-text");
+    expect(rendered).toContain("The applicant was asked on 12 May 2026 at 9:44am whether they want to proceed");
+  });
+
+  it("should keep the state tag reading Returned beside it, there being no ninth case state", async () => {
+    const rendered = await page([], waiting);
+
+    expect(rendered).toContain("Returned");
+    // Beside and below, not above: the notice comes after the header's summary list and before the tabs.
+    expect(rendered.indexOf("govuk-inset-text")).toBeGreaterThan(rendered.indexOf("govuk-summary-list"));
+    expect(rendered.indexOf("govuk-inset-text")).toBeLessThan(rendered.indexOf("govuk-tabs"));
+  });
+
+  it("should not render it as a notification banner, which the privacy warning already owns", async () => {
+    const rendered = await page([], waiting);
+
+    expect(rendered).not.toContain("govuk-notification-banner");
+  });
+
+  it("should render nothing at all on a case waiting for nothing", async () => {
+    const rendered = await page([], found);
+
+    expect(rendered).not.toContain("govuk-inset-text");
+    expect(rendered).not.toContain("whether they want to proceed");
+  });
+});

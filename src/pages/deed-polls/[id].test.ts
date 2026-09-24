@@ -655,6 +655,82 @@ describe("case detail page", () => {
     expect(res.render.mock.calls[0][1].witnessCount).toBe("0 of 2 witnesses recorded");
   });
 
+  /**
+   * That the case is waiting for the applicant to confirm — `notify-3b` decision 2.
+   *
+   * The date is api's `awaitingConfirmationSince` and the wording is this page's; what the tests own is that it
+   * is said *beside* the state rather than instead of it, that it is read off the case and nothing else, and that
+   * it says nothing about what the office does next (decision 8, and flag 1's open business question).
+   */
+  describe("the awaiting-confirmation notice", () => {
+    /** A case waiting: api leaves `state` at `Returned`, because there is no ninth case state. */
+    const waiting = { ...found, state: "Returned", awaitingConfirmationSince: new Date("2026-05-12T08:44:00.000Z") };
+
+    it("says the case is waiting, and when the applicant was asked", async () => {
+      vi.mocked(findDeedPoll).mockResolvedValue(waiting as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].awaitingConfirmation).toBe(
+        "The applicant was asked on 12 May 2026 at 9:44am whether they want to proceed, and has not replied yet. Their reply is recorded against the referral it was requested for — see the Referrals tab."
+      );
+    });
+
+    it("leaves the case state exactly as api published it, rather than relabelling Returned", async () => {
+      vi.mocked(findDeedPoll).mockResolvedValue(waiting as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.header.rows.find((row: { key: string }) => row.key === "State").value).toBe("Returned");
+      expect(model.case.state).toBe("Returned");
+    });
+
+    it("says nothing on a case waiting for nothing, which is nearly all of them", async () => {
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].awaitingConfirmation).toBe("");
+    });
+
+    it("reads the wait off the case alone, never off a referral or the email history", async () => {
+      // A case with a live referral and no `awaitingConfirmationSince` is not waiting: api recomputes that
+      // column in the transaction that records an answer, and inferring it here would be a second opinion.
+      vi.mocked(findReferrals).mockResolvedValue([{ ...REFERRAL, confirmationRequestedAt: new Date("2026-05-12T08:44:00.000Z") }] as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].awaitingConfirmation).toBe("");
+    });
+
+    it("survives a failed referrals read, since the wait is a column of the case and not of a referral", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(findDeedPoll).mockResolvedValue(waiting as never);
+      vi.mocked(findReferrals).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].awaitingConfirmation).toContain("has not replied yet");
+      logged.mockRestore();
+    });
+
+    it("invents no consequence for the case's dates or state, which nobody has decided yet", async () => {
+      vi.mocked(findDeedPoll).mockResolvedValue(waiting as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      // `notify-3b` flag 1 is open: this page records a fact and must not imply enrolment or a refund.
+      const notice: string = res.render.mock.calls[0][1].awaitingConfirmation;
+      expect(notice).not.toMatch(/enrol|refund|ready/i);
+    });
+  });
+
   it("provides both en and cy content objects with matching keys", async () => {
     const res = response();
 
