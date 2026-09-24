@@ -50,6 +50,21 @@ const REFERRAL = {
   modifiedOn: new Date("2026-05-13T08:44:00Z")
 };
 
+/** The confirmation columns api publishes on a referral whose applicant has been asked and has not answered. */
+const AWAITING = {
+  confirmationRequestedAt: new Date("2026-05-20T08:00:00Z"),
+  confirmationOutcome: null,
+  confirmationReceivedAt: null,
+  confirmationRecordedBy: null
+};
+
+/** And the same referral once a caseworker has recorded what they said. */
+const RECORDED = {
+  confirmationOutcome: "Confirmed",
+  confirmationReceivedAt: new Date("2026-05-22T09:30:00Z"),
+  confirmationRecordedBy: "A Caseworker"
+};
+
 function request(query: Record<string, unknown> = {}) {
   return pageRequest({ params: PARAMS, query, accessToken: "session-token" });
 }
@@ -323,5 +338,96 @@ describe("referral view page", () => {
     vi.mocked(findReferral).mockRejectedValue(new NotFoundError("Referral ref-1 not found"));
 
     await expect(GET(request(), response())).rejects.toThrow(NotFoundError);
+  });
+
+  describe("the applicant's confirmation", () => {
+    it("should say nothing about a confirmation on a referral nobody was asked about", async () => {
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].referral.confirmation).toBeNull();
+      expect(res.render.mock.calls[0][1].confirmationAnswer).toBe("");
+    });
+
+    it("should offer the recording action while api holds a request and no answer", async () => {
+      vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...AWAITING } as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].referral.confirmation.awaiting).toBe(true);
+      expect(res.render.mock.calls[0][1].referral.confirmation.requestedOn).toBe("20 May 2026 at 9:00am");
+      expect(res.render.mock.calls[0][1].confirmationAnswer).toBe("Not yet recorded");
+      expect(res.render.mock.calls[0][1].confirmationHref).toBe("/deed-polls/case-1/referrals/ref-1/confirmation");
+    });
+
+    it("should read the recorded answer back in the words the form asked it in, with who recorded it and when", async () => {
+      // "Response recorded" is api's own clock stamping when a caseworker recorded the answer — never when the
+      // applicant replied, which nothing in this service holds.
+      vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...AWAITING, ...RECORDED } as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].confirmationAnswer).toBe("The applicant wants to proceed");
+      expect(res.render.mock.calls[0][1].referral.confirmation.awaiting).toBe(false);
+      expect(res.render.mock.calls[0][1].referral.confirmation.recordedOn).toBe("22 May 2026 at 10:30am");
+      expect(res.render.mock.calls[0][1].referral.confirmation.recordedBy).toBe("A Caseworker");
+    });
+
+    it("should still offer the recording action on a closed referral, because api clears neither confirmation column", async () => {
+      // The wait is not a referral state: a case stays on the awaiting-confirmation worklist under a closed
+      // referral's outstanding request, so keying this on `canWithdraw`/`canClose` would strand it there.
+      vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...AWAITING, state: "Closed" } as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].referral.confirmation.awaiting).toBe(true);
+      expect(res.render.mock.calls[0][1].referral.canWithdraw).toBe(false);
+      expect(res.render.mock.calls[0][1].referral.canClose).toBe(false);
+    });
+
+    it("should confirm a recording that landed, beside the answer api has just published", async () => {
+      vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...AWAITING, ...RECORDED } as never);
+      const res = response();
+
+      await GET(request({ confirmation: "recorded" }), res);
+
+      expect(res.render.mock.calls[0][1].confirmationRecorded).toBe("The applicant's response has been recorded.");
+      expect(res.render.mock.calls[0][1].confirmationRefused).toBe("");
+    });
+
+    it("should name the answer as already recorded when the fresh read holds one", async () => {
+      vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...AWAITING, ...RECORDED } as never);
+      const res = response();
+
+      await GET(request({ confirmation: "conflict" }), res);
+
+      expect(res.render.mock.calls[0][1].confirmationRefused).toBe("The applicant's response has already been recorded.");
+      expect(res.render.mock.calls[0][1].confirmationRecorded).toBe("");
+    });
+
+    it("should say the applicant was never asked when the fresh read holds no request either", async () => {
+      // api's other 409, told apart by the referral rather than by the prose of the refusal — which this app must
+      // not parse, since the two are distinguishable only by their wording.
+      const res = response();
+
+      await GET(request({ confirmation: "conflict" }), res);
+
+      expect(res.render.mock.calls[0][1].confirmationRefused).toContain("has not been asked whether they still want to proceed");
+      expect(res.render.mock.calls[0][1].confirmationRefused).not.toContain("already been recorded");
+    });
+
+    it("should show neither confirmation message on an ordinary visit", async () => {
+      vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...AWAITING } as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].confirmationRecorded).toBe("");
+      expect(res.render.mock.calls[0][1].confirmationRefused).toBe("");
+    });
   });
 });

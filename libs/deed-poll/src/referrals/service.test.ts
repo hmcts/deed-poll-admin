@@ -1,14 +1,16 @@
 import {
   closeReferral as apiCloseReferral,
   createReferral as apiCreateReferral,
+  recordConfirmation as apiRecordConfirmation,
   withdrawReferral as apiWithdrawReferral,
   getCase,
   getReferral,
-  listReferrals
+  listReferrals,
+  patchCase
 } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError } from "../errors.js";
-import { closeReferral, createReferral, findReferral, findReferrals, withdrawReferral } from "./service.js";
+import { closeReferral, createReferral, findReferral, findReferrals, recordConfirmation, withdrawReferral } from "./service.js";
 
 // The adapter is mocked and nothing else. What is worth pinning at this seam is that each function reaches
 // the right operation, that the caller's token travels and no author does, and that api's two 409s arrive as
@@ -20,7 +22,10 @@ vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
   createReferral: vi.fn(),
   withdrawReferral: vi.fn(),
   closeReferral: vi.fn(),
-  getCase: vi.fn()
+  recordConfirmation: vi.fn(),
+  getCase: vi.fn(),
+  // Mocked only to be asserted un-called: recording an answer must not write a case date or a state.
+  patchCase: vi.fn()
 }));
 
 const CALLER = { accessToken: "caseworker-token" };
@@ -28,6 +33,18 @@ const CALLER = { accessToken: "caseworker-token" };
 const REFERRAL = { id: "ref-1", state: "Open", reasons: ["Minor"], migrated: false };
 
 const FORM = { reasons: ["Minor"] as const, urgency: "Normal" as const, notes: undefined, urgencyReason: undefined };
+
+/** The referral as api answers a recording: the four confirmation columns filled, and the state unmoved. */
+const CONFIRMED = {
+  id: "ref-1",
+  state: "Decided",
+  reasons: ["NonPublication"],
+  migrated: false,
+  confirmationRequestedAt: new Date("2026-03-21T09:00:00Z"),
+  confirmationOutcome: "Confirmed",
+  confirmationReceivedAt: new Date("2026-03-22T10:30:00Z"),
+  confirmationRecordedBy: "Ada Caseworker"
+};
 
 const ok = <T>(data: T) => ({ ok: true as const, data });
 
@@ -237,6 +254,98 @@ describe("referrals/service", () => {
       vi.mocked(apiCloseReferral).mockResolvedValue(notFound as never);
 
       await expect(closeReferral("other-case", "ref-1", CALLER)).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
+  describe("recordConfirmation", () => {
+    it("should send the validated answer and its note under the referral's own case", async () => {
+      vi.mocked(apiRecordConfirmation).mockResolvedValue(ok(CONFIRMED) as never);
+
+      const recorded = await recordConfirmation("case-1", "ref-1", { outcome: "Confirmed", note: "Replied by email" }, CALLER);
+
+      expect(recorded).toEqual(CONFIRMED);
+      expect(apiRecordConfirmation).toHaveBeenCalledWith(
+        "case-1",
+        "ref-1",
+        { outcome: "Confirmed", note: "Replied by email" },
+        expect.objectContaining({ accessToken: "caseworker-token" })
+      );
+    });
+
+    it("should send an answer with no note, because the note is evidence and not a second decision", async () => {
+      vi.mocked(apiRecordConfirmation).mockResolvedValue(ok(CONFIRMED) as never);
+
+      await recordConfirmation("case-1", "ref-1", { outcome: "Withdrawn", note: undefined }, CALLER);
+
+      expect(apiRecordConfirmation).toHaveBeenCalledWith("case-1", "ref-1", { outcome: "Withdrawn", note: undefined }, expect.anything());
+    });
+
+    it("should send no recorder and no received date, because api derives both from the token and its clock", async () => {
+      // The one thing nothing else would catch: api publishes this body with `additionalProperties: true`, so a
+      // recorder sent from here would be IGNORED rather than refused.
+      vi.mocked(apiRecordConfirmation).mockResolvedValue(ok(CONFIRMED) as never);
+
+      await recordConfirmation("case-1", "ref-1", { outcome: "Confirmed", note: undefined }, CALLER);
+
+      const [, , body] = vi.mocked(apiRecordConfirmation).mock.calls[0];
+      expect(Object.keys(body).sort()).toEqual(["note", "outcome"]);
+      // Four calls' worth of arguments and no fifth: the caller is the config, and no author travels beside it.
+      expect(vi.mocked(apiRecordConfirmation).mock.calls[0]).toHaveLength(4);
+    });
+
+    it("should throw ConflictError when the answer has already been recorded", async () => {
+      vi.mocked(apiRecordConfirmation).mockResolvedValue({
+        ok: false,
+        error: {
+          kind: "conflict",
+          status: 409,
+          message:
+            "Referral ref-1 already has a confirmation outcome of Confirmed, recorded on 22 March 2026. Recording a second answer would overwrite it, so it is refused"
+        }
+      } as never);
+
+      await expect(recordConfirmation("case-1", "ref-1", { outcome: "Withdrawn", note: undefined }, CALLER)).rejects.toBeInstanceOf(ConflictError);
+    });
+
+    it("should throw the same ConflictError when the referral was never asked to confirm", async () => {
+      // Both 409s arrive as one error on purpose: they are distinguishable only by api's prose, and a page that
+      // branched on the message would be parsing another service's sentences.
+      vi.mocked(apiRecordConfirmation).mockResolvedValue({
+        ok: false,
+        error: {
+          kind: "conflict",
+          status: 409,
+          message: "Referral ref-1 has not been asked to confirm whether the applicant wants to proceed, so there is no answer to record"
+        }
+      } as never);
+
+      await expect(recordConfirmation("case-1", "ref-1", { outcome: "Confirmed", note: undefined }, CALLER)).rejects.toBeInstanceOf(ConflictError);
+    });
+
+    it("should not read the referral first to see whether it is still waiting — api owns the transition", async () => {
+      vi.mocked(apiRecordConfirmation).mockResolvedValue(ok(CONFIRMED) as never);
+
+      await recordConfirmation("case-1", "ref-1", { outcome: "Confirmed", note: undefined }, CALLER);
+
+      expect(getReferral).not.toHaveBeenCalled();
+      expect(listReferrals).not.toHaveBeenCalled();
+      expect(getCase).not.toHaveBeenCalled();
+    });
+
+    it("should write nothing to the case, because recording an answer changes no state and no date", async () => {
+      vi.mocked(apiRecordConfirmation).mockResolvedValue(ok(CONFIRMED) as never);
+
+      await recordConfirmation("case-1", "ref-1", { outcome: "Confirmed", note: undefined }, CALLER);
+
+      // `notify-3b` decision 8: which date a confirmed case should have set next is an open business question,
+      // so this app must not answer it with a patch of its own.
+      expect(patchCase).not.toHaveBeenCalled();
+    });
+
+    it("should throw NotFoundError for a referral that is not under this case", async () => {
+      vi.mocked(apiRecordConfirmation).mockResolvedValue(notFound as never);
+
+      await expect(recordConfirmation("other-case", "ref-1", { outcome: "Confirmed", note: undefined }, CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 });

@@ -59,6 +59,7 @@ const IMPLEMENTED_OPERATIONS = [
   "GET /caseworker/cases/{id}/referrals/{referralId}",
   "POST /caseworker/cases/{id}/referrals/{referralId}/withdrawal",
   "POST /caseworker/cases/{id}/referrals/{referralId}/closure",
+  "POST /caseworker/cases/{id}/referrals/{referralId}/confirmation",
   "GET /caseworker/document-types",
   "GET /caseworker/saved-queries",
   "POST /caseworker/saved-queries",
@@ -152,6 +153,7 @@ describe("openapi.json and the wire schemas", () => {
       "CreateSavedQueryRequest",
       "UpdateSavedQueryRequest",
       "CreateReferralRequest",
+      "RecordConfirmationRequest",
       "JudicialDirectionRequest",
       "PreviewEmailRequest",
       "SendEmailRequest"
@@ -243,6 +245,47 @@ describe("openapi.json and the wire schemas", () => {
     expect(WIRE_SCHEMAS.SendEmailRequest.safeParse({}).success).toBe(true);
   });
 
+  it("should publish the confirmation body with its two keys rather than as an empty schema", () => {
+    // The 2026-09-17 check, which is mandatory at every refresh: every api write body binds as a keyed map, so
+    // springdoc reflects no fields and `OpenAPIWriteBodies` describes them by hand — and a body it was not
+    // extended for publishes as `{}`, which matches an empty registration silently.
+    const body = spec.components.schemas.RecordConfirmationRequest;
+
+    expect(Object.keys(body.properties ?? {}).sort()).toEqual(["note", "outcome"]);
+    expect(body.required).toEqual(["outcome"]);
+    expect(body.properties?.note?.maxLength).toBe(1000);
+    // `true`, where the two email bodies are the contract's only `false`: an unknown key here is IGNORED rather
+    // than named, which is exactly why the absent recorder below has to be asserted.
+    expect(body.additionalProperties).toBe(true);
+    expect(WIRE_SCHEMAS.RecordConfirmationRequest.safeParse({ outcome: "Confirmed", note: "x".repeat(1000) }).success).toBe(true);
+    expect(WIRE_SCHEMAS.RecordConfirmationRequest.safeParse({ outcome: "Confirmed", note: "x".repeat(1001) }).success).toBe(false);
+    // The outcome is the fact and the note is the evidence for it, so an answer with no note is a whole answer.
+    expect(WIRE_SCHEMAS.RecordConfirmationRequest.safeParse({ outcome: "Withdrawn" }).success).toBe(true);
+    expect(WIRE_SCHEMAS.RecordConfirmationRequest.safeParse({ note: "They replied by post" }).success).toBe(false);
+  });
+
+  it("should send neither the recorder nor the received date on a confirmation", () => {
+    // api takes both from the token and its own clock, and `additionalProperties: true` means it would ignore
+    // them rather than refuse them — so nothing else in this repo can catch one being sent.
+    for (const field of ["confirmationRecordedBy", "confirmationReceivedAt", "recordedBy", "author"]) {
+      expect(Object.keys(WIRE_SCHEMAS.RecordConfirmationRequest.shape), field).not.toContain(field);
+      expect(Object.keys(spec.components.schemas.RecordConfirmationRequest.properties ?? {}), field).not.toContain(field);
+    }
+  });
+
+  it("should publish the awaiting-confirmation filter and its default order in the case-list descriptions", () => {
+    // The tab's key and its order arrive only as prose — springdoc has no schema for either — so this is the
+    // one place the vocabulary a page sends can be checked against what api says it accepts. The order is api's
+    // DEFAULT and not a rule, which is why this app sends no `sort` on that tab: one it sent would override it.
+    const parameters = spec.paths["/caseworker/cases"].get.parameters ?? [];
+    const description = (name: string) => parameters.find((parameter) => parameter.name === name)?.description ?? "";
+
+    expect(description("filter")).toContain("`awaitingConfirmation` (Awaiting confirmation)");
+    expect(description("filter")).toContain("daysAwaitingConfirmation");
+    expect(description("sort")).toContain("awaitingConfirmationSince");
+    expect(description("sort")).toContain("awaitingConfirmationSince:asc");
+  });
+
   it("should publish no owner identifier on any judicial schema", () => {
     // api keys judicial ownership on the token's IDAM subject — `claimedById` and `decidedById`, added by its
     // `V14__referral_owner_subjects` migration — and publishes neither column. That absence is what makes whose
@@ -290,15 +333,23 @@ function enumMembers(schema: z.ZodType): string[] {
 }
 
 interface OpenApiSpec {
-  paths: Record<string, Record<string, unknown>>;
+  paths: Record<string, Record<string, OpenApiOperation>>;
   components: {
     schemas: Record<string, OpenApiSchema>;
   };
 }
 
+/** Only the parameters, because the query vocabulary is published as their prose and nowhere else. */
+interface OpenApiOperation {
+  parameters?: { name: string; description?: string }[];
+}
+
 interface OpenApiSchema {
   required?: string[];
-  /** `false` on the two email write bodies and absent everywhere else — an unknown key is refused and named. */
-  additionalProperties?: false | Record<string, unknown>;
+  /**
+   * `false` on the two email write bodies — an unknown key is refused and named — `true` on
+   * `RecordConfirmationRequest`, where one is ignored, and absent everywhere else.
+   */
+  additionalProperties?: boolean | Record<string, unknown>;
   properties?: Record<string, { enum?: (string | null)[]; maxLength?: number; minLength?: number; items?: { $ref?: string } }>;
 }

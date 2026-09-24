@@ -21,6 +21,10 @@
   Withdraw is a form rather than a link, because it changes something. "Mark direction as actioned" is a link,
   because it opens a confirmation page. They are mutually exclusive by state and both absent from a referral
   that is over — or from one in a state this app cannot read. api re-checks either way.
+
+  The applicant's confirmation is a fourth section and is **not** part of that pair: api clears neither
+  confirmation column when a referral closes, so a terminal referral can still be waiting for an answer, and
+  "Record applicant response" therefore stands on `confirmation.awaiting` alone rather than on the state.
 #}
 {% block content %}
 <div class="govuk-grid-row">
@@ -30,16 +34,17 @@
       A closure that landed, as a banner rather than an error summary: it announces something not tied to any
       one control on the page, which is what a banner is for, and the state below it is the one it produced.
 
-      The two refusals share one summary, because a caseworker arrives here through one redirect or the other and
-      never both — the judicial referral page makes the same call for the same reason. The sentences are chosen in
-      the handler, against the state api has just published.
+      The refusals share one summary and the successes share one banner, because a caseworker arrives here
+      through one redirect or another and never two at once — the judicial referral page makes the same call for
+      the same reason. Every sentence is chosen in the handler, against the referral api has just published.
     #}
-    {% if directionActioned %}
-      {% set actionedHtml %}<p class="govuk-notification-banner__heading">{{ directionActioned }}</p>{% endset %}
+    {% set announced = directionActioned or confirmationRecorded %}
+    {% if announced %}
+      {% set actionedHtml %}<p class="govuk-notification-banner__heading">{{ announced }}</p>{% endset %}
       {{ govukNotificationBanner({ type: "success", titleText: successTitle, html: actionedHtml }) }}
     {% endif %}
 
-    {% set refused = withdrawRefused or closeRefused %}
+    {% set refused = withdrawRefused or closeRefused or confirmationRefused %}
     {% if refused %}
       {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [{ text: refused }] }) }}
     {% endif %}
@@ -120,6 +125,39 @@
           { key: { text: decidedLabel }, value: { text: referral.direction.decidedOn } }
         ]
       }) }}
+    {% endif %}
+
+    {#
+      The applicant's confirmation, absent on a referral nobody asked — which is most of them. A section saying
+      "not recorded" there would answer a question that was never put, and `confirmation` is null for exactly
+      that case.
+
+      The recorded rows appear only once there is an answer, for the reason the claim row does: a referral still
+      waiting has no recorder rather than an unrecorded one. "Response recorded" is when a CASEWORKER recorded
+      the answer — api stamps it from its own clock — and never when the applicant replied, which nothing in this
+      service holds.
+    #}
+    {% if referral.confirmation %}
+      <h2 class="govuk-heading-m">{{ confirmationHeading }}</h2>
+      {% set confirmationRows = [
+        { key: { text: confirmationRequestedLabel }, value: { text: referral.confirmation.requestedOn } },
+        { key: { text: confirmationResponseLabel }, value: { text: confirmationAnswer } }
+      ] %}
+      {% if referral.confirmation.outcome %}
+        {% set confirmationRows = (confirmationRows.push({ key: { text: confirmationRecordedLabel }, value: { text: referral.confirmation.recordedOn } }), confirmationRows) %}
+        {% set confirmationRows = (confirmationRows.push({ key: { text: confirmationRecordedByLabel }, value: { text: referral.confirmation.recordedBy } }), confirmationRows) %}
+      {% endif %}
+
+      {{ govukSummaryList({ rows: confirmationRows }) }}
+
+      {#
+        A link, because it opens a question page — the same call the mark-as-actioned control makes. Outside the
+        withdraw/close chain below on purpose: a closed referral can still be waiting for an answer.
+      #}
+      {% if referral.confirmation.awaiting %}
+        <p class="govuk-body">{{ recordResponseHint }}</p>
+        {{ govukButton({ text: recordResponse, href: confirmationHref }) }}
+      {% endif %}
     {% endif %}
 
     {% if referral.canWithdraw %}

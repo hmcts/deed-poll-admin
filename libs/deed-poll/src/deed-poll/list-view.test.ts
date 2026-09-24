@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { NOT_RECORDED } from "./case-header.js";
 import { formatValue, NOT_PROVIDED } from "./detail-view.js";
 import { FIELD_BY_NAME } from "./form-fields.js";
-import { buildCaseList, CASE_LIST_COLUMNS } from "./list-view.js";
+import { buildCaseList, CASE_LIST_COLUMNS, WAITING_COLUMN_LABEL } from "./list-view.js";
 
 const record = {
   id: "case-1",
@@ -100,13 +101,50 @@ describe("deed-poll/list-view", () => {
     expect(rows.map((r) => r.id)).toEqual(["case-1", "case-2"]);
   });
 
-  it("has a heading for every cell in a row", () => {
+  it("has a sortable heading for every cell in a row that one of the table's own columns shows", () => {
     // Guards the pairing the module comment claims: headings and cells are defined together, so a
-    // column added to one must be added to the other.
+    // column added to one must be added to the other. `waiting` is excluded because it is the one cell
+    // with no entry in CASE_LIST_COLUMNS — see the test below, which is the other half of this pair.
     const row = buildCaseList([record])[0];
-    const cells = Object.keys(row).filter((k) => k !== "id" && k !== "isPrivate");
+    const cells = Object.keys(row).filter((k) => k !== "id" && k !== "isPrivate" && k !== "waiting");
 
     expect(cells).toHaveLength(CASE_LIST_COLUMNS.length);
+  });
+
+  /**
+   * The awaiting-confirmation tab's own column — `notify-3b` decision 4.
+   *
+   * The cell is built on every row because api publishes the value on every row; which tab shows the column is
+   * the page's decision, so what this file owns is the wording of the cell and the fact that it is not sortable.
+   */
+  describe("the waiting column", () => {
+    it("is not one of the sortable columns, so api's longest-waiting order cannot be replaced from a header", () => {
+      // An ascending sort on the date the applicant was asked is DESCENDING by the number in the cell, so a
+      // header here would carry an aria-sort that contradicts the column it labels — and it would replace the
+      // one order the worklist exists to present.
+      expect(CASE_LIST_COLUMNS.map((column) => column.sort)).not.toContain("awaitingConfirmationSince");
+      expect(CASE_LIST_COLUMNS.map((column) => column.label)).not.toContain(WAITING_COLUMN_LABEL);
+    });
+
+    it("renders api's day count rather than recomputing one", () => {
+      expect(buildCaseList([{ ...record, daysAwaitingConfirmation: 14 }])[0].waiting).toBe("14 days");
+    });
+
+    it("says one day in the singular, since '1 days' is not English", () => {
+      expect(buildCaseList([{ ...record, daysAwaitingConfirmation: 1 }])[0].waiting).toBe("1 day");
+    });
+
+    it("says today for day zero, which is what api publishes on the day the email was sent", () => {
+      // "0 days" leaves a caseworker to work out whether it means no wait or not counted.
+      expect(buildCaseList([{ ...record, daysAwaitingConfirmation: 0 }])[0].waiting).toBe("Today");
+    });
+
+    it("says the wait was not recorded when api counted none, rather than claiming a zero-day wait", () => {
+      // Null is the ordinary value on every other tab, and on this one it is a disagreement between api's
+      // filter and its own projection. Either way it is not "the applicant has been waiting no time".
+      expect(buildCaseList([record])[0].waiting).toBe(NOT_RECORDED);
+      expect(buildCaseList([{ ...record, daysAwaitingConfirmation: null }])[0].waiting).toBe(NOT_RECORDED);
+    });
   });
 
   it("resolves every column name it formats against the shared field metadata", () => {

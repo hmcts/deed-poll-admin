@@ -5,12 +5,16 @@
  * case page. It is a stand-in for the CONTRACT, not a second implementation of api: there is no database,
  * no IDAM, no S2S and no document storage, and it forgets everything when it stops.
  *
- * Three routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
+ * Four routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
  * could be mistaken for one api serves:
  *
  *   POST /__mock/scenario   switch behaviour (see fixtures.ts)
  *   POST /__mock/reset      forget every case
  *   POST /__mock/cases      seed a case without going through a create
+ *   POST /__mock/referrals/{id}/confirmation-request
+ *                           start the wait for an applicant's confirmation, which no contract route here can
+ *                           do: the write that starts it is notify-3's email and this mock has no template
+ *                           for it. See the route for why it is not a second template.
  *
  * `GET /health` and `GET /health/liveness` are outside the contract too, so `yarn dev` and Playwright's
  * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
@@ -183,6 +187,15 @@ const MIGRATED_RELAXED_FIELDS = [
 const SEEDABLE_CASE = WIRE_SCHEMAS.SavedCaseResponse.partial();
 
 /**
+ * The one field `POST /__mock/referrals/{id}/confirmation-request` accepts, coerced the same way.
+ *
+ * Picked off the referral schema rather than restated, for the reason `SEEDABLE_CASE` is the saved-case
+ * schema: `wire.ts` is the only place that decides how an api date-time is read, and `confirmationRequestedAt`
+ * is nullish there, so an absent value is legal and means "now".
+ */
+const SEEDABLE_CONFIRMATION_REQUEST = WIRE_SCHEMAS.ReferralResponse.pick({ confirmationRequestedAt: true });
+
+/**
  * How a lifecycle note dates the referral it is about — api's `ReferralNotes.DAY`, `d MMMM yyyy`.
  *
  * The day rather than the instant, because a caseworker reads it in a grid. Formatted in UTC for the reason
@@ -206,7 +219,10 @@ const CASE_DEFAULTS = {
   publishToLondonGazette: true,
   // Present and null rather than absent, because api publishes the column either way: a page reading it off a
   // case it has never referred should see the value api sends, not the one a missing JSON key produces.
-  currentReferralState: null
+  currentReferralState: null,
+  // The second denormalised column, for the same reason and with the same rule: it is recomputed from the
+  // case's referrals rather than written by whatever moved one — see `refreshAwaitingConfirmation`.
+  awaitingConfirmationSince: null
 } as const;
 
 /**
@@ -280,6 +296,38 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, 201, toDetail(seeded));
     }
 
+    // Start the wait for an applicant's confirmation, which **nothing in the contract can do from out here**.
+    // The write that sets `confirmationRequestedAt` at api's end is notify-3's *Request confirmation to
+    // proceed* email, and `MOCK_EMAIL_TEMPLATES` carries only `application-rejected` — so a journey driven
+    // through a browser has no way to reach the state the whole of notify-3b is about.
+    //
+    // A control route rather than a second mock template, deliberately: inventing the template would mean
+    // inventing api's applicability rule for it as well, and this mock would then be answering a question api
+    // owns. It is also not `POST /__mock/cases` widened to coerce a whole seeded referral — that route
+    // coerces the case's own fields only, and teaching it to build a `MockReferral` would put a second
+    // referral factory beside `createReferral`. So the referral is raised through the contract and only the
+    // wait is arranged here.
+    const waiting = /^\/__mock\/referrals\/([^/]+)\/confirmation-request$/.exec(pathname);
+    if (waiting && method === "POST") {
+      const referralId = decodeURIComponent(waiting[1]);
+      const located = locateReferral(referralId);
+      // The same sentence api's own 404 carries, so a seeder that names a referral wrongly reads the same as a
+      // read that does.
+      if (!located) return send(res, 404, { error: `Referral ${referralId} not found` });
+
+      const requested = SEEDABLE_CONFIRMATION_REQUEST.safeParse((await readJsonBody(req)) ?? {});
+      if (!requested.success) return send(res, 400, fieldErrorsFrom(requested.error.issues));
+
+      // Absent means now, which is the day-zero case: api publishes `daysAwaitingConfirmation` as `0` on the
+      // day the email went, never 1. A date is how a journey arranges a longer wait than this process has run.
+      located.referral.confirmationRequestedAt = requested.data.confirmationRequestedAt ?? new Date();
+      // The case's column is recomputed rather than written, exactly as `recordConfirmation` recomputes it:
+      // this is api's denormalisation, and a second request on the same case must not move it forward.
+      refreshAwaitingConfirmation(located.record);
+
+      return send(res, 200, toWireReferral(located.referral));
+    }
+
     // Everything below is the contract, so everything below is unreachable when the scenario says api is
     // down — including reads, which is what makes `api-unavailable` a realistic outage.
     if (!MOCK_SCENARIOS[scenario].reachable) return send(res, 503, { error: "deed-poll-api is unavailable" });
@@ -332,11 +380,13 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     }
 
     // The trailing group is an ACTION on the child rather than a second child id — `/file` on a document,
-    // `/withdrawal` and `/closure` on a referral, `/preview` on an email — which is why they share one group.
-    // An email's "child" is its template key rather than a stored row's id, which is api's shape too: the key is
-    // the only thing that identifies which email is being composed.
+    // `/withdrawal`, `/closure` and `/confirmation` on a referral, `/preview` on an email — which is why they
+    // share one group. An email's "child" is its template key rather than a stored row's id, which is api's shape
+    // too: the key is the only thing that identifies which email is being composed.
     const scoped =
-      /^\/caseworker\/cases\/([^/]+)(?:\/(notes|witnesses|documents|referrals|emails)(?:\/([^/]+))?)?(?:\/(file|withdrawal|closure|preview))?$/.exec(pathname);
+      /^\/caseworker\/cases\/([^/]+)(?:\/(notes|witnesses|documents|referrals|emails)(?:\/([^/]+))?)?(?:\/(file|withdrawal|closure|confirmation|preview))?$/.exec(
+        pathname
+      );
     if (!scoped) return send(res, 404, { error: `no such route: ${method} ${pathname}` });
 
     const [, rawId, collection, childId, action] = scoped;
@@ -392,7 +442,13 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return;
     }
 
-    const order = parseSort(parameters.get("sort"));
+    // The filter is resolved before the sort is parsed, because the tab supplies the default order a request
+    // that named none falls back to — `awaitingConfirmation` is longest-waiting first where every other tab is
+    // newest first. Resolving it here changes no refusal order: an unrecognised key falls back rather than
+    // failing, so this cannot answer a 400 ahead of the sort's.
+    const resolved = FILTERS.find((candidate) => candidate.key === parameters.get("filter")) ?? FILTERS[0];
+
+    const order = parseSort(parameters.get("sort"), resolved.defaultSort);
     if (typeof order === "string") {
       send(res, 400, { error: "Case list sort is not valid", errors: [{ field: "sort", message: order }] });
       return;
@@ -405,9 +461,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     }
 
     const term = (parameters.get("q") ?? "").trim();
-    const resolved = FILTERS.find((candidate) => candidate.key === parameters.get("filter")) ?? FILTERS[0];
     const matching = [...cases.values()]
-      .filter((record) => resolved.matches(record.state))
+      .filter((record) => resolved.matches(record))
       .filter((record) => conditions.every((condition) => matchesCondition(record, condition)))
       .filter((record) => term === "" || matchesTerm(record, term))
       .sort(comparing(order));
@@ -733,7 +788,59 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, 200, toWireReferral(closed));
     }
 
+    if (method === "POST" && action === "confirmation") return recordConfirmation(req, res, record, referral);
+
     return send(res, 405, { error: `no such route: ${method} on a referral` });
+  }
+
+  /**
+   * Record the applicant's answer to *Request confirmation to proceed*.
+   *
+   * **The only referral write that moves no state**, which is why it does not go through `transition`: api's
+   * `recordConfirmation` writes the four confirmation columns, a case note and the case's
+   * `awaitingConfirmationSince`, and deliberately leaves `state`, `currentReferralState` and every case date
+   * alone. So there is nothing for `refreshCurrentReferralState` to recompute here.
+   *
+   * **The refusals are in api's order — already-recorded first, never-asked second** — so a referral that
+   * somehow holds an outcome without a request answers the first message. Both are 409s and they are
+   * distinguishable only by their prose, which is why neither is a code a caller can branch on.
+   *
+   * Neither the recorder nor the received date is read off the body. api's schema publishes
+   * `additionalProperties: true`, so one sent here is IGNORED rather than refused — copied deliberately, because
+   * a mock that answered 400 would let this app ship a body api silently drops.
+   */
+  async function recordConfirmation(req: IncomingMessage, res: ServerResponse, record: MockCase, referral: MockReferral): Promise<void> {
+    const parsed = WIRE_SCHEMAS.RecordConfirmationRequest.safeParse(await readJsonBody(req));
+    if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+
+    // After the body, as api orders them: Spring validates the payload before the service's guards run, and the
+    // same request succeeds unchanged once the referral has been asked — so each 409 is a state rather than a
+    // malformed body.
+    if (referral.confirmationOutcome) return send(res, 409, { error: alreadyConfirmedRefusal(referral) });
+    if (!referral.confirmationRequestedAt) {
+      return send(res, 409, {
+        error: `Referral ${referral.id} has not been asked to confirm whether the applicant wants to proceed, so there is no answer to record`
+      });
+    }
+
+    const now = new Date();
+    const recordedBy = auditName(req);
+    Object.assign(referral, {
+      confirmationOutcome: parsed.data.outcome,
+      // api's own clock, so this is when the caseworker recorded the reply and never when the applicant sent it.
+      confirmationReceivedAt: now,
+      confirmationRecordedBy: recordedBy,
+      modifiedBy: recordedBy,
+      modifiedOn: now
+    });
+    // Composed from the stored referral rather than from the body, as api composes it: the note reads the outcome
+    // as it was saved. api trims the note and treats a whitespace-only one as none, so the note does too.
+    appendNote(record, confirmationRecordedNote(referral, parsed.data.note?.trim() || null), recordedBy);
+    // How the case leaves the awaiting-confirmation worklist, and by recompute rather than by writing null: a
+    // case can hold a second outstanding request, and this one's answer does not end that wait.
+    refreshAwaitingConfirmation(record);
+
+    return send(res, 200, toWireReferral(referral));
   }
 
   /**
@@ -779,6 +886,12 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       decisionDate: null,
       decidedBy: null,
       decidedById: null,
+      // All four null on a raise: the wait starts when *Request confirmation to proceed* is sent, which is a
+      // later event and another package's write at api's end.
+      confirmationRequestedAt: null,
+      confirmationOutcome: null,
+      confirmationReceivedAt: null,
+      confirmationRecordedBy: null,
       createdBy: author,
       modifiedBy: author,
       createdOn: now,
@@ -1221,6 +1334,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     // with the column and no referrals keeps what it was given — that is how a test arranges a case referred
     // before this process started, and there is nothing to recompute from.
     if (record.referrals.length > 0) refreshCurrentReferralState(record);
+    // The other denormalised column, on the same terms: a case seeded with a referral that has been asked to
+    // confirm and has not answered belongs on the waiting list, and neither column is the seeder's to state. A
+    // case seeded with no referrals keeps what it was given, which is how a test arranges a wait that began
+    // before this process started.
+    if (record.referrals.length > 0) refreshAwaitingConfirmation(record);
     cases.set(record.id, record);
 
     return record;
@@ -1367,13 +1485,30 @@ function tokenClaims(req: IncomingMessage): { sub?: unknown; name?: unknown } | 
 
 const CASE_TYPES = ["Adult", "AdultTransgender", "Minor", "MinorTransgender", "DeedOfRelinquishment", "Unknown"];
 
-/** The saved-query filters, matching api's `ListFilters` — "open" is everything not yet finished. */
-const FILTERS: readonly { key: string; matches: (state: string | null | undefined) => boolean }[] = [
+/**
+ * The saved-query filters, matching api's `ListFilters` — "open" is everything not yet finished.
+ *
+ * **Each one is asked about the whole case rather than about its state**, because `awaitingConfirmation` is the
+ * one tab whose criterion is not a state at all: a case waiting for an applicant's reply is in whatever state its
+ * dates make it, ordinarily `Returned`.
+ *
+ * It is **appended** and not slotted beside the state tabs, as api appends it: the order here is the order the
+ * tab bar renders. It is also the one tab that carries an order of its own — a list of waiting cases in creation
+ * order would bury the longest wait — and `defaultSort` is a DEFAULT, so a `sort` the caller named still wins.
+ */
+const FILTERS: readonly { key: string; matches: (record: MockCase) => boolean; defaultSort?: MockSort }[] = [
   { key: "all", matches: () => true },
-  { key: "open", matches: (state) => state !== "Enroled" && state !== "Returned" },
-  { key: "received", matches: (state) => state === "Received" },
-  { key: "enroled", matches: (state) => state === "Enroled" },
-  { key: "returned", matches: (state) => state === "Returned" }
+  { key: "open", matches: ({ state }) => state !== "Enroled" && state !== "Returned" },
+  { key: "received", matches: ({ state }) => state === "Received" },
+  { key: "enroled", matches: ({ state }) => state === "Enroled" },
+  { key: "returned", matches: ({ state }) => state === "Returned" },
+  {
+    key: "awaitingConfirmation",
+    matches: ({ awaitingConfirmationSince }) => Boolean(awaitingConfirmationSince),
+    // Ascending the stamp, which is descending in days waited: the case at risk of being forgotten is the one at
+    // the top. api's `ListFilters.LONGEST_WAIT_FIRST`.
+    defaultSort: { field: "awaitingConfirmationSince", descending: false }
+  }
 ];
 
 /** api's cap on conditions per request, from `CaseQuery.MAX_CONDITIONS`. */
@@ -1468,9 +1603,15 @@ function wantedValues(arity: 0 | 1 | 2 | "many"): string {
   return arity === 2 ? "two comma-separated values" : "at least one comma-separated value";
 }
 
-/** `field`, `field:asc` or `field:desc`; a bare field is ascending, as api reads it. */
-function parseSort(sort: string | null): MockSort | string {
-  if (sort === null || sort.trim() === "") return { field: "createdOn", descending: true };
+/**
+ * `field`, `field:asc` or `field:desc`; a bare field is ascending, as api reads it.
+ *
+ * `whenAbsent` is the resolved tab's own order, for the reason api's `CaseSort.parse` takes one: the
+ * `awaitingConfirmation` tab defaults to longest-waiting first, and every other tab to newest first. A named
+ * `sort` wins over either, which is what makes the tab's order a default rather than a fixed one.
+ */
+function parseSort(sort: string | null, whenAbsent: MockSort = { field: "createdOn", descending: true }): MockSort | string {
+  if (sort === null || sort.trim() === "") return whenAbsent;
 
   const colon = sort.indexOf(":");
   const field = (colon < 0 ? sort : sort.slice(0, colon)).trim();
@@ -1650,7 +1791,11 @@ function toSummary(record: MockCase): unknown {
     newSurname: record.newSurname,
     // On the row as well as the case, so a worklist can show which rows are with the judiciary without a read
     // per row — which is the whole reason api denormalised it.
-    currentReferralState: record.currentReferralState ?? null
+    currentReferralState: record.currentReferralState ?? null,
+    // Computed at read time from the case's column, as api computes it — so `0` on the day the email was sent
+    // and never 1, and `null` for a case waiting for nothing, which is nearly every row. On EVERY row rather than
+    // only the waiting tab's: which table shows it is the app's choice about space, not api's about availability.
+    daysAwaitingConfirmation: daysBetween(record.awaitingConfirmationSince, new Date())
   };
 }
 
@@ -1858,6 +2003,33 @@ function refreshCurrentReferralState(record: MockCase): void {
   record.currentReferralState = record.referrals.find((referral) => !isTerminal(referral.state))?.state ?? null;
 }
 
+/**
+ * The case's `awaitingConfirmationSince`, **recomputed from its referrals** — api's `ConfirmationWait`, which is
+ * "the earliest confirmation request on the case that has no answer yet, or null when none is outstanding".
+ *
+ * The **earliest** and not the latest, because the column is what the waiting list orders by: the caseworker is
+ * being reminded of the case that has waited longest.
+ *
+ * **A case really can hold two outstanding requests**, so the `min` is the rule rather than a tie-break for a
+ * shape that cannot happen: closing a referral clears neither confirmation column, so a referral closed while
+ * its outcome is still null stays outstanding for ever, and the case may be referred, refused and asked again.
+ * Recording an answer against the newer one therefore leaves the case on the list, on the older referral's date,
+ * which is the whole reason this is a recompute and not a write of null.
+ *
+ * **The state is not consulted.** api's query filters on the two confirmation columns alone, and a mock that
+ * also asked whether the referral was live would take a case off the list the moment somebody closed the
+ * referral holding it there.
+ */
+function refreshAwaitingConfirmation(record: MockCase): void {
+  // `flatMap` rather than a filter and a map, so the narrowing survives: a filtered array is still typed as
+  // holding nullable dates, which is what a cast would then have to paper over.
+  const outstanding = record.referrals.flatMap((referral) =>
+    referral.confirmationRequestedAt && !referral.confirmationOutcome ? [referral.confirmationRequestedAt.getTime()] : []
+  );
+
+  record.awaitingConfirmationSince = outstanding.length === 0 ? null : new Date(Math.min(...outstanding));
+}
+
 /** api's `ReferralState.isTerminal()`. A case holds at most one referral for which this is false. */
 function isTerminal(state: ReferralState): boolean {
   return state === "Closed" || state === "Withdrawn";
@@ -1893,8 +2065,9 @@ function withdrawalRefusal(id: string, state: ReferralState): string {
 /**
  * The note a raised referral writes: what it says, and why it is urgent if it is.
  *
- * **The five composers below reproduce api's `ReferralNotes` word for word**, at the commit
- * `referrals-admin-5` reconciled against (api `7226fc9`). That is deliberate duplication and the one place
+ * **The six composers below reproduce api's `ReferralNotes` word for word** — five at the commit
+ * `referrals-admin-5` reconciled against (api `7226fc9`), and the confirmation's at api `83ec959`, which is the
+ * document this plan imported. That is deliberate duplication and the one place
  * this mock copies prose: the text is observable behaviour no part of `openapi.json` describes, so nothing but
  * a copy makes the Notes grid locally look like the Notes grid deployed. api's file is the authority —
  * **reword there first**, then here. Nothing parses any of it.
@@ -1957,6 +2130,62 @@ function referralWithdrawnNote(referral: MockReferral): string {
 }
 
 /**
+ * The note an applicant's answer writes: which referral was asked, when, what they said, and the caseworker's
+ * own words.
+ *
+ * api's `ReferralNotes.confirmationRecorded`, and the one composer here whose subject is not a state change —
+ * recording moves no referral state, and the grid is the only place the answer would otherwise appear.
+ *
+ * **The answer is the member NAME plus what it means**, as api spells it out: "Confirmed" alone in a grid does
+ * not say whether the applicant wanted the deed enrolled or the fee back.
+ */
+function confirmationRecordedNote(referral: MockReferral, note: string | null): string {
+  const lines = [
+    `Applicant's confirmation recorded for referral ${identifiesReferral(referral)}. Asked on ${askedOn(referral)}. Answer: ${confirmationAnswer(referral)}.`
+  ];
+  // The caseworker's own text on its own line with no full stop added, for the reason the raised note's is.
+  if (note) lines.push(`Notes: ${note}`);
+
+  return lines.join("\n");
+}
+
+/** When the applicant was asked, or that the request was never recorded — api's `asked()`. */
+function askedOn(referral: MockReferral): string {
+  return referral.confirmationRequestedAt ? NOTE_DAY.format(referral.confirmationRequestedAt) : "a date that was not recorded";
+}
+
+/**
+ * The answer as the timeline states it — api's `outcome()`, verbatim.
+ *
+ * Each member carries the consequence the business attaches to it, because the two are not symmetrical: one
+ * asks for the deed to be enrolled in the knowledge that it will be published, the other asks for a refund.
+ */
+function confirmationAnswer(referral: MockReferral): string {
+  if (!referral.confirmationOutcome) return "not recorded";
+
+  return referral.confirmationOutcome === "Confirmed"
+    ? `${referral.confirmationOutcome} -- the applicant wants the deed enrolled, knowing it will be published in the London Gazette`
+    : `${referral.confirmationOutcome} -- the applicant does not want to proceed and asks for a refund`;
+}
+
+/**
+ * api's refusal of a second answer, verbatim — and it deliberately does **not** name who recorded the first:
+ * "naming a colleague in a refusal turns a correction into an accusation".
+ *
+ * The date is written with the outcome, so a row holding one without the other is unreachable through this
+ * route; the fallback exists because a refusal that threw while composing itself would answer 500 for the state
+ * it is supposed to explain.
+ */
+function alreadyConfirmedRefusal(referral: MockReferral): string {
+  const when = referral.confirmationReceivedAt ? NOTE_DAY.format(referral.confirmationReceivedAt) : "a date that was not recorded";
+
+  return (
+    `Referral ${referral.id} already has a confirmation outcome of ${referral.confirmationOutcome},` +
+    ` recorded on ${when}. Recording a second answer would overwrite it, so it is refused`
+  );
+}
+
+/**
  * The note a sent email writes — api's `EmailNotes.sent`, verbatim.
  *
  * Restated for the reason the referral notes above are: the Notes grid is the only timeline a case has, so an
@@ -1989,7 +2218,7 @@ function emailCouldNotBeSentNote(template: MockEmailTemplate): string {
 
 /**
  * Which referral a note is about, in terms a caseworker can recognise — api's `identifies()` fragment, shared
- * by four of the five composers so the notes of one referral pair up in the grid.
+ * by five of the six composers so the notes of one referral pair up in the grid.
  *
  * **Never the id**: it is a uuid, and nobody matches two of those by eye. Nothing of the applicant's either —
  * the note is already under their case. A referral with no reasons is a backfilled one, so it says so rather
@@ -2616,10 +2845,24 @@ type CaseState = NonNullable<WireSavedCase["state"]>;
  * No `lastTouchedAt`, which api keeps and publishes nowhere: it is the inactivity sweep's bookkeeping, and the
  * sweep is one of the three things this mock deliberately does not model.
  */
-type MockReferral = Omit<WireReferral, "state" | "claimedAt" | "decisionDate" | "createdOn" | "modifiedOn"> & {
+type MockReferral = Omit<
+  WireReferral,
+  "state" | "claimedAt" | "decisionDate" | "confirmationRequestedAt" | "confirmationReceivedAt" | "createdOn" | "modifiedOn"
+> & {
   state: ReferralState;
   claimedAt: Date | null;
   decisionDate: Date | null;
+  /**
+   * The wait for the applicant's answer and the moment a caseworker recorded it — `Date | null` for the reason
+   * every other stored date here is, and never `undefined`: `refreshAwaitingConfirmation` reads both to decide
+   * whether the case is still on the waiting list, and a third absent-ish value would be a third case to get
+   * right at that one site.
+   *
+   * **`confirmationReceivedAt` is when the answer was RECORDED**, from this mock's clock as api takes it from
+   * its own, and never when the applicant replied — which nothing here or at api's end knows.
+   */
+  confirmationRequestedAt: Date | null;
+  confirmationReceivedAt: Date | null;
   createdOn: Date;
   modifiedOn: Date;
   /**

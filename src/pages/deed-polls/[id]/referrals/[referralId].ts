@@ -19,8 +19,15 @@
  * **The whole returned direction is on this page** (decision 4), because this is where a caseworker is told to
  * carry it out. `decidedBy` and never `modifiedBy` — closing the referral changes the modifier to the
  * caseworker who actioned it, and reading the author off that field would credit the direction to them.
+ *
+ * **The applicant's confirmation is a fourth section and a third control, and it is independent of the other
+ * two** (`notify-3b` decision 6). api clears neither confirmation column when a referral is closed or withdrawn,
+ * so a terminal referral can still be waiting for an answer — which is exactly what keeps its case on the
+ * awaiting-confirmation worklist. So "Record applicant response" is its own block rather than a third branch of
+ * the withdraw/close chain, and it is offered on `confirmation.awaiting` alone. Presentation again, not
+ * enforcement: api answers 409 for an unasked or an already-answered recording.
  */
-import { buildReferralDetail, findDeedPoll, findReferral } from "@hmcts/deed-poll";
+import { buildReferralDetail, findDeedPoll, findReferral, type ReferralConfirmationView } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
 
@@ -32,6 +39,12 @@ const CLOSE_ACTIONED = "actioned";
 
 /** And when api refused the closure, because somebody or something got to the referral first. */
 const CLOSE_CONFLICT = "conflict";
+
+/** What `confirmation.ts` redirects back with once api has recorded the applicant's answer. */
+const CONFIRMATION_RECORDED = "recorded";
+
+/** And when api refused it — a second answer, or a referral nobody asked. */
+const CONFIRMATION_CONFLICT = "conflict";
 
 const en = {
   title: "Referral to the judiciary",
@@ -89,7 +102,30 @@ const en = {
   closeRefusedClosed: "This referral has already been marked as actioned.",
   // Everything else api refuses a closure for — withdrawn, back with the judiciary, or a state this app cannot
   // read. It claims nothing about which, because the fresh status beside it says.
-  closeRefusedChanged: "This referral is no longer waiting for a direction to be actioned, so it could not be marked as actioned."
+  closeRefusedChanged: "This referral is no longer waiting for a direction to be actioned, so it could not be marked as actioned.",
+  confirmationHeading: "Applicant's confirmation",
+  confirmationRequestedLabel: "Confirmation requested",
+  confirmationResponseLabel: "Applicant's response",
+  // While api holds a request and no answer. Not "None" and not a blank cell: the applicant may well have
+  // replied, and what this page knows is only that nobody has recorded it yet.
+  awaitingResponse: "Not yet recorded",
+  // api stamps `confirmationReceivedAt` from its own clock when a caseworker records the answer, so the label
+  // must not read as the date the applicant replied — which nothing in this service holds.
+  confirmationRecordedLabel: "Response recorded",
+  confirmationRecordedByLabel: "Recorded by",
+  recordResponse: "Record applicant response",
+  // Says where the answer comes from, because it comes from a mailbox rather than from this service. Decision 8:
+  // it says nothing about what happens to the case next, which is still an open business question.
+  recordResponseHint: "Record what the applicant said in reply to the email asking whether they still want their deed poll enrolled.",
+  // The recording landed, said on the referral the answer is now on rather than on a confirmation page of its
+  // own — the same call `close.ts` makes, and for the same reason: this is where the recorded answer is.
+  confirmationRecorded: "The applicant's response has been recorded.",
+  // api's likely refusal by far: two caseworkers working the same worklist row. It names no colleague, as api's
+  // own refusal deliberately does not — the recorder is on the referral below, where it is a fact rather than an
+  // accusation.
+  confirmationRefusedRecorded: "The applicant's response has already been recorded.",
+  // api's other refusal. The fresh read says which this is — see `confirmationRefusal`.
+  confirmationRefusedUnasked: "The applicant has not been asked whether they still want to proceed, so there is no response to record."
 };
 
 // English content in the cy shape — see the note in ../../index.ts.
@@ -117,8 +153,15 @@ export const GET = async (req: Request, res: Response) => {
     directionActioned: req.query.close === CLOSE_ACTIONED ? content.directionActioned : "",
     // And one api refused, keyed on the state it published instead — see `closeRefusal`.
     closeRefused: req.query.close === CLOSE_CONFLICT ? closeRefusal(referral.state, content) : "",
+    // The applicant's answer, the same three shapes as the closure above: recorded, refused, or neither. The
+    // outcome itself is in the section below and comes off the fresh read, so the banner announces and the
+    // summary states — nothing here retransmits what was submitted.
+    confirmationAnswer: confirmationAnswer(view.confirmation, content),
+    confirmationRecorded: req.query.confirmation === CONFIRMATION_RECORDED ? content.confirmationRecorded : "",
+    confirmationRefused: req.query.confirmation === CONFIRMATION_CONFLICT ? confirmationRefusal(view.confirmation, content) : "",
     // Stated by the page that offers the control, rather than assembled from fragments in the template.
-    closeHref: `/deed-polls/${req.params.id}/referrals/${encodeURIComponent(req.params.referralId)}/close`,
+    closeHref: `${referralHref(req)}/close`,
+    confirmationHref: `${referralHref(req)}/confirmation`,
     en,
     cy
   });
@@ -159,4 +202,38 @@ function gazetteAnswer(publishToGazette: boolean | null | undefined, content: ty
   if (publishToGazette === false) return content.no;
 
   return content.gazetteNotRecorded;
+}
+
+/**
+ * What the applicant said, or that nobody has recorded it yet.
+ *
+ * `confirmation.outcome` is the domain's label — one map for the radios and the recorded answer, so a caseworker
+ * reads back the sentence they ticked (`CONFIRMATION_OUTCOME_LABEL`). Resolved here rather than in the template
+ * only because the waiting case needs this page's words; an empty string is unreachable in the render, since the
+ * whole section is absent on a referral that was never asked.
+ */
+function confirmationAnswer(confirmation: ReferralConfirmationView | null, content: typeof en): string {
+  if (!confirmation) return "";
+
+  return confirmation.outcome ?? content.awaitingResponse;
+}
+
+/**
+ * Which of api's two confirmation refusals this is, keyed on the referral as api has just published it.
+ *
+ * api checks already-recorded **before** never-asked, and both refusals are distinguishable only by their prose
+ * — which this app must not parse. So the fresh read decides, and it can say more than the message could: an
+ * outcome on the referral is the race worth naming (a colleague on the same worklist row), and its absence means
+ * nobody asked the applicant at all.
+ *
+ * **There is no third branch for a referral still waiting**, because a 409 cannot mean that: api refuses only a
+ * recorded answer or an unasked referral, and nothing clears a recorded one. A sentence for that state would
+ * describe something api does not do.
+ */
+function confirmationRefusal(confirmation: ReferralConfirmationView | null, content: typeof en): string {
+  return confirmation?.outcome ? content.confirmationRefusedRecorded : content.confirmationRefusedUnasked;
+}
+
+function referralHref(req: Request): string {
+  return `/deed-polls/${req.params.id}/referrals/${encodeURIComponent(req.params.referralId)}`;
 }

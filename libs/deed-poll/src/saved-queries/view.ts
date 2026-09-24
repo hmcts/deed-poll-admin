@@ -22,7 +22,7 @@ import { LIST_FILTER, type SavedQuery, type SavedQueryCreate } from "@hmcts/deed
 import { NOT_RECORDED } from "../deed-poll/case-header.js";
 import { type CaseListLink, caseListSearch, caseQueryWhere, parseConditions } from "../deed-poll/case-query.js";
 import { filterFor } from "../deed-poll/list-filters.js";
-import { parseSort, serialiseSort } from "../deed-poll/list-sort.js";
+import { isReorderable, parseSort, serialiseSort } from "../deed-poll/list-sort.js";
 
 /**
  * The parts of a list link a saved query stands for.
@@ -39,12 +39,21 @@ import { parseSort, serialiseSort } from "../deed-poll/list-sort.js";
  * `savedQueryHref`, the library rows and the filter nav's entries — builds its URL through this function and
  * then `caseListSearch`, so restoring the term in one place restores it everywhere. `caseListSearch` drops a
  * blank one, so a query api holds no term for is byte-identically the URL it was before.
+ *
+ * **An order stored against a tab this app does not order is dropped too** — `isReorderable`, and `notify-3b`
+ * decision 4. The list handler drops the awaiting-confirmation worklist's `sort` however it arrives, so a link
+ * that carried one would state an order the rows are not in *and* would never match the request it produced:
+ * `buildSavedQueryNav` compares serialised links, so the entry a caseworker just followed would be the one the
+ * bar left unhighlighted. api's filter enum carries the tab, so such a query is savable and this is the fourth
+ * way a `sort` reaches the worklist — after the previous tab's link, a bookmark and a hand-edited URL.
  */
 export function savedQueryLink(query: SavedQuery): CaseListLink {
+  const filter = filterFor(query.filter).key;
+
   return {
-    filter: filterFor(query.filter).key,
+    filter,
     conditions: parseConditions(query.conditions),
-    sort: savedQuerySort(query),
+    sort: isReorderable(filter) ? savedQuerySort(query) : undefined,
     q: query.searchTerm ?? undefined
   };
 }
@@ -68,18 +77,21 @@ export function savedQueryHref(query: SavedQuery, listPath: string): string {
  *     applied.
  *   - **The order is split into api's two columns**, `sortField` and `sortDirection`. `parseSort` has
  *     already dropped an order the table cannot show, so an unusable `?sort=` is stored as no order rather
- *     than as one that reorders the rows by a cell nobody can see.
+ *     than as one that reorders the rows by a cell nobody can see. A tab this app does not order at all
+ *     (`isReorderable`) stores no order either, for the reason `savedQueryLink` drops one on the way back:
+ *     the list would not apply it, so storing it would name the query after an order it never runs in.
  *
  * The filter is narrowed against the adapter's published vocabulary rather than cast: `filterFor` answers
- * one of this app's five keys and api's enum is the same five, and going through the array is what fails
- * to compile on the day it is not.
+ * one of this app's tab keys and api's enum holds the same set, and going through the array is what fails
+ * to compile on the day it does not.
  */
 export function savedQueryStored(link: CaseListLink): StoredQueryParts {
-  const sort = parseSort(link.sort);
+  const filter = filterFor(link.filter).key;
+  const sort = isReorderable(filter) ? parseSort(link.sort) : undefined;
   const term = link.q?.trim();
 
   return {
-    filter: LIST_FILTER.find((key) => key === filterFor(link.filter).key),
+    filter: LIST_FILTER.find((key) => key === filter),
     conditions: caseQueryWhere(link.conditions ?? []),
     sortField: sort?.field,
     sortDirection: sort?.direction,
@@ -176,6 +188,9 @@ function savedQueryRow(query: SavedQuery, listPath: string): SavedQueryRow {
  * will apply — only the six columns the table shows — is applied here too. A query saved with a sort
  * field the table cannot show opens in api's own order rather than reordering the rows by a cell that is
  * not on screen.
+ *
+ * Reached only for a tab this app orders at all: the other rule — about the whole tab rather than one column —
+ * is `savedQueryLink`'s, because it is the tab that decides it.
  */
 function savedQuerySort(query: SavedQuery): string | undefined {
   const field = query.sortField?.trim();
@@ -184,9 +199,17 @@ function savedQuerySort(query: SavedQuery): string | undefined {
   return serialiseSort(parseSort(query.sortDirection ? `${field}:${query.sortDirection}` : field));
 }
 
-/** A link as the URL states it, for comparison. `page` is left out — see `buildSavedQueryNav`. */
+/**
+ * A link as the URL states it, for comparison. `page` is left out — see `buildSavedQueryNav`.
+ *
+ * **`q` is in the key**, because `savedQueryLink` restores it and so the entry's own link carries it: a key
+ * that dropped the term compared a URL holding `q=` against one that never can, which left a saved query
+ * with a search term unhighlighted while the caseworker was looking at exactly its results — and highlighted
+ * a term-less query for a request that was searching. Both sides go through `caseListSearch`, which trims and
+ * drops a blank one, so a query api holds no term for keys identically to a list with no search.
+ */
 function linkKey(link: CaseListLink): string {
-  return caseListSearch({ filter: link.filter, conditions: link.conditions, sort: link.sort });
+  return caseListSearch({ filter: link.filter, q: link.q, conditions: link.conditions, sort: link.sort });
 }
 
 /** An owner's name, or the placeholder for a query api recorded none for. */

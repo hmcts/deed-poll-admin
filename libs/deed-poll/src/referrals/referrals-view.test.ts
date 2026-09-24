@@ -1,8 +1,10 @@
-import { REFERRAL_REASON, REFERRAL_STATE, type Referral, URGENCY } from "@hmcts/deed-poll-api-client";
+import { CONFIRMATION_OUTCOME, REFERRAL_REASON, REFERRAL_STATE, type Referral, URGENCY } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
 import {
   buildReferralDetail,
   buildReferralsView,
+  CONFIRMATION_OUTCOME_CHOICES,
+  CONFIRMATION_OUTCOME_LABEL,
   REFERRAL_REASON_CHOICES,
   REFERRAL_REASON_LABEL,
   REFERRAL_STATE_LABEL,
@@ -32,6 +34,20 @@ const REFERRAL: Referral = {
   modifiedBy: "A Caseworker",
   createdOn: new Date("2026-05-13T08:44:00Z"),
   modifiedOn: new Date("2026-05-14T08:44:00Z")
+};
+
+/**
+ * The same referral once the applicant has been asked whether they still want to proceed, and before they have
+ * answered — the state the case is on the awaiting-confirmation worklist in.
+ */
+const AWAITING: Referral = { ...REFERRAL, confirmationRequestedAt: new Date("2026-03-21T09:00:00Z") };
+
+/** And once a caseworker has recorded the reply. The two dates are days apart, deliberately — see the test. */
+const CONFIRMED: Referral = {
+  ...AWAITING,
+  confirmationOutcome: "Confirmed",
+  confirmationReceivedAt: new Date("2026-03-22T10:30:00Z"),
+  confirmationRecordedBy: "Ada Caseworker"
 };
 
 /** The same referral once a judge has claimed it and returned a direction. */
@@ -284,6 +300,102 @@ describe("referrals/referrals-view", () => {
     it("should render the urgency as its label and say when none was published", () => {
       expect(buildReferralDetail(REFERRAL).urgency).toBe("Urgent");
       expect(buildReferralDetail({ ...REFERRAL, urgency: null }).urgency).toBe("Not provided");
+    });
+  });
+
+  describe("the applicant's confirmation", () => {
+    it("should carry nothing at all for a referral nobody asked to confirm, which is most of them", () => {
+      // Null rather than a section reading "not recorded": that would answer a question nobody put.
+      expect(buildReferralDetail(REFERRAL).confirmation).toBe(null);
+      expect(buildReferralDetail(DECIDED).confirmation).toBe(null);
+    });
+
+    it("should say when the applicant was asked, and that the answer is still outstanding", () => {
+      const view = buildReferralDetail(AWAITING);
+
+      expect(view.confirmation).toEqual({
+        requestedOn: "21 March 2026 at 9:00am",
+        awaiting: true,
+        outcome: null,
+        recordedOn: null,
+        recordedBy: null
+      });
+    });
+
+    it("should render a recorded answer as the sentence the form asked the question in", () => {
+      const view = buildReferralDetail(CONFIRMED);
+
+      expect(view.confirmation).toMatchObject({
+        awaiting: false,
+        outcome: "The applicant wants to proceed",
+        recordedBy: "Ada Caseworker"
+      });
+    });
+
+    it("should not read Withdrawn as the referral having been withdrawn, which is a different event", () => {
+      const view = buildReferralDetail({ ...CONFIRMED, confirmationOutcome: "Withdrawn" });
+
+      expect(view.confirmation?.outcome).toBe("The applicant does not want to proceed");
+      expect(view.confirmation?.outcome).not.toContain("Withdrawn");
+    });
+
+    it("should date a recorded answer by when it was recorded, which is not when the applicant replied", () => {
+      // api stamps `confirmationReceivedAt` from its own clock, so nothing built on it may read as the date of
+      // the reply — the two are days apart here on purpose.
+      const view = buildReferralDetail(CONFIRMED);
+
+      expect(view.confirmation?.requestedOn).toBe("21 March 2026 at 9:00am");
+      expect(view.confirmation?.recordedOn).toBe("22 March 2026 at 10:30am");
+    });
+
+    it("should say the recorder was not recorded rather than leaving the row blank", () => {
+      const view = buildReferralDetail({ ...CONFIRMED, confirmationRecordedBy: null });
+
+      expect(view.confirmation?.recordedBy).toBe("Not recorded");
+    });
+
+    it("should keep a closed referral waiting, because closing clears neither confirmation column", () => {
+      // The reason `awaiting` is api's two-column predicate and not a question about the state: a closed referral
+      // with no answer is exactly what keeps its case on the awaiting-confirmation worklist.
+      const view = buildReferralDetail({ ...AWAITING, state: "Closed" });
+
+      expect(view.confirmation?.awaiting).toBe(true);
+    });
+
+    it("should offer nothing for an answer that somehow arrived without a request, but still show it", () => {
+      // api checks already-recorded before never-asked, so this row would be refused a second answer rather than
+      // told it was never asked. Unreachable through the contract; the view must not claim it is waiting.
+      const view = buildReferralDetail({ ...CONFIRMED, confirmationRequestedAt: null });
+
+      expect(view.confirmation).toMatchObject({ awaiting: false, requestedOn: "Not recorded", outcome: "The applicant wants to proceed" });
+    });
+
+    it("should label every outcome api publishes and offer them as radios in its own order", () => {
+      for (const outcome of CONFIRMATION_OUTCOME) {
+        expect(CONFIRMATION_OUTCOME_LABEL[outcome]).toBeTruthy();
+      }
+      expect(CONFIRMATION_OUTCOME_CHOICES).toEqual([
+        { value: "Confirmed", text: "The applicant wants to proceed" },
+        { value: "Withdrawn", text: "The applicant does not want to proceed" }
+      ]);
+      expect(CONFIRMATION_OUTCOME_CHOICES.map((choice) => choice.value)).toEqual([...CONFIRMATION_OUTCOME]);
+    });
+
+    it("should ask the radios and read the answer back in the same words, so one answer is not two facts", () => {
+      const recorded = buildReferralDetail(CONFIRMED).confirmation;
+
+      expect(CONFIRMATION_OUTCOME_CHOICES.map((choice) => choice.text)).toContain(recorded?.outcome);
+    });
+
+    it("should say nothing about a refund or an enrolment, which nobody has decided yet", () => {
+      // `notify-3b` decision 8 and flag 1: the answer is recorded, and what the office does next about the
+      // case's dates is an open business question this app must not answer.
+      for (const outcome of CONFIRMATION_OUTCOME) {
+        const label = CONFIRMATION_OUTCOME_LABEL[outcome].toLowerCase();
+
+        expect(label, outcome).not.toContain("refund");
+        expect(label, outcome).not.toContain("enrol");
+      }
     });
   });
 

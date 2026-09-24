@@ -645,3 +645,89 @@ describe("case detail template — the banner a send comes back to", () => {
     expect(rendered).not.toContain("govuk-notification-banner--success");
   });
 });
+
+/**
+ * The awaiting-confirmation notice — `notify-3b` decision 2.
+ *
+ * `[id].test.ts` owns the sentence and where it comes from. What a model cannot show is the one thing the
+ * decision is about: that the notice sits *beside* the case state rather than replacing it, and that it is not
+ * the "Important" banner the privacy warning above the heading already is.
+ */
+describe("case detail template — the awaiting-confirmation notice", () => {
+  const waiting = { ...found, state: "Returned", awaitingConfirmationSince: new Date("2026-05-12T08:44:00.000Z") };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NODE_ENV = "test";
+    vi.mocked(findCaseEmails).mockResolvedValue(CASE_EMAILS as never);
+  });
+
+  it("should say the case is waiting, as inset text below the case header", async () => {
+    const rendered = await page([], waiting);
+
+    expect(rendered).toContain("govuk-inset-text");
+    expect(rendered).toContain("The applicant was asked on 12 May 2026 at 9:44am whether they want to proceed");
+  });
+
+  it("should keep the state tag reading Returned beside it, there being no ninth case state", async () => {
+    const rendered = await page([], waiting);
+
+    expect(rendered).toContain("Returned");
+    // Beside and below, not above: the notice comes after the header's summary list and before the tabs.
+    expect(rendered.indexOf("govuk-inset-text")).toBeGreaterThan(rendered.indexOf("govuk-summary-list"));
+    expect(rendered.indexOf("govuk-inset-text")).toBeLessThan(rendered.indexOf("govuk-tabs"));
+  });
+
+  it("should not render it as a notification banner, which the privacy warning already owns", async () => {
+    const rendered = await page([], waiting);
+
+    expect(rendered).not.toContain("govuk-notification-banner");
+  });
+
+  it("should render nothing at all on a case waiting for nothing", async () => {
+    const rendered = await page([], found);
+
+    expect(rendered).not.toContain("govuk-inset-text");
+    expect(rendered).not.toContain("whether they want to proceed");
+  });
+
+  it("should say which referral is waiting on the tab the notice sends the caseworker to", async () => {
+    // The notice's last sentence promises the answer is against a referral "see the Referrals tab", and this
+    // table otherwise lists dates, statuses and reasons only — so on a case with a history the caseworker would
+    // have to open each row to find the one that was asked.
+    const asked = { ...REFERRAL, id: "ref-2", state: "Decided", confirmationRequestedAt: new Date("2026-05-12T08:44:00Z"), confirmationOutcome: null };
+
+    const rendered = await page([asked, REFERRAL], waiting);
+
+    expect(rendered).toContain("Awaiting the applicant&#39;s response");
+    // Beside the status rather than instead of it: the referral's own state is still a fact about the row.
+    expect(rendered).toContain("Direction received");
+  });
+
+  it("should mark only the referral that is waiting, not every row on a case that is", async () => {
+    const asked = { ...REFERRAL, id: "ref-2", state: "Decided", confirmationRequestedAt: new Date("2026-05-12T08:44:00Z"), confirmationOutcome: null };
+    const answered = { ...asked, id: "ref-3", confirmationOutcome: "Confirmed", confirmationReceivedAt: new Date("2026-05-14T09:00:00Z") };
+
+    const rendered = await page([asked, answered, REFERRAL], waiting);
+
+    expect(rendered.match(/Awaiting the applicant&#39;s response/g)).toHaveLength(1);
+  });
+
+  it("should mark a closed referral that is still waiting, because closing clears neither column", async () => {
+    // The same reason `awaiting` is api's two-column predicate rather than a question about the state: this row
+    // is what keeps the case on the worklist, and a table that showed "Direction actioned" alone would read as
+    // finished.
+    const closed = { ...REFERRAL, state: "Closed", confirmationRequestedAt: new Date("2026-05-12T08:44:00Z"), confirmationOutcome: null };
+
+    const rendered = await page([closed], waiting);
+
+    expect(rendered).toContain("Awaiting the applicant&#39;s response");
+    expect(rendered).toContain("Direction actioned");
+  });
+
+  it("should mark no row on a case whose referrals were never asked", async () => {
+    const rendered = await page([REFERRAL], found);
+
+    expect(rendered).not.toContain("Awaiting the applicant&#39;s response");
+  });
+});

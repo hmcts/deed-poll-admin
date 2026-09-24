@@ -30,8 +30,6 @@ const CASE_EMAILS = {
   slotDefaults: [{ template: "application-rejected", fields: { judges_reason: "The evidence does not establish identity.", additional_notes: "" } }]
 };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
 function request(body?: Record<string, unknown>, template = "application-rejected") {
   return pageRequest({ params: { id: "case-1", template }, body, accessToken: "session-token" });
 }

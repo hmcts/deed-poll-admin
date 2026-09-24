@@ -22,9 +22,11 @@ yarn format                     # Format code with Biome
 
 # deed-poll-api
 yarn mock:api                   # The in-memory api the pages develop against, on port 3200
-yarn mock:seed                  # Seed the running mock: ~32 cases across every tab plus nine referrals, four
-                                # of them Decided so the dashboard's returned-for-action count is non-zero.
-                                # Resets the store unless given `--keep`, and exits non-zero on a mismatch
+yarn mock:seed                  # Seed the running mock: ~32 cases across every tab plus nine referrals — four
+                                # Decided so the returned-for-action count is non-zero, two of those also
+                                # awaiting the applicant's confirmation (waiting 14 and 3 days) so the second
+                                # count, its tab and the Waiting column are non-empty too. Resets the store
+                                # unless given `--keep`, and exits non-zero on a mismatch
 ```
 
 The mock starts **empty**, so a page whose data comes from a list — the case list, its filter tabs, the
@@ -100,6 +102,30 @@ writing any query-shaped code:
 - **`DEED_POLL_API_URL`** is the base URL, defaulting to the mock at `http://localhost:3200`. Deployed
   environments set it in `charts/deed-poll-admin/values.yaml`, resolved per environment from
   `global.environment`; preview overrides it to AAT's api, so **preview writes land in AAT's data**.
+
+Three facts about the confirmation worklist that are not derivable from a single file:
+
+- **A worklist is either a published `filter` key or a `where` condition, and which one is api's choice, not a
+  style preference.** Awaiting-confirmation is a filter key (`AWAITING_CONFIRMATION_FILTER`), so it comes with
+  api's own default order — `awaitingConfirmationSince:asc`, longest wait first — and the count and the tab must
+  send **no `sort`** of their own or they override it. Not just their own: the tab is not orderable *at all*
+  (`isReorderable` in `libs/deed-poll/src/deed-poll/list-sort.ts`), because a `sort` reaches it three other ways —
+  the tab link carrying the previous tab's order, a sortable column header, a bookmarked URL — and api's default is
+  only a default. So the worklist drops any `sort` it is asked for and renders its headings as plain text; leaving
+  the headers as links while dropping the order would be seven controls that do nothing. Returned-for-action is a `where` on
+  `currentReferralState`, because api publishes no tab for it. Do not convert one into the other, and do not
+  narrow either list here.
+- **A case can be waiting for the applicant with no case state saying so.** There is no ninth `DeedPollState`:
+  the case still reads `Returned`, and `awaitingConfirmationSince` — recomputed by api from its referrals' two
+  confirmation columns — is the only thing that says it is waiting. So the case page says it as inset text
+  *beside* the State row (`src/pages/deed-polls/[id].ts`), and a referral is "waiting" by api's two-column
+  predicate rather than by its state: `Closed` clears neither column, so a closed referral can still be holding
+  its case on the worklist.
+- **A recorded confirmation cannot be amended, and a 409's meaning comes from a fresh read.** api publishes no
+  amend operation and refuses a second recording, which is what the form's warning text states. The POST reads
+  nothing first — api owns the transition — and on 409 redirects to the referral, which picks the sentence from
+  the freshly-read referral, because api's two refusals are distinguishable only by prose this app must not
+  parse. Same shape as the withdraw and close conflicts.
 
 ## Personas and role gating
 
@@ -350,14 +376,17 @@ Follow these strict naming conventions throughout the project:
   depend on the degraded call must render outside every branch of it**: the Referrals panel's "Previous system
   referral information" snapshot comes off the case, so nesting it inside the live-history branch would let a
   failed referrals read hide a historical record that was never at risk
-- **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its two
-  additive calls — the saved-query nav and the returned-for-action count — *before* the list read and awaits each
-  inside a helper that catches everything, logs, and returns a sentinel (`[]`, `null`); only the list read is
-  fatal. Reach for that shape on a page with one load-bearing call rather than `Promise.allSettled`, which is
-  `[id].ts`'s answer to two.
-- **A log is not a way of telling the caseworker.** Both degraded states must be distinguishable from empty
-  ones *on the page*: a silently absent count banner reads as "nothing needs action", so the returned-for-action
-  count carries its `null` through as its own state and the page says the number could not be loaded. Log it as
+- **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its three
+  additive calls — the saved-query nav and the two worklist counts, returned-for-action and awaiting-confirmation
+  — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
+  (`[]`, `null`); only the list read is fatal. Reach for that shape on a page with one load-bearing call rather
+  than `Promise.allSettled`, which is `[id].ts`'s answer to two. `worklistCount(name, read)` is the generalised
+  degrade-and-log helper, and the counts are separate reads on purpose: a caseworker whose confirmation count
+  failed must still be told about a returned direction
+- **A log is not a way of telling the caseworker.** Every degraded state must be distinguishable from an empty
+  one *on the page*: a silently absent count banner reads as "nothing needs action", so each worklist count
+  carries its `null` through as its own state and the page says the number could not be loaded. Two model keys per
+  count rather than one shared list, so neither count's failure changes how the other renders. Log it as
   well, for whoever is asked why — but the log answers an engineer's question, not the caseworker's. An earlier
   version of this rule offered the log line *as* the resolution, which was circular: it asserted the states were
   distinguishable while leaving the two renderings identical

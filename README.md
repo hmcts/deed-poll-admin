@@ -157,7 +157,9 @@ yarn format                     # Format code with Biome
 yarn mock:api                   # The in-memory api, on port 3200 (yarn dev starts it too)
 yarn mock:seed                  # Fill the running mock with cases: every tab, a page of results, and nine
                                 # referrals (four Decided, so the dashboard's "returned — action needed"
-                                # banner is non-zero). Resets the store first; `--keep` adds to it
+                                # banner is non-zero; two of those also awaiting the applicant's
+                                # confirmation, so that banner and tab are non-empty as well). Resets the
+                                # store first; `--keep` adds to it
 ```
 
 The mock starts **empty**, so `yarn mock:seed` is what makes the list page, its filters and the dashboard's

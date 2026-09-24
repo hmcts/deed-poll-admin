@@ -12,8 +12,27 @@
  * on the detail page. A second formatter here would be a second opinion about what a Type is called.
  */
 import type { CaseSummary } from "@hmcts/deed-poll-api-client";
+import { NOT_RECORDED } from "./case-header.js";
 import { formatValue, NOT_PROVIDED } from "./detail-view.js";
 import { FIELD_BY_NAME } from "./form-fields.js";
+
+/**
+ * The heading of the column the awaiting-confirmation tab adds, and the only tab that shows it —
+ * `notify-3b` decision 4. A choice about which table needs a workflow column rather than about where the
+ * value exists: api publishes `daysAwaitingConfirmation` on every row and leaves it null for a case waiting
+ * for nothing, so the other tabs could show it and would be showing a column of blanks.
+ *
+ * **Deliberately not in `CASE_LIST_COLUMNS`, so it is not sortable.** api gives that tab its own default
+ * order — `awaitingConfirmationSince:asc`, longest wait first — which is the order the worklist exists to
+ * present, and a header link would replace it. It would also point the wrong way: ascending by the date the
+ * applicant was asked is *descending* by the number of days in the cell, so `aria-sort="ascending"` above a
+ * column counting down from 14 would be a lie a screen-reader user has no way to check.
+ *
+ * Keeping it out of the catalogue was only half of that argument: the other seven columns *are* in it, and a
+ * link on any of them replaced api's order just as effectively. `isReorderable` (`list-sort.ts`) is the other
+ * half — on this tab the page sends no order and offers no header link at all.
+ */
+export const WAITING_COLUMN_LABEL = "Waiting";
 
 /** A row of the list table, with every cell already a string the template prints as-is. */
 export interface CaseListRow {
@@ -32,6 +51,11 @@ export interface CaseListRow {
    * of them off screen.
    */
   newSurname: string;
+  /**
+   * How long the applicant has been waiting to answer, as api counted it — shown only on the
+   * awaiting-confirmation tab, but built on every row because the value is on every row. See `waitingFor`.
+   */
+  waiting: string;
 }
 
 /**
@@ -75,7 +99,8 @@ export function buildCaseList(cases: CaseSummary[]): CaseListRow[] {
     type: format("type", record.type),
     state: format("state", record.state),
     newForename: format("newForename", record.newForename),
-    newSurname: format("newSurname", record.newSurname)
+    newSurname: format("newSurname", record.newSurname),
+    waiting: waitingFor(record.daysAwaitingConfirmation)
   }));
 }
 
@@ -90,6 +115,28 @@ function format(name: string, raw: unknown): string {
   const field = FIELD_BY_NAME[name];
   if (!field) return raw === null || raw === undefined || raw === "" ? NOT_PROVIDED : String(raw);
   return formatValue(field, raw);
+}
+
+/**
+ * api's day count as a caseworker scans it.
+ *
+ * **Rendered, never computed.** `daysAwaitingConfirmation` is an integer api derived from its own clock, and
+ * a second subtraction here would disagree with it across a midnight or a timezone. It is not run through
+ * `format` either: it is not one of the 70 case fields, so `FIELD_BY_NAME` has no metadata for it and the
+ * fallback would print a bare integer.
+ *
+ * Three cases, because api publishes three: `0` on the day the email was sent — its own words, and never
+ * `1` — which reads as "Today" rather than "0 days", since a caseworker reading a zero has to work out
+ * whether it means "no wait" or "not counted". Null means api returned a row it counted no wait for, which on
+ * this tab is a disagreement between its filter and its own projection: "Not recorded" says that without
+ * claiming the applicant is not waiting. A negative count is not a thing api produces and is answered the
+ * same way as a zero rather than printed.
+ */
+function waitingFor(days: number | null | undefined): string {
+  if (days === null || days === undefined) return NOT_RECORDED;
+  if (days <= 0) return "Today";
+
+  return days === 1 ? "1 day" : `${days} days`;
 }
 
 /** One column of the list table: its heading, and the api field a header link orders by. */

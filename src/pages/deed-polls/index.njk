@@ -29,22 +29,49 @@
     condition the count was read with — clicking the number is the worklist, decision 3.
   #}
   {#
-    Three states, not two — and `returnedForActionFailed` is checked first because it is the one the other two
+    Three states per count, not two — and the failure is rendered first because it is the one the other two
     cannot express. A count of zero renders nothing, so a count that could not be *read* rendering nothing too
-    would tell a caseworker there is no work when the page has no idea either way. Warning text rather than
-    another "Important" banner: the same component, and the same reasoning, as the referrals panel on
-    detail.njk — no worklist link, because there is no count to stand behind it.
+    would tell a caseworker there is no work when the page has no idea either way. Warning text rather than an
+    "Important" banner: the same component, and the same reasoning, as the referrals panel on detail.njk — no
+    worklist link, because there is no count to stand behind it.
+
+    A failed count is mutually exclusive with its own sentence and **not** with the other count's, so these are
+    two `if`s and not one `if`/`elif` chain: the handler passes `""` for a count it could not read, so the
+    banner below skips that paragraph on its own.
   #}
   {% if returnedForActionFailed %}
     {{ govukWarningText({ text: returnedForActionUnavailable, iconFallbackText: warningIcon }) }}
-  {% elif returnedForAction %}
-    {% set returnedForActionHtml %}
-      <p class="govuk-notification-banner__heading">{{ returnedForAction }}</p>
-      <p class="govuk-body">
-        <a class="govuk-notification-banner__link" href="{{ returnedForActionHref }}">{{ returnedForActionLink }}</a>
-      </p>
+  {% endif %}
+  {#
+    The second worklist's own warning — `notify-3b` decision 3. Its own element rather than a shared sentence,
+    so one count failing says nothing about the other: the pair of them failing is two warnings, which is the
+    honest rendering of two unanswered questions.
+  #}
+  {% if awaitingConfirmationFailed %}
+    {{ govukWarningText({ text: awaitingConfirmationUnavailable, iconFallbackText: warningIcon }) }}
+  {% endif %}
+
+  {#
+    **One banner, one paragraph per worklist that has work.** GOV.UK's guidance is not to put more than one
+    notification banner on a page, and two stacked "Important" banners would be two of them; each `if` is still
+    independent, so a count that read zero or failed removes its own paragraph and leaves the other's alone.
+  #}
+  {% if returnedForAction or awaitingConfirmation %}
+    {% set worklistHtml %}
+      {% if returnedForAction %}
+        <p class="govuk-notification-banner__heading">{{ returnedForAction }}</p>
+        <p class="govuk-body">
+          <a class="govuk-notification-banner__link" href="{{ returnedForActionHref }}">{{ returnedForActionLink }}</a>
+        </p>
+      {% endif %}
+      {% if awaitingConfirmation %}
+        <p class="govuk-notification-banner__heading">{{ awaitingConfirmation }}</p>
+        <p class="govuk-body">
+          <a class="govuk-notification-banner__link" href="{{ awaitingConfirmationHref }}">{{ awaitingConfirmationLink }}</a>
+        </p>
+      {% endif %}
     {% endset %}
-    {{ govukNotificationBanner({ titleText: bannerTitle, html: returnedForActionHtml, type: "important" }) }}
+    {{ govukNotificationBanner({ titleText: bannerTitle, html: worklistHtml, type: "important" }) }}
   {% endif %}
 
   <h1 class="govuk-heading-xl">{{ heading }}</h1>
@@ -347,7 +374,7 @@
       {% set privacyCell %}
         {% if c.isPrivate %}{{ govukTag({ text: c.privacy, classes: "govuk-tag--red" }) }}{% else %}{{ c.privacy }}{% endif %}
       {% endset %}
-      {% set rows = (rows.push([
+      {% set cells = [
         { html: referenceCell },
         { html: privacyCell },
         { text: c.dateReceived },
@@ -355,18 +382,39 @@
         { text: c.state },
         { text: c.newForename },
         { text: c.newSurname }
-      ]), rows) %}
+      ] %}
+      {#
+        The awaiting-confirmation tab's extra column — `notify-3b` decision 4. Appended rather than inserted, so
+        every other tab's table is byte-for-byte what it was, and gated on the heading the handler passes: the
+        row carries `waiting` on every tab, since api publishes the day count on every row.
+      #}
+      {% if waitingColumn %}{% set cells = (cells.push({ text: c.waiting }), cells) %}{% endif %}
+      {% set rows = (rows.push(cells), rows) %}
     {% endfor %}
 
     {#
       Sortable headers: a plain link per column, so reordering needs no JavaScript, and `aria-sort` on the
       cell because the link text alone does not say which way the column points.
+
+      A header with no `href` is one on a tab this app does not order — the awaiting-confirmation worklist, whose
+      order is api's own. It renders as plain text and carries no `aria-sort`, because a column announced as
+      sortable with nothing to sort it by is worse than one that never claimed to be.
     #}
     {% set head = [] %}
     {% for column in sortHeaders %}
-      {% set headerCell %}<a class="govuk-link" href="{{ column.href }}"><span class="govuk-visually-hidden">{{ sortHint }} </span>{{ column.label }}</a>{% endset %}
-      {% set head = (head.push({ html: headerCell, attributes: { "aria-sort": column.ariaSort } }), head) %}
+      {% if column.href %}
+        {% set headerCell %}<a class="govuk-link" href="{{ column.href }}"><span class="govuk-visually-hidden">{{ sortHint }} </span>{{ column.label }}</a>{% endset %}
+        {% set head = (head.push({ html: headerCell, attributes: { "aria-sort": column.ariaSort } }), head) %}
+      {% else %}
+        {% set head = (head.push({ text: column.label }), head) %}
+      {% endif %}
     {% endfor %}
+    {#
+      The Waiting column is plain text and carries no link or `aria-sort`, deliberately: api gives this tab its
+      own order of longest wait first, and reordering it is the one thing a caseworker looking at a wait queue
+      does not want. See `WAITING_COLUMN_LABEL` for why an ascending sort here would also point the wrong way.
+    #}
+    {% if waitingColumn %}{% set head = (head.push({ text: waitingColumn }), head) %}{% endif %}
 
     {{ govukTable({
       head: head,

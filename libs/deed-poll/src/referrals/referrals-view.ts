@@ -16,7 +16,16 @@
  * urgency, where `Normal` means the ordinary queue; a referral's `Normal` means "no particular hurry", and
  * "Standard" is what the business calls it. Same api enum, two questions, two wordings.
  */
-import { REFERRAL_REASON, type Referral, type ReferralReason, type ReferralState, URGENCY, type Urgency } from "@hmcts/deed-poll-api-client";
+import {
+  CONFIRMATION_OUTCOME,
+  type ConfirmationOutcome,
+  REFERRAL_REASON,
+  type Referral,
+  type ReferralReason,
+  type ReferralState,
+  URGENCY,
+  type Urgency
+} from "@hmcts/deed-poll-api-client";
 import { formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
 import { NOT_PROVIDED } from "../deed-poll/detail-view.js";
 import { MASTER_DECISION_LABEL, TERMINAL_REFERRAL_STATES } from "../deed-poll/enums/dynamics-values.js";
@@ -90,6 +99,29 @@ export const REFERRAL_STATE_TAG: Record<ReferralState, string> = {
   Withdrawn: "govuk-tag--grey"
 };
 
+/**
+ * What the applicant said, in the words the form asks the question in.
+ *
+ * **One map for both the radios and the recorded answer**, deliberately: a caseworker who ticked "The applicant
+ * wants to proceed" must read the same sentence back off the referral afterwards, and two wordings for one
+ * answer would look like two different facts.
+ *
+ * The words are about what the APPLICANT wants and never about what the office will do. api's `Withdrawn` member
+ * is the applicant asking for a refund, so "Withdrawn" alone would read as the referral having been withdrawn —
+ * a different event with its own state on the same referral. Nothing here says a refund has been issued or that
+ * a case is ready for enrolment: that is the open business question of `notify-3b` flag 1.
+ */
+export const CONFIRMATION_OUTCOME_LABEL: Record<ConfirmationOutcome, string> = {
+  Confirmed: "The applicant wants to proceed",
+  Withdrawn: "The applicant does not want to proceed"
+};
+
+/** The answer radios, in api's published order. Built from the member array, never typed out. */
+export const CONFIRMATION_OUTCOME_CHOICES: { value: ConfirmationOutcome; text: string }[] = CONFIRMATION_OUTCOME.map((outcome) => ({
+  value: outcome,
+  text: CONFIRMATION_OUTCOME_LABEL[outcome]
+}));
+
 /** The reason checkboxes, in api's published order. Built from the member array, never typed out. */
 export const REFERRAL_REASON_CHOICES: { value: ReferralReason; text: string }[] = REFERRAL_REASON.map((reason) => ({
   value: reason,
@@ -150,7 +182,8 @@ export function buildReferralDetail(referral: Referral): ReferralView {
     canWithdraw: state === "Open" || state === "Claimed",
     canClose: state === "Decided",
     claim: buildClaimView(referral),
-    direction: buildDirectionView(referral)
+    direction: buildDirectionView(referral),
+    confirmation: buildConfirmationView(referral)
   };
 }
 
@@ -288,6 +321,43 @@ function buildDirectionView(referral: Referral): ReferralDirectionView | null {
 }
 
 /**
+ * The applicant's confirmation, or null on a referral that was never asked for one.
+ *
+ * **Null and not an "awaiting: false" shape**, because "this referral has nothing to do with a confirmation" is
+ * not a state of the wait: most referrals were never asked, and a page rendering a section per referral would
+ * otherwise say "not recorded" about a question nobody put. api publishes all four columns on every referral, so
+ * the absence of both a request and an outcome is the only thing that means this.
+ *
+ * **`awaiting` is what decides whether the action is offered, and it is presentation rather than enforcement.**
+ * api owns the transition and answers 409 for an unasked or an already-answered recording, so a page showing this
+ * to a caseworker whose screen has gone stale still cannot record a second answer. It is api's own predicate —
+ * a request exists and an outcome does not — and deliberately not keyed on the referral's state: `Closed` clears
+ * neither column, so a closed referral can still be waiting for an answer, which is what keeps its case on the
+ * worklist.
+ *
+ * **`recordedOn` is when the caseworker recorded the answer and never when the applicant replied.** api stamps it
+ * from its own clock, so no wording built on it may present it as the date of the reply.
+ *
+ * `outcome` is the label and **not** api's member: every page that has the answer prints it, and the two pages that
+ * branch on one branch on `awaiting` instead. A page that has to key a class off the member can read it from the
+ * `Referral` it already has — publishing it here against that day would be a field nothing reads, which is how a
+ * view model comes to be tested for its own sake.
+ */
+function buildConfirmationView(referral: Referral): ReferralConfirmationView | null {
+  const requested = referral.confirmationRequestedAt ?? null;
+  const outcome = referral.confirmationOutcome ?? null;
+  if (requested === null && outcome === null) return null;
+
+  return {
+    requestedOn: formatTimestamp(requested),
+    awaiting: requested !== null && outcome === null,
+    outcome: outcome ? CONFIRMATION_OUTCOME_LABEL[outcome] : null,
+    recordedOn: outcome ? formatTimestamp(referral.confirmationReceivedAt) : null,
+    recordedBy: outcome ? orPlaceholder(referral.confirmationRecordedBy, NOT_RECORDED) : null
+  };
+}
+
+/**
  * Which message the referrals tab shows in place of the raise button, given the live referral's state.
  *
  * A key and not a sentence, so the page's `en`/`cy` owns the copy. Three cases because there are three things
@@ -345,6 +415,22 @@ export interface ReferralView {
   claim: ReferralClaimView | null;
   /** The returned direction, or null on a referral that has none. */
   direction: ReferralDirectionView | null;
+  /** The applicant's confirmation, or null on a referral never asked for one — see `buildConfirmationView`. */
+  confirmation: ReferralConfirmationView | null;
+}
+
+/** The applicant's answer to *Request confirmation to proceed*, as the referral page renders it. */
+export interface ReferralConfirmationView {
+  /** When the applicant was asked. */
+  requestedOn: string;
+  /** Asked and not yet answered, so the "Record applicant response" action is worth offering. */
+  awaiting: boolean;
+  /** What they said, in the words the form asked it in — or null while no answer is recorded. */
+  outcome: string | null;
+  /** When a caseworker RECORDED the answer, never when the applicant sent it. Null until one is recorded. */
+  recordedOn: string | null;
+  /** Who recorded it, from api's token-derived name. Null until one is recorded. */
+  recordedBy: string | null;
 }
 
 /** Who is holding, or held, the referral. Both fields or neither — see `buildClaimView`. */

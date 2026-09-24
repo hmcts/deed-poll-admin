@@ -27,6 +27,13 @@
  * rather than set on the seed body. A fixture that wrote the column directly would teach the dashboard a
  * number api's own state machine cannot produce, and the "returned — action needed" count is exactly the
  * thing that would then be wrong in one direction locally and another deployed.
+ *
+ * The confirmation phase is the one thing here that is **not** the contract, and for a reason the contract
+ * cannot fix: the write that starts a wait for the applicant's answer is notify-3's *Request confirmation to
+ * proceed* email, which the mock has no template for. So the wait is arranged through
+ * `POST /__mock/referrals/{id}/confirmation-request` — see the route for why it is a control route rather than
+ * an invented template. Everything the awaiting-confirmation worklist then shows is api's own: the case column
+ * is recomputed, the days are api's arithmetic, and the order is its per-tab default.
  */
 
 // Imported, not restated. `seed-idam-users.mjs` records what a copied constant cost last time: a role
@@ -37,7 +44,7 @@
 // draft of this file indexed them numerically: `JSON.stringify` drops an `undefined` value, so the mock
 // applied its own defaults, answered **201 for all 32 cases**, and the read-back check below passed
 // because the count was right. Every case came out `state=Received, type=null, urgency=null` and four of
-// the five filter tabs were empty. Hence `must()` — a renamed member now fails loudly rather than seeding
+// the status tabs were empty. Hence `must()` — a renamed member now fails loudly rather than seeding
 // a dataset that looks fine and tests nothing. Requires `libs/deed-poll` to have been built.
 import { DeedPollState, DeedPollType, Urgency } from "@hmcts/deed-poll";
 
@@ -63,9 +70,10 @@ const RECEIVED_CASES = 26;
 /**
  * The cases, grouped by the tab each group lands in.
  *
- * The groups exist because `FILTERS` in the mock keys on `state` — `open` is everything not Enroled or
- * Returned — so a dataset that is all one state leaves four of the five tabs empty and makes the tab bar
- * untestable. Dates are spread a day apart within each group so ordering by a date column is assertable
+ * The groups exist because the mock's state-keyed filters — `open` is everything not Enroled or Returned —
+ * mean a dataset that is all one state leaves four of the status tabs empty and makes the tab bar untestable.
+ * The sixth tab, `awaitingConfirmation`, is not keyed on the state and is filled by the confirmation phase
+ * below instead. Dates are spread a day apart within each group so ordering by a date column is assertable
  * rather than a stable-sort coincidence.
  */
 const GROUPS = [
@@ -147,12 +155,39 @@ const REFERRAL_PLAN = [
 /** How many of the seeded cases the plan above expects to find `Decided` when it reads the count back. */
 const EXPECTED_RETURNED_FOR_ACTION = REFERRAL_PLAN.find((phase) => phase.upTo === "Decided").count;
 
+/**
+ * How long each waiting applicant has been waiting, in whole days before now.
+ *
+ * Two, and two different lengths: one row cannot show that the worklist is ordered longest wait first, and a
+ * single length cannot show that the Waiting column is api's arithmetic rather than a constant. Relative to
+ * now rather than a fixed date in `dayInMonth`'s range, because the number in the cell is the point — a
+ * January date would read as however many days it has been since January.
+ *
+ * Arranged on the `Decided` referrals, which is the state a waiting case is ordinarily in: the judge refused
+ * the non-publication request, so the office asked the applicant whether to enrol anyway. It leaves them
+ * `Decided`, so these cases stay on the returned-for-action count as well — which is api's behaviour, not an
+ * interference between the two worklists.
+ */
+const CONFIRMATION_WAIT_DAYS = [14, 3];
+
 /** The judge a claim and a direction are attributed to. The mock reads a subject out of the token, no roles. */
 const SEED_JUDGE = "seed.judge@example.com";
 
 /** A date in January-to-June 2026, one per case, as the wire's local-date-time string. */
 function dayInMonth(month, n) {
   return `2026-${month}-${String(n).padStart(2, "0")}T00:00:00.000`;
+}
+
+/**
+ * Whole days ago, as the wire's zoneless local-date-time string.
+ *
+ * The `Z` is stripped rather than the parts assembled by hand: api's timestamps are `LocalDateTime`s and the
+ * mock reads them through the same wire schema, so a value carrying an offset is a different string from the
+ * one api would have written. UTC for the reason the mock formats its notes in UTC — a locally-zoned midnight
+ * dates to the previous day west of Greenwich, which is one day of arithmetic in the Waiting cell.
+ */
+function daysAgo(days) {
+  return new Date(Date.now() - days * 86_400_000).toISOString().replace(/Z$/, "");
 }
 
 /**
@@ -204,6 +239,8 @@ for (const group of GROUPS) {
 console.log("");
 
 let referred = 0;
+/** The referrals the plan drove as far as `Decided`, which are the ones the confirmation phase asks about. */
+const decided = [];
 
 for (const phase of REFERRAL_PLAN) {
   for (let n = 1; n <= phase.count; n++) {
@@ -213,31 +250,56 @@ for (const phase of REFERRAL_PLAN) {
       process.exit(1);
     }
 
-    await refer(caseId, phase.upTo, `${phase.label} #${n}`);
+    const referralId = await refer(caseId, phase.upTo, `${phase.label} #${n}`);
+    if (phase.upTo === "Decided") decided.push(referralId);
     referred++;
   }
 
   console.log(`${phase.label.padEnd(36)} ${String(phase.count).padStart(2)} case(s)`);
 }
 
+// The wait for an applicant's answer, which is the one thing here no contract route can start — see the
+// docblock. Checked per referral like every other step: a wait that was not arranged leaves the worklist, the
+// banner and the Waiting column empty, which is the failure this whole script exists to prevent.
+for (const [at, days] of CONFIRMATION_WAIT_DAYS.entries()) {
+  const referralId = decided[at];
+  if (referralId === undefined) {
+    console.error(`Ran out of decided referrals to ask about: the plan wants ${CONFIRMATION_WAIT_DAYS.length}, ${decided.length} were decided.`);
+    process.exit(1);
+  }
+
+  await step(
+    "POST",
+    `/__mock/referrals/${referralId}/confirmation-request`,
+    { confirmationRequestedAt: daysAgo(days) },
+    {},
+    `ask the applicant ${days} day(s) ago`
+  );
+}
+
+console.log(`${"Awaiting the applicant's reply".padEnd(36)} ${String(CONFIRMATION_WAIT_DAYS.length).padStart(2)} case(s)`);
+
 /**
- * Raise a referral on `caseId` and transition it as far as `upTo`, through the routes api publishes.
+ * Raise a referral on `caseId`, transition it as far as `upTo` through the routes api publishes, and answer
+ * the referral's id.
  *
  * Each step is checked, because a refusal part-way leaves the case in whatever state it reached and the
  * only symptom is a count that is quietly short.
  */
 async function refer(caseId, upTo, what) {
   const referral = await step("POST", `/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] }, {}, `raise ${what}`);
-  if (upTo === "Open") return;
+  if (upTo === "Open") return referral.id;
 
   const judge = { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: SEED_JUDGE }), "utf8").toString("base64url")}.signature` };
   await step("POST", `/judicial/referrals/${referral.id}/claim`, undefined, judge, `claim ${what}`);
-  if (upTo === "Claimed") return;
+  if (upTo === "Claimed") return referral.id;
 
   await step("POST", `/judicial/referrals/${referral.id}/direction`, { decision: "Approved", publishToGazette: true }, judge, `direct ${what}`);
-  if (upTo === "Decided") return;
+  if (upTo === "Decided") return referral.id;
 
   await step("POST", `/caseworker/cases/${caseId}/referrals/${referral.id}/closure`, undefined, {}, `close ${what}`);
+
+  return referral.id;
 }
 
 async function step(method, path, body, headers, what) {
@@ -267,8 +329,16 @@ const { total, totalPages } = await list.json();
 const worklist = await fetch(`${BASE}/caseworker/cases?where=currentReferralState:is:Decided&size=1`);
 const returnedForAction = worklist.ok ? (await worklist.json()).total : undefined;
 
+// The second worklist, read back through the **published filter key** rather than a `where`: that is how the
+// banner, the tab and the count all address it, and the case column behind it is recomputed by the mock rather
+// than written by the confirmation phase. So a request that landed on a referral without moving the case reads
+// as zero here, which is precisely the state that is invisible on screen — an empty tab.
+const awaiting = await fetch(`${BASE}/caseworker/cases?filter=awaitingConfirmation&size=1`);
+const awaitingConfirmation = awaiting.ok ? (await awaiting.json()).total : undefined;
+
 console.log(`\nSeeded ${seeded}. The list reports total=${total} across ${totalPages} page(s).`);
 console.log(`Referred ${referred}, of which ${returnedForAction} are returned and need action.`);
+console.log(`Awaiting the applicant's confirmation: ${awaitingConfirmation}, waiting ${CONFIRMATION_WAIT_DAYS.join(" and ")} day(s).`);
 
 // Every mismatch **exits non-zero**, like every other check in this script: a seed whose numbers are wrong is
 // a seed to fix, and a message among 30 lines of output that still exits 0 is one a developer scrolls past —
@@ -278,10 +348,14 @@ console.log(`Referred ${referred}, of which ${returnedForAction} are returned an
 // expected to match on a run that did not reset first.
 const mismatches = [
   worklist.ok ? null : `the filtered read-back was refused with ${worklist.status} — has \`currentReferralState\` stopped being queryable?`,
+  awaiting.ok ? null : `the awaiting-confirmation read-back was refused with ${awaiting.status} — is \`awaitingConfirmation\` still a published filter key?`,
   KEEP || total === seeded ? null : `seeded ${seeded} but the list reports ${total}.`,
   KEEP || returnedForAction === EXPECTED_RETURNED_FOR_ACTION
     ? null
-    : `expected ${EXPECTED_RETURNED_FOR_ACTION} Decided case(s) but the filter reports ${returnedForAction}.`
+    : `expected ${EXPECTED_RETURNED_FOR_ACTION} Decided case(s) but the filter reports ${returnedForAction}.`,
+  KEEP || awaitingConfirmation === CONFIRMATION_WAIT_DAYS.length
+    ? null
+    : `expected ${CONFIRMATION_WAIT_DAYS.length} case(s) awaiting confirmation but the filter reports ${awaitingConfirmation}.`
 ].filter((mismatch) => mismatch !== null);
 
 if (mismatches.length > 0) {

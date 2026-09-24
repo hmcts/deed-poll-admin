@@ -30,6 +30,9 @@ const JUDGE = "judge@example.com";
 const JUDGE_NAME = "HHJ Solomon";
 const JUDGE_SUBJECT = "solomon-subject";
 
+/** When a waiting case was returned, so its state and its dates can be asserted as unchanged by a recording. */
+const RETURNED_ON = new Date("2026-03-20T00:00:00Z");
+
 let mock: RunningMockApi;
 
 beforeAll(async () => {
@@ -159,6 +162,65 @@ describe("POST /__mock/cases", () => {
 
     expect(response.status).toBe(400);
     expect((await get("/caseworker/cases")).cases).toEqual([]);
+  });
+});
+
+/**
+ * The fourth control route: the wait a browser cannot otherwise arrange.
+ *
+ * Every other state the e2e suite needs is reachable through the contract, which is why the other journeys seed a
+ * case and then drive it. This one is not: the write that sets `confirmationRequestedAt` at api's end is notify-3's
+ * *Request confirmation to proceed* email, and `MOCK_EMAIL_TEMPLATES` carries only `application-rejected`. So the
+ * referral is raised through the contract and **only the ask** is arranged here — see the route for why this is not
+ * a second mock template.
+ */
+describe("POST /__mock/referrals/{id}/confirmation-request", () => {
+  it("should start a wait on a referral raised through the contract, which no contract route here can do", async () => {
+    const { caseId, referralId } = await referredCase();
+
+    const response = await post(`/__mock/referrals/${referralId}/confirmation-request`, { confirmationRequestedAt: "2026-03-21T09:00:00" });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).confirmationRequestedAt).toBe("2026-03-21T09:00:00.000");
+    // The case's own column, recomputed rather than written by this route — which is what puts the case on the
+    // worklist the journey starts from.
+    expect((await get(`/caseworker/cases/${caseId}`)).awaitingConfirmationSince).toBe("2026-03-21T09:00:00.000");
+    expect((await get("/caseworker/cases?filter=awaitingConfirmation")).total).toBe(1);
+  });
+
+  it("should treat an absent date as now, which is the day-zero row api publishes as 0 and never 1", async () => {
+    const { referralId } = await referredCase();
+
+    await post(`/__mock/referrals/${referralId}/confirmation-request`);
+
+    const list = await get("/caseworker/cases?filter=awaitingConfirmation");
+    expect(list.cases.map((summary: { daysAwaitingConfirmation: number | null }) => summary.daysAwaitingConfirmation)).toEqual([0]);
+  });
+
+  it("should leave the answer to the contract, so the recording that ends the wait is api's own route", async () => {
+    const { caseId, referralId } = await referredCase();
+    await post(`/__mock/referrals/${referralId}/confirmation-request`, { confirmationRequestedAt: "2026-03-21T09:00:00" });
+
+    const recorded = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Confirmed" });
+
+    expect(recorded.status).toBe(200);
+    expect((await get("/caseworker/cases?filter=awaitingConfirmation")).total).toBe(0);
+  });
+
+  it("should answer api's own 404 sentence for a referral it cannot find", async () => {
+    const response = await post("/__mock/referrals/no-such-referral/confirmation-request");
+
+    expect(response.status).toBe(404);
+    expect((await response.json()).error).toBe("Referral no-such-referral not found");
+  });
+
+  it("should refuse a date it cannot read rather than storing a string the next read would fail on", async () => {
+    const { caseId, referralId } = await referredCase();
+
+    const response = await post(`/__mock/referrals/${referralId}/confirmation-request`, { confirmationRequestedAt: "whenever" });
+
+    expect(response.status).toBe(400);
+    expect((await get(`/caseworker/cases/${caseId}`)).awaitingConfirmationSince).toBe(null);
   });
 });
 
@@ -438,7 +500,7 @@ describe("the saved-query routes", () => {
     expect((await response.json()).errors[0].field).toBe("conditions");
   });
 
-  it("should refuse a filter that is not one of api's five tabs", async () => {
+  it("should refuse a filter that is not one of api's published tabs", async () => {
     const response = await post("/caseworker/saved-queries", { name: "Bad tab", filter: "in-progress" });
 
     expect(response.status).toBe(400);
@@ -1138,6 +1200,218 @@ describe("the case's currentReferralState", () => {
     const { caseId } = await referredCase();
 
     expect(await get(`/caseworker/cases/${caseId}`)).not.toHaveProperty("referrals");
+  });
+});
+
+describe("the case's awaitingConfirmationSince, and the worklist it feeds", () => {
+  it("should put a case with an unanswered request on the awaiting-confirmation tab and count it", async () => {
+    const waiting = awaitingConfirmation(new Date("2026-03-21T09:00:00Z"));
+    mock.seed(null);
+
+    // `size=1`, as a count asks for it: the number is `total` across every page and never the rows returned.
+    const counted = await get("/caseworker/cases?filter=awaitingConfirmation&size=1");
+
+    expect(counted.total).toBe(1);
+    expect(counted.cases.map((summary: { id: string }) => summary.id)).toEqual([waiting.caseId]);
+  });
+
+  it("should leave the tab's criterion off state, since a waiting case is ordinarily Returned", async () => {
+    // The tab is the one filter that is not about `state`, so a Returned case waiting for nothing must not be on
+    // it and a waiting one must be on it whatever its state.
+    mock.seed({ state: "Returned", dateReturned: RETURNED_ON });
+    const waiting = awaitingConfirmation(new Date("2026-03-21T09:00:00Z"));
+
+    const list = await get("/caseworker/cases?filter=awaitingConfirmation");
+
+    expect(list.cases.map((summary: { id: string }) => summary.id)).toEqual([waiting.caseId]);
+  });
+
+  it("should order the tab longest wait first without being asked, and still let a named sort win", async () => {
+    const older = awaitingConfirmation(new Date("2026-02-01T09:00:00Z"));
+    const newer = awaitingConfirmation(new Date("2026-03-01T09:00:00Z"));
+
+    const byDefault = await get("/caseworker/cases?filter=awaitingConfirmation");
+    const named = await get("/caseworker/cases?filter=awaitingConfirmation&sort=awaitingConfirmationSince:desc");
+
+    expect(byDefault.cases.map((summary: { id: string }) => summary.id)).toEqual([older.caseId, newer.caseId]);
+    expect(named.cases.map((summary: { id: string }) => summary.id)).toEqual([newer.caseId, older.caseId]);
+  });
+
+  it("should leave every other tab newest first, so the waiting order is the waiting tab's alone", async () => {
+    const older = mock.seed({ createdOn: new Date("2026-01-01T00:00:00Z") });
+    const newer = mock.seed({ createdOn: new Date("2026-02-01T00:00:00Z") });
+
+    const list = await get("/caseworker/cases?filter=all");
+
+    expect(list.cases.map((summary: { id: string }) => summary.id)).toEqual([newer.id, older.id]);
+  });
+
+  it("should publish the days waited on every row: whole days, zero on the day it was asked, null otherwise", async () => {
+    awaitingConfirmation(new Date());
+    mock.seed(null);
+
+    const list = await get("/caseworker/cases?sort=awaitingConfirmationSince:asc");
+
+    // Zero and never one on the day the email went out, which is api's arithmetic and its own words.
+    expect(list.cases.map((summary: { daysAwaitingConfirmation: number | null }) => summary.daysAwaitingConfirmation)).toEqual([0, null]);
+  });
+
+  it("should take the case off the tab when the answer is recorded, without touching its state or its dates", async () => {
+    const { caseId, referralId } = awaitingConfirmation(new Date("2026-03-21T09:00:00Z"));
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Confirmed" });
+
+    expect(response.status).toBe(200);
+    expect((await get("/caseworker/cases?filter=awaitingConfirmation")).total).toBe(0);
+    const after = await get(`/caseworker/cases/${caseId}`);
+    // The whole of decision 8: recording the answer is not a decision about the case's dates or its state, and
+    // the referral it was recorded against has not moved either.
+    expect(after).toMatchObject({
+      state: "Returned",
+      dateReturned: "2026-03-20T00:00:00.000",
+      awaitingConfirmationSince: null,
+      currentReferralState: "Decided"
+    });
+  });
+
+  it("should keep the case waiting on an older unanswered request when a newer one is answered", async () => {
+    // api's `ConfirmationWait`: closing a referral clears neither confirmation column, so a case really can hold
+    // two outstanding requests — which is why the column is recomputed rather than set to null by the recording.
+    const older = referral({ id: "older", state: "Closed", confirmationRequestedAt: new Date("2026-02-01T09:00:00Z") });
+    const newer = referral({ id: "newer", state: "Decided", confirmationRequestedAt: new Date("2026-03-01T09:00:00Z") });
+    const seeded = mock.seed({ referrals: [older, newer] });
+
+    await post(`/caseworker/cases/${seeded.id}/referrals/newer/confirmation`, { outcome: "Withdrawn" });
+
+    // On the list still, and on the older ask's date rather than the answered one's.
+    expect((await get(`/caseworker/cases/${seeded.id}`)).awaitingConfirmationSince).toBe("2026-02-01T09:00:00.000");
+    expect((await get("/caseworker/cases?filter=awaitingConfirmation")).total).toBe(1);
+  });
+
+  it("should record the answer with the recorder from the token and the date from its own clock", async () => {
+    const { caseId, referralId } = awaitingConfirmation(new Date("2026-03-21T09:00:00Z"));
+
+    // A body naming the recorder and the received date, which api's schema publishes `additionalProperties: true`
+    // and therefore IGNORES rather than refuses. Copied deliberately: a mock that answered 400 would let this app
+    // ship a body api silently drops.
+    const recorded = await (
+      await post(
+        `/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`,
+        { outcome: "Withdrawn", note: "  Replied by post  ", confirmationRecordedBy: "Somebody Else", confirmationReceivedAt: "2020-01-01T00:00:00" },
+        as("Ada Caseworker")
+      )
+    ).json();
+
+    expect(recorded.confirmationOutcome).toBe("Withdrawn");
+    expect(recorded.confirmationRecordedBy).toBe("Ada Caseworker");
+    expect(recorded.confirmationReceivedAt).not.toBe("2020-01-01T00:00:00");
+    // The request date is the email's and is not restamped by the answer.
+    expect(recorded.confirmationRequestedAt).toBe("2026-03-21T09:00:00.000");
+  });
+
+  it("should write the answer onto the case's timeline, naming what it means and the caseworker's own words", async () => {
+    const { caseId, referralId } = awaitingConfirmation(new Date("2026-03-21T09:00:00Z"));
+
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Confirmed", note: "Replied by email" }, as("Ada Caseworker"));
+
+    const [latest] = await notesOn(caseId);
+    expect(latest.note).toContain("Applicant's confirmation recorded for referral raised on 1 March 2026, reasons: Minor");
+    expect(latest.note).toContain("Asked on 21 March 2026");
+    // The member alone does not say whether they wanted the deed enrolled or the fee back, so api spells it out.
+    expect(latest.note).toContain("Answer: Confirmed -- the applicant wants the deed enrolled, knowing it will be published in the London Gazette");
+    expect(latest.note).toContain("\nNotes: Replied by email");
+    expect(latest.createdBy).toBe("Ada Caseworker");
+  });
+
+  it("should write no note and change nothing when the recording is refused", async () => {
+    const { caseId, referralId } = awaitingConfirmation(new Date("2026-03-21T09:00:00Z"));
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Confirmed" });
+    const afterFirst = await notesOn(caseId);
+
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Withdrawn" });
+
+    expect(await notesOn(caseId)).toHaveLength(afterFirst.length);
+    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).confirmationOutcome).toBe("Confirmed");
+  });
+
+  it("should refuse a second answer, naming the outcome and the date but never the colleague who recorded it", async () => {
+    const { caseId, referralId } = awaitingConfirmation(new Date("2026-03-21T09:00:00Z"));
+    await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Confirmed" }, as("Ada Caseworker"));
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Withdrawn" });
+
+    expect(response.status).toBe(409);
+    const { error } = await response.json();
+    expect(error).toContain(`Referral ${referralId} already has a confirmation outcome of Confirmed, recorded on`);
+    expect(error).toContain("Recording a second answer would overwrite it, so it is refused");
+    // Naming a colleague in a refusal turns a correction into an accusation — api's reasoning, so its words.
+    expect(error).not.toContain("Ada Caseworker");
+  });
+
+  it("should refuse an answer on a referral nobody asked to confirm", async () => {
+    const { caseId, referralId } = await referredCase();
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Confirmed" });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toBe(
+      `Referral ${referralId} has not been asked to confirm whether the applicant wants to proceed, so there is no answer to record`
+    );
+  });
+
+  it("should check the body before either state, as Spring validates a payload before the service runs", async () => {
+    const { caseId, referralId } = await referredCase();
+
+    // An unasked referral AND an outcome api never published: the 400 is the answer, because the body is refused
+    // before the guard that would have answered 409.
+    const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Maybe" });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors.map((error: { field: string }) => error.field)).toEqual(["outcome"]);
+  });
+
+  it("should refuse a body with no outcome, which is the only required property", async () => {
+    const { caseId, referralId } = awaitingConfirmation(new Date("2026-03-21T09:00:00Z"));
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { note: "They replied by post" });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors.map((error: { field: string }) => error.field)).toEqual(["outcome"]);
+  });
+
+  it("should refuse a note past api's cap rather than storing a truncated one", async () => {
+    const { caseId, referralId } = awaitingConfirmation(new Date("2026-03-21T09:00:00Z"));
+
+    const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Confirmed", note: "x".repeat(1001) });
+
+    expect(response.status).toBe(400);
+    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).confirmationOutcome).toBe(null);
+  });
+
+  it("should answer 404 for a referral recorded through the wrong case, and record nothing", async () => {
+    const owning = awaitingConfirmation(new Date("2026-03-21T09:00:00Z"));
+    const other = mock.seed(null);
+
+    const response = await post(`/caseworker/cases/${other.id}/referrals/${owning.referralId}/confirmation`, { outcome: "Confirmed" });
+
+    expect(response.status).toBe(404);
+    // Discloses nothing about the referral, and the wait it belongs to is untouched.
+    expect((await response.json()).error).toBe(`Referral ${owning.referralId} not found`);
+    expect((await get(`/caseworker/cases/${owning.caseId}`)).awaitingConfirmationSince).toBe("2026-03-21T09:00:00.000");
+  });
+
+  it("should keep a column seeded with no referrals to recompute it from", async () => {
+    // The same rule `currentReferralState` follows: a case seeded with the column and nothing to derive it from
+    // is how a test arranges a wait that began before the process started.
+    const seeded = mock.seed({ awaitingConfirmationSince: new Date("2026-01-05T09:00:00Z") });
+
+    expect((await get(`/caseworker/cases/${seeded.id}`)).awaitingConfirmationSince).toBe("2026-01-05T09:00:00.000");
+  });
+
+  it("should publish the column as null on a case that has never been asked, rather than omitting it", async () => {
+    const seeded = mock.seed(null);
+
+    expect(await get(`/caseworker/cases/${seeded.id}`)).toHaveProperty("awaitingConfirmationSince", null);
   });
 });
 
@@ -2001,11 +2275,31 @@ async function currentReferralState(caseId: string): Promise<string | null> {
 }
 
 /**
- * One referral as the mock stores it, for a case seeded mid-lifecycle.
+ * A seeded case whose referral has been asked whether the applicant still wants to proceed, and has not answered.
  *
- * `Date` values rather than the ISO strings the wire carries, because `mock.seed` holds a `MockCase` — which is
- * also why a case with children is seeded in process rather than over `POST /__mock/cases`.
+ * **Seeded and not driven, because the write that starts the wait is the email** — notify-3's *Request
+ * confirmation to proceed*, which the mock has no template for and this plan does not send. Everything after the
+ * ask is the contract: the recording, both refusals, and the case leaving the worklist.
+ *
+ * `Decided` with a refusal on it, because that is the only way a case reaches this state: the judge refused the
+ * non-publication request, so the office asked the applicant whether to enrol anyway.
  */
+function awaitingConfirmation(asked: Date, overrides: Partial<MockCase["referrals"][number]> = {}): { caseId: string; referralId: string } {
+  const waiting = referral({
+    state: "Decided",
+    decision: "Rejected",
+    directionsText: JUDGES_REASON,
+    decidedBy: JUDGE,
+    confirmationRequestedAt: asked,
+    ...overrides
+  });
+  // `Returned` with the date that derives it, because that is the state a waiting case is ordinarily in — and
+  // what makes "recording the answer changes no case state or date" an assertion rather than a tautology.
+  const seeded = mock.seed({ state: "Returned", dateReturned: RETURNED_ON, referrals: [waiting] });
+
+  return { caseId: seeded.id, referralId: waiting.id };
+}
+
 /**
  * A seeded case whose referral a Master has refused, with an applicant to write to.
  *
@@ -2034,6 +2328,12 @@ function refusedCase(overrides: Partial<MockCase["referrals"][number]> = {}): { 
   return { caseId: seeded.id, referralId: refused.id };
 }
 
+/**
+ * One referral as the mock stores it, for a case seeded mid-lifecycle.
+ *
+ * `Date` values rather than the ISO strings the wire carries, because `mock.seed` holds a `MockCase` — which is
+ * also why a case with children is seeded in process rather than over `POST /__mock/cases`.
+ */
 function referral(overrides: Partial<MockCase["referrals"][number]> = {}): MockCase["referrals"][number] {
   const raised = new Date("2026-03-01T09:00:00");
 
@@ -2054,6 +2354,10 @@ function referral(overrides: Partial<MockCase["referrals"][number]> = {}): MockC
     decisionDate: null,
     decidedBy: null,
     decidedById: null,
+    confirmationRequestedAt: null,
+    confirmationOutcome: null,
+    confirmationReceivedAt: null,
+    confirmationRecordedBy: null,
     createdBy: MOCK_CASEWORKER,
     modifiedBy: MOCK_CASEWORKER,
     createdOn: raised,
