@@ -586,6 +586,53 @@ describe("deed-polls list page", () => {
       expect(findDeedPolls).toHaveBeenCalledWith({ filter: "awaitingConfirmation", conditions: [] }, expect.anything());
     });
 
+    it("sends no order even when the URL carries one, because api's default is what the queue is", async () => {
+      // How a caseworker actually reaches a `sort` here: they were on another tab sorted by state and clicked
+      // this one, whose link used to carry the order across. api's default is only a default, so the request
+      // that arrived asked for `state:desc` and the longest wait was no longer first.
+      await GET(pageRequest({ query: { filter: "awaitingConfirmation", sort: "state:desc" } }), pageResponse());
+
+      expect(findDeedPolls).toHaveBeenCalledWith({ filter: "awaitingConfirmation", conditions: [], sort: undefined }, expect.anything());
+    });
+
+    it("leaves the order behind on the link into the worklist, so the URL states no order either", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "returned", sort: "state:desc" } }), res);
+
+      const entries = res.render.mock.calls[0][1].filterGroups[0].entries;
+      expect(entries[5].href).toBe("/deed-polls?filter=awaitingConfirmation");
+      // Every other tab still carries it: this is one tab's order being api's, not the order being dropped.
+      expect(entries[2].href).toBe("/deed-polls?filter=received&sort=state%3Adesc");
+    });
+
+    it("offers no sortable header on the worklist, so no column can replace api's order", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "awaitingConfirmation" } }), res);
+
+      const headers = res.render.mock.calls[0][1].sortHeaders;
+      expect(headers.map((header: { label: string }) => header.label)).toEqual([
+        "Reference",
+        "Privacy",
+        "Received",
+        "Type",
+        "State",
+        "New forename",
+        "New surname"
+      ]);
+      // No `aria-sort` either: a column announced as sortable with nothing to sort it by is the worse of the two.
+      expect(headers.every((header: { href?: string; ariaSort?: string }) => header.href === undefined && header.ariaSort === undefined)).toBe(true);
+    });
+
+    it("still offers sortable headers on every other tab", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { filter: "returned" } }), res);
+
+      expect(res.render.mock.calls[0][1].sortHeaders.every((header: { href?: string }) => header.href !== undefined)).toBe(true);
+    });
+
     it("adds the Waiting column on this tab, where the wait is what the list is about", async () => {
       vi.mocked(findDeedPolls).mockResolvedValue(page(waiting) as never);
       const res = pageResponse();

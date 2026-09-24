@@ -41,6 +41,7 @@ import {
   findSavedQueries,
   InvalidInputError,
   isBlankCondition,
+  isReorderable,
   type ListFilter,
   parseConditions,
   parsePage,
@@ -207,7 +208,10 @@ export const GET = async (req: Request, res: Response) => {
   // everything under a highlighted "All applications" rather than an unhighlighted tab bar.
   const filter = filterFor(req.query.filter);
   const query = req.query as Record<string, unknown>;
-  const sort = parseSort(query.sort);
+  // Resolved against the tab, because one tab has an order of api's own and this app must not replace it —
+  // `isReorderable`, and `notify-3b` decision 4. A `sort` on the awaiting-confirmation worklist is dropped
+  // however it got there: carried in from the tab the caseworker came from, bookmarked, or hand-edited.
+  const sort = isReorderable(filter.key) ? parseSort(query.sort) : undefined;
   const q = searchTerm(query.q);
 
   const action = builderAction(query);
@@ -417,8 +421,11 @@ function render(
     queryMetadata: queryMetadataJson(content),
     hasQuery: conditions.length > 0,
     unusedConditions: unused.length === 0 ? "" : content.unusedConditionsFor(unused.map((row) => row + 1)),
-    // Every header link carries the tab and the conditions, which is the bug this class of UI always has.
-    sortHeaders: buildSortHeaders(sort, (next) => listHref({ filter: filter.key, q, conditions, sort: next })),
+    // Every header link carries the tab and the conditions, which is the bug this class of UI always has. On
+    // the awaiting-confirmation worklist there are no links at all — `isReorderable`: the order is api's, the
+    // handler above drops any `sort` the tab is asked for, and a header pointing at a dropped order is a
+    // control that does nothing.
+    sortHeaders: buildSortHeaders(sort, isReorderable(filter.key) ? (next) => listHref({ filter: filter.key, q, conditions, sort: next }) : null),
     // The builder submits as a GET, so the order it was applied to travels as a control of its own.
     sortValue: serialiseSort(sort) ?? "",
     paging,
@@ -460,6 +467,12 @@ function filterGroups(view: ListView, content: typeof en, savedQueries: SavedQue
  * `current` is decided here rather than by comparing keys in the template, because the template's
  * `f.key == activeFilter` only worked while every entry in the bar was a status — a saved query's identity
  * is its id, and the page it points at is not named by its label.
+ *
+ * **The order is carried to every tab that has one to carry, which is not all of them.** The
+ * awaiting-confirmation worklist is ordered by api — longest wait first — so its link leaves the order behind
+ * the way every tab leaves the page number behind: a queue's order is not another tab's to supply. The handler
+ * drops it on arrival in any case (`isReorderable`), and this is what stops the URL from stating an order the
+ * list is not in.
  */
 function statusGroup({ filter, q, conditions, sort }: ListView, content: typeof en): FilterGroup {
   return {
@@ -467,7 +480,7 @@ function statusGroup({ filter, q, conditions, sort }: ListView, content: typeof 
     entries: filterTabs().map((tab) => ({
       key: tab.key,
       label: tab.label,
-      href: listHref({ filter: tab.key, q, conditions, sort }),
+      href: listHref({ filter: tab.key, q, conditions, sort: isReorderable(tab.key) ? sort : undefined }),
       current: tab.key === filter.key
     }))
   };

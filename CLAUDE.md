@@ -108,7 +108,11 @@ Three facts about the confirmation worklist that are not derivable from a single
 - **A worklist is either a published `filter` key or a `where` condition, and which one is api's choice, not a
   style preference.** Awaiting-confirmation is a filter key (`AWAITING_CONFIRMATION_FILTER`), so it comes with
   api's own default order — `awaitingConfirmationSince:asc`, longest wait first — and the count and the tab must
-  send **no `sort`** of their own or they override it. Returned-for-action is a `where` on
+  send **no `sort`** of their own or they override it. Not just their own: the tab is not orderable *at all*
+  (`isReorderable` in `libs/deed-poll/src/deed-poll/list-sort.ts`), because a `sort` reaches it three other ways —
+  the tab link carrying the previous tab's order, a sortable column header, a bookmarked URL — and api's default is
+  only a default. So the worklist drops any `sort` it is asked for and renders its headings as plain text; leaving
+  the headers as links while dropping the order would be seven controls that do nothing. Returned-for-action is a `where` on
   `currentReferralState`, because api publishes no tab for it. Do not convert one into the other, and do not
   narrow either list here.
 - **A case can be waiting for the applicant with no case state saying so.** There is no ninth `DeedPollState`:

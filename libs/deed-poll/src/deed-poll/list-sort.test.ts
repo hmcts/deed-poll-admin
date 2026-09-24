@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildSortHeaders, type CaseListSort, parseSort, serialiseSort } from "./list-sort.js";
+import { AWAITING_CONFIRMATION_FILTER, LIST_FILTERS } from "./list-filters.js";
+import { buildSortHeaders, type CaseListSort, isReorderable, parseSort, serialiseSort } from "./list-sort.js";
 import { CASE_LIST_COLUMNS } from "./list-view.js";
 
 /** What a page passes in: the whole order, so a header link can be asserted to carry all of it. */
@@ -88,6 +89,29 @@ describe("deed-poll/list-sort", () => {
         "/deed-polls?sort=newForename:asc",
         "/deed-polls?sort=newSurname:asc"
       ]);
+    });
+
+    it("should build the headings with no link and no aria-sort when the tab is not this app's to order", () => {
+      const headers = buildSortHeaders({ field: "state", direction: "desc" }, null);
+
+      expect(headers.map((header) => header.label)).toEqual(CASE_LIST_COLUMNS.map((column) => column.label));
+      expect(headers.every((header) => header.href === undefined && header.ariaSort === undefined)).toBe(true);
+    });
+  });
+
+  describe("isReorderable", () => {
+    it("should refuse to order the awaiting-confirmation worklist, whose order is api's longest-wait-first", () => {
+      expect(isReorderable(AWAITING_CONFIRMATION_FILTER)).toBe(false);
+    });
+
+    it("should order every other tab, where api's default is newest first and nothing depends on it", () => {
+      const reorderable = LIST_FILTERS.filter((filter) => filter.key !== AWAITING_CONFIRMATION_FILTER);
+
+      expect(reorderable.every((filter) => isReorderable(filter.key))).toBe(true);
+    });
+
+    it("should order an unrecognised key, because filterFor has already fallen back to the first tab", () => {
+      expect(isReorderable("nonsense")).toBe(true);
     });
   });
 });

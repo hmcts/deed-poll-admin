@@ -78,6 +78,15 @@ describe("saved-queries/view", () => {
     it("should drop an order whose direction is neither of api's two", () => {
       expect(savedQueryLink(savedQuery({ sortField: "dateReceived", sortDirection: "sideways" })).sort).toBeUndefined();
     });
+
+    it("should drop a stored order on a tab this app does not order, whatever the field", () => {
+      // `isReorderable`, and `notify-3b` decision 4: the field is one the table shows, so `parseSort` would
+      // keep it — it is the TAB that decides here. api's filter enum carries the worklist, so a query can be
+      // saved against it, and the list handler drops any `sort` it is asked for.
+      const query = savedQuery({ filter: "awaitingConfirmation", sortField: "state", sortDirection: "desc" });
+
+      expect(savedQueryLink(query).sort).toBeUndefined();
+    });
   });
 
   describe("savedQueryHref", () => {
@@ -173,6 +182,18 @@ describe("saved-queries/view", () => {
       const entries = navEntries([query], { listPath: LIST_PATH, current: { filter: "all", conditions: [], sort: "dateReceived:asc" } });
 
       expect(entries[0].current).toBe(false);
+    });
+
+    it("should stay current on a saved worklist query whose stored order the list drops", () => {
+      // The list handler drops the awaiting-confirmation tab's `sort` (`isReorderable`), so its request can
+      // never carry one. A saved query that kept its stored order in the URL would be compared against that
+      // request and lose, leaving the caseworker on the very query the bar says they are not on.
+      const query = savedQuery({ filter: "awaitingConfirmation", conditions: [], sortField: "state", sortDirection: "desc" });
+
+      const entries = navEntries([query], { listPath: LIST_PATH, current: { filter: "awaitingConfirmation", conditions: [] } });
+
+      expect(entries[0].href).toBe("/deed-polls?filter=awaitingConfirmation");
+      expect(entries[0].current).toBe(true);
     });
 
     it("should stay current on a later page of the same query", () => {
@@ -335,6 +356,15 @@ describe("saved-queries/view", () => {
 
     it("should store no order for a sort the table cannot show, rather than one nobody can see", () => {
       const stored = savedQueryStored({ filter: "all", conditions: [], sort: "applicantEmail:asc" });
+
+      expect(stored.sortField).toBeUndefined();
+      expect(stored.sortDirection).toBeUndefined();
+    });
+
+    it("should store no order for a tab this app does not order, so the two directions stay inverses", () => {
+      // `state` is a column the table shows, so this is the tab's rule rather than the field's — the same one
+      // `savedQueryLink` applies coming back. Storing it would name the query after an order it never runs in.
+      const stored = savedQueryStored({ filter: "awaitingConfirmation", conditions: [], sort: "state:desc" });
 
       expect(stored.sortField).toBeUndefined();
       expect(stored.sortDirection).toBeUndefined();

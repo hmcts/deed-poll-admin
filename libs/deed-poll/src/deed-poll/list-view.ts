@@ -27,6 +27,10 @@ import { FIELD_BY_NAME } from "./form-fields.js";
  * present, and a header link would replace it. It would also point the wrong way: ascending by the date the
  * applicant was asked is *descending* by the number of days in the cell, so `aria-sort="ascending"` above a
  * column counting down from 14 would be a lie a screen-reader user has no way to check.
+ *
+ * Keeping it out of the catalogue was only half of that argument: the other seven columns *are* in it, and a
+ * link on any of them replaced api's order just as effectively. `isReorderable` (`list-sort.ts`) is the other
+ * half — on this tab the page sends no order and offers no header link at all.
  */
 export const WAITING_COLUMN_LABEL = "Waiting";
 

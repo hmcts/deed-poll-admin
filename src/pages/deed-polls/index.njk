@@ -395,11 +395,19 @@
     {#
       Sortable headers: a plain link per column, so reordering needs no JavaScript, and `aria-sort` on the
       cell because the link text alone does not say which way the column points.
+
+      A header with no `href` is one on a tab this app does not order — the awaiting-confirmation worklist, whose
+      order is api's own. It renders as plain text and carries no `aria-sort`, because a column announced as
+      sortable with nothing to sort it by is worse than one that never claimed to be.
     #}
     {% set head = [] %}
     {% for column in sortHeaders %}
-      {% set headerCell %}<a class="govuk-link" href="{{ column.href }}"><span class="govuk-visually-hidden">{{ sortHint }} </span>{{ column.label }}</a>{% endset %}
-      {% set head = (head.push({ html: headerCell, attributes: { "aria-sort": column.ariaSort } }), head) %}
+      {% if column.href %}
+        {% set headerCell %}<a class="govuk-link" href="{{ column.href }}"><span class="govuk-visually-hidden">{{ sortHint }} </span>{{ column.label }}</a>{% endset %}
+        {% set head = (head.push({ html: headerCell, attributes: { "aria-sort": column.ariaSort } }), head) %}
+      {% else %}
+        {% set head = (head.push({ text: column.label }), head) %}
+      {% endif %}
     {% endfor %}
     {#
       The Waiting column is plain text and carries no link or `aria-sort`, deliberately: api gives this tab its

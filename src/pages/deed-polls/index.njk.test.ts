@@ -582,9 +582,30 @@ describe("deed-polls list template", () => {
 
       const markup = await render({ filter: "awaitingConfirmation" });
 
-      // Every other heading is a link with an aria-sort; this one is the last cell of the head and neither.
+      // The last cell of the head, and neither a link nor sorted.
       expect(head(markup)).toMatch(/Waiting<\/th>\s*<\/tr>/);
       expect(head(markup)).not.toMatch(/aria-sort="[a-z]+"[^>]*>\s*<a[^>]*>[^<]*Waiting/);
+    });
+
+    it("renders every other heading as plain text too, so no column on the worklist can reorder it", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ filter: "awaitingConfirmation", cases: [waiting], page: 1, size: 25, total: 1, totalPages: 1 } as never);
+
+      const markup = await render({ filter: "awaitingConfirmation" });
+
+      // The handler drops the tab's `sort` (`isReorderable`), so a header link here would point at an order the
+      // list would not be in. The headings are still there — the table needs them — and none of them is a control.
+      expect(head(markup)).toContain("Reference");
+      expect(head(markup)).not.toContain("<a");
+      expect(head(markup)).not.toContain("aria-sort");
+    });
+
+    it("keeps the headings sortable on every other tab, where the order is the caseworker's", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ filter: "returned", cases: [waiting], page: 1, size: 25, total: 1, totalPages: 1 } as never);
+
+      const markup = await render({ filter: "returned" });
+
+      expect(head(markup)).toContain('aria-sort="none"');
+      expect(head(markup)).toMatch(/<a class="govuk-link" href="\/deed-polls\?filter=returned&amp;sort=displayReference%3Aasc"/);
     });
 
     it("adds neither on any other tab, since a workflow column should not occupy space on every list", async () => {

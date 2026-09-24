@@ -18,7 +18,9 @@
  *   claim in decision 4 is about a *table on a tab*, so it needs the tab bar and two renders.
  * - **The order is api's and nothing re-sorts it.** The tab's default is `awaitingConfirmationSince:asc`, sent by
  *   nobody: this journey seeds two waits of known length and reads the rendered order, which is the only place
- *   the default and the absence of a client-side sort are asserted together.
+ *   the default and the absence of a client-side sort are asserted together. It also *enters the worklist from a
+ *   sorted tab*, which is how a `sort` reached it at all — a tab link carries the previous tab's order, so that
+ *   part of the claim is about two pages and cannot be made anywhere else.
  * - **The form's guard is a redirect**, and a redirect is only a redirect in a browser: the page tests pin
  *   `res.redirect`, and this pins that a caseworker returning to a recorded answer's form lands on the referral.
  * - **The race is two callers.** A colleague records the answer through api's own route between the form opening
@@ -100,6 +102,22 @@ test("caseworker follows the awaiting-confirmation count to the longest wait and
   // And the Waiting column belongs to one tab (decision 4): the value is on every row api publishes, and the
   // column is not on every table.
   await expect(columnHeader(page, "Waiting")).toHaveCount(0);
+
+  // Into the worklist from a tab that IS ordered, which is the only place this can be shown: every other tab
+  // carries its order across, and api's longest-wait default is only a default, so a `sort` surviving the click
+  // would put the twelve-day wait somewhere down the queue with nothing on the page admitting it. Sorted from
+  // "All applications" rather than from Enroled, because this run's rows are the only ones the store guarantees
+  // and a tab holding none renders no table to sort.
+  await page.getByRole("link", { name: "All applications" }).click();
+  await page.getByRole("link", { name: "Sort by Received" }).click();
+  expect(new URL(page.url()).searchParams.get("sort")).toBe("dateReceived:asc");
+  // The tab, exactly — the banner's link above it goes to the same place under longer words.
+  await page.getByRole("link", { name: "Awaiting confirmation", exact: true }).click();
+  await expect(page).toHaveURL(WORKLIST_URL);
+  // And no heading on this tab is a control, because the order is not this app's to offer — the handler drops any
+  // `sort` the worklist is asked for, so a header link would be a control that does nothing.
+  await expect(page.locator("thead").getByRole("link")).toHaveCount(0);
+  expect(await rowOrder(page, waiting.surname)).toEqual([oldest.reference, newest.reference]);
 
   await banner.getByRole("link", { name: "View applications awaiting confirmation" }).click();
 
