@@ -125,12 +125,18 @@ Notify issues three kinds and the distinction matters:
       value comes from the Notify UI and cannot be Terraformed
 - [ ] `charts/deed-poll-api` maps the secret to `NOTIFY_API_KEY` — the chart names no Notify **secret** yet,
       though it does now set the template id, which is not a secret
-- [ ] Confirm the secret name matches what `application.yaml` expects, and that nothing logs it.
-      **Half-verified 2026-09-23: nothing logs it today**, checked by grep. But `NotifyProperties` is a
-      `record` with no `toString()` override, and a record's default `toString()` prints every component —
-      including `apiKey`. So the guarantee rests on nobody ever writing `log.info("{}", properties)` or letting
-      the object reach an exception message. **A `toString()` override would make it safe by construction rather
-      than by vigilance**, and is worth doing before a real key is in a deployed environment
+- [ ] Confirm the secret name matches what `application.yaml` expects. **Still open**, because no secret exists
+      to name yet — it depends on the two boxes above. The proposed name is `api-notify-api-key`, following the
+      component-prefix convention `deed-poll-infra/key-vault.tf` already uses (`admin-idam-client-secret`,
+      `web-session-secret`), with the chart supplying `alias: NOTIFY_API_KEY`
+- [x] **Nothing logs the key, and that is now structural rather than a habit.** ✅ **Done 2026-09-23.**
+      `NotifyProperties.toString()` is overridden and renders `apiKey=<set>` / `apiKey=<unset>` — never the
+      value, and never its length either, since a Notify key embeds the service id and a length narrows a guess
+      where "set" does not. Three tests in `NotifyPropertiesTest` pin it, and the important one asserts through
+      **the routes that reach `toString()` without naming it** — string concatenation and `String.valueOf` — which
+      is how this actually leaks. **This supersedes the earlier text here**, which said the record had no
+      override and that the guarantee rested on nobody writing `log.info("{}", properties)`: true when written,
+      fixed the same day, and left stale for a day afterwards. Re-verified 2026-09-24 by reading the source
 
 ### Templates — **blocking for the template it belongs to**
 
