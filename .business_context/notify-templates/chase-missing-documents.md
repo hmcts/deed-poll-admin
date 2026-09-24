@@ -87,7 +87,7 @@ Your application will stay open while we wait, and we will continue as soon as e
 If anything above is unclear, or you have already sent these to us, reply to this email and we will help.
 
 Kind regards,
-King's Bench
+King's Bench Division
 ```
 
 ## Notes on the layout
@@ -136,18 +136,31 @@ so it is always typed from scratch.
 mechanical rather than a decision: read its **`emailReplyToId`** out of the Notify UI and configure it, because
 that id and not the address is what `isProvisioned` checks.
 
-## Questions still open — none of these is engineering's to answer
+## ✅ The sign-off, and the wording's status
 
-1. **Is the wording right?** Steve supplied the return-route sentence; the rest is still engineering's proposal
-   and has no supplied original to be checked against, so it needs reading as new copy rather than as a port.
-2. **Should it name a deadline or a consequence?** See the layout note. Today the honest answer is that nothing
-   expires, and the draft says so — a date here would be a promise the service does not keep.
-3. **Does the caseworker need example prompts?** `documents_required` is free text with no guidance behind it, so
-   two caseworkers will phrase the same gap differently. If consistency matters, the answer is a set of
-   suggested phrasings in the admin UI rather than anything in the template.
-4. **One template for adult and minor, or two?** ① and ② are split by `type`; this draft is not, on the grounds
-   that the missing-document list is the caseworker's text either way and nothing else in the wording differs.
-   Splitting it later means a second UUID and a `type` branch in applicability.
+**Steve 2026-09-24: "the wording is fine to be getting on with, and no consequence at present."** So this is
+cleared to be authored and built against — but note what that is and is not. It is the product owner accepting
+engineering's proposal so work can proceed; it is **not** court-approved copy the way ③'s is, because ③ had a
+supplied `.docx` to be checked against and this has none. If the court later revises it, the wording changes and
+the contract does not: the five placeholder names are what the api depends on, and prose between them is free to
+move.
+
+**No deadline and no consequence, confirmed.** Nothing in the case model expires and no timer acts on a chase, so
+the draft says the application stays open and names no date. If that changes it needs a field and a rule, not a
+sentence.
+
+**Signs off `King's Bench Division`**, matching ③ — which was confirmed in its rendered Notify preview on
+2026-09-23. An earlier version of this draft said `King's Bench`; two emails from one service signing off
+differently is the kind of difference nobody notices until an applicant has both in one inbox.
+
+## Questions still open — neither blocks authoring
+
+1. **Does the caseworker need example prompts?** `documents_required` is free text with no guidance behind it and
+   no prefill, so two caseworkers will phrase the same gap differently. If consistency matters the answer is
+   suggested phrasings in the admin UI, not anything in this template.
+2. **One template for adult and minor, or two?** ① and ② are split by `type`; this is not, on the grounds that the
+   missing-document list is the caseworker's text either way and nothing else in the wording differs. Splitting it
+   later means a second UUID and a `type` branch in applicability.
 
 ## After it is authored
 

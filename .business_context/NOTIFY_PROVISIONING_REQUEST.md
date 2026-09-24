@@ -147,8 +147,14 @@ them, and notify-1 carries a placeholder until they exist.
       service, `b2cb5754-591d-40c0-b961-b2823a5792eb`. Draft, placeholder contract and the corrections applied
       are in [`notify-templates/application-rejected.md`](notify-templates/application-rejected.md)
 - [ ] `request-confirmation-to-proceed` authored (notify-3) — **needs a verified reply-to, see below**
-- [ ] `chase-missing-documents` authored (notify-6; assumed available for planning, verify in its Task 0) —
-      **needs a verified reply-to, see below.** This is the one that unblocks the next plan
+- [ ] `chase-missing-documents` authored (notify-6; verify in its Task 0). **This is the one that unblocks the
+      next plan**, and it has moved a long way on 2026-09-24 without being done.
+      **Content drafted and signed off:** [`notify-templates/chase-missing-documents.md`](notify-templates/chase-missing-documents.md)
+      holds subject, body and the five-placeholder contract, with Steve's "fine to be getting on with, and no
+      consequence at present". It was the only one of the six with **no supplied `.docx`**, so that draft is the
+      source rather than a port of one — which is also why it is product-owner-accepted rather than court-approved.
+      **What remains is authoring it in the Notify UI** and recording the UUID, then reading the reply-to id
+      (below). The reply-to inbox itself — `KBDEEDSPOLL@justice.gov.uk` — is no longer outstanding
 - [ ] `forms-for-completion-adult` authored (notify-4; also needs the five static forms sourced, and *send a
       file by email* enabled below)
 - [ ] `forms-for-completion-minor` authored (notify-4, same)
