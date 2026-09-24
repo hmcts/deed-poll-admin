@@ -1839,6 +1839,64 @@ describe("the email routes", () => {
     expect((await fetch(`${mock.url}/caseworker/cases/${caseId}/emails`, { method: "DELETE" })).status).toBe(405);
     expect((await fetch(`${mock.url}/caseworker/cases/${caseId}/emails/application-rejected`)).status).toBe(405);
   });
+
+  describe("the case notes an email writes", () => {
+    it("should write one note naming the email and the tab when a send is accepted", async () => {
+      const { caseId } = refusedCase();
+
+      await send(caseId);
+
+      // The Notes grid is the only timeline a case has, so this note is the whole of an email's presence on it.
+      expect(await noteTexts(caseId)).toEqual(["Application rejected email sent. See the Emails tab for its delivery status."]);
+    });
+
+    it("should attribute the note to the caseworker who sent it, not to the service", async () => {
+      const { caseId } = refusedCase();
+
+      await send(caseId, asPerson("Jo Caseworker", "jo-subject"));
+
+      expect((await notes(caseId))[0].createdBy).toBe("Jo Caseworker");
+    });
+
+    it("should write no second note when an idempotent repeat send returns the original row", async () => {
+      // The applicant is owed one email, so the timeline says it once. A caseworker double-clicking would
+      // otherwise leave a case reading as though they had been written to twice.
+      const { caseId } = refusedCase();
+
+      await send(caseId);
+      const repeat = await send(caseId);
+
+      expect((await repeat.json()).enqueued).toBe(false);
+      expect(await noteTexts(caseId)).toHaveLength(1);
+    });
+
+    it("should write both notes when the send is enqueued and then fails terminally", async () => {
+      // The pair is the point: the sent note belongs to the enqueue and the failure note to the drain, and api
+      // writes them from different transactions for a reason a single note would hide.
+      const { caseId } = refusedCase();
+      mock.setScenario("email-send-failure");
+
+      await send(caseId);
+
+      expect(await noteTexts(caseId)).toEqual([
+        "Application rejected email sent. See the Emails tab for its delivery status.",
+        "Application rejected email could not be sent. See the Emails tab for the reason."
+      ]);
+    });
+
+    it("should keep the provider's reason out of the note and on the row, because a note's length must stay provable", async () => {
+      const { caseId } = refusedCase();
+      mock.setScenario("email-send-failure");
+
+      await send(caseId);
+
+      const history = (await get(`/caseworker/cases/${caseId}/emails`)).history;
+      expect(history[0].failureReason).toContain("PERMANENT");
+      // api excludes it from the note precisely because it is unbounded external text; a note that quoted it
+      // would be the divergence this mock exists to catch.
+      expect((await noteTexts(caseId)).join(" ")).not.toContain("PERMANENT");
+    });
+  });
 });
 
 describe("when the scenario says api is unavailable", () => {
@@ -1955,6 +2013,20 @@ async function currentReferralState(caseId: string): Promise<string | null> {
  * about the email rules, and arranging a claim and a direction per test would put three round trips in front of
  * every assertion. The refusal itself is what makes the email applicable, so the state is the arrangement.
  */
+/** Sends the one email the mock serves, with the direction already recorded so no slot has to be supplied. */
+function send(caseId: string, headers: Record<string, string> = {}): Promise<Response> {
+  return post(`/caseworker/cases/${caseId}/emails/application-rejected`, {}, headers);
+}
+
+/** A case's notes, oldest first — the chronology, so a pair written by one send reads in the order it happened. */
+async function notes(caseId: string): Promise<{ note: string; createdBy: string }[]> {
+  return (await get(`/caseworker/cases/${caseId}`)).notes;
+}
+
+async function noteTexts(caseId: string): Promise<string[]> {
+  return (await notes(caseId)).map((entry) => entry.note);
+}
+
 function refusedCase(overrides: Partial<MockCase["referrals"][number]> = {}): { caseId: string; referralId: string } {
   const refused = referral({ state: "Decided", decision: "Rejected", directionsText: JUDGES_REASON, decidedBy: "judge@example.com", ...overrides });
   const seeded = mock.seed({ applicantEmail: "applicant@example.com", referrals: [refused] });
