@@ -15,17 +15,43 @@
 import type { WireDocumentType, WireEmailHistory } from "../api/wire.js";
 
 export const MOCK_SCENARIOS = {
-  "happy-path": { caseWrite: "accept", reachable: true },
+  "happy-path": { caseWrite: "accept", reachable: true, emailSend: "accept" },
   /**
    * Every case write comes back 400 with a field error, whatever it contains.
    *
    * The point is not to model a rule — the mock enforces api's real refusals anyway — but to prove the
    * pages put api's complaint onto the right input's error summary rather than showing a banner.
    */
-  "write-rejection": { caseWrite: "reject", reachable: true },
+  "write-rejection": { caseWrite: "reject", reachable: true, emailSend: "accept" },
   /** Every contract route answers 503, leaving only the `__mock` control routes and the health paths. */
-  "api-unavailable": { caseWrite: "accept", reachable: false }
+  "api-unavailable": { caseWrite: "accept", reachable: false, emailSend: "accept" },
+  /**
+   * A send enqueues and then fails permanently, as though Notify had rejected the address outright.
+   *
+   * **The only way to reach a terminal failure through the contract, which is why it is a scenario and not a
+   * fixture.** The four seeded history rows in `MOCK_EMAIL_HISTORY` give the Emails tab its `Failed` state to
+   * render, but they are seeded — nothing *drives* a row into `Failed`, so the pair of notes api writes on that
+   * transition could not be produced here at all. That pair is the point: a case ends up with both the sent note
+   * and the could-not-be-sent one, which is the three-note sequence a replacement send produces and the thing
+   * worth looking at on a real page before anybody is surprised by it.
+   *
+   * Permanent rather than retryable-and-exhausted, because the two are indistinguishable once the row is
+   * `Failed` and only the reason text differs. api keys its note on the **transition into** `Failed` precisely so
+   * that both routes write one.
+   */
+  "email-send-failure": { caseWrite: "accept", reachable: true, emailSend: "fail" }
 } as const satisfies Record<string, MockFixture>;
+
+/**
+ * What `email-send-failure` puts in the failed row's `failureReason`.
+ *
+ * Shaped like api's — `SendOutcome.Failed`'s verdict and the provider's words, joined — because the Emails tab
+ * renders it verbatim, and a reason that did not look like a real one would let a page ship having only ever
+ * displayed prose somebody wrote for it. Deliberately longer than a note may be: it is the text api excludes
+ * from the note for exactly that reason, so a note that quoted it here would be the divergence this mock exists
+ * to catch.
+ */
+export const MOCK_EMAIL_FAILURE_REASON = "PERMANENT: Notify rejected the request — the email address is not a valid recipient and no retry will change that";
 
 export const DEFAULT_SCENARIO: MockScenario = "happy-path";
 
@@ -59,9 +85,21 @@ export const APPLICATION_REJECTED = "APPLICATION_REJECTED";
 /**
  * The email types the mock serves, restating api's `EmailTemplate` enum as data.
  *
- * One member, because api ships one: the other three in `NOTIFY_TEMPLATE_TAXONOMY.md` §6 are notify-3 and
- * notify-4. Here for the reason `MOCK_DOCUMENT_TYPES` is here — it is reference data api owns and the mock has
- * to serve, and a page under test has to be able to name one.
+ * **One member, and api now ships two — this is a known gap, not the current state of api.** It said "because
+ * api ships one", which stopped being true when notify-3 added `REQUEST_CONFIRMATION_TO_PROCEED`. The missing
+ * member is deliberately **not** added here: it invites a reply, so it needs the confirmation clock, the
+ * `awaitingConfirmationSince` read-model, the `awaitingConfirmation` worklist and the "already awaiting an
+ * answer" guard with it — which is `notify-3b-admin-confirmation-tracking.md`'s **Task 2**, where it belongs
+ * alongside the adapter and domain function that read the same surface. Adding it here first would be a second
+ * author for the same behaviour.
+ *
+ * So a page that needs ④ cannot be developed against this mock yet. That is a real limitation to know about
+ * rather than a bug: nothing can *send* ④ in any environment either, because `NotifyProperties.isProvisioned`
+ * requires a reply-to id for a reply-inviting template and the monitored inbox is not registered yet.
+ *
+ * The remaining two in `NOTIFY_TEMPLATE_TAXONOMY.md` §6 are notify-6 and notify-4. Here for the reason
+ * `MOCK_DOCUMENT_TYPES` is here — it is reference data api owns and the mock has to serve, and a page under test
+ * has to be able to name one.
  *
  * **`key` and `member` are two spellings of one template and both are on the wire.** The key is the URL token
  * and what `EmailTypeResponse.template` and `EmailHistoryResponse.template` publish; the member name is what the
@@ -234,6 +272,14 @@ interface MockFixture {
   caseWrite: "accept" | "reject";
   /** When false every contract route answers 503. */
   reachable: boolean;
+  /**
+   * Whether a send's drain succeeds, or fails in a way nothing will retry.
+   *
+   * A send always enqueues — the refusals before that are api's rules and this does not bypass them. What this
+   * decides is what the immediate drain does with the row afterwards, which is the only way to reach `Failed`
+   * through the contract: a real terminal failure needs Notify to reject the send, and there is no Notify here.
+   */
+  emailSend: "accept" | "fail";
 }
 
 export type MockScenario = keyof typeof MOCK_SCENARIOS;
