@@ -230,7 +230,8 @@ documentation — so 3,125 was a mis-transcription rather than a regression. **T
 took it to **3,125 across 166 files** (five contract-test cases, no new file); Task 2 to **3,182 across 166 files**
 (57 cases across four existing test files, still no new file); Task 3 to **3,243 across 167 files** (61 cases, one
 new file — `libs/deed-poll/src/referrals/awaiting-confirmation.test.ts`); Task 4 to **3,289 across 169 files** (46
-cases, two new files — the new page's handler and template tests).
+cases, two new files — the new page's handler and template tests); Task 5 to **3,296 across 169 files** (7 cases,
+no new vitest file — its own new file is a Playwright spec, which this count does not include).
 
 Notes so no task rediscovers them:
 
@@ -246,6 +247,10 @@ Notes so no task rediscovers them:
 - **`yarn test:e2e` needs Playwright browsers, and the download is proxy-blocked here** (HTTP 400
   `GatewayExceptionResponse`, which reads as slowness rather than a refusal). Symlink a cached chromium build to
   the wanted version, or treat e2e as Steve's to run. A dead `webServer` also presents as a Playwright timeout.
+  **Task 5 ran it without hitting that at all**: `~/.cache/ms-playwright/` already held `chromium-1243`, which is
+  the revision `node_modules/playwright-core/browsers.json` names for `@playwright/test@1.63`, so no download was
+  attempted. What it did need first was `yarn dev:up` (Redis and `rse-idam-simulator:local`, both images already
+  built) and then `yarn idam:users`, without which every sign-in 401s.
 - A Biome **"nested root configuration"** error means a stale `.claude/worktrees/` directory, not a fault in the
   change.
 
@@ -570,7 +575,64 @@ template test, 8 in `[referralId].test.ts` and 6 in `referral-detail.njk.test.ts
   `[PROVISIONAL]` marker left to remove** — Task 0 resolved the only one against the published document — so
   what is left to check here is that no *claim* in this plan still disagrees with `openapi.json`.
 
-- [ ] the complete waiting-to-recorded journey passes against the stateful mock, axe is clean, security and
+**Done, 2026-09-24, and the e2e suite was run rather than left to Steve.** `e2e-tests/tests/confirmation.spec.ts`
+(four journeys), the fourth `__mock` control route in `libs/deed-poll-api-client/src/mock/server.ts`, and a
+`what a refusal may log` block in the confirmation page's test.
+
+Six things worth not rediscovering:
+
+- **The wait is arranged through a new control route, `POST /__mock/referrals/{id}/confirmation-request`** — the
+  choice Task 2 flagged as this task's. Not a second mock email template, because inventing
+  `request-confirmation-to-proceed` would mean inventing api's applicability rule for it too, and not referral
+  coercion added to `POST /__mock/cases`, because teaching that route to build a `MockReferral` would put a second
+  referral factory beside `createReferral`. So the referral is **raised, claimed and refused through the contract**
+  — a judge's refusal is what leads the office to ask the applicant — and only the ask is out of band. The route
+  recomputes `awaitingConfirmationSince` rather than writing it, so a case holding two requests behaves as api's
+  `ConfirmationWait` does.
+- **Playwright ran here: 44 passed, and the axe scans are inside the journeys.** The proxy-blocked browser download
+  the Validation Commands section warns about was not hit — `~/.cache/ms-playwright/chromium-1243` is the revision
+  `playwright-core@1.63`'s `browsers.json` names, and the stack needs `yarn dev:up` plus `yarn idam:users` first
+  (`rse-idam-simulator:local` was already built). Eleven scans across the worklist, the case, the referral and the
+  form, **with no waiver**: `expectNoAccessibilityViolations` takes an `allowed` list and every page passes with it
+  empty, unlike `deed-polls.spec.ts`, which needs one for a govuk-frontend radio reveal.
+- **Two locators in the new spec are by class, and each is argued.** The case page's waiting sentence is
+  `govukInsetText` — no role, no accessible name — and it is the only inset text the case page renders, which is
+  what makes its *absence* assertable at the end of the journey. The date in it is then read off the page rather
+  than formatted again in the spec: a second formatting here would be a third opinion about one timestamp.
+- **`getByText` with an anchored regex does not match a `govukInsetText`**, which cost a run: the macro emits the
+  sentence with surrounding whitespace, and `/^The applicant was asked on /` failed against text that plainly began
+  with it. Use `innerText` and an unanchored match, or the class.
+- **The race needed a second caller, which is the half no page test can reach.** A colleague records the answer
+  through api's own route between the form's GET and its POST; what must come back is `?confirmation=conflict`, the
+  fresh referral's own sentence, the outcome that *was* recorded, the colleague's name as a fact on the referral
+  rather than in the refusal, and no replay of the note that was typed.
+- **The logging assertions are unit tests, because that is where `console` is observable.** Four things must stay
+  off the one line this page writes — the access token, the transcribed reply, the applicant's name and address,
+  and a `confirmationRecordedBy` a crafted post carried — and a second test pins that **every ordinary outcome
+  logs nothing at all**, including both 409s, since a log per recording would put every transcribed reply in the
+  logs. The list page's own `awaiting-confirmation count unavailable` line was already pinned this way by Task 3.
+
+**No claim in this plan disagrees with `openapi.json`**, checked property by property against the checked-in
+document rather than re-read from api: 40 operations and 39 schemas; `recordConfirmation` on
+`caseworker-referral-controller` with a required body and `200 → ReferralResponse` as its only response;
+`RecordConfirmationRequest` with `required: ["outcome"]`, `additionalProperties: true` and `note`'s
+`maxLength: 1000`; both outcome enums inline and no `ConfirmationOutcome` schema; `awaitingConfirmationSince` on
+both `CaseDetailResponse` and `SavedCaseResponse`; `daysAwaitingConfirmation` as `int32` on
+`CaseSummaryResponse`; `awaitingConfirmation` in both saved-query `filter` enums and in the list `filter`
+description with its "Awaiting confirmation" label; and `awaitingConfirmationSince:asc` in the `sort` description.
+The one refinement to the table above: the write's `200` is published under `*/*` rather than
+`application/json`, which no claim here depended on.
+
+Final counts, against Task 4's **3,289 across 169 files**: **3,296 across 169 files** — five cases for the control
+route in `mock/server.test.ts` and two logging cases in the confirmation page's test, no new vitest file, because
+the journey itself is Playwright's. Per package: `deed-poll` 1,102, app 1,395, `deed-poll-api-client` 461,
+`cloud-native-platform` 140, `express-govuk-starter` 127, `simple-router` 41, `express-session-postgres` 23,
+`express-session-redis` 7. `yarn lint` exits 0 (the one pre-existing `noUnusedVariables` warning in
+`emails/[template]/compose.test.ts` and the two `biome.json` notices, unchanged); `yarn build` 8 of 8;
+`yarn turbo test test:app --concurrency=1 --force` green; `yarn test:coverage` 8 of 8; `yarn test:e2e` **44
+passed**; `yarn test:a11y` exits 0 and still proves nothing, as the note above says.
+
+- [x] the complete waiting-to-recorded journey passes against the stateful mock, axe is clean, security and
       scoping are explicit tests, every provisional contract claim is resolved, and all validation is green
 
 ---

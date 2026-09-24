@@ -5,12 +5,16 @@
  * case page. It is a stand-in for the CONTRACT, not a second implementation of api: there is no database,
  * no IDAM, no S2S and no document storage, and it forgets everything when it stops.
  *
- * Three routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
+ * Four routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
  * could be mistaken for one api serves:
  *
  *   POST /__mock/scenario   switch behaviour (see fixtures.ts)
  *   POST /__mock/reset      forget every case
  *   POST /__mock/cases      seed a case without going through a create
+ *   POST /__mock/referrals/{id}/confirmation-request
+ *                           start the wait for an applicant's confirmation, which no contract route here can
+ *                           do: the write that starts it is notify-3's email and this mock has no template
+ *                           for it. See the route for why it is not a second template.
  *
  * `GET /health` and `GET /health/liveness` are outside the contract too, so `yarn dev` and Playwright's
  * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
@@ -177,6 +181,15 @@ const MIGRATED_RELAXED_FIELDS = [
 const SEEDABLE_CASE = WIRE_SCHEMAS.SavedCaseResponse.partial();
 
 /**
+ * The one field `POST /__mock/referrals/{id}/confirmation-request` accepts, coerced the same way.
+ *
+ * Picked off the referral schema rather than restated, for the reason `SEEDABLE_CASE` is the saved-case
+ * schema: `wire.ts` is the only place that decides how an api date-time is read, and `confirmationRequestedAt`
+ * is nullish there, so an absent value is legal and means "now".
+ */
+const SEEDABLE_CONFIRMATION_REQUEST = WIRE_SCHEMAS.ReferralResponse.pick({ confirmationRequestedAt: true });
+
+/**
  * How a lifecycle note dates the referral it is about — api's `ReferralNotes.DAY`, `d MMMM yyyy`.
  *
  * The day rather than the instant, because a caseworker reads it in a grid. Formatted in UTC for the reason
@@ -275,6 +288,38 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
       const seeded = seed(body === null ? null : { ...(body as Partial<MockCase>), ...(coerced.data as Partial<MockCase>) });
       return send(res, 201, toDetail(seeded));
+    }
+
+    // Start the wait for an applicant's confirmation, which **nothing in the contract can do from out here**.
+    // The write that sets `confirmationRequestedAt` at api's end is notify-3's *Request confirmation to
+    // proceed* email, and `MOCK_EMAIL_TEMPLATES` carries only `application-rejected` — so a journey driven
+    // through a browser has no way to reach the state the whole of notify-3b is about.
+    //
+    // A control route rather than a second mock template, deliberately: inventing the template would mean
+    // inventing api's applicability rule for it as well, and this mock would then be answering a question api
+    // owns. It is also not `POST /__mock/cases` widened to coerce a whole seeded referral — that route
+    // coerces the case's own fields only, and teaching it to build a `MockReferral` would put a second
+    // referral factory beside `createReferral`. So the referral is raised through the contract and only the
+    // wait is arranged here.
+    const waiting = /^\/__mock\/referrals\/([^/]+)\/confirmation-request$/.exec(pathname);
+    if (waiting && method === "POST") {
+      const referralId = decodeURIComponent(waiting[1]);
+      const located = locateReferral(referralId);
+      // The same sentence api's own 404 carries, so a seeder that names a referral wrongly reads the same as a
+      // read that does.
+      if (!located) return send(res, 404, { error: `Referral ${referralId} not found` });
+
+      const requested = SEEDABLE_CONFIRMATION_REQUEST.safeParse((await readJsonBody(req)) ?? {});
+      if (!requested.success) return send(res, 400, fieldErrorsFrom(requested.error.issues));
+
+      // Absent means now, which is the day-zero case: api publishes `daysAwaitingConfirmation` as `0` on the
+      // day the email went, never 1. A date is how a journey arranges a longer wait than this process has run.
+      located.referral.confirmationRequestedAt = requested.data.confirmationRequestedAt ?? new Date();
+      // The case's column is recomputed rather than written, exactly as `recordConfirmation` recomputes it:
+      // this is api's denormalisation, and a second request on the same case must not move it forward.
+      refreshAwaitingConfirmation(located.record);
+
+      return send(res, 200, toWireReferral(located.referral));
     }
 
     // Everything below is the contract, so everything below is unreachable when the scenario says api is

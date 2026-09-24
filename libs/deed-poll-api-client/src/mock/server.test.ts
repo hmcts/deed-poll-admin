@@ -165,6 +165,65 @@ describe("POST /__mock/cases", () => {
   });
 });
 
+/**
+ * The fourth control route: the wait a browser cannot otherwise arrange.
+ *
+ * Every other state the e2e suite needs is reachable through the contract, which is why the other journeys seed a
+ * case and then drive it. This one is not: the write that sets `confirmationRequestedAt` at api's end is notify-3's
+ * *Request confirmation to proceed* email, and `MOCK_EMAIL_TEMPLATES` carries only `application-rejected`. So the
+ * referral is raised through the contract and **only the ask** is arranged here — see the route for why this is not
+ * a second mock template.
+ */
+describe("POST /__mock/referrals/{id}/confirmation-request", () => {
+  it("should start a wait on a referral raised through the contract, which no contract route here can do", async () => {
+    const { caseId, referralId } = await referredCase();
+
+    const response = await post(`/__mock/referrals/${referralId}/confirmation-request`, { confirmationRequestedAt: "2026-03-21T09:00:00" });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).confirmationRequestedAt).toBe("2026-03-21T09:00:00.000");
+    // The case's own column, recomputed rather than written by this route — which is what puts the case on the
+    // worklist the journey starts from.
+    expect((await get(`/caseworker/cases/${caseId}`)).awaitingConfirmationSince).toBe("2026-03-21T09:00:00.000");
+    expect((await get("/caseworker/cases?filter=awaitingConfirmation")).total).toBe(1);
+  });
+
+  it("should treat an absent date as now, which is the day-zero row api publishes as 0 and never 1", async () => {
+    const { referralId } = await referredCase();
+
+    await post(`/__mock/referrals/${referralId}/confirmation-request`);
+
+    const list = await get("/caseworker/cases?filter=awaitingConfirmation");
+    expect(list.cases.map((summary: { daysAwaitingConfirmation: number | null }) => summary.daysAwaitingConfirmation)).toEqual([0]);
+  });
+
+  it("should leave the answer to the contract, so the recording that ends the wait is api's own route", async () => {
+    const { caseId, referralId } = await referredCase();
+    await post(`/__mock/referrals/${referralId}/confirmation-request`, { confirmationRequestedAt: "2026-03-21T09:00:00" });
+
+    const recorded = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Confirmed" });
+
+    expect(recorded.status).toBe(200);
+    expect((await get("/caseworker/cases?filter=awaitingConfirmation")).total).toBe(0);
+  });
+
+  it("should answer api's own 404 sentence for a referral it cannot find", async () => {
+    const response = await post("/__mock/referrals/no-such-referral/confirmation-request");
+
+    expect(response.status).toBe(404);
+    expect((await response.json()).error).toBe("Referral no-such-referral not found");
+  });
+
+  it("should refuse a date it cannot read rather than storing a string the next read would fail on", async () => {
+    const { caseId, referralId } = await referredCase();
+
+    const response = await post(`/__mock/referrals/${referralId}/confirmation-request`, { confirmationRequestedAt: "whenever" });
+
+    expect(response.status).toBe(400);
+    expect((await get(`/caseworker/cases/${caseId}`)).awaitingConfirmationSince).toBe(null);
+  });
+});
+
 describe("the audit author", () => {
   // api takes no author parameter — it derives one from the caller's token — so this is the only thing
   // that makes `Created By` right, and the e2e create journey asserts it.

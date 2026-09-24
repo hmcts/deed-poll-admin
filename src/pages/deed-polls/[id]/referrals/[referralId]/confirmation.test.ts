@@ -264,6 +264,67 @@ describe("record the applicant's response", () => {
     });
   });
 
+  /**
+   * What may reach a log line, asserted rather than left to the reader of the one `console.error` this page has —
+   * Task 5 of `notify-3b`.
+   *
+   * The handler holds four things a log must not carry, and each of them is here for a different reason: the
+   * access token is a credential (`.claude/rules/backend.md`), the note is a transcription of an applicant's own
+   * reply and is the nearest thing in this service to inbound email content, the applicant's name and address are
+   * on the case the form read for its caption, and a `confirmationRecordedBy` a crafted post carried is an
+   * identity api never verified — logging it would put an unverified name in the record beside real ones.
+   *
+   * Asserted on the joined calls rather than per call, so a second log line added later cannot satisfy the test
+   * by moving the value into a different argument.
+   */
+  describe("what a refusal may log", () => {
+    /** A case carrying the applicant's details, which the ordinary fixture has no need of. */
+    const withApplicant = { ...found, newSurname: "Okonkwo", applicantEmail: "applicant@example.com", applicantAddress1: "4 Bridge Lane" };
+
+    it("should log the rejection and none of the token, the applicant's reply, their details or a recorder the form never asked for", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      vi.mocked(findDeedPoll).mockResolvedValue(withApplicant as never);
+      vi.mocked(recordConfirmation).mockRejectedValue(new InvalidInputError("Validation failed", [{ field: "referralState", message: "not acceptable" }]));
+
+      await POST(
+        request({
+          outcome: "Confirmed",
+          note: "Applicant telephoned on 22 May and said they still want to proceed.",
+          confirmationRecordedBy: "Somebody Else"
+        }),
+        response()
+      );
+
+      const line = logged.mock.calls.flat().join(" ");
+      expect(line).toContain("referralState");
+      expect(line).not.toContain("session-token");
+      expect(line).not.toContain("telephoned");
+      expect(line).not.toContain("Okonkwo");
+      expect(line).not.toContain("applicant@example.com");
+      expect(line).not.toContain("4 Bridge Lane");
+      expect(line).not.toContain("Somebody Else");
+      logged.mockRestore();
+    });
+
+    it("should log nothing at all when the answer is recorded, refused as a race, or rejected against a control", async () => {
+      // The only line this page writes is for a rejection it cannot place, so every ordinary outcome — including
+      // both of api's 409s — must be silent. A log per recording would put every transcribed reply in the logs.
+      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      vi.mocked(findDeedPoll).mockResolvedValue(withApplicant as never);
+      const note = "Applicant wrote back on 22 May.";
+
+      await POST(request({ outcome: "Confirmed", note }), response());
+      vi.mocked(recordConfirmation).mockRejectedValue(new ConflictError("Referral ref-1 already has a confirmation outcome of Confirmed"));
+      await POST(request({ outcome: "Withdrawn", note }), response());
+      vi.mocked(recordConfirmation).mockRejectedValue(new InvalidInputError("Validation failed", [{ field: "note", message: "The note is too long" }]));
+      await POST(request({ outcome: "Withdrawn", note }), response());
+      await POST(request({ note }), response());
+
+      expect(logged).not.toHaveBeenCalled();
+      logged.mockRestore();
+    });
+  });
+
   describe("races", () => {
     it("should send a refused recording back to the referral with a conflict marker rather than to an error page", async () => {
       vi.mocked(recordConfirmation).mockRejectedValue(
