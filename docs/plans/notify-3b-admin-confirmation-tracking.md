@@ -135,25 +135,41 @@ Additional constraints:
 
 ---
 
-## Validation commands
+## Validation Commands
 
 Run after every implementation task:
 
 ```bash
 yarn lint
-npx turbo test test:app --concurrency=1
+yarn build
+yarn turbo test test:app --concurrency=1
 ```
 
-Before Task 1, record the baseline number of test files and tests. Task 5 additionally runs:
+**Green before any task runs — measured 2026-09-24 on `master` at `f5d427e`:** `yarn lint` exits **0** (one
+pre-existing warning, `noUnusedVariables` in `emails/[template]/compose.test.ts`, plus two `biome.json` schema
+notices — none of them errors, so the gate starts green); `yarn build` exits **0**, 8 of 8 turbo tasks;
+`yarn turbo test test:app --concurrency=1` exits **0** with **3,125 tests across 166 files**. That is the
+baseline Task 1 was told to record, so it does not need rediscovering — but re-measure rather than quoting it if
+anything has merged since.
 
-```bash
-yarn test:coverage
-yarn test:e2e
-yarn test:a11y
-```
+Notes so no task rediscovers them:
 
-The Playwright commands need the app and in-memory mock; follow the existing cached-browser workaround if
-browser download is proxy-blocked.
+- **`yarn build` is in the list and must stay.** `vitest` transpiles without type-checking, so `yarn test`
+  passes on code `tsc` rejects — this repo's `CLAUDE.md` names it, and it is why the gate is three commands and
+  not two. The app's project settings are in `tsconfig.app.json`, not `tsconfig.json`.
+- **Measure, do not read the exit code**, when the count is the point: turbo caches, so add `--force` to make a
+  count comparable. Count test files as well as tests — a suite that silently stopped being discovered still
+  exits 0.
+- **`yarn test:a11y` is an `echo`, not a suite.** It exists because the Jenkins stage invokes it and fails on a
+  missing script; the real axe-core checks run inside the Playwright suite. So it always passes and proves
+  nothing — do not read a green `test:a11y` as accessibility coverage.
+- **`yarn test:e2e` needs Playwright browsers, and the download is proxy-blocked here** (HTTP 400
+  `GatewayExceptionResponse`, which reads as slowness rather than a refusal). Symlink a cached chromium build to
+  the wanted version, or treat e2e as Steve's to run. A dead `webServer` also presents as a Playwright timeout.
+- A Biome **"nested root configuration"** error means a stale `.claude/worktrees/` directory, not a fault in the
+  change.
+
+Task 5 additionally runs `yarn test:coverage`, `yarn test:e2e` and `yarn test:a11y`, with the caveats above.
 
 ---
 
