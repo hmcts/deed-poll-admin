@@ -305,14 +305,20 @@ Notify sends from a no-reply address unless a reply-to is registered and verifie
 - [x] Registered in Notify and **verified** (Notify emails it a confirmation link) — confirmed by Steve
       2026-09-24. Recorded on his statement rather than read off the UI, so if a send later fails with a
       no-reply sender, re-check this before reading any stack trace
-- [ ] Its **`emailReplyToId` recorded** and configured per template that needs it. **This is the remaining
-      blocker and it is mechanical, not a decision.** The two boxes above are about the *address*;
-      `NotifyProperties.isProvisioned` checks the **id**, which is a UUID only readable from the Notify UI. So a
-      verified inbox alone does not make ④ or ⑤ sendable — until the id is set, Notify **silently drops the blank
-      reply-to and sends from no-reply**, which is worse than a refusal because the email goes out and the reply
-      goes nowhere. Its config key is `NOTIFY_EMAIL_REPLY_TO_ID`, and it is **not** a secret: it identifies an
-      address the recipient reads on the email anyway, so it belongs in the chart's environment rather than the
-      vault
+- [x] Its **`emailReplyToId` recorded** — **`aabceef1-63e4-4414-9554-a24b0be967d7`**, supplied 2026-09-24. A
+      *different* UUID from any template id, and the one `NotifyProperties.isProvisioned` checks for every
+      template with `invitesReply = true`. **One value for the whole service**, so it unblocks **④ as well as ⑤**
+      — ④ was blocked on exactly this and nothing else. Config key `NOTIFY_EMAIL_REPLY_TO_ID`, **not a secret**
+      (it identifies an address the recipient reads on the email anyway), so it belongs in the chart's environment
+      rather than the vault.
+      **Recorded on Steve's word, not verified** — Notify publishes no read-only API for reply-to addresses, so
+      unlike the template id this one could not be read back. The first send proves it: an unrecognised id is a
+      loud 400, but a **blank** one is silent — Notify drops it and sends from no-reply, which is why
+      `isProvisioned` gates on it instead of letting a send find out
+- [ ] **Configured per environment.** Recording the id is not the same as deploying it: `charts/deed-poll-api`
+      does not yet set `NOTIFY_EMAIL_REPLY_TO_ID`, so AAT would still report ④ and ⑤ unprovisioned. Local runs
+      have it (`cft-workspace/local-notes/deed-poll-api/notify-nonprod.env`); the chart is the outstanding half,
+      alongside the template ids in the same file
 
 ### Not needed yet
 

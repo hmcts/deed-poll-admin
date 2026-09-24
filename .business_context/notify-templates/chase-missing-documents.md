@@ -188,14 +188,27 @@ a human finds it in the UI; api resolves by UUID, so nothing breaks. But a servi
 two different conventions gets harder to navigate as the other three arrive, so renaming it to
 `chase-missing-documents` is worth doing while there are only two.
 
-## Still outstanding: the reply-to id
+## ✅ The reply-to id — supplied 2026-09-24
 
-`CHASE_MISSING_DOCUMENTS` has `invitesReply = true`, so **the template id alone does not make it sendable.**
-`NotifyProperties.isProvisioned` needs `emailReplyToId` as well, and that is a *different* UUID from this one —
-the id of the registered reply-to address, not of the template. `KBDEEDSPOLL@justice.gov.uk` is registered and
-verified, but its id has to be read from the Notify UI (Settings → Email reply-to addresses); there is no public
-API for it, which is why this cannot be fetched the way the template was.
+**`NOTIFY_EMAIL_REPLY_TO_ID` = `aabceef1-63e4-4414-9554-a24b0be967d7`**, the registered id for
+`KBDEEDSPOLL@justice.gov.uk`. A **different UUID from the template's**, and the one
+`NotifyProperties.isProvisioned` actually checks for any template with `invitesReply = true`. Not a secret: it
+identifies an address the recipient reads on the email anyway, so it belongs in the chart's environment rather
+than the vault. One value for the whole service, not one per template — so ④ gets it too, and ④ was the other
+template blocked on exactly this.
 
-Until it is set, Notify **silently drops the blank reply-to and sends from no-reply** — so the email goes out and
-the "reply to this email" sentence quietly points nowhere. Its config key is `NOTIFY_EMAIL_REPLY_TO_ID`, it is
-not a secret, and it is one value for the whole service rather than one per template.
+**Be precise about what is and is not proven here.** The template id was *verified* — read back out of Notify and
+matched field by field. This one is **recorded on Steve's word**, because Notify publishes no read-only API for
+reply-to addresses; they exist only under Settings → Email reply-to addresses in the UI. So it could not be
+checked the way the template was.
+
+**It will be proven by the first send, and the failure mode if it is wrong is quiet.** A `reply_to_id` Notify does
+not recognise is refused with a 400, which is loud and fine. The dangerous case is the *blank* one: Notify
+silently drops it and sends from no-reply, so the email goes out and "reply to this email" points nowhere. That is
+why `isProvisioned` gates on it rather than letting a send discover it.
+
+**A safe way to verify it before a real send, if it is wanted:** Notify's **Test** key returns a realistic
+response and delivers nothing, so a send request through it validates the whole payload — `reply_to_id` included —
+without an email existing. A Test key exists on the non-prod service. Not done here, because the two non-prod keys
+are not self-describing from the string alone and picking the wrong one would deliver a real email rather than
+validate one.
