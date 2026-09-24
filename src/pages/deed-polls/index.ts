@@ -294,14 +294,16 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
  * Logged without the caller or the query, per `client.ts`'s no-PII rule: what a search of the logs needs
  * to answer is whether the nav is degrading, not whose nav it was.
  */
-async function savedQueryEntries(caller: Caller, { filter, conditions, sort }: ListView): Promise<SavedQueryNavGroups> {
+async function savedQueryEntries(caller: Caller, { filter, q, conditions, sort }: ListView): Promise<SavedQueryNavGroups> {
   try {
     const queries = await findSavedQueries(caller);
 
     // `current` is the request's own query against each saved one, compared as the URL states it —
     // `buildSavedQueryNav` serialises both sides and drops the page, so paging through a saved query
-    // does not stop it being the one you are looking at.
-    return buildSavedQueryNav(queries, { listPath: LIST_PATH, current: { filter: filter.key, conditions, sort: serialiseSort(sort) } });
+    // does not stop it being the one you are looking at. The search term is part of the request's query and
+    // so part of the comparison: a saved query stores one, so leaving it out here compared its link against
+    // a key that could never hold a `q=`.
+    return buildSavedQueryNav(queries, { listPath: LIST_PATH, current: { filter: filter.key, q, conditions, sort: serialiseSort(sort) } });
   } catch (error) {
     console.error(`saved queries unavailable: ${error instanceof Error ? error.message : String(error)}`);
 

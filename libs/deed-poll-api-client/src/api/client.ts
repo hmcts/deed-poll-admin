@@ -404,9 +404,10 @@ export function closeReferral(caseId: string, referralId: string, config: ApiCon
  *
  * **A body, unlike the two transitions above**, because the outcome is a fact a person read out of a mailbox
  * rather than a transition the sub-resource can name. What it may carry is `outcome` and `note` and nothing
- * else: `confirmationRecordedBy` comes from the token and `confirmationReceivedAt` from api's clock, and this
- * is the one write body api publishes `additionalProperties: true` on — so either one sent from here would be
- * **ignored rather than refused**, which is why `contract.test.ts` pins their absence from the schema.
+ * else: `confirmationRecordedBy` comes from the token and `confirmationReceivedAt` from api's clock, and — like
+ * every write body but the two email ones — it is published `additionalProperties: true`, so either one sent
+ * from here would be **ignored rather than refused**, which is why `contract.test.ts` pins their absence from
+ * the schema.
  *
  * The **saved referral** comes back, so a caller holds the recorded outcome without a re-read. `conflict` for
  * both of api's refusals — a second answer, and an answer on a referral nobody asked — and they are

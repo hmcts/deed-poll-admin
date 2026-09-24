@@ -543,7 +543,7 @@ const createReferralSchema = z.object({
  * here; a schema that trimmed would be a second opinion about what was stored.
  *
  * **No `confirmationRecordedBy` and no `confirmationReceivedAt`.** api takes the recorder from the token and the
- * date from its own clock, and — alone among the write bodies that matter — it publishes
+ * date from its own clock, and — like every write body but the two email ones — this one is published
  * `additionalProperties: true`, so either one sent from here would be **ignored rather than refused**. Their
  * absence is therefore pinned by `contract.test.ts` and nothing else would catch them.
  *

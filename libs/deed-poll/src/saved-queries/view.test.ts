@@ -196,6 +196,25 @@ describe("saved-queries/view", () => {
       expect(entries[0].current).toBe(true);
     });
 
+    it("should mark an entry current when the request carries the same search term", () => {
+      // `savedQueryLink` restores `searchTerm` as `q`, so the entry's own href carries it — a comparison
+      // that dropped the term left a searched saved query unhighlighted while its results were on screen.
+      const query = savedQuery({ filter: "received", conditions: [], searchTerm: "Threepwood" });
+
+      const entries = navEntries([query], { listPath: LIST_PATH, current: { filter: "received", q: "Threepwood", conditions: [] } });
+
+      expect(entries[0].href).toBe("/deed-polls?filter=received&q=Threepwood");
+      expect(entries[0].current).toBe(true);
+    });
+
+    it("should not mark an entry current when the request searches for something the query does not", () => {
+      const query = savedQuery({ filter: "received", conditions: [], searchTerm: null });
+
+      const entries = navEntries([query], { listPath: LIST_PATH, current: { filter: "received", q: "Threepwood", conditions: [] } });
+
+      expect(entries[0].current).toBe(false);
+    });
+
     it("should stay current on a later page of the same query", () => {
       // A caseworker on page 2 is still looking at that query; an entry that stopped being current when
       // they paged would be telling them otherwise.

@@ -199,9 +199,17 @@ function savedQuerySort(query: SavedQuery): string | undefined {
   return serialiseSort(parseSort(query.sortDirection ? `${field}:${query.sortDirection}` : field));
 }
 
-/** A link as the URL states it, for comparison. `page` is left out — see `buildSavedQueryNav`. */
+/**
+ * A link as the URL states it, for comparison. `page` is left out — see `buildSavedQueryNav`.
+ *
+ * **`q` is in the key**, because `savedQueryLink` restores it and so the entry's own link carries it: a key
+ * that dropped the term compared a URL holding `q=` against one that never can, which left a saved query
+ * with a search term unhighlighted while the caseworker was looking at exactly its results — and highlighted
+ * a term-less query for a request that was searching. Both sides go through `caseListSearch`, which trims and
+ * drops a blank one, so a query api holds no term for keys identically to a list with no search.
+ */
 function linkKey(link: CaseListLink): string {
-  return caseListSearch({ filter: link.filter, conditions: link.conditions, sort: link.sort });
+  return caseListSearch({ filter: link.filter, q: link.q, conditions: link.conditions, sort: link.sort });
 }
 
 /** An owner's name, or the placeholder for a query api recorded none for. */
