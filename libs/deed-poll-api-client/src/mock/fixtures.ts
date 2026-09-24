@@ -15,17 +15,43 @@
 import type { WireDocumentType, WireEmailHistory } from "../api/wire.js";
 
 export const MOCK_SCENARIOS = {
-  "happy-path": { caseWrite: "accept", reachable: true },
+  "happy-path": { caseWrite: "accept", reachable: true, emailSend: "accept" },
   /**
    * Every case write comes back 400 with a field error, whatever it contains.
    *
    * The point is not to model a rule — the mock enforces api's real refusals anyway — but to prove the
    * pages put api's complaint onto the right input's error summary rather than showing a banner.
    */
-  "write-rejection": { caseWrite: "reject", reachable: true },
+  "write-rejection": { caseWrite: "reject", reachable: true, emailSend: "accept" },
   /** Every contract route answers 503, leaving only the `__mock` control routes and the health paths. */
-  "api-unavailable": { caseWrite: "accept", reachable: false }
+  "api-unavailable": { caseWrite: "accept", reachable: false, emailSend: "accept" },
+  /**
+   * A send enqueues and then fails permanently, as though Notify had rejected the address outright.
+   *
+   * **The only way to reach a terminal failure through the contract, which is why it is a scenario and not a
+   * fixture.** The four seeded history rows in `MOCK_EMAIL_HISTORY` give the Emails tab its `Failed` state to
+   * render, but they are seeded — nothing *drives* a row into `Failed`, so the pair of notes api writes on that
+   * transition could not be produced here at all. That pair is the point: a case ends up with both the sent note
+   * and the could-not-be-sent one, which is the three-note sequence a replacement send produces and the thing
+   * worth looking at on a real page before anybody is surprised by it.
+   *
+   * Permanent rather than retryable-and-exhausted, because the two are indistinguishable once the row is
+   * `Failed` and only the reason text differs. api keys its note on the **transition into** `Failed` precisely so
+   * that both routes write one.
+   */
+  "email-send-failure": { caseWrite: "accept", reachable: true, emailSend: "fail" }
 } as const satisfies Record<string, MockFixture>;
+
+/**
+ * What `email-send-failure` puts in the failed row's `failureReason`.
+ *
+ * Shaped like api's — `SendOutcome.Failed`'s verdict and the provider's words, joined — because the Emails tab
+ * renders it verbatim, and a reason that did not look like a real one would let a page ship having only ever
+ * displayed prose somebody wrote for it. Deliberately longer than a note may be: it is the text api excludes
+ * from the note for exactly that reason, so a note that quoted it here would be the divergence this mock exists
+ * to catch.
+ */
+export const MOCK_EMAIL_FAILURE_REASON = "PERMANENT: Notify rejected the request — the email address is not a valid recipient and no retry will change that";
 
 export const DEFAULT_SCENARIO: MockScenario = "happy-path";
 
@@ -234,6 +260,14 @@ interface MockFixture {
   caseWrite: "accept" | "reject";
   /** When false every contract route answers 503. */
   reachable: boolean;
+  /**
+   * Whether a send's drain succeeds, or fails in a way nothing will retry.
+   *
+   * A send always enqueues — the refusals before that are api's rules and this does not bypass them. What this
+   * decides is what the immediate drain does with the row afterwards, which is the only way to reach `Failed`
+   * through the contract: a real terminal failure needs Notify to reject the send, and there is no Notify here.
+   */
+  emailSend: "accept" | "fail";
 }
 
 export type MockScenario = keyof typeof MOCK_SCENARIOS;

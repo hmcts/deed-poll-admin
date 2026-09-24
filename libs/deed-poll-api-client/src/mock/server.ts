@@ -52,6 +52,11 @@
  *      timelines ship against a case that looks as though the referral had never moved. See
  *      `referralRaisedNote` and `appendNote`; the wording's authority is api's `ReferralNotes`.
  *
+ *      **And the notes an email writes**, for the same reason and with the same consequence: one on a fresh
+ *      enqueue, one on the transition into `Failed`, and none for an idempotent repeat send. Their authority is
+ *      api's `EmailNotes`, and the failure half is reachable only under the `email-send-failure` scenario,
+ *      because nothing else here drives a row out of `Sent`. See `emailSentNote` and `emailCouldNotBeSentNote`.
+ *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `ReferralNotes`, `JudicialReferralService`,
  * `CaseEmailService` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
@@ -110,6 +115,7 @@ import {
   DEFAULT_SCENARIO,
   isMockScenario,
   MOCK_DOCUMENT_TYPES,
+  MOCK_EMAIL_FAILURE_REASON,
   MOCK_EMAIL_TEMPLATES,
   MOCK_SCENARIOS,
   MOCK_WRITE_REJECTION,
@@ -859,6 +865,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     }
 
     const rendered = renderEmail(record, template, composed.slots);
+    // What the drain below did with the row. A send always enqueues; only the outcome is the scenario's.
+    const failed = MOCK_SCENARIOS[scenario].emailSend === "fail";
     const created: MockNotification = {
       id: randomUUID(),
       referralId: composed.referral.id,
@@ -866,14 +874,25 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       // Frozen here rather than recomputed later, as api freezes them: a later edit to the case cannot redirect
       // an email already owed, and "what was this applicant told" stays answerable from the row.
       recipient,
-      state: "Sent",
-      failureReason: null,
+      state: failed ? "Failed" : "Sent",
+      failureReason: failed ? MOCK_EMAIL_FAILURE_REASON : null,
       subject: rendered.preview.subject,
       body: rendered.body,
       createdOn: new Date(),
       createdBy: author
     };
     record.notifications.push(created);
+
+    // Last of the writes, as api orders them: `CaseEmailService.send` appends the note at the end of its own
+    // transaction. **Only on a fresh enqueue** — the `owed` return above is what makes an idempotent repeat send
+    // write no second note, because the applicant is owed one email so the timeline says it once.
+    appendNote(record, emailSentNote(template), author);
+    // The failure note belongs to the *drain*, not the send, and it is written on the transition INTO `Failed`
+    // rather than on a permanent verdict — api's `NotificationOutbox.settle` keys it that way so a retryable
+    // failure that ran out of attempts still gets one. Authored from the row's `createdBy` and not from `author`
+    // directly, because that column is api's source of truth for it: a real drain has no caller behind it, and
+    // reading the row is what makes the send and its outcome appear under one name.
+    if (failed) appendNote(record, emailCouldNotBeSentNote(template), created.createdBy);
 
     // No state on the response, which is api's shape: it drains after the enqueue, so any state read here could
     // say `Pending` for an email Notify has already accepted.
@@ -1935,6 +1954,37 @@ function referralActionedNote(referral: MockReferral): string {
  */
 function referralWithdrawnNote(referral: MockReferral): string {
   return `Referral to the judiciary withdrawn. It was ${identifiesReferral(referral)}.`;
+}
+
+/**
+ * The note a sent email writes — api's `EmailNotes.sent`, verbatim.
+ *
+ * Restated for the reason the referral notes above are: the Notes grid is the only timeline a case has, so an
+ * email that left no marker on it is invisible to a caseworker reading the history. Without this the Emails tab
+ * and the Notes grid disagree, and a page could ship having never rendered the note api actually writes.
+ *
+ * **The display name is the only varying part, and there is deliberately no branching per template** — api
+ * composes from `EmailTemplate.displayName()` for every member, so a template added later gets its note free.
+ *
+ * **"Sent", with the second sentence disclaiming delivery.** The note is written at enqueue, when this service
+ * has accepted the email and Notify has not; even `Sent` only means Notify accepted it. Pointing at the tab
+ * "for its delivery status" is what keeps the sentence true, and keeps it true when callbacks land.
+ */
+function emailSentNote(template: MockEmailTemplate): string {
+  return `${template.displayName} email sent. See the Emails tab for its delivery status.`;
+}
+
+/**
+ * The note a terminally failed email writes — api's `EmailNotes.couldNotBeSent`, verbatim.
+ *
+ * **Says nothing about why, and that is api's decision rather than an omission here.** The provider's
+ * `failureReason` is unbounded external text, and api excludes it so the note's length stays provable against
+ * the notes column — the failure note is written inside the drain's batch transaction, so one the validator
+ * refused would roll back rows Notify had already accepted. The tab holds the reason and the verdict, which is
+ * what the pointer is for.
+ */
+function emailCouldNotBeSentNote(template: MockEmailTemplate): string {
+  return `${template.displayName} email could not be sent. See the Emails tab for the reason.`;
 }
 
 /**
