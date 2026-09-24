@@ -192,6 +192,20 @@ Task 5 additionally runs `yarn test:coverage`, `yarn test:e2e` and `yarn test:a1
 
 ### Task 1: Adopt the OpenAPI contract atomically
 
+> **Where the authoritative document is, as at 2026-09-24 — do not hand-write the shape.** api's notify-3b is
+> **merged on `master`** (PR #42, and `email-case-notes` has landed since as PR #48, so `master` is at
+> `83ec959`). A **local `deed-poll-api` is running on `http://127.0.0.1:4550` from that commit**, so
+> `curl -s http://127.0.0.1:4550/v3/api-docs` is the generated document, live. If it is not running, api's
+> `OpenAPIPublisherTest` writes the same thing to `/tmp/openapi-specs.json` when its `integration` source set
+> runs — note that source set is **excluded in CI** (`INTEGRATION_TESTS_ENABLED=false`), so the file is a local
+> artefact only.
+>
+> **Expect the refresh to be atomic and to carry more than this feature.** `contract.test.ts` is set-equality in
+> **both** directions, so importing the document pulls in every operation api has added since the last
+> provenance entry — not just the confirmation one. That is the plan's "account property-by-property" bullet and
+> the reason this task is separate from Task 2. The one green seam to split on, if it has to be split, is an
+> unregistered schema plus an unlisted function: both are invisible to the contract test until registered.
+
 If the exact api commit is already the provenance entry, verify this task and make no duplicate change.
 Otherwise:
 
