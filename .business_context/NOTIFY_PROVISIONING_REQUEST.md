@@ -175,7 +175,9 @@ Content notes for whoever authors them, from the taxonomy:
   its `XX/YY/ZZZZ` literal becomes a real placeholder fed from the referral's `decisionDate`.
 - **`chase-missing-documents` needs one required caseworker placeholder**, `documents_required`, capped at
   4,000 characters. Its other placeholders are `reference_number`, `online_application_reference`,
-  `old_forename` and `old_surname`. notify-6 Task 0 verifies these names against the real template.
+  `old_forename` and `old_surname`. **notify-6 Task 0 ran 2026-09-24 and these five matched the real template
+  character-for-character**, so this is now a record rather than an instruction. The cap is the api's, not
+  Notify's.
 - **The forms emails must be reworded.** They currently say *"we have attached three forms"*. Notify does not
   attach files; it inserts a time-limited secure link. Confirmed approach (Steve, 2026-09-18): reword to a
   download. **The wording should also say the link expires**, rather than leaving an applicant to find out.
@@ -337,8 +339,11 @@ Notify sends from a no-reply address unless a reply-to is registered and verifie
    already send through Notify; sharing a service shares limits and team access, which may be better or worse.
 3. **Who owns the content?** Template wording is not engineering's, and three of the four need editing before
    they can be authored — the conditionals, the `XX/YY/ZZZZ` date, and the attachment rewording.
-4. **Answered for planning on 2026-09-20:** assume `chase-missing-documents` exists and requires caseworker
-   text. notify-6 Task 0 still verifies its real placeholders and reply-to before implementation.
+4. **Closed 2026-09-24.** Answered for planning on 2026-09-20 as an assumption — assume `chase-missing-documents`
+   exists and requires caseworker text — and notify-6 Task 0 has now verified it: the template is authored, its
+   five placeholders were read back out of Notify and matched, and `documents_required` is unconditional and so
+   required at Notify's end too. The reply-to id is recorded but **not** read back, for the reason in that
+   section above.
 5. **Is there a template for the Gazette notice email?** Deferred. Two of the supplied templates promise the applicant
    one.
 6. **Where do the five blank forms come from?** The forms emails name LOC021, LOC023, LOC024, LOC027 and
