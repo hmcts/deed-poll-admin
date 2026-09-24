@@ -1,0 +1,72 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/radios/macro.njk" import govukRadios %}
+{% from "govuk/components/character-count/macro.njk" import govukCharacterCount %}
+{% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+
+{#
+  One question and the note that evidences it — `notify-3b` decision 5, and the reasoning for there being no
+  check-answers step is in `[id]/referrals/[referralId]/confirmation.ts`.
+
+  The request date is shown above the question because it is what identifies the request being answered; a
+  caseworker arriving from the worklist has several open at once. Nothing else about the case is restated — the
+  referral is one link away.
+
+  The radios carry **no default**: their checked state is worked out from what was submitted, so an untouched form
+  posts nothing and the schema asks the question again rather than this page answering it. A character count rather
+  than `maxlength` on the note, the call `witness-form.njk` records — a browser that silently stops accepting
+  characters gives no reason for having done so — and 1,000 is api's own bound.
+
+  The warning sits immediately above the submit, where it is read before the act rather than after it. Cancel is a
+  link, so the only thing on this page that can change anything is the one submit.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {% if errorList.length %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+    {% endif %}
+
+    {# Empty when api has published no reference for the case; there is nothing to caption it with then. #}
+    {% if reference %}
+      <span class="govuk-caption-l">{{ reference }}</span>
+    {% endif %}
+    <h1 class="govuk-heading-xl govuk-!-margin-bottom-6">{{ heading }}</h1>
+
+    {{ govukSummaryList({ rows: [{ key: { text: requestedLabel }, value: { text: requestedOn } }] }) }}
+
+    <form method="post" action="{{ confirmationHref }}" novalidate>
+
+      {{ govukRadios({
+        idPrefix: "outcome",
+        name: "outcome",
+        fieldset: { legend: { text: outcomeLegend, classes: "govuk-fieldset__legend--m" } },
+        hint: { text: outcomeHint },
+        items: outcomeItems,
+        errorMessage: { text: errors.outcome } if errors.outcome
+      }) }}
+
+      {{ govukCharacterCount({
+        id: "note",
+        name: "note",
+        rows: 5,
+        maxlength: noteMax,
+        value: values.note,
+        label: { text: noteLabel, classes: "govuk-label--m" },
+        hint: { text: noteHint },
+        errorMessage: { text: errors.note } if errors.note
+      }) }}
+
+      {{ govukWarningText({ text: warning, iconFallbackText: warningIcon }) }}
+
+      <div class="govuk-button-group">
+        {{ govukButton({ text: submit }) }}
+        <a class="govuk-link" href="{{ referralHref }}">{{ cancel }}</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -229,7 +229,8 @@ documentation — so 3,125 was a mis-transcription rather than a regression. **T
 **Running count as each task lands, so Task 5 compares against a figure rather than reconstructing one:** Task 1
 took it to **3,125 across 166 files** (five contract-test cases, no new file); Task 2 to **3,182 across 166 files**
 (57 cases across four existing test files, still no new file); Task 3 to **3,243 across 167 files** (61 cases, one
-new file — `libs/deed-poll/src/referrals/awaiting-confirmation.test.ts`).
+new file — `libs/deed-poll/src/referrals/awaiting-confirmation.test.ts`); Task 4 to **3,289 across 169 files** (46
+cases, two new files — the new page's handler and template tests).
 
 Notes so no task rediscovers them:
 
@@ -507,7 +508,51 @@ count banner's as `awaitingConfirmationFor.1`/`.2`, so the singular and plural a
 - Tests cover both outcomes, note handling, missing/invalid outcome, preserved input, success, both 409s,
   cross-case 404, no recorder field on the request, action visibility, and the absence of any case-date write.
 
-- [ ] a caseworker can record either published outcome with evidence, races are explained against fresh data,
+**Done, 2026-09-24.** The confirmation section and the "Record applicant response" link in
+`src/pages/deed-polls/[id]/referrals/[referralId].{ts,njk}`, and the question page in
+`src/pages/deed-polls/[id]/referrals/[referralId]/confirmation.ts` with `deed-polls/referral-confirmation.njk`.
+The view model needed no change: `buildConfirmationView` was Task 2's and this task wired a template to it.
+
+Six things worth not rediscovering:
+
+- **The action is outside the withdraw/close chain, and that is a correctness point rather than a layout one.**
+  api clears neither confirmation column when a referral closes, so a `Closed` referral can still be waiting for an
+  answer — which is exactly what keeps its case on the worklist under the older request (Task 2's
+  `refreshAwaitingConfirmation` note). Keying the control on `canWithdraw`/`canClose`, or making it a third branch
+  of that `if`/`elif`, would strand such a case there with no way to answer it. Two tests pin a closed-and-waiting
+  referral offering the recording and neither of the other two controls.
+- **The 409's sentence is keyed on the fresh read and has exactly two branches, deliberately.** api checks
+  already-recorded *before* never-asked, and nothing clears a recorded answer, so a 409 cannot mean "still
+  waiting" — a third sentence would describe something api does not do. An outcome on the fresh referral is the
+  race worth naming; its absence means nobody asked. The prose of api's two refusals is never parsed, per
+  decision 7.
+- **The success banner and the refusal summary are shared with the closure's, not added beside them.**
+  `referral-detail.njk` now sets `announced = directionActioned or confirmationRecorded` and
+  `refused = withdrawRefused or closeRefused or confirmationRefused`: a caseworker arrives through one redirect or
+  another and never two at once, and GOV.UK's guidance is one notification banner per page. Both are still
+  resolved in the handler, so the njk test's spread order (`en` first, handler's values over it) keeps meaning
+  what it means.
+- **The re-render path re-reads and therefore re-guards.** `rerender` goes back through `awaiting()`, so a form
+  whose answer was recorded by somebody else between the submit and the validation failure redirects to the
+  referral instead of rendering a form api would now refuse. The cost is one extra read on the error path only;
+  the POST itself still reads nothing before recording, which is decision 6.
+- **`displayReference` is nullable, so the caption is conditional.** `found.displayReference ?? ""` with a
+  `{% if reference %}` around the caption, as `judicial/referrals/direction-form.njk` does — a case api published
+  no reference for gets no caption rather than an empty one. This is what `yarn build` caught and `yarn test` did
+  not, which is the third command earning its place again.
+- **Assert the escaped form in a template test.** The layout autoescapes, so "Applicant's confirmation" is
+  `Applicant&#39;s confirmation` in the HTML; three assertions failed on that and nothing about the failure said
+  so. `email-compose.njk.test.ts` and `detail.njk.test.ts` already do it this way.
+
+All 24 new strings reach `.business_context/welsh-translation-request.csv` (10 on the referral page, 14 on the new
+page), because `src/pages/deed-polls/**` is already in the extractor's `INCLUDE` and both pages use the plain
+`en`/`cy` object shape. `yarn welsh:check` still exits 1 for the pre-existing reason — `cy` mirrors `en` across
+this app by design.
+
+Test count: **3,289 across 169 files**, up 46 from Task 3's 3,243 — 25 in the new page's handler test, 7 in its
+template test, 8 in `[referralId].test.ts` and 6 in `referral-detail.njk.test.ts`.
+
+- [x] a caseworker can record either published outcome with evidence, races are explained against fresh data,
       authorship and case scoping remain api-owned, no state/date consequence is invented, and validation is
       green
 

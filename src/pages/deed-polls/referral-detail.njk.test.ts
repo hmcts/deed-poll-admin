@@ -67,6 +67,21 @@ const DIRECTED = {
   decidedBy: "A Judge"
 };
 
+/** The confirmation columns api publishes on a referral whose applicant has been asked and has not answered. */
+const AWAITING = {
+  confirmationRequestedAt: new Date("2026-05-20T08:00:00Z"),
+  confirmationOutcome: null,
+  confirmationReceivedAt: null,
+  confirmationRecordedBy: null
+};
+
+/** And the same referral once a caseworker has recorded what they said. */
+const RECORDED = {
+  confirmationOutcome: "Confirmed",
+  confirmationReceivedAt: new Date("2026-05-22T09:30:00Z"),
+  confirmationRecordedBy: "A Caseworker"
+};
+
 /**
  * The model as the real render would see it: the content pair first, the handler's own values **over** it.
  *
@@ -243,6 +258,67 @@ describe("referral view template", () => {
     expect(rendered.indexOf("govuk-error-summary")).toBeLessThan(rendered.indexOf("<h1"));
     // Not the banner: nothing this caseworker did succeeded.
     expect(rendered).not.toContain("govuk-notification-banner");
+  });
+
+  it("should show no confirmation section on a referral nobody was asked about", async () => {
+    const rendered = await page(REFERRAL);
+
+    expect(rendered).not.toContain("Applicant&#39;s confirmation");
+    expect(rendered).not.toContain("/confirmation");
+  });
+
+  it("should offer the recording action as a link, because it opens a question page", async () => {
+    const rendered = await page({ ...REFERRAL, ...AWAITING });
+
+    // Escaped, because the layout autoescapes and the heading carries an apostrophe.
+    expect(rendered).toContain("Applicant&#39;s confirmation");
+    expect(rendered).toContain("Confirmation requested");
+    expect(rendered).toContain("20 May 2026 at 9:00am");
+    expect(rendered).toContain("Not yet recorded");
+    expect(rendered).toContain('href="/deed-polls/case-1/referrals/ref-1/confirmation"');
+    expect(rendered).toContain("Record applicant response");
+    // No recorder and no recorded date while nobody has answered — an empty row there would read as missing data
+    // rather than as a question still open.
+    expect(rendered).not.toContain("Recorded by");
+  });
+
+  it("should read the recorded answer back with who recorded it and when, and drop the action", async () => {
+    const rendered = await page({ ...REFERRAL, ...AWAITING, ...RECORDED });
+
+    expect(rendered).toContain("The applicant wants to proceed");
+    expect(rendered).toContain("Response recorded");
+    expect(rendered).toContain("22 May 2026 at 10:30am");
+    expect(rendered).toContain("Recorded by");
+    expect(rendered).not.toContain("Record applicant response");
+    expect(rendered).not.toContain("/confirmation");
+  });
+
+  it("should still offer the recording action on a closed referral, whose confirmation columns api leaves alone", async () => {
+    // Not part of the withdraw/close pair: the wait is not a referral state, and a case can sit on the
+    // awaiting-confirmation worklist under a closed referral's outstanding request.
+    const rendered = await page({ ...REFERRAL, ...DIRECTED, ...AWAITING, state: "Closed" });
+
+    expect(rendered).toContain("Record applicant response");
+    expect(rendered).not.toContain("Withdraw this referral");
+    expect(rendered).not.toContain("Mark direction as actioned");
+  });
+
+  it("should announce a recorded response as a success banner above the answer it produced", async () => {
+    const rendered = await page({ ...REFERRAL, ...AWAITING, ...RECORDED }, { confirmation: "recorded" });
+
+    expect(rendered).toContain("govuk-notification-banner--success");
+    expect(rendered).toContain("The applicant&#39;s response has been recorded.");
+    expect(rendered).toContain("The applicant wants to proceed");
+  });
+
+  it("should show a refused recording as an error summary naming what api has already recorded", async () => {
+    const rendered = await page({ ...REFERRAL, ...AWAITING, ...RECORDED }, { confirmation: "conflict" });
+
+    expect(rendered).toContain("The applicant&#39;s response has already been recorded.");
+    expect(rendered.indexOf("govuk-error-summary")).toBeLessThan(rendered.indexOf("<h1"));
+    expect(rendered).not.toContain("govuk-notification-banner");
+    // And no way to overwrite it: the action is gone with the answer recorded.
+    expect(rendered).not.toContain("Record applicant response");
   });
 
   it("should link back to the case's referrals tab", async () => {
