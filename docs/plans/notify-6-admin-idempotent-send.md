@@ -118,7 +118,40 @@ Notes so no task rediscovers them:
 - Record whether `openapi.json` already carries the header — if admin's provenance predates api's notify-6 (it
   does, at the time of writing: api master is `b01f8f4`), the header is absent from the document and Task 1 is
   the import.
-- [ ] Mark completed
+- [x] Mark completed
+
+**Measured 2026-09-25 on `notify-6-admin-idempotent-send` at `0c4f038`.** `yarn lint` exit **0**, `yarn build`
+exit **0**, `yarn turbo test test:app --concurrency=1 --force` exit **0** with **3,321 tests across 169 files,
+0 skipped** — so the notify-3b figure the Validation section quotes does still hold on this branch, but it is now
+re-measured rather than quoted. `skipped` is 0 because Redis was up (`docker compose up -d redis`, container
+`deed-poll-redis` on `0.0.0.0:6379`) with `REDIS_URL=redis://127.0.0.1:6379` exported, so
+`src/session-store.test.ts` ran rather than self-skipping. Per package: `//:test:app` 1,406/78,
+`@hmcts/deed-poll` 1,111/58, `@hmcts/deed-poll-api-client` 466/4, `express-govuk-starter` 127/12,
+`cloud-native-platform` 140/10, `simple-router` 41/4, `express-session-postgres` 23/2,
+`express-session-redis` 7/1.
+
+**The break is confirmed, not assumed.** Both halves:
+
+- **This app sends nothing.** `grep -rn 'Idempotency' libs src` returns exactly **one** line, and it is a comment
+  asserting the opposite of what api now requires: `src/pages/deed-polls/[id]/emails/[template]/send.test.ts:61`
+  — *"Decision 16 as corrected: there is no `Idempotency-Key` in api's contract, and `SendEmailRequest` is one
+  of…"*. No header is set anywhere; the many case-insensitive `idempoten` hits are prose about idempotent
+  *writes* generally (saved queries, the mock, `send.ts`'s docblock), not this header. That comment is a second
+  thing Task 2 must correct alongside the docblock decision 2 names — it is a test file asserting a contract fact
+  that stopped being true.
+- **api requires it.** At master `b01f8f40f3184af268e20aa2a4fe4ad6b49518a6` ("Merge pull request #50 from
+  hmcts/notify-6-chase-missing-documents"), `CaseworkerEmailController.java:73` declares
+  `public static final String IDEMPOTENCY_KEY = "Idempotency-Key";` and line 168 binds
+  `@RequestHeader(IDEMPOTENCY_KEY) UUID requestId,` — **no `required = false`, no `defaultValue`**, so Spring
+  answers 400 when it is absent. Its javadoc states the intent outright: *"A missing or unparseable key is a 400
+  naming the header, not a guess: a generated substitute would make every retry a new send, which is the
+  behaviour this replaced."* Note the body is `@RequestBody(required = false)` while the header is not — the
+  header is the stricter of the two.
+
+**`openapi.json` does not carry the header, so Task 1 is the import.** `grep -n 'Idempotency'
+libs/deed-poll-api-client/openapi.json` exits 1. `SPEC-PROVENANCE.md`'s current entry is api **`83ec959`** taken
+2026-09-24 (notify-3 and notify-3b), which predates `b01f8f4` — so the document is two api merges stale and the
+refresh will carry notify-6 *and* email-case-notes, exactly as Task 1 warns.
 
 ### Task 1: Adopt the OpenAPI contract atomically
 
