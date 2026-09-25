@@ -410,12 +410,22 @@
             }
           },
           {
-            "description": "Which email. Matched exactly -- a near miss is a 404 naming what would have been accepted, because this token is a value the caller read out of GET /caseworker/cases/{id}/emails. One of: application-rejected (Application rejected), request-confirmation-to-proceed (Request confirmation to proceed). That GET is also where a client learns which of them this case may have sent and whether this environment can send it at all: a template it reports as inapplicable is a 409 here, and an unprovisioned one fails at GOV.UK Notify.",
+            "description": "Which email. Matched exactly -- a near miss is a 404 naming what would have been accepted, because this token is a value the caller read out of GET /caseworker/cases/{id}/emails. One of: application-rejected (Application rejected), request-confirmation-to-proceed (Request confirmation to proceed), chase-missing-documents (Chase missing documents). That GET is also where a client learns which of them this case may have sent and whether this environment can send it at all: a template it reports as inapplicable is a 409 here, and an unprovisioned one fails at GOV.UK Notify.",
             "in": "path",
             "name": "template",
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "description": "Which compose journey this send belongs to. One journey creates one UUID and sends it with every retry of this POST -- a timed-out request, a double-click, a resubmit after a validation failure -- and a later journey creates another: that is what lets one case be chased twice on purpose while a double-click still sends one email. A repeat of the same key for the same case and the same content answers 200 with the first receipt and enqueued=false; the same key with different content is a 409, because the header and the body then contradict each other; a missing or unparseable key is a 400 naming this header. Do not generate a fresh UUID per request -- that satisfies this schema and loses the protection entirely.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
@@ -456,7 +466,7 @@
             }
           },
           {
-            "description": "Which email. Matched exactly -- a near miss is a 404 naming what would have been accepted, because this token is a value the caller read out of GET /caseworker/cases/{id}/emails. One of: application-rejected (Application rejected), request-confirmation-to-proceed (Request confirmation to proceed). That GET is also where a client learns which of them this case may have sent and whether this environment can send it at all: a template it reports as inapplicable is a 409 here, and an unprovisioned one fails at GOV.UK Notify.",
+            "description": "Which email. Matched exactly -- a near miss is a 404 naming what would have been accepted, because this token is a value the caller read out of GET /caseworker/cases/{id}/emails. One of: application-rejected (Application rejected), request-confirmation-to-proceed (Request confirmation to proceed), chase-missing-documents (Chase missing documents). That GET is also where a client learns which of them this case may have sent and whether this environment can send it at all: a template it reports as inapplicable is a 409 here, and an unprovisioned one fails at GOV.UK Notify.",
             "in": "path",
             "name": "template",
             "required": true,
@@ -2649,16 +2659,21 @@
       },
       "PreviewEmailRequest": {
         "additionalProperties": false,
-        "description": "The slots a caseworker fills in, and the whole of what a client may set. Every other value in the email -- the reference number, the applicant's former names, and which refund paragraph is rendered -- is resolved from the case, and a request naming one of them is a 400 that says which: a caseworker altering the reference an applicant is told, or flipping the refund branch, is a correctness and a fraud problem rather than a convenience. An unknown key is likewise refused and named rather than ignored, unlike every other body here. judges_reason is required of the email but not of the request: it is pre-populated from the referral's direction, so a body omitting it is accepted whenever a direction was recorded, and refused with that field named when none was. An over-long slot is refused rather than truncated, because a truncated quotation of a judge is worse than being asked to shorten one.",
+        "description": "The slots a caseworker fills in, and the whole of what a client may set. Every other value in the email -- the reference number, the applicant's former names, and which refund paragraph is rendered -- is resolved from the case, and a request naming one of them is a 400 that says which: a caseworker altering the reference an applicant is told, or flipping the refund branch, is a correctness and a fraud problem rather than a convenience. An unknown key is likewise refused and named rather than ignored, unlike every other body here. judges_reason is required of the email but not of the request: it is pre-populated from the referral's direction, so a body omitting it is accepted whenever a direction was recorded, and refused with that field named when none was. documents_required is required of the request itself -- nothing pre-populates it -- so an empty body for that email is a 400. The properties here are every slot any template takes, which is not the set any one template takes: which slots a given template accepts, and what they open with, come from GET /caseworker/cases/{id}/emails, and a slot belonging to another template is refused by name. An over-long slot is refused rather than truncated, because a truncated quotation of a judge is worse than being asked to shorten one.",
         "properties": {
           "additional_notes": {
             "type": "string",
             "description": "Optional. Anything the caseworker wants to add to the approved wording.",
             "maxLength": 1000
           },
+          "documents_required": {
+            "type": "string",
+            "description": "Required of the request, and pre-populated from nothing -- this email exists to tell the applicant what is still needed, and only a caseworker can say what that is. An omitted or blank value is a 400 naming this field.",
+            "maxLength": 4000
+          },
           "judges_reason": {
             "type": "string",
-            "description": "Required, and pre-populated from the referral's direction when it is omitted.",
+            "description": "Required of the email but not of the request: pre-populated from the referral's direction, so a body omitting it is accepted whenever a direction was recorded and refused with this field named when none was.",
             "maxLength": 4000
           }
         }
@@ -3112,16 +3127,21 @@
       },
       "SendEmailRequest": {
         "additionalProperties": false,
-        "description": "The slots a caseworker fills in, and the whole of what a client may set. Every other value in the email -- the reference number, the applicant's former names, and which refund paragraph is rendered -- is resolved from the case, and a request naming one of them is a 400 that says which: a caseworker altering the reference an applicant is told, or flipping the refund branch, is a correctness and a fraud problem rather than a convenience. An unknown key is likewise refused and named rather than ignored, unlike every other body here. judges_reason is required of the email but not of the request: it is pre-populated from the referral's direction, so a body omitting it is accepted whenever a direction was recorded, and refused with that field named when none was. An over-long slot is refused rather than truncated, because a truncated quotation of a judge is worse than being asked to shorten one.",
+        "description": "The slots a caseworker fills in, and the whole of what a client may set. Every other value in the email -- the reference number, the applicant's former names, and which refund paragraph is rendered -- is resolved from the case, and a request naming one of them is a 400 that says which: a caseworker altering the reference an applicant is told, or flipping the refund branch, is a correctness and a fraud problem rather than a convenience. An unknown key is likewise refused and named rather than ignored, unlike every other body here. judges_reason is required of the email but not of the request: it is pre-populated from the referral's direction, so a body omitting it is accepted whenever a direction was recorded, and refused with that field named when none was. documents_required is required of the request itself -- nothing pre-populates it -- so an empty body for that email is a 400. The properties here are every slot any template takes, which is not the set any one template takes: which slots a given template accepts, and what they open with, come from GET /caseworker/cases/{id}/emails, and a slot belonging to another template is refused by name. An over-long slot is refused rather than truncated, because a truncated quotation of a judge is worse than being asked to shorten one.",
         "properties": {
           "additional_notes": {
             "type": "string",
             "description": "Optional. Anything the caseworker wants to add to the approved wording.",
             "maxLength": 1000
           },
+          "documents_required": {
+            "type": "string",
+            "description": "Required of the request, and pre-populated from nothing -- this email exists to tell the applicant what is still needed, and only a caseworker can say what that is. An omitted or blank value is a 400 naming this field.",
+            "maxLength": 4000
+          },
           "judges_reason": {
             "type": "string",
-            "description": "Required, and pre-populated from the referral's direction when it is omitted.",
+            "description": "Required of the email but not of the request: pre-populated from the referral's direction, so a body omitting it is accepted whenever a direction was recorded and refused with this field named when none was.",
             "maxLength": 4000
           }
         }

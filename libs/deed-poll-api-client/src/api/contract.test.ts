@@ -212,10 +212,11 @@ describe("openapi.json and the wire schemas", () => {
     // the personalisation keys and the body keys at once — so they are the documented exception to this
     // module's camelCase rule. Renamed, Notify substitutes nothing and sends the template with empty slots.
     for (const name of ["PreviewEmailRequest", "SendEmailRequest"] as const) {
-      expect(Object.keys(spec.components.schemas[name].properties ?? {}).sort(), name).toEqual(["additional_notes", "judges_reason"]);
-      expect(Object.keys(WIRE_SCHEMAS[name].shape).sort(), name).toEqual(["additional_notes", "judges_reason"]);
-      expect(Object.keys(WIRE_SCHEMAS[name].shape), name).not.toContain("judgesReason");
-      expect(Object.keys(WIRE_SCHEMAS[name].shape), name).not.toContain("additionalNotes");
+      expect(Object.keys(spec.components.schemas[name].properties ?? {}).sort(), name).toEqual(["additional_notes", "documents_required", "judges_reason"]);
+      expect(Object.keys(WIRE_SCHEMAS[name].shape).sort(), name).toEqual(["additional_notes", "documents_required", "judges_reason"]);
+      for (const camelCased of ["judgesReason", "additionalNotes", "documentsRequired"]) {
+        expect(Object.keys(WIRE_SCHEMAS[name].shape), `${name}.${camelCased}`).not.toContain(camelCased);
+      }
     }
   });
 
@@ -225,6 +226,9 @@ describe("openapi.json and the wire schemas", () => {
     // field, and never truncated — a shortened quotation of a judge is worse than being asked to shorten one.
     for (const [field, maxLength] of [
       ["judges_reason", 4000],
+      // ⑤'s slot, capped with the direction rather than with the notes: it is a caseworker's list of what is
+      // still outstanding, so it is prose of the same order as a judge's reason and not a trailing remark.
+      ["documents_required", 4000],
       ["additional_notes", 1000]
     ] as const) {
       expect(spec.components.schemas.SendEmailRequest.properties?.[field]?.maxLength, field).toBe(maxLength);
@@ -236,13 +240,49 @@ describe("openapi.json and the wire schemas", () => {
   it("should refuse an unknown key on the email write bodies, unlike every other body here", () => {
     // These two are the only bodies in the contract with `additionalProperties: false`, and that is what makes
     // the compose journey's idempotency UUID a 400 rather than an ignored field if anyone ever puts it in the
-    // body. api's protection against a double send is a unique index answering 409; the UUID stays admin-local.
+    // body. It belongs in the `Idempotency-Key` HEADER, which the next test pins — an earlier version of this
+    // comment said the UUID "stays admin-local" and was sent to api in neither the body nor a header, which was
+    // true of a token nothing checked and stopped being true when api's notify-6 made the header required.
     for (const name of ["PreviewEmailRequest", "SendEmailRequest"] as const) {
       expect(spec.components.schemas[name].additionalProperties, name).toBe(false);
+      expect(Object.keys(spec.components.schemas[name].properties ?? {}), name).not.toContain("Idempotency-Key");
+      expect(Object.keys(spec.components.schemas[name].properties ?? {}), name).not.toContain("requestId");
     }
-    // And an empty body is legitimate on both: `judges_reason` is pre-populated from the referral's direction.
+    // And an empty body is legitimate on both — `judges_reason` is pre-populated from the referral's direction.
+    // Legitimate of the SCHEMA, not of every template: ⑤ pre-populates `documents_required` from nothing, so an
+    // empty body for that one is api's 400. Conditional mandatoriness is not expressible in a `required` list
+    // serving three templates, which is why api publishes none and this schema enforces none.
     expect(spec.components.schemas.SendEmailRequest.required).toBeUndefined();
     expect(WIRE_SCHEMAS.SendEmailRequest.safeParse({}).success).toBe(true);
+  });
+
+  it("should require an Idempotency-Key header on the send and on nothing else", () => {
+    // api's notify-6 made this header REQUIRED on the send, for every template and not only the chase —
+    // `@RequestHeader(IDEMPOTENCY_KEY) UUID requestId` with no `required = false` and no default, so Spring
+    // answers 400 when it is absent. That is the whole of why this plan exists: until the adapter sends it,
+    // every send from the Email tab is a 400, including `application-rejected`, which worked before.
+    //
+    // Asserted as a set over the whole document rather than only on the send, because the failure worth catching
+    // is the inverse one: a header api adds to a second operation that this adapter then does not send.
+    const required = Object.entries(spec.paths).flatMap(([route, methods]) =>
+      Object.entries(methods).flatMap(([method, operation]) =>
+        (operation.parameters ?? [])
+          .filter((parameter) => parameter.in === "header")
+          .map((parameter) => `${method.toUpperCase()} ${route} ${parameter.name}${parameter.required ? "" : " (optional)"}`)
+      )
+    );
+
+    expect(required).toEqual(["POST /caseworker/cases/{id}/emails/{template} Idempotency-Key"]);
+
+    // A UUID, so the adapter may not send an opaque token: api parses the value into a `UUID` and a 400 names
+    // the header. The preview deliberately has none — it writes nothing, so there is nothing to make idempotent.
+    const header = (spec.paths["/caseworker/cases/{id}/emails/{template}"].post.parameters ?? []).find((parameter) => parameter.name === "Idempotency-Key");
+
+    expect(header?.schema).toEqual({ type: "string", format: "uuid" });
+    // The two answers a repeat gets, which are prose here and nowhere else in the document: the same key with the
+    // same content is a receipt, and the same key with DIFFERENT content is a 409 rather than a second email.
+    expect(header?.description).toContain("enqueued=false");
+    expect(header?.description).toContain("409");
   });
 
   it("should publish the confirmation body with its two keys rather than as an empty schema", () => {
@@ -339,9 +379,15 @@ interface OpenApiSpec {
   };
 }
 
-/** Only the parameters, because the query vocabulary is published as their prose and nowhere else. */
+/**
+ * Only the parameters, because the query vocabulary is published as their prose and nowhere else.
+ *
+ * `in` and `required` are read as well as the name: the send's `Idempotency-Key` is the contract's only header
+ * parameter, and it being *required* is the whole of what distinguishes api's notify-6 from a header the adapter
+ * could omit.
+ */
 interface OpenApiOperation {
-  parameters?: { name: string; description?: string }[];
+  parameters?: { name: string; in?: string; required?: boolean; description?: string; schema?: Record<string, unknown> }[];
 }
 
 interface OpenApiSchema {
