@@ -52,7 +52,7 @@ const SENT = {
   documents: []
 };
 
-const html = (model: Record<string, unknown>): string => environment.render("deed-polls/email-detail.njk", { ...model, ...(model.en as object) });
+const html = (model: Record<string, unknown>): string => environment.render("deed-polls/email-detail.njk", { ...(model.en as object), ...model });
 
 async function page(email: Record<string, unknown> = SENT): Promise<string> {
   vi.mocked(findCaseEmails).mockResolvedValue({ availability: [], history: [email], slotDefaults: [] } as never);

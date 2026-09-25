@@ -52,7 +52,7 @@ const CASE_EMAILS = {
   slotDefaults: [{ template: "application-rejected", fields: { judges_reason: "Identity not established." } }]
 };
 
-const html = (model: Record<string, unknown>): string => environment.render("deed-polls/email-compose.njk", { ...model, ...(model.en as object) });
+const html = (model: Record<string, unknown>): string => environment.render("deed-polls/email-compose.njk", { ...(model.en as object), ...model });
 
 /** The form as it opens, or as it comes back from the check page with a body. */
 async function page(posted?: Record<string, unknown>): Promise<string> {

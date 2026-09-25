@@ -175,6 +175,22 @@ describe("email send route", () => {
     await expect(POST(request({ judges_reason: "" }), response())).rejects.toThrow(/no idempotency key/);
   });
 
+  it("should fail as a fault in this app when api refused the header, rather than as a refusal about the case", async () => {
+    // Decision 7's own path: the key left here fine and did not arrive, which only a gateway rewriting the request
+    // can cause. api names the header, no control matches it, and without this the check page would say "This email
+    // cannot be sent for this case" about a sendable case — and log nothing, since `renderContentRejection`'s
+    // logging sits after its no-placeable-field return.
+    vi.mocked(sendCaseEmail).mockRejectedValue(
+      new InvalidInputError("Invalid request parameter", [{ field: "Idempotency-Key", message: "is a required header for this operation" }])
+    );
+    const res = response();
+
+    await expect(POST(request(), res)).rejects.toThrow(/idempotency key/);
+
+    expect(res.render).not.toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
   it("should still refuse with its own sentence when api's 409 carried no message of its own", async () => {
     // A gateway answering 409 with no body leaves the adapter with `deed-poll-api answered 409` at best, which is
     // why the meaning is this page's sentence rather than api's.

@@ -35,6 +35,15 @@
  * message against a control. api's own refusal would name the header, and no form has a control for a header — so
  * rendering it against one would ask a caseworker to correct something they cannot see or reach.
  *
+ * **Both ways of learning that reach the same page, which takes two checks rather than one.** The guard below
+ * covers a key this app can see is unusable; api's 400 naming the header covers one that left here fine and did
+ * not arrive — a gateway dropping an unrecognised request header, which is a deployed-environment fault and the
+ * only remaining way in. Without the second check that 400 is an `InvalidInputError` naming a field no control
+ * matches, which `renderContentRejection` turns into the check page's *refusal* — "This email cannot be sent for
+ * this case", said about a case that is perfectly sendable, with the Send button withheld and **nothing logged**,
+ * because that function's `console.error` sits after its no-placeable-field return. Every send in the environment
+ * would fail as a business refusal with no trace. Decision 7 asks for the 500 page, and it means both routes to it.
+ *
  * **Tampering with the control changes nothing that matters.** A *reused* key with different content is api's 409
  * and is rendered like any other; a *fresh* one is indistinguishable from starting a new compose journey, which is
  * allowed. The unique index is scoped to the case, so a chosen UUID cannot collide across cases either.
@@ -62,6 +71,15 @@ import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
 import { loadEmailJourney, renderCompose, submittedSlots } from "./compose.js";
 import { renderContentRejection, renderRefusal } from "./preview.js";
+
+/**
+ * The field api names when it is the *header* it refused, rather than anything in the body.
+ *
+ * Matched case-insensitively because it is a header name and nothing guarantees the case api or a gateway between
+ * us echoes it in: HTTP header names are case-insensitive, so a match that depended on the casing would fall
+ * through to the refusal path this exists to avoid.
+ */
+const IDEMPOTENCY_KEY_FIELD = "idempotency-key";
 
 export const POST = async (req: Request, res: Response) => {
   const journey = await loadEmailJourney(req);
@@ -93,7 +111,20 @@ export const POST = async (req: Request, res: Response) => {
       res.status(409);
       return renderRefusal(res, journey, validated.slots, error.message);
     }
+    // Decision 7, reached the other way round from the guard above: api refused the *header*, which no form has a
+    // control for, so `renderContentRejection` would place it nowhere and fall through to a refusal reading "This
+    // email cannot be sent for this case" — a broken app presented to the caseworker as a fact about their case,
+    // and one that logs nothing on that path. Only a header lost or rewritten in transit gets here, since the guard
+    // above covers every key this app can see is unusable, which is exactly why it must not be silent.
+    if (error instanceof InvalidInputError && namesTheIdempotencyKey(error)) {
+      throw new Error(`email send for case ${req.params.id} was refused for its idempotency key, so the header did not arrive as sent`);
+    }
     if (error instanceof InvalidInputError) return renderContentRejection(res, journey, validated.slots, error, "send");
     throw error;
   }
 };
+
+/** Whether api's rejection is about the header rather than about anything the form posted. */
+function namesTheIdempotencyKey(error: InvalidInputError): boolean {
+  return error.errors.some((rejection) => rejection.field.toLowerCase() === IDEMPOTENCY_KEY_FIELD);
+}

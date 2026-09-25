@@ -138,7 +138,10 @@ of them:
   **Both** of the check page's forms carry it — including the way *back* to the wording, or a correction would
   return to a check page that minted a second key and the resubmit would be a second email. A send that arrives
   without one is a fault in this app: a plain `Error` and the 500 page, never a field error, because no form has a
-  control for a header. The control is `idempotencyKey` in this repo's camelCase deliberately — the slots beside it
+  control for a header — and **that takes two checks in `send.ts`, not one**, because api's own 400 naming the header
+  arrives as an `InvalidInputError` whose field matches no control, which the shared rejection path would otherwise
+  render as the check page's "this email cannot be sent for this case" refusal about a perfectly sendable case,
+  logging nothing. The control is `idempotencyKey` in this repo's camelCase deliberately — the slots beside it
   are GOV.UK Notify placeholder names and must stay `snake_case` — and both write bodies set
   `additionalProperties: false`, so the key in a body is a 400 naming it. A *reload* of the check page is a new
   journey and that is correct; two tabs on one case get a key each, which is why this is a hidden control rather

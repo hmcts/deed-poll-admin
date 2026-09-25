@@ -1616,9 +1616,14 @@ function idempotencyKey(req: IncomingMessage): string | null {
  *
  * api compares the template, the referral, the recipient and the **frozen personalisation** — the whole of what the
  * row was written with, minus the audit columns and whatever the drain has since moved. This mock keeps no
- * personalisation column (see `MockNotification`), so the comparison is against the rendering, which is a pure
- * function of the slots: a second send under one key whose wording differs renders differently, and that is the
- * same question asked of the one field this row has.
+ * personalisation column (see `MockNotification`), so the comparison is against the rendering: a second send under
+ * one key whose wording differs renders differently, which is the same question asked of the one field this row has.
+ *
+ * **The rendering is a function of the slots *and* the case**, not of the slots alone — `renderEmail` also reads
+ * `displayReference`, the former name and `postCounter` — so a case edited between a send and its retry compares
+ * unequal and earns the 409. That matches api rather than diverging from it: api's personalisation map is built from
+ * the same case-derived values and it recomputes one to compare, so it answers the same way. Worth stating because
+ * "only the wording decides" is the wrong thing to reason from when adding a field to either side.
  *
  * A row with no stored wording — anything seeded as sent before api kept it — therefore differs from every
  * rendering, so a key claiming to be a retry of one is the 409. That is the right answer for the right reason: such

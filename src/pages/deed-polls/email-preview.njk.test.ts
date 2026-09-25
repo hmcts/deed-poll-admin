@@ -66,7 +66,7 @@ const RENDERED = {
 // The journey key the hidden control posts back — api's notify-6 made it a required header on the send.
 const KEY = "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d";
 
-const html = (model: Record<string, unknown>): string => environment.render("deed-polls/email-preview.njk", { ...model, ...(model.en as object) });
+const html = (model: Record<string, unknown>): string => environment.render("deed-polls/email-preview.njk", { ...(model.en as object), ...model });
 
 /** The page as the check step renders it, with whatever Notify returned. */
 async function previewPage(preview: Record<string, unknown> = RENDERED, posted: Record<string, unknown> = {}): Promise<string> {
