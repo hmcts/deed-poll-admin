@@ -121,14 +121,20 @@ describe("email compose template", () => {
     expect(rendered).toContain("Continue");
   });
 
-  it("should carry no journey token, the one that was built having protected nothing", async () => {
-    // Replaces a test asserting the hidden control was present. It was, and it did nothing: minted here, carried
-    // to the check page and re-validated on return, but never compared against stored state. api's unique index is
-    // what makes a redundant send a 200 with `enqueued: false`. Asserted as an absence so the control cannot come
-    // back without the comparison that would justify it — see `send.ts` for what a repeatable template would need.
+  it("should carry no journey key when the form is opened from the tab, because none has been minted yet", async () => {
+    // The check page mints it — see `preview.ts`. A control here with nothing in it would post an empty value that
+    // api cannot parse as a UUID, so the control is rendered only when there is a journey to name.
     const rendered = await page();
 
-    expect(rendered).not.toContain('name="journey"');
+    expect(rendered).not.toContain('name="idempotencyKey"');
+  });
+
+  it("should carry the journey key back out when the check page returned to this form", async () => {
+    // api's notify-6 requires the key of the send, so a correction that lost it would either be refused by this
+    // app on the next submit or become a second journey. Rendered from whatever the check page posted back.
+    const rendered = await page({ idempotencyKey: "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d", judges_reason: "Shortened" });
+
+    expect(rendered).toContain('<input type="hidden" name="idempotencyKey" value="6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d">');
   });
 
   it("should link the error summary to the control the rejection is about", async () => {

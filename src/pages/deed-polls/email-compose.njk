@@ -41,6 +41,13 @@
     <p class="govuk-hint">{{ prePopulatedHint }}</p>
 
     <form method="post" action="/deed-polls/{{ case.id }}/emails/{{ compose.template }}/preview" novalidate>
+      {#
+        The journey's idempotency key, when this form is a RETURN to the wording rather than the start of it: the
+        check page mints one and send.ts requires it, so carrying it back through here is what makes a corrected
+        wording the same journey instead of a second one. Absent on a form opened from the tab, where no check page
+        has minted anything yet — preview.ts mints it on the next step. See send.ts.
+      #}
+      {% if journeyKey %}<input type="hidden" name="{{ journeyKeyField }}" value="{{ journeyKey }}">{% endif %}
       {% for f in compose.fields %}
         {{ govukCharacterCount({
           id: f.name,

@@ -222,7 +222,38 @@ Validation: `yarn lint` exit **0**, `yarn build` exit **0**,
   superseded, and leaving it would mislead.
 - Tests: one key across a retry answers `enqueued: false`; a re-render preserves it; a fresh journey differs; a
   missing key reaches the 500 page rather than a form field.
-- [ ] Mark completed
+- [x] Mark completed
+
+**Done 2026-09-25.** The key now travels the whole journey: minted in `preview.ts`'s `render`, carried by a hidden
+`idempotencyKey` control in **both** of the check page's forms, read back by `loadEmailJourney`, and sent by
+`sendEmail` as the `idempotency-key` header. Five things a reader should not have to rediscover:
+
+- **`loadEmailJourney` *reads* the key and mints nothing, which is what makes decision 6 hold in one place.**
+  `EmailJourney` gains `key: string | null`, so every render path has it without a signature growing a fifth
+  positional argument, and the only `randomUUID()` in the journey is in `preview.ts`. A key that is not a UUID is
+  read as `null` rather than carried: api binds the header as a `UUID`, so an unparseable one is the same 400 as an
+  absent one and must not reach the wire. The check page then mints a usable one; `send.ts` treats it as a fault.
+- **The way *back* to the wording carries the key too, and that is not symmetry for its own sake.** Without it a
+  caseworker who pressed "Change the wording" would arrive at a check page that minted a second key, so their
+  corrected resubmit would be a second send rather than the same one arriving again. `email-compose.njk` renders
+  the control only when there is a key, because an empty one would post a value api cannot parse.
+- **`send.ts` refuses a missing key before validating the wording.** Re-rendering the form would hand back a check
+  page that mints a fresh key and the fault would look like a typo the caseworker had fixed. It is a plain `Error`
+  and therefore the 500 page — `src/errors.ts` maps `InvalidInputError` to a form and nothing to a header.
+- **Four docblocks and four tests said the opposite of what api now requires.** `send.ts`'s (decision 2) and
+  `send.test.ts:61`'s (Task 0) are the two the plan named; `compose.ts`'s "there is no idempotency token here, and
+  its removal is the point" and the compose/preview template tests asserting the control's *absence* said it just as
+  loudly and would have been cited the same way. All corrected to name the difference — api gives the key meaning
+  now — rather than deleted, so the old objection is still legible and still answered.
+- **`request`/`send` in the adapter grew an optional `headers`**, which is the first header this client sets per
+  operation rather than per request. The header is asserted **off the wire** in `client.test.ts` against a recording
+  server, not through the mock: the mock does not enforce it until Task 3, so a mock-only assertion would have
+  passed with the header absent.
+
+Validation: `yarn lint` exit **0**, `yarn build` exit **0**,
+`yarn turbo test test:app --concurrency=1 --force` exit **0** with **3,340 tests across 169 files, 0 skipped**
+(Redis up, `REDIS_URL=redis://127.0.0.1:6379`) — Task 1's 3,322 **+18**. E2E unchanged: `emails.spec.ts` drives the
+real forms, so the hidden control travels with the click.
 
 ### Task 3: Make the mock enforce it, and validate the whole journey
 

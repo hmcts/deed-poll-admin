@@ -63,7 +63,8 @@ const RENDERED = {
   templateVersion: 1
 };
 
-const TOKEN = "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d";
+// The journey key the hidden control posts back — api's notify-6 made it a required header on the send.
+const KEY = "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d";
 
 const html = (model: Record<string, unknown>): string => environment.render("deed-polls/email-preview.njk", { ...model, ...(model.en as object) });
 
@@ -75,7 +76,7 @@ async function previewPage(preview: Record<string, unknown> = RENDERED, posted: 
   await PREVIEW(
     pageRequest({
       params: { id: "case-1", template: "application-rejected" },
-      body: { journey: TOKEN, judges_reason: "Identity not established.", ...posted },
+      body: { idempotencyKey: KEY, judges_reason: "Identity not established.", ...posted },
       accessToken: "session-token"
     }),
     res
@@ -92,7 +93,7 @@ async function refusedPage(): Promise<string> {
   await SEND(
     pageRequest({
       params: { id: "case-1", template: "application-rejected" },
-      body: { journey: TOKEN, judges_reason: "Identity not established." },
+      body: { idempotencyKey: KEY, judges_reason: "Identity not established." },
       accessToken: "session-token"
     }),
     res
@@ -134,16 +135,21 @@ describe("email preview template", () => {
     expect(rendered).toContain('action="/deed-polls/case-1/emails/application-rejected/send"');
   });
 
-  it("should carry the checked wording into the send, and no journey token", async () => {
+  it("should carry the checked wording into the send", async () => {
     // What was approved is what the send posts: nothing may be rendered for approval and then sent different.
-    //
-    // The token's absence is asserted here too, because this page carried it in both forms. It compared against
-    // nothing, so it protected nothing; api's unique index is the real guard. See `send.ts`.
     const rendered = await previewPage(RENDERED, { additional_notes: "Ring us if anything is unclear" });
 
     expect(rendered).toContain('<input type="hidden" name="judges_reason" value="Identity not established.">');
     expect(rendered).toContain('<input type="hidden" name="additional_notes" value="Ring us if anything is unclear">');
-    expect(rendered).not.toContain('name="journey"');
+  });
+
+  it("should carry the journey's idempotency key in both forms, because either may come back here", async () => {
+    // api's notify-6 requires the header of the send, so the Send form must carry it — and the way back to the
+    // wording must too, or a correction would return to a check page that minted a second key and a resubmit
+    // would be a second email rather than the same one arriving again.
+    const rendered = await previewPage();
+
+    expect(rendered.match(/name="idempotencyKey" value="[0-9a-f-]{36}"/g)).toHaveLength(2);
   });
 
   it("should offer the way back to the wording as a POST, so a correction keeps what was typed", async () => {

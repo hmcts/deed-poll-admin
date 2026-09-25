@@ -40,11 +40,20 @@
  * **A rejected wording goes back to the form, not onto this page.** Local validation mirrors api's published rules
  * so the caseworker reads the message beside the control (decision 7); api's own 400 lands the same way, because
  * its field names are the slots' `snake_case` placeholder names and therefore this form's control names.
+ *
+ * **This page is where the journey's idempotency key is minted, because this page is where the send begins.**
+ * api's notify-6 made `Idempotency-Key` required, and its meaning is "this one submission, however many times it
+ * arrives" — so the key has to be older than the click. Minted in `render` when the request carried none and
+ * reused when it did, which is what keeps a 409 or a rejected wording inside the same journey it started; if
+ * `send.ts` minted it instead, every retry of that POST would be a new send and the header would guarantee
+ * nothing. A *reload* of this page re-renders and mints a new one — that is a new journey, and correct.
  */
+
+import { randomUUID } from "node:crypto";
 import { InvalidInputError, previewCaseEmail, validateEmailSlots } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
-import { en as composeEn, type EmailJourney, hasControl, loadEmailJourney, renderCompose, submittedSlots } from "./compose.js";
+import { en as composeEn, type EmailJourney, hasControl, JOURNEY_KEY_FIELD, loadEmailJourney, renderCompose, submittedSlots } from "./compose.js";
 
 export const en = {
   title: "Check the email before sending",
@@ -195,6 +204,11 @@ function render(res: Response, journey: EmailJourney, slots: Record<string, stri
     // The checked values, carried as hidden controls: what was approved is what the send posts, so nothing can be
     // rendered for approval and then sent different.
     slots: Object.entries(slots).map(([name, value]) => ({ name, value })),
+    journeyKeyField: JOURNEY_KEY_FIELD,
+    // One key per rendered check page, which is what "one compose journey" means: two tabs open on the same case
+    // and template get a key each, so neither is refused for the other's send. Reused when the request already
+    // carried one, so a re-render is the same journey rather than a second one.
+    journeyKey: journey.key ?? randomUUID(),
     ...state,
     en,
     cy

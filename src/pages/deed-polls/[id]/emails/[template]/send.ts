@@ -14,22 +14,30 @@
  * Telling the caseworker their send failed would invite a third attempt, so the banner says the email had already
  * been sent and links to it.
  *
- * **Nothing in this repo makes that case rare, and this docblock used to claim otherwise.** It said the journey's
- * idempotency token existed to make a double-click rare (decision 16 of the plan). The token was minted, carried
- * through the check page and re-validated on the way back, and **never compared against a stored value** — so it
- * had no effect on anything, and a reader who found it would reasonably conclude this route was protected twice
- * over when it is protected once. The token has been removed rather than made real, because api's index already
- * covers every send this service can currently make and a second mechanism for a solved problem is complexity
- * with nothing on the other side of it.
+ * **The journey's key is back in a hidden control, and this docblock used to argue that it could not work.** What
+ * it argued against was a token *nothing compared* — minted here, carried through the check page, re-validated on
+ * the way back, and never checked against stored state, so it read like a guard while protecting nothing. It said
+ * real idempotency "needs server-side state… Build it in api, where the outbox is", and **api's notify-6 did
+ * exactly that**: it persists `requestId` against the case with a unique index on `("deedPollId", "requestId")`,
+ * resolves a repeat itself, and made `Idempotency-Key` a **required** header of the send. So the hidden control is
+ * no longer a client-side guarantee pretending to be one — it is the transport for a key the server gives meaning
+ * to, which is the one thing the old objection did not cover.
  *
- * **The gap that removal leaves, so it is not rediscovered as a surprise.** api's index is on
- * `("referralId", "template")`, which makes "one of these per referral" a database constraint — exactly right for
- * the one shipped template and, as api's own notify-1 decision 4 flags, a rule that *may not generalise*. notify-6
- * proposes repeatable, case-driven chases: for a template like that there is no unique row to conflict with, so a
- * double-click would send a second email to an applicant and nothing here or in api would stop it. That is the
- * point at which real idempotency has to be built, and it needs server-side state — a token in a hidden control
- * cannot do it, which is the whole lesson of the one that was removed. Build it in api, where the outbox is, so
- * every client inherits it rather than each one re-implementing a guarantee.
+ * **What that closed.** api's other index is on `("referralId", "template")`, which makes "one of these per
+ * referral" a database constraint — right for `application-rejected` and, as api's own notify-1 decision 4
+ * flagged, a rule that does not generalise. notify-6's repeatable, case-driven chase has no unique row to conflict
+ * with, so a double-click there would have told an applicant twice; the key is what stops it, for every template
+ * rather than for the chase. There is no per-template branch anywhere in this journey.
+ *
+ * **The key is read, never minted here.** `preview.ts` mints it when the check page renders, because a key minted
+ * at this POST would be new on every retry and the header would guarantee nothing. A missing or unparseable one is
+ * therefore a bug in this app rather than something a caseworker did: it is a plain `Error` and the 500 page, not a
+ * message against a control. api's own refusal would name the header, and no form has a control for a header — so
+ * rendering it against one would ask a caseworker to correct something they cannot see or reach.
+ *
+ * **Tampering with the control changes nothing that matters.** A *reused* key with different content is api's 409
+ * and is rendered like any other; a *fresh* one is indistinguishable from starting a new compose journey, which is
+ * allowed. The unique index is scoped to the case, so a chosen UUID cannot collide across cases either.
  *
  * **A 409 means something else entirely and is not an error page.** It says the case is in no state to send this
  * email — for the one shipped template, that no Master has refused the application — which a caseworker reaches
@@ -48,6 +56,13 @@ import { renderContentRejection, renderRefusal } from "./preview.js";
 
 export const POST = async (req: Request, res: Response) => {
   const journey = await loadEmailJourney(req);
+
+  // Before the wording, because a form that reached here without one is broken in a way no correction to the
+  // wording can fix: re-rendering it would hand back a check page that mints a fresh key and hides the fault.
+  if (journey.key === null) {
+    throw new Error(`email send for case ${req.params.id} carried no idempotency key, so this form is broken`);
+  }
+
   const validated = validateEmailSlots(journey.compose.fields, submittedSlots(req));
 
   if (!validated.ok) {
@@ -56,9 +71,9 @@ export const POST = async (req: Request, res: Response) => {
   }
 
   try {
-    // The slots and nothing else: api stamps the outbox row's author from the caller's own token, and the
-    // journey's UUID is deliberately not sent — `SendEmailRequest` refuses an unknown key and names it.
-    const sent = await sendCaseEmail(req.params.id, req.params.template, validated.slots, callerFromRequest(req));
+    // The slots in the body and the journey's key in the header: api stamps the outbox row's author from the
+    // caller's own token, and `SendEmailRequest` refuses an unknown body property and names it.
+    const sent = await sendCaseEmail(req.params.id, req.params.template, validated.slots, journey.key, callerFromRequest(req));
 
     // Back to the tab, which is where the email now appears, with the banner saying which of the two happened.
     // The row's id goes with it so the banner can link to what was sent — `../../../[id].ts` renders the link
