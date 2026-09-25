@@ -2060,7 +2060,9 @@ describe("the email routes", () => {
 
   it("should refuse a body key that is not a slot, naming it rather than ignoring it", async () => {
     // Stripping it would honour the request while silently dropping the part that mattered. The idempotency UUID
-    // is the concrete case: it is admin-local, and a mock that accepted it would let a page ship sending it.
+    // is the concrete case: it travels in the `Idempotency-Key` HEADER and never in a body, so a page that put it
+    // in one would be a 400 naming the property — see "the send's Idempotency-Key" below. An earlier version of
+    // this comment called the UUID admin-local, which stopped being true at api's notify-6.
     const { caseId } = refusedCase();
 
     const response = await post(`/caseworker/cases/${caseId}/emails/application-rejected/preview`, { judges_reason: "Because", idempotencyKey: randomUUID() });
@@ -2074,7 +2076,9 @@ describe("the email routes", () => {
     // A judge may refuse an application without typing a comment, so this is reachable rather than theoretical.
     const { caseId } = refusedCase({ directionsText: null });
 
-    const response = await post(`/caseworker/cases/${caseId}/emails/application-rejected`, {});
+    // Through `send`, so it carries the key api requires: without one the 400 is the header's, which would leave
+    // this test green while proving nothing about the slot.
+    const response = await send(caseId);
 
     expect(response.status).toBe(400);
     expect((await response.json()).errors).toEqual([{ field: "judges_reason", message: expect.stringContaining("is required") }]);
@@ -2114,6 +2118,106 @@ describe("the email routes", () => {
     expect((await fetch(`${mock.url}/caseworker/cases/${caseId}/emails/application-rejected`)).status).toBe(405);
   });
 
+  describe("the send's Idempotency-Key", () => {
+    it("should refuse a send carrying no key, naming the header rather than a field of the form", async () => {
+      // api binds `@RequestHeader(IDEMPOTENCY_KEY) UUID requestId` with no default, so Spring answers 400 before
+      // the handler runs. Posted directly rather than through `send`, which mints one.
+      const { caseId } = refusedCase();
+
+      const response = await post(`/caseworker/cases/${caseId}/emails/application-rejected`, {});
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: "Invalid request parameter",
+        errors: [{ field: "Idempotency-Key", message: "is a required header for this operation" }]
+      });
+      expect((await get(`/caseworker/cases/${caseId}/emails`)).history).toEqual([]);
+    });
+
+    it("should refuse a key that is not a UUID, because api parses one rather than storing the text", async () => {
+      // The second of api's two 400s — `MethodArgumentTypeMismatchException` — and a different sentence, because a
+      // client that sent "retry-1" has a different thing to fix from one that sent nothing.
+      const { caseId } = refusedCase();
+
+      const response = await send(caseId, { "idempotency-key": "retry-1" });
+
+      expect(response.status).toBe(400);
+      expect((await response.json()).errors).toEqual([{ field: "Idempotency-Key", message: "is not a valid value for this parameter" }]);
+    });
+
+    it("should refuse a send with no key before it refuses the template, as api's binding order does", async () => {
+      // Spring resolves every argument before the handler body, so `requireTemplate` is never reached. Restated
+      // because a mock that answered the 404 first would let a client conclude the header is optional on the paths
+      // it happened to test.
+      const { caseId } = refusedCase();
+
+      const response = await post(`/caseworker/cases/${caseId}/emails/no-such-template`, {});
+
+      expect(response.status).toBe(400);
+    });
+
+    it("should require no key for a preview, which writes nothing there is anything to make idempotent", async () => {
+      const { caseId } = refusedCase();
+
+      const response = await post(`/caseworker/cases/${caseId}/emails/application-rejected/preview`, {});
+
+      expect(response.status).toBe(200);
+      expect((await response.json()).subject).toMatch(/./);
+    });
+
+    it("should answer a retry of one journey's key with the original receipt and no second row", async () => {
+      const { caseId } = refusedCase();
+      const key = randomUUID();
+      const first = await (await send(caseId, { "idempotency-key": key })).json();
+
+      const retry = await send(caseId, { "idempotency-key": key });
+
+      expect(retry.status).toBe(200);
+      expect(await retry.json()).toEqual({ id: first.id, recipient: "applicant@example.com", enqueued: false });
+      expect((await get(`/caseworker/cases/${caseId}/emails`)).history).toHaveLength(1);
+    });
+
+    it("should treat a re-cased key as the same key, because api holds a UUID and not the text it arrived as", async () => {
+      const { caseId } = refusedCase();
+      const key = randomUUID();
+      const first = await (await send(caseId, { "idempotency-key": key })).json();
+
+      const retry = await send(caseId, { "idempotency-key": key.toUpperCase() });
+
+      expect((await retry.json()).id).toBe(first.id);
+      expect((await get(`/caseworker/cases/${caseId}/emails`)).history).toHaveLength(1);
+    });
+
+    it("should refuse a key already used on this case for a different email, rather than answering with that one", async () => {
+      // Also the proof that the key is asked about BEFORE the per-referral rule: that rule would answer this 200
+      // with the first row, so a 409 can only come from the key-keyed lookup running first. 409 and not 400 —
+      // nothing in the payload is wrong, and the sentence says to start again rather than naming a field.
+      const { caseId } = refusedCase();
+      const key = randomUUID();
+      await send(caseId, { "idempotency-key": key });
+
+      const different = await send(caseId, { "idempotency-key": key }, { judges_reason: "A different reason entirely" });
+
+      expect(different.status).toBe(409);
+      expect((await different.json()).error).toContain("start composing the email again");
+      expect((await get(`/caseworker/cases/${caseId}/emails`)).history).toHaveLength(1);
+    });
+
+    it("should scope a key to its case, so one key can send an email on each of two cases", async () => {
+      // V19's index is ("deedPollId", "requestId"), so a caller cannot make one case's chosen key collide with
+      // another case's row — and this is the one place a *different* send under the same key is reachable here.
+      const first = refusedCase();
+      const second = refusedCase();
+      const key = randomUUID();
+
+      const one = await send(first.caseId, { "idempotency-key": key });
+      const two = await send(second.caseId, { "idempotency-key": key });
+
+      expect([(await one.json()).enqueued, (await two.json()).enqueued]).toEqual([true, true]);
+      expect((await get(`/caseworker/cases/${second.caseId}/emails`)).history).toHaveLength(1);
+    });
+  });
+
   describe("the case notes an email writes", () => {
     it("should write one note naming the email and the tab when a send is accepted", async () => {
       const { caseId } = refusedCase();
@@ -2134,13 +2238,28 @@ describe("the email routes", () => {
 
     it("should write no second note when an idempotent repeat send returns the original row", async () => {
       // The applicant is owed one email, so the timeline says it once. A caseworker double-clicking would
-      // otherwise leave a case reading as though they had been written to twice.
+      // otherwise leave a case reading as though they had been written to twice. Two journeys here — `send` mints
+      // a key per call — so this is the per-referral rule answering; the same key's retry is the test below.
       const { caseId } = refusedCase();
 
       await send(caseId);
       const repeat = await send(caseId);
 
       expect((await repeat.json()).enqueued).toBe(false);
+      expect(await noteTexts(caseId)).toHaveLength(1);
+    });
+
+    it("should write no second note when one journey's key arrives twice", async () => {
+      // The other of the two rules that answer `enqueued: false`, and the one a double-click actually takes. A
+      // change that appended the note before the request-id lookup would leave this case reading as two emails
+      // while the test above stayed green, because that one is answered further down.
+      const { caseId } = refusedCase();
+      const key = randomUUID();
+
+      await send(caseId, { "idempotency-key": key });
+      const retry = await send(caseId, { "idempotency-key": key });
+
+      expect((await retry.json()).enqueued).toBe(false);
       expect(await noteTexts(caseId)).toHaveLength(1);
     });
 
@@ -2307,9 +2426,15 @@ function awaitingConfirmation(asked: Date, overrides: Partial<MockCase["referral
  * about the email rules, and arranging a claim and a direction per test would put three round trips in front of
  * every assertion. The refusal itself is what makes the email applicable, so the state is the arrangement.
  */
-/** Sends the one email the mock serves, with the direction already recorded so no slot has to be supplied. */
-function send(caseId: string, headers: Record<string, string> = {}): Promise<Response> {
-  return post(`/caseworker/cases/${caseId}/emails/application-rejected`, {}, headers);
+/**
+ * Sends the one email the mock serves, with the direction already recorded so no slot has to be supplied.
+ *
+ * **A fresh `Idempotency-Key` per call**, because api requires one and each call here is its own compose journey.
+ * Minted rather than shared so a test about something else cannot accidentally be testing the idempotent answer;
+ * the tests that are about the key pass their own, and the two that send none post directly.
+ */
+function send(caseId: string, headers: Record<string, string> = {}, body: unknown = {}): Promise<Response> {
+  return post(`/caseworker/cases/${caseId}/emails/application-rejected`, body, { "idempotency-key": randomUUID(), ...headers });
 }
 
 /** A case's notes, oldest first — the chronology, so a pair written by one send reads in the order it happened. */

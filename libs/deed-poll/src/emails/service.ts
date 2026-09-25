@@ -28,10 +28,12 @@
  * field instead of a round trip; api stays the authority, and its message is what the page shows if the two
  * ever disagree (decision 7).
  *
- * **No author and no idempotency key**, as everywhere else: api stamps the outbox row's `createdBy` from the
- * caller's own token, and its protection against a double send is that unique index rather than a key this app
- * supplies. The compose journey's UUID is admin-local and is sent to api in neither the body nor a header —
- * decision 16, and `SendEmailRequest` is one of the two bodies in this contract with
+ * **No author, but the idempotency key is now required.** api stamps the outbox row's `createdBy` from the
+ * caller's own token, as everywhere else. The key is the one thing a send carries that api does not derive:
+ * notify-6 made `Idempotency-Key` a required header, so `sendCaseEmail` takes it and passes it on. It is
+ * **never generated here** — the key identifies the compose journey, and a service minting its own would hide
+ * that identity from the only thing that defines it, making every retry a new send. It goes in the header and
+ * not the body: `SendEmailRequest` is one of the two bodies in this contract with
  * `additionalProperties: false`, so smuggling it in would be a 400 that names it.
  */
 import { type CaseEmails, type EmailPreview, type EmailSlotsWrite, getCaseEmails, previewEmail, type SentEmail, sendEmail } from "@hmcts/deed-poll-api-client";
@@ -64,7 +66,10 @@ export function previewCaseEmail(deedPollId: string, template: string, slots: Em
  *
  * The row that now owes the email comes back, so a page can render `enqueued: false` as the already-sent state
  * it is rather than assuming its click created something.
+ *
+ * `idempotencyKey` is the compose journey's UUID, minted by the page that rendered the Send button and reused by
+ * every retry of that one submission — see the note above on why nothing here generates it.
  */
-export function sendCaseEmail(deedPollId: string, template: string, slots: EmailSlotsWrite, caller: Caller): Promise<SentEmail> {
-  return callApi(caller, (config) => sendEmail(deedPollId, template, slots, config));
+export function sendCaseEmail(deedPollId: string, template: string, slots: EmailSlotsWrite, idempotencyKey: string, caller: Caller): Promise<SentEmail> {
+  return callApi(caller, (config) => sendEmail(deedPollId, template, slots, idempotencyKey, config));
 }

@@ -893,9 +893,15 @@ const emailPreviewSchema = z.object({
 /**
  * What a send returns: the outbox row that now owes the email, not its delivery.
  *
- * **`enqueued` is false when the send was redundant and the request still succeeded** — one email per referral
- * is a unique index at api, so a second attempt writes nothing and answers with the first row's id. api's own
- * note is that telling the caseworker their email failed would invite a third attempt.
+ * **`enqueued` is false when the send was redundant and the request still succeeded**, and since api's notify-6
+ * there are *two* unique indexes that can say so: `("deedPollId", "requestId")` — the compose journey's
+ * `Idempotency-Key`, which is what makes a double-click or a retried POST one email — and the older
+ * one-email-per-referral index, which answers the same way for the same email reached from a *second* journey.
+ * Either way a second attempt writes nothing and answers with the first row's id. api's own note is that telling
+ * the caseworker their email failed would invite a third attempt.
+ *
+ * A reused key with *different* content is the one case that is not this: api cannot tell which send the caller
+ * meant, so it is a 409 rather than a receipt.
  *
  * No state field, on purpose: api drains the outbox immediately after the enqueue commits, so any state here
  * would have been read before that and could say `Pending` for an email Notify has already accepted.
@@ -915,16 +921,26 @@ const sentEmailSchema = z.object({
  *
  * **These are the only two contract bodies with `additionalProperties: false`, so an unknown key is a 400 that
  * names it** — not an ignored field. Nothing else may be added here: every other value in the email (the
- * reference number, the former names, which refund paragraph renders) is api's to resolve from the case, and
- * the compose journey's idempotency UUID is admin-local and is sent to api in neither the body nor a header.
+ * reference number, the former names, which refund paragraph renders) is api's to resolve from the case. **The
+ * compose journey's idempotency UUID is a header and never a key here** — `Idempotency-Key`, required of the
+ * send since api's notify-6 — and `additionalProperties: false` is what makes putting it in the body a 400
+ * that names it rather than a silently ignored field.
  *
- * Both slots are optional because `judges_reason` is pre-populated from the referral's direction when omitted.
+ * **These are every slot any template takes, which is not the set any one template takes.** Which slots a given
+ * template accepts, what they open with and which of them are required arrive from
+ * `GET /caseworker/cases/{id}/emails`, so all three are optional here and api refuses a slot belonging to
+ * another template by name. `judges_reason` is pre-populated from the referral's direction when omitted;
+ * `documents_required` is pre-populated from nothing, so ⑤ with an empty body is api's 400. Neither
+ * conditional mandatoriness is expressible in one schema serving both bodies and every template, and
+ * attempting it here would refuse a body api accepts.
+ *
  * The caps are api's published ones — the referral direction and notes caps, so a direction a judge could
  * record is always sendable unedited — and are enforced here so a caseworker gets a message against the field
  * rather than a round trip.
  */
 const emailSlotsWriteSchema = z.object({
   judges_reason: z.string().max(4000).optional(),
+  documents_required: z.string().max(4000).optional(),
   additional_notes: z.string().max(1000).optional()
 });
 

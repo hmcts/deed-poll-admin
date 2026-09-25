@@ -24,9 +24,10 @@ const CASE_EMAILS = {
   slotDefaults: [{ template: "application-rejected", fields: { judges_reason: "Identity not established." } }]
 };
 
-const TOKEN = "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d";
+// The journey's idempotency key, as the check page's hidden control posts it back.
+const KEY = "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d";
 
-const body = (overrides: Record<string, unknown> = {}) => ({ journey: TOKEN, judges_reason: "Identity not established.", ...overrides });
+const body = (overrides: Record<string, unknown> = {}) => ({ idempotencyKey: KEY, judges_reason: "Identity not established.", ...overrides });
 
 function request(posted: Record<string, unknown> = body(), template = "application-rejected") {
   return pageRequest({ params: { id: "case-1", template }, body: posted, accessToken: "session-token" });
@@ -48,26 +49,36 @@ describe("email send route", () => {
 
     await POST(request(), res);
 
-    expect(sendCaseEmail).toHaveBeenCalledWith(
-      "case-1",
-      "application-rejected",
-      { judges_reason: "Identity not established." },
-      { accessToken: "session-token" }
-    );
+    expect(sendCaseEmail).toHaveBeenCalledWith("case-1", "application-rejected", { judges_reason: "Identity not established." }, KEY, {
+      accessToken: "session-token"
+    });
     expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1?email=sent&emailId=email-9#emails");
   });
 
-  it("should send the slots and nothing else, so the journey's token never reaches api", async () => {
-    // Decision 16 as corrected: there is no `Idempotency-Key` in api's contract, and `SendEmailRequest` is one of
-    // two bodies with `additionalProperties: false` — so smuggling the token in would be a 400 that names it.
+  it("should send the slots as the body and the journey's key beside it, never inside it", async () => {
+    // api's notify-6 made `Idempotency-Key` a required HEADER. The body is still the slots alone —
+    // `SendEmailRequest` is one of two bodies with `additionalProperties: false`, so a key smuggled into it would
+    // be a 400 naming the property. An earlier version of this test asserted there was no such header in api's
+    // contract, which was true of the token this replaced and stopped being true at api's notify-6.
     await POST(request(body({ additional_notes: "Ring us" })), response());
 
     expect(sendCaseEmail).toHaveBeenCalledWith(
       "case-1",
       "application-rejected",
       { judges_reason: "Identity not established.", additional_notes: "Ring us" },
+      KEY,
       expect.anything()
     );
+  });
+
+  it("should send the key the journey arrived with rather than one minted at this POST", async () => {
+    // The whole point of the header: a key minted here would be new on every resubmit, so api would enqueue a
+    // second email instead of answering the first receipt. What goes on the wire is the hidden control's value.
+    const ownKey = "11111111-2222-4333-8444-555555555555";
+
+    await POST(request(body({ idempotencyKey: ownKey })), response());
+
+    expect(sendCaseEmail).toHaveBeenCalledWith("case-1", "application-rejected", expect.anything(), ownKey, expect.anything());
   });
 
   it("should tell the caseworker a redundant send had already gone, as a success", async () => {
@@ -106,8 +117,78 @@ describe("email send route", () => {
       { name: "judges_reason", value: "Identity not established." },
       { name: "additional_notes", value: "Ring us" }
     ]);
-    // The token this also asserted is gone: it compared against nothing, so it kept no guarantee to lose.
-    expect(res.render.mock.calls[0][1]).not.toHaveProperty("token");
+  });
+
+  it("should re-render a refused send with the same key, so a corrected resubmit is still one journey", async () => {
+    // A 409 is a state, and the caseworker may reach a sendable one and press Send again. Minting a second key on
+    // the way back would make that arrival a second send to api rather than the same one arriving again.
+    vi.mocked(sendCaseEmail).mockRejectedValue(new ConflictError("This case has no referral that a Master has refused"));
+    const res = response();
+
+    await POST(request(), res);
+
+    expect(res.render.mock.calls[0][1].journeyKey).toBe(KEY);
+  });
+
+  it("should re-render a rejected wording with the same key, so correcting it does not start a second send", async () => {
+    const res = response();
+
+    await POST(request(body({ judges_reason: "" })), res);
+
+    expect(res.render.mock.calls[0][0]).toBe("deed-polls/email-compose");
+    expect(res.render.mock.calls[0][1].journeyKey).toBe(KEY);
+  });
+
+  it("should fail as a fault in this app when the form carried no key, rather than blaming the caseworker", async () => {
+    // api answers a missing `Idempotency-Key` with a 400 naming the header, and no form has a control for a
+    // header — so this must not become a field error or a refusal on the check page. A plain `Error` is the 500
+    // page (`src/errors.ts` maps nothing else), which is the honest answer: this app is broken.
+    const res = response();
+
+    await expect(POST(request({ judges_reason: "Identity not established." }), res)).rejects.toThrow(/no idempotency key/);
+
+    expect(sendCaseEmail).not.toHaveBeenCalled();
+    expect(res.render).not.toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it("should treat a duplicated key control as no key at all, rather than sending whichever arrived", async () => {
+    // Express parses two controls of one name into an array. A slot arriving that way is a field error, because a
+    // caseworker can retype a slot; this cannot be retyped, so it takes the missing-key path deliberately — the
+    // same answer as an absent header, which is what api would tell us about it.
+    await expect(POST(request(body({ idempotencyKey: [KEY, KEY] })), response())).rejects.toThrow(/no idempotency key/);
+
+    expect(sendCaseEmail).not.toHaveBeenCalled();
+  });
+
+  it("should refuse a key that is not a UUID rather than sending one api cannot parse", async () => {
+    // api binds the header as a `UUID`, so an unparseable one is the same 400 as an absent one. The control is
+    // user input, which is why this is checked here rather than assumed.
+    await expect(POST(request(body({ idempotencyKey: "not-a-uuid" })), response())).rejects.toThrow(/no idempotency key/);
+
+    expect(sendCaseEmail).not.toHaveBeenCalled();
+  });
+
+  it("should fail on the missing key before validating the wording, so a broken form is not disguised", async () => {
+    // Re-rendering the form would hand back a check page that mints a fresh key, which would make the fault look
+    // like a typo the caseworker had fixed.
+    await expect(POST(request({ judges_reason: "" }), response())).rejects.toThrow(/no idempotency key/);
+  });
+
+  it("should fail as a fault in this app when api refused the header, rather than as a refusal about the case", async () => {
+    // Decision 7's own path: the key left here fine and did not arrive, which only a gateway rewriting the request
+    // can cause. api names the header, no control matches it, and without this the check page would say "This email
+    // cannot be sent for this case" about a sendable case — and log nothing, since `renderContentRejection`'s
+    // logging sits after its no-placeable-field return.
+    vi.mocked(sendCaseEmail).mockRejectedValue(
+      new InvalidInputError("Invalid request parameter", [{ field: "Idempotency-Key", message: "is a required header for this operation" }])
+    );
+    const res = response();
+
+    await expect(POST(request(), res)).rejects.toThrow(/idempotency key/);
+
+    expect(res.render).not.toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
   });
 
   it("should still refuse with its own sentence when api's 409 carried no message of its own", async () => {

@@ -87,24 +87,48 @@ describe("email compose page", () => {
     expect(sendCaseEmail).not.toHaveBeenCalled();
   });
 
-  it("should mint no journey token, and ignore one that is posted", async () => {
-    // **Replaces three tests that pinned a mechanism which protected nothing.** They asserted that a UUID was
-    // minted per journey (decision 16), that a posted one was carried back, and that a non-UUID was replaced
-    // rather than rendered. All three passed and all three were about a value no code ever compared against
-    // stored state, so no double-click or resubmit was affected by any of it. api's partial unique index on
-    // `("referralId", "template")` is the real guard: a redundant send is a 200 with `enqueued: false`.
-    //
-    // Asserted as an absence, and including the posted case, so the field cannot quietly return without the
-    // comparison that would make it mean something. `send.ts` records what a repeatable template would need.
-    const opened = response();
-    const returned = response();
+  it("should mint no journey key of its own when the form is opened from the tab", async () => {
+    // The key is minted by the check page, not here — `preview.ts` is where the send begins. A form opened from
+    // the tab has no journey to identify yet, and minting one here would make every abandoned form a key.
+    const res = response();
 
-    await GET(request(), opened);
-    await POST(request({ journey: "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d", judges_reason: "Shortened" }), returned);
+    await GET(request(), res);
 
-    expect(opened.render.mock.calls[0][1]).not.toHaveProperty("token");
-    expect(returned.render.mock.calls[0][1]).not.toHaveProperty("token");
-    expect(returned.render.mock.calls[0][1]).not.toHaveProperty("journeyField");
+    expect(res.render.mock.calls[0][1].journeyKey).toBeNull();
+  });
+
+  it("should carry a posted journey key back out, so a return to the wording stays one journey", async () => {
+    // This is the form the check page comes back to. Dropping the key here would send the caseworker forward to a
+    // check page that minted a second one, and their corrected resubmit would be a second send rather than the
+    // same one arriving again.
+    const key = "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d";
+    const res = response();
+
+    await POST(request({ idempotencyKey: key, judges_reason: "Shortened" }), res);
+
+    expect(res.render.mock.calls[0][1].journeyKey).toBe(key);
+  });
+
+  it("should carry no posted key that api could not parse, rather than passing it on", async () => {
+    // The control is user input and api binds the header as a UUID, so an unparseable value is dropped and the
+    // check page mints a usable one. Nothing in this repo may put a value on the wire that api's 400 names.
+    const res = response();
+
+    await POST(request({ idempotencyKey: "not-a-uuid", judges_reason: "Shortened" }), res);
+
+    expect(res.render.mock.calls[0][1].journeyKey).toBeNull();
+  });
+
+  it("should not turn a posted journey key into a form control, so it can never be sent as a slot", async () => {
+    // It is not a slot, and both write bodies set `additionalProperties: false`. The form's own controls are api's
+    // published slot metadata, which is why an extra key in the body cannot become one. What this pins is that
+    // metadata being the only source of controls; that the key reaches neither write body is pinned where the
+    // writes happen — `preview.test.ts` and `send.test.ts`.
+    const res = response();
+
+    await POST(request({ idempotencyKey: "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d", judges_reason: "Shortened" }), res);
+
+    expect(res.render.mock.calls[0][1].compose.fields.map((field: { name: string }) => field.name)).toEqual(["judges_reason", "additional_notes"]);
   });
 
   it("should return the caseworker's own text untrimmed, not api's default, when the form comes back", async () => {

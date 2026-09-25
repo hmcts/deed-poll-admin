@@ -72,8 +72,16 @@
     {% if canSend %}
       {{ govukWarningText({ text: irreversible, iconFallbackText: warningIcon }) }}
 
+      {#
+        The journey's idempotency key, which api's notify-6 made a REQUIRED header on the send — preview.ts mints it
+        for this render and send.ts reads it back out of whichever form was used. In both forms for the same reason
+        the wording is: going back to change the wording and returning here must stay ONE journey, so api resolves
+        the second arrival of a submission as a repeat rather than as a second email to the applicant. A send that
+        reaches api without it is a 400, and a send that reaches this app without it is the 500 page — see send.ts.
+      #}
       <form method="post" action="/deed-polls/{{ case.id }}/emails/{{ compose.template }}/send" novalidate>
         {{ checkedWording(slots) }}
+        <input type="hidden" name="idempotencyKey" value="{{ journeyKey }}">
         {{ govukButton({ text: send }) }}
       </form>
     {% endif %}
@@ -84,6 +92,7 @@
     #}
     <form method="post" action="/deed-polls/{{ case.id }}/emails/{{ compose.template }}/compose" novalidate>
       {{ checkedWording(slots) }}
+      <input type="hidden" name="idempotencyKey" value="{{ journeyKey }}">
       {{ govukButton({ text: change, classes: "govuk-button--secondary" }) }}
     </form>
 

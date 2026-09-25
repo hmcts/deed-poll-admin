@@ -85,19 +85,24 @@ export const APPLICATION_REJECTED = "APPLICATION_REJECTED";
 /**
  * The email types the mock serves, restating api's `EmailTemplate` enum as data.
  *
- * **One member, and api now ships two — this is a known gap, not the current state of api.** It said "because
- * api ships one", which stopped being true when notify-3 added `REQUEST_CONFIRMATION_TO_PROCEED`. The missing
- * member is deliberately **not** added here: it invites a reply, so it needs the confirmation clock, the
- * `awaitingConfirmationSince` read-model, the `awaitingConfirmation` worklist and the "already awaiting an
- * answer" guard with it — which is `notify-3b-admin-confirmation-tracking.md`'s **Task 2**, where it belongs
- * alongside the adapter and domain function that read the same surface. Adding it here first would be a second
- * author for the same behaviour.
+ * **One member, and api now ships three — this is a known gap, not the current state of api.** It said "because
+ * api ships one", which stopped being true when notify-3 added `REQUEST_CONFIRMATION_TO_PROCEED` and again when
+ * notify-6 added `CHASE_MISSING_DOCUMENTS`. Neither missing member is added here, and for a different reason each:
  *
- * So a page that needs ④ cannot be developed against this mock yet. That is a real limitation to know about
+ * ④ invites a reply, so it needs the confirmation clock, the `awaitingConfirmationSince` read-model, the
+ * `awaitingConfirmation` worklist and the "already awaiting an answer" guard with it — which is
+ * `notify-3b-admin-confirmation-tracking.md`'s **Task 2**, where it belongs alongside the adapter and domain
+ * function that read the same surface. Adding it here first would be a second author for the same behaviour.
+ *
+ * ⑤ is case-driven rather than referral-driven, so it needs more than an entry: `MockNotification` keys a row on a
+ * referral that is not optional, where api's column is null for an email no referral asked for. That is the change
+ * whoever brings the chase makes — see the note in `server.ts` on the half of the idempotency rule it would reach.
+ *
+ * So a page that needs ④ or ⑤ cannot be developed against this mock yet. That is a real limitation to know about
  * rather than a bug: nothing can *send* ④ in any environment either, because `NotifyProperties.isProvisioned`
  * requires a reply-to id for a reply-inviting template and the monitored inbox is not registered yet.
  *
- * The remaining two in `NOTIFY_TEMPLATE_TAXONOMY.md` §6 are notify-6 and notify-4. Here for the reason
+ * The one remaining in `NOTIFY_TEMPLATE_TAXONOMY.md` §6 is notify-4. Here for the reason
  * `MOCK_DOCUMENT_TYPES` is here — it is reference data api owns and the mock has to serve, and a page under test
  * has to be able to name one.
  *
@@ -149,10 +154,15 @@ export const MOCK_EMAIL_TEMPLATES: readonly MockEmailTemplate[] = [
  *
  * Newest first is the order the MOCK applies rather than the order of this array — `createdOn` decides it, so a
  * row added here in the wrong place still reaches a page in the right one.
+ *
+ * A `requestId` each, fixed and shared with nothing: api's column is not nullable, and a seeded row is one no
+ * journey ever composed, so what these keys stand for is "a request that has already been used". A send quoting one
+ * is therefore the 409 a reused key earns, which is the honest answer rather than a contrivance.
  */
 export const MOCK_EMAIL_HISTORY: readonly MockNotification[] = [
   {
     id: "e1111111-1111-4111-8111-111111111111",
+    requestId: "a1111111-1111-4111-8111-111111111111",
     referralId: "f1111111-1111-4111-8111-111111111111",
     template: APPLICATION_REJECTED,
     recipient: "applicant@example.com",
@@ -176,6 +186,7 @@ export const MOCK_EMAIL_HISTORY: readonly MockNotification[] = [
   },
   {
     id: "e2222222-2222-4222-8222-222222222222",
+    requestId: "a2222222-2222-4222-8222-222222222222",
     referralId: "f2222222-2222-4222-8222-222222222222",
     template: APPLICATION_REJECTED,
     recipient: "applicant@example.com",
@@ -191,6 +202,7 @@ export const MOCK_EMAIL_HISTORY: readonly MockNotification[] = [
   },
   {
     id: "e3333333-3333-4333-8333-333333333333",
+    requestId: "a3333333-3333-4333-8333-333333333333",
     referralId: "f3333333-3333-4333-8333-333333333333",
     template: APPLICATION_REJECTED,
     recipient: "applicant@example.com",
@@ -205,6 +217,7 @@ export const MOCK_EMAIL_HISTORY: readonly MockNotification[] = [
   },
   {
     id: "e4444444-4444-4444-8444-444444444444",
+    requestId: "a4444444-4444-4444-8444-444444444444",
     referralId: "f4444444-4444-4444-8444-444444444444",
     template: APPLICATION_REJECTED,
     recipient: "wrong-address@example.com",
@@ -251,7 +264,15 @@ export interface MockEmailTemplate {
  */
 export interface MockNotification {
   id: string;
-  /** api's half of the idempotency key, with `template`: one email per referral, ever. */
+  /**
+   * The compose journey this send named — the `Idempotency-Key` header, which api requires and stores.
+   *
+   * Unique with the case at api's end (V19's `("deedPollId", "requestId")`), and that is what makes a retry of one
+   * journey answer with this row rather than write a second. Required rather than nullable, as api's column is: a
+   * row without one could not be recognised as anything's retry, so a seeded row carries a key nothing will send.
+   */
+  requestId: string;
+  /** api's OTHER uniqueness rule, with `template`: one email per referral, ever. */
   referralId: string;
   /** The member NAME — `APPLICATION_REJECTED`, not `application-rejected`. */
   template: string;

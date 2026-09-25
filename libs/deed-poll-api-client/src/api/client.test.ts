@@ -1024,7 +1024,7 @@ describe("emails", () => {
   it("should send the email and leave it in the history with what was sent", async () => {
     const { caseId: id } = await refusedCase();
 
-    const result = await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, config);
+    const result = await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, randomUUID(), config);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -1049,12 +1049,13 @@ describe("emails", () => {
   });
 
   it("should answer a redundant second send with the first email's id and enqueued false, not a conflict", async () => {
-    // The whole of api's double-send protection, and it is a SUCCESS: a caseworker told their email failed
-    // would try a third time. There is no idempotency key on the wire — the unique index is the mechanism.
+    // A redundant send is a SUCCESS: a caseworker told their email failed would try a third time. Two *different*
+    // keys here, because this is api's other guarantee — one email per referral and template — and it holds even
+    // for two journeys that raced. The same key twice is the test below.
     const { caseId: id } = await refusedCase();
-    const first = await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, config);
+    const first = await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, randomUUID(), config);
 
-    const second = await sendEmail(id, "application-rejected", { judges_reason: "Changed my mind" }, config);
+    const second = await sendEmail(id, "application-rejected", { judges_reason: "Changed my mind" }, randomUUID(), config);
 
     expect(second.ok).toBe(true);
     if (!second.ok || !first.ok) return;
@@ -1063,10 +1064,89 @@ describe("emails", () => {
     expect(after.ok && after.data.history).toHaveLength(1);
   });
 
+  it("should answer a retry of one journey's key with the original receipt rather than a second email", async () => {
+    // What the key buys, and the reason api requires it: one compose journey arriving twice — a double-click, a
+    // browser resubmit — is one email. For `application-rejected` the referral's own uniqueness rule would answer
+    // the same way, so the receipt alone does not show which rule answered; the mock resolves the key first, as api
+    // does, and `server.test.ts` pins that order through the 409 only the key-keyed lookup can produce.
+    const { caseId: id } = await refusedCase();
+    const key = randomUUID();
+    const first = await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, key, config);
+
+    const retry = await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, key, config);
+
+    expect(retry.ok).toBe(true);
+    if (!retry.ok || !first.ok) return;
+    expect(retry.data).toEqual({ id: first.data.id, recipient: "applicant@example.com", enqueued: false });
+    const after = await getCaseEmails(id, config);
+    expect(after.ok && after.data.history).toHaveLength(1);
+  });
+
+  it("should put the key in the Idempotency-Key header and not in the body", async () => {
+    // api's notify-6 binds `@RequestHeader(IDEMPOTENCY_KEY) UUID requestId` with no default, so a call without
+    // the header is a 400 before the body is read — and `SendEmailRequest` sets `additionalProperties: false`, so
+    // the key cannot travel inside the body either. Read off the wire rather than from the mock, because what is
+    // being pinned is the request this adapter builds.
+    const seen: { headers?: NodeJS.Dict<string | string[]>; body?: string } = {};
+    const key = randomUUID();
+    const recorder = await listen(
+      createServer((req, res) => {
+        seen.headers = req.headers;
+        let body = "";
+        req.on("data", (chunk) => {
+          body += chunk;
+        });
+        req.on("end", () => {
+          seen.body = body;
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ id: randomUUID(), recipient: "applicant@example.com", enqueued: true }));
+        });
+      })
+    );
+
+    try {
+      const result = await sendEmail("case-1", "application-rejected", { judges_reason: "Identity not established" }, key, {
+        baseUrl: recorder.url,
+        timeoutMs: 2000,
+        accessToken: "caseworker-token"
+      });
+
+      expect(result.ok).toBe(true);
+      expect(seen.headers?.["idempotency-key"]).toBe(key);
+      expect(JSON.parse(seen.body ?? "{}")).toEqual({ judges_reason: "Identity not established" });
+      // Beside the three headers every call carries, not instead of them: this is the first header set per
+      // operation, and one that displaced `authorization` would send api an unauthenticated write that only a
+      // deployed environment would report.
+      expect(seen.headers?.authorization).toBe("Bearer caseworker-token");
+      expect(seen.headers?.["content-type"]).toBe("application/json");
+      expect(seen.headers?.accept).toBe("application/json");
+    } finally {
+      await recorder.close();
+    }
+  });
+
+  it("should classify a key reused for different content as a conflict, which is the page's own state", async () => {
+    // api's notify-6 gave 409 a second meaning on this operation: the key asserts "the send I already made" and
+    // the body says otherwise, so neither can be believed. It must reach the domain as `conflict` — the check page
+    // renders api's sentence — and not as `validation`, which would put a header's refusal against a form control.
+    const { caseId: id } = await refusedCase();
+    const key = randomUUID();
+    await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, key, config);
+
+    const result = await sendEmail(id, "application-rejected", { judges_reason: "A different reason entirely" }, key, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("conflict");
+    expect(result.error.message).toContain("start composing the email again");
+    const after = await getCaseEmails(id, config);
+    expect(after.ok && after.data.history).toHaveLength(1);
+  });
+
   it("should report a case with no email address as a validation failure against applicantEmail", async () => {
     const { caseId: id } = await refusedCase({ applicantEmail: "   " });
 
-    const result = await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, config);
+    const result = await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, randomUUID(), config);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -1086,6 +1166,7 @@ describe("emails", () => {
       // Over-long, and a key api resolves from the case rather than accepting. Cast because the wire type has
       // no way to express the second: the point is what api answers if one ever reaches it.
       { judges_reason: "x".repeat(4001), reference_number: "KBDP2026-99999" } as never,
+      randomUUID(),
       config
     );
 
@@ -1108,7 +1189,7 @@ describe("emails", () => {
     );
 
     try {
-      const result = await sendEmail("abc", "application-rejected", {}, { baseUrl: liar.url, timeoutMs: 2000 });
+      const result = await sendEmail("abc", "application-rejected", {}, randomUUID(), { baseUrl: liar.url, timeoutMs: 2000 });
 
       expect(result.ok).toBe(false);
       if (result.ok) return;

@@ -24,17 +24,31 @@
  * **`POST` is how the check page comes back**, not a second submission: it re-renders the form from the posted
  * body, so the caseworker's own text survives the return. A link could not carry it.
  *
- * **There is no idempotency token here, and its removal is the point rather than an omission.** One was built to
- * decision 16 of the plan — minted on `GET`, carried through the check page in a hidden control, re-validated on
- * the way back — and **compared against nothing**, so it protected against nothing while reading like a guard to
- * anyone who found it. What actually stops a double-click sending twice is api's partial unique index on
- * `("referralId", "template")`, which answers a redundant send as a 200 with `enqueued: false`. See `send.ts` for
- * the case that is not covered and what would have to be built if it ever arrives.
+ * **The journey's idempotency key is read here and minted by the check page.** api's notify-6 made
+ * `Idempotency-Key` a required header on the send, and a key api enforces is a different thing from the token
+ * this journey once carried and nothing compared — see `send.ts`, whose docblock records the difference.
+ * `loadEmailJourney` reads whatever key the body carries and mints none, which is what makes a re-render of this
+ * form keep the journey it belongs to: `preview.ts` mints one only when the check page renders without one.
  */
 
 import { buildComposeView, type EmailComposeView, type FieldError, findCaseEmails, findDeedPoll, NotFoundError } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
+
+/**
+ * The hidden control carrying the journey's idempotency key.
+ *
+ * camelCase, unlike every control beside it: the others are GOV.UK Notify placeholder names and must stay
+ * `snake_case`, so a name in this repo's own convention cannot collide with a slot api publishes.
+ *
+ * Named here because this is the only place that *reads* it. The two templates write the name literally, as every
+ * other hidden control in this app does (`name="queryId"`, `name="filter"`), and the rendered HTML is asserted in
+ * `../../../email-compose.njk.test.ts` and `../../../email-preview.njk.test.ts` — so a name that drifted from this
+ * one fails a test rather than needing the model to carry it.
+ */
+const JOURNEY_KEY_FIELD = "idempotencyKey";
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const en = {
   title: "Write the email",
@@ -87,12 +101,26 @@ export async function loadEmailJourney(req: Request): Promise<EmailJourney> {
   // Unknown, not applicable, not provisioned — one answer for all three. The template is user input in a path.
   if (!compose) throw new NotFoundError(`Email ${req.params.template} cannot be sent for case ${req.params.id}`);
 
-  return { found, compose };
+  return { found, compose, key: submittedJourneyKey(req) };
 }
 
 /** The posted body as the slot values, which is `{}` on a `GET` and therefore api's defaults. */
 export function submittedSlots(req: Request): Record<string, unknown> {
   return (req.body ?? {}) as Record<string, unknown>;
+}
+
+/**
+ * The idempotency key the submitted form carried, or `null` when it carried none this app would send.
+ *
+ * A value that is not a UUID is `null` rather than an error, because this is the *reading* of the key and the
+ * two steps want different things from a missing one: the check page mints, and `send.ts` treats it as this app
+ * being broken. The field is user input and api parses it as a `UUID`, so an unparseable one must never go on
+ * the wire — its 400 names a header no form has a control for.
+ */
+function submittedJourneyKey(req: Request): string | null {
+  const submitted = submittedSlots(req)[JOURNEY_KEY_FIELD];
+
+  return typeof submitted === "string" && UUID_PATTERN.test(submitted) ? submitted : null;
 }
 
 /**
@@ -108,6 +136,10 @@ export function renderCompose(res: Response, journey: EmailJourney, errors: Fiel
   res.render("deed-polls/email-compose", {
     case: journey.found,
     compose: journey.compose,
+    // Carried back out as a hidden control so a form returned to from the check page — a rejected wording, or a
+    // send api refused — stays the journey it was. `null` on a form opened from the tab: nothing has minted one
+    // yet, and this template is not where that happens.
+    journeyKey: journey.key,
     errors: messages,
     // Ordered by the controls rather than by whatever order the rejections arrived in, so the summary reads
     // down the page.
@@ -134,4 +166,6 @@ function fieldMessages(compose: EmailComposeView, errors: FieldError[]): Record<
 export interface EmailJourney {
   found: Awaited<ReturnType<typeof findDeedPoll>>;
   compose: EmailComposeView;
+  /** The idempotency key this request arrived with, and `null` when it arrived with none. Never minted here. */
+  key: string | null;
 }
