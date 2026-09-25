@@ -1067,8 +1067,8 @@ describe("emails", () => {
   it("should answer a retry of one journey's key with the original receipt rather than a second email", async () => {
     // What the key buys, and the reason api requires it: one compose journey arriving twice — a double-click, a
     // browser resubmit — is one email. For `application-rejected` the referral's own uniqueness rule would answer
-    // the same way, so what this pins today is that a repeated key is not refused; the mock's own key-keyed answer
-    // is what makes it true of a template that rule does not cover.
+    // the same way, so the receipt alone does not show which rule answered; the mock resolves the key first, as api
+    // does, and `server.test.ts` pins that order through the 409 only the key-keyed lookup can produce.
     const { caseId: id } = await refusedCase();
     const key = randomUUID();
     const first = await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, key, config);

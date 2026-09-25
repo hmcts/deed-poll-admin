@@ -264,7 +264,52 @@ real forms, so the hidden control travels with the click.
   test. If it does not, record what is missing and stop rather than branching on the template.
 - Full validation commands, plus `yarn test:e2e` if browsers are available. Record final counts against Task 0's
   baseline and confirm `skipped` is 0.
-- [ ] Mark completed
+- [x] Mark completed
+
+**Done 2026-09-25.** The mock now refuses a send that carries no usable `Idempotency-Key` and resolves a repeat
+from the key, so nothing in the suite can pass against a mock more forgiving than api. Five things worth keeping:
+
+- **The header is checked ahead of the template's own 404, which is api's order and not a preference.** Spring
+  resolves `@RequestHeader(IDEMPOTENCY_KEY) UUID requestId` before the handler body runs, so a send with no header
+  never reaches `requireTemplate` — a mock that answered the 404 first would let a client conclude the header is
+  optional on whichever paths it happened to exercise. The preview requires none: it writes nothing, so there is
+  nothing to make idempotent, and requiring one there would make every check-page render mint a key it never uses.
+  Both of api's 400s are restated separately, because "you sent none" and "you sent `retry-1`" are different things
+  to fix: `DomainErrorHandler.missingHeader` and `unconvertibleParameter`, neither echoing the rejected value.
+- **The key is consulted BEFORE the per-referral rule, and that order is the only thing a test can see.** api's
+  `resolveRefusedInsert` reads this case's row under this request id first because it names the very send being
+  retried; the referral's exclusion group is the fallback. For `application-rejected` both answer 200 with the same
+  row, so the receipt cannot tell them apart — what can is the **409** for a key reused with different wording,
+  which only the key-keyed lookup produces. That is how `server.test.ts` pins the order.
+- **`MockNotification` gained `requestId` and the comparison is against the rendering, deliberately.** api compares
+  the frozen `personalisation`; this mock stores no such column, and the rendering is a pure function of the slots,
+  so comparing it asks the same question of the one field the row has. A row with no stored wording — anything
+  seeded as sent before api kept it — therefore differs from every rendering and earns the 409, which is right for
+  the right reason: it cannot be shown to be the same send. The four fixture rows carry fixed keys nothing sends.
+- **⑤ needs no chase-aware code, and that is now confirmed rather than asserted — but not through the mock.** The
+  tab renders `{% for s in emails.sendable %}` (`src/pages/deed-polls/detail.njk:413`) off api's availability list,
+  `emailTemplateLabel` humanises a key this repo has no wording for, `buildComposeView` builds a control per api
+  slot and `slot-validation.ts` validates from `required`/`maxLength` alone — and the existing domain tests already
+  use `chase-missing-documents` as the example in all four places (`emails-view.test.ts:138`, `:304`, `:468`,
+  `slot-validation.test.ts:90`). So decision 10's test passes at the layer where it is decidable. What is **not**
+  available is a locally drivable ⑤ journey: `MOCK_EMAIL_TEMPLATES` still serves only ①, and ⑤ needs more than an
+  entry in it — `ComposedEmail.referral` is not optional here and a row is keyed on it, where api's column is null
+  for a case-driven email. Recorded in `server.ts`'s docblock and left to whoever brings the chase, per the plan's
+  "deliberately not in this plan". It is also the one thing that would reach the half of the idempotency rule this
+  mock cannot show: within a case a *fresh* key still answers `enqueued: false`, because the referral rule refuses
+  the second row whatever the key — as api's V15 index does. Across cases it is the whole answer, and that is
+  tested.
+- **A third stale docblock found and corrected, and the divergence behind it flagged rather than reordered** — see
+  flag 3.
+
+Validation: `yarn lint` exit **0**, `yarn build` exit **0**,
+`yarn turbo test test:app --concurrency=1 --force` exit **0** with **3,348 tests across 169 files, 0 skipped**
+(Redis up, `REDIS_URL=redis://127.0.0.1:6379`) — Task 0's baseline of 3,321 **+27**, of which Task 3 is **+8**.
+`yarn test:e2e` also run and green: **44 passed**, with `emails.spec.ts` driving the whole compose → check → send
+journey against a mock that now refuses a send without the header — which is the only test that shows the hidden
+control, the adapter and the mock agree end to end. It needed `docker compose up -d idam` and `yarn idam:users`
+first; the proxy-blocked browser download the Validation section warns about was not a problem here, because a
+chromium build was already cached.
 
 ---
 
@@ -285,3 +330,12 @@ real forms, so the hidden control travels with the click.
    change should require the consuming plan to exist before the api one merges — the alternative is catching it by
    luck, which is what happened here.
 2. **Nobody is using the Email tab yet**, which is the only reason this was not an incident.
+3. **api's notify-6 also reordered the send's refusals, and the mock now disagrees with it — your call whether to
+   follow.** api's `2f6f8d8` split `compose` into `entitle` + `compose` and put `requireRecipient` between them, so
+   at master `b01f8f4` the order is entitlement, then the applicant's address, then the payload. This mock still
+   checks the payload first, and its docblock justified that by api's *old* code. Reachable only by a case with no
+   applicant email address AND an unacceptable payload: api answers 422 ("this applicant has no email address") and
+   the mock answers 400 against a slot. The comment is corrected either way; the reorder itself is a behaviour
+   change to a refusal a page renders, so it was not folded into the header work. Found by reading api's code for
+   this task rather than by anything failing, which is the same way the header was found — and the same argument as
+   flag 1: a consuming plan that exists before the api change merges is what catches these.

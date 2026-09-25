@@ -50,6 +50,13 @@
  *      with no applicant email address, and one email per referral. Restated because every one of them is a
  *      state the Email tab has to render, and the last is the difference between a redundant send being a
  *      success and being an error. See `emails`, `composeEmail` and `enqueueEmail`.
+ *
+ *      **And the `Idempotency-Key` a send must carry**, which notify-6 made required: absent or unparseable is a
+ *      400 naming the header, the same key on the same case answers with the original receipt and `enqueued:
+ *      false`, and a key already used there for a different email is a 409. Restated because a mock more forgiving
+ *      than api is the one thing this mock must never be — every send in the suite would pass with no header at
+ *      all, which is exactly how the app reached master unable to send anything. The key is asked about BEFORE
+ *      the per-referral rule, as api's `resolveRefusedInsert` asks. See `idempotencyKey` and `isTheSameSend`.
  *  12. The case notes a referral writes as it moves — raised, claimed, directed, actioned and withdrawn — and
  *      the order the two note reads publish them in. Restated because the Notes grid is the only place this
  *      app shows a referral's history, so a mock that wrote none would let the caseworker and judicial
@@ -99,6 +106,16 @@
  * failed** row no longer blocks a re-send; here any existing row for the referral blocks. Nothing can reach the
  * difference — decision 10 of the plan forbids a retry control, so there is no second send to make — and
  * modelling it would mean storing a `failureVerdict` that appears on no response.
+ *
+ * **One half of the idempotency rule is unreachable rather than unmodelled**, and it is worth knowing which. "A
+ * different key is a new send" holds here only where the per-referral rule does not already refuse the second one,
+ * and the one template shipped is referral-driven — so within a case a fresh key still answers `enqueued: false`,
+ * which is api's answer too (its V15 index refuses the insert whatever the key). What the key-keyed lookup adds on
+ * this template is the 409 for a reused key, and across cases it is the whole answer: the same key on two cases is
+ * two sends, because V19's index is `("deedPollId", "requestId")`. A template with no referral — notify-6's chase —
+ * is what would reach the missing half, and it needs more than its entry in `MOCK_EMAIL_TEMPLATES`: `ComposedEmail`
+ * carries a referral that is not optional and a row is keyed on it, where api's column is null for a case-driven
+ * email. That is a change for whoever brings the chase here, and it is not made in advance of one.
  */
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -130,6 +147,37 @@ import {
 
 /** Five digits, zero-padded, as api's `ReferenceNumbers` formats it. */
 const REFERENCE_SERIAL_DIGITS = 5;
+
+/**
+ * The header a send identifies its compose journey with — api's `CaseworkerEmailController.IDEMPOTENCY_KEY`.
+ *
+ * Lower-case because that is how `node:http` presents it, and named here rather than written twice: the refusal
+ * body quotes the header to the caller, and a near-miss spelling in one of the two places would refuse every send
+ * or accept every one.
+ */
+const IDEMPOTENCY_HEADER = "idempotency-key";
+
+/** The spelling of the same header in a refusal, which quotes the caller's own contract back at them. */
+const IDEMPOTENCY_HEADER_NAME = "Idempotency-Key";
+
+/**
+ * The canonical UUID, which is what api's `@RequestHeader(IDEMPOTENCY_KEY) UUID requestId` will parse.
+ *
+ * Case-insensitive and normalised on the way in, because api holds a `UUID` rather than the text it arrived as —
+ * so two spellings of one key are one key, and a mock keyed on the string would answer a retry that re-cased it
+ * with a second email.
+ */
+const IDEMPOTENCY_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `CaseEmailService.REQUEST_ALREADY_USED`, verbatim: one journey's key used for a second, different email.
+ *
+ * 409 rather than 400 because nothing in the payload is wrong — the same body under a request of its own would be
+ * accepted — so the sentence says what to do rather than naming a field to correct. It quotes neither the key nor
+ * either email's content: the key is transport and the content is the applicant's.
+ */
+const REQUEST_ALREADY_USED =
+  "This send was already recorded for this case as a different email, so nothing was sent: start composing the email again, which gives it a request of its own";
 
 /**
  * The types api serves `inline` rather than as an attachment, from its `INLINE_MIME_TYPES`.
@@ -913,18 +961,48 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
    * either accepted by Notify or fails with a reason on its row. There is no route to read one row back by id —
    * the per-email page reads it out of the `GET`'s history, which is why that response carries the content.
    *
-   * The refusals in order, because the order is api's and a page renders the first one it is given: an unknown
-   * template key is a 404, then a case in no state to send is a 409, then a slot payload is a 400, then a case
-   * with no applicant email address is a 422.
+   * The refusals in order, because the order is api's and a page renders the first one it is given: a send with no
+   * usable `Idempotency-Key` is a 400 before anything else is looked at, then an unknown template key is a 404,
+   * then a case in no state to send is a 409, then a slot payload is a 400, then a case with no applicant email
+   * address is a 422.
    *
-   * **The payload is checked before the recipient.** api's `CaseEmailService` javadoc claims the reverse and its
-   * code does this, so the code is what is restated here — a mock written from the prose would disagree with the
-   * service it stands in for.
+   * **The header is checked ahead of the template's own 404, and that is api's order rather than a choice here.**
+   * api binds it as `@RequestHeader(IDEMPOTENCY_KEY) UUID requestId` and Spring resolves every argument before the
+   * handler body runs, so a send carrying no header never reaches `requireTemplate`. Only the send binds one: the
+   * preview writes nothing, so there is nothing about it to make idempotent, and requiring one there would make
+   * every check-page render need a key of its own.
+   *
+   * **The payload is checked before the recipient here, and api stopped doing that in notify-6.** This said api's
+   * javadoc claimed the reverse while its code did this, which was true when it was written and is not now: api's
+   * `2f6f8d8` split `compose` into `entitle` + `compose` and put `requireRecipient` between them, so at master
+   * `b01f8f4` the order is entitlement, then the address, then the payload — its prose and its code agree and this
+   * mock is the one that disagrees. Reachable only by a case with no applicant email address AND an unacceptable
+   * payload, which answers 422 at api and 400 here. Left as a recorded divergence rather than quietly reordered:
+   * the swap is a behaviour change to a refusal a page renders, and it is flagged on
+   * `docs/plans/notify-6-admin-idempotent-send.md` for a decision rather than folded into the header work.
    */
   async function emails(req: IncomingMessage, res: ServerResponse, method: string, record: MockCase, template: string | undefined, wantsPreview: boolean) {
     if (template === undefined) {
       if (method === "GET") return send(res, 200, toWireCaseEmails(record));
       return send(res, 405, { error: `no such route: ${method} on emails` });
+    }
+
+    // `""` on the two paths that reach no enqueue — the preview and a method with no route — rather than a null
+    // carried through three narrowings to a call that cannot receive one.
+    const requestId = method === "POST" && !wantsPreview ? idempotencyKey(req) : "";
+    if (requestId === null) {
+      return send(res, 400, {
+        error: "Invalid request parameter",
+        errors: [
+          {
+            field: IDEMPOTENCY_HEADER_NAME,
+            // api's two refusals, from `DomainErrorHandler.missingHeader` and `unconvertibleParameter`. Neither
+            // echoes the rejected value: the header NAME is the caller's own contract, and the value is
+            // caller-supplied text this body would hand to whatever renders it.
+            message: req.headers[IDEMPOTENCY_HEADER] === undefined ? "is a required header for this operation" : "is not a valid value for this parameter"
+          }
+        ]
+      });
     }
 
     const key = decodeURIComponent(template);
@@ -941,7 +1019,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
     if (wantsPreview) return send(res, 200, renderEmail(record, resolved, composed.slots).preview);
 
-    return enqueueEmail(res, record, resolved, composed, auditName(req));
+    return enqueueEmail(res, record, resolved, composed, auditName(req), requestId);
   }
 
   /**
@@ -952,11 +1030,23 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
    * applicant twice that their application was refused — and `enqueued: false` is how the caseworker is told
    * their click was redundant rather than that it failed, because a reported failure invites a third attempt.
    *
+   * **Two rules can answer that way and the request id is asked FIRST, which is api's order and matters.** V19's
+   * key is `("deedPollId", "requestId")` and V15's is the referral's exclusion group, so a zero-row insert has two
+   * possible causes and `resolveRefusedInsert` reads the more specific one first: this case's row under this very
+   * request names the send the caller is retrying, where the referral's rule would tell a caller retrying its own
+   * POST about some other email of the same family. Asking the other way round is invisible for the one template
+   * shipped here — both answer 200 with the same row — and wrong for a template with no referral, which is why the
+   * order is restated rather than left to the rule that happens to fire.
+   *
+   * **A request id already used on this case for a DIFFERENT email is a 409**, not the original receipt: the key
+   * asserts "this is the send I already made" and the payload says otherwise, so believing either one would
+   * discard a caseworker's edits or write the second row the key exists to prevent. See `REQUEST_ALREADY_USED`.
+   *
    * Drained in the same breath, as api drains immediately after the enqueue commits: a row left `Pending` would
    * make `Pending` the state every locally-driven send produced, and the tab would ship having never rendered
    * the common one.
    */
-  function enqueueEmail(res: ServerResponse, record: MockCase, template: MockEmailTemplate, composed: ComposedEmail, author: string): void {
+  function enqueueEmail(res: ServerResponse, record: MockCase, template: MockEmailTemplate, composed: ComposedEmail, author: string, requestId: string): void {
     // Blank counts as absent, because `applicantEmail` is free text with no format constraint: a row holding a
     // space would otherwise be enqueued and then fail permanently where nobody is waiting to read it.
     const recipient = (record.applicantEmail ?? "").trim();
@@ -971,17 +1061,34 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return;
     }
 
+    // Rendered before either lookup, because the same-send comparison needs the email this request WOULD have
+    // written: `renderEmail` is pure, so doing it here costs a repeat send the rendering it then throws away.
+    const rendered = renderEmail(record, template, composed.slots);
+
+    // Scoped to the case because these rows are the case's, which is V19's index rather than an omission: a key
+    // chosen on one case cannot collide with another case's row.
+    const sameRequest = record.notifications.find((candidate) => candidate.requestId === requestId);
+    if (sameRequest) {
+      if (!isTheSameSend(sameRequest, template, composed.referral.id, recipient, rendered)) {
+        send(res, 409, { error: REQUEST_ALREADY_USED });
+        return;
+      }
+
+      send(res, 200, { id: sameRequest.id, recipient: sameRequest.recipient, enqueued: false });
+      return;
+    }
+
     const owed = record.notifications.find((candidate) => candidate.referralId === composed.referral.id && candidate.template === template.member);
     if (owed) {
       send(res, 200, { id: owed.id, recipient: owed.recipient, enqueued: false });
       return;
     }
 
-    const rendered = renderEmail(record, template, composed.slots);
     // What the drain below did with the row. A send always enqueues; only the outcome is the scenario's.
     const failed = MOCK_SCENARIOS[scenario].emailSend === "fail";
     const created: MockNotification = {
       id: randomUUID(),
+      requestId,
       referralId: composed.referral.id,
       template: template.member,
       // Frozen here rather than recomputed later, as api freezes them: a later edit to the case cannot redirect
@@ -1481,6 +1588,50 @@ function tokenClaims(req: IncomingMessage): { sub?: unknown; name?: unknown } | 
   } catch {
     return null;
   }
+}
+
+/**
+ * The compose journey the send names, normalised — or `null` when it named none this mock could use.
+ *
+ * **`null` covers api's two 400s and the caller distinguishes them**, because they are one thing to the mock and
+ * two sentences to a client: Spring answers `MissingRequestHeaderException` for an absent header and
+ * `MethodArgumentTypeMismatchException` for a value that will not convert to a `UUID`. Restating the parse rather
+ * than accepting any string is the point of the second one — a mock that stored "retry-1" as a key would let a
+ * client ship sending something api answers 400 to, which is the whole of what this plan repaired.
+ *
+ * A repeated header arrives here joined by `node:http` and so fails the parse, where Spring would take the first
+ * value. Nothing this app does can send two, and the refusal is the safer direction.
+ */
+function idempotencyKey(req: IncomingMessage): string | null {
+  const header = req.headers[IDEMPOTENCY_HEADER];
+  if (typeof header !== "string") return null;
+
+  const value = header.trim();
+
+  return IDEMPOTENCY_KEY_PATTERN.test(value) ? value.toLowerCase() : null;
+}
+
+/**
+ * Whether the row already recorded under this request id is the send being retried.
+ *
+ * api compares the template, the referral, the recipient and the **frozen personalisation** — the whole of what the
+ * row was written with, minus the audit columns and whatever the drain has since moved. This mock keeps no
+ * personalisation column (see `MockNotification`), so the comparison is against the rendering, which is a pure
+ * function of the slots: a second send under one key whose wording differs renders differently, and that is the
+ * same question asked of the one field this row has.
+ *
+ * A row with no stored wording — anything seeded as sent before api kept it — therefore differs from every
+ * rendering, so a key claiming to be a retry of one is the 409. That is the right answer for the right reason: such
+ * a row cannot be shown to be the same send, and guessing that it is would answer with an email nobody can read.
+ */
+function isTheSameSend(existing: MockNotification, template: MockEmailTemplate, referralId: string, recipient: string, rendered: RenderedEmail): boolean {
+  return (
+    existing.template === template.member &&
+    existing.referralId === referralId &&
+    existing.recipient === recipient &&
+    existing.subject === rendered.preview.subject &&
+    existing.body === rendered.body
+  );
 }
 
 const CASE_TYPES = ["Adult", "AdultTransgender", "Minor", "MinorTransgender", "DeedOfRelinquishment", "Unknown"];
