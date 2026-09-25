@@ -760,6 +760,7 @@ function bounded(body: ReadableStream<Uint8Array>, timeoutMs: number): ReadableS
  * `headers` is for a header the operation itself requires — today only the send's `Idempotency-Key`. Names are
  * written lower-case like the three `send` sets itself, which changes nothing on the wire: HTTP header names are
  * case-insensitive and `fetch` lower-cases them anyway, so this reaches api's `@RequestHeader("Idempotency-Key")`.
+ * It cannot displace `accept`, `authorization` or `content-type` — see the spread order in `send`.
  */
 async function request<S extends z.ZodType>(
   config: ApiConfig,
@@ -848,11 +849,14 @@ async function send(
         method,
         // Let fetch set the multipart content-type: it has to append the boundary it generated, and
         // setting the header by hand produces a body no server can parse.
+        // The operation's own headers go FIRST so the three this function owns win: `authorization` is the
+        // caller's identity and a per-operation name that collided with it would produce unauthenticated
+        // calls nothing but a deployed environment would reveal.
         headers: {
+          ...headers,
           accept,
           ...(config.accessToken === undefined ? {} : { authorization: `Bearer ${config.accessToken}` }),
-          ...(body !== undefined && !isForm ? { "content-type": "application/json" } : {}),
-          ...headers
+          ...(body !== undefined && !isForm ? { "content-type": "application/json" } : {})
         },
         body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
         signal: controller?.signal ?? AbortSignal.timeout(timeoutMs)

@@ -85,19 +85,24 @@ export const APPLICATION_REJECTED = "APPLICATION_REJECTED";
 /**
  * The email types the mock serves, restating api's `EmailTemplate` enum as data.
  *
- * **One member, and api now ships two — this is a known gap, not the current state of api.** It said "because
- * api ships one", which stopped being true when notify-3 added `REQUEST_CONFIRMATION_TO_PROCEED`. The missing
- * member is deliberately **not** added here: it invites a reply, so it needs the confirmation clock, the
- * `awaitingConfirmationSince` read-model, the `awaitingConfirmation` worklist and the "already awaiting an
- * answer" guard with it — which is `notify-3b-admin-confirmation-tracking.md`'s **Task 2**, where it belongs
- * alongside the adapter and domain function that read the same surface. Adding it here first would be a second
- * author for the same behaviour.
+ * **One member, and api now ships three — this is a known gap, not the current state of api.** It said "because
+ * api ships one", which stopped being true when notify-3 added `REQUEST_CONFIRMATION_TO_PROCEED` and again when
+ * notify-6 added `CHASE_MISSING_DOCUMENTS`. Neither missing member is added here, and for a different reason each:
  *
- * So a page that needs ④ cannot be developed against this mock yet. That is a real limitation to know about
+ * ④ invites a reply, so it needs the confirmation clock, the `awaitingConfirmationSince` read-model, the
+ * `awaitingConfirmation` worklist and the "already awaiting an answer" guard with it — which is
+ * `notify-3b-admin-confirmation-tracking.md`'s **Task 2**, where it belongs alongside the adapter and domain
+ * function that read the same surface. Adding it here first would be a second author for the same behaviour.
+ *
+ * ⑤ is case-driven rather than referral-driven, so it needs more than an entry: `MockNotification` keys a row on a
+ * referral that is not optional, where api's column is null for an email no referral asked for. That is the change
+ * whoever brings the chase makes — see the note in `server.ts` on the half of the idempotency rule it would reach.
+ *
+ * So a page that needs ④ or ⑤ cannot be developed against this mock yet. That is a real limitation to know about
  * rather than a bug: nothing can *send* ④ in any environment either, because `NotifyProperties.isProvisioned`
  * requires a reply-to id for a reply-inviting template and the monitored inbox is not registered yet.
  *
- * The remaining two in `NOTIFY_TEMPLATE_TAXONOMY.md` §6 are notify-6 and notify-4. Here for the reason
+ * The one remaining in `NOTIFY_TEMPLATE_TAXONOMY.md` §6 is notify-4. Here for the reason
  * `MOCK_DOCUMENT_TYPES` is here — it is reference data api owns and the mock has to serve, and a page under test
  * has to be able to name one.
  *

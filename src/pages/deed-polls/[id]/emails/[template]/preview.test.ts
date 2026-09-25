@@ -158,14 +158,17 @@ describe("email preview page", () => {
     ]);
   });
 
-  it("should render no journey token through a validation failure, there being none to keep", async () => {
-    // Was "should keep the journey's token through a validation failure". The typing surviving is what mattered and
-    // is pinned two tests above; the token itself compared against nothing, so it guaranteed nothing. Kept as an
-    // absence rather than deleted, so the reason is on the record where the assertion used to be.
+  it("should keep the journey's key through a validation failure, so a corrected wording is still one send", async () => {
+    // The pre-notify-6 version of this asserted the *absence* of a `token`, which was right then — that token
+    // compared against nothing, so it guaranteed nothing — and says the opposite of what api now requires. The key
+    // api enforces has to survive the trip back to the form: without it the corrected wording would reach a check
+    // page that minted a second key, and the resubmit would be a second email rather than the same one again.
     const res = response();
 
     await POST(request(body({ judges_reason: "" })), res);
 
+    expect(res.render.mock.calls[0][0]).toBe("deed-polls/email-compose");
+    expect(res.render.mock.calls[0][1].journeyKey).toBe(KEY);
     expect(res.render.mock.calls[0][1]).not.toHaveProperty("token");
   });
 
@@ -250,7 +253,6 @@ describe("email preview page", () => {
     await POST(request({ judges_reason: "Identity not established." }), res);
 
     expect(res.render.mock.calls[0][1].journeyKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    expect(res.render.mock.calls[0][1].journeyKeyField).toBe("idempotencyKey");
   });
 
   it("should keep the key it was given, so returning from the check page is one journey and not two", async () => {

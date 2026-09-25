@@ -1107,15 +1107,40 @@ describe("emails", () => {
     try {
       const result = await sendEmail("case-1", "application-rejected", { judges_reason: "Identity not established" }, key, {
         baseUrl: recorder.url,
-        timeoutMs: 2000
+        timeoutMs: 2000,
+        accessToken: "caseworker-token"
       });
 
       expect(result.ok).toBe(true);
       expect(seen.headers?.["idempotency-key"]).toBe(key);
       expect(JSON.parse(seen.body ?? "{}")).toEqual({ judges_reason: "Identity not established" });
+      // Beside the three headers every call carries, not instead of them: this is the first header set per
+      // operation, and one that displaced `authorization` would send api an unauthenticated write that only a
+      // deployed environment would report.
+      expect(seen.headers?.authorization).toBe("Bearer caseworker-token");
+      expect(seen.headers?.["content-type"]).toBe("application/json");
+      expect(seen.headers?.accept).toBe("application/json");
     } finally {
       await recorder.close();
     }
+  });
+
+  it("should classify a key reused for different content as a conflict, which is the page's own state", async () => {
+    // api's notify-6 gave 409 a second meaning on this operation: the key asserts "the send I already made" and
+    // the body says otherwise, so neither can be believed. It must reach the domain as `conflict` — the check page
+    // renders api's sentence — and not as `validation`, which would put a header's refusal against a form control.
+    const { caseId: id } = await refusedCase();
+    const key = randomUUID();
+    await sendEmail(id, "application-rejected", { judges_reason: "Identity not established" }, key, config);
+
+    const result = await sendEmail(id, "application-rejected", { judges_reason: "A different reason entirely" }, key, config);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("conflict");
+    expect(result.error.message).toContain("start composing the email again");
+    const after = await getCaseEmails(id, config);
+    expect(after.ok && after.data.history).toHaveLength(1);
   });
 
   it("should report a case with no email address as a validation failure against applicantEmail", async () => {

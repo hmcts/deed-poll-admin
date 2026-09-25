@@ -40,8 +40,13 @@ import { callerFromRequest } from "../../../../../auth/current-user.js";
  *
  * camelCase, unlike every control beside it: the others are GOV.UK Notify placeholder names and must stay
  * `snake_case`, so a name in this repo's own convention cannot collide with a slot api publishes.
+ *
+ * Named here because this is the only place that *reads* it. The two templates write the name literally, as every
+ * other hidden control in this app does (`name="queryId"`, `name="filter"`), and the rendered HTML is asserted in
+ * `../../../email-compose.njk.test.ts` and `../../../email-preview.njk.test.ts` — so a name that drifted from this
+ * one fails a test rather than needing the model to carry it.
  */
-export const JOURNEY_KEY_FIELD = "idempotencyKey";
+const JOURNEY_KEY_FIELD = "idempotencyKey";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -134,7 +139,6 @@ export function renderCompose(res: Response, journey: EmailJourney, errors: Fiel
     // Carried back out as a hidden control so a form returned to from the check page — a rejected wording, or a
     // send api refused — stays the journey it was. `null` on a form opened from the tab: nothing has minted one
     // yet, and this template is not where that happens.
-    journeyKeyField: JOURNEY_KEY_FIELD,
     journeyKey: journey.key,
     errors: messages,
     // Ordered by the controls rather than by whatever order the rejections arrived in, so the summary reads

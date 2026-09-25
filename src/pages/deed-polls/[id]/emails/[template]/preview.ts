@@ -53,7 +53,7 @@ import { randomUUID } from "node:crypto";
 import { InvalidInputError, previewCaseEmail, validateEmailSlots } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
-import { en as composeEn, type EmailJourney, hasControl, JOURNEY_KEY_FIELD, loadEmailJourney, renderCompose, submittedSlots } from "./compose.js";
+import { en as composeEn, type EmailJourney, hasControl, loadEmailJourney, renderCompose, submittedSlots } from "./compose.js";
 
 export const en = {
   title: "Check the email before sending",
@@ -204,7 +204,6 @@ function render(res: Response, journey: EmailJourney, slots: Record<string, stri
     // The checked values, carried as hidden controls: what was approved is what the send posts, so nothing can be
     // rendered for approval and then sent different.
     slots: Object.entries(slots).map(([name, value]) => ({ name, value })),
-    journeyKeyField: JOURNEY_KEY_FIELD,
     // One key per rendered check page, which is what "one compose journey" means: two tabs open on the same case
     // and template get a key each, so neither is refused for the other's send. Reused when the request already
     // carried one, so a re-render is the same journey rather than a second one.

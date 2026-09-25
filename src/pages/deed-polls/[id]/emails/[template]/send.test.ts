@@ -128,7 +128,6 @@ describe("email send route", () => {
     await POST(request(), res);
 
     expect(res.render.mock.calls[0][1].journeyKey).toBe(KEY);
-    expect(res.render.mock.calls[0][1].journeyKeyField).toBe("idempotencyKey");
   });
 
   it("should re-render a rejected wording with the same key, so correcting it does not start a second send", async () => {
@@ -151,6 +150,15 @@ describe("email send route", () => {
     expect(sendCaseEmail).not.toHaveBeenCalled();
     expect(res.render).not.toHaveBeenCalled();
     expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it("should treat a duplicated key control as no key at all, rather than sending whichever arrived", async () => {
+    // Express parses two controls of one name into an array. A slot arriving that way is a field error, because a
+    // caseworker can retype a slot; this cannot be retyped, so it takes the missing-key path deliberately — the
+    // same answer as an absent header, which is what api would tell us about it.
+    await expect(POST(request(body({ idempotencyKey: [KEY, KEY] })), response())).rejects.toThrow(/no idempotency key/);
+
+    expect(sendCaseEmail).not.toHaveBeenCalled();
   });
 
   it("should refuse a key that is not a UUID rather than sending one api cannot parse", async () => {

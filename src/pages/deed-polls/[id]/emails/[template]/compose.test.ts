@@ -107,7 +107,6 @@ describe("email compose page", () => {
     await POST(request({ idempotencyKey: key, judges_reason: "Shortened" }), res);
 
     expect(res.render.mock.calls[0][1].journeyKey).toBe(key);
-    expect(res.render.mock.calls[0][1].journeyKeyField).toBe("idempotencyKey");
   });
 
   it("should carry no posted key that api could not parse, rather than passing it on", async () => {
@@ -120,9 +119,11 @@ describe("email compose page", () => {
     expect(res.render.mock.calls[0][1].journeyKey).toBeNull();
   });
 
-  it("should never send the journey key to api as a slot", async () => {
+  it("should not turn a posted journey key into a form control, so it can never be sent as a slot", async () => {
     // It is not a slot, and both write bodies set `additionalProperties: false`. The form's own controls are api's
-    // published slot metadata, which is why an extra key in the body cannot become one.
+    // published slot metadata, which is why an extra key in the body cannot become one. What this pins is that
+    // metadata being the only source of controls; that the key reaches neither write body is pinned where the
+    // writes happen — `preview.test.ts` and `send.test.ts`.
     const res = response();
 
     await POST(request({ idempotencyKey: "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d", judges_reason: "Shortened" }), res);

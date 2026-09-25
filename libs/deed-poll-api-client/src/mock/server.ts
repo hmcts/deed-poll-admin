@@ -979,7 +979,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
    * mock is the one that disagrees. Reachable only by a case with no applicant email address AND an unacceptable
    * payload, which answers 422 at api and 400 here. Left as a recorded divergence rather than quietly reordered:
    * the swap is a behaviour change to a refusal a page renders, and it is flagged on
-   * `docs/plans/notify-6-admin-idempotent-send.md` for a decision rather than folded into the header work.
+   * `docs/plans/completed/notify-6-admin-idempotent-send.md` for a decision rather than folded into the header work.
    */
   async function emails(req: IncomingMessage, res: ServerResponse, method: string, record: MockCase, template: string | undefined, wantsPreview: boolean) {
     if (template === undefined) {

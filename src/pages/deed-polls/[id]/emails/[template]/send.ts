@@ -39,6 +39,15 @@
  * and is rendered like any other; a *fresh* one is indistinguishable from starting a new compose journey, which is
  * allowed. The unique index is scoped to the case, so a chosen UUID cannot collide across cases either.
  *
+ * **That 409 is the one refusal this page cannot be corrected from, and it is left that way knowingly.** api's two
+ * 409s here are distinguishable only by prose, which this app must not parse, so the refusal re-renders with the
+ * same key either way — and for "this key was already used for a different email" that means "Change the wording"
+ * leads back to a Send that earns the same 409. Re-keying every refusal instead would break the other one, where
+ * keeping the key is the whole point (decision 2): a case that becomes sendable must be sendable by the journey
+ * that was refused, not by a second send. api's own sentence says to start composing again, and the "Back to case"
+ * link is where that starts; reaching it takes one click more than the page it is on. Worth revisiting only with a
+ * way to tell api's two 409s apart, which today would mean matching its wording.
+ *
  * **A 409 means something else entirely and is not an error page.** It says the case is in no state to send this
  * email — for the one shipped template, that no Master has refused the application — which a caseworker reaches
  * when the referral was withdrawn or re-decided while this journey was open. `renderRefusal` puts api's own

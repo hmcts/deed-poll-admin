@@ -47,7 +47,7 @@
         wording the same journey instead of a second one. Absent on a form opened from the tab, where no check page
         has minted anything yet — preview.ts mints it on the next step. See send.ts.
       #}
-      {% if journeyKey %}<input type="hidden" name="{{ journeyKeyField }}" value="{{ journeyKey }}">{% endif %}
+      {% if journeyKey %}<input type="hidden" name="idempotencyKey" value="{{ journeyKey }}">{% endif %}
       {% for f in compose.fields %}
         {{ govukCharacterCount({
           id: f.name,

@@ -2060,7 +2060,9 @@ describe("the email routes", () => {
 
   it("should refuse a body key that is not a slot, naming it rather than ignoring it", async () => {
     // Stripping it would honour the request while silently dropping the part that mattered. The idempotency UUID
-    // is the concrete case: it is admin-local, and a mock that accepted it would let a page ship sending it.
+    // is the concrete case: it travels in the `Idempotency-Key` HEADER and never in a body, so a page that put it
+    // in one would be a 400 naming the property — see "the send's Idempotency-Key" below. An earlier version of
+    // this comment called the UUID admin-local, which stopped being true at api's notify-6.
     const { caseId } = refusedCase();
 
     const response = await post(`/caseworker/cases/${caseId}/emails/application-rejected/preview`, { judges_reason: "Because", idempotencyKey: randomUUID() });
@@ -2236,13 +2238,28 @@ describe("the email routes", () => {
 
     it("should write no second note when an idempotent repeat send returns the original row", async () => {
       // The applicant is owed one email, so the timeline says it once. A caseworker double-clicking would
-      // otherwise leave a case reading as though they had been written to twice.
+      // otherwise leave a case reading as though they had been written to twice. Two journeys here — `send` mints
+      // a key per call — so this is the per-referral rule answering; the same key's retry is the test below.
       const { caseId } = refusedCase();
 
       await send(caseId);
       const repeat = await send(caseId);
 
       expect((await repeat.json()).enqueued).toBe(false);
+      expect(await noteTexts(caseId)).toHaveLength(1);
+    });
+
+    it("should write no second note when one journey's key arrives twice", async () => {
+      // The other of the two rules that answer `enqueued: false`, and the one a double-click actually takes. A
+      // change that appended the note before the request-id lookup would leave this case reading as two emails
+      // while the test above stayed green, because that one is answered further down.
+      const { caseId } = refusedCase();
+      const key = randomUUID();
+
+      await send(caseId, { "idempotency-key": key });
+      const retry = await send(caseId, { "idempotency-key": key });
+
+      expect((await retry.json()).enqueued).toBe(false);
       expect(await noteTexts(caseId)).toHaveLength(1);
     });
 

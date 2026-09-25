@@ -41,7 +41,12 @@ import { ADMIN_EMAIL, ADMIN_STORAGE_STATE, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAI
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
 const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
 
-/** The one template api ships, as its URL token — `EmailTemplate.APPLICATION_REJECTED`'s key. */
+/**
+ * The one template the *mock* serves, as its URL token — `EmailTemplate.APPLICATION_REJECTED`'s key.
+ *
+ * api ships three now (notify-3's `request-confirmation-to-proceed` and notify-6's `chase-missing-documents` with
+ * it); neither of the others is drivable locally — see `MOCK_EMAIL_TEMPLATES`.
+ */
 const TEMPLATE = "application-rejected";
 
 /**
@@ -183,9 +188,11 @@ test("caseworker tells a refused applicant why, checks the wording first, and is
 
   await expectWelshKeysResolve(browser, `/deed-polls/${seeded.id}/emails/${TEMPLATE}/compose`);
 
-  // The second click, which is the case the journey's token exists to make rare rather than the case it handles:
-  // api answers the first row's id with `enqueued: false`, so this is a success with its own wording and the
-  // history still holds one email.
+  // The second click, reached from a fresh compose — so a NEW journey with an idempotency key of its own. What
+  // answers here is therefore api's other rule, one email per referral and template, not the key: either way api
+  // answers the first row's id with `enqueued: false`, so this is a success with its own wording and the history
+  // still holds one email. The same key arriving twice (a double-click inside one journey) is pinned where it can
+  // be driven — `libs/deed-poll-api-client/src/api/client.test.ts` and `src/mock/server.test.ts`.
   await page.goto(`/deed-polls/${seeded.id}/emails/${TEMPLATE}/compose`);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Send the email" }).click();
