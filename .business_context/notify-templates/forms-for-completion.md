@@ -18,34 +18,34 @@ source's, changed only where Notify forces a change; every such change is called
 | Exhibit B is | evidence of citizenship | a copy of the child's birth certificate |
 | Exhibit C | marriage/civil partnership certificate, divorce decree or spouse's death certificate | *(not in the minor text)* |
 
-**Only the deed is personalised.** LOC021/023/024/027/028 are the same bytes for every applicant — they are
-stored once and linked, never generated. LOC020/LOC022 carry the applicant's data and are produced per case,
-which is `notify-4b`'s job.
+**Only the deed is personalised.** LOC021/023/024/027/028 are the same bytes for every applicant, so they are
+**attached to the template in GOV.UK Notify** and api never touches them. LOC020/LOC022 carry the applicant's data
+and are produced per case, which is `notify-4b`'s job (merged 2026-09-26, api #52).
 
 ## How the right forms reach the right email
 
-**Each document is its own placeholder, and Notify turns each into a download link.** api's drain replaces the
-placeholder's value with `prepareUpload(bytes, filename, true, retention)` immediately before sending. So the
-template names a key per document and Notify renders a link wherever that key appears.
+**Two mechanisms, split by whether the document changes per applicant.** Corrected 2026-09-26: an earlier version
+of this section had api supply all four documents as placeholders, before it was found on 2026-09-25 that Notify
+lets a file be attached to the template itself.
 
-**Use these key names when authoring.** They name the *role* the document plays in the email, not the LOC code:
+| Document | How it reaches the email |
+|---|---|
+| **The deed, LOC020 / LOC022** | The `((deed_document))` placeholder. api generates the deed once per case, and immediately before sending replaces the value with `prepareUpload(bytes, filename, true, retention)`, so Notify renders a download link where the placeholder sits |
+| **The static forms**, LOC021 / LOC023 / LOC024 / LOC027 / LOC028 | **Attached to the template in the Notify portal.** api sends no value for them and has no key for them |
 
-| ① adult key | Resolves to | | ② minor key | Resolves to |
-|---|---|---|---|---|
-| `deed_document` | LOC020, generated | | `deed_document` | LOC022, generated |
-| `statutory_declaration` | LOC021 | | `affidavit_of_best_interest` | LOC023 |
-| `exhibit_cover_sheets` | LOC027 | | `statutory_declaration` | LOC024 |
-| | | | `exhibit_cover_sheets` | LOC028 |
+**`deed_document` is the only document key api sends**, for both templates. Do not add `statutory_declaration`,
+`affidavit_of_best_interest` or `exhibit_cover_sheets` placeholders expecting api to fill them: api does not send
+those keys, and Notify refuses a send whose template has a placeholder with no value.
 
-**`deed_document` and `statutory_declaration` deliberately appear in both**, resolving to different files. The
-key names what the document *is for*; which file that is follows from the template, and api holds that mapping in
-one place. The alternative — `loc021_statutory_declaration` — puts a form code in a key name, so a reissued form
-under a new code would mean editing the template, the api and the mapping instead of just the mapping.
+**Which static forms go on which template is the table above, and getting it wrong cannot be caught by api.**
+api only decides which *template* a case gets (adult types get ①, minor types get ②). What files are attached to
+each template is Notify's configuration, so the minor forms on ① would reach every adult applicant with nothing
+failing. Check the attachments against the table when authoring, and again whenever one is replaced.
 
-**Put each key where the source names that form.** The source has a heading per form (*"Statutory declaration
-(LOC021)"*) followed by instructions; the link belongs immediately under the heading, so an applicant reads what
-the form is and then downloads it. Do **not** group four links at the top: the instructions are per form and the
-source is structured that way.
+**Put each form's link where the source names that form.** The source has a heading per form (*"Statutory
+declaration (LOC021)"*) followed by instructions; the link belongs immediately under the heading, so an applicant
+reads what the form is and then downloads it. The bodies below mark each position: `((deed_document))` is the api
+placeholder, and `[attached in Notify: LOC0xx]` marks where a template attachment's link goes.
 
 ## The four personalisation keys that are not documents
 
@@ -87,7 +87,7 @@ Identical for both, and identical in shape to ③ and ⑤ so the service reads a
 
 ## Body — ① adult
 
-The source verbatim except the three changes above. `((deed_document))` etc. mark where the download links go.
+The source verbatim except the three changes above. `((deed_document))` is the api placeholder; each `[attached in Notify: …]` is where that attachment's link goes.
 
 ```
 Regarding the application to enrol a deed poll change of name for ((old_forename)) ((old_surname))
@@ -108,7 +108,7 @@ You need to post your completed form back to the Deed Poll office along with you
 
 # Statutory declaration (LOC021)
 
-((statutory_declaration))
+[attached in Notify: LOC021]
 
 Please note that the Court requires that a solicitor or commissioner of oaths signs this form.
 
@@ -122,7 +122,7 @@ For more information, read our detailed guidance on how to complete the statutor
 
 # Exhibit cover sheets (LOC027)
 
-((exhibit_cover_sheets))
+[attached in Notify: LOC027]
 
 Please note that the Court requires that a solicitor or commissioner of oaths signs this form.
 
@@ -164,12 +164,14 @@ Same shape. The differences, all from the source:
 
 - *"four forms"* rather than three.
 - **LOC022** rather than LOC020, and the post-back sentence names *"affidavit of best interest (LOC023), statutory declaration (LOC024) and exhibit cover sheets (LOC028)"*.
+- Its template attachments are **LOC023, LOC024 and LOC028**; the LOC023 section below marks its link, and the
+  LOC024 and LOC028 links sit under their sections the same way.
 - A new section between the deed and the statutory declaration:
 
 ```
 # Affidavit of best interest (LOC023)
 
-((affidavit_of_best_interest))
+[attached in Notify: LOC023]
 
 You need to complete an affidavit of best interest to demonstrate to the judge that changing the child's name is in the child's best interest.
 
@@ -208,6 +210,7 @@ Record here, as `application-rejected.md` and `chase-missing-documents.md` do:
 
 - the two **non-prod template UUIDs**, which are `NOTIFY_TEMPLATE_FORMS_FOR_COMPLETION_ADULT` and
   `…_MINOR`;
-- confirmation that the placeholder names match **character-for-character**, including each document key;
+- confirmation that the placeholder names match **character-for-character**, including `deed_document`;
+- which static forms are attached, by LOC code, so that a check against the table at the top is possible;
 - that the **reply-to is set** on both;
 - any wording the court changed, so `notify-4b`'s Task 4 can be checked against evidence.
