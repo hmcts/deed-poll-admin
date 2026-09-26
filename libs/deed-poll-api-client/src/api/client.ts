@@ -457,21 +457,30 @@ export function previewEmail(caseId: string, template: string, slots: EmailSlots
 /**
  * Send the email: api freezes the recipient and the content into an outbox row and drains it immediately.
  *
- * **The two slots and nothing else.** No idempotency key, in the body or in a header: `SendEmailRequest` is one
- * of the two bodies in this contract with `additionalProperties: false`, so an extra key is a 400 that names it,
- * and api's protection against a double send is a partial unique index on the referral and the template. The
- * compose journey's UUID is admin-local — decision 16 of the plan.
+ * **The slots in the body, the idempotency key in a header, and it is required of every template.** api's
+ * notify-6 made `Idempotency-Key` a required header on this operation, so a call without one is a 400 before
+ * anything is read — which is why the key is a parameter here rather than an option: an adapter that could
+ * forget it would be a client that cannot send. It stays out of the **body** because `SendEmailRequest` sets
+ * `additionalProperties: false`, so an extra property there is a 400 that names it. There is no per-template
+ * branch: api requires it of the operation, so this requires it of itself.
  *
- * **A redundant second send is a SUCCESS, not a conflict.** api's insert is `ON CONFLICT DO NOTHING`, so a
- * double-click answers 200 with the first row's id and `enqueued: false`; telling a caseworker their email
- * failed would invite a third attempt. `conflict` means something else entirely — the case is in no state to
- * send this email, which for the one shipped template means no Master has refused the application.
+ * **The caller owns the key's identity and this function never mints one.** api persists it against the case
+ * with a unique index on `("deedPollId", "requestId")`, so the key is what says "this is the same send again"
+ * — a substitute generated here would make every retry a new send, which is the behaviour the header replaced.
+ *
+ * **A redundant second send is a SUCCESS, not a conflict.** api answers 200 with the original row's id and
+ * `enqueued: false`, both for a repeat of this key and for a case already owed this email; telling a caseworker
+ * their email failed would invite a third attempt. `conflict` means something else — the case is in no state to
+ * send this email (for the one shipped template, no Master has refused the application), or this key was used
+ * for *different* content, which is a resubmission of a journey whose wording has since changed.
  *
  * `validation` covers both of api's refusals of content: its 400 naming each offending slot, and its 422 for a
  * case with no `applicantEmail` to send to, which names that column so a tab can say whose address is missing.
  */
-export function sendEmail(caseId: string, template: string, slots: EmailSlotsWrite, config: ApiConfig): Promise<ApiResult<SentEmail>> {
-  return request(config, "POST", emailTemplatePath(caseId, template), WIRE_SCHEMAS.SentEmailResponse, slots);
+export function sendEmail(caseId: string, template: string, slots: EmailSlotsWrite, idempotencyKey: string, config: ApiConfig): Promise<ApiResult<SentEmail>> {
+  return request(config, "POST", emailTemplatePath(caseId, template), WIRE_SCHEMAS.SentEmailResponse, slots, {
+    "idempotency-key": idempotencyKey
+  });
 }
 
 /**
@@ -747,9 +756,21 @@ function bounded(body: ReadableStream<Uint8Array>, timeoutMs: number): ReadableS
  * `schema` is what makes a malformed success distinguishable from a real one. Without it a response
  * missing `displayReference` would reach a case heading as the string "undefined", which is the sort of
  * defect that only shows up in production.
+ *
+ * `headers` is for a header the operation itself requires — today only the send's `Idempotency-Key`. Names are
+ * written lower-case like the three `send` sets itself, which changes nothing on the wire: HTTP header names are
+ * case-insensitive and `fetch` lower-cases them anyway, so this reaches api's `@RequestHeader("Idempotency-Key")`.
+ * It cannot displace `accept`, `authorization` or `content-type` — see the spread order in `send`.
  */
-async function request<S extends z.ZodType>(config: ApiConfig, method: string, path: string, schema: S, body?: unknown): Promise<ApiResult<z.infer<S>>> {
-  const sent = await send(config, method, path, body, "application/json");
+async function request<S extends z.ZodType>(
+  config: ApiConfig,
+  method: string,
+  path: string,
+  schema: S,
+  body?: unknown,
+  headers?: Record<string, string>
+): Promise<ApiResult<z.infer<S>>> {
+  const sent = await send(config, method, path, body, "application/json", false, headers);
   if (!sent.ok) return sent;
 
   let payload: unknown;
@@ -804,7 +825,15 @@ async function requestNoContent(config: ApiConfig, method: string, path: string)
  * already gone out as a 200. That does not leave the transfer unbounded: `bounded` re-applies the same
  * patience to each read of the body, which fails a stalled download without failing a slow one.
  */
-async function send(config: ApiConfig, method: string, path: string, body: unknown, accept: string, streaming = false): Promise<SendResult> {
+async function send(
+  config: ApiConfig,
+  method: string,
+  path: string,
+  body: unknown,
+  accept: string,
+  streaming = false,
+  headers?: Record<string, string>
+): Promise<SendResult> {
   const url = `${config.baseUrl.replace(/\/+$/, "")}${path}`;
   const isForm = body instanceof FormData;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -820,7 +849,11 @@ async function send(config: ApiConfig, method: string, path: string, body: unkno
         method,
         // Let fetch set the multipart content-type: it has to append the boundary it generated, and
         // setting the header by hand produces a body no server can parse.
+        // The operation's own headers go FIRST so the three this function owns win: `authorization` is the
+        // caller's identity and a per-operation name that collided with it would produce unauthenticated
+        // calls nothing but a deployed environment would reveal.
         headers: {
+          ...headers,
           accept,
           ...(config.accessToken === undefined ? {} : { authorization: `Bearer ${config.accessToken}` }),
           ...(body !== undefined && !isForm ? { "content-type": "application/json" } : {})

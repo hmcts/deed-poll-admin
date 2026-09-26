@@ -127,6 +127,32 @@ Three facts about the confirmation worklist that are not derivable from a single
   the freshly-read referral, because api's two refusals are distinguishable only by prose this app must not
   parse. Same shape as the withdraw and close conflicts.
 
+Two facts about the email send's idempotency key, which spans six files and is cheap to break from inside any one
+of them:
+
+- **Where the key is minted is the whole of what makes it work.** api requires `Idempotency-Key` on
+  `POST /caseworker/cases/{id}/emails/{template}` — a UUID, absent or unparseable being a 400 that names the
+  header — and it is minted **when the check page renders** (`src/pages/deed-polls/[id]/emails/[template]/preview.ts`),
+  never at the send: a key minted at the POST would be new on every retry and the header would guarantee nothing.
+  `loadEmailJourney` only ever *reads* it, and a value that is not a UUID reads as `null` rather than travelling.
+  **Both** of the check page's forms carry it — including the way *back* to the wording, or a correction would
+  return to a check page that minted a second key and the resubmit would be a second email. A send that arrives
+  without one is a fault in this app: a plain `Error` and the 500 page, never a field error, because no form has a
+  control for a header — and **that takes two checks in `send.ts`, not one**, because api's own 400 naming the header
+  arrives as an `InvalidInputError` whose field matches no control, which the shared rejection path would otherwise
+  render as the check page's "this email cannot be sent for this case" refusal about a perfectly sendable case,
+  logging nothing. The control is `idempotencyKey` in this repo's camelCase deliberately — the slots beside it
+  are GOV.UK Notify placeholder names and must stay `snake_case` — and both write bodies set
+  `additionalProperties: false`, so the key in a body is a 400 naming it. A *reload* of the check page is a new
+  journey and that is correct; two tabs on one case get a key each, which is why this is a hidden control rather
+  than session state.
+- **A redundant send is a success, and only one of api's two answers is not.** api answers 200 with the first row's
+  id and `enqueued: false` both for a repeat of one key and for a case already owed that email, so the tab says it
+  had already been sent rather than that anything failed. A 409 is the other thing entirely: the case is in no
+  state to send, or the key was used for *different* content. Those two are distinguishable only by api's prose, so
+  `send.ts` renders api's own sentence for both — see its docblock for the one refusal that leaves the check page
+  with no forward control, and why re-keying instead would break the other.
+
 ## Personas and role gating
 
 **Two personas, one deployable.** A caseworker works `/deed-polls/**`; a judge works `/judicial/**` — the

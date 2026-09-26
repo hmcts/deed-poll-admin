@@ -21,6 +21,9 @@ const TEMPLATE = "application-rejected";
 
 const SLOTS = { judges_reason: "The evidence does not establish the applicant's identity" };
 
+// The compose journey's key, minted by the page that rendered Send. api requires it as a header on the send.
+const KEY = "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d";
+
 const EMAILS = {
   availability: [{ template: TEMPLATE, applicable: true, reason: null, provisioned: true, slots: [] }],
   history: [{ id: "email-1", template: TEMPLATE, notifyState: "Sent", documents: [] }],
@@ -125,8 +128,8 @@ describe("emails/service", () => {
     it("should return the outbox row so a page can render what happened", async () => {
       vi.mocked(sendEmail).mockResolvedValue(ok({ id: "email-9", recipient: "applicant@example.com", enqueued: true }) as never);
 
-      expect(await sendCaseEmail("case-1", TEMPLATE, SLOTS, CALLER)).toEqual({ id: "email-9", recipient: "applicant@example.com", enqueued: true });
-      expect(sendEmail).toHaveBeenCalledWith("case-1", TEMPLATE, SLOTS, expect.anything());
+      expect(await sendCaseEmail("case-1", TEMPLATE, SLOTS, KEY, CALLER)).toEqual({ id: "email-9", recipient: "applicant@example.com", enqueued: true });
+      expect(sendEmail).toHaveBeenCalledWith("case-1", TEMPLATE, SLOTS, KEY, expect.anything());
     });
 
     it("should return a redundant send as the success it is, not as a failure", async () => {
@@ -134,28 +137,39 @@ describe("emails/service", () => {
       // `enqueued: false`. Telling the caseworker their send failed would invite a third attempt.
       vi.mocked(sendEmail).mockResolvedValue(ok({ id: "email-1", recipient: "applicant@example.com", enqueued: false }) as never);
 
-      const sent = await sendCaseEmail("case-1", TEMPLATE, SLOTS, CALLER);
+      const sent = await sendCaseEmail("case-1", TEMPLATE, SLOTS, KEY, CALLER);
 
       expect(sent).toEqual({ id: "email-1", recipient: "applicant@example.com", enqueued: false });
     });
 
-    it("should send the slots and no idempotency key, because api's body refuses an unknown property", async () => {
-      // The compose journey's UUID is admin-local — decision 16. `SendEmailRequest` sets
-      // `additionalProperties: false`, so smuggling it into the body would be a 400 naming it.
+    it("should pass the caller's key beside the body rather than inside it", async () => {
+      // api's notify-6 made `Idempotency-Key` a required header, and `SendEmailRequest` sets
+      // `additionalProperties: false` — so the key travels as its own argument and the body stays the slots.
       vi.mocked(sendEmail).mockResolvedValue(ok({ id: "email-9", recipient: "applicant@example.com", enqueued: true }) as never);
 
-      await sendCaseEmail("case-1", TEMPLATE, SLOTS, CALLER);
+      await sendCaseEmail("case-1", TEMPLATE, SLOTS, KEY, CALLER);
 
-      expect(sendEmail).toHaveBeenCalledWith("case-1", TEMPLATE, SLOTS, expect.anything());
+      expect(sendEmail).toHaveBeenCalledWith("case-1", TEMPLATE, SLOTS, KEY, expect.anything());
       expect(vi.mocked(sendEmail).mock.calls[0]?.[2]).not.toHaveProperty("idempotencyKey");
+    });
+
+    it("should generate no key of its own, because the key identifies the caller's journey", async () => {
+      // A service that minted one would make every retry of one submission a new send, which is the behaviour
+      // api's header replaced. Whatever the page gives it is what goes on the wire.
+      vi.mocked(sendEmail).mockResolvedValue(ok({ id: "email-9", recipient: "applicant@example.com", enqueued: true }) as never);
+
+      await sendCaseEmail("case-1", TEMPLATE, SLOTS, "11111111-2222-4333-8444-555555555555", CALLER);
+      await sendCaseEmail("case-1", TEMPLATE, SLOTS, "11111111-2222-4333-8444-555555555555", CALLER);
+
+      expect(vi.mocked(sendEmail).mock.calls.map((call) => call[3])).toEqual(["11111111-2222-4333-8444-555555555555", "11111111-2222-4333-8444-555555555555"]);
     });
 
     it("should send no author, because api stamps createdBy from the token", async () => {
       vi.mocked(sendEmail).mockResolvedValue(ok({ id: "email-9", recipient: "applicant@example.com", enqueued: true }) as never);
 
-      await sendCaseEmail("case-1", TEMPLATE, SLOTS, CALLER);
+      await sendCaseEmail("case-1", TEMPLATE, SLOTS, KEY, CALLER);
 
-      const [, , body, config] = vi.mocked(sendEmail).mock.calls[0] ?? [];
+      const [, , body, , config] = vi.mocked(sendEmail).mock.calls[0] ?? [];
       expect(Object.keys(body ?? {})).toEqual(["judges_reason"]);
       expect(config).toEqual(expect.objectContaining({ accessToken: "caseworker-token" }));
     });
@@ -168,7 +182,7 @@ describe("emails/service", () => {
         error: { kind: "conflict", status: 409, message: "This case has no referral that a Master has refused" }
       } as never);
 
-      const thrown = await sendCaseEmail("case-1", TEMPLATE, SLOTS, CALLER).catch((error: unknown) => error);
+      const thrown = await sendCaseEmail("case-1", TEMPLATE, SLOTS, KEY, CALLER).catch((error: unknown) => error);
 
       expect(thrown).toBeInstanceOf(ConflictError);
       expect((thrown as ConflictError).message).toBe("This case has no referral that a Master has refused");
@@ -186,7 +200,7 @@ describe("emails/service", () => {
         }
       } as never);
 
-      const thrown = await sendCaseEmail("case-1", TEMPLATE, SLOTS, CALLER).catch((error: unknown) => error);
+      const thrown = await sendCaseEmail("case-1", TEMPLATE, SLOTS, KEY, CALLER).catch((error: unknown) => error);
 
       expect(thrown).toBeInstanceOf(InvalidInputError);
       expect((thrown as InvalidInputError).errors).toEqual([{ field: "applicantEmail", message: "is empty on this case" }]);

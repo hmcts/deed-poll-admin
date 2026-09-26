@@ -33,11 +33,13 @@ const RENDERED = {
   templateVersion: 1
 };
 
-// A stray `journey` key is still posted deliberately: the removed token's field name must not start reaching api,
-// and both write bodies set `additionalProperties: false`, so an unknown key is a 400. The test below that asserts
-// what `previewCaseEmail` was called with is what proves it is dropped rather than forwarded.
+const KEY = "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d";
+
+// The journey key is posted deliberately, because a return to the wording carries it: it must reach neither write
+// body, both of which set `additionalProperties: false`, so an unknown property is a 400 naming it. The test below
+// that asserts what `previewCaseEmail` was called with is what proves it is dropped rather than forwarded.
 const body = (overrides: Record<string, unknown> = {}) => ({
-  journey: "6f1b8c2e-9d4a-4f7b-8c1d-2e3f4a5b6c7d",
+  idempotencyKey: KEY,
   judges_reason: "Identity not established.",
   ...overrides
 });
@@ -67,9 +69,10 @@ describe("email preview page", () => {
   });
 
   it("should ask api to render the trimmed slots the caseworker typed, and nothing else", async () => {
-    // **This is the test that pins the removed token cannot leak.** `body()` still posts a `journey` key, and
+    // **This is the test that pins the journey key cannot leak into a body.** `body()` posts one, and
     // `SendEmailRequest`/`PreviewEmailRequest` both set `additionalProperties: false`, so forwarding it would be a
-    // 400 naming the key. Only the slots are sent — decision 16 as corrected by Task 0 and then removed outright.
+    // 400 naming the property. It belongs in the send's `Idempotency-Key` header; the preview requires no key at
+    // all, because it writes nothing there is anything to make idempotent about.
     await POST(request(body({ judges_reason: "  Identity not established.  ", additional_notes: "Ring us" })), response());
 
     expect(previewCaseEmail).toHaveBeenCalledWith(
@@ -155,14 +158,17 @@ describe("email preview page", () => {
     ]);
   });
 
-  it("should render no journey token through a validation failure, there being none to keep", async () => {
-    // Was "should keep the journey's token through a validation failure". The typing surviving is what mattered and
-    // is pinned two tests above; the token itself compared against nothing, so it guaranteed nothing. Kept as an
-    // absence rather than deleted, so the reason is on the record where the assertion used to be.
+  it("should keep the journey's key through a validation failure, so a corrected wording is still one send", async () => {
+    // The pre-notify-6 version of this asserted the *absence* of a `token`, which was right then — that token
+    // compared against nothing, so it guaranteed nothing — and says the opposite of what api now requires. The key
+    // api enforces has to survive the trip back to the form: without it the corrected wording would reach a check
+    // page that minted a second key, and the resubmit would be a second email rather than the same one again.
     const res = response();
 
     await POST(request(body({ judges_reason: "" })), res);
 
+    expect(res.render.mock.calls[0][0]).toBe("deed-polls/email-compose");
+    expect(res.render.mock.calls[0][1].journeyKey).toBe(KEY);
     expect(res.render.mock.calls[0][1]).not.toHaveProperty("token");
   });
 
@@ -237,6 +243,47 @@ describe("email preview page", () => {
     vi.mocked(previewCaseEmail).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
 
     await expect(POST(request(), response())).rejects.toThrow("deed-poll-api call failed (unavailable)");
+  });
+
+  it("should mint the journey's idempotency key when the check page is reached without one", async () => {
+    // Minted here rather than at the send, because the key means "this one submission however many times it
+    // arrives" and must therefore be older than the click. api parses the header as a UUID.
+    const res = response();
+
+    await POST(request({ judges_reason: "Identity not established." }), res);
+
+    expect(res.render.mock.calls[0][1].journeyKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  });
+
+  it("should keep the key it was given, so returning from the check page is one journey and not two", async () => {
+    const res = response();
+
+    await POST(request(body()), res);
+
+    expect(res.render.mock.calls[0][1].journeyKey).toBe(KEY);
+  });
+
+  it("should give a second compose journey a key of its own, so two open tabs cannot refuse each other", async () => {
+    // Decision 3's reason for a hidden control over session state: a key stored against the case and template
+    // would be shared by both tabs, and the second send would be refused as a reuse with different content.
+    const first = response();
+    const second = response();
+
+    await POST(request({ judges_reason: "Identity not established." }), first);
+    await POST(request({ judges_reason: "Identity not established." }), second);
+
+    expect(second.render.mock.calls[0][1].journeyKey).not.toBe(first.render.mock.calls[0][1].journeyKey);
+  });
+
+  it("should mint a fresh key rather than carrying a submitted one api could not parse", async () => {
+    // The control is user input. A value that is not a UUID is api's 400 naming the header, so it must not survive
+    // as far as the send — and the check page is where a usable one can still be made.
+    const res = response();
+
+    await POST(request(body({ idempotencyKey: "not-a-uuid" })), res);
+
+    expect(res.render.mock.calls[0][1].journeyKey).not.toBe("not-a-uuid");
+    expect(res.render.mock.calls[0][1].journeyKey).toMatch(/^[0-9a-f]{8}-/);
   });
 
   it("should provide the cy content in the en shape, so no key renders blank in Welsh", async () => {
