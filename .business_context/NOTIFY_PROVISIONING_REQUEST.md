@@ -146,7 +146,9 @@ them, and notify-1 carries a placeholder until they exist.
 - [x] `application-rejected` authored — **the only one notify-1 needs.** Done 2026-09-23 on the non-prod
       service, `b2cb5754-591d-40c0-b961-b2823a5792eb`. Draft, placeholder contract and the corrections applied
       are in [`notify-templates/application-rejected.md`](notify-templates/application-rejected.md)
-- [ ] `request-confirmation-to-proceed` authored (notify-3) — **needs a verified reply-to, see below**
+- [x] `request-confirmation-to-proceed` **authored 2026-09-26** — **`a58c5a8c-7727-4d1f-af08-4953d9f3d33e`**,
+      version 1 on the non-prod service. Read back and previewed; see
+      [`notify-templates/request-confirmation-to-proceed.md`](notify-templates/request-confirmation-to-proceed.md)
 - [x] `chase-missing-documents` **authored 2026-09-24** —
       **`a67e7dd1-0f8c-4366-a1de-ca5fbc24ec98`**, version 1 on the non-prod service. Content drafted and signed
       off in [`notify-templates/chase-missing-documents.md`](notify-templates/chase-missing-documents.md); it was
@@ -158,9 +160,12 @@ them, and notify-1 carries a placeholder until they exist.
       One tidy-up that affects nothing: it is **named `case_documents`** in Notify where ③ is named
       `application-rejected`, so the service now has two naming conventions — worth renaming while there are
       only two templates
-- [ ] `forms-for-completion-adult` authored (notify-4; also needs the five static forms sourced, and *send a
-      file by email* enabled below)
-- [ ] `forms-for-completion-minor` authored (notify-4, same)
+- [x] `forms-for-completion-adult` **authored 2026-09-25** — **`91a89945-bfa6-4423-86f5-be6f1c782aa5`**, and sent
+      for real end to end on 2026-09-26. See
+      [`notify-templates/forms-for-completion.md`](notify-templates/forms-for-completion.md)
+- [ ] `forms-for-completion-minor` **authored 2026-09-26 but not complete** —
+      **`a2500c11-b282-48c3-a196-9f5700d13c91`**. LOC024 isn't attached yet (Steve has asked the team for the
+      file), so every send would be refused until it is
 - [ ] Each template's UUID recorded per environment. **Corrected 2026-09-23: NOT in `application.yaml`.** That
       file deliberately keeps `${NOTIFY_TEMPLATE_*:DEED_POLL_PLACEHOLDER}`, so one grep still lists every
       external identifier the service is waiting on. The real value is an **environment variable per
@@ -317,10 +322,9 @@ Notify sends from a no-reply address unless a reply-to is registered and verifie
       unlike the template id this one could not be read back. The first send proves it: an unrecognised id is a
       loud 400, but a **blank** one is silent — Notify drops it and sends from no-reply, which is why
       `isProvisioned` gates on it instead of letting a send find out
-- [ ] **Configured per environment.** Recording the id is not the same as deploying it: `charts/deed-poll-api`
-      does not yet set `NOTIFY_EMAIL_REPLY_TO_ID`, so AAT would still report ④ and ⑤ unprovisioned. Local runs
-      have it (`cft-workspace/local-notes/deed-poll-api/notify-nonprod.env`); the chart is the outstanding half,
-      alongside the template ids in the same file
+- [x] **Configured per environment.** `charts/deed-poll-api` sets `NOTIFY_EMAIL_REPLY_TO_ID` and the ③, ④ and ⑤
+      template ids (④ added 2026-09-26, api #59). ① and ② are deliberately not set yet. AAT still has no Notify
+      API key (azure-access#8111), so every send there fails until the key is written
 
 ### Not needed yet
 

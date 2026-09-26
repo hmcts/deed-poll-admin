@@ -1,6 +1,7 @@
 # ⑤ `chase-missing-documents` — draft Notify template
 
-**Status: DRAFT, needs business sign-off before it is authored in the Notify UI.** Written 2026-09-24,
+**Status: authored 2026-09-24 and verified against Notify** (see "Authored" below). Product-owner-accepted
+rather than court-approved, since there is no source `.docx`. Written 2026-09-24,
 modelled on [`application-rejected.md`](application-rejected.md).
 
 **This one is different from the other four, and the difference is the point.** ③ and ④ were drafted *from*
@@ -11,7 +12,7 @@ and the questions at the bottom are real questions rather than ceremony.
 
 It exists now because `deed-poll-api`'s notify-6 **Task 0 cannot start without it** — that task verifies the
 provisioned template's placeholders against the UI and amends the plan on any mismatch. Nothing can be verified
-against a template nobody has authored, which is what currently blocks the plan.
+against a template nobody has authored, which is what blocked the plan until 2026-09-24.
 
 ## When it is sent
 
@@ -55,8 +56,10 @@ prefill that failed.
 The cap is the api's, not Notify's, so the template wording must stay readable with a long list in it — which is
 why the placeholder sits on its own line with nothing wrapped around it.
 
-**A slot with no matching placeholder makes Notify refuse the send**, so do not add a caseworker box here
-without the api gaining the slot, and do not drop one without the api losing it.
+**A slot with no matching placeholder is silently dropped, and a placeholder with no value makes Notify refuse
+the send.** Corrected 2026-09-26: a check against the real API showed Notify ignores a key the template doesn't
+use. So do not add a caseworker box here without the api gaining the slot, or the caseworker's text vanishes with
+nothing failing, and do not drop one without the api losing it.
 
 ## Subject
 
