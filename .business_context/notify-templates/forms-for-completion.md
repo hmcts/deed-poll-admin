@@ -47,7 +47,7 @@ declaration (LOC021)"*) followed by instructions; the link belongs immediately u
 reads what the form is and then downloads it. The bodies below mark each position: `((deed_document))` is the api
 placeholder, and `[attached in Notify: LOC0xx]` marks where a template attachment's link goes.
 
-## The four personalisation keys that are not documents
+## The personalisation keys that are not documents
 
 | Key | Column | Where |
 |---|---|---|
@@ -56,6 +56,13 @@ placeholder, and `[attached in Notify: LOC0xx]` marks where a template attachmen
 | `old_forename` | `oldForename` | opening line |
 | `old_surname` | `oldSurname` | opening line |
 | `publish_to_london_gazette` | `publishToLondonGazette` — boolean | the Gazette sentence, conditional |
+| `additional_notes` | **caseworker**, optional, may be empty | its own paragraph before *What happens next* |
+
+**`additional_notes` is being added to api by notify-4a Task 5 (Steve's decision, 2026-09-26), and the template
+and api must change together.** Notify ignores a key a template has no placeholder for, so if api sends a note
+before `((additional_notes))` is in the template, the note is dropped and nothing fails. If the placeholder
+arrives first, every send is refused as missing personalisation until api sends the key. Keep the blank line
+above it: without one, Notify's markdown runs the note on from the paragraph before (the lesson from ③).
 
 **It addresses the applicant by their OLD name, deliberately** — the new name is not theirs until the deed is
 sealed, and this email carries the instrument that does it. Do not change this to the new name.
@@ -138,6 +145,8 @@ When you return your forms to us, you do not need to include the exhibits as we 
 
 For more information, read our detailed guidance on exhibits.
 
+((additional_notes))
+
 # What happens next
 
 Once you have completed the relevant forms, post your forms to the Deed Poll office:
@@ -205,6 +214,25 @@ Strand, London WC2A 2LL**, and the phone line is **020 3936 8957 (select option 
 to find an older email.
 
 ## After they are authored
+
+### ① `forms_for_completion_adult`: authored 2026-09-25, checked 2026-09-26
+
+- **Non-prod id `91a89945-bfa6-4423-86f5-be6f1c782aa5`**, which is `NOTIFY_TEMPLATE_FORMS_FOR_COMPLETION_ADULT`. It
+  is **not yet in api's chart**, deliberately: see notify-4a decision 7.
+- **Placeholders checked against api character for character** on version 7, via `GET /v2/template/{id}`: the
+  subject, `reference_number`, `online_application_reference`, `old_forename`, `old_surname`,
+  `publish_to_london_gazette` and `deed_document` all match. `((additional_notes))` is **not in it yet**; add it
+  when notify-4a Task 5 lands, where the body above shows.
+- **Attachments: LOC021 and LOC027, and nothing else**, as the table requires. In the template they appear as
+  `((LOC021_0226.pdf))` and `((LOC027 blank.pdf))`: **a template attachment is a placeholder named after its
+  file**, so the name changes if the file is replaced. api sends no value for either. A real send fills both in as
+  download links (checked with a send on 2026-09-26), but Notify's *preview* refuses a request that lacks them,
+  which is notify-4a Task 4.
+- **Reply-to:** nothing to set on the template. Notify takes it per send, and api sends
+  `NOTIFY_EMAIL_REPLY_TO_ID`.
+
+### ② `forms_for_completion_minor`: not yet authored
+
 
 Record here, as `application-rejected.md` and `chase-missing-documents.md` do:
 
