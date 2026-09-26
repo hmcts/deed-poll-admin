@@ -335,6 +335,41 @@ Two consequences worth stating plainly, because they have bitten this repo befor
     so and flags that it "may not generalise" to notify-6's repeatable chases. Nothing here needs to solve
     that; it needs to not assume a key that does not exist.
 
+    **Reinstated 2026-09-25 — the header now exists, and it is required. This decision's original wording was
+    right and was corrected away for a reason that has since stopped being true.** api's notify-6 (Task 2,
+    migration **V19**, branch `notify-6-chase-missing-documents`) built the idempotency the "gap that leaves"
+    paragraph above says belongs there:
+
+    - **`POST /caseworker/cases/{id}/emails/{template}` now declares a required `Idempotency-Key` header**,
+      `string`/`uuid`, published in api's generated document with a description of the rule. It is on the send
+      only: the preview and the availability `GET` take no such header, because neither writes a row.
+    - **The adapter sends it on every send, for every template** — not only for `chase-missing-documents`.
+      A template-specific branch would be the one thing decision 10 forbids, and a send without the header is a
+      **400** naming it, so there is nothing to feature-flag.
+    - **The compose journey mints one UUID and preserves it unchanged** through the check page, a local or api
+      validation failure, a re-edit and every retry of the final POST. A fresh visit to compose starts a new
+      journey and therefore a new UUID. **Do not generate one per request:** that satisfies api's schema exactly
+      and loses the whole protection, which is why api's published description says so in prose.
+    - **Three answers to render, and they are three different things.** The same key with the same content is
+      **200 with `enqueued: false`** and the already-sent success this plan already renders. The same key with
+      *different* content is a **409** whose sentence asks the caseworker to start composing again — distinct
+      from the existing 409, which is api's `reason` for a case in no state to send. A missing or unparseable key
+      is a **400** addressed to the header, which is an adapter bug rather than anything a caseworker did.
+    - **`requestId` is never published**, so there is nothing to read back: it appears in no response, no
+      correspondence-history row and no log. The journey's UUID is the client's own record of what it sent.
+
+    **What this costs the tests that were written to hold the removal in place.** The assertions added on
+    2026-09-21 that the token is **absent** now assert the opposite of the contract, and `send.ts`'s call-site
+    note that api handles this per referral is half true: V15's per-referral index still stands for ③ and ④, and
+    V19's per-`("deedPollId", "requestId")` index is what covers ⑤ and every future case-driven template. Both
+    are api's; neither is local bookkeeping. The token is state again because the *server* now holds the state —
+    which is exactly what the "a guard needs state" paragraph above said was missing.
+
+    **And the tab still needs no template-specific code.** ⑤ arrives as another row in `availability` with one
+    required slot and its cap, and as another entry in `slotDefaults` (empty, because nothing pre-populates it).
+    A fixture for this template must therefore render compose, preview and send **from the overview payload
+    alone** — that fixture existing and passing is what proves decision 10 survived a case-driven email.
+
 ---
 
 ## The contract — measured, not expected
@@ -878,9 +913,16 @@ and `src/pages/deed-polls/[id]/edit/[tab].ts` for how a route parameter is valid
   posts and redirects to the tab with a banner.
 - The compose GET creates an idempotency UUID and the forms preserve it unchanged through preview, correction
   and final send. A fresh visit to the compose page starts a new journey and therefore gets a new UUID.
-  **The UUID is admin-local and is sent to api in neither a header nor the body** — decision 16 as corrected by
+  ~~**The UUID is admin-local and is sent to api in neither a header nor the body** — decision 16 as corrected by
   Task 0. It exists to stop a double-click or a browser resubmit; api's own protection is a unique index that
-  answers 409.
+  answers 409.~~
+
+  **Corrected 2026-09-25 — the UUID goes to api, as the required `Idempotency-Key` header on the send, for every
+  template.** api's notify-6 Task 2 built it (V19), so the value now has something to be compared against: the
+  same key with the same content answers 200 with `enqueued: false`, the same key with different content is a 409
+  saying to start the email again, and no key at all is a 400 naming the header. The journey must therefore
+  preserve the UUID through a validation failure and every retry — a per-request UUID passes api's schema and
+  sends one email per click. See decision 16's reinstatement, which supersedes the removal recorded there.
 - **api's 409 is a rendered state on the preview page**, not an error page — but **not** the sentence this
   bullet used to carry. Corrected by Task 2: a 409 means *the case is in no state to send this email*, which is
   api's own `reason` prose ("no referral that a Master has refused"), reachable when the referral was withdrawn

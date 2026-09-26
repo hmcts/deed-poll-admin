@@ -146,12 +146,26 @@ them, and notify-1 carries a placeholder until they exist.
 - [x] `application-rejected` authored — **the only one notify-1 needs.** Done 2026-09-23 on the non-prod
       service, `b2cb5754-591d-40c0-b961-b2823a5792eb`. Draft, placeholder contract and the corrections applied
       are in [`notify-templates/application-rejected.md`](notify-templates/application-rejected.md)
-- [ ] `request-confirmation-to-proceed` authored (notify-3) — **needs a verified reply-to, see below**
-- [ ] `chase-missing-documents` authored (notify-6; assumed available for planning, verify in its Task 0) —
-      **needs a verified reply-to, see below.** This is the one that unblocks the next plan
-- [ ] `forms-for-completion-adult` authored (notify-4; also needs the five static forms sourced, and *send a
-      file by email* enabled below)
-- [ ] `forms-for-completion-minor` authored (notify-4, same)
+- [x] `request-confirmation-to-proceed` **authored 2026-09-26** — **`a58c5a8c-7727-4d1f-af08-4953d9f3d33e`**,
+      version 1 on the non-prod service. Read back and previewed; see
+      [`notify-templates/request-confirmation-to-proceed.md`](notify-templates/request-confirmation-to-proceed.md)
+- [x] `chase-missing-documents` **authored 2026-09-24** —
+      **`a67e7dd1-0f8c-4366-a1de-ca5fbc24ec98`**, version 1 on the non-prod service. Content drafted and signed
+      off in [`notify-templates/chase-missing-documents.md`](notify-templates/chase-missing-documents.md); it was
+      the only one of the six with **no supplied `.docx`**, so that draft is the source rather than a port, and
+      it is product-owner-accepted rather than court-approved.
+      **Ticked from evidence, not from the statement:** read back through `GET /v2/template/{id}` with the
+      non-prod key, and the placeholder set is **exactly the five** the plan assumed, with subject and body
+      matching character-for-character. So `deed-poll-api` notify-6's **Task 0 needs no plan amendment**.
+      One tidy-up that affects nothing: it is **named `case_documents`** in Notify where ③ is named
+      `application-rejected`, so the service now has two naming conventions — worth renaming while there are
+      only two templates
+- [x] `forms-for-completion-adult` **authored 2026-09-25** — **`91a89945-bfa6-4423-86f5-be6f1c782aa5`**, and sent
+      for real end to end on 2026-09-26. See
+      [`notify-templates/forms-for-completion.md`](notify-templates/forms-for-completion.md)
+- [ ] `forms-for-completion-minor` **authored 2026-09-26 but not complete** —
+      **`a2500c11-b282-48c3-a196-9f5700d13c91`**. LOC024 isn't attached yet (Steve has asked the team for the
+      file), so every send would be refused until it is
 - [ ] Each template's UUID recorded per environment. **Corrected 2026-09-23: NOT in `application.yaml`.** That
       file deliberately keeps `${NOTIFY_TEMPLATE_*:DEED_POLL_PLACEHOLDER}`, so one grep still lists every
       external identifier the service is waiting on. The real value is an **environment variable per
@@ -166,7 +180,9 @@ Content notes for whoever authors them, from the taxonomy:
   its `XX/YY/ZZZZ` literal becomes a real placeholder fed from the referral's `decisionDate`.
 - **`chase-missing-documents` needs one required caseworker placeholder**, `documents_required`, capped at
   4,000 characters. Its other placeholders are `reference_number`, `online_application_reference`,
-  `old_forename` and `old_surname`. notify-6 Task 0 verifies these names against the real template.
+  `old_forename` and `old_surname`. **notify-6 Task 0 ran 2026-09-24 and these five matched the real template
+  character-for-character**, so this is now a record rather than an instruction. The cap is the api's, not
+  Notify's.
 - **The forms emails must be reworded.** They currently say *"we have attached three forms"*. Notify does not
   attach files; it inserts a time-limited secure link. Confirmed approach (Steve, 2026-09-18): reword to a
   download. **The wording should also say the link expires**, rather than leaving an applicant to find out.
@@ -291,9 +307,24 @@ emailed to the address being registered.
 The two forms emails, request-confirmation email and assumed missing-documents chase invite a reply.
 Notify sends from a no-reply address unless a reply-to is registered and verified.
 
-- [ ] A monitored Deed Poll office inbox identified
-- [ ] Registered in Notify and **verified** (Notify emails it a confirmation link)
-- [ ] Its `emailReplyToId` recorded and configured per template that needs it
+- [x] A monitored Deed Poll office inbox identified — **`KBDEEDSPOLL@justice.gov.uk`**, confirmed by Steve
+      2026-09-24
+- [x] Registered in Notify and **verified** (Notify emails it a confirmation link) — confirmed by Steve
+      2026-09-24. Recorded on his statement rather than read off the UI, so if a send later fails with a
+      no-reply sender, re-check this before reading any stack trace
+- [x] Its **`emailReplyToId` recorded** — **`aabceef1-63e4-4414-9554-a24b0be967d7`**, supplied 2026-09-24. A
+      *different* UUID from any template id, and the one `NotifyProperties.isProvisioned` checks for every
+      template with `invitesReply = true`. **One value for the whole service**, so it unblocks **④ as well as ⑤**
+      — ④ was blocked on exactly this and nothing else. Config key `NOTIFY_EMAIL_REPLY_TO_ID`, **not a secret**
+      (it identifies an address the recipient reads on the email anyway), so it belongs in the chart's environment
+      rather than the vault.
+      **Recorded on Steve's word, not verified** — Notify publishes no read-only API for reply-to addresses, so
+      unlike the template id this one could not be read back. The first send proves it: an unrecognised id is a
+      loud 400, but a **blank** one is silent — Notify drops it and sends from no-reply, which is why
+      `isProvisioned` gates on it instead of letting a send find out
+- [x] **Configured per environment.** `charts/deed-poll-api` sets `NOTIFY_EMAIL_REPLY_TO_ID` and the ③, ④ and ⑤
+      template ids (④ added 2026-09-26, api #59). ① and ② are deliberately not set yet. AAT still has no Notify
+      API key (azure-access#8111), so every send there fails until the key is written
 
 ### Not needed yet
 
@@ -312,8 +343,11 @@ Notify sends from a no-reply address unless a reply-to is registered and verifie
    already send through Notify; sharing a service shares limits and team access, which may be better or worse.
 3. **Who owns the content?** Template wording is not engineering's, and three of the four need editing before
    they can be authored — the conditionals, the `XX/YY/ZZZZ` date, and the attachment rewording.
-4. **Answered for planning on 2026-09-20:** assume `chase-missing-documents` exists and requires caseworker
-   text. notify-6 Task 0 still verifies its real placeholders and reply-to before implementation.
+4. **Closed 2026-09-24.** Answered for planning on 2026-09-20 as an assumption — assume `chase-missing-documents`
+   exists and requires caseworker text — and notify-6 Task 0 has now verified it: the template is authored, its
+   five placeholders were read back out of Notify and matched, and `documents_required` is unconditional and so
+   required at Notify's end too. The reply-to id is recorded but **not** read back, for the reason in that
+   section above.
 5. **Is there a template for the Gazette notice email?** Deferred. Two of the supplied templates promise the applicant
    one.
 6. **Where do the five blank forms come from?** The forms emails name LOC021, LOC023, LOC024, LOC027 and
