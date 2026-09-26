@@ -58,10 +58,10 @@ placeholder, and `[attached in Notify: LOC0xx]` marks where a template attachmen
 | `publish_to_london_gazette` | `publishToLondonGazette` — boolean | the Gazette sentence, conditional |
 | `additional_notes` | **caseworker**, optional, may be empty | its own paragraph before *What happens next* |
 
-**`additional_notes` is being added to api by notify-4a Task 5 (Steve's decision, 2026-09-26), and the template
-and api must change together.** Notify ignores a key a template has no placeholder for, so if api sends a note
-before `((additional_notes))` is in the template, the note is dropped and nothing fails. If the placeholder
-arrives first, every send is refused as missing personalisation until api sends the key. Keep the blank line
+**`additional_notes` was added to api by notify-4c Task 2 (Steve's decision, 2026-09-26; api #54), and the
+template and api must change together.** Notify ignores a key a template has no placeholder for, so a template
+without `((additional_notes))` drops the caseworker's note and nothing fails. A template with the placeholder
+is refused as missing personalisation by any api that does not send the key. Keep the blank line
 above it: without one, Notify's markdown runs the note on from the paragraph before (the lesson from ③).
 
 **It addresses the applicant by their OLD name, deliberately** — the new name is not theirs until the deed is
@@ -221,13 +221,15 @@ to find an older email.
   is **not yet in api's chart**, deliberately: see notify-4a decision 7.
 - **Placeholders checked against api character for character** on version 7, via `GET /v2/template/{id}`: the
   subject, `reference_number`, `online_application_reference`, `old_forename`, `old_surname`,
-  `publish_to_london_gazette` and `deed_document` all match. `((additional_notes))` is **not in it yet**; add it
-  when notify-4a Task 5 lands, where the body above shows.
+  `publish_to_london_gazette` and `deed_document` all match. **`((additional_notes))` added in version 8**
+  (checked 2026-09-26, after api #54 merged): on its own line between the exhibits guidance and *What happens
+  next*, with a blank line either side, as the body above shows.
 - **Attachments: LOC021 and LOC027, and nothing else**, as the table requires. In the template they appear as
   `((LOC021_0226.pdf))` and `((LOC027 blank.pdf))`: **a template attachment is a placeholder named after its
   file**, so the name changes if the file is replaced. api sends no value for either. A real send fills both in as
-  download links (checked with a send on 2026-09-26), but Notify's *preview* refuses a request that lacks them,
-  which is notify-4a Task 4.
+  download links (checked with a send on 2026-09-26), but Notify's *preview* refuses a request that lacks them.
+  api answers that with a stand-in for each (`AttachmentStandIns`, notify-4c Task 1, api #54), so admin's check
+  page renders.
 - **Reply-to:** nothing to set on the template. Notify takes it per send, and api sends
   `NOTIFY_EMAIL_REPLY_TO_ID`.
 
@@ -240,5 +242,6 @@ Record here, as `application-rejected.md` and `chase-missing-documents.md` do:
   `…_MINOR`;
 - confirmation that the placeholder names match **character-for-character**, including `deed_document`;
 - which static forms are attached, by LOC code, so that a check against the table at the top is possible;
-- that the **reply-to is set** on both;
+- the **reply-to**: nothing to set on the template, since Notify takes it per send from api's
+  `NOTIFY_EMAIL_REPLY_TO_ID`;
 - any wording the court changed, so `notify-4b`'s Task 4 can be checked against evidence.
