@@ -23,8 +23,11 @@ Names must match character-for-character or **Notify rejects the send with a 400
 | `judges_reason` | text | **caseworker** — pre-populated, editable | `Referral.directionsText` |
 | `additional_notes` | text | **caseworker** — optional, may be empty | — |
 
-**A slot with no matching placeholder makes Notify refuse the send**, so do not add a caseworker box here
-without the api gaining the slot, and do not drop one without the api losing it.
+**A slot with no matching placeholder is silently dropped, and a placeholder with no value makes Notify refuse
+the send.** Corrected 2026-09-26, when a check against the real API (notify-4a Task 3) showed the first half was
+the wrong way round: Notify ignores a key the template does not use. So do not add a caseworker box here without
+adding its placeholder, or the caseworker's text vanishes with nothing failing. And do not add a placeholder
+without the api sending it.
 
 ## ✅ Resolved: the two-way refund branch needs a second flag
 
