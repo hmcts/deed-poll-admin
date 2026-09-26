@@ -169,31 +169,124 @@ King's Bench Division
 
 ## Body — ② minor
 
-Same shape. The differences, all from the source:
-
-- *"four forms"* rather than three.
-- **LOC022** rather than LOC020, and the post-back sentence names *"affidavit of best interest (LOC023), statutory declaration (LOC024) and exhibit cover sheets (LOC028)"*.
-- Its template attachments are **LOC023, LOC024 and LOC028**; the LOC023 section below marks its link, and the
-  LOC024 and LOC028 links sit under their sections the same way.
-- A new section between the deed and the statutory declaration:
+**The whole body, ready to paste.** It was re-read from `doc_templates/Deed Poll - forms for completion - minor.docx`
+on 2026-09-26, because an earlier version of this section listed only the differences from ①. That list missed
+the child-specific wording in five places ("on behalf of a child", "the child's final change of name deed", "you
+or your child", "knows you and the child", "proof of the child's name change"), and it dropped the affidavit's
+"Please note" line. The source is followed verbatim, with the same three Notify changes as ① and with
+`((additional_notes))` in the same place.
 
 ```
+Regarding the application to enrol a deed poll change of name for ((old_forename)) ((old_surname))
+
+Thank you for your application to enrol a deed poll with the High Court on behalf of a child.
+
+To progress your application, we need you to download and complete four forms and return them to us by post. Instructions on how to complete each form and links to more detailed guidance are below:
+
+# Change of name deed (LOC022)
+
+((deed_document))
+
+This form contains the information you provided in your online application and will become the child's final change of name deed once you and your witnesses have signed it and it has been sealed in the High Court.
+
+You need to print and sign this form in front of 2 witnesses. The witnesses will also need to sign the form. The witnesses can have known you for any length of time and must not be related to you or your child by birth or marriage.
+
+You need to post your completed form back to the Deed Poll office along with your completed affidavit of best interest (LOC023), statutory declaration (LOC024) and exhibit cover sheets (LOC028).
+
 # Affidavit of best interest (LOC023)
 
 [attached in Notify: LOC023]
+
+Please note that the Court requires that a solicitor or commissioner of oaths signs this form.
 
 You need to complete an affidavit of best interest to demonstrate to the judge that changing the child's name is in the child's best interest.
 
 As the parent, or person with parental responsibility, you must print and complete the affidavit and swear it is true in the presence of someone authorised to witness the signing of important legal documents. This can be the same person who authorises the swearing to the truth of the statutory declaration.
 
 For more information, read our guidance on completing the affidavit of best interest.
+
+# Statutory declaration for a child (LOC024)
+
+[attached in Notify: LOC024]
+
+Please note that the Court requires that a solicitor or commissioner of oaths signs this form.
+
+A statutory declaration is a document that must be completed by a person that knows you and the child. They must declare that you are who your application says you are. They are referred to as the 'declarant'.
+
+You need to print the statutory declaration (LOC024) for your declarant to complete. The statutory declaration must be printed single-sided.
+
+Once the declarant has completed the statutory declaration, they must swear it is true in the presence of someone authorised to witness the signing of important legal documents.
+
+For more information, read detailed guidance on how to complete the statutory declaration.
+
+# Exhibit cover sheets (LOC028)
+
+[attached in Notify: LOC028]
+
+Please note that the Court requires that a solicitor or commissioner of oaths signs this form.
+
+An 'exhibit' is a document used in court as evidence. The court needs exhibits as proof of who your application says you are.
+
+When your declarant takes the statutory declaration to be verified by the authorised witness, include a cover sheet alongside each exhibit referenced:
+
+* Exhibit A – a photocopy of the change of name deed (LOC022)
+* Exhibit B – a copy of the child's birth certificate
+
+When you return your forms to us, you do not need to include the exhibits as we have these on record from your online application. Only include the cover sheet for each exhibit.
+
+For more information, read detailed guidance on exhibits.
+
+((additional_notes))
+
+# What happens next
+
+Once you have completed the relevant forms, post your forms to the Deed Poll office:
+
+Deed Poll office
+King's Bench Division
+Room E15
+The Royal Courts of Justice
+Strand
+London
+WC2A 2LL
+
+Once your application has been approved, the Deed Poll office will seal the deed and send it back to you by post. This is proof of the child's name change. ((publish_to_london_gazette??You will also receive a PDF copy of The Gazette notice via email.))
+
+If you have any questions relating to your application you can reply to this email or call the Deed Poll office on 020 3936 8957 (select option 6), Monday to Friday, 9am to 5pm.
+
+Kind regards,
+King's Bench Division
 ```
 
-- The statutory declaration section is headed **"Statutory declaration for a child (LOC024)"**.
-- Exhibit cover sheets are **LOC028**, and **Exhibit B is "a copy of the child's birth certificate"**. The source
-  lists no Exhibit C for a minor — do not carry the adult's marriage/divorce line across.
-- Everything else — the deed instructions, *What happens next*, the address, the phone line, the sign-off — is the
-  same.
+**How ② differs from ①**, for checking rather than for building. Everything is already in the body above:
+four forms rather than three; LOC022, LOC023, LOC024 and LOC028 in place of LOC020, LOC021 and LOC027; a new
+affidavit section; the child-specific wording in the five places listed above; Exhibit B is the child's birth
+certificate; and there is **no Exhibit C**, so do not carry the adult's marriage/divorce line across. Two small
+wording differences are the source's and are kept: "read detailed guidance" (① says "read *our* detailed
+guidance"), and the Gazette sentence, whose "if the child's name change is being published" hedge becomes the
+conditional exactly as in ①.
+
+## Building ② in the Notify portal, step by step
+
+This is how ① was built. Do it the same way so that the read-back in notify-4a Task 3 has the same shape to
+check.
+
+1. **Create an email template named `forms_for_completion_minor`.** Paste the subject from *Subject lines*,
+   which is the same for both emails.
+2. **Paste the body above.** Everything in `((double brackets))` is a placeholder that api fills. Leave these
+   exactly as written, because a misspelt one fails every send: `((old_forename))`, `((old_surname))`,
+   `((deed_document))`, `((additional_notes))` and `((publish_to_london_gazette??…))`. The subject also has
+   `((reference_number))` and `((online_application_reference))`.
+3. **Attach the three static forms: LOC023, LOC024 and LOC028, and nothing else.** Each attached file becomes a
+   placeholder named after the file, like ①'s `((LOC021_0226.pdf))`. **Put each one in place of its
+   `[attached in Notify: LOC0xx]` marker**, so the link sits under its own heading, and delete the marker line.
+   No marker text should be left in the saved template.
+4. **Do not attach LOC022.** The deed is per applicant, and api supplies it through `((deed_document))`.
+5. **Keep the blank lines** either side of `((additional_notes))`. Without them, Notify runs the note on from
+   the paragraph before.
+6. **There is no reply-to to set.** Notify takes it per send from api.
+7. **Send the template id**, which is `NOTIFY_TEMPLATE_FORMS_FOR_COMPLETION_MINOR`. notify-4a Task 3 then reads
+   it back and checks the placeholders and attachments.
 
 ## ⚠️ Both these emails invite a reply, which the plan had not noticed
 
