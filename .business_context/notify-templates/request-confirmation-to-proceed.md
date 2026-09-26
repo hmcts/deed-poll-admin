@@ -108,18 +108,33 @@ King's Bench Division
    thing this email is for.
 5. Save, and send the template id back so it can be read back and checked.
 
+## ✅ Authored and verified — 2026-09-26
+
+`a58c5a8c-7727-4d1f-af08-4953d9f3d33e`, version 1, named `request_confirmation_to_proceed`, read back with
+`GET /v2/template/{id}`:
+
+- **Subject:** identical to the draft.
+- **Placeholders:** exactly the ten in the table, no more and no fewer.
+- **Body:** identical line for line, except that there's no blank line between "Kind regards," and "King's
+  Bench Division". The preview renders that as a line break (`Kind regards,<br>King’s Bench Division`), which
+  reads fine, so it has been left as it is.
+- **Previews** (which send nothing): an adult who applied online got "your details" and "your change of name",
+  the online refund paragraph and no paper list. A minor who applied on paper got "your child's details" and
+  "your child's change of name", the paper list and no online paragraph. So Notify keeps the trailing space
+  inside `((is_minor??child's ))`, and `is_minor` works as a JSON boolean. Both 🔴 checks below are settled.
+
 ## What the read-back checks, and one thing only a preview can settle
 
 After you send the id, I'll read the template back with `GET /v2/template/{id}` and check it against the table
 above, character for character. Then I'll run **two previews** (they send nothing), because the read-back can't
 settle one thing:
 
-- **🔴 Does the `child's ` conditional leave a double space for an adult?** `((is_minor??child's ))details`
+- **✅ (settled above) Does the `child's ` conditional leave a double space for an adult?** `((is_minor??child's ))details`
   puts the space inside the conditional, so an adult's email should read "your details" and a minor's "your
   child's details". That only holds if Notify keeps the trailing space inside a conditional. If it trims it, a
   minor's email reads "your child'sdetails", and the fix is `((is_minor??child's)) details` instead, at the cost
   of a double space for adults. Previewing once with `is_minor: true` and once with `false` settles it.
-- **`is_minor` as a JSON boolean.** Measured for `applied_online` on ③ (2026-09-23), but this is a new
+- **✅ (settled above) `is_minor` as a JSON boolean.** Measured for `applied_online` on ③ (2026-09-23), but this is a new
   placeholder in a new template. The api flags it as unverified here (`toMap`), so the same two previews check
   it rather than assuming ③'s result carries over.
 
@@ -132,10 +147,9 @@ settle one thing:
 
 | Service | Template UUID |
 |---|---|
-| **non-prod** | not yet |
+| **non-prod** | `a58c5a8c-7727-4d1f-af08-4953d9f3d33e` |
 | prod | not yet — the prod service does not exist |
 
-The id goes in `deed-poll-api/charts/deed-poll-api/values.yaml` as `NOTIFY_TEMPLATE_REQUEST_CONFIRMATION_TO_PROCEED`,
-replacing the comment at the reply-to entry that says ④ is deliberately absent. That is the only change needed
-to make admin offer it. As with every email, nothing actually sends in AAT until the AAT Notify key exists
+The id is set, as of deed-poll-api's chart change on 2026-09-26, in `deed-poll-api/charts/deed-poll-api/values.yaml` as `NOTIFY_TEMPLATE_REQUEST_CONFIRMATION_TO_PROCEED`,
+which is the only change needed to make admin offer it. As with every email, nothing actually sends in AAT until the AAT Notify key exists
 (azure-access#8111).
