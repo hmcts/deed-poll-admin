@@ -163,9 +163,9 @@ them, and notify-1 carries a placeholder until they exist.
 - [x] `forms-for-completion-adult` **authored 2026-09-25** — **`91a89945-bfa6-4423-86f5-be6f1c782aa5`**, and sent
       for real end to end on 2026-09-26. See
       [`notify-templates/forms-for-completion.md`](notify-templates/forms-for-completion.md)
-- [ ] `forms-for-completion-minor` **authored 2026-09-26 but not complete** —
-      **`a2500c11-b282-48c3-a196-9f5700d13c91`**. LOC024 isn't attached yet (Steve has asked the team for the
-      file), so every send would be refused until it is
+- [x] `forms-for-completion-minor` **authored 2026-09-26, completed 2026-09-28** —
+      **`a2500c11-b282-48c3-a196-9f5700d13c91`**. LOC024 was attached on 2026-09-28, and version 9 reads back
+      `((LOC024.pdf))`. See [`notify-templates/forms-for-completion.md`](notify-templates/forms-for-completion.md)
 - [ ] Each template's UUID recorded per environment. **Corrected 2026-09-23: NOT in `application.yaml`.** That
       file deliberately keeps `${NOTIFY_TEMPLATE_*:DEED_POLL_PLACEHOLDER}`, so one grep still lists every
       external identifier the service is waiting on. The real value is an **environment variable per
