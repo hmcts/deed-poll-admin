@@ -326,18 +326,18 @@ to find an older email.
 - **Reply-to:** nothing to set on the template. Notify takes it per send, and api sends
   `NOTIFY_EMAIL_REPLY_TO_ID`.
 
-### ② `forms_for_completion_minor`: authored 2026-09-26, but LOC024 is still missing
+### ② `forms_for_completion_minor`: authored 2026-09-26, LOC024 attached 2026-09-28
 
 - **Non-prod template UUID:** `a2500c11-b282-48c3-a196-9f5700d13c91` (`NOTIFY_TEMPLATE_FORMS_FOR_COMPLETION_MINOR`),
-  version 5 read back on 2026-09-26.
+  version 5 read back on 2026-09-26 and version 9 on 2026-09-28.
 - **Subject and placeholders:** `reference_number`, `online_application_reference`, `old_forename`,
   `old_surname`, `publish_to_london_gazette`, `deed_document` and `additional_notes` all match
-  character-for-character. Every body line matches "Body — ② minor" above.
-- **Static forms:** LOC023 and LOC028 are attached, as `((LOC023.pdf))` and `((LOC028.pdf))`. **LOC024 is not.**
-  The template holds a typed `((LOC024))` with no file behind it. Steve has asked the team for the file. Until
-  it is attached, **Notify refuses every send of ②**, and admin's check page for a minor fails, because api
-  only stands in for file-shaped keys and `LOC024` has no extension. Once the file arrives, attach it in place of
-  `((LOC024))` and read the template back again.
+  character-for-character, in both versions. Every body line of version 5 matches "Body — ② minor" above; version
+  9's body was not re-compared line by line.
+- **Static forms:** exactly three are attached, as `((LOC023.pdf))`, `((LOC024.pdf))` and `((LOC028.pdf))`. LOC024
+  was attached on 2026-09-28, replacing the typed `((LOC024))` that had no file behind it and made Notify refuse
+  every send of ②. Now that the key is file-shaped, api's stand-in should cover it and admin's check page for a
+  minor should render, but that page has not been run against version 9.
 - **Reply-to:** nothing to set on the template.
 - **Wording:** unchanged from the draft. The one difference is an extra blank line between "Kind regards," and
   "King's Bench Division", which is cosmetic.
