@@ -232,7 +232,7 @@ nodejs:
   environment:
     # api's CNP internal host, not an ingress. Resolved per environment from global.environment.
     DEED_POLL_API_URL: http://deed-poll-api-{{ .Values.global.environment }}.service.core-compute-{{ .Values.global.environment }}.internal
-    IDAM_ISSUER_URL: https://hmcts-access.{{ .Values.global.environment }}.platform.hmcts.net
+    IDAM_ISSUER_URL: https://hmcts-access.{{ .Values.global.environment }}.platform.hmcts.net/o
     IDAM_CLIENT_ID: deed-poll-admin
     IDAM_REDIRECT_URI: https://deed-poll-admin.{{ .Values.global.environment }}.platform.hmcts.net/oauth2/callback
   keyVaults:

@@ -3,7 +3,7 @@ import type { IdamConfig } from "./idam.js";
 import { assertIdamSettings } from "./settings.js";
 
 const DEPLOYED: IdamConfig = {
-  issuerUrl: "https://hmcts-access.aat.platform.hmcts.net",
+  issuerUrl: "https://hmcts-access.aat.platform.hmcts.net/o",
   clientId: "deed-poll-admin",
   clientSecret: "a-secret-from-the-key-vault",
   // What `${SERVICE_FQDN}` renders to in AAT — `${product}-${component}-${imageTag}` under

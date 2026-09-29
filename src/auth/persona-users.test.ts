@@ -42,7 +42,7 @@ vi.mock("./test-users.js", async (importOriginal) => ({
 }));
 
 const IDAM: IdamConfig = {
-  issuerUrl: "https://hmcts-access.aat.platform.hmcts.net",
+  issuerUrl: "https://hmcts-access.aat.platform.hmcts.net/o",
   clientId: "deed-poll-admin",
   clientSecret: "a-secret",
   redirectUri: "https://deed-poll-admin-staging.aat.platform.hmcts.net/oauth2/callback",
