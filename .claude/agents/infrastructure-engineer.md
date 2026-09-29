@@ -201,7 +201,7 @@ dependencies:
   # Preview only — see below.
   - name: redis
     version: 27.0.18
-    repository: https://charts.bitnami.com/bitnami
+    repository: 'oci://registry-1.docker.io/bitnamicharts'
     condition: redis.enabled
 ```
 
