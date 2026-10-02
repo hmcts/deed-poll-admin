@@ -8,6 +8,8 @@ export const content = {
   phase: "beta",
   govUk: "GOV.UK",
   back: "Back",
+  signOut: "Sign out",
+  accountNavigation: "Account",
   navigation: {
     home: "Home",
     about: "About",

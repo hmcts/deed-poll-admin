@@ -1,4 +1,5 @@
 file,key,english,current_welsh,status,welsh_draft,draft_confidence,reviewer_note
+src/locales,accountNavigation,"Account","Cyfrif",already translated,"",,""
 src/locales,back,"Back","Yn ôl",already translated,"",,""
 src/locales,common.callChargesLink,"https://www.gov.uk/call-charges","https://www.gov.uk/call-charges",not prose,"",,""
 src/locales,common.email,"Email","E-bost",already translated,"",,""
@@ -31,6 +32,7 @@ src/locales,serviceConfig.dataRetentionPeriod,"90 days","90 diwrnod",already tra
 src/locales,serviceConfig.openingHours,"Monday to Friday, 10am to 6pm","Dydd Llun i ddydd Gwener, 10am i 6pm",already translated,"",,""
 src/locales,serviceConfig.temporaryDataPeriod,"1 month","1 mis",already translated,"",,""
 src/locales,serviceName,"Deed poll admin","Gweinyddu gweithred newid enw",already translated,"",,""
+src/locales,signOut,"Sign out","Allgofnodi",already translated,"",,""
 src/locales,welcome,"Welcome to Deed poll admin","Croeso i Weinyddu gweithred newid enw",already translated,"",,""
 src/pages/deed-polls/[id].ts,addNote,"Add a note","Add a note",YES,"Ychwanegu nodyn",high,""
 src/pages/deed-polls/[id].ts,addWitness,"Add a witness","Add a witness",YES,"",,""

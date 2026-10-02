@@ -1,6 +1,45 @@
 # Plan 15: make sign-out reachable
 
-## Overview
+## Implementation decisions — 2 October 2026
+
+- Use the plan's recommended service-header placement in both app-owned layouts.
+  A shared `layouts/account-navigation.njk` uses GOV.UK service navigation immediately
+  after the existing header. Sign-out remains visible on mobile without opening a menu,
+  and is independent of the development persona strip and its environment flag.
+- Provide `Sign out` / `Allgofnodi` and the account navigation label through the shared
+  locale files, included in the translation catalogue. Welsh copy remains subject to
+  the service's normal translation review.
+- **Session-timeout policy remains open.** The historical observation below does not
+  mean there is no configured expiry: `src/app.ts` currently sets a 24-hour cookie
+  lifetime, and refresh failure can end authentication. A business-defined inactivity
+  timeout is a separate decision; this implementation changes neither mechanism.
+- Leave the existing GET `/logout` route and starter library unchanged.
+
+## Completion and validation — 2 October 2026
+
+Implemented on `plan-15-reachable-sign-out` in isolated worktree
+`/tmp/deed-poll-admin-plan15`; the original checkout's concurrent work is untouched.
+
+- Six new layout regression assertions failed before the change and passed afterwards.
+- `yarn lint`: passed (two pre-existing Biome configuration notices).
+- `yarn turbo test test:app --concurrency=1`: all eight packages passed,
+  **3,358 tests across 169 files**. Baseline: 3,349 passed and three skipped;
+  the final run also exercised those three tests after local Redis became available.
+- `yarn build`: passed for all eight packages.
+- Chromium sign-out journey: passed, including both layouts, English/Welsh labels,
+  keyboard activation, axe accessibility, the IDAM logout destination, and refusal
+  of protected pages after logout. A temporary Playwright configuration ran the app
+  on port 3301 with a matching IDAM callback because another service used port 3000.
+- `yarn welsh:extract` adds the two shared strings to the catalogue. `yarn welsh:check`
+  still reports the existing 474 identical English/Welsh strings; the new strings
+  do not increase that count.
+
+**Simulator limitation:** local IDAM advertises `/o/endSession` but does not implement
+that endpoint. The browser test checks its destination and `post_logout_redirect_uri`,
+then explicitly returns to the service and verifies login is required. Automatic
+return and single sign-out with real IDAM remain a deployed-environment check.
+
+## Historical overview
 
 **The sign-out route exists, works, and nothing in the service links to it.** A caseworker can only reach it by
 typing `/logout` into the address bar. Found 2026-09-23 when a tester could not switch account during local
@@ -95,22 +134,22 @@ npx turbo test test:app --concurrency=1      # EXIT 0 — 3,120 tests across 166
 
 ### Task 0: Answer the two questions above
 
-- [ ] Confirm where the link goes, and that the persona strip stays separate
-- [ ] Record the session-timeout answer, or record explicitly that it remains open
+- [x] Confirm where the link goes, and that the persona strip stays separate
+- [x] Record the session-timeout answer, or record explicitly that it remains open
 
 ### Task 1: Add the link to both app layouts
 
-- [ ] `layouts/app.njk` and `layouts/app-full-width.njk`, with `en`/`cy` copy
-- [ ] Extend `layouts/app.njk.test.ts` so a layout **without** a sign-out link fails, the same sweep that
+- [x] `layouts/app.njk` and `layouts/app-full-width.njk`, with `en`/`cy` copy
+- [x] Extend `layouts/app.njk.test.ts` so a layout **without** a sign-out link fails, the same sweep that
       already pins which layout a page may extend — otherwise the second layout can silently drift
-- [ ] Mark completed
+- [x] Mark completed
 
 ### Task 2: An e2e assertion that it works from the UI
 
-- [ ] One journey: signed in, follow sign-out, land back unauthenticated, and a protected page then redirects
+- [x] One journey: signed in, follow sign-out, land back unauthenticated, and a protected page then redirects
       to login. The route is already proven by curl; what is not proven is that a caseworker can *find and
       follow* it, which is the whole point of this plan
-- [ ] Mark completed
+- [x] Mark completed
 
 ## Deliberately not in this plan
 

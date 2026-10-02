@@ -15,6 +15,8 @@ export const content: Translations = {
   phase: "beta",
   govUk: "GOV.UK",
   back: "Yn ôl",
+  signOut: "Allgofnodi",
+  accountNavigation: "Cyfrif",
   navigation: {
     home: "Hafan",
     about: "Amdanom",
