@@ -19,6 +19,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import nunjucks from "nunjucks";
 import { describe, expect, it } from "vitest";
+import { content as cy } from "../../locales/cy.js";
+import { content as en } from "../../locales/en.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PAGES = path.join(HERE, "..");
@@ -61,6 +63,27 @@ function pageTemplates(): { file: string; extended: string }[] {
 }
 
 describe("the app layout", () => {
+  describe.each(APP_LAYOUTS)("sign-out in %s", (layout) => {
+    it.each([
+      { content: en, label: "Sign out" },
+      { content: cy, label: "Allgofnodi" }
+    ])("should offer a translated sign-out link ($label) without the development switcher", ({ content, label }) => {
+      const html = environment.render(layout, content);
+
+      expect(html.match(/href="\/logout"/g)).toHaveLength(1);
+      expect(html).toMatch(new RegExp(`href="/logout"[^>]*>\\s*${label}\\s*</a>`));
+      expect(html).not.toContain("/switch-persona");
+    });
+
+    it("should keep sign-out in the header, separate from the persona strip", () => {
+      const html = environment.render(layout, { ...en, personaSwitcher: SWITCHER });
+
+      expect(html).toContain('href="/logout"');
+      expect(html.indexOf('href="/logout"')).toBeLessThan(html.indexOf('action="/switch-persona"'));
+      expect(html).toContain('action="/switch-persona"');
+    });
+  });
+
   it("should be what every page template extends, including ones added after this test was written", () => {
     const templates = pageTemplates();
 
