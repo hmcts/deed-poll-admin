@@ -1,0 +1,30 @@
+@use "govuk-frontend/dist/govuk/base" as *;
+
+// Floats and the selected tab's raised edge rearrange wrapped rows. Keep each
+// tab's footprint identical in both states, including its border and padding.
+.govuk-frontend-supported .app-case-tabs {
+  @include govuk-media-query($from: tablet) {
+    .govuk-tabs__list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: govuk-spacing(1);
+      padding-bottom: govuk-spacing(1);
+
+      &::after {
+        content: none;
+      }
+    }
+
+    .govuk-tabs__list-item {
+      float: none;
+      margin: 0;
+      padding: govuk-spacing(2) govuk-spacing(4);
+      border: 1px solid transparent;
+    }
+
+    .govuk-tabs__list-item--selected {
+      border-color: govuk-functional-colour(border);
+      box-shadow: inset 0 -3px 0 govuk-functional-colour(brand);
+    }
+  }
+}

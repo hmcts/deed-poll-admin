@@ -10,6 +10,8 @@
 // globs `css/*.scss` into build entries, so a partial as a sibling would become a stylesheet of its own.
 @use "components/filter-nav";
 
+@use "components/case-tabs";
+
 // The two judicial lists' navigation, rendered through `src/pages/judicial/referrals/list-navigation.njk`.
 // Inert on every other page, since each rule is scoped to a class only that partial emits.
 @use "components/judicial-nav";
