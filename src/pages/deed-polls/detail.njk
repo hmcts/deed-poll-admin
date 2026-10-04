@@ -469,7 +469,7 @@
     {% set tabItems = (tabItems.push({ label: tab.label, id: tab.id, panel: { html: panelHtml } }), tabItems) %}
   {% endfor %}
 
-  {{ govukTabs({ items: tabItems }) }}
+  {{ govukTabs({ items: tabItems, classes: "app-case-tabs" }) }}
 
   <p class="govuk-body"><a class="govuk-link" href="/deed-polls">{{ backToCases }}</a></p>
 {% endblock %}
