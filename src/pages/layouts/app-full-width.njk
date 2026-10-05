@@ -5,7 +5,7 @@
 {% extends "layouts/full-width.njk" %}
 
 {% block header %}
-  {{ super() }}
+  {% include "layouts/hmcts-header.njk" %}
   {% include "layouts/account-navigation.njk" %}
 {% endblock %}
 

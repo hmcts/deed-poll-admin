@@ -105,7 +105,8 @@ const baseConfig: UserConfig = {
         },
         {
           src: "src/assets/images/**/*",
-          dest: "images"
+          dest: "images",
+          rename: { stripBase: true }
         }
       ]
     })

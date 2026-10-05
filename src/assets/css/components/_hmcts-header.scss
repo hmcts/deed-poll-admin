@@ -1,0 +1,29 @@
+@use "govuk-frontend/dist/govuk/base" as *;
+
+.app-hmcts-header {
+  padding: govuk-spacing(3) 0;
+}
+
+.app-hmcts-header__link {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: govuk-spacing(3) govuk-spacing(5);
+  max-width: 100%;
+}
+
+.app-hmcts-header__logo {
+  display: block;
+  width: 280px;
+  max-width: 100%;
+  height: auto;
+}
+
+.app-hmcts-header__title {
+  @include govuk-font($size: 27, $weight: bold);
+}
+
+// Keep the white logo on the header's brand colour when the link gains yellow keyboard focus.
+.app-hmcts-header__link:focus .app-hmcts-header__logo {
+  background: govuk-functional-colour("brand");
+}

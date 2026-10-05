@@ -5,6 +5,8 @@ export const content = {
   // "Express Monorepo Template" until Steve settled the name on 2026-09-03; `deed-poll-admin` matches
   // the repo, the product code, the vault names and the image path, so the service reads as one thing.
   serviceName: "Deed poll admin",
+  headerTitle: "Deed Poll",
+  hmctsLogoAlt: "HM Courts & Tribunals Service",
   phase: "beta",
   govUk: "GOV.UK",
   back: "Back",
