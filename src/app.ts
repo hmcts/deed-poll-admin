@@ -158,6 +158,7 @@ export async function createApp(): Promise<Express> {
 
   await configureGovuk(app, [__dirname], {
     nunjucksGlobals: {
+      appAssetPath: isDev ? "/src/assets" : "/assets",
       gtm: config.get("gtm"),
       dynatrace: config.get("dynatrace")
     },

@@ -12,6 +12,8 @@ export const content: Translations = {
   // poll" and is **not** verified against the official HMCTS term. It is at least Welsh rather than
   // English, which the rest of this service's `cy` values are not.
   serviceName: "Gweinyddu gweithred newid enw",
+  headerTitle: "Gweithred newid enw",
+  hmctsLogoAlt: "Gwasanaeth Llysoedd a Thribiwnlysoedd EF",
   phase: "beta",
   govUk: "GOV.UK",
   back: "Yn ôl",

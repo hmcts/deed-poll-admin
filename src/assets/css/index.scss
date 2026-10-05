@@ -11,6 +11,7 @@
 @use "components/filter-nav";
 
 @use "components/case-tabs";
+@use "components/hmcts-header";
 
 // The two judicial lists' navigation, rendered through `src/pages/judicial/referrals/list-navigation.njk`.
 // Inert on every other page, since each rule is scoped to a class only that partial emits.

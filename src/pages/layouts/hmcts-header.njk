@@ -1,0 +1,10 @@
+<header class="govuk-header app-hmcts-header" role="banner">
+  <div class="govuk-width-container">
+    <a class="govuk-link govuk-link--inverse govuk-link--no-underline app-hmcts-header__link" href="/">
+      <img class="app-hmcts-header__logo"
+        src="{{ appAssetPath }}/images/{{ 'hmcts-logo-welsh-white.png' if locale === 'cy' else 'hmcts-logo-white.png' }}"
+        alt="{{ hmctsLogoAlt }}">
+      <span class="app-hmcts-header__title">{{ headerTitle }}</span>
+    </a>
+  </div>
+</header>
