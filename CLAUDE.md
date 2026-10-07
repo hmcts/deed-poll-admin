@@ -21,6 +21,8 @@ yarn lint:fix                    # Run Biome linter
 yarn format                     # Format code with Biome
 
 # deed-poll-api
+yarn seed:cases                 # Preview/apply 30 representative cases through the real API; non-production only
+                                # See docs/SEED-DATA.md for targets, credentials and resumable journals
 yarn mock:api                   # The in-memory api the pages develop against, on port 3200
 yarn mock:seed                  # Seed the running mock: ~32 cases across every tab plus nine referrals — four
                                 # Decided so the returned-for-action count is non-zero, two of those also

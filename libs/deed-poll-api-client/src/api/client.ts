@@ -859,7 +859,8 @@ async function send(
           ...(body !== undefined && !isForm ? { "content-type": "application/json" } : {})
         },
         body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
-        signal: controller?.signal ?? AbortSignal.timeout(timeoutMs)
+        signal: controller?.signal ?? AbortSignal.timeout(timeoutMs),
+        ...(config.refuseRedirects ? { redirect: "error" as const } : {})
       });
     } catch (error) {
       return { ok: false, error: transportError(error) };
@@ -952,6 +953,8 @@ function mapResult<W, T>(result: ApiResult<W>, map: (value: W) => T): ApiResult<
 export interface ApiConfig {
   baseUrl: string;
   timeoutMs?: number;
+  /** Explicit-target tools must not follow an API redirect into another environment. */
+  refuseRedirects?: boolean;
   /**
    * The caller's IDAM access token. api authenticates every caseworker route and derives the audit name
    * and admin status from the token, so a call without one is a 401 — which is why this is not optional
