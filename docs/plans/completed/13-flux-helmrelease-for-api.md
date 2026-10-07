@@ -1,5 +1,70 @@
 # Plan: Give deed-poll-api a Flux HelmRelease, so admin's readiness can go green
 
+## Delivery close-out — 4 October 2026
+
+**Status: completed delivery; current AAT health verification remains open.**
+The missing deployment and routing were delivered, and the 2 October session
+handover records Steve's confirmation that the deployed admin application called
+the API and persisted data. This closes the original delivery work; it does not
+certify that AAT is healthy today. The operational follow-up remains in the
+[cross-repository routing record](../../../../deed-poll-documentation/plans/active/flux-helmrelease-for-deed-poll-api.md).
+
+### Reconciled tasks and evidence
+
+| Task | Delivered evidence |
+|---|---|
+| 1 — Establish internal DNS ownership | Platform backend gateway configuration creates the internal DNS record. [azure-platform-terraform #3161](https://github.com/hmcts/azure-platform-terraform/pull/3161) merged on 23 September 2026 at 08:19 UTC. Flux creates the deployment, not the DNS record. |
+| 2 — API release and image automation | [cnp-flux-config #47636](https://github.com/hmcts/cnp-flux-config/pull/47636) merged on 22 September 2026 at 10:04 UTC. [Implementation commit d761644](https://github.com/hmcts/cnp-flux-config/commit/d76164427a4c1813b54e4626cedd3e6c334f54f0) adds the HelmRelease, ImageRepository and ImagePolicy. |
+| 3 — Environment and automation wiring | The same commit adds the product automation kustomization and its entry under `apps/flux-system/automation`. The [later AAT overlay](https://github.com/hmcts/cnp-flux-config/blob/1eb903855ba65d93211647986e73856b5373c40b/apps/deed-poll/aat/base/kustomization.yaml) explicitly includes the API release; the [preview overlay](https://github.com/hmcts/cnp-flux-config/blob/1eb903855ba65d93211647986e73856b5373c40b/apps/deed-poll/preview/base/kustomization.yaml) contains no application HelmRelease. |
+| 4 — Submit the deployment change | #47636 was raised and merged. The stale unchecked tasks below did not reflect that delivery. This reconciliation archives the admin plan; it does not deploy or merge another change. |
+
+### Differences from the original proposal
+
+- The delivered [HelmRelease](https://github.com/hmcts/cnp-flux-config/blob/1eb903855ba65d93211647986e73856b5373c40b/apps/deed-poll/deed-poll-api/deed-poll-api.yaml)
+  uses `./stable/deed-poll-api` from the `hmcts-charts` GitRepository, not the
+  proposed `hmctsprod-oci` source and `0.0.18` version pin. The historical pin is
+  not a current instruction to change the deployed chart source.
+- The first deployment commit put the release in the shared base. At the pinned
+  2 October revision it is in the AAT overlay instead; the shared base no longer
+  includes it. AAT also has a subsequently added admin release, outside this
+  plan's original API-only scope.
+- Flux merged before the DNS change, rather than in the proposed order. Both
+  changes have now merged; neither outstanding task should be replayed.
+- [cnp-flux-config #47949](https://github.com/hmcts/cnp-flux-config/pull/47949)
+  merged on 2 October at 15:01 UTC, supplying the missing API IDAM issuer and
+  audience. Its configuration accompanies the subsequent functional confirmation.
+
+### Runtime evidence and its limits
+
+The [2 October session handover](../../../../DEED-POLL-IDAM-HANDOVER.md)
+records prior read-only cluster observations: three API pods Running/Ready,
+the API ingress matching admin's internal API URL, and API image
+`prod-27f3f36-20261002140425` / admin image `prod-cae6f5b-20260929133321`.
+It separately records **user-confirmed** browser/API operation and persistence
+after the IDAM fix. That functional journey was not independently repeated in
+this close-out, and no historical `deedPollApi: UP` response or successful Jenkins
+smoke-build result is claimed here.
+
+On 4 October at approximately 20:08 UTC, a fresh request to
+`https://deed-poll-admin.aat.platform.hmcts.net/health/readiness` returned
+**HTTP 504 from Azure Front Door (`OriginTimeout`)**, not application health JSON.
+The cluster read could not resolve the Kubernetes API hostname from the agent
+environment. These results establish neither a missing HelmRelease nor which
+dependency is failing. Recheck origin reachability and the application's readiness
+body from a VPN-connected environment; record API/Redis results and a current
+authenticated read before giving a fresh environment-health sign-off.
+
+Only documentation was changed during close-out. Merged diffs and pinned manifests
+were inspected; infrastructure validation/deployment and application tests were
+not rerun. Demo, production, Notify and document durability remain outside this
+AAT delivery plan.
+
+## Historical proposal — retained for context, superseded by the close-out above
+
+The dates, blockers, commands and proposed implementation below describe the
+original investigation. Checked tasks mean reconciled delivery as recorded above,
+not that every proposed implementation detail was followed verbatim.
+
 > ## Correction, 2026-09-21 — the HelmRelease does NOT create the `.internal` record. Read this first.
 >
 > The diagnosis below is right and the HelmRelease is still needed. **Its attribution of the DNS record is
@@ -207,7 +272,7 @@ what you found, mark this plan BLOCKED at the top, and stop.** Do not proceed to
 step in that case is a `/platops` request in `#platops-help`, which is a human action, not a task. It is far
 cheaper to stop here than to raise a PR to another team's repo that does not fix the problem.
 
-- [ ] Task 1 complete
+- [x] Task 1 complete — DNS ownership established; see close-out evidence.
 
 ### Task 2: Add the HelmRelease, ImageRepository and ImagePolicy for deed-poll-api
 
@@ -260,7 +325,7 @@ pcs has `hmcts.github.com/image-registry: hmctsprod`, and deed-poll's images are
 is required. The doc's `add-image-policies.sh` script can generate these; it needs `yq`, which is
 installed. Either way, the result must match the pcs shape.
 
-- [ ] Task 2 complete
+- [x] Task 2 complete — delivered using hmcts-charts; see reconciled differences.
 
 ### Task 3: Wire it into the AAT overlay and the automation kustomizations
 
@@ -309,7 +374,7 @@ a field value and would show the task as already done before any edit. Verified 
 above returns 0 now and correctly finds both releases when run against `apps/pcs/aat/base`, which is the
 control worth running once to confirm the command itself works.
 
-- [ ] Task 3 complete
+- [x] Task 3 complete — automation wired; subsequent AAT/preview placement verified from source.
 
 ### Task 4: Commit, push and raise the PR — then stop
 
@@ -331,7 +396,7 @@ Finally, in **this** repo (`deed-poll-admin`), commit the plan with Task 1's fin
 it to `docs/plans/completed/` — this plan is not complete until the PR merges and the `.internal` record
 exists, neither of which is ours to do.
 
-- [ ] Task 4 complete
+- [x] Task 4 complete — deployment PR merged; plan reconciled and archived locally.
 
 ## How to know it worked
 
