@@ -87,11 +87,11 @@ Do not commit credentials, test sessions, build output or logs.
 
 ### Task 1: Domain reads, realistic mock and local seed data
 
-- [ ] Add thin Caller-based Gazette domain reads/view models through callApi; reuse existing list client.
-- [ ] Implement matching ready filter and history semantics in the mock, including role checks, stable
+- [x] Add thin Caller-based Gazette domain reads/view models through callApi; reuse existing list client.
+- [x] Implement matching ready filter and history semantics in the mock, including role checks, stable
       ordering, paging and bounded reference previews. Follow existing mock-only fixture facilities;
       do not invent a production send endpoint to seed audit history.
-- [ ] Seed eligible/ineligible cases and past batches (including a truncated preview) for development;
+- [x] Seed eligible/ineligible cases and past batches (including a truncated preview) for development;
       verify the seeder reads its results back. Test predicate boundary cases, ordering, totals, paging,
       role refusals, history truncation and normal domain error translation. Pass validation.
 
@@ -154,3 +154,32 @@ Do not commit credentials, test sessions, build output or logs.
 - `yarn welsh:check` still exits 1 with exactly the baseline counts; no user-facing strings changed.
   Full application build, browser journeys and Ralphex internal / Copilot Opus external review remain
   scheduled in Task 4, not represented as completed here.
+
+
+## Task 1 evidence — 7 October 2026
+
+- Reused this worktree's isolated dependencies installed immutably in Task 0. Before edits, lint passed
+  (393 files, two existing Biome infos); all eight test tasks passed (169 files, 3,408 passing tests,
+  three skipped). Welsh baseline remained 503 strings / 474 identical cy entries (467 prose, seven non-prose).
+- Added Caller-based ready-list, count and history reads through callApi, with paging only and no local
+  membership/order decisions. Ready rows reuse buildCaseList; the history view preserves API counts,
+  truncation and plain reference/sender text, formatting timestamps through the existing formatter.
+- Matched the mock against API CaseSpecifications, ListFilters, DeedPollService.order,
+  GazetteNoticeHistory and GazetteNoticeBatchCaseRepository. Ready ordering uses enrolment then ascending
+  case ID; history uses descending send time/ID and frozen references ordered by UTF-8 bytes, capped at 100.
+  Fixture-only POST /__mock/gazette-batches seeds membership, rejects invalid dates/duplicate IDs and resets
+  with the mock. No production Gazette write was added. History retains the decoded-token admin gate;
+  the ready filter remains on API's existing case-list surface, with the UI admin gate scheduled in Task 2.
+- Added 43 tests covering all eight state boundaries, publication/sent-date exclusions, stable ordering,
+  pagination/totals, role refusals, truncation boundaries, immutable history, zoneless wire timestamps,
+  reset/outage behaviour, Caller forwarding, dropped extraneous queries and domain error translation.
+- Final `yarn format` and `yarn lint` passed (398 checked files, same two Biome infos).
+  `npx turbo test test:app --concurrency=1` passed all eight tasks: 172 files, 3,451 tests passed,
+  three skipped. Both `yarn workspace @hmcts/deed-poll-api-client build` and
+  `yarn workspace @hmcts/deed-poll build` passed. `git diff --check` passed.
+- Ran `yarn mock:api --port 0` in this worktree and pointed `yarn mock:seed` at its isolated URL using
+  DEED_POLL_API_MOCK_URL. Read-back checks passed: 57 cases, 26 ready cases, 26 batches over two history
+  pages, newest batch 101 cases with 100 sorted references and truncation true. `yarn mock:seed --keep`
+  passed with 114 cases / 52 ready / 52 batches. Stopped only the mock processes started for these checks.
+- `yarn welsh:check` still exits 1 with exactly the baseline counts; no user-facing content added.
+  Full application build, browser checks and internal/external review remain Task 4.

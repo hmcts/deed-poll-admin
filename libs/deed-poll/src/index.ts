@@ -48,6 +48,8 @@ export * from "./emails/emails-view.js";
 export * from "./emails/service.js";
 export * from "./emails/slot-validation.js";
 export * from "./errors.js";
+export * from "./gazette/service.js";
+export * from "./gazette/view.js";
 export * from "./judicial/schemas.js";
 export * from "./judicial/service.js";
 export * from "./judicial/view.js";

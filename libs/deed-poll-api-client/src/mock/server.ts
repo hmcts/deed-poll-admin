@@ -5,12 +5,13 @@
  * case page. It is a stand-in for the CONTRACT, not a second implementation of api: there is no database,
  * no IDAM, no S2S and no document storage, and it forgets everything when it stops.
  *
- * Four routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
+ * Five routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
  * could be mistaken for one api serves:
  *
  *   POST /__mock/scenario   switch behaviour (see fixtures.ts)
  *   POST /__mock/reset      forget every case
  *   POST /__mock/cases      seed a case without going through a create
+ *   POST /__mock/gazette-batches  seed frozen audit membership without sending
  *   POST /__mock/referrals/{id}/confirmation-request
  *                           start the wait for an applicant's confirmation, which no contract route here can
  *                           do: the write that starts it is notify-3's email and this mock has no template
@@ -68,8 +69,8 @@
  *      api's `EmailNotes`, and the failure half is reachable only under the `email-send-failure` scenario,
  *      because nothing else here drives a row out of `Sent`. See `emailSentNote` and `emailCouldNotBeSentNote`.
  *
- *  13. Gazette history's admin role and paging. Claims are decoded, never verified; the empty history
- *      route is extended with batch fixtures in plan 16a Task 1.
+ *  13. Gazette history's admin role and paging. Claims are decoded, never verified; the history
+ *      reads frozen batches, newest first with an identity tie-break and a sorted 100-reference preview.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `ReferralNotes`, `JudicialReferralService`,
@@ -120,8 +121,10 @@
  * carries a referral that is not optional and a row is keyed on it, where api's column is null for a case-driven
  * email. That is a change for whoever brings the chase here, and it is not made in advance of one.
  */
+
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { z } from "zod";
 import type {
   WireCaseDetail,
   WireCaseWrite,
@@ -147,6 +150,16 @@ import {
   type MockNotification,
   type MockScenario
 } from "./fixtures.js";
+
+/** Fixture-only batch input: full frozen membership, never a production send operation. */
+const SEEDABLE_GAZETTE_BATCH = z
+  .object({
+    id: z.uuid().optional(),
+    sentAt: WIRE_SCHEMAS.GazetteNoticeBatchResponse.shape.sentAt.unwrap().unwrap(),
+    sentBy: z.string(),
+    referenceNumbers: z.array(z.string())
+  })
+  .strict();
 
 /** Five digits, zero-padded, as api's `ReferenceNumbers` formats it. */
 const REFERENCE_SERIAL_DIGITS = 5;
@@ -284,6 +297,7 @@ const CASE_DEFAULTS = {
  */
 export function createMockApi(options: MockApiOptions = {}): MockApi {
   const cases = new Map<string, MockCase>();
+  const gazetteBatches = new Map<string, z.infer<typeof SEEDABLE_GAZETTE_BATCH>>();
   const savedQueries = new Map<string, MockSavedQuery>();
   /**
    * The ids in "my list", for the one notional caller this mock has.
@@ -325,6 +339,15 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (method === "POST" && pathname === "/__mock/reset") {
       reset();
       return send(res, 200, { scenario });
+    }
+
+    if (method === "POST" && pathname === "/__mock/gazette-batches") {
+      const parsed = SEEDABLE_GAZETTE_BATCH.safeParse(await readJsonBody(req));
+      if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+      const id = parsed.data.id ?? randomUUID();
+      if (gazetteBatches.has(id)) return send(res, 409, { error: "Batch already seeded" });
+      gazetteBatches.set(id, { ...parsed.data, id });
+      return send(res, 201, { id });
     }
 
     // Seeding, so a test can start from a case in a given state without driving the create form. Outside
@@ -383,7 +406,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     // down — including reads, which is what makes `api-unavailable` a realistic outage.
     if (!MOCK_SCENARIOS[scenario].reachable) return send(res, 503, { error: "deed-poll-api is unavailable" });
 
-    // Task 0's empty history establishes the read contract. Batch fixtures follow in Task 1.
+    // GazetteNoticeHistory reads frozen batches, independently of today's case records.
     if (pathname === "/caseworker/gazette-notices") {
       const claims = tokenClaims(req);
       if (!claims) return send(res, 401, { error: "Authentication required" });
@@ -393,7 +416,17 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       if (method !== "GET") return send(res, 405, { error: "No Gazette write operation" });
       const paging = parsePaging(searchParams.get("page"), searchParams.get("size"));
       if ("errors" in paging) return send(res, 400, { error: "Invalid paging", errors: paging.errors });
-      return send(res, 200, { batches: [], ...paging, total: 0, totalPages: 0 });
+      const ordered = [...gazetteBatches.values()].sort((a, b) => rank(b.sentAt, a.sentAt) || rank(b.id, a.id));
+      const from = (paging.page - 1) * paging.size;
+      const batches = ordered.slice(from, from + paging.size).map((batch) => ({
+        sentAt: iso(batch.sentAt),
+        sentBy: batch.sentBy,
+        caseCount: batch.referenceNumbers.length,
+        // PostgreSQL COLLATE "C" orders UTF-8 bytes, not the host's locale.
+        referenceNumbers: [...batch.referenceNumbers].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b))).slice(0, 100),
+        referencesTruncated: batch.referenceNumbers.length > 100
+      }));
+      return send(res, 200, { batches, ...paging, total: ordered.length, totalPages: Math.ceil(ordered.length / paging.size) });
     }
 
     if (method === "GET" && pathname === "/caseworker/document-types") return send(res, 200, MOCK_DOCUMENT_TYPES);
@@ -1469,6 +1502,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
   function reset(): void {
     cases.clear();
+    gazetteBatches.clear();
     serials.clear();
     savedQueries.clear();
     selectedQueryIds.clear();
@@ -1680,6 +1714,11 @@ const FILTERS: readonly { key: string; matches: (record: MockCase) => boolean; d
     // Ascending the stamp, which is descending in days waited: the case at risk of being forgotten is the one at
     // the top. api's `ListFilters.LONGEST_WAIT_FIRST`.
     defaultSort: { field: "awaitingConfirmationSince", descending: false }
+  },
+  {
+    key: "readyForPublication",
+    matches: (record) => record.publishToLondonGazette === true && record.dateNoticeSentToLondonGazette == null && record.state === "Enroled",
+    defaultSort: { field: "dateEnroled", descending: false }
   }
 ];
 
@@ -1946,7 +1985,8 @@ function comparing(order: MockSort): (left: MockCase, right: MockCase) => number
     const b = (right as unknown as Record<string, unknown>)[order.field];
     const ranked = isBlank(a) || isBlank(b) ? (isBlank(a) === isBlank(b) ? 0 : isBlank(a) ? 1 : -1) : rank(a, b);
 
-    return order.descending ? -ranked : ranked;
+    // DeedPollService.order appends ascending id even when the primary field is descending.
+    return (order.descending ? -ranked : ranked) || rank(left.id, right.id);
   };
 }
 
