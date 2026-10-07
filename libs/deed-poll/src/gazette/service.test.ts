@@ -72,3 +72,17 @@ describe.each([
     await expect(read({}, CALLER)).rejects.toBeInstanceOf(ErrorClass);
   });
 });
+
+it("should preserve historical batches and their full counts while dropping unsupported query fields", async () => {
+  const history = {
+    ...HISTORY,
+    batches: [
+      { sentAt: new Date("2026-01-02T09:30:00Z"), sentBy: "<b>sender</b>", caseCount: 101, referenceNumbers: ["<i>reference</i>"], referencesTruncated: true }
+    ]
+  };
+  vi.mocked(getGazetteNoticeHistory).mockResolvedValue({ ok: true, data: history });
+  const query = { page: 3, size: 7, sort: "sentAt:asc", q: "sender" };
+
+  expect(await findGazetteHistory(query, CALLER)).toBe(history);
+  expect(getGazetteNoticeHistory).toHaveBeenCalledExactlyOnceWith({ page: 3, size: 7 }, expect.objectContaining({ accessToken: CALLER.accessToken }));
+});

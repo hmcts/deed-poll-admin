@@ -1,0 +1,36 @@
+{% extends "layouts/app-full-width.njk" %}
+{% from "govuk/components/table/macro.njk" import govukTable %}
+{% from "govuk/components/pagination/macro.njk" import govukPagination %}
+
+{% block content %}
+  <p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette">{{ back }}</a></p>
+  <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+  {% if batches.length == 0 %}
+    <p class="govuk-body">{{ emptyPage if isBeyondEnd else empty }}</p>
+    {% if isBeyondEnd %}
+      <p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette/history">{{ firstPage }}</a></p>
+    {% endif %}
+  {% else %}
+    {% set rows = [] %}
+    {% for batch in batches %}
+      {% set referenceCell %}
+        <ul class="govuk-list">
+          {% for reference in batch.referenceNumbers %}<li>{{ reference }}</li>{% endfor %}
+        </ul>
+        {% if batch.referencesTruncated %}<p class="govuk-body">{{ truncated }}</p>{% endif %}
+      {% endset %}
+      {% set rows = (rows.push([
+        { text: batch.sentAt }, { text: batch.sentBy }, { text: batch.caseCount }, { html: referenceCell }
+      ]), rows) %}
+    {% endfor %}
+    {{ govukTable({
+      head: [{ text: sentAt }, { text: sentBy }, { text: caseCount }, { text: references }],
+      rows: rows, caption: heading, captionClasses: "govuk-visually-hidden"
+    }) }}
+  {% endif %}
+  {% if pagingSummary %}<p class="govuk-body">{{ pagingSummary }}</p>{% endif %}
+  {% if paging.links %}
+    {{ govukPagination({ previous: paging.links.previous, next: paging.links.next, items: paging.links.items, landmarkLabel: pagingLabel }) }}
+  {% endif %}
+{% endblock %}

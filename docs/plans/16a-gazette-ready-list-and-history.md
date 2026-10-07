@@ -111,9 +111,9 @@ Do not commit credentials, test sessions, build output or logs.
 
 ### Task 3: Paginated send history
 
-- [ ] Add /deed-polls/gazette/history with sender, timestamp, full case count and escaped reference preview;
+- [x] Add /deed-polls/gazette/history with sender, timestamp, full case count and escaped reference preview;
       indicate referencesTruncated accurately, with no invented ID-based links or full-detail action.
-- [ ] Use shared pagination conventions and API response metadata; handle empty, out-of-range and failed
+- [x] Use shared pagination conventions and API response metadata; handle empty, out-of-range and failed
       reads consistently with existing list pages. Add handler/template/domain tests and bilingual content.
       Verify hostile reference/sender text remains escaped and caseCount is never preview length.
       Pass validation.
@@ -215,3 +215,27 @@ Do not commit credentials, test sessions, build output or logs.
   eight tasks, including application TypeScript and Vite. No source workaround was needed.
 - Browser/accessibility journeys and Ralphex internal / Copilot Opus external review remain Task 4.
   Task 3 history implementation has not been started in this iteration.
+
+
+## Task 3 evidence — 7 October 2026
+
+- Reused this worktree's isolated dependencies installed immutably in Task 0. Before edits, yarn lint
+  passed (400 checked files, two existing Biome infos); all eight test tasks passed with 173 files,
+  3,482 passing tests and three skipped. Welsh baseline: 520 strings / 474 identical cy entries
+  (467 prose, seven non-prose).
+- Added /deed-polls/gazette/history under the existing admin area gate, using the existing Caller-based
+  domain read and history view. The page preserves batch/reference order, formats timestamps, shows
+  the full caseCount independently of preview length, and follows referencesTruncated exactly.
+  Sender and reference text are escaped through the real GOV.UK table macro. There are no invented
+  batch/detail links. Ready-list navigation is present even when history is empty.
+- Shared pagination uses API metadata and only the parsed page travels to the domain. Empty history
+  and out-of-range pages differ, with first-page recovery; failed reads propagate to the shared error
+  handler. Added 17 handler/template tests and one domain test covering these behaviours, hostile
+  text, unsupported query controls and Welsh rendering; existing history view/error tests also pass.
+- yarn format and yarn lint passed (402 checked files, same two Biome infos).
+  npx turbo test test:app --concurrency=1 passed all eight tasks: 174 files, 3,500 tests passed,
+  three skipped. npx tsc -p tsconfig.app.json --noEmit and git diff --check passed.
+- yarn welsh:extract refreshed the catalogue with all 13 new strings. yarn welsh:check still exits 1:
+  533 strings, the same 474 identical entries (467 prose, seven non-prose). New Welsh copy awaits
+  human language review. Full browser/accessibility journeys, build and internal/external review
+  remain Task 4, which was not started in this iteration.
