@@ -187,6 +187,12 @@ journey also checks Welsh. The dedicated config keeps the empty-state fixture ou
 
 There are no database commands: this repo has no database.
 
+### Representative data in non-production environments
+
+`yarn seed:cases` previews or creates 30 synthetic cases covering every application state through the real API.
+It accepts an explicit non-production environment and API URL, preserves existing cases, and records a resumable journal.
+See [the seeding guide](docs/SEED-DATA.md) for credentials, dataset coverage and usage.
+
 ### The persona switcher
 
 `yarn dev` puts a red **Dev only — Switch persona** strip at the top of every page, offering *Caseworker*,

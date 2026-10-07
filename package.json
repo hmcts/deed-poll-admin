@@ -41,7 +41,8 @@
     "idam:build": "node scripts/build-idam-simulator.mjs",
     "idam:users": "node scripts/seed-idam-users.mjs",
     "welsh:extract": "node scripts/extract-welsh-strings.mjs",
-    "welsh:check": "node scripts/extract-welsh-strings.mjs --check"
+    "welsh:check": "node scripts/extract-welsh-strings.mjs --check",
+    "seed:cases": "yarn workspace @hmcts/deed-poll-api-client run seed"
   },
   "keywords": [],
   "author": "HMCTS",
