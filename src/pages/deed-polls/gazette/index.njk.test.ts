@@ -72,6 +72,16 @@ describe("Gazette ready list", () => {
     expect(markup).toContain("Applications enrolled longest ago are first");
   });
 
+  it("should identify private cases without filtering them out of the ready list", async () => {
+    vi.mocked(findGazetteReadyCases).mockResolvedValue({ ...PAGE, cases: [{ ...RECORD, privacy: "Private" }, RECORD] } as never);
+    const { markup } = await render();
+    expect(markup).toContain("Privacy");
+    expect(markup).toMatch(/govuk-tag--red[\s\S]*?Private/);
+    expect(markup).toContain("Normal");
+    expect(markup.match(/href="\/deed-polls\/case-1"/g) ?? []).toHaveLength(2);
+    expect((await render({}, "cy")).markup).toContain("Preifatrwydd");
+  });
+
   it("should use API paging metadata and totals instead of the number of rows", async () => {
     vi.mocked(findGazetteReadyCases).mockResolvedValue({ ...PAGE, page: 2, size: 10, total: 43, totalPages: 5 } as never);
     const { markup } = await render({ page: "2" });

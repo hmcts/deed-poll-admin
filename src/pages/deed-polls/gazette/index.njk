@@ -1,5 +1,6 @@
 {% extends "layouts/app-full-width.njk" %}
 {% from "govuk/components/table/macro.njk" import govukTable %}
+{% from "govuk/components/tag/macro.njk" import govukTag %}
 {% from "govuk/components/pagination/macro.njk" import govukPagination %}
 
 {% block content %}
@@ -17,12 +18,15 @@
     {% set rows = [] %}
     {% for c in cases %}
       {% set referenceCell %}<a class="govuk-link" href="/deed-polls/{{ c.id | urlencode }}">{{ c.reference }}</a>{% endset %}
+      {% set privacyCell %}
+        {% if c.isPrivate %}{{ govukTag({ text: c.privacy, classes: "govuk-tag--red" }) }}{% else %}{{ c.privacy }}{% endif %}
+      {% endset %}
       {% set rows = (rows.push([
-        { html: referenceCell }, { text: c.newForename }, { text: c.newSurname }, { text: c.dateReceived }
+        { html: referenceCell }, { html: privacyCell }, { text: c.newForename }, { text: c.newSurname }, { text: c.dateReceived }
       ]), rows) %}
     {% endfor %}
     {{ govukTable({
-      head: [{ text: reference }, { text: forename }, { text: surname }, { text: received }],
+      head: [{ text: reference }, { text: privacy }, { text: forename }, { text: surname }, { text: received }],
       rows: rows, caption: heading, captionClasses: "govuk-visually-hidden"
     }) }}
   {% endif %}

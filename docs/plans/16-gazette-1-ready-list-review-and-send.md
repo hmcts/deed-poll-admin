@@ -4,10 +4,15 @@
 
 API PR #80 is merged at `44c89a335069243997898fefd603afa9df85695e`. It supplies the
 ready-for-publication filter and admin-only, paginated history, but **no batch send operation**.
-The runnable subset is [plan 16a](16a-gazette-ready-list-and-history.md): contract reconciliation,
+The completed read-only subset is [plan 16a](completed/16a-gazette-ready-list-and-history.md): contract reconciliation,
 client/domain/mock, admin gate and count, a read-only ready list, and history. This supersedes the
 original reconciliation gate below for that subset: the pinned admin contract also predates CCD
 recovery and document/email contract updates, which must be accounted for explicitly.
+
+Delivered by plan 16a: admin gate/count, oldest-enrolled read-only ready list and paginated history.
+Remaining dependencies: the batch-send API contract (including idempotency/conflict semantics),
+Notify/spreadsheet provisioning and delivery decisions, and business validation of the proposed
+checklist and whether it blocks selection. There is still no full send-journey E2E.
 
 Keep this parent plan active. Selection, the proposed review checklist, confirmation and sending
 remain outstanding pending the API send contract and its business/dependency decisions. Do not
@@ -197,12 +202,19 @@ identical `en`/`cy` strings has moved by only this plan's own new keys, per the 
 
 ### Task 0: Reconcile the published API contract
 
+Plan 16a reconciled the complete merged read contract, including the explicitly deferred CCD surface.
+A further reconciliation is required when the send operation is published; the original predicted
+"exact" delta below is superseded for reads by plan 16a's measured provenance.
+
 Refresh `openapi.json` per `SPEC-PROVENANCE.md` once the api plan has merged. Verify the delta is exactly the
 filter description text and the two new operations/schemas, nothing pre-existing altered. Record baselines.
 
 - [ ] Contract reconciled; baselines recorded
 
 ### Task 1: Client, domain and mock
+
+Read client/domain/mock and seed fixtures delivered by plan 16a. Sending and any business-approved
+review/selection state remain outstanding; no mock "reviewed" state has been invented.
 
 Add the client methods, wire types, view models, and mock support — including seed data covering an unreviewed
 ready case, a reviewed-but-unsent one, and at least one past batch for the history page, so `yarn mock:seed`
@@ -216,9 +228,12 @@ Mount `requireRole(DEEDPOLL_ADMIN)` on `/deed-polls/gazette`. Add the third work
 conditional on `isAdmin` per decision 3. Add the filesystem-scan test proving every page under the new prefix
 is covered by the mount.
 
-- [ ] Gate mounted and tested; banner renders only for admins; non-admin area access refused
+- [x] Gate mounted and tested; banner renders only for admins; non-admin area access refused (plan 16a)
 
 ### Task 3: Ready list
+
+Read-only list delivered by plan 16a with case-detail links, API ordering and paging. Selection,
+checklist gating and review links remain outstanding.
 
 The list page, checkboxes, reviewed/unreviewed disabled-state logic per decision 4's proposed rule, links to
 review and to history.
@@ -241,9 +256,14 @@ handling (decision 8).
 
 ### Task 6: History page
 
-- [ ] History page implemented and tested
+- [x] History page implemented and tested (plan 16a; full counts, bounded preview and pagination)
 
 ### Task 7: Welsh strings, E2E and full validation
+
+Plan 16a supplies extracted bilingual read pages and dedicated browser journeys for empty/populated
+counts, ready/case/history navigation, pagination, truncation and non-admin refusal, with inline axe
+and Welsh checks. A full review/select/confirm/send/history E2E journey is still missing. Welsh
+language review is still required; the existing identical-English baseline is not a clean Welsh check.
 
 Add the new area to `extract-welsh-strings.mjs`'s `INCLUDE` if not already done incrementally. Write the E2E
 journey: an admin sees the banner, reviews a case, sends a subset, sees the history entry; a non-admin cannot

@@ -324,7 +324,7 @@ async function savedQueryEntries(caller: Caller, { filter, q, conditions, sort }
  * Worklist counts, read together and degrading independently; Gazette is requested only for admins.
  *
  * `Promise.all` rather than `allSettled` because each read has already caught its own failure — the settled
- * shape would be a second way of saying the same thing — and neither can reject. They are separate reads
+ * shape would be a second way of saying the same thing — and none can reject. They are separate reads
  * because they are separate questions: a caseworker whose confirmation count failed must still be told about
  * a returned direction, and the reverse.
  */

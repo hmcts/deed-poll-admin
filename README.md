@@ -165,6 +165,26 @@ yarn mock:seed                  # Fill the running mock with cases: every tab, a
 The mock starts **empty**, so `yarn mock:seed` is what makes the list page, its filters and the dashboard's
 count show anything at all. An empty store looks the same as a feature that is not working.
 
+Administrators can follow the London Gazette count from the case list to an oldest-enrolled-first,
+read-only ready list and paginated send history. History shows the full case count and identifies
+truncated reference previews. Review checklists, selection and sending remain future work in
+[plan 16](docs/plans/16-gazette-1-ready-list-review-and-send.md).
+
+The seed includes 26 ready cases, cases excluded by the publication/sent-date rules, and 26 frozen
+history batches. The newest batch has 101 cases and a sorted 100-reference preview. No email is sent.
+`DEED_POLL_API_MOCK_URL=http://localhost:3216 yarn mock:seed` targets an isolated mock;
+`--keep` adds to it. The standalone mock uses `http://localhost:5556/o/userinfo` to resolve roles
+missing from simulator access tokens; `DEED_POLL_API_MOCK_USERINFO_URL` overrides that endpoint.
+
+For the Gazette browser journeys, run `yarn build` to produce the workspace library exports, start
+the local IDAM simulator (`yarn idam:build` if its image is missing, then `docker compose up -d idam`),
+and seed it with `yarn idam:users`. Then provide a separate Redis instance on port 6316 (for example,
+`docker run --rm -p 6316:6379 redis:8-alpine`). Run `yarn test:gazette` from this repository root.
+The suite starts/stops its own app on 3316 and fresh mock on 3216, uses Redis database 1, and refuses
+to reuse occupied app/mock ports. Both journeys sign in through IDAM and include axe checks; the admin
+journey also checks Welsh. The dedicated config keeps the empty-state fixture out of the shared
+`yarn test:e2e` suite. It never resets an existing mock. These checks cover reads only, not sending.
+
 There are no database commands: this repo has no database.
 
 ### The persona switcher

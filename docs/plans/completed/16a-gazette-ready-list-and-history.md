@@ -120,14 +120,14 @@ Do not commit credentials, test sessions, build output or logs.
 
 ### Task 4: Browser journeys, full validation and parent-plan handoff
 
-- [ ] Add minimal full browser journeys covering admin count-to-ready-list-to-case/history navigation,
+- [x] Add minimal full browser journeys covering admin count-to-ready-list-to-case/history navigation,
       pagination/truncated preview and empty state, plus a non-admin's denied Gazette area and absent count.
       Include accessibility/Welsh checks following repository conventions; run against this worktree's app.
-- [ ] Run full lint, tests, build and Welsh extraction/check delta; record measured outcomes and evidence.
-- [ ] Update CLAUDE/README only where needed to document new cross-file behavior and development seed data.
+- [x] Run full lint, tests, build and Welsh extraction/check delta; record measured outcomes and evidence.
+- [x] Update CLAUDE/README only where needed to document new cross-file behavior and development seed data.
       Annotate parent plan16 accurately: completed gate/count/history versus remaining review/selection/send,
       contract/business dependencies, and the missing full send-journey E2E. Do not mark parent16 complete.
-- [ ] Ensure clean committed worktree, move only this completed subplan to completed/, and fix parent links
+- [x] Ensure clean committed worktree, move only this completed subplan to completed/, and fix parent links
       when moving it. Ralphex internal and Copilot Opus external review must run before reporting completion.
 
 
@@ -239,3 +239,49 @@ Do not commit credentials, test sessions, build output or logs.
   533 strings, the same 474 identical entries (467 prose, seven non-prose). New Welsh copy awaits
   human language review. Full browser/accessibility journeys, build and internal/external review
   remain Task 4, which was not started in this iteration.
+
+
+## Task 4 evidence — 7 October 2026
+
+- Reused the worktree's own immutable-installed dependencies. Before edits, lint passed (402 files,
+  two existing Biome configuration infos); all eight test tasks passed, 174 files / 3,500 passing tests
+  / three skipped. Welsh baseline was 533 strings / 474 identical cy entries (467 prose, seven non-prose).
+- Added `yarn test:gazette`, two complete Playwright journeys using this worktree's app on 3316,
+  a fresh mock on 3216 and separate Redis on 6316/database 1. Signed in through the real local IDAM
+  simulator on 5556. The suite refuses existing app/mock ports and never resets another mock.
+  Covered zero count and empty ready/history, populated count-to-list-to-case/history navigation,
+  keyboard activation, the private-case indicator, both second pages, 101-case/100-reference truncation, escaped sender/references,
+  Welsh headings/paging/truncation, absent non-admin count/link and 403 on both Gazette routes.
+  Inline WCAG 2 A/AA and 2.1 A/AA axe scans passed with no exclusions. Final browser run: two passed.
+- Browser execution caught and fixed a real mock integration defect: the simulator's access token
+  has no roles; those come from userinfo. The standalone mock now resolves missing roles using its
+  configured local userinfo endpoint; in-process role fixtures still work. Six added tests exercise
+  admin/non-admin/malformed-role responses, missing identity and upstream refusals, including bearer
+  forwarding. Production authentication is unchanged. Initial config composition also accidentally
+  retained the default web servers; replacing the config object fixed this before the successful runs.
+- `yarn format` and `yarn lint` passed (404 files, same two Biome infos).
+  `npx turbo test test:app --concurrency=1` passed all eight tasks: 174 files, 3,507 passing tests,
+  three skipped. `yarn build` passed all eight tasks, including application TypeScript and Vite.
+  `yarn welsh:extract` now captures 534 strings (one additional translated Privacy heading);
+  `yarn welsh:check` exits 1 with the same 474 identical entries as the baseline. New Welsh copy still needs human language review. `git diff --check` passed.
+- Browser startup emitted existing optional Azure credential/secret-volume warnings; the local app
+  started and both journeys passed. No credentials, sessions, generated build output or logs are committed.
+- Updated README/CLAUDE for read-only Gazette behavior, seed fixtures, mock userinfo and isolated
+  browser prerequisites. Parent plan 16 marks only gate/count and history tasks complete; contract
+  reconciliation for sending, selection/checklist, confirmation/Notify, business decisions and the
+  full send-journey E2E remain outstanding.
+- Ralphex internal quality, implementation, testing, simplification and documentation reviews completed.
+  The documentation review's missing build prerequisite was fixed and rechecked; final focused
+  critical/major reviews found no issues.
+- Independent Copilot CLI review ran with `claude-opus-5`, matching the workspace
+  `codex-copilot-opus` profile, which was not changed. Automatic approval rejected broad tool access;
+  the successful invocation enabled only the read-only view tool and read a prepared branch diff plus
+  source files. Session events verified the model and no reads of internal progress transcripts.
+  The first review produced six suggestions: added the ready-list Privacy indicator with bilingual
+  heading and tests, decoupled ready paging from the history query type, and corrected two comments.
+  Retained authentication before unsupported methods (401/403 remain appropriate refusals), and the
+  page-specific out-of-range predicate (the shared helper also includes empty totals). Copilot's
+  focused follow-up verified the fixes and both retained decisions, ending `NO ISSUES FOUND`.
+- Re-ran lint, all unit tests, build, Welsh extraction/check and both browser journeys after review fixes;
+  the final results are recorded above. Stopped only this iteration's temporary services. Archived
+  only this completed subplan and updated its parent link; parent plan 16 remains active.

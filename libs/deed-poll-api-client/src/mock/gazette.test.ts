@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getGazetteNoticeHistory, listCases } from "../api/client.js";
 import { DEED_POLL_STATE } from "../api/wire.js";
@@ -162,5 +164,34 @@ describe("frozen Gazette history", () => {
     mock.setScenario("happy-path");
 
     expect(await history()).toMatchObject({ ok: true, data: { batches: [], total: 0, totalPages: 0 } });
+  });
+});
+
+describe("Gazette roles from local IDAM userinfo", () => {
+  it.each([
+    { status: 200, body: { roles: ["caseworker-deedpoll-admin"] }, expected: 200 },
+    { status: 200, body: { roles: [] }, expected: 403 },
+    { status: 200, body: { roles: "caseworker-deedpoll-admin" }, expected: 403 },
+    { status: 200, body: null, expected: 401 },
+    { status: 401, body: {}, expected: 401 },
+    { status: 503, body: {}, expected: 401 }
+  ])("should answer $expected for userinfo $status / $body", async ({ status, body, expected }) => {
+    let forwarded: string | undefined;
+    const issuer = createServer((req, res) => {
+      forwarded = req.headers.authorization;
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(body));
+    });
+    await new Promise<void>((resolve) => issuer.listen(0, "127.0.0.1", resolve));
+    const api = await startMockApi({ userInfoUrl: `http://127.0.0.1:${(issuer.address() as AddressInfo).port}/userinfo` });
+    const accessToken = `x.${Buffer.from(JSON.stringify({ sub: "admin" })).toString("base64url")}.signature`;
+    try {
+      const response = await fetch(`${api.url}/caseworker/gazette-notices`, { headers: { authorization: `Bearer ${accessToken}` } });
+      expect(response.status).toBe(expected);
+      expect(forwarded).toBe(`Bearer ${accessToken}`);
+    } finally {
+      await api.close();
+      await new Promise<void>((resolve, reject) => issuer.close((error) => (error ? reject(error) : resolve())));
+    }
   });
 });

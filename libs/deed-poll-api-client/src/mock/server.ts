@@ -3,7 +3,7 @@
  *
  * It exists because api is not deployed, so without it neither `yarn dev` nor the e2e suite can reach a
  * case page. It is a stand-in for the CONTRACT, not a second implementation of api: there is no database,
- * no IDAM, no S2S and no document storage, and it forgets everything when it stops.
+ * no signature verification, no S2S and no document storage, and it forgets everything when it stops.
  *
  * Five routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
  * could be mistaken for one api serves:
@@ -69,7 +69,8 @@
  *      api's `EmailNotes`, and the failure half is reachable only under the `email-send-failure` scenario,
  *      because nothing else here drives a row out of `Sent`. See `emailSentNote` and `emailCouldNotBeSentNote`.
  *
- *  13. Gazette history's admin role and paging. Claims are decoded, never verified; the history
+ *  13. Gazette history's admin role and paging. Fixture claims are decoded, never verified;
+ *      local IDAM tokens without roles use the configured userinfo endpoint; the history
  *      reads frozen batches, newest first with an identity tie-break and a sorted 100-reference preview.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
@@ -408,7 +409,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
     // GazetteNoticeHistory reads frozen batches, independently of today's case records.
     if (pathname === "/caseworker/gazette-notices") {
-      const claims = tokenClaims(req);
+      const claims = await gazetteClaims(req, options.userInfoUrl);
       if (!claims) return send(res, 401, { error: "Authentication required" });
       if (!Array.isArray(claims.roles) || !claims.roles.includes("caseworker-deedpoll-admin")) {
         return send(res, 403, { error: "Administrator role required" });
@@ -1619,6 +1620,23 @@ function callerSubject(req: IncomingMessage): string {
   const subject = tokenClaims(req)?.sub;
 
   return typeof subject === "string" && subject.length > 0 ? subject : MOCK_SUBJECT;
+}
+
+// Local IDAM puts roles in userinfo, not its access token. Fixture tokens still carry roles directly.
+async function gazetteClaims(req: IncomingMessage, userInfoUrl?: string): Promise<{ roles?: unknown } | null> {
+  const claims = tokenClaims(req);
+  if (!claims || claims.roles !== undefined || !userInfoUrl) return claims;
+  try {
+    const response = await fetch(userInfoUrl, {
+      headers: { authorization: req.headers.authorization ?? "" },
+      signal: AbortSignal.timeout(2000)
+    });
+    if (!response.ok) return null;
+    const info = await response.json();
+    return info && typeof info === "object" && !Array.isArray(info) ? info : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -2998,6 +3016,8 @@ function parseMultipart(body: Buffer, contentType: string): ParsedUpload | null 
 
 export interface MockApiOptions {
   scenario?: MockScenario;
+  /** Optional local IDAM endpoint for access tokens whose roles live in userinfo. */
+  userInfoUrl?: string;
 }
 
 export interface MockApi {

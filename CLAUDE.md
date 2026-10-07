@@ -22,7 +22,7 @@ yarn format                     # Format code with Biome
 
 # deed-poll-api
 yarn mock:api                   # The in-memory api the pages develop against, on port 3200
-yarn mock:seed                  # Seed the running mock: ~32 cases across every tab plus nine referrals — four
+yarn mock:seed                  # Seed the running mock: 57 cases across every tab plus nine referrals — four
                                 # Decided so the returned-for-action count is non-zero, two of those also
                                 # awaiting the applicant's confirmation (waiting 14 and 3 days) so the second
                                 # count, its tab and the Waiting column are non-empty too. Resets the store
@@ -32,6 +32,22 @@ yarn mock:seed                  # Seed the running mock: ~32 cases across every 
 The mock starts **empty**, so a page whose data comes from a list — the case list, its filter tabs, the
 dashboard's count — shows nothing until `yarn mock:seed` has run. An empty store is indistinguishable from a
 broken feature, which is why the seeder reads its own numbers back (`scripts/seed-local-cases.mjs`).
+
+The seed also provides 26 Gazette-ready cases and 26 frozen past batches, with a 101-case batch whose
+reference preview stops at 100. These are mock fixtures; no Gazette send endpoint exists.
+
+The Gazette area `/deed-polls/gazette/**` is gated once in `app.ts` after authentication, using
+`DEEDPOLL_ADMIN`. Its independent main-list count is requested only for admins; zero and unavailable
+both retain the area link. Ready reads forward only paging and `filter=readyForPublication`, never a
+sort or local membership predicate. History preserves API totals and the explicit truncation flag.
+The Welsh extractor already includes this area recursively through `deed-polls`.
+
+`yarn test:gazette` runs two browser journeys against a fresh mock on 3216 and this app on 3316,
+using Redis on 6316/database 1 and local IDAM on 5556. It is separate from `yarn test:e2e` because its
+empty-state check must never reset a shared developer mock. See README for prerequisites.
+The standalone mock resolves missing token roles from local IDAM userinfo (override with
+`DEED_POLL_API_MOCK_USERINFO_URL`); in-process fixtures can carry roles directly. This is mock-only:
+real API authentication still belongs to API, and no page sends an asserted role.
 
 There are **no database commands**, and the `yarn db:*` family that used to be listed here is gone rather
 than renamed. See "No data access layer" below.
@@ -402,9 +418,8 @@ Follow these strict naming conventions throughout the project:
   depend on the degraded call must render outside every branch of it**: the Referrals panel's "Previous system
   referral information" snapshot comes off the case, so nesting it inside the live-history branch would let a
   failed referrals read hide a historical record that was never at risk
-- **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its three
-  additive calls — the saved-query nav and the two worklist counts, returned-for-action and awaiting-confirmation
-  — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
+- **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its additive calls — the saved-query nav, the returned-for-action and awaiting-confirmation
+  counts, and the admin-only Gazette count — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
   (`[]`, `null`); only the list read is fatal. Reach for that shape on a page with one load-bearing call rather
   than `Promise.allSettled`, which is `[id].ts`'s answer to two. `worklistCount(name, read)` is the generalised
   degrade-and-log helper, and the counts are separate reads on purpose: a caseworker whose confirmation count

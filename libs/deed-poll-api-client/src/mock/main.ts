@@ -22,7 +22,11 @@ if (requested !== undefined && !isMockScenario(requested)) {
   process.exit(1);
 }
 
-const mock = await startMockApi({ port, scenario: isMockScenario(requested) ? requested : DEFAULT_SCENARIO });
+const mock = await startMockApi({
+  port,
+  scenario: isMockScenario(requested) ? requested : DEFAULT_SCENARIO,
+  userInfoUrl: process.env.DEED_POLL_API_MOCK_USERINFO_URL ?? "http://localhost:5556/o/userinfo"
+});
 
 console.log(`mock deed-poll-api listening on ${mock.url} (scenario: ${mock.scenario})`);
 

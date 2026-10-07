@@ -3,7 +3,7 @@
  *
  * The document is api's own output, so unlike `deed-poll-web`'s equivalent this is not two hand-written
  * descriptions being compared — it is a check that the adapter still matches what api actually serves. It
- * fails on a property renamed or added at either end, an enum member added, an operation the adapter does
+ * fails on a property renamed or added at either end, an enum member added, an operation the adapter
  * has not explicitly accounted for, and a response property whose strictness was decided rather than derived.
  *
  * Refreshing the document is `SPEC-PROVENANCE.md`.

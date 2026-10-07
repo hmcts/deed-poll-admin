@@ -300,6 +300,7 @@ src/pages/deed-polls/gazette/index.ts,history,"Send history","Hanes anfon",alrea
 src/pages/deed-polls/gazette/index.ts,intro,"Applications enrolled longest ago are first. Open an application to view its details.","Mae’r ceisiadau a gofrestrwyd gynharaf yn gyntaf. Agorwch gais i weld ei fanylion.",already translated,"",,""
 src/pages/deed-polls/gazette/index.ts,pagingLabel,"Pages of applications","Tudalennau ceisiadau",already translated,"",,""
 src/pages/deed-polls/gazette/index.ts,pagingSummaryFor,"`${first} to ${last} of ${total} applications`","`${first} i ${last} o ${total} o geisiadau`",already translated,"",,""
+src/pages/deed-polls/gazette/index.ts,privacy,"Privacy","Preifatrwydd",already translated,"",,""
 src/pages/deed-polls/gazette/index.ts,received,"Received","Derbyniwyd",already translated,"",,""
 src/pages/deed-polls/gazette/index.ts,reference,"Reference","Cyfeirnod",already translated,"",,""
 src/pages/deed-polls/gazette/index.ts,surname,"New surname","Cyfenw newydd",already translated,"Cyfenw newydd",high,""
