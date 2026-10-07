@@ -259,6 +259,9 @@ const gates = vi.hoisted(() => ({
   auth: function requireAuthDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
+  gazette: function requireGazetteDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
   judicial: function requireJudicialDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
@@ -275,7 +278,7 @@ const gates = vi.hoisted(() => ({
 }));
 
 vi.mock("./auth/require-auth.js", () => ({ requireAuth: () => gates.auth, isPublicPath: () => false }));
-vi.mock("./auth/require-role.js", () => ({ requireRole: () => gates.judicial, requireJudicial: () => gates.judicial }));
+vi.mock("./auth/require-role.js", () => ({ requireRole: vi.fn(() => gates.gazette), requireJudicial: () => gates.judicial }));
 vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gates.persona }));
 vi.mock("./auth/same-origin.js", () => ({ requireSameOrigin: () => gates.sameOrigin }));
 
@@ -436,14 +439,14 @@ describe("createApp's cross-origin gate", () => {
  * The URL of every judicial page, derived from the page files the way `simple-router` derives its routes: the
  * `pages` root is stripped, an `index` is the directory itself, and a `[param]` segment stands for any value.
  */
-function judicialPagePaths(): string[] {
-  const root = path.join(fileURLToPath(import.meta.url), "../pages/judicial");
+function judicialPagePaths(area = "judicial"): string[] {
+  const root = path.join(fileURLToPath(import.meta.url), `../pages/${area}`);
 
   return readdirSync(root, { recursive: true, encoding: "utf8" })
     .filter((entry) => entry.endsWith(".ts") && !entry.endsWith(".test.ts"))
     .map(
       (entry) =>
-        `/judicial/${entry
+        `/${area}/${entry
           .replace(/\.ts$/, "")
           .replace(/(^|\/)index$/, "")
           .replace(/\[[^\]]+\]/g, "a-sample-id")}`
@@ -453,3 +456,34 @@ function judicialPagePaths(): string[] {
 
 /** The part of an Express layer this file reads: what was mounted, and the paths it answers for. */
 type MountedLayer = { handle: unknown; matchers: ((path: string) => unknown)[]; match: (path: string) => boolean };
+
+describe("createApp's Gazette gate", () => {
+  it("should require the admin role after authentication and before routing for every Gazette page", async () => {
+    const { requireRole } = await import("./auth/require-role.js");
+    const { DEEDPOLL_ADMIN } = await import("@hmcts/deed-poll");
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    const stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+    const index = stack.findIndex((entry) => entry.handle === gates.gazette);
+    const paths = judicialPagePaths("deed-polls/gazette");
+
+    expect(requireRole).toHaveBeenCalledWith(DEEDPOLL_ADMIN);
+    expect(stack.filter((entry) => entry.handle === gates.gazette)).toHaveLength(1);
+    expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.auth));
+    expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.persona));
+    expect(index).toBeLessThan(stack.findIndex((entry) => entry.handle === gates.router));
+    expect(paths.length).toBeGreaterThanOrEqual(1);
+    for (const url of [...paths, "/deed-polls/gazette/history", "/deed-polls/gazette/future-page"]) {
+      expect(
+        stack[index].matchers.some((matches) => matches(url) !== false),
+        url
+      ).toBe(true);
+    }
+    for (const url of ["/deed-polls", "/deed-polls/abc", "/deed-polls/gazette-other", "/judicial", "/login"]) {
+      expect(
+        stack[index].matchers.every((matches) => matches(url) === false),
+        url
+      ).toBe(true);
+    }
+  });
+});

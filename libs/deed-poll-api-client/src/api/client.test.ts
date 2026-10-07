@@ -29,6 +29,7 @@ import {
   getCase,
   getCaseEmails,
   getFieldRules,
+  getGazetteNoticeHistory,
   getJudicialMyReferrals,
   getJudicialPool,
   getJudicialReferral,
@@ -101,6 +102,107 @@ beforeEach(() => {
   // per-year reference serials accumulate and every assertion about a serial or a list length depends on
   // what ran before it.
   mock.reset();
+});
+
+describe("getGazetteNoticeHistory", () => {
+  const token = `x.${Buffer.from(JSON.stringify({ sub: "admin-1", roles: ["caseworker-deedpoll-admin"] })).toString("base64url")}.signature`;
+
+  it("should read empty history with api's paging defaults", async () => {
+    expect(await getGazetteNoticeHistory({}, { ...config, accessToken: token })).toEqual({
+      ok: true,
+      data: { batches: [], page: 1, size: 25, total: 0, totalPages: 0 }
+    });
+  });
+
+  it("should preserve an out-of-range page and api's clamped size", async () => {
+    expect(await getGazetteNoticeHistory({ page: 3, size: 150 }, { ...config, accessToken: token })).toEqual({
+      ok: true,
+      data: { batches: [], page: 3, size: 100, total: 0, totalPages: 0 }
+    });
+  });
+
+  it("should classify invalid paging as validation with field errors", async () => {
+    expect(await getGazetteNoticeHistory({ page: 0, size: -1 }, { ...config, accessToken: token })).toMatchObject({
+      ok: false,
+      error: { kind: "validation", status: 400, fieldErrors: [{ field: "page" }, { field: "size" }] }
+    });
+  });
+
+  it("should distinguish absent credentials from a caller without the admin role", async () => {
+    expect(await getGazetteNoticeHistory({}, { ...config, accessToken: undefined })).toMatchObject({
+      ok: false,
+      error: { kind: "unauthorized", status: 401 }
+    });
+    const caseworkerToken = `x.${Buffer.from(JSON.stringify({ sub: "cw-1", roles: ["caseworker-deedpoll"] })).toString("base64url")}.signature`;
+    expect(await getGazetteNoticeHistory({}, { ...config, accessToken: caseworkerToken })).toMatchObject({
+      ok: false,
+      error: { kind: "forbidden", status: 403 }
+    });
+  });
+
+  it("should return an unavailable result during an api outage", async () => {
+    mock.setScenario("api-unavailable");
+    expect(await getGazetteNoticeHistory({}, { ...config, accessToken: token })).toMatchObject({
+      ok: false,
+      error: { kind: "unavailable", status: 503 }
+    });
+  });
+
+  it.each([{}, { page: 2, size: 10 }])("should send only the requested paging and bearer token for %j", async (query) => {
+    const requests: { method?: string; url?: string; authorization?: string }[] = [];
+    const answering = await listen(
+      createServer((req, res) => {
+        requests.push({ method: req.method, url: req.url, authorization: req.headers.authorization });
+        res.setHeader("content-type", "application/json");
+        res.end(
+          JSON.stringify({
+            batches: [{ sentAt: "2026-10-01T12:30:00", sentBy: "Admin", caseCount: 150, referenceNumbers: ["KBDP2026-10000"], referencesTruncated: true }],
+            page: 2,
+            size: 10,
+            total: 12,
+            totalPages: 2
+          })
+        );
+      })
+    );
+    try {
+      const result = await getGazetteNoticeHistory(query, { ...config, baseUrl: answering.url, accessToken: token });
+      expect(requests).toEqual([
+        { method: "GET", url: "page" in query ? "/caseworker/gazette-notices?page=2&size=10" : "/caseworker/gazette-notices", authorization: `Bearer ${token}` }
+      ]);
+      expect(result).toEqual({
+        ok: true,
+        data: {
+          batches: [
+            { sentAt: new Date("2026-10-01T12:30:00Z"), sentBy: "Admin", caseCount: 150, referenceNumbers: ["KBDP2026-10000"], referencesTruncated: true }
+          ],
+          page: 2,
+          size: 10,
+          total: 12,
+          totalPages: 2
+        }
+      });
+    } finally {
+      await answering.close();
+    }
+  });
+
+  it.each([
+    "not JSON",
+    JSON.stringify({ batches: [], page: "1", size: 25, total: 0, totalPages: 0 }),
+    JSON.stringify({ batches: [{ caseCount: 1, referenceNumbers: [], referencesTruncated: "false" }], page: 1, size: 25, total: 1, totalPages: 1 })
+  ])("should refuse malformed history responses: %s", async (body) => {
+    const answering = await listen(
+      createServer((_req, res) => {
+        res.end(body);
+      })
+    );
+    try {
+      expect(await getGazetteNoticeHistory({}, { ...config, baseUrl: answering.url })).toMatchObject({ ok: false, error: { kind: "invalid-response" } });
+    } finally {
+      await answering.close();
+    }
+  });
 });
 
 describe("createCase", () => {

@@ -3,8 +3,8 @@
  *
  * The document is api's own output, so unlike `deed-poll-web`'s equivalent this is not two hand-written
  * descriptions being compared — it is a check that the adapter still matches what api actually serves. It
- * fails on a property renamed or added at either end, an enum member added, an operation the adapter does
- * not call, and a response property whose strictness was decided rather than derived.
+ * fails on a property renamed or added at either end, an enum member added, an operation the adapter
+ * has not explicitly accounted for, and a response property whose strictness was decided rather than derived.
  *
  * Refreshing the document is `SPEC-PROVENANCE.md`.
  */
@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
+import deferredContract from "./deferred-contract.json";
 import { STRICT_RESPONSE_PROPERTIES, UNSPECIFIED_SCHEMAS, WIRE_SCHEMAS } from "./wire.js";
 
 const SPEC_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../openapi.json");
@@ -21,8 +22,8 @@ const spec = JSON.parse(readFileSync(SPEC_PATH, "utf8")) as OpenApiSpec;
 /**
  * Operations the adapter implements, as `METHOD path`.
  *
- * Compared with the document in both directions, so an operation api adds with no adapter function fails
- * just as loudly as a call the adapter makes that api does not serve.
+ * Compared with the document in both directions alongside the pinned deferred CCD inventory, so an
+ * unaccounted operation fails just as loudly as a call api does not serve.
  *
  * `GET /` is Spring Boot's welcome route — api's template ships it and it returns a string. Listed because
  * the comparison is exhaustive, not because anything calls it.
@@ -35,6 +36,7 @@ const spec = JSON.parse(readFileSync(SPEC_PATH, "utf8")) as OpenApiSpec;
 const IMPLEMENTED_OPERATIONS = [
   "GET /",
   "GET /caseworker/cases",
+  "GET /caseworker/gazette-notices",
   "POST /caseworker/cases",
   "GET /caseworker/cases/field-rules",
   "GET /caseworker/cases/{id}",
@@ -78,9 +80,9 @@ const IMPLEMENTED_OPERATIONS = [
 ];
 
 describe("openapi.json and the wire schemas", () => {
-  it("should describe exactly the schemas the adapter parses with", () => {
+  it("should describe exactly the consumed and explicitly deferred schemas", () => {
     const inSpec = Object.keys(spec.components.schemas).sort();
-    const inCode = Object.keys(WIRE_SCHEMAS).sort();
+    const inCode = [...Object.keys(WIRE_SCHEMAS), ...Object.keys(deferredContract.schemas)].sort();
 
     expect(inCode).toEqual(inSpec);
   });
@@ -93,12 +95,44 @@ describe("openapi.json and the wire schemas", () => {
     }
   });
 
-  it("should describe exactly the operations the adapter calls", () => {
+  it("should describe exactly the registered and explicitly deferred operations", () => {
     const inSpec = Object.entries(spec.paths)
       .flatMap(([route, methods]) => Object.keys(methods).map((method) => `${method.toUpperCase()} ${route}`))
       .sort();
 
-    expect([...IMPLEMENTED_OPERATIONS].sort()).toEqual(inSpec);
+    const deferred = Object.entries(deferredContract.paths).flatMap(([route, methods]) =>
+      Object.keys(methods).map((method) => `${method.toUpperCase()} ${route}`)
+    );
+    expect([...IMPLEMENTED_OPERATIONS, ...deferred].sort()).toEqual(inSpec);
+  });
+
+  it("should keep the complete deferred CCD definitions unchanged until deliberately reconciled", () => {
+    // CCD recovery is outside this UI's scope. Pin complete operations and schemas separately from
+    // implemented calls: no wildcard exclusions, and no deriving the expected value from openapi.json.
+    for (const [route, definition] of Object.entries(deferredContract.paths)) {
+      expect(spec.paths[route], route).toEqual(definition);
+    }
+    for (const [name, definition] of Object.entries(deferredContract.schemas)) {
+      expect(spec.components.schemas[name], name).toEqual(definition);
+    }
+  });
+
+  it("should publish the Gazette read, paging vocabulary, bounded preview and ready filter", () => {
+    const operation = spec.paths["/caseworker/gazette-notices"].get;
+    expect(Object.keys(spec.paths["/caseworker/gazette-notices"])).toEqual(["get"]);
+    expect(operation.parameters).toEqual([
+      { name: "page", in: "query", required: false, schema: { type: "string" }, description: "Page number, starting at 1; defaults to 1." },
+      { name: "size", in: "query", required: false, schema: { type: "string" }, description: "Rows per page; defaults to 25 and is capped at 100." }
+    ]);
+    expect(operation.responses).toEqual({
+      "200": { description: "OK", content: { "*/*": { schema: { $ref: "#/components/schemas/GazetteNoticeHistoryResponse" } } } }
+    });
+    expect(operation.description).toContain("Requires caseworker-deedpoll-admin");
+    expect(operation.description).toContain("At most 100 references per batch");
+    expect(spec.components.schemas.GazetteNoticeHistoryResponse.properties?.batches?.items?.$ref).toBe("#/components/schemas/GazetteNoticeBatchResponse");
+    const filter = spec.paths["/caseworker/cases"].get.parameters?.find((parameter) => parameter.name === "filter");
+    expect(filter?.description).toContain("`readyForPublication` (Ready for publication)");
+    expect(filter?.description).toContain("`dateEnroled:asc`");
   });
 
   for (const [name, schema] of Object.entries(WIRE_SCHEMAS)) {
@@ -387,6 +421,8 @@ interface OpenApiSpec {
  * could omit.
  */
 interface OpenApiOperation {
+  description?: string;
+  responses?: Record<string, unknown>;
   parameters?: { name: string; in?: string; required?: boolean; description?: string; schema?: Record<string, unknown> }[];
 }
 

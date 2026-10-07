@@ -18,7 +18,7 @@
  *   yarn mock:seed --keep        # add to whatever is already there
  *
  * `POST /__mock/cases` is outside the contract and skips the refusals a real create applies, so these
- * cases may hold combinations api would reject. That is the point — it makes 30-odd cases cheap — but it
+ * cases may hold combinations api would reject. That is the point — it makes dozens of cases cheap — but it
  * means **this data is evidence about querying and paging, never about validation.** Drive the create form
  * for that.
  *
@@ -46,7 +46,7 @@
 // because the count was right. Every case came out `state=Received, type=null, urgency=null` and four of
 // the status tabs were empty. Hence `must()` — a renamed member now fails loudly rather than seeding
 // a dataset that looks fine and tests nothing. Requires `libs/deed-poll` to have been built.
-import { DeedPollState, DeedPollType, Urgency } from "@hmcts/deed-poll";
+import { DEEDPOLL_ADMIN, DeedPollState, DeedPollType, Urgency } from "@hmcts/deed-poll";
 
 /** Fail on an option-set member that does not exist, rather than sending `undefined` and seeding a default. */
 function must(set, name, member) {
@@ -66,6 +66,11 @@ const KEEP = process.argv.includes("--keep");
  * mock's list response, and a paging bug is invisible in a list that fits on one page.
  */
 const RECEIVED_CASES = 26;
+const READY_CASES = 26;
+const GAZETTE_BATCHES = 26;
+const ADMIN_HEADERS = {
+  authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: "seed.admin", roles: [DEEDPOLL_ADMIN] })).toString("base64url")}.signature`
+};
 
 /**
  * The cases, grouped by the tab each group lands in.
@@ -96,14 +101,16 @@ const GROUPS = [
     })
   },
   {
-    label: "Enroled",
-    count: 3,
+    label: `Enroled (${READY_CASES} Gazette-ready)`,
+    count: READY_CASES + 2,
     build: (n) => ({
-      type: must(DeedPollType, "DeedPollType", "Minor"),
+      type: must(DeedPollType, "DeedPollType", n <= 3 ? "Minor" : "Adult"),
       state: must(DeedPollState, "DeedPollState", "Enroled"),
-      newSurname: "Minorcase",
+      newSurname: "Enroledcase",
       dateReceived: dayInMonth("02", n),
-      dateEnroled: dayInMonth("03", n),
+      dateEnroled: dayInMonth("03", 29 - n),
+      publishToLondonGazette: n !== READY_CASES + 1,
+      dateNoticeSentToLondonGazette: n === READY_CASES + 2 ? dayInMonth("04", 1) : null,
       displayReference: reference("2", n),
       urgency: must(Urgency, "Urgency", "Normal")
     })
@@ -317,6 +324,32 @@ async function step(method, path, body, headers, what) {
   return response.json();
 }
 
+// Frozen audit fixtures: no Gazette send operation exists. More than a page, with one bounded preview.
+for (let n = 1; n <= GAZETTE_BATCHES; n++) {
+  await step(
+    "POST",
+    "/__mock/gazette-batches",
+    {
+      sentAt: dayInMonth("09", n),
+      sentBy: "Seed Gazette administrator",
+      referenceNumbers: Array.from(
+        { length: n === GAZETTE_BATCHES ? 101 : 2 },
+        (_, at) => `KBDP2026-B${String(n).padStart(2, "0")}-${String(101 - at).padStart(3, "0")}`
+      )
+    },
+    {},
+    `seed Gazette batch ${n}`
+  );
+}
+
+const ready = await step("GET", "/caseworker/cases?filter=readyForPublication&size=100", undefined, ADMIN_HEADERS, "read Gazette-ready cases");
+const history = await step("GET", "/caseworker/gazette-notices", undefined, ADMIN_HEADERS, "read Gazette history");
+const historyTail = await step("GET", "/caseworker/gazette-notices?page=2", undefined, ADMIN_HEADERS, "read Gazette history page 2");
+const preview = history.batches[0];
+console.log(
+  `Gazette-ready: ${ready.total}; history: ${history.total} batches, newest preview: ${preview.referenceNumbers.length}/${preview.caseCount} references.`
+);
+
 // Read back rather than trusting the count above: the totals are what the page shows, and a seed that
 // returned 201 for a body the list then filters out differently is exactly the sort of thing worth
 // catching here instead of on screen.
@@ -347,6 +380,20 @@ console.log(`Awaiting the applicant's confirmation: ${awaitingConfirmation}, wai
 // `--keep` adds to whatever was already there, so an earlier run's cases are counted too and neither total is
 // expected to match on a run that did not reset first.
 const mismatches = [
+  KEEP || (ready.total === READY_CASES && ready.cases[0]?.displayReference === reference("2", READY_CASES))
+    ? null
+    : "Gazette-ready membership or oldest-enrolled order differs from the seed.",
+  KEEP || (history.total === GAZETTE_BATCHES && history.totalPages === 2 && historyTail.batches.length === 1)
+    ? null
+    : "Gazette history totals or pagination differ from the seed.",
+  KEEP ||
+  (preview.caseCount === 101 &&
+    preview.referencesTruncated &&
+    preview.referenceNumbers.length === 100 &&
+    preview.referenceNumbers[0] === "KBDP2026-B26-001" &&
+    preview.referenceNumbers[99] === "KBDP2026-B26-100")
+    ? null
+    : "Gazette history did not return the sorted, truncated frozen preview.",
   worklist.ok ? null : `the filtered read-back was refused with ${worklist.status} — has \`currentReferralState\` stopped being queryable?`,
   awaiting.ok ? null : `the awaiting-confirmation read-back was refused with ${awaiting.status} — is \`awaitingConfirmation\` still a published filter key?`,
   KEEP || total === seeded ? null : `seeded ${seeded} but the list reports ${total}.`,

@@ -54,3 +54,73 @@ describe("the wire date-time conversion", () => {
     expect(() => createdOn("not-a-date")).toThrow();
   });
 });
+
+describe("Gazette history wire guards", () => {
+  const batch = { sentAt: "2026-10-01T12:30:00", sentBy: "Admin", caseCount: 125, referenceNumbers: ["KBDP2026-10000"], referencesTruncated: true };
+  const history = { batches: [batch], page: 1, size: 25, total: 1, totalPages: 1 };
+
+  it("should preserve the full count, preview and truncation flag without deriving one from another", () => {
+    expect(WIRE_SCHEMAS.GazetteNoticeHistoryResponse.parse(history)).toEqual({ ...history, batches: [{ ...batch, sentAt: new Date("2026-10-01T12:30:00Z") }] });
+  });
+
+  it.each(["sentAt", "sentBy"])("should permit nullable attribution field %s", (field) => {
+    expect(WIRE_SCHEMAS.GazetteNoticeBatchResponse.safeParse({ ...batch, [field]: null }).success).toBe(true);
+  });
+
+  it.each([
+    { caseCount: null },
+    { caseCount: "125" },
+    { caseCount: -1 },
+    { caseCount: 1.5 },
+    { referenceNumbers: null },
+    { referenceNumbers: [null] },
+    { referenceNumbers: [123] },
+    { referencesTruncated: null },
+    { referencesTruncated: "false" },
+    { sentAt: "invalid" },
+    { sentBy: 123 }
+  ])("should refuse malformed batch values %j", (invalid) => {
+    expect(WIRE_SCHEMAS.GazetteNoticeBatchResponse.safeParse({ ...batch, ...invalid }).success).toBe(false);
+  });
+
+  it.each(["caseCount", "referenceNumbers", "referencesTruncated"])("should require batch field %s", (field) => {
+    const incomplete = Object.fromEntries(Object.entries(batch).filter(([key]) => key !== field));
+    expect(WIRE_SCHEMAS.GazetteNoticeBatchResponse.safeParse(incomplete).success).toBe(false);
+  });
+
+  it.each([100, 101, 200])("should preserve previews and page sizes of %i if API increases its caps", (size) => {
+    const expanded = { ...history, size, batches: [{ ...batch, referenceNumbers: Array(size).fill("reference") }] };
+    expect(WIRE_SCHEMAS.GazetteNoticeHistoryResponse.parse(expanded)).toEqual({
+      ...expanded,
+      batches: [{ ...expanded.batches[0], sentAt: new Date("2026-10-01T12:30:00Z") }]
+    });
+  });
+
+  it.each([
+    { batches: null },
+    { batches: {} },
+    { page: 0 },
+    { page: "1" },
+    { size: 0 },
+    { total: -1 },
+    { total: 1.5 },
+    { totalPages: -1 },
+    { totalPages: null }
+  ])("should refuse malformed envelope values %j", (invalid) => {
+    expect(WIRE_SCHEMAS.GazetteNoticeHistoryResponse.safeParse({ ...history, ...invalid }).success).toBe(false);
+  });
+
+  it.each(["batches", "page", "size", "total", "totalPages"])("should require envelope field %s", (field) => {
+    const incomplete = Object.fromEntries(Object.entries(history).filter(([key]) => key !== field));
+    expect(WIRE_SCHEMAS.GazetteNoticeHistoryResponse.safeParse(incomplete).success).toBe(false);
+  });
+
+  it("should accept empty history with zero total pages", () => {
+    expect(WIRE_SCHEMAS.GazetteNoticeHistoryResponse.parse({ ...history, batches: [], total: 0, totalPages: 0 })).toEqual({
+      ...history,
+      batches: [],
+      total: 0,
+      totalPages: 0
+    });
+  });
+});

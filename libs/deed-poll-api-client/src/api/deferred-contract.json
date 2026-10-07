@@ -1,0 +1,185 @@
+{
+  "paths": {
+    "/caseworker/ccd-attempts": {
+      "get": {
+        "operationId": "attempts",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CcdAttemptListResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-ccd-attempt-controller"]
+      }
+    },
+    "/caseworker/ccd-attempts/{attemptId}/reconciliation": {
+      "post": {
+        "operationId": "reconciliation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attemptId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CcdAttemptResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-ccd-attempt-controller"]
+      }
+    },
+    "/caseworker/ccd-attempts/{attemptId}/retry": {
+      "post": {
+        "operationId": "retry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attemptId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CcdAttemptResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": ["caseworker-ccd-attempt-controller"]
+      }
+    }
+  },
+  "schemas": {
+    "CcdAttemptCountResponse": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Pending", "Claimed", "AwaitingConfirmation", "Linked", "NeedsRepair"]
+        }
+      }
+    },
+    "CcdAttemptListResponse": {
+      "type": "object",
+      "properties": {
+        "attempts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/CcdAttemptResponse"
+          }
+        },
+        "counts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/CcdAttemptCountResponse"
+          }
+        },
+        "page": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "size": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "total": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "totalPages": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "CcdAttemptResponse": {
+      "type": "object",
+      "properties": {
+        "canRetryFromScratch": {
+          "type": "boolean"
+        },
+        "deedPollId": {
+          "type": "string"
+        },
+        "displayReference": {
+          "type": "string"
+        },
+        "failureDetail": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "modifiedOn": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Pending", "Claimed", "AwaitingConfirmation", "Linked", "NeedsRepair"]
+        },
+        "tries": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    }
+  }
+}

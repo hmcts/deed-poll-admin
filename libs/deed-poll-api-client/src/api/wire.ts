@@ -94,10 +94,10 @@ export const CONFIRMATION_OUTCOME = ["Confirmed", "Withdrawn"] as const;
  * asserts these members against it — so a tab api adds fails here rather than becoming a saved query this
  * app cannot round-trip.
  *
- * `awaitingConfirmation` is appended rather than slotted beside the other state tabs, because api appends it:
- * the order here is the order a saved query round-trips and the order the tabs render in.
+ * Preserve api's published order. `readyForPublication` belongs to the separate admin Gazette queue,
+ * so this vocabulary is broader than the general case-list tabs.
  */
-export const LIST_FILTER = ["all", "open", "received", "enroled", "returned", "awaitingConfirmation"] as const;
+export const LIST_FILTER = ["all", "open", "received", "enroled", "returned", "awaitingConfirmation", "readyForPublication"] as const;
 
 /** The two `sortDirection` tokens api matches exactly. A bare field with no direction means ascending. */
 export const SORT_DIRECTION = ["asc", "desc"] as const;
@@ -944,6 +944,26 @@ const emailSlotsWriteSchema = z.object({
   additional_notes: z.string().max(1000).optional()
 });
 
+/** Frozen audit previews: the count is the whole batch, not the bounded references array.
+ * Java primitives and collections are required; reference-valued attribution follows the nullable wire convention.
+ * Preview and page-size caps belong to API; increasing them must not make a readable response invalid.
+ */
+const gazetteNoticeBatchSchema = z.object({
+  sentAt: wireDateTime.nullish(),
+  sentBy: z.string().nullish(),
+  caseCount: z.number().int().nonnegative(),
+  referenceNumbers: z.array(z.string()),
+  referencesTruncated: z.boolean()
+});
+
+const gazetteNoticeHistorySchema = z.object({
+  batches: z.array(gazetteNoticeBatchSchema),
+  page: z.number().int().positive(),
+  size: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative()
+});
+
 /** api's failure body. `errors` is omitted rather than empty when there are none (`@JsonInclude`). */
 const apiErrorSchema = z.object({
   error: z.string(),
@@ -951,15 +971,17 @@ const apiErrorSchema = z.object({
 });
 
 /**
- * Every named schema in the spec's `components.schemas`, keyed by its spec name.
+ * Every consumed named schema in the spec's `components.schemas`, keyed by its spec name.
  *
  * The registry IS the drift test's subject: `contract.test.ts` asserts these keys and the spec's are the
- * same set, so a schema added at one end and not the other fails rather than going unnoticed.
+ * same set after including the explicitly pinned deferred CCD inventory, so unknown additions fail.
  *
  * `CreateCaseRequest` and `UpdateCaseRequest` share one schema. The test compares each spec name against
  * it separately, so the day api's two bodies diverge, one of the two comparisons fails.
  */
 export const WIRE_SCHEMAS = {
+  GazetteNoticeBatchResponse: gazetteNoticeBatchSchema,
+  GazetteNoticeHistoryResponse: gazetteNoticeHistorySchema,
   CaseListResponse: caseListSchema,
   CaseSummaryResponse: caseSummarySchema,
   CaseDetailResponse: caseDetailSchema,
@@ -1029,6 +1051,8 @@ export const UNSPECIFIED_SCHEMAS = { ApiError: apiErrorSchema } as const;
  * Everything else is nullable, and a schema insisting otherwise would reject an ordinary half-logged case.
  */
 export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string[]>> = {
+  GazetteNoticeBatchResponse: ["caseCount", "referenceNumbers", "referencesTruncated"],
+  GazetteNoticeHistoryResponse: ["batches", "page", "size", "total", "totalPages"],
   // The four paging counts are `int`, `int`, `long` and `int` on api's record, so none can arrive null.
   CaseListResponse: ["filter", "cases", "page", "size", "total", "totalPages"],
   CaseSummaryResponse: ["id"],
@@ -1136,3 +1160,6 @@ export type WireSentEmail = z.infer<typeof sentEmailSchema>;
 /** `z.input` for the write, as `WireCaseWrite` is: a body is what goes out, before any transform. */
 export type WireEmailSlotsWrite = z.input<typeof emailSlotsWriteSchema>;
 export type WireApiError = z.infer<typeof apiErrorSchema>;
+
+export type WireGazetteNoticeHistory = z.infer<typeof gazetteNoticeHistorySchema>;
+export type WireGazetteNoticeBatch = z.infer<typeof gazetteNoticeBatchSchema>;

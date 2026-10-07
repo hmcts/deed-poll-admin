@@ -3,14 +3,15 @@
  *
  * It exists because api is not deployed, so without it neither `yarn dev` nor the e2e suite can reach a
  * case page. It is a stand-in for the CONTRACT, not a second implementation of api: there is no database,
- * no IDAM, no S2S and no document storage, and it forgets everything when it stops.
+ * no signature verification, no S2S and no document storage, and it forgets everything when it stops.
  *
- * Four routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
+ * Five routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
  * could be mistaken for one api serves:
  *
  *   POST /__mock/scenario   switch behaviour (see fixtures.ts)
  *   POST /__mock/reset      forget every case
  *   POST /__mock/cases      seed a case without going through a create
+ *   POST /__mock/gazette-batches  seed frozen audit membership without sending
  *   POST /__mock/referrals/{id}/confirmation-request
  *                           start the wait for an applicant's confirmation, which no contract route here can
  *                           do: the write that starts it is notify-3's email and this mock has no template
@@ -20,7 +21,7 @@
  * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
  * Both, because api's actuator serves both and `checkApiReachable` deliberately probes the liveness group.
  *
- * **Twelve of api's rules are restated here, and only twelve.** A mock that applied none of them would let a
+ * **Thirteen of api's rules are restated here.** A mock that applied none of them would let a
  * page ship having never seen a real reference number or a derived state:
  *
  *   1. Reference-number allocation — the year from Date Received, the prefix from Type, a per-year serial.
@@ -68,9 +69,13 @@
  *      api's `EmailNotes`, and the failure half is reachable only under the `email-send-failure` scenario,
  *      because nothing else here drives a row out of `Sent`. See `emailSentNote` and `emailCouldNotBeSentNote`.
  *
+ *  13. Gazette history's admin role and paging. Fixture claims are decoded, never verified;
+ *      local IDAM tokens without roles use the configured userinfo endpoint; the history
+ *      reads frozen batches, newest first with an identity tie-break and a sorted 100-reference preview.
+ *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `ReferralNotes`, `JudicialReferralService`,
- * `CaseEmailService` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
+ * `CaseEmailService`, `GazetteNoticeHistory` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
  * privacy lock, the minor and Gazette write gates, create-time defaults, the saved-query permission rules —
  * see `savedQuery`) is deliberately NOT modelled: no
  * page's behaviour depends on it, and a half-copy would be a second opinion to keep in step. If a page
@@ -79,8 +84,8 @@
  * Two referral-shaped omissions, each for one of those reasons rather than by oversight:
  *
  *   - **The `caseworker-deedpoll-judicial` role gate on `/judicial/**`.** This mock reads a name out of a
- *     token and no roles, exactly as it reads none for the saved-query and witness-delete gates, so a 403
- *     is not a state it can produce. api's gate is api's own test.
+ *     token and no roles on this surface, exactly as for the saved-query and witness-delete gates, so a 403
+ *     is not a state those routes can produce. Gazette history separately models its admin gate. api's gate is api's own test.
  *   - **The inactivity sweep that hands a forgotten claim back to the pool.** It is a two-hour window on
  *     api's clock and nothing a page can drive, so a mock of it would be untestable machinery. It takes the
  *     sixth of api's lifecycle notes with it: `ReferralNotes.claimLapsed` is the only one this mock never
@@ -117,8 +122,10 @@
  * carries a referral that is not optional and a row is keyed on it, where api's column is null for a case-driven
  * email. That is a change for whoever brings the chase here, and it is not made in advance of one.
  */
+
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { z } from "zod";
 import type {
   WireCaseDetail,
   WireCaseWrite,
@@ -144,6 +151,16 @@ import {
   type MockNotification,
   type MockScenario
 } from "./fixtures.js";
+
+/** Fixture-only batch input: full frozen membership, never a production send operation. */
+const SEEDABLE_GAZETTE_BATCH = z
+  .object({
+    id: z.uuid().optional(),
+    sentAt: WIRE_SCHEMAS.GazetteNoticeBatchResponse.shape.sentAt.unwrap().unwrap(),
+    sentBy: z.string(),
+    referenceNumbers: z.array(z.string())
+  })
+  .strict();
 
 /** Five digits, zero-padded, as api's `ReferenceNumbers` formats it. */
 const REFERENCE_SERIAL_DIGITS = 5;
@@ -281,6 +298,7 @@ const CASE_DEFAULTS = {
  */
 export function createMockApi(options: MockApiOptions = {}): MockApi {
   const cases = new Map<string, MockCase>();
+  const gazetteBatches = new Map<string, z.infer<typeof SEEDABLE_GAZETTE_BATCH>>();
   const savedQueries = new Map<string, MockSavedQuery>();
   /**
    * The ids in "my list", for the one notional caller this mock has.
@@ -322,6 +340,15 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (method === "POST" && pathname === "/__mock/reset") {
       reset();
       return send(res, 200, { scenario });
+    }
+
+    if (method === "POST" && pathname === "/__mock/gazette-batches") {
+      const parsed = SEEDABLE_GAZETTE_BATCH.safeParse(await readJsonBody(req));
+      if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+      const id = parsed.data.id ?? randomUUID();
+      if (gazetteBatches.has(id)) return send(res, 409, { error: "Batch already seeded" });
+      gazetteBatches.set(id, { ...parsed.data, id });
+      return send(res, 201, { id });
     }
 
     // Seeding, so a test can start from a case in a given state without driving the create form. Outside
@@ -379,6 +406,29 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     // Everything below is the contract, so everything below is unreachable when the scenario says api is
     // down — including reads, which is what makes `api-unavailable` a realistic outage.
     if (!MOCK_SCENARIOS[scenario].reachable) return send(res, 503, { error: "deed-poll-api is unavailable" });
+
+    // GazetteNoticeHistory reads frozen batches, independently of today's case records.
+    if (pathname === "/caseworker/gazette-notices") {
+      const claims = await gazetteClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      if (!Array.isArray(claims.roles) || !claims.roles.includes("caseworker-deedpoll-admin")) {
+        return send(res, 403, { error: "Administrator role required" });
+      }
+      if (method !== "GET") return send(res, 405, { error: "No Gazette write operation" });
+      const paging = parsePaging(searchParams.get("page"), searchParams.get("size"));
+      if ("errors" in paging) return send(res, 400, { error: "Invalid paging", errors: paging.errors });
+      const ordered = [...gazetteBatches.values()].sort((a, b) => rank(b.sentAt, a.sentAt) || rank(b.id, a.id));
+      const from = (paging.page - 1) * paging.size;
+      const batches = ordered.slice(from, from + paging.size).map((batch) => ({
+        sentAt: iso(batch.sentAt),
+        sentBy: batch.sentBy,
+        caseCount: batch.referenceNumbers.length,
+        // PostgreSQL COLLATE "C" orders UTF-8 bytes, not the host's locale.
+        referenceNumbers: [...batch.referenceNumbers].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b))).slice(0, 100),
+        referencesTruncated: batch.referenceNumbers.length > 100
+      }));
+      return send(res, 200, { batches, ...paging, total: ordered.length, totalPages: Math.ceil(ordered.length / paging.size) });
+    }
 
     if (method === "GET" && pathname === "/caseworker/document-types") return send(res, 200, MOCK_DOCUMENT_TYPES);
 
@@ -1453,6 +1503,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
   function reset(): void {
     cases.clear();
+    gazetteBatches.clear();
     serials.clear();
     savedQueries.clear();
     selectedQueryIds.clear();
@@ -1571,6 +1622,23 @@ function callerSubject(req: IncomingMessage): string {
   return typeof subject === "string" && subject.length > 0 ? subject : MOCK_SUBJECT;
 }
 
+// Local IDAM puts roles in userinfo, not its access token. Fixture tokens still carry roles directly.
+async function gazetteClaims(req: IncomingMessage, userInfoUrl?: string): Promise<{ roles?: unknown } | null> {
+  const claims = tokenClaims(req);
+  if (!claims || claims.roles !== undefined || !userInfoUrl) return claims;
+  try {
+    const response = await fetch(userInfoUrl, {
+      headers: { authorization: req.headers.authorization ?? "" },
+      signal: AbortSignal.timeout(2000)
+    });
+    if (!response.ok) return null;
+    const info = await response.json();
+    return info && typeof info === "object" && !Array.isArray(info) ? info : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The claims of the forwarded bearer token, **decoded and never verified**.
  *
@@ -1578,13 +1646,13 @@ function callerSubject(req: IncomingMessage): string {
  * page depends on. Anything undecodable is `null` rather than an error, so a hand-rolled `curl` against the mock
  * still works.
  */
-function tokenClaims(req: IncomingMessage): { sub?: unknown; name?: unknown } | null {
+function tokenClaims(req: IncomingMessage): { sub?: unknown; name?: unknown; roles?: unknown } | null {
   const bearer = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? "");
   const payload = bearer?.[1].split(".")[1];
   if (payload === undefined) return null;
 
   try {
-    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: unknown; name?: unknown };
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: unknown; name?: unknown; roles?: unknown };
   } catch {
     return null;
   }
@@ -1664,6 +1732,11 @@ const FILTERS: readonly { key: string; matches: (record: MockCase) => boolean; d
     // Ascending the stamp, which is descending in days waited: the case at risk of being forgotten is the one at
     // the top. api's `ListFilters.LONGEST_WAIT_FIRST`.
     defaultSort: { field: "awaitingConfirmationSince", descending: false }
+  },
+  {
+    key: "readyForPublication",
+    matches: (record) => record.publishToLondonGazette === true && record.dateNoticeSentToLondonGazette == null && record.state === "Enroled",
+    defaultSort: { field: "dateEnroled", descending: false }
   }
 ];
 
@@ -1930,7 +2003,8 @@ function comparing(order: MockSort): (left: MockCase, right: MockCase) => number
     const b = (right as unknown as Record<string, unknown>)[order.field];
     const ranked = isBlank(a) || isBlank(b) ? (isBlank(a) === isBlank(b) ? 0 : isBlank(a) ? 1 : -1) : rank(a, b);
 
-    return order.descending ? -ranked : ranked;
+    // DeedPollService.order appends ascending id even when the primary field is descending.
+    return (order.descending ? -ranked : ranked) || rank(left.id, right.id);
   };
 }
 
@@ -2942,6 +3016,8 @@ function parseMultipart(body: Buffer, contentType: string): ParsedUpload | null 
 
 export interface MockApiOptions {
   scenario?: MockScenario;
+  /** Optional local IDAM endpoint for access tokens whose roles live in userinfo. */
+  userInfoUrl?: string;
 }
 
 export interface MockApi {

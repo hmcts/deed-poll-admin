@@ -1520,8 +1520,8 @@ async function seedCasesToFilter(request: APIRequestContext, newForename: string
  *
  * **The surname is unique per test for the reason the forename is** — the mock's store is shared with every
  * spec in the run and outlives the run itself, so a fixed "Smith" would find the previous run's cases and the
- * total this journey asserts would climb by two each time. The seed script's `Adultcase`/`Minorcase` surnames
- * are no use here for the same reason: every case it seeds shares one, so a search for it matches 26 rows.
+ * total this journey asserts would climb by two each time. The seed script's `Adultcase`/`Enroledcase` surnames
+ * are no use here for the same reason: each is shared by a whole group of seeded cases.
  *
  * **The references are unique per test too, and that is load-bearing rather than tidy**: the redirect goes to
  * the *first* case whose reference matches, so a second case carrying the same reference would send the

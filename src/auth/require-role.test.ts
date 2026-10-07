@@ -1,10 +1,11 @@
 /**
  * Both directions, because a gate tested only for who it admits is a gate that may admit everyone.
  */
-import { DEEDPOLL_JUDICIAL, ForbiddenError } from "@hmcts/deed-poll";
+import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL, ForbiddenError } from "@hmcts/deed-poll";
 import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
+import { requireAuth } from "./require-auth.js";
 import { requireJudicial, requireRole } from "./require-role.js";
 
 describe("requireJudicial", () => {
@@ -75,5 +76,29 @@ describe("requireRole", () => {
     requireRole(DEEDPOLL_JUDICIAL)(pageRequest({ judicial: true }), pageResponse(), next);
 
     expect(next).toHaveBeenCalledWith();
+  });
+});
+
+describe("Gazette area access", () => {
+  it.each([false, true])("should admit an admin with judicial role %s", (judicial) => {
+    const next = vi.fn();
+    requireRole(DEEDPOLL_ADMIN)(pageRequest({ admin: true, judicial }), pageResponse(), next);
+    expect(next).toHaveBeenCalledExactlyOnceWith();
+  });
+
+  it.each([false, true])("should refuse a non-admin with judicial role %s", (judicial) => {
+    const next = vi.fn();
+    requireRole(DEEDPOLL_ADMIN)(pageRequest({ judicial }), pageResponse(), next);
+    expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
+  });
+
+  it.each(["/deed-polls/gazette", "/deed-polls/gazette/history"])("should redirect anonymous visitors to login for %s before checking roles", (url) => {
+    const req = pageRequest({ signedIn: false, originalUrl: url });
+    Object.assign(req, { method: "GET", path: url });
+    const res = pageResponse();
+    const roleGate = vi.fn(() => requireRole(DEEDPOLL_ADMIN)(req, res, vi.fn()));
+    requireAuth()(req, res, roleGate);
+    expect(res.redirect).toHaveBeenCalledWith(`/login?returnTo=${encodeURIComponent(url)}`);
+    expect(roleGate).not.toHaveBeenCalled();
   });
 });

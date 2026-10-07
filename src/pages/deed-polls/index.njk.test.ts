@@ -14,7 +14,14 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { countAwaitingConfirmation, countReturnedForAction, findDeedPolls, findSavedQueries, InvalidInputError } from "@hmcts/deed-poll";
+import {
+  countAwaitingConfirmation,
+  countGazetteReadyCases,
+  countReturnedForAction,
+  findDeedPolls,
+  findSavedQueries,
+  InvalidInputError
+} from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
@@ -23,6 +30,7 @@ import { GET } from "./index.js";
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
   countAwaitingConfirmation: vi.fn(),
+  countGazetteReadyCases: vi.fn(),
   countReturnedForAction: vi.fn(),
   findDeedPolls: vi.fn(),
   findSavedQueries: vi.fn()
@@ -54,9 +62,9 @@ const record = {
 };
 
 /** The list page as a browser receives it, for the query the URL carries. */
-const render = async (query: Record<string, unknown> = {}): Promise<string> => {
+const render = async (query: Record<string, unknown> = {}, admin = false): Promise<string> => {
   const res = pageResponse();
-  await GET(pageRequest({ query }), res);
+  await GET(pageRequest({ query, admin }), res);
   const model = res.render.mock.calls[0][1];
 
   return environment.render("deed-polls/index.njk", { ...model.en, ...model });
@@ -78,6 +86,31 @@ describe("deed-polls list template", () => {
     vi.mocked(findSavedQueries).mockResolvedValue([] as never);
     vi.mocked(countReturnedForAction).mockResolvedValue(0);
     vi.mocked(countAwaitingConfirmation).mockResolvedValue(0);
+    vi.mocked(countGazetteReadyCases).mockResolvedValue(0);
+  });
+
+  it("should hide the Gazette area from non-admins", async () => {
+    const markup = await render();
+    expect(markup).not.toContain("/deed-polls/gazette");
+    expect(markup).not.toContain("Applications ready for the London Gazette:");
+  });
+
+  it.each([0, 26])("should keep the Gazette link available for admins with %s ready cases", async (count) => {
+    vi.mocked(countGazetteReadyCases).mockResolvedValue(count);
+    const markup = await render({}, true);
+    expect(markup).toContain('href="/deed-polls/gazette"');
+    expect(markup).toContain(`Applications ready for the London Gazette: ${count}`);
+    expect(markup).not.toContain("Try opening the ready list");
+  });
+
+  it("should distinguish unavailable from zero while keeping the Gazette link", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(countGazetteReadyCases).mockRejectedValue(new Error("unavailable"));
+    const markup = await render({}, true);
+    expect(markup).toContain('href="/deed-polls/gazette"');
+    expect(markup).toContain("The number of applications ready for the London Gazette could not be loaded");
+    expect(markup).not.toContain("Applications ready for the London Gazette: 0");
+    log.mockRestore();
   });
 
   it("submits the builder as a GET, because the URL is the query and a POST could not be bookmarked", async () => {
