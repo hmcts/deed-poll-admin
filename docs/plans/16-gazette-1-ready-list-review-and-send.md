@@ -1,5 +1,19 @@
 # Plan: London Gazette publication — admin UI (ready list, review, send, history)
 
+## Execution status — 7 October 2026
+
+API PR #80 is merged at `44c89a335069243997898fefd603afa9df85695e`. It supplies the
+ready-for-publication filter and admin-only, paginated history, but **no batch send operation**.
+The runnable subset is [plan 16a](16a-gazette-ready-list-and-history.md): contract reconciliation,
+client/domain/mock, admin gate and count, a read-only ready list, and history. This supersedes the
+original reconciliation gate below for that subset: the pinned admin contract also predates CCD
+recovery and document/email contract updates, which must be accounted for explicitly.
+
+Keep this parent plan active. Selection, the proposed review checklist, confirmation and sending
+remain outstanding pending the API send contract and its business/dependency decisions. Do not
+invent the missing endpoint, reviewed state, or a send control. Mark only fully delivered parent
+tasks complete; annotate partially delivered tasks with the remaining work.
+
 ## Overview
 
 A caseworker-admin needs to be notified when applications are ready for the London Gazette, view and check
