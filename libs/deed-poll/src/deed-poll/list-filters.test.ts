@@ -26,11 +26,10 @@ describe("deed-poll/list-filters", () => {
     expect(keys).toEqual(["all", "open", "received", "enroled", "returned", "awaitingConfirmation"]);
   });
 
-  it("is api's own filter vocabulary in api's own order, so the tab bar cannot offer a key api refuses", () => {
-    // api resolves the key this app sends and `LIST_FILTER` is the published enum, so a tab this file added
-    // alone would earn a 400 and one api added alone would be a worklist with no way to reach it. The order
-    // matters too: it is the order the tabs render in, and api appends rather than inserting.
-    expect(LIST_FILTERS.map((f) => f.key)).toEqual([...LIST_FILTER]);
+  it("accounts for api's filter vocabulary across the case-list tabs and separate Gazette queue", () => {
+    // Gazette is a separate admin queue, not a tab visible to every caseworker. Keep exact
+    // coverage of api's vocabulary while accounting explicitly for that separate destination.
+    expect([...LIST_FILTERS.map((f) => f.key), "readyForPublication"]).toEqual([...LIST_FILTER]);
   });
 
   it("gives the awaiting-confirmation tab no where clause, since a case is on it for a date and not a state", () => {

@@ -33,6 +33,8 @@ import {
   type WireEmailSlotsWrite,
   type WireEmailType,
   type WireFieldRules,
+  type WireGazetteNoticeBatch,
+  type WireGazetteNoticeHistory,
   type WireJudicialCaseNote,
   type WireJudicialCaseView,
   type WireJudicialDirection,
@@ -148,6 +150,16 @@ export async function listCases(query: CaseListQuery, config: ApiConfig): Promis
   const search = parameters.toString();
 
   return request(config, "GET", `/caseworker/cases${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.CaseListResponse);
+}
+
+/** Admin-only audit history. Omitted paging stays omitted so api applies its own defaults. */
+export function getGazetteNoticeHistory(query: GazetteNoticeHistoryQuery, config: ApiConfig): Promise<ApiResult<GazetteNoticeHistory>> {
+  const parameters = new URLSearchParams();
+  if (query.page !== undefined) parameters.set("page", String(query.page));
+  if (query.size !== undefined) parameters.set("size", String(query.size));
+  const search = parameters.toString();
+
+  return request(config, "GET", `/caseworker/gazette-notices${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.GazetteNoticeHistoryResponse);
 }
 
 /** One case with its notes, witnesses and documents. One call, because the detail page needs all four. */
@@ -1003,6 +1015,8 @@ export type SavedCase = WireSavedCase;
 export type CaseDetail = WireCaseDetail;
 export type CaseSummary = WireCaseList["cases"][number];
 export type CaseList = WireCaseList;
+export type GazetteNoticeHistory = WireGazetteNoticeHistory;
+export type GazetteNoticeBatch = WireGazetteNoticeBatch;
 export type Note = WireNote;
 export type Witness = WireCaseDetail["witnesses"][number];
 export type WitnessCreate = WireWitnessCreate;
@@ -1191,3 +1205,11 @@ export interface DocumentDownload {
 }
 
 type SendResult = { ok: true; response: Response } | { ok: false; error: ApiError };
+
+/** History has no custom filter or sort. Its order and membership belong to api. */
+export interface GazetteNoticeHistoryQuery {
+  /** 1-based; defaults to 1 at api. */
+  page?: number;
+  /** Defaults to 25; api clamps to 100. */
+  size?: number;
+}

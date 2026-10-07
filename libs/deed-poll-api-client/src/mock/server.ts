@@ -20,7 +20,7 @@
  * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
  * Both, because api's actuator serves both and `checkApiReachable` deliberately probes the liveness group.
  *
- * **Twelve of api's rules are restated here, and only twelve.** A mock that applied none of them would let a
+ * **Thirteen of api's rules are restated here.** A mock that applied none of them would let a
  * page ship having never seen a real reference number or a derived state:
  *
  *   1. Reference-number allocation — the year from Date Received, the prefix from Type, a per-year serial.
@@ -68,9 +68,12 @@
  *      api's `EmailNotes`, and the failure half is reachable only under the `email-send-failure` scenario,
  *      because nothing else here drives a row out of `Sent`. See `emailSentNote` and `emailCouldNotBeSentNote`.
  *
+ *  13. Gazette history's admin role and paging. Claims are decoded, never verified; the empty history
+ *      route is extended with batch fixtures in plan 16a Task 1.
+ *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `ReferralNotes`, `JudicialReferralService`,
- * `CaseEmailService` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
+ * `CaseEmailService`, `GazetteNoticeHistory` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
  * privacy lock, the minor and Gazette write gates, create-time defaults, the saved-query permission rules —
  * see `savedQuery`) is deliberately NOT modelled: no
  * page's behaviour depends on it, and a half-copy would be a second opinion to keep in step. If a page
@@ -79,8 +82,8 @@
  * Two referral-shaped omissions, each for one of those reasons rather than by oversight:
  *
  *   - **The `caseworker-deedpoll-judicial` role gate on `/judicial/**`.** This mock reads a name out of a
- *     token and no roles, exactly as it reads none for the saved-query and witness-delete gates, so a 403
- *     is not a state it can produce. api's gate is api's own test.
+ *     token and no roles on this surface, exactly as for the saved-query and witness-delete gates, so a 403
+ *     is not a state those routes can produce. Gazette history separately models its admin gate. api's gate is api's own test.
  *   - **The inactivity sweep that hands a forgotten claim back to the pool.** It is a two-hour window on
  *     api's clock and nothing a page can drive, so a mock of it would be untestable machinery. It takes the
  *     sixth of api's lifecycle notes with it: `ReferralNotes.claimLapsed` is the only one this mock never
@@ -379,6 +382,19 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     // Everything below is the contract, so everything below is unreachable when the scenario says api is
     // down — including reads, which is what makes `api-unavailable` a realistic outage.
     if (!MOCK_SCENARIOS[scenario].reachable) return send(res, 503, { error: "deed-poll-api is unavailable" });
+
+    // Task 0's empty history establishes the read contract. Batch fixtures follow in Task 1.
+    if (pathname === "/caseworker/gazette-notices") {
+      const claims = tokenClaims(req);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      if (!Array.isArray(claims.roles) || !claims.roles.includes("caseworker-deedpoll-admin")) {
+        return send(res, 403, { error: "Administrator role required" });
+      }
+      if (method !== "GET") return send(res, 405, { error: "No Gazette write operation" });
+      const paging = parsePaging(searchParams.get("page"), searchParams.get("size"));
+      if ("errors" in paging) return send(res, 400, { error: "Invalid paging", errors: paging.errors });
+      return send(res, 200, { batches: [], ...paging, total: 0, totalPages: 0 });
+    }
 
     if (method === "GET" && pathname === "/caseworker/document-types") return send(res, 200, MOCK_DOCUMENT_TYPES);
 
@@ -1578,13 +1594,13 @@ function callerSubject(req: IncomingMessage): string {
  * page depends on. Anything undecodable is `null` rather than an error, so a hand-rolled `curl` against the mock
  * still works.
  */
-function tokenClaims(req: IncomingMessage): { sub?: unknown; name?: unknown } | null {
+function tokenClaims(req: IncomingMessage): { sub?: unknown; name?: unknown; roles?: unknown } | null {
   const bearer = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? "");
   const payload = bearer?.[1].split(".")[1];
   if (payload === undefined) return null;
 
   try {
-    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: unknown; name?: unknown };
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: unknown; name?: unknown; roles?: unknown };
   } catch {
     return null;
   }

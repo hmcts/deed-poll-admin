@@ -78,10 +78,10 @@ Do not commit credentials, test sessions, build output or logs.
 
 ### Task 0: Record baseline and reconcile the complete published contract
 
-- [ ] Install dependencies, record baseline evidence, inspect SPEC-PROVENANCE.md and the actual contract delta.
-- [ ] Refresh the complete OpenAPI artifact and provenance; add Gazette wire schemas/client history call
+- [x] Install dependencies, record baseline evidence, inspect SPEC-PROVENANCE.md and the actual contract delta.
+- [x] Refresh the complete OpenAPI artifact and provenance; add Gazette wire schemas/client history call
       and ready filter vocabulary; explicitly account for the unrelated unconsumed CCD surface as above.
-- [ ] Extend contract/adapter tests to cover Gazette wire strictness, pagination, authentication and
+- [x] Extend contract/adapter tests to cover Gazette wire strictness, pagination, authentication and
       malformed/error responses while retaining exhaustive contract coverage. Add the minimal mock
       route needed to test the adapter here; Task 1 extends its fixtures and semantics. Pass validation.
 
@@ -129,3 +129,28 @@ Do not commit credentials, test sessions, build output or logs.
       contract/business dependencies, and the missing full send-journey E2E. Do not mark parent16 complete.
 - [ ] Ensure clean committed worktree, move only this completed subplan to completed/, and fix parent links
       when moving it. Ralphex internal and Copilot Opus external review must run before reporting completion.
+
+
+## Task 0 evidence — 7 October 2026
+
+- Installed with `yarn install --immutable`, pinned Yarn 4.18.0, using this worktree's own node_modules.
+  Lockfile unchanged. Existing peer warnings concern Redis and playwright-core; dependency build scripts
+  were disabled by the environment. No sibling checkout was modified.
+- Before edits: `yarn lint` passed (392 files, two existing Biome configuration infos).
+  `npx turbo test test:app --concurrency=1` passed all eight tasks: 169 test files, 3,355 tests passed,
+  three skipped. `yarn welsh:check` exited 1: 503 strings, 474 identical cy entries
+  (467 prose, seven non-prose).
+- Verified the review artifact's SHA-256 against the plan. The copied JSON is structurally identical
+  after formatting. Full delta and source provenance are in the API client's SPEC-PROVENANCE.md:
+  44 operations / 31 paths / 44 schemas, including the explicitly pinned unconsumed CCD surface.
+- Added Gazette wire schemas, history client and filter vocabulary; the minimal mock serves empty
+  history, paging, decoded-token admin checks and outages. Batch fixtures and ready semantics remain
+  Task 1. Existing main case-list tabs deliberately exclude the separate admin queue; their test still
+  accounts for the complete published vocabulary by exact equality.
+- Validation: `yarn format` and `yarn lint` passed (393 checked files, same two Biome infos).
+  `npx turbo test test:app --concurrency=1` passed all eight tasks: 169 files, 3,408 tests passed,
+  three skipped, an increase of 53 passing tests. Focused API-client tests passed 532 tests;
+  `yarn workspace @hmcts/deed-poll-api-client build` passed. `git diff --check` passed.
+- `yarn welsh:check` still exits 1 with exactly the baseline counts; no user-facing strings changed.
+  Full application build, browser journeys and Ralphex internal / Copilot Opus external review remain
+  scheduled in Task 4, not represented as completed here.
