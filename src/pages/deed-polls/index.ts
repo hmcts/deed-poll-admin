@@ -32,6 +32,7 @@ import {
   caseListSearch,
   conditionsFromBuilder,
   countAwaitingConfirmation,
+  countGazetteReadyCases,
   countReturnedForAction,
   type FieldError,
   fieldControlName,
@@ -58,7 +59,7 @@ import {
   WAITING_COLUMN_LABEL
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
-import { callerFromRequest } from "../../auth/current-user.js";
+import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
 
 const LIST_PATH = "/deed-polls";
 
@@ -89,6 +90,9 @@ const RETURNED_FOR_ACTION_PATH = `${LIST_PATH}${caseListSearch({ conditions: ret
 const AWAITING_CONFIRMATION_PATH = `${LIST_PATH}${caseListSearch({ filter: AWAITING_CONFIRMATION_FILTER })}`;
 
 const en = {
+  gazetteLink: "View London Gazette applications",
+  gazetteCountFor: (count: number) => `Applications ready for the London Gazette: ${count}`,
+  gazetteUnavailable: "The number of applications ready for the London Gazette could not be loaded. Try opening the ready list.",
   title: "Deed poll cases",
   heading: "Deed poll cases",
   // True of every group in the bar rather than of the first one: plan 11's decision 4. "Filter by status"
@@ -196,11 +200,17 @@ const en = {
   }
 };
 
-// Welsh deliberately carries the English text for now. The migration plan's decision is to build
+// Existing Welsh content carries English pending translation; Gazette copy is bilingual.
+// The migration plan's decision is to build
 // the en/cy shape and translate later, and the workspace's translation catalogue covers court
 // listing terminology rather than deed-poll caseworker forms. Keeping the keys in place means
 // translating is a content change rather than a page rewrite.
-const cy = { ...en };
+const cy = {
+  ...en,
+  gazetteLink: "Gweld ceisiadau’r London Gazette",
+  gazetteCountFor: (count: number) => `Ceisiadau sy’n barod ar gyfer y London Gazette: ${count}`,
+  gazetteUnavailable: "Ni ellid llwytho nifer y ceisiadau sy’n barod ar gyfer y London Gazette. Ceisiwch agor y rhestr."
+};
 
 export const GET = async (req: Request, res: Response) => {
   // Resolved locally as well as at api's end: the key is what api is sent, and the resolved filter is
@@ -250,12 +260,9 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
   // this page needs, and one waiting on the other's round trip would put a second api latency in front of
   // every case list for the sake of a navigation bar.
   const savedQueries = savedQueryEntries(caller, view);
-  // Two more queries, and different ones from the list on screen — decisions 2 and 5, and `notify-3b`'s
-  // decision 3 for the second. Neither is narrowed by this request: "N need action" and "N are waiting" are
-  // facts about the service rather than about the tab being looked at. Started here and awaited after the
-  // list, so the three round trips overlap rather than queueing — `notify-3b` flag 4 is the note that a
-  // third banner should make api publish one work summary rather than adding a fourth query.
-  const counts = worklistCounts(caller);
+  // Counts are global, independent of the selected query. API publishes no combined summary;
+  // the Gazette read is additive for admins only and catches its own failures before the list finishes.
+  const counts = worklistCounts(caller, userFromRequest(req).isAdmin);
 
   try {
     const results = await findDeedPolls({ filter: filter.key, q, conditions, sort: serialiseSort(sort), page }, caller);
@@ -314,20 +321,21 @@ async function savedQueryEntries(caller: Caller, { filter, q, conditions, sort }
 }
 
 /**
- * The two worklist counts, read together and degrading independently.
+ * Worklist counts, read together and degrading independently; Gazette is requested only for admins.
  *
  * `Promise.all` rather than `allSettled` because each read has already caught its own failure — the settled
  * shape would be a second way of saying the same thing — and neither can reject. They are separate reads
  * because they are separate questions: a caseworker whose confirmation count failed must still be told about
  * a returned direction, and the reverse.
  */
-async function worklistCounts(caller: Caller): Promise<WorklistCounts> {
-  const [returnedForAction, awaitingConfirmation] = await Promise.all([
+async function worklistCounts(caller: Caller, isAdmin: boolean): Promise<WorklistCounts> {
+  const [returnedForAction, awaitingConfirmation, gazette] = await Promise.all([
     worklistCount("returned-for-action", () => countReturnedForAction(caller)),
-    worklistCount("awaiting-confirmation", () => countAwaitingConfirmation(caller))
+    worklistCount("awaiting-confirmation", () => countAwaitingConfirmation(caller)),
+    isAdmin ? worklistCount("gazette", () => countGazetteReadyCases(caller)) : undefined
   ]);
 
-  return { returnedForAction, awaitingConfirmation };
+  return { returnedForAction, awaitingConfirmation, gazette };
 }
 
 /**
@@ -381,6 +389,9 @@ function render(
 
   res.render("deed-polls/index", {
     cases,
+    showGazette: counts.gazette !== undefined,
+    gazetteCount: counts.gazette === undefined || counts.gazette === null ? "" : content.gazetteCountFor(counts.gazette),
+    gazetteFailed: counts.gazette === null,
     // Empty rather than a zero, so the template asks "is there something to say" rather than holding the
     // decision that a zero is not worth saying — decision 4: an alert with a zero in it is not an alert.
     returnedForAction: counts.returnedForAction ? content.returnedForActionFor(counts.returnedForAction) : "",
@@ -594,15 +605,10 @@ interface ListView {
   page?: number;
 }
 
-/**
- * The counts the two worklist alerts are built from — `null` for one that could not be read.
- *
- * Held together rather than passed one per parameter because `render` already takes eight arguments and a
- * third queue would make it ten. They stay two named fields rather than a list keyed by worklist, because the
- * two banners are two facts with two links and nothing iterates them: see `notify-3b` flag 4 for the point at
- * which this should become one work-summary read instead of one query per banner.
- */
+/** Independent counts; Gazette is absent for non-admins. */
 interface WorklistCounts {
+  /** Undefined for non-admins (no read), null for an unavailable count. */
+  gazette: number | null | undefined;
   /** Cases whose live referral has a returned direction nobody has actioned. */
   returnedForAction: number | null;
   /** Cases whose applicant has been asked to confirm and has not replied. */

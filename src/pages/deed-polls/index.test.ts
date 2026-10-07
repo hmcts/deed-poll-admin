@@ -1,4 +1,11 @@
-import { countAwaitingConfirmation, countReturnedForAction, findDeedPolls, findSavedQueries, InvalidInputError } from "@hmcts/deed-poll";
+import {
+  countAwaitingConfirmation,
+  countGazetteReadyCases,
+  countReturnedForAction,
+  findDeedPolls,
+  findSavedQueries,
+  InvalidInputError
+} from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET } from "./index.js";
@@ -12,6 +19,7 @@ import { GET } from "./index.js";
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
   countAwaitingConfirmation: vi.fn(),
+  countGazetteReadyCases: vi.fn(),
   countReturnedForAction: vi.fn(),
   findDeedPolls: vi.fn(),
   findSavedQueries: vi.fn()
@@ -66,6 +74,62 @@ describe("deed-polls list page", () => {
     vi.mocked(findSavedQueries).mockResolvedValue([] as never);
     vi.mocked(countReturnedForAction).mockResolvedValue(0);
     vi.mocked(countAwaitingConfirmation).mockResolvedValue(0);
+    vi.mocked(countGazetteReadyCases).mockResolvedValue(0);
+  });
+
+  it.each([false, true])("should make no Gazette count call for a non-admin (judicial %s)", async (judicial) => {
+    const res = pageResponse();
+    await GET(pageRequest({ judicial }), res);
+    expect(countGazetteReadyCases).not.toHaveBeenCalled();
+    expect(res.render.mock.calls[0][1]).toMatchObject({ showGazette: false, gazetteFailed: false, gazetteCount: "" });
+  });
+
+  it.each([0, 42])("should read and show the admin's global Gazette count of %s", async (count) => {
+    vi.mocked(countGazetteReadyCases).mockResolvedValue(count);
+    const res = pageResponse();
+    await GET(pageRequest({ admin: true, accessToken: "admin-token", query: { filter: "enroled", q: "Smith" } }), res);
+    expect(countGazetteReadyCases).toHaveBeenCalledExactlyOnceWith({ accessToken: "admin-token" });
+    expect(res.render.mock.calls[0][1]).toMatchObject({
+      showGazette: true,
+      gazetteFailed: false,
+      gazetteCount: `Applications ready for the London Gazette: ${count}`
+    });
+  });
+
+  it("should degrade and log only the Gazette count when its read fails", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(countGazetteReadyCases).mockRejectedValue(new Error("unavailable"));
+    vi.mocked(countReturnedForAction).mockResolvedValue(3);
+    vi.mocked(countAwaitingConfirmation).mockResolvedValue(4);
+    const res = pageResponse();
+    await GET(pageRequest({ admin: true }), res);
+    expect(res.render.mock.calls[0][1]).toMatchObject({
+      showGazette: true,
+      gazetteFailed: true,
+      gazetteCount: "",
+      returnedForActionFailed: false,
+      awaitingConfirmationFailed: false
+    });
+    expect(res.render.mock.calls[0][1].returnedForAction).toContain("3");
+    expect(res.render.mock.calls[0][1].awaitingConfirmation).toContain("4");
+    expect(log).toHaveBeenCalledWith("gazette count unavailable: unavailable");
+    log.mockRestore();
+  });
+
+  it("should preserve the Gazette count when both other worklists fail", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(countReturnedForAction).mockRejectedValue(new Error("unavailable"));
+    vi.mocked(countAwaitingConfirmation).mockRejectedValue(new Error("unavailable"));
+    vi.mocked(countGazetteReadyCases).mockResolvedValue(7);
+    const res = pageResponse();
+    await GET(pageRequest({ admin: true }), res);
+    expect(res.render.mock.calls[0][1]).toMatchObject({
+      gazetteFailed: false,
+      gazetteCount: "Applications ready for the London Gazette: 7",
+      returnedForActionFailed: true,
+      awaitingConfirmationFailed: true
+    });
+    log.mockRestore();
   });
 
   it("renders its own template, qualified by directory so it cannot be shadowed by pages/index.njk", async () => {

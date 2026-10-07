@@ -97,15 +97,15 @@ Do not commit credentials, test sessions, build output or logs.
 
 ### Task 2: Admin area gate, dashboard count and ready list
 
-- [ ] Mount requireRole(DEEDPOLL_ADMIN) at /deed-polls/gazette after requireAuth; extend the filesystem
+- [x] Mount requireRole(DEEDPOLL_ADMIN) at /deed-polls/gazette after requireAuth; extend the filesystem
       route coverage test. Test anonymous redirect, non-admin refusal, and admitted admins.
-- [ ] Add independent degrade-and-log count on the main case list for admins only; non-admin sessions
+- [x] Add independent degrade-and-log count on the main case list for admins only; non-admin sessions
       must make no Gazette count call. Zero and unavailable states must remain distinguishable, and
       admins must be able to reach the Gazette area even when no cases are currently ready.
-- [ ] Implement a paginated read-only ready list at /deed-polls/gazette with case reference/detail links,
+- [x] Implement a paginated read-only ready list at /deed-polls/gazette with case reference/detail links,
       appropriate available summary fields and history navigation. Preserve API's order even when a
       bookmarked URL supplies sort; no sorting controls, local filtering or selection state.
-- [ ] Add extractable bilingual content and register the new area with the Welsh extractor in this task.
+- [x] Add extractable bilingual content and register the new area with the Welsh extractor in this task.
       Test populated/empty/error pages, count isolation, role boundary, navigation, paging and templates.
       Pass validation.
 
@@ -183,3 +183,35 @@ Do not commit credentials, test sessions, build output or logs.
   passed with 114 cases / 52 ready / 52 batches. Stopped only the mock processes started for these checks.
 - `yarn welsh:check` still exits 1 with exactly the baseline counts; no user-facing content added.
   Full application build, browser checks and internal/external review remain Task 4.
+
+
+## Task 2 evidence — 7 October 2026
+
+- Reused the worktree's own dependencies installed immutably in Task 0. Before edits, lint passed
+  (398 checked files, two existing Biome infos); all eight test tasks passed (172 files, 3,451 passing
+  tests, three skipped). Welsh baseline: 503 strings / 474 identical cy entries (467 prose, seven non-prose).
+- Mounted requireRole(DEEDPOLL_ADMIN) on /deed-polls/gazette after authentication and persona locals,
+  before routing. Filesystem-derived coverage includes every Gazette page and the future history route;
+  tests cover anonymous redirects, caseworker/judicial refusal, and admins with either persona combination.
+- Added the independent admin-only count through the existing degrade-and-log helper. Non-admins make
+  no Gazette read; zero and unavailable render differently, and both retain the area link. Failures in
+  either the Gazette count or the other counts leave the successful counts and main list available.
+- Added the read-only ready list using buildCaseList and API pagination metadata. Only page travels to
+  the domain; bookmarked sort, search, filter, where and size are ignored. API row order is preserved,
+  table headings are plain text, and no selection or send controls exist. Cases link to details; the
+  history navigation targets Task 3's route. Empty and out-of-range pages differ and offer recovery.
+  Tests cover totals, paging, navigation, escaped references/names, Welsh rendering and failed reads.
+- The Welsh extractor already recursively includes the Gazette directory through deed-polls; documented
+  that coverage and ran yarn welsh:extract. All 17 new strings are extracted with bilingual content.
+  The regenerated catalogue also catches up two existing translated header strings. yarn welsh:check
+  still exits 1: 520 strings, the same 474 identical entries (467 prose, seven non-prose). New Welsh copy
+  has not received human language review.
+- Initial focused validation caught an overbroad test assertion matching an existing Gazette query
+  field; narrowed it to the new count/navigation. Final yarn format and yarn lint passed (400 checked
+  files, same two Biome infos). npx turbo test test:app --concurrency=1 passed all eight tasks:
+  173 files, 3,482 passing tests, three skipped — 31 new passing tests. git diff --check passed.
+- A standalone npx tsc -p tsconfig.app.json --noEmit initially failed because starter workspace build
+  declarations were absent. Running the normal yarn build built dependencies in order and passed all
+  eight tasks, including application TypeScript and Vite. No source workaround was needed.
+- Browser/accessibility journeys and Ralphex internal / Copilot Opus external review remain Task 4.
+  Task 3 history implementation has not been started in this iteration.

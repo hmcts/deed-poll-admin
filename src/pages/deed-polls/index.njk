@@ -76,6 +76,15 @@
 
   <h1 class="govuk-heading-xl">{{ heading }}</h1>
 
+  {% if showGazette %}
+    {% if gazetteFailed %}
+      {{ govukWarningText({ text: gazetteUnavailable, iconFallbackText: warningIcon }) }}
+    {% else %}
+      <p class="govuk-body">{{ gazetteCount }}</p>
+    {% endif %}
+    <p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette">{{ gazetteLink }}</a></p>
+  {% endif %}
+
   {% if errorSummary and errorSummary.length > 0 %}
     {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorSummary }) }}
   {% endif %}
