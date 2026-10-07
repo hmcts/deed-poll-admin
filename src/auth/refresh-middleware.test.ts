@@ -132,7 +132,7 @@ describe("refreshMiddleware", () => {
   it("signs out when the token has expired and there is no refresh token to recover it with", async () => {
     // The pass-through above is right only while the token still works. Once it has expired there is
     // nothing left to expire naturally: every case page presents it to api, which answers 401, which
-    // `errors.ts` renders as a 500 with no route back to /login — for the cookie's full maxAge.
+    // `errors.ts` can only meet with a sign-in-again page. Known before any page runs, so it is ended here.
     const req = request(["refreshToken"], { tokenExpiresAt: expiringIn(-30) });
 
     await refreshMiddleware(req, res, next);

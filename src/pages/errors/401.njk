@@ -1,0 +1,19 @@
+{% extends "layouts/app.njk" %}
+
+{#
+  Rendered by `domainErrorHandler` once api has refused the session's token and the session has been ended.
+  A link rather than a redirect on purpose — see `src/errors.ts` for the loop a redirect would make.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+    <h1 class="govuk-heading-l">You need to sign in again</h1>
+
+    <p class="govuk-body">Your sign-in is no longer valid, so you have been signed out.</p>
+
+    <p class="govuk-body">
+      <a class="govuk-link" href="/login{% if returnTo %}?returnTo={{ returnTo | urlencode }}{% endif %}">Sign in again</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

@@ -73,16 +73,61 @@ describe("domainErrorHandler", () => {
     expect(res.render).not.toHaveBeenCalled();
   });
 
-  // `UnauthorizedError` is deliberately unmapped: `requireAuth` and `refreshMiddleware` own re-authentication,
-  // and a redirect to `/login` from here loops when the session is valid and only api rejected the token.
-  it("should leave an unauthorized api answer to the starter's handler rather than redirecting to login", () => {
-    const error = new UnauthorizedError("deed-poll-api answered 401");
-    const res = pageResponse();
+  describe("when api refuses the session's token", () => {
+    const sessionRequest = (method: string) => {
+      const destroy = vi.fn((callback: (error?: Error) => void) => callback());
+      return { req: { method, originalUrl: "/deed-polls/c-1/notes/new", session: { destroy } } as never, destroy };
+    };
 
-    domainErrorHandler()(error, REQUEST, res, next);
+    beforeEach(() => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+    });
 
-    expect(next).toHaveBeenCalledWith(error);
-    expect(res.redirect).not.toHaveBeenCalled();
+    // What an AAT persona hit once testing-support swept its user: every page a 500, with no route back to
+    // sign-in. Signing out first is what makes the link work — `/login` with a live session hands the same
+    // token straight back.
+    it("should end the session and render the sign-in-again page with a 401", async () => {
+      const { req, destroy } = sessionRequest("GET");
+      const res = pageResponse();
+
+      await domainErrorHandler()(new UnauthorizedError("deed-poll-api answered 401"), req, res, next);
+
+      expect(destroy).toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.render).toHaveBeenCalledWith("errors/401", { returnTo: "/deed-polls/c-1/notes/new" });
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    // The reason this was unmapped until 2026-10-07, and still the reason it must not redirect: when IDAM's own
+    // session silently re-issues a token api refuses again, a redirect to `/login` loops; a link cannot.
+    it("should never redirect, so a token api always refuses cannot loop", async () => {
+      const { req } = sessionRequest("GET");
+      const res = pageResponse();
+
+      await domainErrorHandler()(new UnauthorizedError("deed-poll-api answered 401"), req, res, next);
+
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+
+    it("should offer no way back to a form submission, which has no page to return to", async () => {
+      const { req } = sessionRequest("POST");
+      const res = pageResponse();
+
+      await domainErrorHandler()(new UnauthorizedError("deed-poll-api answered 401"), req, res, next);
+
+      expect(res.render).toHaveBeenCalledWith("errors/401", { returnTo: null });
+    });
+
+    it("should hand a failure to end the session to the starter's handler", async () => {
+      const failure = new Error("redis unavailable");
+      const destroy = vi.fn((callback: (error?: Error) => void) => callback(failure));
+      const res = pageResponse();
+
+      await domainErrorHandler()(new UnauthorizedError("deed-poll-api answered 401"), { method: "GET", session: { destroy } } as never, res, next);
+
+      expect(next).toHaveBeenCalledWith(failure);
+      expect(res.render).not.toHaveBeenCalled();
+    });
   });
 
   it("should pass a conflict on, because the page that can name the state is the one that must catch it", () => {
