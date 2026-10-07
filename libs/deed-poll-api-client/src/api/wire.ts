@@ -946,19 +946,20 @@ const emailSlotsWriteSchema = z.object({
 
 /** Frozen audit previews: the count is the whole batch, not the bounded references array.
  * Java primitives and collections are required; reference-valued attribution follows the nullable wire convention.
+ * Preview and page-size caps belong to API; increasing them must not make a readable response invalid.
  */
 const gazetteNoticeBatchSchema = z.object({
   sentAt: wireDateTime.nullish(),
   sentBy: z.string().nullish(),
   caseCount: z.number().int().nonnegative(),
-  referenceNumbers: z.array(z.string()).max(100),
+  referenceNumbers: z.array(z.string()),
   referencesTruncated: z.boolean()
 });
 
 const gazetteNoticeHistorySchema = z.object({
   batches: z.array(gazetteNoticeBatchSchema),
   page: z.number().int().positive(),
-  size: z.number().int().min(1).max(100),
+  size: z.number().int().positive(),
   total: z.number().int().nonnegative(),
   totalPages: z.number().int().nonnegative()
 });

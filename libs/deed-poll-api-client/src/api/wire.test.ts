@@ -75,7 +75,6 @@ describe("Gazette history wire guards", () => {
     { referenceNumbers: null },
     { referenceNumbers: [null] },
     { referenceNumbers: [123] },
-    { referenceNumbers: Array(101).fill("reference") },
     { referencesTruncated: null },
     { referencesTruncated: "false" },
     { sentAt: "invalid" },
@@ -89,8 +88,12 @@ describe("Gazette history wire guards", () => {
     expect(WIRE_SCHEMAS.GazetteNoticeBatchResponse.safeParse(incomplete).success).toBe(false);
   });
 
-  it("should accept a preview exactly at the published cap", () => {
-    expect(WIRE_SCHEMAS.GazetteNoticeBatchResponse.safeParse({ ...batch, referenceNumbers: Array(100).fill("reference") }).success).toBe(true);
+  it.each([100, 101, 200])("should preserve previews and page sizes of %i if API increases its caps", (size) => {
+    const expanded = { ...history, size, batches: [{ ...batch, referenceNumbers: Array(size).fill("reference") }] };
+    expect(WIRE_SCHEMAS.GazetteNoticeHistoryResponse.parse(expanded)).toEqual({
+      ...expanded,
+      batches: [{ ...expanded.batches[0], sentAt: new Date("2026-10-01T12:30:00Z") }]
+    });
   });
 
   it.each([
@@ -99,7 +102,6 @@ describe("Gazette history wire guards", () => {
     { page: 0 },
     { page: "1" },
     { size: 0 },
-    { size: 101 },
     { total: -1 },
     { total: 1.5 },
     { totalPages: -1 },
