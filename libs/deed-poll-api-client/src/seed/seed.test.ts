@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type ApiResult, DEED_POLL_STATE, getCase, listCases, listReferrals } from "../api/client.js";
 import { type RunningMockApi, startMockApi } from "../mock/server.js";
 import { seedDataset } from "./dataset.js";
 import { type SeedJournal, seedCases } from "./run.js";
-import { seedTarget } from "./target.js";
+import { seedJournalPath, seedTarget } from "./target.js";
 
 const DATE = "2026-10-02";
 const BATCH = "manual-test-01";
@@ -41,6 +43,29 @@ describe("non-production seed target", () => {
   it("should allow local APIs and internal non-production services", () => {
     expect(seedTarget("local", "http://127.0.0.1:4550").baseUrl).toBe("http://127.0.0.1:4550");
     expect(seedTarget("aat", "http://deed-poll-api-aat.service.core-compute-aat.internal").environment).toBe("aat");
+  });
+});
+
+describe("seedJournalPath", () => {
+  const DATA = fileURLToPath(new URL("../../../../data/", import.meta.url));
+
+  it("should default to the repository's data directory, named for the environment and batch", () => {
+    expect(seedJournalPath("aat", "manual-testing-20261005")).toBe(join(DATA, "seed-aat-manual-testing-20261005.json"));
+  });
+
+  it("should accept an explicit journal inside data, absolute or relative", () => {
+    expect(seedJournalPath("aat", BATCH, join(DATA, "seed-aat-manual-testing-20261002.json"))).toBe(join(DATA, "seed-aat-manual-testing-20261002.json"));
+    expect(seedJournalPath("aat", BATCH, "nested/batch.json")).toBe(join(DATA, "nested", "batch.json"));
+  });
+
+  // Both arguments come off a command line an agent may be composing, and the journal is written, locked and kept
+  // beside a credentials file — so neither may steer it out of data/.
+  it.each(["../escape", "a/b", "UPPER", "-leading", ""])("should refuse the batch %j", (batch) => {
+    expect(() => seedJournalPath("aat", batch)).toThrow("--batch");
+  });
+
+  it.each(["../outside.json", "/tmp/journal.json", "nested/../../outside.json", "journal.txt"])("should refuse the journal %j", (journal) => {
+    expect(() => seedJournalPath("aat", BATCH, journal)).toThrow("--journal");
   });
 });
 
