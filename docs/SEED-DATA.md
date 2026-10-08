@@ -79,7 +79,7 @@ No email-send endpoints are called, no payments are made, and no documents are u
 
 Every case is read back and checked for its planned state, type, seed marker, witnesses, notes and referral state. A mismatch fails the command. Existing unrelated cases are preserved.
 
-The default journal is `data/seed-<environment>-<batch>.json`, relative to the API-client workspace when invoked through Yarn. `data/` is gitignored. Use `--journal /absolute/path/batch.json` for a stable explicit location. The journal contains created IDs, references and successful API responses, but no credentials. `--as-of YYYY-MM-DD` fixes the historical scenario dates; otherwise the first run uses today's UTC date and the journal preserves it.
+The default journal is `data/seed-<environment>-<batch>.json` in the repository root, whichever directory Yarn runs the script from. `data/` is gitignored. `--journal` names a `.json` file inside that directory, either relative to it (`--journal batch.json`) or as an absolute path within it; anything outside `data/` is refused, and `--batch` must be lowercase letters, digits and hyphens. Both are confined because the journal sits beside a credentials file and these arguments may come from an agent. The journal contains created IDs, references and successful API responses, but no credentials. `--as-of YYYY-MM-DD` fixes the historical scenario dates; otherwise the first run uses today's UTC date and the journal preserves it.
 
 Keep the journal. Repeating the same command with the same journal verifies the records and skips completed writes. It does not reset manual edits: changes to the checked fields are reported as a mismatch. A new journal with an already-used batch is refused if its marker exists.
 
