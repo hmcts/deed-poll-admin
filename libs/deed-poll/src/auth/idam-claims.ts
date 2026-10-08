@@ -14,7 +14,7 @@
  * library.
  */
 import { type CurrentUser, currentUser } from "./current-user.js";
-import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL, type Role } from "./roles.js";
+import { DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL, type Role } from "./roles.js";
 
 /**
  * Every role this service acts on. Anything IDAM asserts that is not here is ignored.
@@ -25,7 +25,7 @@ import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL, type Role } from "./roles.js";
  * permissions bug rather than a missing list entry. Adding a role to `Role` without adding it here is
  * therefore silent and total.
  */
-const KNOWN_ROLES: readonly string[] = [DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL];
+const KNOWN_ROLES: readonly string[] = [DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL];
 
 /**
  * The subset of an IDAM ID token this service reads.

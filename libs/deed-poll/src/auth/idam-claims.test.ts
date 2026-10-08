@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { SERVICE_ACCOUNT_NAME } from "./current-user.js";
 import { userFromClaims } from "./idam-claims.js";
-import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL } from "./roles.js";
+import { DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL } from "./roles.js";
 
 describe("auth/idam-claims", () => {
+  it("keeps the ordinary caseworker role without granting admin or judicial powers", () => {
+    expect(userFromClaims({ roles: [DEEDPOLL_CASEWORKER] })).toMatchObject({
+      roles: [DEEDPOLL_CASEWORKER],
+      isAdmin: false,
+      isJudicial: false
+    });
+  });
+
   it("keeps a role this service recognises", () => {
     const user = userFromClaims({ roles: [DEEDPOLL_ADMIN] });
 
@@ -27,10 +35,10 @@ describe("auth/idam-claims", () => {
     expect(userFromClaims({ roles: [DEEDPOLL_ADMIN] }).isJudicial).toBe(false);
   });
 
-  it("keeps both roles for a caller who holds both", () => {
-    const user = userFromClaims({ roles: [DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL] });
+  it("keeps all recognised roles for a caller who holds them", () => {
+    const user = userFromClaims({ roles: [DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL] });
 
-    expect(user.roles).toEqual([DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL]);
+    expect(user.roles).toEqual([DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL]);
     expect(user.isAdmin).toBe(true);
     expect(user.isJudicial).toBe(true);
   });

@@ -244,6 +244,11 @@ single file:
   one row per sentence (`returnedForActionFor.1`, `.2`) because English needs a singular and a plural where Welsh
   needs more, so which sentence covers which count is a translator briefing rather than a string.
 
+Ordinary caseworkers hold `caseworker-deedpoll` for CCD document READ. Admin and judicial roles also map
+to the API's reader profile; no staff persona receives the system role. The AAT IDAM role registration must
+land before the updated ordinary-caseworker persona can be created. Existing real accounts need assignment
+and a fresh login. UI admin/judicial gates are unchanged.
+
 ## The dev persona switcher, and the two patterns it establishes
 
 A tester switches between the caseworker, admin and judicial personas from a strip on every page, by signing in

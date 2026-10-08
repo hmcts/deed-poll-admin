@@ -21,5 +21,8 @@ export const DEEDPOLL_ADMIN = "caseworker-deedpoll-admin";
  */
 export const DEEDPOLL_JUDICIAL = "caseworker-deedpoll-judicial";
 
+/** Ordinary caseworkers: CCD document READ, without admin or judicial privileges. */
+export const DEEDPOLL_CASEWORKER = "caseworker-deedpoll";
+
 /** All roles a request may carry. Extend as further roles are modelled. */
-export type Role = typeof DEEDPOLL_ADMIN | typeof DEEDPOLL_JUDICIAL;
+export type Role = typeof DEEDPOLL_CASEWORKER | typeof DEEDPOLL_ADMIN | typeof DEEDPOLL_JUDICIAL;

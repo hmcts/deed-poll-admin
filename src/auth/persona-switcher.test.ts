@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
+import { DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
 import { PERSONA_SWITCH_PATH, PERSONA_SWITCHER_ENVIRONMENTS, PERSONAS, personaFor, personaSwitcherEnabled, personaSwitcherLocals } from "./persona-switcher.js";
@@ -264,8 +264,7 @@ describe("personaFor", () => {
   it("should resolve each offered persona by its id, with the roles that define it", () => {
     expect(personaFor("judge")).toMatchObject({ name: "Judge", roleNames: [DEEDPOLL_JUDICIAL] });
     expect(personaFor("admin")).toMatchObject({ name: "Caseworker with admin", roleNames: [DEEDPOLL_ADMIN] });
-    // A plain caseworker holds no role at all, which is why the switcher names people rather than roles.
-    expect(personaFor("caseworker")).toMatchObject({ name: "Caseworker", roleNames: [] });
+    expect(personaFor("caseworker")).toMatchObject({ name: "Caseworker", roleNames: [DEEDPOLL_CASEWORKER] });
   });
 
   // Whatever arrives in a form body, including the shapes a crafted request uses. An id that matches nothing
