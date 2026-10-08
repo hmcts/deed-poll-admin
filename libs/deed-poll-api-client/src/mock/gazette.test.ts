@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getGazetteNoticeHistory, listCases } from "../api/client.js";
-import { DEED_POLL_STATE } from "../api/wire.js";
+import { DEED_POLL_STATE, DEED_POLL_TYPE } from "../api/wire.js";
 import { type RunningMockApi, startMockApi } from "./server.js";
 
 const ADMIN = token(["caseworker-deedpoll-admin"]);
@@ -37,6 +37,29 @@ function history(page?: number, size?: number, accessToken = ADMIN) {
 }
 
 describe("readyForPublication", () => {
+  it("should exclude relinquishment from rows and totals while preserving other types and the ordinary case list", async () => {
+    const records = [...DEED_POLL_TYPE, null].map((type) =>
+      mock.seed({ type, state: "Enroled", publishToLondonGazette: true, dateNoticeSentToLondonGazette: null })
+    );
+    const expected = records.filter((record) => record.type !== "DeedOfRelinquishment");
+
+    const ready = await listCases({ filter: "readyForPublication", size: 100 }, { baseUrl: mock.url });
+    const count = await listCases({ filter: "readyForPublication", size: 1 }, { baseUrl: mock.url });
+    const all = await listCases({ filter: "all", size: 100 }, { baseUrl: mock.url });
+
+    expect(ready).toMatchObject({ ok: true, data: { total: expected.length } });
+    if (!ready.ok) throw new Error("Expected the ready list to succeed");
+    expect(ready.data.cases.map((record) => record.id).sort()).toEqual(expected.map((record) => record.id).sort());
+    expect(count).toMatchObject({ ok: true, data: { total: expected.length, totalPages: expected.length } });
+    expect(all).toMatchObject({ ok: true, data: { total: records.length } });
+
+    records[0].type = "DeedOfRelinquishment";
+    const changed = await listCases({ filter: "readyForPublication", size: 100 }, { baseUrl: mock.url });
+    expect(changed).toMatchObject({ ok: true, data: { total: expected.length - 1 } });
+    if (!changed.ok) throw new Error("Expected the refreshed ready list to succeed");
+    expect(changed.data.cases.map((record) => record.id)).not.toContain(records[0].id);
+  });
+
   it.each(DEED_POLL_STATE)("should require Enroled, publication true and no sent date when state is %s", async (state) => {
     for (const publishToLondonGazette of [true, false, null]) {
       for (const dateNoticeSentToLondonGazette of [null, new Date("2026-08-01T00:00:00Z")]) {

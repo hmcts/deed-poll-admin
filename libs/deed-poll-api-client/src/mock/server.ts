@@ -1735,7 +1735,11 @@ const FILTERS: readonly { key: string; matches: (record: MockCase) => boolean; d
   },
   {
     key: "readyForPublication",
-    matches: (record) => record.publishToLondonGazette === true && record.dateNoticeSentToLondonGazette == null && record.state === "Enroled",
+    matches: (record) =>
+      record.publishToLondonGazette === true &&
+      record.dateNoticeSentToLondonGazette == null &&
+      record.state === "Enroled" &&
+      record.type !== "DeedOfRelinquishment",
     defaultSort: { field: "dateEnroled", descending: false }
   }
 ];
