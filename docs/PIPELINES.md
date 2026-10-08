@@ -150,6 +150,19 @@ resolves.
    Running-but-not-Ready. The failure mode here is not `deed-poll-web`'s crashloop: `getRedisClient` races
    `connect()` against a bound and serves anyway, so the pod comes up and `redisStatus` reports
    `redis: DOWN` for ever, which keeps it out of its own Service. Same cause, same fix, different symptom.
+
+   **Correction, 2026-10-08: preview has never actually deployed, and it is parked.** The subchart works, but
+   `assertRedisUrl` (`src/auth/session.ts`) refuses `redis://` under `NODE_ENV=production`, so the preview pod
+   crashloops and every pull request's build ends red at about 50 minutes, at the `kubectl wait`. This has been
+   true since this item was written. It blocks nothing: master still deploys to AAT, and AAT is where testing
+   happens. So it was parked by decision, not fixed. **Until it is fixed, a red PR build is not a signal: check
+   the SonarCloud quality gate for the PR directly before merging.** That gap is how a gate failure reached
+   master on 2026-10-07. The options weighed, for whoever reopens it:
+   - a preview-only flag that allows `redis://` for the release's own `-redis-master` host. It cannot key on
+     `ENVIRONMENT_NAME`, because Jenkins deploys preview with `global.environment=aat`;
+   - TLS on the per-PR subchart, which needs a CA mounted into the nodejs chart (not yet checked);
+   - pointing preview at AAT's Redis, which stays rejected: it would also give unreviewed PR code every AAT
+     session, on top of the shared-keyspace reasons above.
 5. **External onboarding**, tracked in [`.business_context/PROGRESS.md`](../.business_context/PROGRESS.md),
    and now **one component's worth rather than four**: a `cnp-jenkins-config` entry for `deed-poll`, the
    `deed-poll` namespace and a HelmRelease in `cnp-flux-config`, and the IDAM client registration that
