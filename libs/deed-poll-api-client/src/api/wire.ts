@@ -948,6 +948,28 @@ const emailSlotsWriteSchema = z.object({
  * Java primitives and collections are required; reference-valued attribution follows the nullable wire convention.
  * Preview and page-size caps belong to API; increasing them must not make a readable response invalid.
  */
+const gazetteSettingsSchema = z.object({
+  recipientEmail: z.string().nullish(),
+  revision: z.number().int().nonnegative(),
+  updatedAt: wireDateTime.nullish(),
+  updatedBy: z.string().nullish()
+});
+
+export const GAZETTE_RECIPIENT_EMAIL_PATTERN =
+  "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:[.][A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:[.][A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$";
+
+const updateGazetteSettingsSchema = z
+  .object({
+    recipientEmail: z
+      .string()
+      .trim()
+      .max(254)
+      .regex(new RegExp(GAZETTE_RECIPIENT_EMAIL_PATTERN))
+      .refine((value) => value.indexOf("@") <= 64),
+    revision: z.number().int().nonnegative()
+  })
+  .strict();
+
 const gazetteNoticeBatchSchema = z.object({
   sentAt: wireDateTime.nullish(),
   sentBy: z.string().nullish(),
@@ -980,6 +1002,8 @@ const apiErrorSchema = z.object({
  * it separately, so the day api's two bodies diverge, one of the two comparisons fails.
  */
 export const WIRE_SCHEMAS = {
+  GazetteSettingsResponse: gazetteSettingsSchema,
+  UpdateGazetteSettingsRequest: updateGazetteSettingsSchema,
   GazetteNoticeBatchResponse: gazetteNoticeBatchSchema,
   GazetteNoticeHistoryResponse: gazetteNoticeHistorySchema,
   CaseListResponse: caseListSchema,
@@ -1051,6 +1075,7 @@ export const UNSPECIFIED_SCHEMAS = { ApiError: apiErrorSchema } as const;
  * Everything else is nullable, and a schema insisting otherwise would reject an ordinary half-logged case.
  */
 export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string[]>> = {
+  GazetteSettingsResponse: ["revision"],
   GazetteNoticeBatchResponse: ["caseCount", "referenceNumbers", "referencesTruncated"],
   GazetteNoticeHistoryResponse: ["batches", "page", "size", "total", "totalPages"],
   // The four paging counts are `int`, `int`, `long` and `int` on api's record, so none can arrive null.
@@ -1163,3 +1188,6 @@ export type WireApiError = z.infer<typeof apiErrorSchema>;
 
 export type WireGazetteNoticeHistory = z.infer<typeof gazetteNoticeHistorySchema>;
 export type WireGazetteNoticeBatch = z.infer<typeof gazetteNoticeBatchSchema>;
+
+export type WireGazetteSettings = z.infer<typeof gazetteSettingsSchema>;
+export type WireUpdateGazetteSettings = z.infer<typeof updateGazetteSettingsSchema>;

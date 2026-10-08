@@ -42,9 +42,14 @@ The Gazette area `/deed-polls/gazette/**` is gated once in `app.ts` after authen
 `DEEDPOLL_ADMIN`. Its independent main-list count is requested only for admins; zero and unavailable
 both retain the area link. Ready reads forward only paging and `filter=readyForPublication`, never a
 sort or local membership predicate. History preserves API totals and the explicit truncation flag.
+The recipient editor at `/deed-polls/gazette/settings` uses API GET/PUT settings,
+forwards the original revision on save and preserves input on 400/409. A conflict
+requires a reload, never an automatic write with a fresh revision. Attribution comes
+from API; the page does not post it. The mock starts unset and resets settings with
+its other fixtures. Saving a setting sends no email.
 The Welsh extractor already includes this area recursively through `deed-polls`.
 
-`yarn test:gazette` runs two browser journeys against a fresh mock on 3216 and this app on 3316,
+`yarn test:gazette` runs three browser journeys against a fresh mock on 3216 and this app on 3316,
 using Redis on 6316/database 1 and local IDAM on 5556. It is separate from `yarn test:e2e` because its
 empty-state check must never reset a shared developer mock. See README for prerequisites.
 The standalone mock resolves missing token roles from local IDAM userinfo (override with

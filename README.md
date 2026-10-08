@@ -167,7 +167,11 @@ count show anything at all. An empty store looks the same as a feature that is n
 
 Administrators can follow the London Gazette count from the case list to an oldest-enrolled-first,
 read-only ready list and paginated send history. History shows the full case count and identifies
-truncated reference previews. Review checklists, selection and sending remain future work in
+truncated reference previews. The ready list links to **London Gazette recipient**, an admin-only
+settings editor backed by the API. It starts unset, validates one email address, displays the last
+change attribution, and requires reloading after a concurrent edit. The court contact mailbox is
+not used as a default recipient. Saving settings sends no email. Deploy the API settings contract
+and V33 migration before this admin version. Review checklists, selection and sending remain future work in
 [plan 16](docs/plans/16-gazette-1-ready-list-review-and-send.md).
 
 The seed includes 26 ready cases, cases excluded by the publication/sent-date rules, and 26 frozen
@@ -181,9 +185,10 @@ the local IDAM simulator (`yarn idam:build` if its image is missing, then `docke
 and seed it with `yarn idam:users`. Then provide a separate Redis instance on port 6316 (for example,
 `docker run --rm -p 6316:6379 redis:8-alpine`). Run `yarn test:gazette` from this repository root.
 The suite starts/stops its own app on 3316 and fresh mock on 3216, uses Redis database 1, and refuses
-to reuse occupied app/mock ports. Both journeys sign in through IDAM and include axe checks; the admin
-journey also checks Welsh. The dedicated config keeps the empty-state fixture out of the shared
-`yarn test:e2e` suite. It never resets an existing mock. These checks cover reads only, not sending.
+to reuse occupied app/mock ports. All three journeys sign in through IDAM and include axe checks; the admin
+read and recipient-settings journeys also check Welsh. The dedicated config keeps the empty-state fixture out of the shared
+`yarn test:e2e` suite. It never resets an existing mock. These checks cover ready/history reads and recipient settings (including invalid and stale edits);
+the future batch-send journey remains outstanding.
 
 There are no database commands: this repo has no database.
 

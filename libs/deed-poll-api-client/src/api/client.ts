@@ -35,6 +35,7 @@ import {
   type WireFieldRules,
   type WireGazetteNoticeBatch,
   type WireGazetteNoticeHistory,
+  type WireGazetteSettings,
   type WireJudicialCaseNote,
   type WireJudicialCaseView,
   type WireJudicialDirection,
@@ -51,6 +52,7 @@ import {
   type WireSavedQueryCreate,
   type WireSavedQueryUpdate,
   type WireSentEmail,
+  type WireUpdateGazetteSettings,
   type WireWitnessCreate,
   type WireWitnessUpdate
 } from "./wire.js";
@@ -150,6 +152,17 @@ export async function listCases(query: CaseListQuery, config: ApiConfig): Promis
   const search = parameters.toString();
 
   return request(config, "GET", `/caseworker/cases${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.CaseListResponse);
+}
+
+export function getGazetteSettings(config: ApiConfig): Promise<ApiResult<GazetteSettings>> {
+  return request(config, "GET", "/caseworker/gazette-settings", WIRE_SCHEMAS.GazetteSettingsResponse);
+}
+
+export function updateGazetteSettings(input: UpdateGazetteSettings, config: ApiConfig): Promise<ApiResult<GazetteSettings>> {
+  return request(config, "PUT", "/caseworker/gazette-settings", WIRE_SCHEMAS.GazetteSettingsResponse, {
+    recipientEmail: input.recipientEmail,
+    revision: input.revision
+  });
 }
 
 /** Admin-only audit history. Omitted paging stays omitted so api applies its own defaults. */
@@ -1216,3 +1229,8 @@ export interface GazetteNoticeHistoryQuery {
   /** Defaults to 25; api clamps to 100. */
   size?: number;
 }
+
+export type GazetteSettings = WireGazetteSettings;
+export type UpdateGazetteSettings = WireUpdateGazetteSettings;
+
+export { GAZETTE_RECIPIENT_EMAIL_PATTERN } from "./wire.js";
