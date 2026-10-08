@@ -15,11 +15,12 @@
  * starter's handler outright would mean reimplementing both, in a file the next re-scaffold
  * overwrites.
  */
-import { ForbiddenError, InvalidInputError, NotFoundError } from "@hmcts/deed-poll";
+import { ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } from "@hmcts/deed-poll";
 import type { ErrorRequestHandler, NextFunction, Request, Response } from "express";
+import { signOut } from "./auth/session.js";
 
 export function domainErrorHandler(): ErrorRequestHandler {
-  return (err: Error, _req: Request, res: Response, next: NextFunction) => {
+  return (err: Error, req: Request, res: Response, next: NextFunction) => {
     // Past the point of changing the status, so let Express abort rather than attempt a second set
     // of headers. Relevant here because the document download route streams.
     if (res.headersSent) {
@@ -45,6 +46,22 @@ export function domainErrorHandler(): ErrorRequestHandler {
       // there to be refused from is more than they need to know. `src/pages/errors/403.njk` does exist, but
       // it is the login flow's — there the user already knows who they are and what was refused.
       return res.status(403).render("errors/404");
+    }
+
+    if (err instanceof UnauthorizedError) {
+      // api refused a token this session still believes in — its user deleted or its IDAM session ended,
+      // which is every AAT persona within three hours of being created. Left to the 500 page, the caseworker
+      // had no way back short of clearing cookies. **Rendered, never redirected**: a redirect to `/login`
+      // loops when IDAM's own session silently re-issues a token api refuses again (a misconfigured
+      // audience, say), whereas a link costs one click and cannot. Signing out first is what makes the link
+      // honest, since `/login` with a live session would hand the same token straight back.
+      console.error(`signing out after api refused the session's token: ${err.message}`);
+      return signOut(req).then(
+        // Back to the page they were on, but only for a read: a POST has nothing to return to, and `/login`
+        // checks `returnTo` itself, so this is a convenience rather than a trust decision.
+        () => res.status(401).render("errors/401", { returnTo: req.method === "GET" ? req.originalUrl : null }),
+        (error: unknown) => next(error)
+      );
     }
 
     if (err instanceof InvalidInputError) {

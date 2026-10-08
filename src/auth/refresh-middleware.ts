@@ -31,8 +31,8 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
   // **An already-expired access token with nothing to refresh it is not a session that expires
   // naturally.** `refreshToken` is optional — IDAM only issues one for `offline_access` — and after the
   // cutover every case page presents the access token to `deed-poll-api`, which answers 401, which
-  // `errors.ts` deliberately renders as a 500 with no route back to `/login`. So the session would keep
-  // its cookie's full `maxAge` while every page faulted. Ending it here hands the next request to
+  // `errors.ts` meets with a sign-in-again page rather than a redirect — an extra click, on a condition
+  // that is known before any page runs. Ending it here hands the next request straight to
   // `requireAuth`, which cannot loop because the session is destroyed first. Same decision as the
   // expired-token branch in the refresh failure below.
   if (expiresAt && expiresAt - now <= 0 && !refreshToken) {
@@ -83,8 +83,8 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
 
     // **An access token that has already expired is a different case, and the cutover is what made it
     // one.** Every case page now presents this token to `deed-poll-api`, which answers 401, which
-    // `callApi` turns into `UnauthorizedError` — and `errors.ts` deliberately does not render that, so
-    // the caseworker gets a 500 on every page with no route back to `/login`. Continuing is only
+    // `callApi` turns into `UnauthorizedError` — and `errors.ts` can only meet that with a sign-in-again
+    // page, an extra click on every expiry that a redirect from here avoids. Continuing is only
     // defensible while the token still works; once it does not, there is nothing left to continue with.
     // Signing out here cannot loop the way a redirect from the error handler would, because the session
     // is destroyed first: the next request has no user and `requireAuth` owns it.
