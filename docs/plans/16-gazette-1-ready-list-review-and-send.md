@@ -270,3 +270,13 @@ journey: an admin sees the banner, reviews a case, sends a subset, sees the hist
 reach `/deed-polls/gazette` at all.
 
 - [ ] Welsh extraction covers the new pages; E2E journey green; full validation commands green
+
+## Relinquishment exclusion — 8 October 2026
+
+Steve confirmed that Deed of Relinquishment stays outside the Gazette process.
+The API ready filter and total exclude this type; the admin continues to consume
+those answers without filtering a page locally. The development mock mirrors the
+exclusion. Existing Unknown/unset-type read behaviour is unchanged. When selection
+and sending are implemented, a case reclassified as relinquishment after selection
+must cause a clear refusal before sending, without silently reducing the batch.
+The spreadsheet generator and send endpoint remain outstanding API work.
