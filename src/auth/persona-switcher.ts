@@ -52,7 +52,7 @@
  * "test" is here because `vitest.config.ts` sets `ENVIRONMENT_NAME=test` — but note that the flag is still
  * off by default there, so a test that wants the switcher has to ask for it.
  */
-import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
+import { DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
 import config from "config";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { type Persona, personaState, switcherUnavailableReason } from "./persona-users.js";
@@ -88,16 +88,11 @@ export const PERSONA_SWITCH_PATH = "/switch-persona";
  * **`roleNames` is what a persona *is*, and the roles are imported rather than spelled out.** A copy of one of
  * these strings has already drifted once in this repo (`scripts/seed-idam-users.mjs` granted the pre-rename
  * `deedpoll-admin` after `roles.ts` moved on), and it fails closed: the persona resolves to no roles, so it
- * presents as a permissions bug rather than a typo. The caseworker's empty list is the point of the next
- * paragraph and not an oversight.
- *
- * **The names are personas, not roles, and that is deliberate.** A plain caseworker holds *no* IDAM role —
- * "caseworker" is the absence of `caseworker-deedpoll-admin`, not a role of its own — so a control offering
- * "roles" would be offering one that does not exist. Naming people avoids asserting anything about the role
- * list, which is api's to derive from the token anyway.
+ * presents as a permissions bug rather than a typo. Ordinary caseworkers now receive their own product role
+ * so CCD can grant document READ access without granting the system account's write permissions.
  */
 export const PERSONAS: readonly Persona[] = [
-  { id: "caseworker", name: "Caseworker", fixtureUsername: "caseworker@example.com", roleNames: [] },
+  { id: "caseworker", name: "Caseworker", fixtureUsername: "caseworker@example.com", roleNames: [DEEDPOLL_CASEWORKER] },
   { id: "admin", name: "Caseworker with admin", fixtureUsername: "admin@example.com", roleNames: [DEEDPOLL_ADMIN] },
   { id: "judge", name: "Judge", fixtureUsername: "judge@example.com", roleNames: [DEEDPOLL_JUDICIAL] }
 ];
