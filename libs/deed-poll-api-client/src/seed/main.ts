@@ -1,13 +1,13 @@
 // biome-ignore-all lint/suspicious/noUndeclaredEnvVars: CLI-only credentials, never passed to the application or Turbo.
 import { execFile } from "node:child_process";
 import { mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
 import { parseArgs, promisify } from "node:util";
 import { checkApiReachable } from "../api/client.js";
 import { seedTestAccounts } from "./accounts.js";
 import { seedDataset } from "./dataset.js";
 import { type SeedCredentials, type SeedJournal, seedCases } from "./run.js";
-import { seedTarget } from "./target.js";
+import { seedJournalPath, seedTarget } from "./target.js";
 
 try {
   await main();
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   }
   if (!values.environment || !values["api-url"] || !values.batch) throw new Error("Supply --environment, --api-url and --batch. Use --help for usage.");
   const target = seedTarget(values.environment, values["api-url"]);
-  const filename = resolve(values.journal ?? `data/seed-${target.environment}-${values.batch}.json`);
+  const filename = seedJournalPath(target.environment, values.batch, values.journal);
   let journal: SeedJournal;
   try {
     journal = JSON.parse(await readFile(filename, "utf8")) as SeedJournal;
@@ -62,7 +62,8 @@ async function main(): Promise<void> {
   }
   const dataset = seedDataset(journal.batch, journal.asOf);
   const options = { deferJudicial: values["defer-judicial"] };
-  console.log(`${target.environment}: ${target.baseUrl}; batch ${journal.batch}; scenario date ${journal.asOf}`);
+  // The host alone: `seedTarget` has already refused credentials, but nothing on a command line belongs in a log whole.
+  console.log(`${target.environment}: ${new URL(target.baseUrl).host}; batch ${journal.batch}; scenario date ${journal.asOf}`);
   if (options.deferJudicial)
     console.log("Judicial claims, directions and their subsequent referral closures are deferred. Existing completed operations are preserved.");
   console.table(
