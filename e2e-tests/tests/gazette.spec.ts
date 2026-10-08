@@ -67,17 +67,46 @@ test("admin follows the empty and populated Gazette worklist, application detail
   await accessible(page);
 });
 
-test("non-admin sees no Gazette count or link and is refused both Gazette pages", async ({ page }) => {
+test("non-admin sees no Gazette count or link and is refused all Gazette pages", async ({ page }) => {
   await signInAsCaseworker(page);
   await expect(page.getByRole("link", { name: "View London Gazette applications" })).toHaveCount(0);
   await expect(page.getByText(/Applications ready for the London Gazette:/)).toHaveCount(0);
-  for (const path of [READY, HISTORY]) {
+  for (const path of [READY, HISTORY, `${READY}/settings`]) {
     const response = await page.goto(path);
     expect(response?.status()).toBe(403);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Page not found");
     await expect(page.locator("main")).not.toContainText("GazetteJourney");
     await accessible(page);
   }
+});
+
+test("admin sets and changes the Gazette recipient, with validation and stale-edit protection", async ({ page, context }) => {
+  await signInAsAdmin(page);
+  await page.goto(READY);
+  await page.getByRole("link", { name: "London Gazette recipient", exact: true }).click();
+  await expect(page.getByText("The recipient email address has not been set.")).toBeVisible();
+  await page.getByRole("button", { name: "Save recipient", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Enter the London Gazette recipient email address", exact: true })).toBeVisible();
+  await accessible(page);
+  await page.getByLabel("Recipient email address", { exact: true }).fill("gazette@example.com");
+  await page.getByRole("button", { name: "Save recipient", exact: true }).click();
+  await expect(page.getByText("Recipient email address saved.", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Recipient email address", { exact: true })).toHaveValue("gazette@example.com");
+  await accessible(page);
+  const stale = await context.newPage();
+  await stale.goto(`${READY}/settings`);
+  await page.getByLabel("Recipient email address", { exact: true }).fill("new-gazette@example.com");
+  await page.getByRole("button", { name: "Save recipient", exact: true }).click();
+  await stale.getByLabel("Recipient email address", { exact: true }).fill("stale@example.com");
+  await stale.getByRole("button", { name: "Save recipient", exact: true }).click();
+  await expect(stale.getByRole("link", { name: "Reload recipient settings", exact: true })).toBeVisible();
+  await expect(stale.getByRole("button", { name: "Save recipient", exact: true })).toHaveCount(0);
+  await accessible(stale);
+  await stale.close();
+  await page.goto(`${READY}/settings?lng=cy`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Derbynnydd y London Gazette");
+  await expect(page.getByLabel("Cyfeiriad e-bost y derbynnydd", { exact: true })).toHaveValue("new-gazette@example.com");
+  await accessible(page);
 });
 
 async function seedGazette(request: APIRequestContext): Promise<string> {

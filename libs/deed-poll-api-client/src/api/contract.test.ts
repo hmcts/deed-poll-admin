@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import deferredContract from "./deferred-contract.json";
-import { STRICT_RESPONSE_PROPERTIES, UNSPECIFIED_SCHEMAS, WIRE_SCHEMAS } from "./wire.js";
+import { GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, UNSPECIFIED_SCHEMAS, WIRE_SCHEMAS } from "./wire.js";
 
 const SPEC_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../openapi.json");
 const spec = JSON.parse(readFileSync(SPEC_PATH, "utf8")) as OpenApiSpec;
@@ -37,6 +37,8 @@ const IMPLEMENTED_OPERATIONS = [
   "GET /",
   "GET /caseworker/cases",
   "GET /caseworker/gazette-notices",
+  "GET /caseworker/gazette-settings",
+  "PUT /caseworker/gazette-settings",
   "POST /caseworker/cases",
   "GET /caseworker/cases/field-rules",
   "GET /caseworker/cases/{id}",
@@ -80,6 +82,19 @@ const IMPLEMENTED_OPERATIONS = [
 ];
 
 describe("openapi.json and the wire schemas", () => {
+  it("should use the published Gazette email constraint and preserve private attribution", () => {
+    const request = spec.components.schemas.UpdateGazetteSettingsRequest;
+    expect(request.properties?.recipientEmail?.pattern).toBe(GAZETTE_RECIPIENT_EMAIL_PATTERN);
+    expect(request.properties?.recipientEmail?.maxLength).toBe(254);
+    expect(request.required?.toSorted()).toEqual(["recipientEmail", "revision"]);
+    expect(request.additionalProperties).toBe(false);
+    expect(Object.keys(spec.components.schemas.GazetteSettingsResponse.properties ?? {}).sort()).toEqual([
+      "recipientEmail",
+      "revision",
+      "updatedAt",
+      "updatedBy"
+    ]);
+  });
   it("should describe exactly the consumed and explicitly deferred schemas", () => {
     const inSpec = Object.keys(spec.components.schemas).sort();
     const inCode = [...Object.keys(WIRE_SCHEMAS), ...Object.keys(deferredContract.schemas)].sort();
@@ -178,6 +193,7 @@ describe("openapi.json and the wire schemas", () => {
     // A schema added to the registry with no strictness decision would otherwise inherit whatever its
     // author happened to write, which is the drift this list exists to stop.
     const requests = [
+      "UpdateGazetteSettingsRequest",
       "CreateCaseRequest",
       "UpdateCaseRequest",
       "CreateNoteRequest",
@@ -433,5 +449,5 @@ interface OpenApiSchema {
    * `RecordConfirmationRequest`, where one is ignored, and absent everywhere else.
    */
   additionalProperties?: boolean | Record<string, unknown>;
-  properties?: Record<string, { enum?: (string | null)[]; maxLength?: number; minLength?: number; items?: { $ref?: string } }>;
+  properties?: Record<string, { enum?: (string | null)[]; pattern?: string; maxLength?: number; minLength?: number; items?: { $ref?: string } }>;
 }

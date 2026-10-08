@@ -1238,6 +1238,54 @@
         "tags": ["caseworker-gazette-controller"]
       }
     },
+    "/caseworker/gazette-settings": {
+      "get": {
+        "description": "Requires caseworker-deedpoll-admin. Initially recipient and attribution are null, revision 0.",
+        "operationId": "getGazetteSettings",
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GazetteSettingsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Read London Gazette recipient settings",
+        "tags": ["caseworker-gazette-settings-controller"]
+      },
+      "put": {
+        "description": "Requires caseworker-deedpoll-admin. Supply the revision read with the form; stale revisions return 409 without changes. Each changed address increments revision and records attribution. Saving the current address at the current revision is a no-op. No email is sent.",
+        "operationId": "updateGazetteSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateGazetteSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/GazetteSettingsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Update London Gazette recipient settings",
+        "tags": ["caseworker-gazette-settings-controller"]
+      }
+    },
     "/caseworker/saved-queries": {
       "get": {
         "operationId": "savedQueries",
@@ -2695,6 +2743,25 @@
           }
         }
       },
+      "GazetteSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "recipientEmail": {
+            "type": ["string", "null"]
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updatedAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "updatedBy": {
+            "type": ["string", "null"]
+          }
+        }
+      },
       "JudicialCaseNote": {
         "type": "object",
         "properties": {
@@ -3701,6 +3768,24 @@
             "type": ["string", "null"]
           }
         }
+      },
+      "UpdateGazetteSettingsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "recipientEmail": {
+            "type": "string",
+            "description": "One email address; outer whitespace is trimmed. Local part is at most 64 characters. Null and blank are refused.",
+            "maxLength": 254,
+            "pattern": "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:[.][A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:[.][A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The revision returned by the settings read; stale values return 409.",
+            "minimum": 0
+          }
+        },
+        "required": ["recipientEmail", "revision"]
       },
       "UpdateNoteRequest": {
         "additionalProperties": true,

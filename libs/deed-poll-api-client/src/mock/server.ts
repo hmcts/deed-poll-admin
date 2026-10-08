@@ -298,6 +298,12 @@ const CASE_DEFAULTS = {
  */
 export function createMockApi(options: MockApiOptions = {}): MockApi {
   const cases = new Map<string, MockCase>();
+  let gazetteSettings: z.infer<typeof WIRE_SCHEMAS.GazetteSettingsResponse> = {
+    recipientEmail: null,
+    revision: 0,
+    updatedAt: null,
+    updatedBy: null
+  };
   const gazetteBatches = new Map<string, z.infer<typeof SEEDABLE_GAZETTE_BATCH>>();
   const savedQueries = new Map<string, MockSavedQuery>();
   /**
@@ -406,6 +412,35 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     // Everything below is the contract, so everything below is unreachable when the scenario says api is
     // down — including reads, which is what makes `api-unavailable` a realistic outage.
     if (!MOCK_SCENARIOS[scenario].reachable) return send(res, 503, { error: "deed-poll-api is unavailable" });
+
+    if (pathname === "/caseworker/gazette-settings") {
+      const claims = await gazetteClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      if (!Array.isArray(claims.roles) || !claims.roles.includes("caseworker-deedpoll-admin")) {
+        return send(res, 403, { error: "Administrator role required" });
+      }
+      if (method === "GET") return send(res, 200, gazetteSettings);
+      if (method !== "PUT") return send(res, 405, { error: "Method not allowed" });
+      const parsed = WIRE_SCHEMAS.UpdateGazetteSettingsRequest.safeParse(await readJsonBody(req));
+      if (!parsed.success)
+        return send(res, 400, {
+          error: "Invalid recipient settings",
+          errors: parsed.error.issues.flatMap((issue) => {
+            const field = issue.path[0];
+            return typeof field === "string" ? [{ field, message: issue.message }] : [];
+          })
+        });
+      if (parsed.data.revision !== gazetteSettings.revision) return send(res, 409, { error: "Recipient settings have changed" });
+      if (parsed.data.recipientEmail !== gazetteSettings.recipientEmail) {
+        gazetteSettings = {
+          recipientEmail: parsed.data.recipientEmail,
+          revision: gazetteSettings.revision + 1,
+          updatedAt: new Date(),
+          updatedBy: typeof claims.name === "string" ? claims.name : "Administrator"
+        };
+      }
+      return send(res, 200, gazetteSettings);
+    }
 
     // GazetteNoticeHistory reads frozen batches, independently of today's case records.
     if (pathname === "/caseworker/gazette-notices") {
@@ -1504,6 +1539,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   function reset(): void {
     cases.clear();
     gazetteBatches.clear();
+    gazetteSettings = { recipientEmail: null, revision: 0, updatedAt: null, updatedBy: null };
     serials.clear();
     savedQueries.clear();
     selectedQueryIds.clear();
@@ -1623,7 +1659,7 @@ function callerSubject(req: IncomingMessage): string {
 }
 
 // Local IDAM puts roles in userinfo, not its access token. Fixture tokens still carry roles directly.
-async function gazetteClaims(req: IncomingMessage, userInfoUrl?: string): Promise<{ roles?: unknown } | null> {
+async function gazetteClaims(req: IncomingMessage, userInfoUrl?: string): Promise<{ roles?: unknown; name?: unknown } | null> {
   const claims = tokenClaims(req);
   if (!claims || claims.roles !== undefined || !userInfoUrl) return claims;
   try {

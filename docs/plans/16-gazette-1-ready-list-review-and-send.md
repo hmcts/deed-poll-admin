@@ -19,6 +19,27 @@ remain outstanding pending the API send contract and its business/dependency dec
 invent the missing endpoint, reviewed state, or a send control. Mark only fully delivered parent
 tasks complete; annotate partially delivered tasks with the remaining work.
 
+## Recipient settings slice — 8 October 2026
+
+The API companion now publishes `GET`/`PUT /caseworker/gazette-settings`, with
+persistent V33 configuration and revision-checked updates. This branch consumes
+that contract in the client/domain/mock and adds `/deed-polls/gazette/settings`,
+linked from the ready list and covered by the existing admin area/CSRF gates.
+The editor validates one address, shows change attribution, preserves invalid
+input and requires a reload after a stale edit. It starts unset; no court mailbox
+is substituted. English/Welsh copy and a browser journey are included.
+
+- [x] Implement recipient editor and contract/client/domain/mock support.
+- [x] Cover persistence, validation, role refusal, stale forms, Welsh and accessibility.
+- [ ] Deploy the API settings contract and migration before this admin version.
+- [ ] Show the recipient on batch confirmation, submit the settings revision and
+  handle changes through the future send contract.
+
+See [recipient settings validation](gazette-recipient-settings-validation.md).
+This implements only the recipient setting. The remaining review/selection/send
+work below stays active. Current delivery decisions use one Notify email with
+adult/minor download links, omitting absent files, rather than actual attachments.
+
 ## Overview
 
 A caseworker-admin needs to be notified when applications are ready for the London Gazette, view and check
