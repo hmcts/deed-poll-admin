@@ -1,0 +1,229 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  findDeedPoll,
+  findGazetteReadyCases,
+  GAZETTE_CHECKS,
+  GazetteOutcomeUnknownError,
+  GazetteRefusalError,
+  gazetteReviewsCurrent,
+  previewGazetteSelection,
+  sendGazetteSelection
+} from "@hmcts/deed-poll";
+import nunjucks from "nunjucks";
+import { beforeEach, expect, it, vi } from "vitest";
+import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { GET, POST } from "./batch.js";
+
+vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  findDeedPoll: vi.fn(),
+  findGazetteReadyCases: vi.fn(),
+  gazetteReviewsCurrent: vi.fn(),
+  previewGazetteSelection: vi.fn(),
+  sendGazetteSelection: vi.fn()
+}));
+
+const STARTER_VIEWS = path.join(fileURLToPath(import.meta.url), "../../../../../libs/express-govuk-starter/src");
+const environment = nunjucks.configure(
+  [
+    path.join(fileURLToPath(import.meta.resolve("govuk-frontend")), "..", ".."),
+    path.join(STARTER_VIEWS, "govuk-frontend/views"),
+    path.join(STARTER_VIEWS, "cookies/views"),
+    path.join(fileURLToPath(import.meta.url), "../../../..", "pages")
+  ],
+  { autoescape: true }
+);
+
+const ID = "case-1";
+const BATCH_ID = "00000000-0000-4000-8000-000000000001";
+const RECORD = {
+  id: ID,
+  displayReference: "FROZEN-001",
+  state: "Enroled",
+  type: "Adult",
+  newForename: "Ada",
+  newMiddleName: "New middle",
+  newSurname: "New",
+  oldForename: "Former",
+  oldMiddleName: "Old middle",
+  oldSurname: "Name",
+  notes: [],
+  witnesses: [],
+  documents: []
+};
+const PREVIEW = {
+  caseCount: 1,
+  adultCount: 1,
+  minorCount: 0,
+  recipientEmail: "gazette@example.com",
+  recipientRevision: 2,
+  selectionFingerprint: "original-fingerprint",
+  expiresAt: new Date("2030-01-01"),
+  cases: [{ caseId: ID, referenceNumber: "FROZEN-001" }]
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(findGazetteReadyCases).mockResolvedValue({ cases: [RECORD], page: 1, size: 25, total: 26, totalPages: 2 } as never);
+  vi.mocked(findDeedPoll).mockResolvedValue(RECORD as never);
+  vi.mocked(gazetteReviewsCurrent).mockResolvedValue(true);
+  vi.mocked(previewGazetteSelection).mockResolvedValue(PREVIEW);
+  vi.mocked(sendGazetteSelection).mockResolvedValue({ batchId: BATCH_ID, state: "Sent", caseCount: 1 });
+  vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
+async function render(body?: Record<string, unknown>, locale = "en", sessionID = "admin-session") {
+  const req = Object.assign(pageRequest({ body, admin: true, accessToken: "token" }), { sessionID });
+  const res = pageResponse();
+  res.locals.locale = locale;
+  await (body ? POST : GET)(req, res);
+  if (!res.render.mock.calls.length) return { res, model: null, markup: "", journey: "" };
+  const model = res.render.mock.calls[0][1];
+  return { res, model, journey: model.journey as string, markup: environment.render("deed-polls/gazette/batch.njk", { ...model[locale], ...model }) };
+}
+async function reviewed() {
+  const list = await render();
+  const review = await render({ journey: list.journey, action: `review:${ID}` });
+  return render({ journey: review.journey, action: "save", checks: [...GAZETTE_CHECKS] });
+}
+async function confirmation() {
+  const list = await reviewed();
+  return render({ journey: list.journey, action: "preview", caseIds: ID });
+}
+
+it("should require all five checks, preserve incomplete input and only enable selection after review", async () => {
+  const list = await render();
+  expect(list.markup).toMatch(/type="checkbox"[^>]*disabled/s);
+  const forged = await render({ journey: list.journey, action: "preview", caseIds: ID });
+  expect(forged.markup).toContain("Only applications with a completed checklist can be selected");
+  expect(previewGazetteSelection).not.toHaveBeenCalled();
+  const review = await render({ journey: list.journey, action: `review:${ID}` });
+  expect(review.markup).toContain("Former Old middle Name");
+  expect(review.markup).toContain("Ada New middle New");
+  const partial = await render({ journey: review.journey, action: "save", checks: "enrolled" });
+  expect(partial.markup).toContain("Complete all five checks");
+  expect(partial.markup).toMatch(/value="enrolled"[^>]*checked/s);
+  const complete = await render({ journey: partial.journey, action: "save", checks: [...GAZETTE_CHECKS] });
+  expect(complete.model?.phase).toBe("select");
+  expect(complete.markup).not.toMatch(/type="checkbox"[^>]*disabled/s);
+  expect(sendGazetteSelection).not.toHaveBeenCalled();
+});
+
+it("should present the actual recipient and group counts, require explicit confirmation, and redirect to the returned status", async () => {
+  const check = await confirmation();
+  expect(check.markup).toContain("gazette@example.com");
+  expect(check.markup).toContain("FROZEN-001");
+  expect(check.markup).toContain("One email will contain download links");
+  const missing = await render({ journey: check.journey, action: "send" });
+  expect(missing.markup).toContain("Confirm the recipient and applications before sending");
+  expect(sendGazetteSelection).not.toHaveBeenCalled();
+  const sent = await render({ journey: check.journey, action: "send", confirmed: "yes" });
+  expect(sent.res.redirect).toHaveBeenCalledWith(303, `/deed-polls/gazette/requests/${BATCH_ID}`);
+  expect(sendGazetteSelection).toHaveBeenCalledWith({ caseIds: [ID], recipientRevision: 2, selectionFingerprint: "original-fingerprint" }, expect.any(String), {
+    accessToken: "token"
+  });
+});
+
+it("should preserve the exact payload and key after a lost response, even if data has changed or the confirmation has expired", async () => {
+  const check = await confirmation();
+  vi.mocked(sendGazetteSelection).mockRejectedValueOnce(new GazetteOutcomeUnknownError());
+  const lost = await render({ journey: check.journey, action: "send", confirmed: "yes" });
+  expect(lost.res.status).toHaveBeenCalledWith(503);
+  expect(lost.markup).toContain("Check request status");
+  expect(lost.markup).not.toContain('value="send"');
+  expect(lost.markup).not.toContain('value="back"');
+  const original = vi.mocked(sendGazetteSelection).mock.calls[0];
+  vi.mocked(gazetteReviewsCurrent).mockClear().mockResolvedValue(false);
+  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3 * 60 * 60_000);
+  try {
+    await render({ journey: lost.journey, action: "check" });
+  } finally {
+    clock.mockRestore();
+  }
+  expect(sendGazetteSelection).toHaveBeenLastCalledWith(...original);
+  expect(gazetteReviewsCurrent).not.toHaveBeenCalled();
+});
+
+it("should use the same key after back navigation and a fresh preview, preventing an old form from creating a second identity", async () => {
+  const check = await confirmation();
+  const back = await render({ journey: check.journey, action: "back" });
+  vi.mocked(previewGazetteSelection).mockResolvedValue({ ...PREVIEW, selectionFingerprint: "new-fingerprint" });
+  const refreshed = await render({ journey: back.journey, action: "preview", caseIds: ID });
+  expect(refreshed.model?.confirmation.key).toBe(check.model?.confirmation.key);
+  expect(refreshed.model?.confirmation.selectionFingerprint).toBe("new-fingerprint");
+  const other = await confirmation();
+  expect(other.model?.confirmation.key).not.toBe(check.model?.confirmation.key);
+});
+
+it("should invalidate a checklist changed during review and reject stale reviews before preview or sending", async () => {
+  const list = await render();
+  const review = await render({ journey: list.journey, action: `review:${ID}` });
+  vi.mocked(findDeedPoll).mockResolvedValue({ ...RECORD, newSurname: "Changed" } as never);
+  const changed = await render({ journey: review.journey, action: "save", checks: [...GAZETTE_CHECKS] });
+  expect(changed.markup).toContain("has changed since it was reviewed");
+  expect(changed.model?.phase).toBe("review");
+  expect(changed.markup).not.toMatch(/value="signOff"[^>]*checked/s);
+  const check = await confirmation();
+  vi.mocked(gazetteReviewsCurrent).mockResolvedValue(false);
+  const stale = await render({ journey: check.journey, action: "send", confirmed: "yes" });
+  expect(stale.markup).toContain("has changed since it was reviewed");
+  expect(stale.markup).not.toContain('value="send"');
+  expect(sendGazetteSelection).not.toHaveBeenCalled();
+  const complete = await reviewed();
+  await render({ journey: complete.journey, action: "preview", caseIds: ID });
+  expect(previewGazetteSelection).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  "RECIPIENT_NOT_CONFIGURED",
+  "RECIPIENT_CHANGED",
+  "SELECTION_CHANGED",
+  "CASE_NOT_READY",
+  "CASE_TYPE_UNSUPPORTED",
+  "CASE_RESERVED",
+  "REQUEST_KEY_REUSED",
+  "CONFIRMATION_EXPIRED",
+  "GAZETTE_UNAVAILABLE"
+] as const)("should show localised %s and never silently retry", async (code) => {
+  const check = await confirmation();
+  vi.mocked(sendGazetteSelection).mockRejectedValue(new GazetteRefusalError({ kind: "gazette-refusal", code, conflicts: [] }));
+  const result = await render({ journey: check.journey, action: "send", confirmed: "yes" });
+  expect(result.markup).not.toContain('value="send"');
+  expect(result.markup).not.toContain('value="check"');
+  expect(result.markup.includes('value="again"')).toBe(code !== "REQUEST_KEY_REUSED");
+  expect(sendGazetteSelection).toHaveBeenCalledTimes(1);
+  expect(result.markup).toContain("/deed-polls/gazette/requests");
+});
+
+it("should preserve off-page selections when navigating and reviewing another application", async () => {
+  const list = await reviewed();
+  vi.mocked(findGazetteReadyCases).mockResolvedValue({ cases: [], page: 2, size: 25, total: 26, totalPages: 2 } as never);
+  const next = await render({ journey: list.journey, action: "page:2", caseIds: ID });
+  expect(next.model?.offPage).toEqual([ID]);
+  expect(next.markup).toContain('name="caseIds" value="case-1"');
+  expect(findGazetteReadyCases).toHaveBeenLastCalledWith({ page: 2 }, { accessToken: "token" });
+});
+
+it("should reject copied session state or a direct send without valid confirmation", async () => {
+  const check = await confirmation();
+  const wrongSession = await render({ journey: check.journey, action: "send", confirmed: "yes" }, "en", "other-session");
+  expect(wrongSession.markup).toContain("This review form is no longer valid");
+  const missing = await render({ action: "send", confirmed: "yes" });
+  expect(missing.markup).not.toContain('value="send"');
+  expect(sendGazetteSelection).not.toHaveBeenCalled();
+});
+
+it("should render Welsh checklist and confirmation copy and escape names and preview references", async () => {
+  vi.mocked(findDeedPoll).mockResolvedValue({ ...RECORD, oldForename: "<b>Former</b>" } as never);
+  const list = await render(undefined, "cy");
+  const review = await render({ journey: list.journey, action: `review:${ID}` }, "cy");
+  expect(review.markup).toContain("Cwblhau rhestr wirio’r cais");
+  expect(review.markup).toContain("&lt;b&gt;Former&lt;/b&gt;");
+  vi.mocked(previewGazetteSelection).mockResolvedValue({ ...PREVIEW, cases: [{ caseId: ID, referenceNumber: "<script>reference</script>" }] });
+  const complete = await render({ journey: review.journey, action: "save", checks: [...GAZETTE_CHECKS] }, "cy");
+  const check = await render({ journey: complete.journey, action: "preview", caseIds: ID }, "cy");
+  expect(check.markup).toContain("Cadarnhau ac anfon yr e-bost");
+  expect(check.markup).toContain("&lt;script&gt;reference&lt;/script&gt;");
+  expect(check.markup).not.toContain("<script>reference");
+});
