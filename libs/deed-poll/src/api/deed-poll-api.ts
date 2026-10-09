@@ -19,8 +19,10 @@
  * vault secrets have been mounted into the environment. Reading the environment lazily, per call, is
  * correct at any point in the startup sequence.
  */
-import { type ApiConfig, type ApiError, type ApiResult, checkApiReachable } from "@hmcts/deed-poll-api-client";
+import { type ApiConfig, type ApiError, type ApiResult, checkApiReachable, type GazetteApiResult } from "@hmcts/deed-poll-api-client";
 import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } from "../errors.js";
+
+import { GazetteOutcomeUnknownError, GazetteRefusalError } from "../gazette/errors.js";
 
 /** The mock api's port. `yarn mock:api` starts it there; nothing deployed relies on this default. */
 const DEFAULT_BASE_URL = "http://localhost:3200";
@@ -64,6 +66,16 @@ export async function callApi<T>(caller: Caller, call: (config: ApiConfig) => Pr
   if (result.ok) return result.data;
 
   throw errorFor(result.error);
+}
+
+/** Only a published Gazette refusal proves non-admission; discard untrusted diagnostic prose. */
+export async function callGazetteApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<GazetteApiResult<T>>): Promise<T> {
+  const result = await call(apiConfig(caller));
+  if (result.ok) return result.data;
+  if (result.error.kind === "gazette-refusal") throw new GazetteRefusalError(result.error);
+  if (result.error.kind === "unauthorized") throw new UnauthorizedError("Authentication required");
+  if (result.error.kind === "forbidden") throw new ForbiddenError("Gazette access refused");
+  throw new GazetteOutcomeUnknownError();
 }
 
 /**

@@ -2,6 +2,10 @@
 
 ## Scope — 9 October 2026
 
+Historical slice record: Steve subsequently chose mandatory gating.
+[16c](16c-gazette-mandatory-review-and-send.md) implements the next journey; the
+statements below describe 16b at completion.
+
 This slice consumes merged API PR #93 (`742cb5a`) in an isolated admin worktree,
 based on admin master `5cd70ad`. It completes contract reconciliation and the
 read-only request/status/member part of [plan 16](16-gazette-1-ready-list-review-and-send.md).
