@@ -71,7 +71,7 @@ test("non-admin sees no Gazette count or link and is refused all Gazette pages",
   await signInAsCaseworker(page);
   await expect(page.getByRole("link", { name: "View London Gazette applications" })).toHaveCount(0);
   await expect(page.getByText(/Applications ready for the London Gazette:/)).toHaveCount(0);
-  for (const path of [READY, HISTORY, `${READY}/settings`]) {
+  for (const path of [READY, HISTORY, `${READY}/settings`, `${READY}/requests`, `${READY}/requests/00000000-0000-4000-8000-000000000001`]) {
     const response = await page.goto(path);
     expect(response?.status()).toBe(403);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Page not found");
@@ -144,3 +144,73 @@ async function accessible(page: Page): Promise<void> {
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(", ")}`)).toEqual([]);
 }
+
+test("admin checks every request outcome and the full membership of an older send", async ({ page, request }) => {
+  test.slow();
+  const explanations = {
+    Preparing: "The request is being prepared.",
+    Sending: "The email is being sent.",
+    Sent: "The email has been accepted for sending.",
+    NotSent: "The email was not sent.",
+    Uncertain: "The email may have been sent."
+  };
+  for (const [index, state] of Object.keys(explanations).entries()) {
+    const batchId = `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
+    const seeded = await request.post(`${MOCK}/__mock/gazette-requests`, {
+      data: {
+        status: {
+          batchId,
+          state,
+          submittedAt: "2026-10-01T12:00:00",
+          submittedBy: "Request administrator",
+          caseCount: 1,
+          recipientEmail: "gazette@example.com",
+          recipientRevision: 1,
+          adultCount: 1,
+          minorCount: 0
+        },
+        cases: [{ caseId: `request-case-${index}`, referenceNumber: `<frozen-${index}>` }]
+      }
+    });
+    expect(seeded.status(), await seeded.text()).toBe(201);
+  }
+  await signInAsAdmin(page);
+  await page.goto(READY);
+  await page.getByRole("link", { name: "Gazette requests", exact: true }).click();
+  await expect(page.locator("tbody tr")).toHaveCount(5);
+  await accessible(page);
+  for (const [index, [state, explanation]] of Object.entries(explanations).entries()) {
+    const batchId = `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
+    await page.goto(`${READY}/requests/${batchId}`);
+    await expect(page.getByText(explanation, { exact: false })).toBeVisible();
+    await expect(page.getByRole("cell", { name: `<frozen-${index}>`, exact: true })).toBeVisible();
+    await expect(page.locator("main form")).toHaveCount(0);
+    await page.getByRole("link", { name: "Refresh status", exact: true }).click();
+    await expect(page.getByText(explanation, { exact: false })).toBeVisible();
+    await accessible(page);
+    if (state === "Uncertain") {
+      await page.goto(`${READY}/requests/${batchId}?lng=cy`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Cais Gazette");
+      await expect(page.getByText("Canlyniad ansicr", { exact: true })).toBeVisible();
+      await accessible(page);
+    }
+  }
+  const legacy = "00000000-0000-4000-8000-000000000099";
+  const seed = await request.post(`${MOCK}/__mock/gazette-batches`, {
+    data: {
+      id: legacy,
+      sentAt: "2026-10-08T12:00:00",
+      sentBy: "Legacy sender",
+      referenceNumbers: Array.from({ length: 101 }, (_, n) => `LEGACY-${String(n + 1).padStart(3, "0")}`)
+    }
+  });
+  expect(seed.status()).toBe(201);
+  await page.goto(`${HISTORY}?lng=en`);
+  await page.locator("tbody tr").first().getByRole("link", { name: "View request and all application references" }).click();
+  await expect(page).toHaveURL(`${READY}/requests/${legacy}`);
+  await expect(page.getByText("Some details were not recorded for older sends.")).toBeVisible();
+  for (let n = 0; n < 4; n++) await page.getByRole("link", { name: "Next page" }).click();
+  await expect(page.getByText("101 to 101 of 101 applications", { exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "LEGACY-101", exact: true })).toBeVisible();
+  await accessible(page);
+});

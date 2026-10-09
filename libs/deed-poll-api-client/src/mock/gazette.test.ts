@@ -124,7 +124,7 @@ describe("frozen Gazette history", () => {
     });
   });
 
-  it("should order batches newest first with descending identity ties, page them and omit internal IDs", async () => {
+  it("should order batches newest first with descending identity ties, page them and expose only the public batch ID", async () => {
     await seedBatch(["old"], { sentAt: "2025-01-01T00:00:00", id: "ffffffff-ffff-4fff-8fff-ffffffffffff" });
     await seedBatch(["tie-low"], { id: "00000000-0000-4000-8000-000000000001" });
     await seedBatch(["tie-high"], { id: "00000000-0000-4000-8000-000000000002" });
@@ -141,7 +141,7 @@ describe("frozen Gazette history", () => {
     expect(beyond).toMatchObject({ ok: true, data: { total: 3, page: 3, batches: [] } });
     const raw = await (await fetch(`${mock.url}/caseworker/gazette-notices`, { headers: { authorization: `Bearer ${ADMIN}` } })).json();
     expect(raw.batches[0].sentAt).toBe(SENT_AT);
-    expect(Object.keys(raw.batches[0]).sort()).toEqual(["caseCount", "referenceNumbers", "referencesTruncated", "sentAt", "sentBy"]);
+    expect(Object.keys(raw.batches[0]).sort()).toEqual(["batchId", "caseCount", "referenceNumbers", "referencesTruncated", "sentAt", "sentBy"]);
   });
 
   it("should apply default and capped page sizes to populated history", async () => {
@@ -165,9 +165,9 @@ describe("frozen Gazette history", () => {
     }
   );
 
-  it("should refuse unauthenticated reads and all production writes", async () => {
+  it("should refuse unauthenticated reads and unsupported methods", async () => {
     expect(await history(1, 25, "")).toMatchObject({ ok: false, error: { kind: "unauthorized", status: 401 } });
-    expect((await fetch(`${mock.url}/caseworker/gazette-notices`, { method: "POST", headers: { authorization: `Bearer ${ADMIN}` } })).status).toBe(405);
+    expect((await fetch(`${mock.url}/caseworker/gazette-notices`, { method: "DELETE", headers: { authorization: `Bearer ${ADMIN}` } })).status).toBe(405);
   });
 
   it("should reject invalid fixture dates and repeated identities without replacing history", async () => {

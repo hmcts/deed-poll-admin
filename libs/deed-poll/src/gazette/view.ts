@@ -5,6 +5,7 @@ import { formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
 /** Keep API order, full count and truncation flag; references stay plain text for template escaping. */
 export function buildGazetteHistory(batches: GazetteNoticeBatch[]) {
   return batches.map((batch) => ({
+    batchId: batch.batchId,
     sentAt: formatTimestamp(batch.sentAt),
     sentBy: batch.sentBy ?? NOT_RECORDED,
     caseCount: batch.caseCount,

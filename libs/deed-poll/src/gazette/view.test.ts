@@ -16,8 +16,8 @@ it("should preserve order, full counts, plain text and the API truncation flag w
 
   const rows = buildGazetteHistory(batches);
 
-  expect(rows[0]).toEqual({ ...batches[0], sentAt: "2 January 2026 at 9:30am" });
-  expect(rows[1]).toEqual({ ...batches[1], sentAt: NOT_RECORDED, sentBy: NOT_RECORDED });
+  expect(rows[0]).toEqual({ ...batches[0], batchId: undefined, sentAt: "2 January 2026 at 9:30am" });
+  expect(rows[1]).toEqual({ ...batches[1], batchId: undefined, sentAt: NOT_RECORDED, sentBy: NOT_RECORDED });
   expect(rows[0].referenceNumbers).not.toBe(batches[0].referenceNumbers);
   expect(batches[0].sentAt).toBeInstanceOf(Date);
   expect(buildGazetteHistory([])).toEqual([]);

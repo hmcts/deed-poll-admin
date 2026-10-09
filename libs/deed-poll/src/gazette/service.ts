@@ -1,11 +1,18 @@
 import {
   type CaseList,
   type CaseListQuery,
+  type GazetteMembers,
   type GazetteNoticeHistory,
   type GazetteNoticeHistoryQuery,
+  type GazetteRequests,
+  type GazetteRequestsQuery,
   type GazetteSettings,
+  type GazetteStatus,
+  getGazetteMembers,
   getGazetteNoticeHistory,
+  getGazetteRequests,
   getGazetteSettings,
+  getGazetteStatus,
   listCases,
   type UpdateGazetteSettings,
   updateGazetteSettings
@@ -33,4 +40,16 @@ export function findGazetteSettings(caller: Caller): Promise<GazetteSettings> {
 
 export function saveGazetteSettings(input: UpdateGazetteSettings, caller: Caller): Promise<GazetteSettings> {
   return callApi(caller, (config) => updateGazetteSettings(input, config));
+}
+
+export function findGazetteRequests(query: GazetteRequestsQuery, caller: Caller): Promise<GazetteRequests> {
+  return callApi(caller, (config) => getGazetteRequests({ page: query.page, size: query.size, state: query.state }, config));
+}
+
+export function findGazetteStatus(batchId: string, caller: Caller): Promise<GazetteStatus> {
+  return callApi(caller, (config) => getGazetteStatus(batchId, config));
+}
+
+export function findGazetteMembers(batchId: string, paging: GazetteNoticeHistoryQuery, caller: Caller): Promise<GazetteMembers> {
+  return callApi(caller, (config) => getGazetteMembers(batchId, { page: paging.page, size: paging.size }, config));
 }

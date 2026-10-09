@@ -143,3 +143,11 @@ describe("Gazette send history", () => {
     expect(res.render).not.toHaveBeenCalled();
   });
 });
+
+it("should link a public batch ID to its complete membership and keep old missing IDs unlinked", async () => {
+  const batchId = "00000000-0000-4000-8000-000000000001";
+  vi.mocked(findGazetteHistory).mockResolvedValue({ ...PAGE, batches: [{ ...BATCH, batchId }, BATCH] });
+  const markup = await render();
+  expect(markup.match(new RegExp(`/deed-polls/gazette/requests/${batchId}`, "g"))).toHaveLength(1);
+  expect(markup).toContain("View request and all application references");
+});

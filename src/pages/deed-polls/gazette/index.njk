@@ -10,6 +10,9 @@
   <p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette/settings">{{ settings }}</a></p>
   <p class="govuk-body">{{ intro }}</p>
 
+  <p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette/requests">{{ requests }}</a></p>
+  <p class="govuk-body">{{ reservations }}</p>
+
   {% if cases.length == 0 %}
     <p class="govuk-body">{{ emptyPage if isBeyondEnd else empty }}</p>
     {% if isBeyondEnd %}
