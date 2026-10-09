@@ -1,6 +1,7 @@
 import * as appInsights from "applicationinsights";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type Logger, MonitoringService } from "./monitoring-service.js";
+import { queryRedactingSpanProcessor } from "./query-redacting-span-processor.js";
 
 vi.mock("applicationinsights", () => {
   const mockClient = {
@@ -24,6 +25,7 @@ vi.mock("applicationinsights", () => {
     setAutoCollectDependencies: vi.fn(() => mockSetup),
     setAutoCollectConsole: vi.fn(() => mockSetup),
     setUseDiskRetryCaching: vi.fn(() => mockSetup),
+    setAzureMonitorOptions: vi.fn(() => mockSetup),
     start: vi.fn(() => mockSetup)
   };
 
@@ -49,6 +51,15 @@ describe("MonitoringService", () => {
   });
 
   describe("constructor", () => {
+    it("should register the query-redacting span processor before Application Insights starts", () => {
+      service = new MonitoringService(connectionString, "test-service", mockLogger);
+
+      const setupMock = vi.mocked(appInsights.setup)(connectionString);
+      expect(setupMock.setAzureMonitorOptions).toHaveBeenCalledWith({ spanProcessors: [queryRedactingSpanProcessor] });
+      // Options are read when the client initialises at start(), so a later call would register nothing.
+      expect(vi.mocked(setupMock.setAzureMonitorOptions).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(setupMock.start).mock.invocationCallOrder[0]);
+    });
+
     it("should setup Application Insights with correct configuration", () => {
       service = new MonitoringService(connectionString, "test-service", mockLogger);
 

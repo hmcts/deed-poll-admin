@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { MonitoringService } from "./monitoring-service.js";
+import { redactUrl } from "./redact-url.js";
 
 export function monitoringMiddleware(config: MonitoringMiddlewareConfig): (req: Request, res: Response, next: NextFunction) => void {
   const { serviceName, connectionString, enabled = true } = config;
@@ -19,7 +20,8 @@ export function monitoringMiddleware(config: MonitoringMiddlewareConfig): (req: 
       if (monitoringService) {
         monitoringService.trackRequest({
           name: `${req.method} ${req.route?.path || req.path}`,
-          url: req.url,
+          // originalUrl, because req.url is relative to the mount; redacted, because a query can carry names.
+          url: redactUrl(req.originalUrl),
           duration,
           resultCode: res.statusCode,
           success: res.statusCode < 400,
