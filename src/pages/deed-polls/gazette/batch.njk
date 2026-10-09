@@ -1,0 +1,67 @@
+{% extends "layouts/app-full-width.njk" %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
+{% from "govuk/components/table/macro.njk" import govukTable %}
+{% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% block content %}
+  {% if errorList.length %}{{ govukErrorSummary({ titleText: errorTitle, errorList: errorList }) }}{% endif %}
+  <h1 class="govuk-heading-xl">{{ heading }}</h1>
+  {% if not phase %}<p id="{{ errorId }}" class="govuk-body">{{ errorText }}</p>{% endif %}
+  {% if journey %}
+    <form method="post" action="/deed-polls/gazette/batch" novalidate>
+      <input type="hidden" name="journey" value="{{ journey }}">
+      {% if phase == "select" %}
+        <p class="govuk-body">{{ intro }}</p>
+        <p class="govuk-body">{{ selectedCount }}</p>
+        <div id="selection">
+          {% if errorText %}<p class="govuk-error-message">{{ errorText }}</p>{% endif %}
+          {% for id in offPage %}<input type="hidden" name="caseIds" value="{{ id }}">{% endfor %}
+          {% if cases.length == 0 %}<p class="govuk-body">{{ empty }}</p>{% endif %}
+          {% set rows = [] %}
+          {% for c in cases %}
+            {% set choice %}{{ govukCheckboxes({ name: "caseIds", idPrefix: "select-" + loop.index, items: [{ value: c.id, text: select + " " + c.reference, checked: c.isSelected, disabled: not c.isReviewed }] }) }}{% endset %}
+            {% set reviewButton %}{{ govukButton({ text: review + " " + c.reference, name: "action", value: "review:" + c.id, classes: "govuk-button--secondary" }) }}{% endset %}
+            {% set rows = (rows.push([{ text: c.reference }, { text: c.newForename + " " + c.newSurname }, { text: reviewed if c.isReviewed else unreviewed }, { html: choice }, { html: reviewButton }]), rows) %}
+          {% endfor %}
+          {% if rows.length %}{{ govukTable({ head: [{ text: reference }, { text: name }, { text: checklist }, { text: select }, { text: review }], rows: rows }) }}{% endif %}
+        </div>
+        {% if previousPage %}{{ govukButton({ text: previous, name: "action", value: "page:" + previousPage, classes: "govuk-button--secondary" }) }}{% endif %}
+        {% if nextPage %}{{ govukButton({ text: next, name: "action", value: "page:" + nextPage, classes: "govuk-button--secondary" }) }}{% endif %}
+        {{ govukButton({ text: preview, name: "action", value: "preview" }) }}
+      {% elif phase == "review" %}
+        <p class="govuk-body">{{ record.displayReference }}</p>
+        {{ govukSummaryList({ rows: [
+          { key: { text: state }, value: { text: record.state } },
+          { key: { text: former }, value: { text: (record.oldForename or "") + " " + (record.oldMiddleName or "") + " " + (record.oldSurname or "") } },
+          { key: { text: newName }, value: { text: (record.newForename or "") + " " + (record.newMiddleName or "") + " " + (record.newSurname or "") } }
+        ] }) }}
+        <p class="govuk-body"><a class="govuk-link" href="/deed-polls/{{ record.id | urlencode }}" target="_blank" rel="noopener">{{ application }}</a></p>
+        {{ govukCheckboxes({ name: "checks", idPrefix: "checks", fieldset: { legend: { text: checklist } }, items: checks, errorMessage: { text: errorText } if errorText }) }}
+        {{ govukButton({ text: saveReview, name: "action", value: "save" }) }}
+        {{ govukButton({ text: back, name: "action", value: "back", classes: "govuk-button--secondary" }) }}
+      {% elif phase == "confirm" %}
+        <p class="govuk-body">{{ email }}</p>
+        {{ govukSummaryList({ rows: [
+          { key: { text: recipient }, value: { text: confirmation.recipientEmail } },
+          { key: { text: adults }, value: { text: confirmation.adultCount } },
+          { key: { text: minors }, value: { text: confirmation.minorCount } },
+          { key: { text: expiry }, value: { text: expiryText } }
+        ] }) }}
+        <ul class="govuk-list govuk-list--bullet">{% for reference in confirmation.references %}<li>{{ reference }}</li>{% endfor %}</ul>
+        {{ govukCheckboxes({ name: "confirmed", idPrefix: "confirmed", items: [{ value: "yes", text: confirm }], errorMessage: { text: errorText } if errorText }) }}
+        {{ govukButton({ text: send, name: "action", value: "send", preventDoubleClick: true }) }}
+        {{ govukButton({ text: back, name: "action", value: "back", classes: "govuk-button--secondary" }) }}
+      {% elif phase == "recover" %}
+        <p id="selection" class="govuk-body">{{ unknown }}</p>
+        {{ govukButton({ text: checkStatus, name: "action", value: "check" }) }}
+      {% elif phase == "refused" %}
+        <p id="selection" class="govuk-body">{{ errorText }}</p>
+        {{ govukButton({ text: again, name: "action", value: "again" }) }}
+      {% endif %}
+    </form>
+  {% endif %}
+  <p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette/requests">{{ requests }}</a></p>
+  <p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette/settings" target="_blank" rel="noopener">{{ settings }}</a></p>
+  <p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette">{{ ready }}</a></p>
+{% endblock %}

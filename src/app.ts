@@ -59,6 +59,8 @@ export async function createApp(): Promise<Express> {
   const app = express();
 
   app.set("trust proxy", 1);
+  // Up to 100 reviewed IDs and the signed confirmation must fit even at the API field-length limits.
+  app.use("/deed-polls/gazette/batch", express.urlencoded({ extended: true, limit: "512kb" }));
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
   app.use(monitoringMiddleware(config.get("applicationInsights")));

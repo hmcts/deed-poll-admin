@@ -37,6 +37,11 @@ const IMPLEMENTED_OPERATIONS = [
   "GET /",
   "GET /caseworker/cases",
   "GET /caseworker/gazette-notices",
+  "POST /caseworker/gazette-notices",
+  "POST /caseworker/gazette-notice-previews",
+  "GET /caseworker/gazette-notice-requests",
+  "GET /caseworker/gazette-notices/{batchId}",
+  "GET /caseworker/gazette-notices/{batchId}/cases",
   "GET /caseworker/gazette-settings",
   "PUT /caseworker/gazette-settings",
   "POST /caseworker/cases",
@@ -95,6 +100,39 @@ describe("openapi.json and the wire schemas", () => {
       "updatedBy"
     ]);
   });
+  it("should retain strict bounded Gazette selections, opaque confirmation tokens and header-only request identity", () => {
+    for (const name of ["PreviewGazetteRequest", "SubmitGazetteRequest"] as const) {
+      expect(spec.components.schemas[name].additionalProperties).toBe(false);
+      expect(spec.components.schemas[name].properties?.caseIds).toMatchObject({
+        minItems: 1,
+        maxItems: 100,
+        uniqueItems: true,
+        items: { minLength: 1, maxLength: 255 }
+      });
+    }
+    const preview = WIRE_SCHEMAS.PreviewGazetteRequest;
+    for (const caseIds of [[], ["same", "same"], [""], ["x".repeat(256)], Array.from({ length: 101 }, (_, n) => String(n))]) {
+      expect(preview.safeParse({ caseIds }).success).toBe(false);
+    }
+    expect(preview.safeParse({ caseIds: Array.from({ length: 100 }, (_, n) => String(n)) }).success).toBe(true);
+    const input = { caseIds: ["case-1"], recipientRevision: 0, selectionFingerprint: "opaque" };
+    expect(WIRE_SCHEMAS.SubmitGazetteRequest.safeParse(input).success).toBe(true);
+    for (const extra of [
+      { recipientRevision: -1 },
+      { selectionFingerprint: "" },
+      { selectionFingerprint: "x".repeat(513) },
+      { idempotencyKey: "key" },
+      { submittedBy: "forged" }
+    ]) {
+      expect(WIRE_SCHEMAS.SubmitGazetteRequest.safeParse({ ...input, ...extra }).success).toBe(false);
+    }
+    const header = spec.paths["/caseworker/gazette-notices"].post.parameters?.find((parameter) => parameter.name === "Idempotency-Key");
+    expect(header).toMatchObject({ in: "header", required: true, schema: { type: "string" } });
+    for (const field of ["idempotencyKey", "submittedById", "selectionFingerprint", "notificationId", "documentId"]) {
+      expect(Object.keys(spec.components.schemas.GazetteStatusResponse.properties ?? {})).not.toContain(field);
+    }
+  });
+
   it("should describe exactly the consumed and explicitly deferred schemas", () => {
     const inSpec = Object.keys(spec.components.schemas).sort();
     const inCode = [...Object.keys(WIRE_SCHEMAS), ...Object.keys(deferredContract.schemas)].sort();
@@ -134,7 +172,7 @@ describe("openapi.json and the wire schemas", () => {
 
   it("should publish the Gazette read, paging vocabulary, bounded preview and ready filter", () => {
     const operation = spec.paths["/caseworker/gazette-notices"].get;
-    expect(Object.keys(spec.paths["/caseworker/gazette-notices"])).toEqual(["get"]);
+    expect(Object.keys(spec.paths["/caseworker/gazette-notices"])).toEqual(["get", "post"]);
     expect(operation.parameters).toEqual([
       { name: "page", in: "query", required: false, schema: { type: "string" }, description: "Page number, starting at 1; defaults to 1." },
       { name: "size", in: "query", required: false, schema: { type: "string" }, description: "Rows per page; defaults to 25 and is capped at 100." }
@@ -194,6 +232,8 @@ describe("openapi.json and the wire schemas", () => {
     // author happened to write, which is the drift this list exists to stop.
     const requests = [
       "UpdateGazetteSettingsRequest",
+      "PreviewGazetteRequest",
+      "SubmitGazetteRequest",
       "CreateCaseRequest",
       "UpdateCaseRequest",
       "CreateNoteRequest",
@@ -322,7 +362,7 @@ describe("openapi.json and the wire schemas", () => {
       )
     );
 
-    expect(required).toEqual(["POST /caseworker/cases/{id}/emails/{template} Idempotency-Key"]);
+    expect(required.toSorted()).toEqual(["POST /caseworker/cases/{id}/emails/{template} Idempotency-Key", "POST /caseworker/gazette-notices Idempotency-Key"]);
 
     // A UUID, so the adapter may not send an opaque token: api parses the value into a `UUID` and a 400 names
     // the header. The preview deliberately has none — it writes nothing, so there is nothing to make idempotent.

@@ -1,16 +1,27 @@
 import {
   type CaseList,
   type CaseListQuery,
+  type GazetteMembers,
   type GazetteNoticeHistory,
   type GazetteNoticeHistoryQuery,
+  type GazettePreview,
+  type GazetteRequests,
+  type GazetteRequestsQuery,
   type GazetteSettings,
+  type GazetteStatus,
+  getGazetteMembers,
   getGazetteNoticeHistory,
+  getGazetteRequests,
   getGazetteSettings,
+  getGazetteStatus,
   listCases,
+  previewGazetteNotice,
+  type SubmitGazette,
+  submitGazetteNotice,
   type UpdateGazetteSettings,
   updateGazetteSettings
 } from "@hmcts/deed-poll-api-client";
-import { type Caller, callApi } from "../api/deed-poll-api.js";
+import { type Caller, callApi, callGazetteApi } from "../api/deed-poll-api.js";
 
 export const READY_FOR_PUBLICATION_FILTER = "readyForPublication";
 
@@ -33,4 +44,23 @@ export function findGazetteSettings(caller: Caller): Promise<GazetteSettings> {
 
 export function saveGazetteSettings(input: UpdateGazetteSettings, caller: Caller): Promise<GazetteSettings> {
   return callApi(caller, (config) => updateGazetteSettings(input, config));
+}
+
+export function findGazetteRequests(query: GazetteRequestsQuery, caller: Caller): Promise<GazetteRequests> {
+  return callApi(caller, (config) => getGazetteRequests({ page: query.page, size: query.size, state: query.state }, config));
+}
+
+export function findGazetteStatus(batchId: string, caller: Caller): Promise<GazetteStatus> {
+  return callApi(caller, (config) => getGazetteStatus(batchId, config));
+}
+
+export function findGazetteMembers(batchId: string, paging: GazetteNoticeHistoryQuery, caller: Caller): Promise<GazetteMembers> {
+  return callApi(caller, (config) => getGazetteMembers(batchId, { page: paging.page, size: paging.size }, config));
+}
+
+export function previewGazetteSelection(caseIds: string[], caller: Caller): Promise<GazettePreview> {
+  return callGazetteApi(caller, (config) => previewGazetteNotice({ caseIds }, config));
+}
+export function sendGazetteSelection(input: SubmitGazette, key: string, caller: Caller): Promise<GazetteStatus> {
+  return callGazetteApi(caller, (config) => submitGazetteNotice(input, key, config));
 }

@@ -16,6 +16,15 @@
 import { Readable } from "node:stream";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import type { z } from "zod";
+import type {
+  WireGazetteError,
+  WireGazetteMembers,
+  WireGazettePreview,
+  WireGazetteRequests,
+  WireGazetteStatus,
+  WirePreviewGazette,
+  WireSubmitGazette
+} from "./wire.js";
 import {
   UNSPECIFIED_SCHEMAS,
   WIRE_SCHEMAS,
@@ -152,6 +161,34 @@ export async function listCases(query: CaseListQuery, config: ApiConfig): Promis
   const search = parameters.toString();
 
   return request(config, "GET", `/caseworker/cases${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.CaseListResponse);
+}
+
+/** Gazette writes classify only the published structured refusal as proof of no admission. */
+export function previewGazetteNotice(input: PreviewGazette, config: ApiConfig): Promise<GazetteApiResult<GazettePreview>> {
+  return gazetteRequest(config, "/caseworker/gazette-notice-previews", WIRE_SCHEMAS.GazettePreviewResponse, input);
+}
+
+export function submitGazetteNotice(input: SubmitGazette, key: string, config: ApiConfig): Promise<GazetteApiResult<GazetteStatus>> {
+  return gazetteRequest(config, "/caseworker/gazette-notices", WIRE_SCHEMAS.GazetteStatusResponse, input, key);
+}
+
+export function getGazetteRequests(query: GazetteRequestsQuery, config: ApiConfig): Promise<ApiResult<GazetteRequests>> {
+  const parameters = new URLSearchParams();
+  if (query.page !== undefined) parameters.set("page", String(query.page));
+  if (query.size !== undefined) parameters.set("size", String(query.size));
+  if (query.state !== undefined) parameters.set("state", query.state);
+  return request(config, "GET", `/caseworker/gazette-notice-requests?${parameters}`, WIRE_SCHEMAS.GazetteRequestsResponse);
+}
+
+export function getGazetteStatus(batchId: string, config: ApiConfig): Promise<ApiResult<GazetteStatus>> {
+  return request(config, "GET", `/caseworker/gazette-notices/${encodeURIComponent(batchId)}`, WIRE_SCHEMAS.GazetteStatusResponse);
+}
+
+export function getGazetteMembers(batchId: string, query: GazetteNoticeHistoryQuery, config: ApiConfig): Promise<ApiResult<GazetteMembers>> {
+  const parameters = new URLSearchParams();
+  if (query.page !== undefined) parameters.set("page", String(query.page));
+  if (query.size !== undefined) parameters.set("size", String(query.size));
+  return request(config, "GET", `/caseworker/gazette-notices/${encodeURIComponent(batchId)}/cases?${parameters}`, WIRE_SCHEMAS.GazetteMembersResponse);
 }
 
 export function getGazetteSettings(config: ApiConfig): Promise<ApiResult<GazetteSettings>> {
@@ -798,16 +835,20 @@ async function request<S extends z.ZodType>(
   const sent = await send(config, method, path, body, "application/json", false, headers);
   if (!sent.ok) return sent;
 
+  return parseResponse(sent.response, schema, method, path);
+}
+
+async function parseResponse<S extends z.ZodType>(response: Response, schema: S, method: string, path: string): Promise<ApiResult<z.infer<S>>> {
   let payload: unknown;
   try {
-    payload = await sent.response.json();
+    payload = await response.json();
   } catch (error) {
     // A read the timeout cut short is a slow api, not a contract breach. `invalid-response` means "a bug at
     // one end or the other" and is the thing an operator is meant to investigate rather than dismiss, so
     // reporting a stall as one sends them hunting a defect when the answer is that api stopped talking.
     if (isAborted(error)) return { ok: false, error: transportError(error) };
 
-    return { ok: false, error: { kind: "invalid-response", status: sent.response.status, message: `${method} ${path} returned a body that is not JSON` } };
+    return { ok: false, error: { kind: "invalid-response", status: response.status, message: `${method} ${path} returned a body that is not JSON` } };
   }
 
   const parsed = schema.safeParse(payload);
@@ -816,7 +857,7 @@ async function request<S extends z.ZodType>(
     const fields = parsed.error.issues.map((issue) => issue.path.join(".")).join(", ");
     return {
       ok: false,
-      error: { kind: "invalid-response", status: sent.response.status, message: `${method} ${path} returned an unexpected shape (${fields})` }
+      error: { kind: "invalid-response", status: response.status, message: `${method} ${path} returned an unexpected shape (${fields})` }
     };
   }
 
@@ -859,6 +900,50 @@ async function send(
   streaming = false,
   headers?: Record<string, string>
 ): Promise<SendResult> {
+  const result = await exchange(config, method, path, body, accept, streaming, headers);
+  if (!result.ok || result.response.ok) return result;
+  return { ok: false, error: await failureFromResponse(result.response) };
+}
+
+async function gazetteRequest<S extends z.ZodType>(
+  config: ApiConfig,
+  path: string,
+  schema: S,
+  body: unknown,
+  key?: string
+): Promise<GazetteApiResult<z.infer<S>>> {
+  const result = await exchange(
+    { ...config, refuseRedirects: true },
+    "POST",
+    path,
+    body,
+    "application/json",
+    false,
+    key === undefined ? undefined : { "idempotency-key": key }
+  );
+  if (!result.ok) return result;
+  const response = result.response;
+  if (response.ok) return parseResponse(response, schema, "POST", path);
+  const payload = await readJsonOrNull(response);
+  const refusal = WIRE_SCHEMAS.GazetteError.safeParse(payload);
+  if (
+    refusal.success &&
+    ((response.status === 409 && refusal.data.code !== "GAZETTE_UNAVAILABLE") || (response.status === 503 && refusal.data.code === "GAZETTE_UNAVAILABLE"))
+  ) {
+    return { ok: false, error: { kind: "gazette-refusal", code: refusal.data.code, conflicts: refusal.data.conflicts ?? [] } };
+  }
+  return { ok: false, error: classifyFailure(response.status, payload) };
+}
+
+async function exchange(
+  config: ApiConfig,
+  method: string,
+  path: string,
+  body: unknown,
+  accept: string,
+  streaming = false,
+  headers?: Record<string, string>
+): Promise<SendResult> {
   const url = `${config.baseUrl.replace(/\/+$/, "")}${path}`;
   const isForm = body instanceof FormData;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -891,8 +976,8 @@ async function send(
       return { ok: false, error: transportError(error) };
     }
 
-    if (!response.ok) return { ok: false, error: await failureFromResponse(response) };
-
+    // Keep a streaming failure-body read inside the cancellable timeout, before finally clears it.
+    if (!response.ok && streaming) return { ok: false, error: await failureFromResponse(response) };
     return { ok: true, response };
   } finally {
     // Inside the `finally` so the failure body above is still read under the timeout: an unavailable api
@@ -935,8 +1020,12 @@ function isAborted(error: unknown): boolean {
  */
 async function failureFromResponse(response: Response): Promise<ApiError> {
   const payload = await readJsonOrNull(response);
+  return classifyFailure(response.status, payload);
+}
+
+function classifyFailure(status: number, payload: unknown): ApiError {
   const parsed = UNSPECIFIED_SCHEMAS.ApiError.safeParse(payload);
-  const message = parsed.success ? parsed.data.error : `deed-poll-api answered ${response.status}`;
+  const message = parsed.success ? parsed.data.error : `deed-poll-api answered ${status}`;
   const fieldErrors = parsed.success ? (parsed.data.errors ?? []) : [];
 
   // 413 and 415 sit with 400: a file api judges too large or of a type it will not take is the
@@ -944,20 +1033,20 @@ async function failureFromResponse(response: Response): Promise<ApiError> {
   // which is the trap `upload-policy.ts` documents — telling someone the service has broken when in
   // fact their file was refused. `upload-policy.ts` rejects both locally first, but its size limit is
   // this repo's guess and api's is api's, so the window between the two is reachable.
-  if (response.status === 400 || response.status === 413 || response.status === 415 || response.status === 422) {
-    return { kind: "validation", status: response.status, message, fieldErrors };
+  if (status === 400 || status === 413 || status === 415 || status === 422) {
+    return { kind: "validation", status, message, fieldErrors };
   }
-  if (response.status === 401) return { kind: "unauthorized", status: response.status, message };
-  if (response.status === 403) return { kind: "forbidden", status: response.status, message };
-  if (response.status === 404) return { kind: "not-found", status: response.status, message };
-  if (response.status === 409) return { kind: "conflict", status: response.status, message };
+  if (status === 401) return { kind: "unauthorized", status, message };
+  if (status === 403) return { kind: "forbidden", status, message };
+  if (status === 404) return { kind: "not-found", status, message };
+  if (status === 409) return { kind: "conflict", status, message };
 
   // 408 and 429 sit with the 5xxs: all of them mean "come back shortly", not "your input is wrong".
-  if (response.status === 408 || response.status === 429 || response.status >= 500) {
-    return { kind: "unavailable", status: response.status, message };
+  if (status === 408 || status === 429 || status >= 500) {
+    return { kind: "unavailable", status, message };
   }
 
-  return { kind: "unknown", status: response.status, message };
+  return { kind: "unknown", status, message };
 }
 
 /** A failure body is best-effort — an unavailable api often answers with a proxy's HTML. */
@@ -1234,3 +1323,21 @@ export type GazetteSettings = WireGazetteSettings;
 export type UpdateGazetteSettings = WireUpdateGazetteSettings;
 
 export { GAZETTE_RECIPIENT_EMAIL_PATTERN } from "./wire.js";
+
+export type GazettePreview = WireGazettePreview;
+export type GazetteStatus = WireGazetteStatus;
+export type GazetteRequests = WireGazetteRequests;
+export type GazetteMembers = WireGazetteMembers;
+export type PreviewGazette = WirePreviewGazette;
+export type SubmitGazette = WireSubmitGazette;
+export type GazetteRefusalCode = WireGazetteError["code"];
+export interface GazetteRefusal {
+  kind: "gazette-refusal";
+  code: GazetteRefusalCode;
+  conflicts: NonNullable<WireGazetteError["conflicts"]>;
+}
+export type GazetteApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError | GazetteRefusal };
+export interface GazetteRequestsQuery extends GazetteNoticeHistoryQuery {
+  state?: GazetteStatus["state"];
+}
+export { GAZETTE_REQUEST_STATE } from "./wire.js";

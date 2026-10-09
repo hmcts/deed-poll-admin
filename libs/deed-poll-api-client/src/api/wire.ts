@@ -971,6 +971,7 @@ const updateGazetteSettingsSchema = z
   .strict();
 
 const gazetteNoticeBatchSchema = z.object({
+  batchId: z.uuid().nullish(),
   sentAt: wireDateTime.nullish(),
   sentBy: z.string().nullish(),
   caseCount: z.number().int().nonnegative(),
@@ -985,6 +986,65 @@ const gazetteNoticeHistorySchema = z.object({
   total: z.number().int().nonnegative(),
   totalPages: z.number().int().nonnegative()
 });
+
+export const GAZETTE_REQUEST_STATE = ["Preparing", "Sending", "Sent", "NotSent", "Uncertain"] as const;
+export const GAZETTE_REFUSAL_CODE = [
+  "RECIPIENT_NOT_CONFIGURED",
+  "RECIPIENT_CHANGED",
+  "SELECTION_CHANGED",
+  "CASE_NOT_READY",
+  "CASE_TYPE_UNSUPPORTED",
+  "CASE_RESERVED",
+  "REQUEST_KEY_REUSED",
+  "CONFIRMATION_EXPIRED",
+  "GAZETTE_UNAVAILABLE"
+] as const;
+const gazetteMemberSchema = z.object({ caseId: z.string(), referenceNumber: z.string() });
+const gazetteStatusSchema = z.object({
+  batchId: z.uuid(),
+  state: z.enum(GAZETTE_REQUEST_STATE),
+  caseCount: z.number().int().nonnegative(),
+  submittedAt: wireDateTime.nullish(),
+  submittedBy: z.string().nullish(),
+  recipientEmail: z.string().nullish(),
+  recipientRevision: z.number().int().nonnegative().nullish(),
+  adultCount: z.number().int().nonnegative().nullish(),
+  minorCount: z.number().int().nonnegative().nullish(),
+  sentAt: wireDateTime.nullish(),
+  failureCode: z.enum(["PREPARATION_FAILED", "CONFIGURATION_INVALID", "PROVIDER_REFUSED", "PRE_SEND_EXPIRED", "SEND_OUTCOME_UNKNOWN"]).nullish()
+});
+const gazettePagingShape = {
+  page: z.number().int().positive(),
+  size: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative()
+};
+const gazetteRequestsSchema = z.object({ ...gazettePagingShape, requests: z.array(gazetteStatusSchema) });
+const gazetteMembersSchema = z.object({ ...gazettePagingShape, cases: z.array(gazetteMemberSchema) });
+const gazettePreviewSchema = z.object({
+  recipientEmail: z.string(),
+  recipientRevision: z.number().int().nonnegative(),
+  caseCount: z.number().int().positive(),
+  adultCount: z.number().int().nonnegative(),
+  minorCount: z.number().int().nonnegative(),
+  cases: z.array(gazetteMemberSchema),
+  selectionFingerprint: z.string().min(1),
+  expiresAt: wireDateTime
+});
+const gazetteSelection = z
+  .array(z.string().min(1).max(255))
+  .min(1)
+  .max(100)
+  .refine((ids) => new Set(ids).size === ids.length);
+const previewGazetteSchema = z.object({ caseIds: gazetteSelection }).strict();
+const submitGazetteSchema = z
+  .object({ caseIds: gazetteSelection, recipientRevision: z.number().int().nonnegative(), selectionFingerprint: z.string().min(1).max(512) })
+  .strict();
+const gazetteConflictSchema = z.object({
+  caseId: z.string(),
+  reason: z.enum(["NOT_FOUND", "NOT_READY", "TYPE_UNSUPPORTED", "REFERENCE_MISSING", "DATA_CHANGED", "RESERVED"])
+});
+const gazetteErrorSchema = z.object({ code: z.enum(GAZETTE_REFUSAL_CODE), error: z.string(), conflicts: z.array(gazetteConflictSchema).optional() });
 
 /** api's failure body. `errors` is omitted rather than empty when there are none (`@JsonInclude`). */
 const apiErrorSchema = z.object({
@@ -1002,6 +1062,15 @@ const apiErrorSchema = z.object({
  * it separately, so the day api's two bodies diverge, one of the two comparisons fails.
  */
 export const WIRE_SCHEMAS = {
+  GazetteMemberResponse: gazetteMemberSchema,
+  GazetteStatusResponse: gazetteStatusSchema,
+  GazetteRequestsResponse: gazetteRequestsSchema,
+  GazetteMembersResponse: gazetteMembersSchema,
+  GazettePreviewResponse: gazettePreviewSchema,
+  PreviewGazetteRequest: previewGazetteSchema,
+  SubmitGazetteRequest: submitGazetteSchema,
+  Conflict: gazetteConflictSchema,
+  GazetteError: gazetteErrorSchema,
   GazetteSettingsResponse: gazetteSettingsSchema,
   UpdateGazetteSettingsRequest: updateGazetteSettingsSchema,
   GazetteNoticeBatchResponse: gazetteNoticeBatchSchema,
@@ -1075,6 +1144,13 @@ export const UNSPECIFIED_SCHEMAS = { ApiError: apiErrorSchema } as const;
  * Everything else is nullable, and a schema insisting otherwise would reject an ordinary half-logged case.
  */
 export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string[]>> = {
+  GazetteMemberResponse: ["caseId", "referenceNumber"],
+  GazetteStatusResponse: ["batchId", "state", "caseCount"],
+  GazetteRequestsResponse: ["page", "size", "total", "totalPages", "requests"],
+  GazetteMembersResponse: ["page", "size", "total", "totalPages", "cases"],
+  GazettePreviewResponse: ["recipientEmail", "recipientRevision", "caseCount", "adultCount", "minorCount", "cases", "selectionFingerprint", "expiresAt"],
+  Conflict: ["caseId", "reason"],
+  GazetteError: ["code", "error", "conflicts"],
   GazetteSettingsResponse: ["revision"],
   GazetteNoticeBatchResponse: ["caseCount", "referenceNumbers", "referencesTruncated"],
   GazetteNoticeHistoryResponse: ["batches", "page", "size", "total", "totalPages"],
@@ -1191,3 +1267,11 @@ export type WireGazetteNoticeBatch = z.infer<typeof gazetteNoticeBatchSchema>;
 
 export type WireGazetteSettings = z.infer<typeof gazetteSettingsSchema>;
 export type WireUpdateGazetteSettings = z.infer<typeof updateGazetteSettingsSchema>;
+
+export type WireGazettePreview = z.infer<typeof gazettePreviewSchema>;
+export type WireGazetteStatus = z.infer<typeof gazetteStatusSchema>;
+export type WireGazetteRequests = z.infer<typeof gazetteRequestsSchema>;
+export type WireGazetteMembers = z.infer<typeof gazetteMembersSchema>;
+export type WirePreviewGazette = z.input<typeof previewGazetteSchema>;
+export type WireSubmitGazette = z.input<typeof submitGazetteSchema>;
+export type WireGazetteError = z.infer<typeof gazetteErrorSchema>;

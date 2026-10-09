@@ -36,7 +36,7 @@ dashboard's count — shows nothing until `yarn mock:seed` has run. An empty sto
 broken feature, which is why the seeder reads its own numbers back (`scripts/seed-local-cases.mjs`).
 
 The seed also provides 26 Gazette-ready cases and 26 frozen past batches, with a 101-case batch whose
-reference preview stops at 100. These are mock fixtures; no Gazette send endpoint exists.
+reference preview stops at 100. These are mock fixtures; mock request outcomes never send email.
 
 The Gazette area `/deed-polls/gazette/**` is gated once in `app.ts` after authentication, using
 `DEEDPOLL_ADMIN`. Its independent main-list count is requested only for admins; zero and unavailable
@@ -49,7 +49,21 @@ from API; the page does not post it. The mock starts unset and resets settings w
 its other fixtures. Saving a setting sends no email.
 The Welsh extractor already includes this area recursively through `deed-polls`.
 
-`yarn test:gazette` runs three browser journeys against a fresh mock on 3216 and this app on 3316,
+The request list/detail pages at `/deed-polls/gazette/requests` consume the API ledger and
+full frozen membership, linked from history by public batch ID. Every outcome has explicit
+copy; status failures offer refresh and never a resend control. Legacy unknown facts stay
+unknown. `/deed-polls/gazette/batch` implements the mandatory five-check review,
+selection, preview-backed confirmation and submission. Signed session-bound hidden
+state keeps visits independent. All selected reviews are checked before/after preview
+and before the first send; changes invalidate them. There is no persisted API sign-off.
+The request UUID is derived at confirmation from the original visit, so back navigation
+cannot mint a replacement. Lost responses preserve the original body/key; the explicit
+status check replays that keyed POST without pre-reading changed case data. An API
+request status redirects to its read-only page. Unknown outcomes never offer a new key.
+The domain's `callGazetteApi` seam accepts only typed Gazette refusals as evidence of
+non-admission and strips provider diagnostics. Ordinary operations still use `callApi`.
+
+`yarn test:gazette` runs five browser journeys against a fresh mock on 3216 and this app on 3316,
 using Redis on 6316/database 1 and local IDAM on 5556. It is separate from `yarn test:e2e` because its
 empty-state check must never reset a shared developer mock. See README for prerequisites.
 The standalone mock resolves missing token roles from local IDAM userinfo (override with
