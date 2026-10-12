@@ -131,7 +131,7 @@ describe("personaSwitcherLocals", () => {
   });
 
   it("should offer every persona to an admin", () => {
-    const view = locals({ admin: true, subject: "admin@example.com" }).personaSwitcher as { personas: { id: string }[] };
+    const view = locals({ teamLeader: true, subject: "admin@example.com" }).personaSwitcher as { personas: { id: string }[] };
 
     expect(view.personas.map((persona) => persona.id)).toEqual(PERSONAS.map((persona) => persona.id));
   });

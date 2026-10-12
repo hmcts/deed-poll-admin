@@ -1,12 +1,20 @@
 /**
  * Both directions, because a gate tested only for who it admits is a gate that may admit everyone.
  */
-import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL, ForbiddenError } from "@hmcts/deed-poll";
+import {
+  ACCESS_GAZETTE,
+  DEEDPOLL_ADMIN,
+  DEEDPOLL_CASEWORKER,
+  DEEDPOLL_DELIVERY_MANAGER,
+  DEEDPOLL_JUDICIAL,
+  DEEDPOLL_TEAM_LEADER,
+  ForbiddenError
+} from "@hmcts/deed-poll";
 import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
 import { requireAuth } from "./require-auth.js";
-import { requireJudicial, requireRole } from "./require-role.js";
+import { requireCapability, requireJudicial, requireRole } from "./require-role.js";
 
 describe("requireJudicial", () => {
   let next: NextFunction;
@@ -30,13 +38,13 @@ describe("requireJudicial", () => {
   });
 
   it("refuses an admin, because the judicial role is not a privilege the admin role contains", () => {
-    requireJudicial()(pageRequest({ admin: true, originalUrl: "/judicial/referrals" }), pageResponse(), next);
+    requireJudicial()(pageRequest({ teamLeader: true, originalUrl: "/judicial/referrals" }), pageResponse(), next);
 
     expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
   });
 
   it("admits a user holding both roles", () => {
-    requireJudicial()(pageRequest({ admin: true, judicial: true }), pageResponse(), next);
+    requireJudicial()(pageRequest({ teamLeader: true, judicial: true }), pageResponse(), next);
 
     expect(next).toHaveBeenCalledWith();
   });
@@ -80,25 +88,46 @@ describe("requireRole", () => {
 });
 
 describe("Gazette area access", () => {
-  it.each([false, true])("should admit an admin with judicial role %s", (judicial) => {
+  const paths = [
+    "/deed-polls/gazette",
+    "/deed-polls/gazette/history",
+    "/deed-polls/gazette/settings",
+    "/deed-polls/gazette/batch",
+    "/deed-polls/gazette/requests",
+    "/deed-polls/gazette/requests/a-batch"
+  ];
+  it.each([DEEDPOLL_TEAM_LEADER, DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL])(
+    "should refuse every Gazette page and form to %s before any API call",
+    (role) => {
+      for (const path of paths) {
+        for (const method of ["GET", "POST"]) {
+          const req = pageRequest({ roles: [role], originalUrl: path });
+          Object.assign(req, { method, path });
+          const res = pageResponse();
+          const apiCall = vi.fn();
+          const next = vi.fn((error?: unknown) => {
+            if (!error) apiCall();
+          });
+          requireCapability(ACCESS_GAZETTE)(req, res, next);
+          expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
+          expect(apiCall).not.toHaveBeenCalled();
+          expect(res.render).not.toHaveBeenCalled();
+        }
+      }
+    }
+  );
+  it.each([false, true])("should admit Delivery Manager independently, with judicial %s", (judicial) => {
     const next = vi.fn();
-    requireRole(DEEDPOLL_ADMIN)(pageRequest({ admin: true, judicial }), pageResponse(), next);
+    requireCapability(ACCESS_GAZETTE)(pageRequest({ deliveryManager: true, judicial }), pageResponse(), next);
     expect(next).toHaveBeenCalledExactlyOnceWith();
   });
-
-  it.each([false, true])("should refuse a non-admin with judicial role %s", (judicial) => {
-    const next = vi.fn();
-    requireRole(DEEDPOLL_ADMIN)(pageRequest({ judicial }), pageResponse(), next);
-    expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
-  });
-
-  it.each(["/deed-polls/gazette", "/deed-polls/gazette/history"])("should redirect anonymous visitors to login for %s before checking roles", (url) => {
+  it.each(paths)("should redirect anonymous visitors to login for %s before checking capabilities", (url) => {
     const req = pageRequest({ signedIn: false, originalUrl: url });
     Object.assign(req, { method: "GET", path: url });
     const res = pageResponse();
-    const roleGate = vi.fn(() => requireRole(DEEDPOLL_ADMIN)(req, res, vi.fn()));
-    requireAuth()(req, res, roleGate);
+    const gate = vi.fn(() => requireCapability(ACCESS_GAZETTE)(req, res, vi.fn()));
+    requireAuth()(req, res, gate);
     expect(res.redirect).toHaveBeenCalledWith(`/login?returnTo=${encodeURIComponent(url)}`);
-    expect(roleGate).not.toHaveBeenCalled();
+    expect(gate).not.toHaveBeenCalled();
   });
 });

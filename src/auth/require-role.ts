@@ -21,7 +21,7 @@
  * in `src/errors.ts` that already answers 403 — and so an unauthenticated request that somehow reached this
  * (it should not; `requireAuth` runs first) fails closed as a 403 rather than falling through.
  */
-import { DEEDPOLL_JUDICIAL, ForbiddenError, type Role } from "@hmcts/deed-poll";
+import { type Capability, can, DEEDPOLL_JUDICIAL, ForbiddenError, type Role } from "@hmcts/deed-poll";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { userFromRequest } from "./current-user.js";
 
@@ -39,4 +39,12 @@ export function requireRole(role: Role): RequestHandler {
 
 export function requireJudicial(): RequestHandler {
   return requireRole(DEEDPOLL_JUDICIAL);
+}
+
+/** Gate an entire area before any page calls the API. */
+export function requireCapability(capability: Capability): RequestHandler {
+  return (req, _res, next) => {
+    if (can(userFromRequest(req), capability)) return next();
+    next(new ForbiddenError(`${req.path} requires ${capability}`));
+  };
 }

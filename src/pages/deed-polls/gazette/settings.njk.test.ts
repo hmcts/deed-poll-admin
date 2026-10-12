@@ -32,7 +32,7 @@ beforeEach(() => {
 async function render(body?: unknown, locale = "en", query = {}) {
   const res = pageResponse();
   res.locals.locale = locale;
-  const req = pageRequest({ admin: true, accessToken: "admin-token", body, query });
+  const req = pageRequest({ teamLeader: true, accessToken: "admin-token", body, query });
   await (body === undefined ? GET : POST)(req, res);
   const model = res.render.mock.calls[0]?.[1];
   return { res, model, markup: model ? environment.render("deed-polls/gazette/settings.njk", { ...model[locale], ...model }) : "" };

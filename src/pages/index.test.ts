@@ -8,7 +8,7 @@ describe("service root", () => {
     it("should redirect a caseworker to the case list", async () => {
       const res = pageResponse();
 
-      await GET(pageRequest({ admin: true }), res);
+      await GET(pageRequest({ teamLeader: true }), res);
 
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls");
     });
@@ -30,7 +30,7 @@ describe("service root", () => {
     it("should redirect a user holding both roles to the case list", async () => {
       const res = pageResponse();
 
-      await GET(pageRequest({ admin: true, judicial: true }), res);
+      await GET(pageRequest({ teamLeader: true, judicial: true }), res);
 
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls");
     });
@@ -58,7 +58,7 @@ describe("service root", () => {
     it("should not render a page of its own", async () => {
       const res = pageResponse();
 
-      await GET(pageRequest({ admin: true }), res);
+      await GET(pageRequest({ teamLeader: true }), res);
 
       expect(res.render).not.toHaveBeenCalled();
     });

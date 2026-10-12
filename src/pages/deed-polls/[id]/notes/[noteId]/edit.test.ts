@@ -27,8 +27,8 @@ const PARAMS = { id: "case-1", noteId: note.id };
 /** The session's access token, which is the whole of what this page passes to the domain. */
 const CALLER = { accessToken: "session-token" };
 
-function request(body: Record<string, unknown> = {}, { admin = false } = {}): Request {
-  return pageRequest({ params: PARAMS, body, admin, accessToken: "session-token" });
+function request(body: Record<string, unknown> = {}, { teamLeader = false } = {}): Request {
+  return pageRequest({ params: PARAMS, body, teamLeader, accessToken: "session-token" });
 }
 
 const response = pageResponse;
@@ -74,7 +74,7 @@ describe("amend a note page", () => {
     it("offers the delete button to an administrator", async () => {
       const res = response();
 
-      await GET(request({}, { admin: true }), res);
+      await GET(request({}, { teamLeader: true }), res);
 
       expect(res.render.mock.calls[0][1].canDelete).toBe(true);
     });
@@ -156,7 +156,7 @@ describe("amend a note page", () => {
       // As an administrator, since they are the only role offered the button.
       const res = response();
 
-      await POST(request({ note: "Called twice", action: "delete" }, { admin: true }), res);
+      await POST(request({ note: "Called twice", action: "delete" }, { teamLeader: true }), res);
 
       expect(removeNote).toHaveBeenCalledWith("case-1", note.id, CALLER);
       expect(updateNote).not.toHaveBeenCalled();
@@ -228,7 +228,7 @@ describe("amend a note page", () => {
     it("keeps the delete button on an administrator's rejected save, so the re-render reads the session and does not hard-code false", async () => {
       const res = response();
 
-      await POST(request({ note: "x".repeat(MAX_NOTE_LENGTH + 1), action: "save" }, { admin: true }), res);
+      await POST(request({ note: "x".repeat(MAX_NOTE_LENGTH + 1), action: "save" }, { teamLeader: true }), res);
 
       expect(res.render.mock.calls[0][1].canDelete).toBe(true);
     });

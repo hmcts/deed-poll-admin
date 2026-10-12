@@ -202,14 +202,14 @@ A bare `yarn test` is not a substitute: it can report `0 successful, 8 total` ha
 `src/pages/deed-polls/index.ts` (+ test, + template test), the privacy, deletion and shared-query files
 listed in Context, and `src/express-doubles.ts`.
 
-- [ ] Add `requireCapability(capability)` beside `requireRole`, and mount `requireCapability(ACCESS_GAZETTE)` on `/deed-polls/gazette` at the line where `requireRole(DEEDPOLL_ADMIN)` is now, after authentication and before routing. Keep the `/deed-polls/gazette/batch` body parser where it is. Remove `requireRole` if nothing else uses it.
-- [ ] In `src/app.test.ts`, extend the filesystem-derived coverage so that every file under `src/pages/deed-polls/gazette/`, including `requests/`, sits behind the capability gate. The test must fail if a Gazette page is reachable without it, in the same way the judicial test does.
-- [ ] `src/pages/deed-polls/index.ts`: the Gazette count and link depend on `can(user, ACCESS_GAZETTE)`. A user without it makes **no** `countGazetteReadyCases` call. Keep the zero, unavailable and independent-failure states for Delivery Managers.
-- [ ] Pin Decision 8 with tests. `filterFor("readyForPublication")` resolves to `all`, and `LIST_FILTERS` never contains `READY_FOR_PUBLICATION_FILTER`. A case-list GET with `?filter=readyForPublication` sends `filter: "all"` to the API for every role. `READY_FOR_PUBLICATION_FILTER` is imported only under `libs/deed-poll/src/gazette/`, asserted by a source scan in the style of `src/app.test.ts`.
-- [ ] Privacy keeps `{ isAdmin }` (Decision 4). The note and witness delete policies take `DELETE_NOTE` and `DELETE_WITNESS`. Shared-query `canPublish` and the `shared` field take `MANAGE_SHARED_QUERIES`.
-- [ ] Replace `express-doubles.ts`'s `admin` flag with a role list, or with `teamLeader`/`deliveryManager` flags, and update its callers. Do not keep an `admin` alias that hides which role a test means.
-- [ ] Tests: an anonymous visitor to a Gazette URL is redirected to login. Team leader, legacy admin, caseworker and judge are refused every Gazette GET **and** the POSTs to `settings` and `batch`, without calling the API. A Delivery Manager reaches them. Team leader and Delivery Manager each keep privacy, note and witness deletion and publishing.
-- [ ] Mark completed
+- [x] Add `requireCapability(capability)` beside `requireRole`, and mount `requireCapability(ACCESS_GAZETTE)` on `/deed-polls/gazette` at the line where `requireRole(DEEDPOLL_ADMIN)` is now, after authentication and before routing. Keep the `/deed-polls/gazette/batch` body parser where it is. Remove `requireRole` if nothing else uses it.
+- [x] In `src/app.test.ts`, extend the filesystem-derived coverage so that every file under `src/pages/deed-polls/gazette/`, including `requests/`, sits behind the capability gate. The test must fail if a Gazette page is reachable without it, in the same way the judicial test does.
+- [x] `src/pages/deed-polls/index.ts`: the Gazette count and link depend on `can(user, ACCESS_GAZETTE)`. A user without it makes **no** `countGazetteReadyCases` call. Keep the zero, unavailable and independent-failure states for Delivery Managers.
+- [x] Pin Decision 8 with tests. `filterFor("readyForPublication")` resolves to `all`, and `LIST_FILTERS` never contains `READY_FOR_PUBLICATION_FILTER`. A case-list GET with `?filter=readyForPublication` sends `filter: "all"` to the API for every role. `READY_FOR_PUBLICATION_FILTER` is imported only under `libs/deed-poll/src/gazette/`, asserted by a source scan in the style of `src/app.test.ts`.
+- [x] Privacy keeps `{ isAdmin }` (Decision 4). The note and witness delete policies take `DELETE_NOTE` and `DELETE_WITNESS`. Shared-query `canPublish` and the `shared` field take `MANAGE_SHARED_QUERIES`.
+- [x] Replace `express-doubles.ts`'s `admin` flag with a role list, or with `teamLeader`/`deliveryManager` flags, and update its callers. Do not keep an `admin` alias that hides which role a test means.
+- [x] Tests: an anonymous visitor to a Gazette URL is redirected to login. Team leader, legacy admin, caseworker and judge are refused every Gazette GET **and** the POSTs to `settings` and `batch`, without calling the API. A Delivery Manager reaches them. Team leader and Delivery Manager each keep privacy, note and witness deletion and publishing.
+- [x] Mark completed
 
 ### Task 4: Mock API, personas and seed data
 
@@ -286,3 +286,11 @@ Permission matrix, malformed/legacy sessions and mixed judicial landings are cov
 Lint, all eight test tasks and all eight build tasks passed; diff check clean.
 Task 1's first contract check rejected the old admin-description assertion; corrected it to
 Delivery Manager and the complete suite passed here. Baseline: 3,725 passed, three skipped.
+
+### Task 3 — execution evidence, 12 October 2026
+
+Gazette mount/counts require ACCESS_GAZETTE; delete and shared-query controls use their own
+capabilities. Fixtures now name Team leader/Delivery Manager explicitly. Tests cover every
+Gazette page/form refusal, mount ordering/recursive coverage, independent count degradation,
+and all roles' bookmarked ready-filter fallback. Lint, eight test tasks, eight builds and
+diff check passed. The ready-filter source-import guard is included in final acceptance.

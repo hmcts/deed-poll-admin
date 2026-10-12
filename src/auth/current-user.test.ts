@@ -10,7 +10,7 @@ import { userFromRequest } from "./current-user.js";
 
 describe("userFromRequest", () => {
   it("returns the signed-in user from the session", () => {
-    const user = userFromRequest(pageRequest({ admin: true, name: "A Caseworker" }));
+    const user = userFromRequest(pageRequest({ teamLeader: true, name: "A Caseworker" }));
 
     expect(user).toMatchObject({ isAdmin: true, name: "A Caseworker" });
   });

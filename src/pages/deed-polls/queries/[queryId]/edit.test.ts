@@ -52,7 +52,7 @@ function request(body?: Record<string, unknown>): Request {
  * `shared` key and the patch omits the property rather than sending `false`.
  */
 function adminRequest(body?: Record<string, unknown>): Request {
-  return pageRequest({ params: PARAMS, body, accessToken: "session-token", admin: true });
+  return pageRequest({ params: PARAMS, body, accessToken: "session-token", teamLeader: true });
 }
 
 const response = pageResponse;

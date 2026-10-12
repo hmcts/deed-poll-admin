@@ -29,11 +29,13 @@
 import {
   type Caller,
   type CaseListLink,
+  can,
   caseListSearch,
   createSavedQuery,
   type FieldError,
   filterFor,
   InvalidInputError,
+  MANAGE_SHARED_QUERIES,
   MAX_SAVED_QUERY_DESCRIPTION,
   MAX_SAVED_QUERY_NAME,
   parseConditions,
@@ -177,7 +179,7 @@ function render(
     // row, so there is no flag api could return for it. Resolved here rather than in `GET` for the reason
     // `canAmend` is read on every render — a flag read once puts the control back the moment a caseworker
     // submits an over-long name.
-    canPublish: userFromRequest(req).isAdmin,
+    canPublish: can(userFromRequest(req), MANAGE_SHARED_QUERIES),
     en,
     cy
   });

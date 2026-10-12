@@ -30,8 +30,8 @@ const found = {
   documents: []
 };
 
-function request(tab: string, body: Record<string, unknown> = {}, admin = false): Request {
-  return pageRequest({ params: { id: "case-1", tab }, body, admin, name: "A Caseworker", accessToken: "caseworker-token" });
+function request(tab: string, body: Record<string, unknown> = {}, teamLeader = false): Request {
+  return pageRequest({ params: { id: "case-1", tab }, body, teamLeader, name: "A Caseworker", accessToken: "caseworker-token" });
 }
 
 const response = pageResponse;
@@ -111,7 +111,7 @@ describe("case edit tab page", () => {
       expect(field.value).toBe("Stored");
     });
 
-    it("locks privacy for a non-admin and unlocks it for an admin", async () => {
+    it("locks privacy for a non-teamLeader and unlocks it for an teamLeader", async () => {
       const asCaseworker = response();
       await GET(request(APPLICATION), asCaseworker);
       const asAdmin = response();

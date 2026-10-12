@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { currentUser } from "../auth/current-user.js";
+import { DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_JUDICIAL, DEEDPOLL_TEAM_LEADER } from "../auth/roles.js";
 import { canDeleteNote } from "./delete-policy.js";
 
-describe("notes/delete-policy", () => {
-  describe("canDeleteNote", () => {
-    it("should allow deletion when the user is an administrator", () => {
-      expect(canDeleteNote({ isAdmin: true })).toBe(true);
-    });
-
-    it("should refuse deletion when the user is a caseworker with no admin role", () => {
-      expect(canDeleteNote({ isAdmin: false })).toBe(false);
-    });
+describe("notes deletion", () => {
+  it.each([DEEDPOLL_TEAM_LEADER, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_ADMIN])("should allow %s", (role) => {
+    expect(canDeleteNote(currentUser([role]))).toBe(true);
+  });
+  it.each([DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL])("should refuse %s despite a stale privilege flag", (role) => {
+    expect(canDeleteNote({ ...currentUser([role]), isAdmin: true })).toBe(false);
   });
 });

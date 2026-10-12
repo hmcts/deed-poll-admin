@@ -34,8 +34,8 @@ const SUBMITTED = {
   declarant: "false"
 };
 
-function request(body: Record<string, unknown> = {}, { admin = false } = {}): Request {
-  return pageRequest({ params: PARAMS, body, admin, accessToken: "session-token" });
+function request(body: Record<string, unknown> = {}, { teamLeader = false } = {}): Request {
+  return pageRequest({ params: PARAMS, body, teamLeader, accessToken: "session-token" });
 }
 
 const response = pageResponse;
@@ -91,12 +91,12 @@ describe("amend a witness page", () => {
     it("should offer the delete button to an administrator", async () => {
       const res = response();
 
-      await GET(request({}, { admin: true }), res);
+      await GET(request({}, { teamLeader: true }), res);
 
       expect(res.render.mock.calls[0][1].canDelete).toBe(true);
     });
 
-    it("should not offer the delete button to a caseworker with no admin role", async () => {
+    it("should not offer the delete button to a caseworker with no teamLeader role", async () => {
       const res = response();
 
       await GET(request(), res);
@@ -203,7 +203,7 @@ describe("amend a witness page", () => {
       // As an administrator, since they are the only role offered the button.
       const res = response();
 
-      await POST(request({ ...SUBMITTED, action: "delete" }, { admin: true }), res);
+      await POST(request({ ...SUBMITTED, action: "delete" }, { teamLeader: true }), res);
 
       expect(removeWitness).toHaveBeenCalledWith("case-1", "witness-1", CALLER);
       expect(updateWitness).not.toHaveBeenCalled();
@@ -215,7 +215,7 @@ describe("amend a witness page", () => {
       // over-long name must not be able to block the deletion.
       const res = response();
 
-      await POST(request({ ...SUBMITTED, witnessName: "n".repeat(101), action: "delete" }, { admin: true }), res);
+      await POST(request({ ...SUBMITTED, witnessName: "n".repeat(101), action: "delete" }, { teamLeader: true }), res);
 
       expect(removeWitness).toHaveBeenCalledWith("case-1", "witness-1", CALLER);
       expect(res.status).not.toHaveBeenCalledWith(400);
@@ -238,7 +238,7 @@ describe("amend a witness page", () => {
     it("should 404 a delete of a witness belonging to another case rather than reporting success", async () => {
       vi.mocked(removeWitness).mockRejectedValue(new NotFoundError("Witness witness-9 not found"));
 
-      await expect(POST(request({ action: "delete" }, { admin: true }), response())).rejects.toThrow(NotFoundError);
+      await expect(POST(request({ action: "delete" }, { teamLeader: true }), response())).rejects.toThrow(NotFoundError);
     });
 
     it("should leave a caseworker's forged delete to api rather than refusing it here", async () => {
@@ -266,7 +266,7 @@ describe("amend a witness page", () => {
     it("should keep the delete button on an administrator's rejected save, so the re-render reads the session and does not hard-code false", async () => {
       const res = response();
 
-      await POST(request({ ...SUBMITTED, witnessName: "n".repeat(101) }, { admin: true }), res);
+      await POST(request({ ...SUBMITTED, witnessName: "n".repeat(101) }, { teamLeader: true }), res);
 
       expect(res.render.mock.calls[0][1].canDelete).toBe(true);
     });

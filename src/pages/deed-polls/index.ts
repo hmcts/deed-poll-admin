@@ -16,6 +16,7 @@
  * formatting moved into the view model — see `list-view.ts`.
  */
 import {
+  ACCESS_GAZETTE,
   AWAITING_CONFIRMATION_FILTER,
   buildCaseList,
   builderAction,
@@ -29,6 +30,7 @@ import {
   type CaseListPaging,
   type CaseListRow,
   type CaseListSort,
+  can,
   caseListSearch,
   conditionsFromBuilder,
   countAwaitingConfirmation,
@@ -262,7 +264,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
   const savedQueries = savedQueryEntries(caller, view);
   // Counts are global, independent of the selected query. API publishes no combined summary;
   // the Gazette read is additive for admins only and catches its own failures before the list finishes.
-  const counts = worklistCounts(caller, userFromRequest(req).isAdmin);
+  const counts = worklistCounts(caller, can(userFromRequest(req), ACCESS_GAZETTE));
 
   try {
     const results = await findDeedPolls({ filter: filter.key, q, conditions, sort: serialiseSort(sort), page }, caller);
@@ -328,11 +330,11 @@ async function savedQueryEntries(caller: Caller, { filter, q, conditions, sort }
  * because they are separate questions: a caseworker whose confirmation count failed must still be told about
  * a returned direction, and the reverse.
  */
-async function worklistCounts(caller: Caller, isAdmin: boolean): Promise<WorklistCounts> {
+async function worklistCounts(caller: Caller, canAccessGazette: boolean): Promise<WorklistCounts> {
   const [returnedForAction, awaitingConfirmation, gazette] = await Promise.all([
     worklistCount("returned-for-action", () => countReturnedForAction(caller)),
     worklistCount("awaiting-confirmation", () => countAwaitingConfirmation(caller)),
-    isAdmin ? worklistCount("gazette", () => countGazetteReadyCases(caller)) : undefined
+    canAccessGazette ? worklistCount("gazette", () => countGazetteReadyCases(caller)) : undefined
   ]);
 
   return { returnedForAction, awaitingConfirmation, gazette };

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { DEEDPOLL_ADMIN, deedPollApiStatus, plainHttpPermitted } from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, deedPollApiStatus, plainHttpPermitted } from "@hmcts/deed-poll";
 import { type HealthStatus, healthcheck, monitoringMiddleware } from "@hmcts-cft/cloud-native-platform";
 import { configureCookieManager, configureGovuk, configureHelmet, configureNonce, errorHandler, notFoundHandler } from "@hmcts-cft/express-govuk-starter";
 import { expressSessionRedis } from "@hmcts-cft/express-session-redis";
@@ -14,7 +14,7 @@ import { noStore } from "./auth/no-store.js";
 import { personaSwitcherLocals } from "./auth/persona-switcher.js";
 import { refreshMiddleware } from "./auth/refresh-middleware.js";
 import { requireAuth } from "./auth/require-auth.js";
-import { requireJudicial, requireRole } from "./auth/require-role.js";
+import { requireCapability, requireJudicial } from "./auth/require-role.js";
 import { requireSameOrigin } from "./auth/same-origin.js";
 import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts, sessionCookieName, sessionStoreTtl } from "./auth/session.js";
 import { sessionLifetime } from "./auth/session-lifetime.js";
@@ -213,7 +213,7 @@ export async function createApp(): Promise<Express> {
   // an anonymous visitor is still sent to log in, and only an authenticated non-judge is refused here.
   // See ./auth/require-role.ts — and note that api gates the same routes itself; this is the UI boundary.
   app.use("/judicial", requireJudicial());
-  app.use("/deed-polls/gazette", requireRole(DEEDPOLL_ADMIN));
+  app.use("/deed-polls/gazette", requireCapability(ACCESS_GAZETTE));
 
   app.use(await createSimpleRouter({ path: `${__dirname}/pages` }));
   app.use(notFoundHandler());

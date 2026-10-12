@@ -24,7 +24,7 @@ function request(body?: Record<string, unknown>, query: Record<string, unknown> 
 
 /** An Administrator, who is the only caller the share box renders for. */
 function adminRequest(body?: Record<string, unknown>, query: Record<string, unknown> = QUERY): Request {
-  return pageRequest({ query, body, accessToken: "session-token", admin: true });
+  return pageRequest({ query, body, accessToken: "session-token", teamLeader: true });
 }
 
 const response = pageResponse;

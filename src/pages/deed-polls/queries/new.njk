@@ -12,7 +12,7 @@
 
   The share box is a single checkbox rather than radios: not publishing is the state a query is in until
   somebody asks for it, so there is no second answer to give. It renders only on `canPublish`, which is the
-  app's own `isAdmin` and not one of api's per-query flags — publishing is the caller's right, not the row's
+  app's own `MANAGE_SHARED_QUERIES` and not one of api's per-query flags — publishing is the caller's right, not the row's
   property. Hidden rather than disabled, per `witness-edit.njk`. No `maxlength` attributes, following the other
   forms here — the bound is stated in the hint and enforced by the schema, where an error can be rendered
   beside the control rather than silently truncating what was typed.

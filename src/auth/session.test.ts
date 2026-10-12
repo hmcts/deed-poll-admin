@@ -28,7 +28,7 @@ function request(options: Parameters<typeof pageRequest>[0] = {}): RequestDouble
 
 describe("sessionUser", () => {
   it("returns the signed-in user", () => {
-    expect(sessionUser(request({ signedIn: true, admin: true, name: "A Caseworker" }))).toMatchObject({ isAdmin: true, name: "A Caseworker" });
+    expect(sessionUser(request({ signedIn: true, teamLeader: true, name: "A Caseworker" }))).toMatchObject({ isAdmin: true, name: "A Caseworker" });
   });
 
   it("returns undefined when nobody is signed in, rather than a role-less user", () => {
