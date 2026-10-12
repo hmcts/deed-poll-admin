@@ -6,8 +6,8 @@ import { MonitoringService } from "./monitoring-service.js";
  * express is loaded, and in an ES module every static import has loaded before the first line of the importer runs,
  * so starting it inside `createApp` collected no requests at all. Call this from the entrypoint, then import the app.
  */
-export function startMonitoring(config: MonitoringMiddlewareConfig): void {
-  if (config.enabled ?? true) new MonitoringService(config.connectionString, config.serviceName);
+export function startMonitoring(config: MonitoringMiddlewareConfig): MonitoringService | undefined {
+  return (config.enabled ?? true) ? new MonitoringService(config.connectionString, config.serviceName) : undefined;
 }
 
 /**

@@ -10,10 +10,11 @@ describe("startMonitoring", () => {
     vi.clearAllMocks();
   });
 
-  it("should start the monitoring service when enabled", () => {
-    startMonitoring({ serviceName: "test-service", connectionString: "InstrumentationKey=test", enabled: true });
+  it("should start and return the monitoring service when enabled", () => {
+    const service = startMonitoring({ serviceName: "test-service", connectionString: "InstrumentationKey=test", enabled: true });
 
     expect(MonitoringService).toHaveBeenCalledWith("InstrumentationKey=test", "test-service");
+    expect(service).toBe(vi.mocked(MonitoringService).mock.instances[0]);
   });
 
   it("should start the monitoring service when enabled is not given", () => {
@@ -23,9 +24,10 @@ describe("startMonitoring", () => {
   });
 
   it("should not start the monitoring service when disabled", () => {
-    startMonitoring({ serviceName: "test-service", connectionString: "InstrumentationKey=test", enabled: false });
+    const service = startMonitoring({ serviceName: "test-service", connectionString: "InstrumentationKey=test", enabled: false });
 
     expect(MonitoringService).not.toHaveBeenCalled();
+    expect(service).toBeUndefined();
   });
 });
 
