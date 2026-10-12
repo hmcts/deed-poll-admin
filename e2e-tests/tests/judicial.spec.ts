@@ -30,13 +30,13 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 import {
-  ADMIN_STORAGE_STATE,
   CASEWORKER_EMAIL,
   DEPLOYED_STACK_SKIP_REASON,
   JUDGE_EMAIL,
   JUDGE_STORAGE_STATE,
   RUNS_AGAINST_DEPLOYED_STACK,
-  signInAsJudge
+  signInAsJudge,
+  TEAM_LEADER_STORAGE_STATE
 } from "./idam-session.js";
 
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
@@ -496,7 +496,7 @@ test.describe("across the two judicial lists and both personas", () => {
  * Its own `describe` because that is the only place Playwright honours a second `test.use` in one file.
  */
 test.describe("without the judicial role", () => {
-  test.use({ storageState: ADMIN_STORAGE_STATE });
+  test.use({ storageState: TEAM_LEADER_STORAGE_STATE });
 
   test("administrator is refused the judicial area and is not sent to it", async ({ page }) => {
     // `/` resolves the persona, and an administrator's is the case list — a judge's pool is not one link away

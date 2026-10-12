@@ -2,7 +2,7 @@
  * The persona switcher, end to end in a browser — `docs/plans/completed/dev-persona-switcher.md`, task 4.
  *
  * **One test, because it is one sitting.** The whole point of the feature is that a single tester works as a
- * caseworker, a judge and an administrator without signing out, so a spec that used three sessions would be
+ * caseworker, a judge, a Team leader and a Delivery Manager without signing out, so a spec that used four sessions would be
  * testing the thing the switcher exists to avoid.
  *
  * **What only a browser can show here, and why this file is the plan's proof rather than its coverage.** The
@@ -24,7 +24,7 @@
  * switch taking effect. Neither is provable from the outside any other way: the judicial pages never ask about
  * the role, so a gated and an ungated build render identically under test.
  *
- * **This spec signs itself in and must keep doing so.** Do not give it `ADMIN_STORAGE_STATE` or
+ * **This spec signs itself in and must keep doing so.** Do not give it `TEAM_LEADER_STORAGE_STATE` or
  * `CASEWORKER_STORAGE_STATE`: a switch calls `signIn`, which regenerates the session id and destroys the
  * server-side session behind the restored cookie — so every other spec sharing that state would be signed out
  * mid-run, and the symptom would be an unrelated file timing out on a locator. A login of its own costs one
@@ -56,7 +56,7 @@ const OTHER_JUDGE = "e2e.personaswitcher.otherjudge@example.com";
 
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
 
-test("one tester works as a caseworker, a judge and an administrator without signing out", async ({ page, request }) => {
+test("one tester works as a caseworker, a judge, a Team leader and a Delivery Manager without signing out", async ({ page, request }) => {
   // Arrange: a case to find on the list, a note on it to look for an admin control against, and two referrals
   // already claimed — one by the judge persona, one by somebody else.
   const seeded = await seedPersonaFixtures(request);
@@ -68,7 +68,8 @@ test("one tester works as a caseworker, a judge and an administrator without sig
   await expect(personaStrip(page)).toContainText("Dev only");
   await expect(currentPersona(page)).toHaveText("Caseworker (current)");
   await expect(switchTo(page, "Judge")).toBeVisible();
-  await expect(switchTo(page, "Caseworker with admin")).toBeVisible();
+  await expect(switchTo(page, "Team leader")).toBeVisible();
+  await expect(switchTo(page, "Delivery Manager")).toBeVisible();
 
   // **A crafted URL cannot change a persona** (decision 6). The route file exports `POST` and nothing else, so
   // `simple-router` registers no `GET` and this is a 404 from the not-found handler rather than a handler that
@@ -136,12 +137,13 @@ test("one tester works as a caseworker, a judge and an administrator without sig
 
   // ── to the administrator ──────────────────────────────────────────────────────────────────────────────────
   // Switched from a judicial page, which is the return journey decision 7 is about.
-  await switchTo(page, "Caseworker with admin").click();
+  await switchTo(page, "Team leader").click();
 
   await expect(page).toHaveURL(CASE_LIST_PATH);
-  await expect(currentPersona(page)).toHaveText("Caseworker with admin (current)");
+  await expect(currentPersona(page)).toHaveText("Team leader (current)");
+  await expect(page.getByRole("link", { name: "View London Gazette applications" })).toHaveCount(0);
 
-  // The same note page as before the switches, and the control `caseworker-deedpoll-admin` unlocks is now on
+  // The same note page as before the switches, and the control `caseworker-deedpoll-team-leader` unlocks is now on
   // it. Nothing about the URL changed, so the only thing that can have is the role list api derived from the
   // token this persona arrived with.
   await page.goto(seeded.noteEditUrl);
@@ -156,7 +158,17 @@ test("one tester works as a caseworker, a judge and an administrator without sig
   // Away from the refusal again, for the reason above.
   await page.goto(CASE_LIST_PATH);
 
-  // Back where the sitting started, which is what makes the strip a switcher rather than three one-way doors —
+  await switchTo(page, "Delivery Manager").click();
+  await expect(page).toHaveURL(CASE_LIST_PATH);
+  await expect(currentPersona(page)).toHaveText("Delivery Manager (current)");
+  await expect(page.getByRole("link", { name: "View London Gazette applications" })).toBeVisible();
+  await page.goto(seeded.noteEditUrl);
+  await expect(deleteNote(page)).toBeVisible();
+  await expectNoAccessibilityViolations(page);
+  await expectJudicialAreaRefused(page);
+  await page.goto(CASE_LIST_PATH);
+
+  // Back where the sitting started, which is what makes the strip a switcher rather than four one-way doors —
   // and the admin control goes with the role rather than sticking to the session that once held it.
   await switchTo(page, "Caseworker").click();
   await expect(page).toHaveURL(CASE_LIST_PATH);

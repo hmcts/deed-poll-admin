@@ -36,7 +36,7 @@
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Browser, expect, type Locator, type Page, test } from "@playwright/test";
-import { ADMIN_EMAIL, ADMIN_STORAGE_STATE, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsAdmin } from "./idam-session.js";
+import { DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, signInAsTeamLeader, TEAM_LEADER_EMAIL, TEAM_LEADER_STORAGE_STATE } from "./idam-session.js";
 
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
 const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
@@ -62,7 +62,7 @@ const MASTER_REASON = "The evidence supplied does not establish the applicant's 
 const SEED_JUDGE = "e2e.emailjudge@example.com";
 
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
-test.use({ storageState: ADMIN_STORAGE_STATE });
+test.use({ storageState: TEAM_LEADER_STORAGE_STATE });
 
 test("caseworker tells a refused applicant why, checks the wording first, and is told when it had already gone", async ({ page, request, browser }) => {
   // Three times the default timeout, because this is one journey rather than a slow one: four form round trips, six
@@ -182,7 +182,7 @@ test("caseworker tells a refused applicant why, checks the wording first, and is
   await expect(documentsRow(page)).toContainText("None");
   // The author is api's, derived from the token the page forwarded — the subject rather than "An Admin" because
   // the mock has no IDAM to resolve a display name from, as the case header's author is.
-  await expect(createdRow(page)).toContainText(ADMIN_EMAIL);
+  await expect(createdRow(page)).toContainText(TEAM_LEADER_EMAIL);
   await expectNoReceiptClaim(page.locator("main"));
   await expectNoAccessibilityViolations(page);
 
@@ -399,7 +399,7 @@ async function expectWelshKeysResolve(browser: Browser, path: string): Promise<v
 
   try {
     const page = await context.newPage();
-    await signInAsAdmin(page);
+    await signInAsTeamLeader(page);
     await page.goto(`${path}?lng=cy`);
 
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Write the email");

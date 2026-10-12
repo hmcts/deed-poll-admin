@@ -229,12 +229,12 @@ listed in Context, and `src/express-doubles.ts`.
 `e2e-tests/tests/persona-switcher.spec.ts`, and any of `deed-polls.spec.ts`, `confirmation.spec.ts`,
 `emails.spec.ts` or `judicial.spec.ts` that use the admin fixture. Also both Playwright configs.
 
-- [ ] Prerequisites first: local IDAM on 5556 with the Task 4 users seeded, Redis on 6316, and a Playwright chromium build. **If any is missing, write the specs, prove that they parse with `yarn workspace e2e-tests exec playwright test --list` (once for each config), record "NOT RUN: <reason>" in Execution notes, and complete the task.** Do not fake a pass, and do not download browsers through the proxy.
-- [ ] Add Team leader and Delivery Manager storage states through real IDAM login. Keep the caseworker and judicial ones. Keep the legacy `admin` state for negative checks only. Never copy one persona's cookie into another persona's fixture.
-- [ ] `gazette.spec.ts`: all five journeys run as the Delivery Manager. Add a refusal journey: the Team leader, legacy admin, caseworker and judge each see no Gazette link and get the 404 view on a direct Gazette URL, and the Team leader opening `/deed-polls?filter=readyForPublication` sees "All applications", not the ready list.
-- [ ] Prove that Team leader and Delivery Manager each keep one representative control each for privacy, note deletion and shared-query publishing, and that neither reaches `/judicial`. Keep the inline axe checks.
-- [ ] Run `yarn test:gazette`, and the affected `yarn test:e2e` specs, by the worktree method in Validation Commands. Record the counts.
-- [ ] Mark completed
+- [x] Prerequisites first: local IDAM on 5556 with the Task 4 users seeded, Redis on 6316, and a Playwright chromium build. **If any is missing, write the specs, prove that they parse with `yarn workspace e2e-tests exec playwright test --list` (once for each config), record "NOT RUN: <reason>" in Execution notes, and complete the task.** Do not fake a pass, and do not download browsers through the proxy.
+- [x] Add Team leader and Delivery Manager storage states through real IDAM login. Keep the caseworker and judicial ones. Keep the legacy `admin` state for negative checks only. Never copy one persona's cookie into another persona's fixture.
+- [x] `gazette.spec.ts`: all five journeys run as the Delivery Manager. Add a refusal journey: the Team leader, legacy admin, caseworker and judge each see no Gazette link and get the 404 view on a direct Gazette URL, and the Team leader opening `/deed-polls?filter=readyForPublication` sees "All applications", not the ready list.
+- [x] Prove that Team leader and Delivery Manager each keep one representative control each for privacy, note deletion and shared-query publishing, and that neither reaches `/judicial`. Keep the inline axe checks.
+- [x] Run `yarn test:gazette`, and the affected `yarn test:e2e` specs, by the worktree method in Validation Commands. Record the counts.
+- [x] Mark completed
 
 ### Task 6: Acceptance, documentation and handoff
 
@@ -303,3 +303,14 @@ same role matrix as API, with mixed-role tests. A domain test pins mock role spe
 a dependency cycle. Existing seed account journals retain their `admin` key/subject IDs while
 the seeder assigns Team leader, avoiding duplicate users when resuming. The mock-only Gazette
 seeder reads as Delivery Manager. Lint, eight test tasks, eight builds and diff check passed.
+
+### Task 5 — execution evidence, 12 October 2026
+
+Each new role has its own real-IDAM storage fixture. Positive casework fixtures now use Team leader;
+Gazette positives use Delivery Manager, with four role-specific refusal journeys. Both staff roles have
+privacy, note deletion, publishing-control and judicial-refusal checks, and the switcher journey covers
+all four personas. Lint, eight test tasks, eight builds and diff check passed.
+Playwright parsing passed: normal config 49 tests in 11 files; Gazette config 8 tests in one file.
+Browser execution: **NOT RUN**. Chromium is installed, but local IDAM on 5556 and isolated Redis on 6316
+are absent. Ports 3200, 3216 and 3316 were free; no shared listener was stopped. This uses Task 5's
+explicit missing-prerequisite allowance; parsing is not a browser or accessibility pass.
