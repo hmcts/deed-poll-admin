@@ -1,5 +1,11 @@
 # Plan: London Gazette publication — admin UI (ready list, review, send, history)
 
+> **Permission decision superseded, 9 October 2026:** the entire Gazette area, including its
+> ready count/list and history, is Delivery Manager-only. Team leader replaces caseworker-admin
+> and retains its non-Gazette privileges. Follow the
+> [role implementation plan](20261009-team-leader-delivery-manager.md) for gates, test personas,
+> migration and API dependencies; references below to admin access describe the earlier decision.
+
 ## Execution status — 9 October 2026
 
 The read-only foundation, relinquishment exclusion and recipient editor are merged
