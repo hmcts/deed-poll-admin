@@ -56,6 +56,21 @@ describe("the logout page", () => {
     expect(res.redirect).toHaveBeenCalledWith("/");
   });
 
+  it("tells the browser to drop its cached pages, on the way to IDAM and on the local fallback", async () => {
+    // The Back button after sign-out is the one moment a cached case page becomes an exposure on a shared PC.
+    // "cache" only: "cookies" would also wipe the cookie-consent choice.
+    const toIdam = pageResponse();
+    await GET(signedIn(), toIdam);
+    vi.mocked(endSessionUrl).mockResolvedValue(undefined);
+    const local = pageResponse();
+    await GET(signedIn(), local);
+
+    for (const res of [toIdam, local]) {
+      expect(res.setHeader).toHaveBeenCalledWith("Clear-Site-Data", '"cache"');
+      expect(res.setHeader.mock.invocationCallOrder[0]).toBeLessThan(res.redirect.mock.invocationCallOrder[0]);
+    }
+  });
+
   it("works for someone who is not signed in, rather than failing", async () => {
     // A bookmarked /logout, or a second click. Both should be harmless.
     const res = pageResponse();

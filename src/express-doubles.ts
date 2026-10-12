@@ -133,10 +133,17 @@ export type ResponseDouble = Response & {
   render: ReturnType<typeof vi.fn>;
   redirect: ReturnType<typeof vi.fn>;
   status: ReturnType<typeof vi.fn>;
+  setHeader: ReturnType<typeof vi.fn>;
 };
 
 export function pageResponse(): ResponseDouble {
-  const res = { render: vi.fn(), redirect: vi.fn(), status: vi.fn(), locals: {} } as unknown as ResponseDouble;
+  const res = {
+    render: vi.fn(),
+    redirect: vi.fn(),
+    status: vi.fn(),
+    setHeader: vi.fn(),
+    locals: {}
+  } as unknown as ResponseDouble;
   res.status.mockReturnValue(res);
   return res;
 }

@@ -1,4 +1,5 @@
 import * as appInsights from "applicationinsights";
+import { queryRedactingSpanProcessor } from "./query-redacting-span-processor.js";
 
 export class MonitoringService {
   private client?: appInsights.TelemetryClient;
@@ -19,6 +20,9 @@ export class MonitoringService {
       .setAutoCollectDependencies(true)
       .setAutoCollectConsole(true, true)
       .setUseDiskRetryCaching(true)
+      // Before start(), which is when the options are read. Only spanProcessors is passed: the shim merges these
+      // over its own defaults, so the connection string and instrumentation settings are kept.
+      .setAzureMonitorOptions({ spanProcessors: [queryRedactingSpanProcessor] })
       .start();
 
     this.client = appInsights.defaultClient;

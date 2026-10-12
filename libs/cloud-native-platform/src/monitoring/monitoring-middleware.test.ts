@@ -18,6 +18,7 @@ describe("monitoringMiddleware", () => {
       method: "GET",
       path: "/test",
       url: "/test?query=value",
+      originalUrl: "/test?query=value",
       route: { path: "/test" },
       headers: {
         "user-agent": "Mozilla/5.0"
@@ -105,7 +106,7 @@ describe("monitoringMiddleware", () => {
 
     expect(mockTrackRequest).toHaveBeenCalledWith({
       name: "GET /test",
-      url: "/test?query=value",
+      url: "/test?REDACTED",
       duration: expect.any(Number),
       resultCode: 200,
       success: true,
@@ -115,6 +116,26 @@ describe("monitoringMiddleware", () => {
         userAgent: "Mozilla/5.0"
       }
     });
+  });
+
+  it("should record the full original URL with its query redacted, not the mount-relative one", () => {
+    const mockTrackRequest = vi.fn();
+    vi.mocked(MonitoringService).mockImplementation(function (this: any) {
+      return { trackRequest: mockTrackRequest, trackException: vi.fn(), trackEvent: vi.fn(), trackMetric: vi.fn(), flush: vi.fn() };
+    } as any);
+    let finishCallback: () => void;
+    res.on = vi.fn((event: string, callback: () => void) => {
+      if (event === "finish") {
+        finishCallback = callback;
+      }
+    }) as any;
+    req = { ...req, url: "/a-case-id?q=Testperson", originalUrl: "/deed-polls/a-case-id?q=Testperson" };
+
+    monitoringMiddleware(config)(req as Request, res as Response, next);
+    finishCallback!();
+
+    expect(mockTrackRequest).toHaveBeenCalledWith(expect.objectContaining({ url: "/deed-polls/a-case-id?REDACTED" }));
+    expect(JSON.stringify(mockTrackRequest.mock.calls)).not.toContain("Testperson");
   });
 
   it("should track exception on error event", () => {
@@ -178,7 +199,7 @@ describe("monitoringMiddleware", () => {
 
     expect(mockTrackRequest).toHaveBeenCalledWith({
       name: "GET /test",
-      url: "/test?query=value",
+      url: "/test?REDACTED",
       duration: expect.any(Number),
       resultCode: 200,
       success: true,
@@ -219,7 +240,7 @@ describe("monitoringMiddleware", () => {
 
     expect(mockTrackRequest).toHaveBeenCalledWith({
       name: "GET /test",
-      url: "/test?query=value",
+      url: "/test?REDACTED",
       duration: expect.any(Number),
       resultCode: 500,
       success: false,
