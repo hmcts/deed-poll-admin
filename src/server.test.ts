@@ -6,6 +6,9 @@
  * `import("./app.js")` back into a static import is a one-line change that leaves every other test green,
  * every page working locally, and every deployed pod reading `config/default.json`'s placeholders instead
  * of its vault.
+ *
+ * Monitoring sits between the two for the second reason the app is imported late: Application Insights
+ * collects no requests unless it starts before express is loaded, and the app's graph is what loads it.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -15,6 +18,13 @@ vi.mock("./secrets.js", () => ({
   loadSecrets: vi.fn(async () => {
     order.push("secrets");
     return {};
+  })
+}));
+
+// Only startMonitoring: server.ts uses nothing else from the package, and the real one loads the SDK.
+vi.mock("@hmcts-cft/cloud-native-platform", () => ({
+  startMonitoring: vi.fn(() => {
+    order.push("monitoring");
   })
 }));
 
@@ -34,9 +44,9 @@ vi.mock("./app.js", () => {
 });
 
 describe("server", () => {
-  it("should load the key vault secrets before importing the app, so config does not cache the placeholders", async () => {
+  it("should load the secrets, then start monitoring, then import the app", async () => {
     await import("./server.js");
 
-    expect(order).toEqual(["secrets", "app"]);
+    expect(order).toEqual(["secrets", "monitoring", "app"]);
   });
 });
