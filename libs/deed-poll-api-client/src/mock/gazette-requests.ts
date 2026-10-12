@@ -53,7 +53,7 @@ export function createGazetteRequests() {
         if (!Array.isArray(members)) return members;
         const fingerprint = randomUUID();
         const expires = Date.now() + 30 * 60_000;
-        previews.set(fingerprint, { ids: [...parsed.data.caseIds].sort(), snapshot: snapshot(members), expires });
+        previews.set(fingerprint, { ids: [...parsed.data.caseIds].sort(compare), snapshot: snapshot(members), expires });
         return {
           status: 200,
           body: {
@@ -70,7 +70,7 @@ export function createGazetteRequests() {
         const parsed = WIRE_SCHEMAS.SubmitGazetteRequest.safeParse(body);
         if (!parsed.success || !z.uuid().safeParse(key).success) return invalid();
         const input = parsed.data;
-        const identity = JSON.stringify({ ...input, caseIds: [...input.caseIds].sort() });
+        const identity = JSON.stringify({ ...input, caseIds: [...input.caseIds].sort(compare) });
         const existing = [...requests.values()].find((request) => request.key === key);
         if (existing) {
           return existing.identity === identity && existing.subject === subject ? statusReply(existing.status) : refused("REQUEST_KEY_REUSED");
@@ -81,7 +81,7 @@ export function createGazetteRequests() {
         const preview = previews.get(input.selectionFingerprint);
         if (!preview) return invalid();
         if (preview.expires <= Date.now()) return refused("CONFIRMATION_EXPIRED");
-        if (preview.snapshot !== snapshot(members) || JSON.stringify(preview.ids) !== JSON.stringify([...input.caseIds].sort())) {
+        if (preview.snapshot !== snapshot(members) || JSON.stringify(preview.ids) !== JSON.stringify([...input.caseIds].sort(compare))) {
           return refused("SELECTION_CHANGED");
         }
         const now = new Date();
