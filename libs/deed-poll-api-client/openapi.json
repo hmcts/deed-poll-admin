@@ -46,10 +46,11 @@
     },
     "/caseworker/cases": {
       "get": {
+        "description": "The named readyForPublication worklist and count require caseworker-deedpoll-delivery-manager, including saved-query links. Other authenticated roles receive 403 before reads or side effects. Ordinary filters and field conditions are unchanged.",
         "operationId": "cases",
         "parameters": [
           {
-            "description": "Which tab of the case list to return: `all` (All applications), `open` (Open), `received` (Received), `enroled` (Enroled), `returned` (Returned), `awaitingConfirmation` (Awaiting confirmation), `readyForPublication` (Ready for publication). An unrecognised or repeated value falls back to `all` rather than being refused, because the key comes from a URL a caseworker may have bookmarked -- the response echoes the key that was actually applied, so the fallback is observable. ANDs with `q` and every `where` condition. `awaitingConfirmation` is the cases still waiting for an applicant's reply to the Request confirmation to proceed email, and each row on it carries `daysAwaitingConfirmation`. `readyForPublication` selects `publishToLondonGazette=true`, `dateNoticeSentToLondonGazette` absent and `state=Enroled`, excluding `type=DeedOfRelinquishment`; other types, including unset types, are unchanged. Its default sort is `dateEnroled:asc` (oldest enrolled first), unless the caller supplies `sort`.",
+            "description": "Which tab of the case list to return: `all` (All applications), `open` (Open), `received` (Received), `enroled` (Enroled), `returned` (Returned), `awaitingConfirmation` (Awaiting confirmation), `readyForPublication` (Ready for publication). An unrecognised or repeated value falls back to `all` rather than being refused, because the key comes from a URL a caseworker may have bookmarked -- the response echoes the key that was actually applied, so the fallback is observable. ANDs with `q` and every `where` condition. `awaitingConfirmation` is the cases still waiting for an applicant's reply to the Request confirmation to proceed email, and each row on it carries `daysAwaitingConfirmation`. `readyForPublication` selects `publishToLondonGazette=true`, `dateNoticeSentToLondonGazette` absent and `state=Enroled`, excluding `type=DeedOfRelinquishment`; other types, including unset types, are unchanged. This named worklist and its count require caseworker-deedpoll-delivery-manager (403 otherwise), including saved-query links. Its default sort is `dateEnroled:asc` (oldest enrolled first), unless the caller supplies `sort`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -1200,7 +1201,7 @@
     },
     "/caseworker/gazette-notice-previews": {
       "post": {
-        "description": "Requires caseworker-deedpoll-admin. Checks recipient, readiness, reservations and configuration. Returns a 30-minute comparison token. No reservations, uploads or notes are written.",
+        "description": "Requires caseworker-deedpoll-delivery-manager. Checks recipient, readiness, reservations and configuration. Returns a 30-minute comparison token. No reservations, uploads or notes are written.",
         "operationId": "previewGazetteNotice",
         "requestBody": {
           "content": {
@@ -1250,7 +1251,7 @@
     },
     "/caseworker/gazette-notice-requests": {
       "get": {
-        "description": "Requires caseworker-deedpoll-admin. Newest submission first, then descending batch ID. Legacy sent batches remain in sent history. Page defaults to 1; size defaults to 25, capped at 100.",
+        "description": "Requires caseworker-deedpoll-delivery-manager. Newest submission first, then descending batch ID. Legacy sent batches remain in sent history. Page defaults to 1; size defaults to 25, capped at 100.",
         "operationId": "getGazetteRequests",
         "parameters": [
           {
@@ -1296,7 +1297,7 @@
     },
     "/caseworker/gazette-notices": {
       "get": {
-        "description": "Requires caseworker-deedpoll-admin. Batches are newest first, with frozen case references and display-name attribution. At most 100 references per batch, in lexical display order, with referencesTruncated indicating omitted members. This is not send order. No custom filtering or sorting.",
+        "description": "Requires caseworker-deedpoll-delivery-manager. Batches are newest first, with frozen case references and display-name attribution. At most 100 references per batch, in lexical display order, with referencesTruncated indicating omitted members. This is not send order. No custom filtering or sorting.",
         "operationId": "history",
         "parameters": [
           {
@@ -1334,7 +1335,7 @@
         "tags": ["caseworker-gazette-controller"]
       },
       "post": {
-        "description": "Requires caseworker-deedpoll-admin. Sending is disabled by default. When configured and enabled, a fresh confirmed request makes at most one email attempt. Repeats resolve recorded status only. 202 means Preparing/Sending; 200 means terminal, not necessarily sent. Reuse the original key and body after a lost response. Never retry an uncertain request with a new key.",
+        "description": "Requires caseworker-deedpoll-delivery-manager. Sending is disabled by default. When configured and enabled, a fresh confirmed request makes at most one email attempt. Repeats resolve recorded status only. 202 means Preparing/Sending; 200 means terminal, not necessarily sent. Reuse the original key and body after a lost response. Never retry an uncertain request with a new key.",
         "operationId": "submitGazetteNotice",
         "parameters": [
           {
@@ -1404,7 +1405,7 @@
     },
     "/caseworker/gazette-notices/{batchId}": {
       "get": {
-        "description": "Requires caseworker-deedpoll-admin. Includes legacy sent batches, with unknown submission, recipient and group facts null. Sent means accepted by Notify, not delivered or published.",
+        "description": "Requires caseworker-deedpoll-delivery-manager. Includes legacy sent batches, with unknown submission, recipient and group facts null. Sent means accepted by Notify, not delivered or published.",
         "operationId": "getGazetteNotice",
         "parameters": [
           {
@@ -1435,7 +1436,7 @@
     },
     "/caseworker/gazette-notices/{batchId}/cases": {
       "get": {
-        "description": "Requires caseworker-deedpoll-admin. Reference then case ID ordering, independent of live cases. Page defaults to 1; size defaults to 25, capped at 100. Includes legacy batches.",
+        "description": "Requires caseworker-deedpoll-delivery-manager. Reference then case ID ordering, independent of live cases. Page defaults to 1; size defaults to 25, capped at 100. Includes legacy batches.",
         "operationId": "getGazetteNoticeCases",
         "parameters": [
           {
@@ -1482,7 +1483,7 @@
     },
     "/caseworker/gazette-settings": {
       "get": {
-        "description": "Requires caseworker-deedpoll-admin. Initially recipient and attribution are null, revision 0.",
+        "description": "Requires caseworker-deedpoll-delivery-manager. Initially recipient and attribution are null, revision 0.",
         "operationId": "getGazetteSettings",
         "responses": {
           "200": {
@@ -1500,7 +1501,7 @@
         "tags": ["caseworker-gazette-settings-controller"]
       },
       "put": {
-        "description": "Requires caseworker-deedpoll-admin. Supply the revision read with the form; stale revisions return 409 without changes. Each changed address increments revision and records attribution. Saving the current address at the current revision is a no-op. No email is sent.",
+        "description": "Requires caseworker-deedpoll-delivery-manager. Supply the revision read with the form; stale revisions return 409 without changes. Each changed address increments revision and records attribution. Saving the current address at the current revision is a no-op. No email is sent.",
         "operationId": "updateGazetteSettings",
         "requestBody": {
           "content": {

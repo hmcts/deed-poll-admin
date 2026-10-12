@@ -6,7 +6,12 @@ one of them rather than licence to invent.
 
 | | |
 |---|---|
-| **api source** | Merged master `742cb5a6a842a6e76b4e98cd59869da889032d50` (API PR #93), including the Gazette ledger, preview, send and recovery contract. |
+| **api source** | Merged master `be3291a5c3bb6acbef3a189f650a2c1057c4607f` (API PR #100). |
+| **Taken on** | 2026-10-12 |
+| **How** | Clean detached API worktree; `JAVA_TOOL_OPTIONS=-XX:UseSVE=0 TESTCONTAINERS_RYUK_DISABLED=true ./gradlew integration --tests '*OpenAPIPublisherTest*' --no-watch-fs`. Raw SHA-256 `647a110a74114db4f1114a469d85240876224becb90be0b3d038121d5fb1e70e`. Reformatted with Biome. |
+| **Delta** | Ten descriptions only: eight Gazette operations, the case-list operation and its filter parameter. All 51 operations, 36 paths, 55 schemas and deferred entries are unchanged. |
+| **Previous source** | API `742cb5a6a842a6e76b4e98cd59869da889032d50`, recorded below. |
+| **Previous api source** | Merged master `742cb5a6a842a6e76b4e98cd59869da889032d50` (API PR #93), including the Gazette ledger, preview, send and recovery contract. |
 | **Taken on** | 2026-10-09 |
 | **How** | Regenerated in a clean detached API worktree with `./gradlew integration --tests "*OpenAPIPublisherTest*"`; copied from `/tmp/openapi-specs.json`, 2-space JSON then Biome. Raw SHA-256 `c5465002de9a57d175cad73a9b33392b22d8e73337cd02df5ece51eec80b86cc`. |
 | **Operations** | 45 caseworker operations across 30 paths, 5 judicial operations across 5 paths, plus `GET /`: 51 operations across 36 paths; 55 schemas. Three CCD operations and three CCD schemas remain explicitly deferred. |
