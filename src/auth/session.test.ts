@@ -1,4 +1,4 @@
-import { currentUser, DEEDPOLL_ADMIN } from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, can, currentUser, DEEDPOLL_ADMIN, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_TEAM_LEADER } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, type RequestDouble } from "../express-doubles.js";
@@ -464,5 +464,24 @@ describe("assertRedisUrl", () => {
     process.env.NODE_ENV = "production";
 
     expect(() => assertRedisUrl("rediss://deed-poll-prod.redis.cache.windows.net:6380")).not.toThrow();
+  });
+});
+
+describe("stored role migration", () => {
+  it.each([
+    { roles: [DEEDPOLL_ADMIN], privacy: true, gazette: false },
+    { roles: [DEEDPOLL_TEAM_LEADER], privacy: true, gazette: false },
+    { roles: [DEEDPOLL_DELIVERY_MANAGER], privacy: true, gazette: true },
+    { roles: ["unknown"], privacy: false, gazette: false },
+    { roles: undefined, privacy: false, gazette: false }
+  ])("should rederive a stored session with $roles and ignore stale booleans", ({ roles, privacy, gazette }) => {
+    const req = request();
+    const stored = { roles, name: "Same person", isAdmin: !privacy, isJudicial: true };
+    req.session.deedPoll.user = stored;
+    const user = sessionUser(req);
+    expect(user).toMatchObject({ name: "Same person", isAdmin: privacy, isJudicial: false });
+    expect(can(user!, ACCESS_GAZETTE)).toBe(gazette);
+    expect(req.session.deedPoll.user).toBe(stored);
+    expect(req.session.save).not.toHaveBeenCalled();
   });
 });

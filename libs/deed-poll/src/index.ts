@@ -13,6 +13,7 @@
 // the app's `callerFromRequest` returns one, and `deedPollApiStatus` because `app.ts` mounts it as a
 // readiness check.
 export { type Caller, deedPollApiStatus } from "./api/deed-poll-api.js";
+export * from "./auth/capabilities.js";
 export * from "./auth/current-user.js";
 export * from "./auth/idam-claims.js";
 export * from "./auth/plain-http.js";

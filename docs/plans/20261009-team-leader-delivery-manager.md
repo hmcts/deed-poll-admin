@@ -189,12 +189,12 @@ A bare `yarn test` is not a substitute: it can report `0 successful, 8 total` ha
 `libs/deed-poll/src/index.ts`, `libs/deed-poll/src/auth/idam-claims.test.ts`, `src/auth/session.ts`
 (+ `session.test.ts`), `src/auth/current-user.ts` (+ test), `src/pages/index.ts` (+ test).
 
-- [ ] Add `DEEDPOLL_TEAM_LEADER` and `DEEDPOLL_DELIVERY_MANAGER` to `roles.ts` and the `Role` union, and to `KNOWN_ROLES`. Give `DEEDPOLL_ADMIN` a docblock saying it is migration-only and why it keeps Team leader rights.
-- [ ] Add `capabilities.ts` (Decision 2). Make `currentUser` derive `isAdmin` from `OVERRIDE_PRIVACY` (Decision 4). Export `rolesFrom`, or a session-safe equivalent, so that `session.ts` can reuse the same filter.
-- [ ] Make `sessionUser` re-derive the user from stored roles and name (Decision 5). A stored object with no `roles` array resolves to no roles, not to a crash.
-- [ ] Landing: `src/pages/index.ts` keeps judicial-only users on the pool and everyone else on the case list. Re-express the check as "judicial and holds no capability", not `!isAdmin`.
-- [ ] Tests: every matrix row; duplicate and unknown claims; a stored legacy session with `isAdmin: true`; a stored session whose roles were edited to include an unrecognised string; the landing for each single role and for each mixed judicial role.
-- [ ] Mark completed
+- [x] Add `DEEDPOLL_TEAM_LEADER` and `DEEDPOLL_DELIVERY_MANAGER` to `roles.ts` and the `Role` union, and to `KNOWN_ROLES`. Give `DEEDPOLL_ADMIN` a docblock saying it is migration-only and why it keeps Team leader rights.
+- [x] Add `capabilities.ts` (Decision 2). Make `currentUser` derive `isAdmin` from `OVERRIDE_PRIVACY` (Decision 4). Export `rolesFrom`, or a session-safe equivalent, so that `session.ts` can reuse the same filter.
+- [x] Make `sessionUser` re-derive the user from stored roles and name (Decision 5). A stored object with no `roles` array resolves to no roles, not to a crash.
+- [x] Landing: `src/pages/index.ts` keeps judicial-only users on the pool and everyone else on the case list. Re-express the check as "judicial and holds no capability", not `!isAdmin`.
+- [x] Tests: every matrix row; duplicate and unknown claims; a stored legacy session with `isAdmin: true`; a stored session whose roles were edited to include an unrecognised string; the landing for each single role and for each mixed judicial role.
+- [x] Mark completed
 
 ### Task 3: Gate every Gazette entry, and move the other controls to capabilities
 
@@ -277,3 +277,12 @@ These are manual, not ralphex tasks.
 - Legacy-only accounts keep Team leader rights and lose Gazette as soon as this deploys. Only explicitly
   assigned Delivery Managers regain Gazette. Remove the legacy role, its compatibility code and its tests in a
   coordinated follow-up, once the infra retirement criteria are met.
+
+### Task 2 — execution evidence, 12 October 2026
+
+Capabilities are an immutable derived list, with explicit new and temporary legacy grants.
+Session reads normalise stored roles and discard stale booleans without modifying Redis state.
+Permission matrix, malformed/legacy sessions and mixed judicial landings are covered.
+Lint, all eight test tasks and all eight build tasks passed; diff check clean.
+Task 1's first contract check rejected the old admin-description assertion; corrected it to
+Delivery Manager and the complete suite passed here. Baseline: 3,725 passed, three skipped.

@@ -1,5 +1,6 @@
+import { can, OVERRIDE_PRIVACY } from "./capabilities.js";
 import type { Role } from "./roles.js";
-import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL } from "./roles.js";
+import { DEEDPOLL_JUDICIAL } from "./roles.js";
 
 /**
  * Fallback author for a write with no identified user. Matches the service account the
@@ -42,7 +43,7 @@ export function currentUser(roles: Role[], name?: string | null): CurrentUser {
   const trimmed = (name ?? "").trim();
   return {
     roles,
-    isAdmin: roles.includes(DEEDPOLL_ADMIN),
+    isAdmin: can({ roles }, OVERRIDE_PRIVACY),
     isJudicial: roles.includes(DEEDPOLL_JUDICIAL),
     name: trimmed.length > 0 ? trimmed : SERVICE_ACCOUNT_NAME
   };

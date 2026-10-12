@@ -28,6 +28,7 @@
  * route this file could no longer see. Nothing is disclosed either way: the redirect target does the refusing.
  */
 import type { CurrentUser } from "@hmcts/deed-poll";
+import { capabilitiesFor } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { userFromRequest } from "../auth/current-user.js";
 import { sessionUser } from "../auth/session.js";
@@ -70,5 +71,5 @@ export const GET = async (req: Request, res: Response) => {
  * be a page built for a state no role assignment produces.
  */
 function landingPath(user: CurrentUser): string {
-  return user.isJudicial && !user.isAdmin ? JUDICIAL_POOL_PATH : CASE_LIST_PATH;
+  return user.isJudicial && capabilitiesFor(user.roles).length === 0 ? JUDICIAL_POOL_PATH : CASE_LIST_PATH;
 }

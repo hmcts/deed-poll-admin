@@ -1,3 +1,4 @@
+import { currentUser, DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_JUDICIAL, DEEDPOLL_TEAM_LEADER } from "@hmcts/deed-poll";
 import { describe, expect, it } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
 import { GET } from "./index.js";
@@ -70,4 +71,19 @@ describe("service root", () => {
       expect(res.redirect).toHaveBeenCalledTimes(1);
     });
   });
+});
+
+describe("staff role landing", () => {
+  it.each([DEEDPOLL_TEAM_LEADER, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER])(
+    "should keep %s independent of judicial access",
+    async (role) => {
+      for (const judicial of [false, true]) {
+        const req = pageRequest();
+        req.session.deedPoll.user = currentUser(judicial ? [role, DEEDPOLL_JUDICIAL] : [role]);
+        const res = pageResponse();
+        await GET(req, res);
+        expect(res.redirect).toHaveBeenCalledWith(judicial && role === DEEDPOLL_CASEWORKER ? "/judicial/referrals" : "/deed-polls");
+      }
+    }
+  );
 });

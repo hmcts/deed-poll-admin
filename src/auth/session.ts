@@ -9,7 +9,7 @@
  * Namespaced under `deedPoll` per `.claude/rules/frontend.md`, so a second journey added later cannot
  * collide with it in the same store.
  */
-import { type CurrentUser, plainHttpPermitted } from "@hmcts/deed-poll";
+import { type CurrentUser, currentUser, plainHttpPermitted, rolesFrom } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import type { SessionData } from "express-session";
 import type { AuthFlowState, IdamTokens } from "./idam.js";
@@ -228,7 +228,9 @@ function parseRedisUrl(url: string): URL {
 
 /** The signed-in user, or undefined. Undefined means not signed in — never "signed in with no roles". */
 export function sessionUser(req: Request): CurrentUser | undefined {
-  return namespace(req)?.user;
+  const stored = namespace(req)?.user;
+  // Stored booleans may predate a permission change. Roles are the only authority.
+  return stored ? currentUser(rolesFrom(stored.roles), stored.name) : undefined;
 }
 
 export function startFlow(req: Request, flow: AuthFlowState): void {

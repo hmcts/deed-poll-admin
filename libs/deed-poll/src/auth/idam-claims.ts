@@ -14,7 +14,7 @@
  * library.
  */
 import { type CurrentUser, currentUser } from "./current-user.js";
-import { DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL, type Role } from "./roles.js";
+import { DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_JUDICIAL, DEEDPOLL_TEAM_LEADER, type Role } from "./roles.js";
 
 /**
  * Every role this service acts on. Anything IDAM asserts that is not here is ignored.
@@ -25,7 +25,7 @@ import { DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL, type Role } fro
  * permissions bug rather than a missing list entry. Adding a role to `Role` without adding it here is
  * therefore silent and total.
  */
-const KNOWN_ROLES: readonly string[] = [DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL];
+const KNOWN_ROLES: readonly string[] = [DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL, DEEDPOLL_TEAM_LEADER, DEEDPOLL_DELIVERY_MANAGER];
 
 /**
  * The subset of an IDAM ID token this service reads.
@@ -60,7 +60,7 @@ export function userFromClaims(claims: IdamClaims): CurrentUser {
  * because getting it wrong yields an empty role list, which fails closed but looks like a
  * permissions bug rather than a parsing one.
  */
-function rolesFrom(raw: unknown): Role[] {
+export function rolesFrom(raw: unknown): Role[] {
   const values = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(",") : [];
 
   return values.map((value) => String(value).trim()).filter((value): value is Role => KNOWN_ROLES.includes(value));

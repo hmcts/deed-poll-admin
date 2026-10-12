@@ -1,10 +1,4 @@
-/**
- * Role identifiers. The single privileged role ports the Dynamics security role
- * "Deed Poll Admin User" — the source's admin gate for privacy editability and
- * the create-time privacy auto-default (see FormPresentationService).
- *
- * The role name follows HMCTS IDAM convention: caseworker-{product}-{subrole}.
- */
+/** Migration-only: retains Team leader casework privileges, never Gazette access. */
 export const DEEDPOLL_ADMIN = "caseworker-deedpoll-admin";
 
 /**
@@ -24,5 +18,13 @@ export const DEEDPOLL_JUDICIAL = "caseworker-deedpoll-judicial";
 /** Ordinary caseworkers: CCD document READ, without admin or judicial privileges. */
 export const DEEDPOLL_CASEWORKER = "caseworker-deedpoll";
 
+export const DEEDPOLL_TEAM_LEADER = "caseworker-deedpoll-team-leader";
+export const DEEDPOLL_DELIVERY_MANAGER = "caseworker-deedpoll-delivery-manager";
+
 /** All roles a request may carry. Extend as further roles are modelled. */
-export type Role = typeof DEEDPOLL_CASEWORKER | typeof DEEDPOLL_ADMIN | typeof DEEDPOLL_JUDICIAL;
+export type Role =
+  | typeof DEEDPOLL_TEAM_LEADER
+  | typeof DEEDPOLL_DELIVERY_MANAGER
+  | typeof DEEDPOLL_CASEWORKER
+  | typeof DEEDPOLL_ADMIN
+  | typeof DEEDPOLL_JUDICIAL;

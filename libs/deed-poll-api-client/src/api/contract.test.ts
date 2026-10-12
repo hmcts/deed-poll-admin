@@ -180,7 +180,7 @@ describe("openapi.json and the wire schemas", () => {
     expect(operation.responses).toEqual({
       "200": { description: "OK", content: { "*/*": { schema: { $ref: "#/components/schemas/GazetteNoticeHistoryResponse" } } } }
     });
-    expect(operation.description).toContain("Requires caseworker-deedpoll-admin");
+    expect(operation.description).toContain("Requires caseworker-deedpoll-delivery-manager");
     expect(operation.description).toContain("At most 100 references per batch");
     expect(spec.components.schemas.GazetteNoticeHistoryResponse.properties?.batches?.items?.$ref).toBe("#/components/schemas/GazetteNoticeBatchResponse");
     const filter = spec.paths["/caseworker/cases"].get.parameters?.find((parameter) => parameter.name === "filter");
