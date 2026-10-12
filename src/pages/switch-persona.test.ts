@@ -310,7 +310,7 @@ describe("the persona switch", () => {
       const rendered = vi.mocked(res.render).mock.calls[0][1] as { personaSwitcher?: { personas: { id: string }[] } };
 
       expect(rendered.personaSwitcher).not.toBe(res.locals.personaSwitcher);
-      expect(rendered.personaSwitcher?.personas.map((persona) => persona.id)).toEqual(["caseworker", "admin", "judge"]);
+      expect(rendered.personaSwitcher?.personas.map((persona) => persona.id)).toEqual(["caseworker", "team-leader", "delivery-manager", "judge"]);
     });
   });
 });

@@ -40,7 +40,7 @@ export async function seedTestAccounts(options: TestAccountOptions): Promise<See
           email: user.email,
           forename: "Synthetic",
           surname: `Seed ${persona}`,
-          roleNames: [persona === "admin" ? "caseworker-deedpoll-admin" : "caseworker-deedpoll-judicial"]
+          roleNames: [persona === "admin" ? "caseworker-deedpoll-team-leader" : "caseworker-deedpoll-judicial"]
         }
       })
     });
@@ -99,6 +99,7 @@ interface TestAccount {
 }
 interface Accounts {
   identity: { environment: string; clientId: string; issuerUrl: string; supportUrl: string };
+  /** Historical journal key retained to preserve resumable subject IDs; now grants Team leader. */
   admin: TestAccount;
   judge: TestAccount;
 }

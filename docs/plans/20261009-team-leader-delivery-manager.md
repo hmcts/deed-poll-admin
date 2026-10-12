@@ -217,11 +217,11 @@ listed in Context, and `src/express-doubles.ts`.
 (+ test), `src/auth/persona-users.ts` (+ test), `src/deployment-chart.test.ts` if it names personas,
 `libs/deed-poll-api-client/src/seed/accounts.ts`, `scripts/seed-idam-users.mjs`, `scripts/seed-local-cases.mjs`.
 
-- [ ] In the mock, replace the three literal `"caseworker-deedpoll-admin"` checks with one helper that admits only `caseworker-deedpoll-delivery-manager`, as a single local constant. The client cannot import `@hmcts/deed-poll`, because that package depends on this one. Pin the constant to the domain's `DEEDPOLL_DELIVERY_MANAGER` with a test that lives in `libs/deed-poll`. Add the same check to the `readyForPublication` filter, answering 403, to match API PR #100. Keep the mock-only userinfo resolution.
-- [ ] Personas: replace `admin` ("Caseworker with admin") with `team-leader` ("Team leader") and add `delivery-manager` ("Delivery Manager"), each holding its single new role. Keep caseworker and judge. Persona count goes from 3 to 4. Update the docblocks that say "three personas".
-- [ ] Seed: `seed-idam-users.mjs` creates `team-leader@example.com` and `delivery-manager@example.com` and keeps `admin@example.com` as the **legacy negative fixture**, with a comment saying so. `seed-local-cases.mjs` reads Gazette as the Delivery Manager, and does ordinary privileged writes as the Team leader. `seed/accounts.ts` maps the new personas.
-- [ ] Tests: the mock allows and denies each Gazette route and the ready filter for every matrix row; persona definitions and switching; a missing IDAM role is still reported as it is today.
-- [ ] Mark completed
+- [x] In the mock, replace the three literal `"caseworker-deedpoll-admin"` checks with one helper that admits only `caseworker-deedpoll-delivery-manager`, as a single local constant. The client cannot import `@hmcts/deed-poll`, because that package depends on this one. Pin the constant to the domain's `DEEDPOLL_DELIVERY_MANAGER` with a test that lives in `libs/deed-poll`. Add the same check to the `readyForPublication` filter, answering 403, to match API PR #100. Keep the mock-only userinfo resolution.
+- [x] Personas: replace `admin` ("Caseworker with admin") with `team-leader` ("Team leader") and add `delivery-manager` ("Delivery Manager"), each holding its single new role. Keep caseworker and judge. Persona count goes from 3 to 4. Update the docblocks that say "three personas".
+- [x] Seed: `seed-idam-users.mjs` creates `team-leader@example.com` and `delivery-manager@example.com` and keeps `admin@example.com` as the **legacy negative fixture**, with a comment saying so. `seed-local-cases.mjs` reads Gazette as the Delivery Manager, and does ordinary privileged writes as the Team leader. `seed/accounts.ts` maps the new personas.
+- [x] Tests: the mock allows and denies each Gazette route and the ready filter for every matrix row; persona definitions and switching; a missing IDAM role is still reported as it is today.
+- [x] Mark completed
 
 ### Task 5: Browser journeys
 
@@ -294,3 +294,12 @@ capabilities. Fixtures now name Team leader/Delivery Manager explicitly. Tests c
 Gazette page/form refusal, mount ordering/recursive coverage, independent count degradation,
 and all roles' bookmarked ready-filter fallback. Lint, eight test tasks, eight builds and
 diff check passed. The ready-filter source-import guard is included in final acceptance.
+
+### Task 4 — execution evidence, 12 October 2026
+
+Four switcher personas each carry their own role. The old admin is a seed-only negative fixture.
+Mock settings, history, preview, admission, requests, membership and ready counts enforce the
+same role matrix as API, with mixed-role tests. A domain test pins mock role spelling without
+a dependency cycle. Existing seed account journals retain their `admin` key/subject IDs while
+the seeder assigns Team leader, avoiding duplicate users when resuming. The mock-only Gazette
+seeder reads as Delivery Manager. Lint, eight test tasks, eight builds and diff check passed.

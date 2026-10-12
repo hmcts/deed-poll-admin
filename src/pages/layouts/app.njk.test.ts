@@ -46,7 +46,8 @@ const SWITCHER = {
   action: "/switch-persona",
   personas: [
     { id: "caseworker", name: "Caseworker", isCurrent: true, isAvailable: true },
-    { id: "admin", name: "Caseworker with admin", isCurrent: false, isAvailable: true },
+    { id: "team-leader", name: "Team leader", isCurrent: false, isAvailable: true },
+    { id: "delivery-manager", name: "Delivery Manager", isCurrent: false, isAvailable: true },
     { id: "judge", name: "Judge", isCurrent: false, isAvailable: true }
   ]
 };
@@ -100,7 +101,7 @@ describe("the app layout", () => {
 
     expect(html).toContain('<form method="post" action="/switch-persona"');
     expect(html).toContain('name="persona" value="judge"');
-    expect(html).toContain('name="persona" value="admin"');
+    expect(html).toContain('name="persona" value="team-leader"');
   });
 
   // The polarity that matters, and the one with no visible symptom: a page renders either way.
@@ -141,7 +142,8 @@ describe("the app layout", () => {
         ...SWITCHER,
         personas: [
           { id: "caseworker", name: "Caseworker", isCurrent: true, isAvailable: true },
-          { id: "admin", name: "Caseworker with admin", isCurrent: false, isAvailable: true },
+          { id: "team-leader", name: "Team leader", isCurrent: false, isAvailable: true },
+          { id: "delivery-manager", name: "Delivery Manager", isCurrent: false, isAvailable: true },
           { id: "judge", name: "Judge", isCurrent: false, isAvailable: false, reason: "The judicial role does not exist here." }
         ]
       }
@@ -151,7 +153,7 @@ describe("the app layout", () => {
     expect(html).toContain("Judge: The judicial role does not exist here.");
     expect(html).not.toContain('value="judge"');
     // The personas that do work are untouched by another one's refusal.
-    expect(html).toContain('name="persona" value="admin"');
+    expect(html).toContain('name="persona" value="team-leader"');
   });
 
   /**

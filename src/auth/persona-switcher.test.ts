@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
+import { DEEDPOLL_CASEWORKER, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_JUDICIAL, DEEDPOLL_TEAM_LEADER } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
 import { PERSONA_SWITCH_PATH, PERSONA_SWITCHER_ENVIRONMENTS, PERSONAS, personaFor, personaSwitcherEnabled, personaSwitcherLocals } from "./persona-switcher.js";
@@ -88,7 +88,7 @@ describe("personaSwitcherEnabled", () => {
  * What the layout renders from, and the properties of it that are decisions rather than details.
  *
  * The markup is `src/pages/layouts/app.njk.test.ts`'s subject. This is about what reaches it: nothing at all
- * when the gate is shut or nobody is signed in, and — when it is open — the same three personas for every
+ * when the gate is shut or nobody is signed in, and — when it is open — the same four personas for every
  * persona, since a switcher only on the caseworker chrome is a trap door with no way back out (decision 7).
  */
 describe("personaSwitcherLocals", () => {
@@ -113,13 +113,14 @@ describe("personaSwitcherLocals", () => {
       action: PERSONA_SWITCH_PATH,
       personas: [
         { id: "caseworker", name: "Caseworker", isCurrent: true },
-        { id: "admin", name: "Caseworker with admin", isCurrent: false },
+        { id: "team-leader", name: "Team leader", isCurrent: false },
+        { id: "delivery-manager", name: "Delivery Manager", isCurrent: false },
         { id: "judge", name: "Judge", isCurrent: false }
       ]
     });
   });
 
-  // Decision 7 in the only place it can be pinned: the judge gets the same three options, so the way back to
+  // Decision 7 in the only place it can be pinned: the judge gets the same four options, so the way back to
   // the caseworker screens exists.
   it("should offer every persona to a judge too, so the judicial chrome is not a one-way door", () => {
     const view = locals({ judicial: true, subject: "judge@example.com" }).personaSwitcher as { personas: { id: string; isCurrent: boolean }[] };
@@ -131,7 +132,7 @@ describe("personaSwitcherLocals", () => {
   });
 
   it("should offer every persona to an admin", () => {
-    const view = locals({ teamLeader: true, subject: "admin@example.com" }).personaSwitcher as { personas: { id: string }[] };
+    const view = locals({ teamLeader: true, subject: "team-leader@example.com" }).personaSwitcher as { personas: { id: string }[] };
 
     expect(view.personas.map((persona) => persona.id)).toEqual(PERSONAS.map((persona) => persona.id));
   });
@@ -152,7 +153,8 @@ describe("personaSwitcherLocals", () => {
 
     expect(view.personas).toMatchObject([
       { id: "caseworker", isAvailable: true, reason: undefined },
-      { id: "admin", isAvailable: true, reason: undefined },
+      { id: "team-leader", isAvailable: true, reason: undefined },
+      { id: "delivery-manager", isAvailable: true, reason: undefined },
       { id: "judge", isAvailable: false, reason: "The judicial role does not exist in this environment." }
     ]);
   });
@@ -266,7 +268,8 @@ describe("the seeded fixtures", () => {
 describe("personaFor", () => {
   it("should resolve each offered persona by its id, with the roles that define it", () => {
     expect(personaFor("judge")).toMatchObject({ name: "Judge", roleNames: [DEEDPOLL_JUDICIAL] });
-    expect(personaFor("admin")).toMatchObject({ name: "Caseworker with admin", roleNames: [DEEDPOLL_ADMIN] });
+    expect(personaFor("team-leader")).toMatchObject({ name: "Team leader", roleNames: [DEEDPOLL_TEAM_LEADER] });
+    expect(personaFor("delivery-manager")).toMatchObject({ name: "Delivery Manager", roleNames: [DEEDPOLL_DELIVERY_MANAGER] });
     expect(personaFor("caseworker")).toMatchObject({ name: "Caseworker", roleNames: [DEEDPOLL_CASEWORKER] });
   });
 

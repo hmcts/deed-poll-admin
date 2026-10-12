@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getGazetteSettings, updateGazetteSettings } from "../api/client.js";
 import { type RunningMockApi, startMockApi } from "./server.js";
 
-const ADMIN = token(["caseworker-deedpoll-admin"]);
+const DELIVERY_MANAGER = token(["caseworker-deedpoll-delivery-manager"]);
 let mock: RunningMockApi;
 beforeAll(async () => {
   mock = await startMockApi();
@@ -18,7 +18,7 @@ beforeEach(() => {
 function token(roles: string[]) {
   return `x.${Buffer.from(JSON.stringify({ sub: "tester", name: "Test administrator", roles })).toString("base64url")}.signature`;
 }
-function config(accessToken: string | undefined = ADMIN) {
+function config(accessToken: string | undefined = DELIVERY_MANAGER) {
   return { baseUrl: mock.url, accessToken };
 }
 
@@ -58,7 +58,7 @@ describe("Gazette recipient settings adapter and mock", () => {
     expect(await getGazetteSettings(config())).toMatchObject({ ok: true, data: { revision: 0 } });
   });
 
-  it.each([[], ["caseworker-deedpoll"], ["caseworker-deedpoll-judicial"]])("should refuse non-admin roles %j", async (...roles) => {
+  it.each([[], ["caseworker-deedpoll"], ["caseworker-deedpoll-judicial"]])("should refuse non-Delivery-Manager roles %j", async (...roles) => {
     const caller = config(token(roles.flat()));
     expect(await getGazetteSettings(caller)).toMatchObject({ ok: false, error: { kind: "forbidden" } });
     expect(await updateGazetteSettings({ recipientEmail: "lg@example.com", revision: 0 }, caller)).toMatchObject({ ok: false, error: { kind: "forbidden" } });

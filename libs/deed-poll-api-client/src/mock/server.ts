@@ -299,6 +299,13 @@ const CASE_DEFAULTS = {
  * State is closed over rather than module-level so two instances in one test process cannot see each
  * other's cases.
  */
+/** Mock-only claim; the domain parity test pins its spelling without a dependency cycle. */
+const GAZETTE_ROLE = "caseworker-deedpoll-delivery-manager";
+
+function hasGazetteAccess(claims: { roles?: unknown }): boolean {
+  return Array.isArray(claims.roles) && claims.roles.includes(GAZETTE_ROLE);
+}
+
 export function createMockApi(options: MockApiOptions = {}): MockApi {
   const cases = new Map<string, MockCase>();
   let gazetteSettings: z.infer<typeof WIRE_SCHEMAS.GazetteSettingsResponse> = {
@@ -429,8 +436,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (pathname === "/caseworker/gazette-settings") {
       const claims = await gazetteClaims(req, options.userInfoUrl);
       if (!claims) return send(res, 401, { error: "Authentication required" });
-      if (!Array.isArray(claims.roles) || !claims.roles.includes("caseworker-deedpoll-admin")) {
-        return send(res, 403, { error: "Administrator role required" });
+      if (!hasGazetteAccess(claims)) {
+        return send(res, 403, { error: "Delivery Manager role required" });
       }
       if (method === "GET") return send(res, 200, gazetteSettings);
       if (method !== "PUT") return send(res, 405, { error: "Method not allowed" });
@@ -463,8 +470,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     ) {
       const claims = await gazetteClaims(req, options.userInfoUrl);
       if (!claims) return send(res, 401, { error: "Authentication required" });
-      if (!Array.isArray(claims.roles) || !claims.roles.includes("caseworker-deedpoll-admin")) {
-        return send(res, 403, { error: "Administrator role required" });
+      if (!hasGazetteAccess(claims)) {
+        return send(res, 403, { error: "Delivery Manager role required" });
       }
       if (method === "POST" && (typeof claims.sub !== "string" || !claims.sub)) return send(res, 401, { error: "Subject required" });
       const result = gazetteRequests.handle(
@@ -492,8 +499,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (pathname === "/caseworker/gazette-notices") {
       const claims = await gazetteClaims(req, options.userInfoUrl);
       if (!claims) return send(res, 401, { error: "Authentication required" });
-      if (!Array.isArray(claims.roles) || !claims.roles.includes("caseworker-deedpoll-admin")) {
-        return send(res, 403, { error: "Administrator role required" });
+      if (!hasGazetteAccess(claims)) {
+        return send(res, 403, { error: "Delivery Manager role required" });
       }
       if (method !== "GET") return send(res, 405, { error: "No Gazette write operation" });
       const paging = parsePaging(searchParams.get("page"), searchParams.get("size"));
@@ -554,6 +561,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (method === "GET" && pathname === "/caseworker/cases/field-rules") return fieldRules(res, searchParams);
 
     if (pathname === "/caseworker/cases") {
+      if (method === "GET" && searchParams.get("filter") === "readyForPublication") {
+        const claims = await gazetteClaims(req, options.userInfoUrl);
+        if (!claims) return send(res, 401, { error: "Authentication required" });
+        if (!hasGazetteAccess(claims)) return send(res, 403, { error: "Delivery Manager role required" });
+      }
       if (method === "GET") return list(res, searchParams);
       if (method === "POST") return createCase(req, res);
       return send(res, 405, { error: `no such route: ${method} ${pathname}` });

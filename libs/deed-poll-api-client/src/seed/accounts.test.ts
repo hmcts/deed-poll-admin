@@ -38,7 +38,7 @@ describe("temporary IDAM fixture accounts", () => {
         const accessToken =
           form.get("grant_type") === "client_credentials"
             ? "service-token"
-            : user?.roleNames[0] === "caseworker-deedpoll-admin"
+            : user?.roleNames[0] === "caseworker-deedpoll-team-leader"
               ? "admin-token"
               : "judge-token";
         res.end(JSON.stringify({ access_token: accessToken }));
@@ -70,7 +70,7 @@ describe("temporary IDAM fixture accounts", () => {
     );
     expect(users.size).toBe(deferJudicial ? 1 : 2);
     expect([...users.values()].map((user) => user.roleNames)).toEqual(
-      deferJudicial ? [["caseworker-deedpoll-admin"]] : [["caseworker-deedpoll-admin"], ["caseworker-deedpoll-judicial"]]
+      deferJudicial ? [["caseworker-deedpoll-team-leader"]] : [["caseworker-deedpoll-team-leader"], ["caseworker-deedpoll-judicial"]]
     );
     const initial = JSON.parse(await readFile(options.filename, "utf8"));
     expect(await seedTestAccounts(options)).toEqual({ caseworkerToken: "admin-token", judgeToken: "judge-token" });
@@ -78,7 +78,7 @@ describe("temporary IDAM fixture accounts", () => {
     expect(fixtureIds).toEqual(
       deferJudicial ? [initial.admin.id, initial.admin.id, initial.judge.id] : [initial.admin.id, initial.judge.id, initial.admin.id, initial.judge.id]
     );
-    expect([...users.values()].map((user) => user.roleNames)).toEqual([["caseworker-deedpoll-admin"], ["caseworker-deedpoll-judicial"]]);
+    expect([...users.values()].map((user) => user.roleNames)).toEqual([["caseworker-deedpoll-team-leader"], ["caseworker-deedpoll-judicial"]]);
     const persisted = await readFile(options.filename, "utf8");
     expect(persisted).not.toContain("secret-for-test");
     expect(persisted).not.toContain("admin-token");
