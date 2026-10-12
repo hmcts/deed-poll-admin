@@ -48,7 +48,7 @@ import { randomBytes } from "node:crypto";
 import type { Role } from "@hmcts/deed-poll";
 import config from "config";
 import * as client from "openid-client";
-import type { IdamConfig, LoginResult } from "./idam.js";
+import { describeIdamError, type IdamConfig, type LoginResult } from "./idam.js";
 import { passwordGrantLogin } from "./password-grant.js";
 import { createTestUser, TestUserError } from "./test-users.js";
 
@@ -200,7 +200,7 @@ async function tokenFor(idam: IdamConfig, persona: Persona, credentials: Persona
       if (mayRetry) return retryWithNewUser(idam, persona);
     }
 
-    console.error(`Persona switch to ${persona.id} failed at the token request`, error);
+    console.error(`Persona switch to ${persona.id} failed at the token request`, describeIdamError(error));
     return { ok: false, reason: REASONS.tokenFailed(detailOf(error)) };
   }
 }
@@ -273,7 +273,7 @@ async function createPersonaUser(idam: IdamConfig, persona: Persona, credentials
     const missing = missingRole(error, persona);
     if (missing) return { ok: false, reason: record(REASONS.roleMissing(missing), persona) };
 
-    console.error(`Persona switch to ${persona.id} failed while creating its IDAM test user`, error);
+    console.error(`Persona switch to ${persona.id} failed while creating its IDAM test user`, describeIdamError(error));
     return { ok: false, reason: REASONS.createFailed(detailOf(error)) };
   }
 }

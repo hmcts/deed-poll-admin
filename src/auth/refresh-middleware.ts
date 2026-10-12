@@ -11,7 +11,7 @@
  * refreshes, too late causes failures.
  */
 import type { NextFunction, Request, Response } from "express";
-import { refreshTokens } from "./idam.js";
+import { describeIdamError, refreshTokens } from "./idam.js";
 import { sessionRefreshToken, sessionSubject, sessionTokenExpiry, sessionUser, signOut, updateTokens } from "./session.js";
 import { idamSettings } from "./settings.js";
 
@@ -79,7 +79,7 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
     // the missing-`id_token` defect stayed hidden: every refresh threw, this logged, and the session
     // expired as though refresh were never implemented. If sessions are expiring on schedule in a
     // deployed environment, read this log line before assuming the window is wrong.
-    console.error("Token refresh failed with error:", error);
+    console.error("Token refresh failed with error:", describeIdamError(error));
 
     // **An access token that has already expired is a different case, and the cutover is what made it
     // one.** Every case page now presents this token to `deed-poll-api`, which answers 401, which

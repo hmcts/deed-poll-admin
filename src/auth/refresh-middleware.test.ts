@@ -17,7 +17,10 @@ import { pageResponse, type RequestDouble, type ResponseDouble, sessionDouble } 
 import { refreshTokens } from "./idam.js";
 import { refreshMiddleware } from "./refresh-middleware.js";
 
-vi.mock("./idam.js", () => ({ refreshTokens: vi.fn() }));
+vi.mock("./idam.js", async (importOriginal) => ({
+  describeIdamError: (await importOriginal<typeof import("./idam.js")>()).describeIdamError,
+  refreshTokens: vi.fn()
+}));
 
 vi.mock("./settings.js", () => ({
   idamSettings: () => ({

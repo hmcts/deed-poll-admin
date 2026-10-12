@@ -4,7 +4,8 @@ import { callbackUrl, completeLogin } from "../../auth/idam.js";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET } from "./callback.js";
 
-vi.mock("../../auth/idam.js", () => ({
+vi.mock("../../auth/idam.js", async (importOriginal) => ({
+  describeIdamError: (await importOriginal<typeof import("../../auth/idam.js")>()).describeIdamError,
   completeLogin: vi.fn(),
   callbackUrl: vi.fn(() => new URL("http://localhost:3000/oauth2/callback?code=abc&state=a-state"))
 }));
@@ -147,7 +148,7 @@ describe("the IDAM callback", () => {
       // Only the log distinguishes a forgery from a misconfigured client secret or an outage.
       await GET(callback(), pageResponse());
 
-      expect(console.error).toHaveBeenCalledWith("IDAM authorization code exchange failed:", expect.any(Error));
+      expect(console.error).toHaveBeenCalledWith("IDAM authorization code exchange failed:", expect.objectContaining({ name: "Error" }));
     });
 
     it("does not put the reason in front of the user", async () => {

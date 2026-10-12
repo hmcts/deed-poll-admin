@@ -289,3 +289,32 @@ export async function endSessionUrl(config: IdamConfig, idToken: string | undefi
   url.searchParams.set("post_logout_redirect_uri", new URL("/", config.redirectUri).href);
   return url.href;
 }
+
+/**
+ * The parts of an IDAM failure worth a log line: what kind of failure, IDAM's own error code and description,
+ * and the HTTP status.
+ *
+ * Not the error object itself. openid-client's errors carry the HTTP response and its parsed body as `response`
+ * and `cause`, and console output is auto-collected into Application Insights, so logging the object ships
+ * whatever IDAM sent back. `message` is kept because it is what tells a missing `id_token` from an outage.
+ */
+export function describeIdamError(error: unknown): IdamErrorSummary | string {
+  if (!(error instanceof Error)) return String(error);
+
+  const fields = error as Error & { code?: unknown; error?: unknown; error_description?: unknown; status?: unknown };
+  const summary: IdamErrorSummary = { name: error.name, message: error.message };
+  if (typeof fields.code === "string") summary.code = fields.code;
+  if (typeof fields.error === "string") summary.error = fields.error;
+  if (typeof fields.error_description === "string") summary.error_description = fields.error_description;
+  if (typeof fields.status === "number") summary.status = fields.status;
+  return summary;
+}
+
+export interface IdamErrorSummary {
+  name: string;
+  message: string;
+  code?: string;
+  error?: string;
+  error_description?: string;
+  status?: number;
+}
