@@ -44,7 +44,8 @@ const REFUSAL = {
     action: "/switch-persona",
     personas: [
       { id: "caseworker", name: "Caseworker", isCurrent: true, isAvailable: true },
-      { id: "admin", name: "Caseworker with admin", isCurrent: false, isAvailable: true },
+      { id: "team-leader", name: "Team leader", isCurrent: false, isAvailable: true },
+      { id: "delivery-manager", name: "Delivery Manager", isCurrent: false, isAvailable: true },
       { id: "judge", name: "Judge", isCurrent: false, isAvailable: false, reason: "The caseworker-deedpoll-judicial role does not exist in this environment." }
     ]
   }
@@ -65,7 +66,8 @@ describe("the persona refusal page", () => {
     const html = environment.render("switch-persona.njk", REFUSAL);
 
     expect(html).toContain("app-persona-switcher");
-    expect(html).toContain('name="persona" value="admin"');
+    expect(html).toContain('name="persona" value="team-leader"');
+    expect(html).toContain('name="persona" value="delivery-manager"');
   });
 
   // The persona that was just refused must not be offered again here — the handler rebuilds the strip after

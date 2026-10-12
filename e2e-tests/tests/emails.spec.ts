@@ -30,8 +30,8 @@
  * which nothing in the contract can do to a Rejected referral. It is covered where it can be:
  * `emails/[template]/send.test.ts`.
  *
- * The caseworker signs in as `admin@example.com`, this file's storage state, because nothing here is gated on a
- * role: api gates neither preview nor send on `caseworker-deedpoll-admin`, and the Email tab is every
+ * The caseworker signs in as `team-leader@example.com`, this file's storage state, because nothing here is gated on a
+ * role: api gates neither preview nor send on `caseworker-deedpoll-team-leader`, and the Email tab is every
  * caseworker's.
  */
 import { AxeBuilder } from "@axe-core/playwright";

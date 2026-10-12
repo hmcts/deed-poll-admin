@@ -6,7 +6,7 @@
  * so they are independent under `fullyParallel`.
  *
  * **Where a rule differs by role, the test name says which role it signs in as.** The notes and witnesses
- * journeys run as `admin@example.com`, the only fixture holding `caseworker-deedpoll-admin`, and say so —
+ * journeys run as `team-leader@example.com`, the only fixture holding `caseworker-deedpoll-team-leader`, and say so —
  * deleting either is an administrator's to do. The last two tests run as the roleless fixture, because a
  * rule that hides a control has no negative case without one. Adding and amending a witness is open to both
  * roles, and only the delete halves of those journeys need the split.
@@ -140,7 +140,7 @@ test("caseworker creates a case and edits one of its tabs", async ({ page, brows
 // `deed-poll-api` holds the notes now instead of Postgres; the journey is otherwise the one the
 // prototype had, deletion included.
 //
-// **Administrator, not caseworker** — this file signs in as `admin@example.com` throughout, and once api
+// **Administrator, not caseworker** — this file signs in as `team-leader@example.com` throughout, and once api
 // gates deletion to Administrators (`../../deed-poll-api/docs/plans/gate-note-deletion.md`) the old name
 // asserted a caseworker can do what a caseworker cannot. It kept passing either way, so the name was the
 // only thing that would have carried the false claim. The caseworker's half of the rule is the test below.
@@ -213,7 +213,7 @@ test("administrator adds, amends and deletes a note", async ({ page }) => {
  * The witnesses journey — add, then amend, then delete.
  *
  * **Administrator, and the name says so**, because the last step is one only an Administrator is offered:
- * api gates `DELETE .../witnesses/{witnessId}` on `caseworker-deedpoll-admin` in its domain. Adding and
+ * api gates `DELETE .../witnesses/{witnessId}` on `caseworker-deedpoll-team-leader` in its domain. Adding and
  * amending are open to both roles — "Add and edit witnesses" is ✓ for both in the business capability
  * matrix — so the caseworker's half of the rule is the second test in the `describe` below, exactly as the
  * note delete needs both halves.
@@ -1148,7 +1148,7 @@ test("caseworker saves the query they built, follows it from the filter bar, and
  * **What the unit suite cannot reach.** The gate is `canPublish` in two render models and an `{% if %}` in two
  * templates, and a page test can only assert the flag it was handed. What is asserted here is that the flag
  * comes from **the roles IDAM issued for the session that actually signed in** — this file's fixture is
- * `admin@example.com` and the second context's is the roleless `caseworker@example.com`, so the control
+ * `team-leader@example.com` and the second context's is the roleless `caseworker@example.com`, so the control
  * appearing on one and absent from the other is the real derivation working, not a boolean a test passed in.
  *
  * **The caseworker's half only reads**, which is what makes restoring `CASEWORKER_STORAGE_STATE` safe here —
@@ -1171,7 +1171,7 @@ test("administrator publishes a query to the library, where a caseworker finds i
   await page.getByRole("link", { name: "Save this query" }).click();
   await expect(page).toHaveURL(savePath);
 
-  // The control the rule is about, offered because this session holds `caseworker-deedpoll-admin`.
+  // The control the rule is about, offered because this session holds `caseworker-deedpoll-team-leader`.
   const publish = page.getByLabel("Add this query to the library, so colleagues can find it");
   await expect(publish).toBeVisible();
 

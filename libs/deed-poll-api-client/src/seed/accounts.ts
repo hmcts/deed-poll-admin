@@ -15,6 +15,7 @@ export async function seedTestAccounts(options: TestAccountOptions): Promise<See
     if (JSON.stringify(accounts.identity) !== JSON.stringify(identity)) throw new Error("Seed account file belongs to a different IDAM environment or client.");
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    // Keep the journal key and subject IDs stable; this account now holds Team leader.
     accounts = { identity, admin: account("admin"), judge: account("judge") };
     await mkdir(dirname(options.filename), { recursive: true });
     // Persist before creating anything: a failed request can be retried using exactly the same fixture UUID.

@@ -1,4 +1,4 @@
-import { createSavedQuery, InvalidInputError, selectSavedQuery } from "@hmcts/deed-poll";
+import { createSavedQuery, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_TEAM_LEADER, InvalidInputError, selectSavedQuery } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
@@ -47,10 +47,10 @@ describe("save a query page", () => {
       expect(res.render.mock.calls[0][1].errorList).toEqual([]);
     });
 
-    it("should offer the share box to an Administrator", async () => {
+    it.each([DEEDPOLL_TEAM_LEADER, DEEDPOLL_DELIVERY_MANAGER])("should offer the share box to %s", async (role) => {
       const res = response();
 
-      await GET(adminRequest(), res);
+      await GET(pageRequest({ query: QUERY, accessToken: "session-token", roles: [role] }), res);
 
       expect(res.render.mock.calls[0][1].canPublish).toBe(true);
     });

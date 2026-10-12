@@ -93,7 +93,7 @@ describe("startFlow and takeFlow", () => {
 });
 
 describe("signIn", () => {
-  const user = currentUser([DEEDPOLL_ADMIN], "A Caseworker");
+  const user = currentUser([DEEDPOLL_TEAM_LEADER], "A Caseworker");
   const SUBJECT = "caseworker@example.com";
   const tokens = {
     idToken: "an-id-token",

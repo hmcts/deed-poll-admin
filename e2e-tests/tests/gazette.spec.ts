@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright";
+import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
 import { signInAsAdmin, signInAsCaseworker, signInAsDeliveryManager, signInAsJudge, signInAsTeamLeader } from "./idam-session.js";
 
@@ -77,7 +77,7 @@ for (const [role, signIn] of [
     await signIn(page);
     await page.goto("/deed-polls?filter=readyForPublication");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Deed poll cases");
-    await expect(page.getByRole("link", { name: "All applications", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByText("All applications", { exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.getByRole("link", { name: "View London Gazette applications" })).toHaveCount(0);
     await expect(page.getByText(/Applications ready for the London Gazette:/)).toHaveCount(0);
     for (const path of [READY, HISTORY, `${READY}/settings`, `${READY}/batch`, `${READY}/requests`, `${READY}/requests/00000000-0000-4000-8000-000000000001`]) {

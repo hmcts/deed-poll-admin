@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SERVICE_ACCOUNT_NAME } from "./current-user.js";
 import { userFromClaims } from "./idam-claims.js";
-import { DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL } from "./roles.js";
+import { DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL, DEEDPOLL_TEAM_LEADER } from "./roles.js";
 
 describe("auth/idam-claims", () => {
   it("keeps the ordinary caseworker role without granting admin or judicial powers", () => {
@@ -13,9 +13,9 @@ describe("auth/idam-claims", () => {
   });
 
   it("keeps a role this service recognises", () => {
-    const user = userFromClaims({ roles: [DEEDPOLL_ADMIN] });
+    const user = userFromClaims({ roles: [DEEDPOLL_TEAM_LEADER] });
 
-    expect(user.roles).toEqual([DEEDPOLL_ADMIN]);
+    expect(user.roles).toEqual([DEEDPOLL_TEAM_LEADER]);
     expect(user.isAdmin).toBe(true);
   });
 
@@ -32,13 +32,13 @@ describe("auth/idam-claims", () => {
     // Alternatives, not a ladder: the judicial api surface returns a narrower view of an application
     // than any caseworker sees, so neither role implies the other.
     expect(userFromClaims({ roles: [DEEDPOLL_JUDICIAL] }).isAdmin).toBe(false);
-    expect(userFromClaims({ roles: [DEEDPOLL_ADMIN] }).isJudicial).toBe(false);
+    expect(userFromClaims({ roles: [DEEDPOLL_TEAM_LEADER] }).isJudicial).toBe(false);
   });
 
   it("keeps all recognised roles for a caller who holds them", () => {
-    const user = userFromClaims({ roles: [DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL] });
+    const user = userFromClaims({ roles: [DEEDPOLL_TEAM_LEADER, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL] });
 
-    expect(user.roles).toEqual([DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL]);
+    expect(user.roles).toEqual([DEEDPOLL_TEAM_LEADER, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL]);
     expect(user.isAdmin).toBe(true);
     expect(user.isJudicial).toBe(true);
   });
@@ -47,9 +47,9 @@ describe("auth/idam-claims", () => {
     // IDAM issues roles across the whole estate, so a caseworker's token names roles this service has
     // no rules for. Carrying them would put unmanaged strings into the object authorization decisions
     // are made from.
-    const user = userFromClaims({ roles: ["caseworker-civil", "citizen", DEEDPOLL_ADMIN, "judiciary"] });
+    const user = userFromClaims({ roles: ["caseworker-civil", "citizen", DEEDPOLL_TEAM_LEADER, "judiciary"] });
 
-    expect(user.roles).toEqual([DEEDPOLL_ADMIN]);
+    expect(user.roles).toEqual([DEEDPOLL_TEAM_LEADER]);
   });
 
   it("is not an admin when the token names no role this service knows", () => {
@@ -71,11 +71,11 @@ describe("auth/idam-claims", () => {
   it("accepts roles as a comma-separated string, which some IDAM configurations send", () => {
     // Getting this wrong yields an empty role list: fails closed, but looks like a permissions bug
     // rather than a parsing one, which is the expensive kind to diagnose.
-    expect(userFromClaims({ roles: `citizen, ${DEEDPOLL_ADMIN}` }).isAdmin).toBe(true);
+    expect(userFromClaims({ roles: `citizen, ${DEEDPOLL_TEAM_LEADER}` }).isAdmin).toBe(true);
   });
 
   it("trims whitespace around a role", () => {
-    expect(userFromClaims({ roles: [` ${DEEDPOLL_ADMIN} `] }).isAdmin).toBe(true);
+    expect(userFromClaims({ roles: [` ${DEEDPOLL_TEAM_LEADER} `] }).isAdmin).toBe(true);
   });
 
   it("fails closed when roles are absent or an unexpected shape", () => {
@@ -112,7 +112,7 @@ describe("auth/idam-claims", () => {
   });
 
   it("ignores extra claims it does not read", () => {
-    const user = userFromClaims({ roles: [DEEDPOLL_ADMIN], name: "A", iss: "x", aud: "y", exp: 1, custom: {} });
+    const user = userFromClaims({ roles: [DEEDPOLL_TEAM_LEADER], name: "A", iss: "x", aud: "y", exp: 1, custom: {} });
 
     expect(user.isAdmin).toBe(true);
     expect(user.name).toBe("A");

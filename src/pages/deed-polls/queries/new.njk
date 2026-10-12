@@ -6,7 +6,7 @@
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
 
 {#
-  Save-a-query form. Three controls for an Administrator and two for everybody else, and the query itself is
+  Save-a-query form. Three controls for a caller with MANAGE_SHARED_QUERIES and two for everybody else, and the query itself is
   not among them: it is in the form's action, because a list URL *is* the query and hidden inputs would be a
   second copy of it — see `new.ts`.
 

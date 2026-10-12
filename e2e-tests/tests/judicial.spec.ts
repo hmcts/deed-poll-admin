@@ -487,7 +487,7 @@ test.describe("across the two judicial lists and both personas", () => {
 /**
  * The persona boundary, from the other side.
  *
- * **The administrator rather than the roleless caseworker, deliberately.** `caseworker-deedpoll-admin` is the
+ * **The administrator rather than the roleless caseworker, deliberately.** `caseworker-deedpoll-team-leader` is the
  * most privileged account this service has, and the mistake worth pinning is the assumption that it is a
  * superset — `currentUser` sets `isJudicial` as an alternative to `isAdmin`, not a level below it. The roleless
  * caseworker is refused a fortiori, and both directions of the middleware itself are unit-tested in

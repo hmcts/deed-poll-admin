@@ -1,5 +1,5 @@
 /**
- * Amend a saved query: its name, its description, and — for an Administrator — whether it is published.
+ * Amend a saved query: its name, its description, and — for a caller with MANAGE_SHARED_QUERIES — whether it is published.
  *
  * **Two different flags decide what renders, and conflating them is the mistake to avoid.** `canAmend` is
  * api's per-query `editable`; `canPublish` is this app's MANAGE_SHARED_QUERIES capability. Publishing is a property of the
@@ -8,7 +8,7 @@
  *
  * **A caller who may not publish sends no `shared` at all, and the patch must omit it rather than send
  * `false`.** See the call site: sending `false` would silently unpublish a query on an edit to its name, for
- * an owner who published it while an Administrator and has since lost the role.
+ * an owner who published it with MANAGE_SHARED_QUERIES and has since lost that capability.
  *
  * **Not its conditions.** A query's filters are amended by opening it, changing them in the builder and
  * saving again — the URL is the query, so there is nothing here for a second copy of the builder to edit that
@@ -26,7 +26,7 @@
  * authority in two places.
  *
  * A query the caller cannot see is a 404 and not a 403 — api's decision, so that no id is discoverable by
- * watching status codes. That includes an administrator naming somebody else's *unshared* query. This page
+ * watching status codes. That includes a staff member naming somebody else's *unshared* query. This page
  * renders "gone or never yours" and cannot say which.
  *
  * **Delete is immediate only for an unshared query.** A published one goes through `delete.ts`'s confirmation,

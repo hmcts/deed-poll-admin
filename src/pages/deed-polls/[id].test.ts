@@ -531,7 +531,7 @@ describe("case detail page", () => {
     }
   });
 
-  it("treats an teamLeader caller as able to edit privacy", async () => {
+  it("treats a Team leader caller as able to edit privacy", async () => {
     const res = response();
 
     await GET(request(true), res);
@@ -539,7 +539,7 @@ describe("case detail page", () => {
     expect(res.render.mock.calls[0][1].presentation.privacy.editable).toBe(true);
   });
 
-  it("treats a non-teamLeader caller as unable to edit privacy on an existing case", async () => {
+  it("treats a caseworker without staff capabilities caller as unable to edit privacy on an existing case", async () => {
     const res = response();
 
     await GET(request(), res);

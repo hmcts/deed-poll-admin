@@ -20,7 +20,7 @@
  * and it is refused here too: the identity in the token is doing the work, not anything this app holds.
  *
  * The two role-derived refusals are the app's own gate — `/judicial/**` is refused to both caseworker personas
- * — and the admin control appearing on a page where the same URL offered none minutes earlier is the third
+ * — and the staff control appearing on a page where the same URL offered none minutes earlier is the third
  * switch taking effect. Neither is provable from the outside any other way: the judicial pages never ask about
  * the role, so a gated and an ungated build render identically under test.
  *
@@ -57,12 +57,12 @@ const OTHER_JUDGE = "e2e.personaswitcher.otherjudge@example.com";
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
 
 test("one tester works as a caseworker, a judge, a Team leader and a Delivery Manager without signing out", async ({ page, request }) => {
-  // Arrange: a case to find on the list, a note on it to look for an admin control against, and two referrals
+  // Arrange: a case to find on the list, a note on it to look for an staff control against, and two referrals
   // already claimed — one by the judge persona, one by somebody else.
   const seeded = await seedPersonaFixtures(request);
 
-  // The roleless fixture, because "caseworker" is the absence of a role rather than a role: a plain caseworker
-  // is where a tester's day starts and is the persona the strip must therefore mark as current.
+  // The ordinary caseworker holds the document-reader role without staff capabilities.
+  // This is where the journey starts, so the strip must mark that persona as current.
   await signInAsCaseworker(page);
 
   await expect(personaStrip(page)).toContainText("Dev only");
@@ -89,7 +89,7 @@ test("one tester works as a caseworker, a judge, a Team leader and a Delivery Ma
   await expectNoAccessibilityViolations(page);
 
   // A note this persona may amend but must not be offered a delete button for — the same URL is revisited as
-  // the administrator below, and the pair is what shows the third switch reached api's role derivation.
+  // the Team leader below, and the pair is what shows the third switch reached api's role derivation.
   await page.goto(seeded.noteEditUrl);
   await expect(page.getByLabel("Note")).toHaveValue(seeded.note);
   // Absent from the markup rather than hidden: `not.toBeVisible()` would also pass against a button styled
@@ -135,7 +135,7 @@ test("one tester works as a caseworker, a judge, a Team leader and a Delivery Ma
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("This referral is no longer available");
   await expect(page.locator("body")).not.toContainText(OTHER_JUDGE);
 
-  // ── to the administrator ──────────────────────────────────────────────────────────────────────────────────
+  // ── to the Team leader ──────────────────────────────────────────────────────────────────────────────────
   // Switched from a judicial page, which is the return journey decision 7 is about.
   await switchTo(page, "Team leader").click();
 
@@ -151,8 +151,8 @@ test("one tester works as a caseworker, a judge, a Team leader and a Delivery Ma
   await expect(deleteNote(page)).toBeVisible();
   await expectNoAccessibilityViolations(page);
 
-  // `isAdmin` and `isJudicial` are alternatives and not a ladder, so the most privileged caseworker account
-  // this service has is refused the judicial area exactly as the roleless one was.
+  // Staff capabilities do not imply judicial access, so the Team leader
+  // is refused the judicial area exactly as the ordinary caseworker was.
   await expectJudicialAreaRefused(page);
 
   // Away from the refusal again, for the reason above.
@@ -169,7 +169,7 @@ test("one tester works as a caseworker, a judge, a Team leader and a Delivery Ma
   await page.goto(CASE_LIST_PATH);
 
   // Back where the sitting started, which is what makes the strip a switcher rather than four one-way doors —
-  // and the admin control goes with the role rather than sticking to the session that once held it.
+  // and the staff control goes with the role rather than sticking to the session that once held it.
   await switchTo(page, "Caseworker").click();
   await expect(page).toHaveURL(CASE_LIST_PATH);
   await expect(currentPersona(page)).toHaveText("Caseworker (current)");
@@ -353,7 +353,7 @@ function switchTo(page: Page, persona: string): Locator {
   return page.getByRole("button", { name: `Switch to ${persona}`, exact: true });
 }
 
-/** `canDeleteNote`'s button — the one control an administrator has on the note form and a caseworker does not. */
+/** `canDeleteNote`'s button — the one control a Team leader has on the note form and a caseworker does not. */
 function deleteNote(page: Page): Locator {
   return page.getByRole("button", { name: "Delete note" });
 }

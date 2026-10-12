@@ -1,15 +1,7 @@
 /**
  * Both directions, because a gate tested only for who it admits is a gate that may admit everyone.
  */
-import {
-  ACCESS_GAZETTE,
-  DEEDPOLL_ADMIN,
-  DEEDPOLL_CASEWORKER,
-  DEEDPOLL_DELIVERY_MANAGER,
-  DEEDPOLL_JUDICIAL,
-  DEEDPOLL_TEAM_LEADER,
-  ForbiddenError
-} from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL, DEEDPOLL_TEAM_LEADER, ForbiddenError } from "@hmcts/deed-poll";
 import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";

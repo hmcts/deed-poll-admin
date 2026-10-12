@@ -7,7 +7,7 @@
  * doubles had no `session` for the namespace helper to write to. One place to change would have been
  * one edit.
  *
- * `pageRequest({ teamLeader: true })` is the signed-in-as-an-teamLeader case, which is what most tests actually
+ * `pageRequest({ teamLeader: true })` is the case of a signed-in Team leader, which is what most tests actually
  * want to express; the session shape is an implementation detail they should not have to know.
  *
  * Excluded from the build in `tsconfig.json`: it imports `vitest`, so it must not reach `dist`.
@@ -30,7 +30,7 @@ export interface PageRequestOptions {
    * Signed in holding the judicial role — the persona `/judicial/**` is for.
    *
    * Independent of `teamLeader` rather than a level above it, because the two are separate personas: a
-   * judicial test user who also passed as an teamLeader would make "a caseworker is refused the judicial
+   * judicial test user who also passed as a Team leader would make "a caseworker is refused the judicial
    * area" untestable in the direction that matters.
    */
   judicial?: boolean;

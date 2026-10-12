@@ -263,7 +263,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
   // every case list for the sake of a navigation bar.
   const savedQueries = savedQueryEntries(caller, view);
   // Counts are global, independent of the selected query. API publishes no combined summary;
-  // the Gazette read is additive for admins only and catches its own failures before the list finishes.
+  // the Gazette read is additive for Delivery Managers only and catches its own failures before the list finishes.
   const counts = worklistCounts(caller, can(userFromRequest(req), ACCESS_GAZETTE));
 
   try {
@@ -323,7 +323,7 @@ async function savedQueryEntries(caller: Caller, { filter, q, conditions, sort }
 }
 
 /**
- * Worklist counts, read together and degrading independently; Gazette is requested only for admins.
+ * Worklist counts, read together and degrading independently; Gazette is requested only for callers with ACCESS_GAZETTE.
  *
  * `Promise.all` rather than `allSettled` because each read has already caught its own failure — the settled
  * shape would be a second way of saying the same thing — and none can reject. They are separate reads

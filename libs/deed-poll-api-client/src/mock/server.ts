@@ -293,12 +293,6 @@ const CASE_DEFAULTS = {
   awaitingConfirmationSince: null
 } as const;
 
-/**
- * Build the mock. Nothing is listening until `listen` is called — `startMockApi` does that.
- *
- * State is closed over rather than module-level so two instances in one test process cannot see each
- * other's cases.
- */
 /** Mock-only claim; the domain parity test pins its spelling without a dependency cycle. */
 const GAZETTE_ROLE = "caseworker-deedpoll-delivery-manager";
 
@@ -306,6 +300,12 @@ function hasGazetteAccess(claims: { roles?: unknown }): boolean {
   return Array.isArray(claims.roles) && claims.roles.includes(GAZETTE_ROLE);
 }
 
+/**
+ * Build the mock. Nothing is listening until `listen` is called — `startMockApi` does that.
+ *
+ * State is closed over rather than module-level so two instances in one test process cannot see each
+ * other's cases.
+ */
 export function createMockApi(options: MockApiOptions = {}): MockApi {
   const cases = new Map<string, MockCase>();
   let gazetteSettings: z.infer<typeof WIRE_SCHEMAS.GazetteSettingsResponse> = {

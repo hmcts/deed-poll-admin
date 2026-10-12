@@ -12,11 +12,8 @@ export const SERVICE_ACCOUNT_NAME = "# svc_HMCTS_LCPT_Dev";
 /**
  * The authenticated caller, as far as the domain is concerned.
  *
- * How this is populated is a transport concern and lives in the apps. The prototype read
- * it from `x-user-roles` / `x-user-name` request headers, which was explicitly a stand-in:
- * anyone could send `x-user-roles: deedpoll-admin` and become an admin. Replacing that with
- * a real IdP session is a separate piece of work, and nothing in this file assumes either
- * mechanism.
+ * Populated from the authenticated IDAM session by the app. Every session read normalises its roles
+ * and rebuilds these derived flags; no request-supplied role header is trusted.
  *
  * `name` is only ever used as audit text (createdBy / modifiedBy), never for
  * authorisation — that is driven entirely by `roles` — so a wrong name cannot escalate
@@ -24,6 +21,7 @@ export const SERVICE_ACCOUNT_NAME = "# svc_HMCTS_LCPT_Dev";
  */
 export interface CurrentUser {
   roles: Role[];
+  /** Compatibility adapter for privacy form/presentation code; use can for other capabilities. */
   isAdmin: boolean;
   /**
    * Whether this caller is a judge, and so may reach `/judicial/**`.

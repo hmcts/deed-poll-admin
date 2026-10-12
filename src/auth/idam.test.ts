@@ -14,7 +14,7 @@
 
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { DEEDPOLL_ADMIN } from "@hmcts/deed-poll";
+import { DEEDPOLL_TEAM_LEADER } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import * as client from "openid-client";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -194,8 +194,8 @@ describe("completeLogin", () => {
   }
 
   beforeEach(() => {
-    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com" }, 900));
-    vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: "admin@example.com", name: "An Admin", roles: [DEEDPOLL_ADMIN] } as never);
+    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "team-leader@example.com" }, 900));
+    vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: "team-leader@example.com", name: "A Team leader", roles: [DEEDPOLL_TEAM_LEADER] } as never);
   });
 
   it("reads roles from userinfo, not from the ID token", async () => {
@@ -203,8 +203,8 @@ describe("completeLogin", () => {
     // roles in it at all — so reading claims would have yielded no roles against real IDAM. And because
     // unknown roles are dropped rather than rejected, the symptom would have been "nobody can edit
     // privacy" rather than an error.
-    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com", roles: [DEEDPOLL_ADMIN] }, 900));
-    vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: "admin@example.com", name: "An Admin", roles: [] } as never);
+    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "team-leader@example.com", roles: [DEEDPOLL_TEAM_LEADER] }, 900));
+    vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: "team-leader@example.com", name: "A Team leader", roles: [] } as never);
 
     const { user } = await completeLogin(config, flow, currentUrl);
 
@@ -214,7 +214,7 @@ describe("completeLogin", () => {
   it("returns the user userinfo describes", async () => {
     const { user } = await completeLogin(config, flow, currentUrl);
 
-    expect(user).toMatchObject({ isAdmin: true, name: "An Admin" });
+    expect(user).toMatchObject({ isAdmin: true, name: "A Team leader" });
   });
 
   it("passes the PKCE verifier and the expected state from the session", async () => {
@@ -232,7 +232,7 @@ describe("completeLogin", () => {
     // Otherwise a userinfo response describing someone else is accepted as this user's identity.
     await completeLogin(config, flow, currentUrl);
 
-    expect(client.fetchUserInfo).toHaveBeenCalledWith(expect.anything(), "an-access-token", "admin@example.com");
+    expect(client.fetchUserInfo).toHaveBeenCalledWith(expect.anything(), "an-access-token", "team-leader@example.com");
   });
 
   it("returns the tokens including id token so logout can end the IDAM session too", async () => {
@@ -246,7 +246,7 @@ describe("completeLogin", () => {
     // The expiry drives the refresh window, so inventing it means refreshing at the wrong time. Reading
     // a non-existent `expires_at` gave every session an hour whatever IDAM said — and if IDAM's real
     // lifetime is shorter than that, the refresh never fires and the user gets a 401 mid-session.
-    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com" }, 900));
+    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "team-leader@example.com" }, 900));
 
     const before = Math.floor(Date.now() / 1000);
     const { tokens } = await completeLogin(config, flow, currentUrl);
@@ -258,7 +258,7 @@ describe("completeLogin", () => {
   it("falls back to an hour only when the issuer omits expires_in", async () => {
     // `expires_in` is optional in OIDC, so the fallback is a real case rather than dead code — but it
     // must be the exception, which is what the test above pins.
-    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com" }, undefined));
+    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "team-leader@example.com" }, undefined));
 
     const before = Math.floor(Date.now() / 1000);
     const { tokens } = await completeLogin(config, flow, currentUrl);
@@ -283,7 +283,7 @@ describe("completeLogin", () => {
   it("returns the authenticated subject, so a later refresh has something to be checked against", async () => {
     const { subject } = await completeLogin(config, flow, currentUrl);
 
-    expect(subject).toBe("admin@example.com");
+    expect(subject).toBe("team-leader@example.com");
   });
 });
 
@@ -294,7 +294,7 @@ describe("completeLogin", () => {
  * a 400 from it. That makes these the only check there is on this path until real IDAM answers.
  */
 describe("refreshTokens", () => {
-  const SUBJECT = "admin@example.com";
+  const SUBJECT = "team-leader@example.com";
 
   function refreshResponse(overrides: Record<string, unknown> = {}, claims?: Record<string, unknown>) {
     return {

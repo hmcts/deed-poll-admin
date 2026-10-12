@@ -35,7 +35,7 @@
  * can start a wait. Everything else is driven: the referral is raised, claimed and refused through the contract,
  * because a judge's refusal is what leads the office to ask the applicant at all.
  *
- * The caseworker signs in as `admin@example.com` for the first three, because nothing here is gated on a role —
+ * The caseworker signs in as `team-leader@example.com` for the first three, because nothing here is gated on a role —
  * which is what the fourth test, on the roleless fixture, is for.
  */
 import { AxeBuilder } from "@axe-core/playwright";
@@ -350,7 +350,7 @@ test("a referral id from another case discloses nothing about its confirmation, 
  * there is no new role or presentational gate here, and this is where that is shown rather than asserted by the
  * absence of code.
  *
- * `isAdmin` is derived from the admin role, so this fixture is the negative case for every role rule in the app;
+ * Privacy override is derived from staff capabilities, so this fixture is the negative case for every role rule in the app;
  * api gates neither the worklist nor the recording on one. A gate added later — here or at api's end — fails this
  * test rather than being discovered by a caseworker who cannot finish their work.
  */
