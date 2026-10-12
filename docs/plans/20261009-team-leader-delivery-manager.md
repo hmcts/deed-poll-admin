@@ -178,7 +178,7 @@ A bare `yarn test` is not a substitute: it can report `0 successful, 8 total` ha
 
 - [x] Record the admin branch base SHA, `git status`, and the Validation Commands results with counts. Record the `yarn welsh:check` totals (strings, identical in `cy`) as the Welsh baseline.
 - [x] Check whether API PR #100 has merged: `gh pr view 100 -R hmcts/deed-poll-api --json state,mergeCommit`. **If it has merged,** regenerate `openapi.json` from merged API master in a clean detached API worktree, by the method `SPEC-PROVENANCE.md` records (`./gradlew integration --tests "*OpenAPIPublisherTest*"` with `TESTCONTAINERS_RYUK_DISABLED=true`). Then confirm the delta is descriptions only, and add a provenance entry with the SHA, the counts and that delta. Take the **whole** API document. If it carries unrelated operations, register them through the existing deferred-operation inventory, not wildcards.
-- [x] **If #100 has not merged,** change nothing in the client. Record in Execution notes that the refresh is deferred, and that the measured delta is description-only, so no code depends on it.
+- [x] **If #100 has not merged,** change nothing in the client. (Not applicable: #100 merged.) Record in Execution notes that the refresh is deferred, and that the measured delta is description-only, so no code depends on it.
 - [x] Re-run the inventory greps for `DEEDPOLL_ADMIN`, `isAdmin` and `caseworker-deedpoll-admin` across `src`, `libs/*/src`, `scripts` and `e2e-tests`. Record any hit not listed in Context. Those files join the task that owns their concern.
 - [x] Mark completed
 
@@ -241,11 +241,11 @@ listed in Context, and `src/express-doubles.ts`.
 **Files:** `README.md`, `CLAUDE.md`, `docs/plans/16-gazette-1-ready-list-review-and-send.md`,
 `docs/plans/16c-gazette-mandatory-review-and-send.md`, and this plan's Execution notes.
 
-- [ ] Run the Validation Commands, `yarn welsh:check` and the Task 5 browser suites. Record the counts against Task 1's baselines. The Welsh count may move only by keys this plan added.
-- [ ] Re-scan for `DEEDPOLL_ADMIN`, `isAdmin` and `caseworker-deedpoll-admin`. Each remaining hit must be legacy compatibility, a negative test, or privacy's `isAdmin` (Decision 4). No Gazette code may read `isAdmin`.
-- [ ] Update CLAUDE.md's Gazette and "Personas and role gating" sections and README's persona list with the new names and matrix. Add the superseded note to 16c, as plan 16 already has. Leave completed plans unchanged.
-- [ ] Record in Execution notes: the branch SHA, whether the spec refresh was taken or deferred, the API deployment dependency, fresh-login handling and the IDAM prerequisites for the infra plan. Do not claim live verification from mock or browser tests.
-- [ ] Mark completed
+- [x] Run the Validation Commands, `yarn welsh:check` and the Task 5 browser suites. Record the counts against Task 1's baselines. The Welsh count may move only by keys this plan added.
+- [x] Re-scan for `DEEDPOLL_ADMIN`, `isAdmin` and `caseworker-deedpoll-admin`. Each remaining hit must be legacy compatibility, a negative test, or privacy's `isAdmin` (Decision 4). No Gazette code may read `isAdmin`.
+- [x] Update CLAUDE.md's Gazette and "Personas and role gating" sections and README's persona list with the new names and matrix. Add the superseded note to 16c, as plan 16 already has. Leave completed plans unchanged.
+- [x] Record in Execution notes: the branch SHA, whether the spec refresh was taken or deferred, the API deployment dependency, fresh-login handling and the IDAM prerequisites for the infra plan. Do not claim live verification from mock or browser tests.
+- [x] Mark completed
 
 ## Execution notes
 
@@ -314,3 +314,42 @@ Playwright parsing passed: normal config 49 tests in 11 files; Gazette config 8 
 Browser execution: **NOT RUN**. Chromium is installed, but local IDAM on 5556 and isolated Redis on 6316
 are absent. Ports 3200, 3216 and 3316 were free; no shared listener was stopped. This uses Task 5's
 explicit missing-prerequisite allowance; parsing is not a browser or accessibility pass.
+
+### Task 6 — acceptance and handoff, 12 October 2026
+
+Implementation snapshot: `07ae8279e1ba57a3507b3cc87859212fde70e5ff` on
+`feat/team-leader-delivery-manager`, worktree `/tmp/deed-poll-admin-roles-20261012`.
+The following documentation-only commit records acceptance of that snapshot.
+
+- Lint passed, 440 files, no warnings. All eight test tasks passed, uncached:
+  **3,781 passed, three skipped**, versus baseline 3,725 passed/three skipped (+56).
+  All eight build tasks passed, uncached. A final refusal-template fixture update passed its three
+  focused tests after the full run; other subsequent source edits were comments only. Diff check clean.
+- Welsh unchanged: **675 strings, 474 identical in cy (467 prose, seven non-prose)**; expected exit 1.
+- Both Playwright configs parse: main **49 tests/11 files**, Gazette **eight tests/one file**.
+  The Gazette suite contains four Delivery Manager journeys and four refusal journeys, replacing the
+  previous four-admin/one-caseworker arrangement. A separate strict TypeScript check of both configs
+  and every browser spec passed (Node types explicitly included).
+- Browser execution and inline axe results: **NOT RUN**, local IDAM 5556 and Redis 6316 absent.
+  This is the explicit Task 5 prerequisite exception, not a passing browser result.
+- Re-scan and diff review complete. Remaining legacy-role code is limited to claim recognition,
+  temporary Team leader compatibility and negative/compatibility fixtures. Remaining operational
+  `isAdmin` reads are privacy's form/presentation adapter. Gazette uses ACCESS_GAZETTE exclusively.
+  The API remains authoritative; production callers send the access token, with no asserted roles.
+- Full API spec refresh taken from merged #100 (`be3291a`), not deferred. Its descriptions changed;
+  the wire schema did not. README, CLAUDE.md and active Gazette plans now describe the new boundary.
+
+Rollout remains separate. Earlier read-only inspection found API #100 serving on all three AAT
+instances (`prod-be3291a-20261012081531`); local checks here do not establish deployment or permissions
+in any environment. Reconfirm every target API instance before deploying Admin. Infra must register
+both exact new IDAM roles, import their CCD reader mappings, agree the named assignment roster and
+assign Delivery Manager explicitly to Gazette operators. IDAM registration PR #1016 was still open
+at the earlier inspection; the prepared roles patch should follow that registration rather than assume
+it has landed. The infra agent's files and shared checkouts were not modified by this implementation.
+
+Re-deriving stored roles removes stale boolean grants immediately, including legacy Gazette access.
+It does not retrieve changed IDAM assignments. Staff and on-demand AAT personas require registered
+roles and fresh authentication; invalidate only affected sessions using the infra runbook. Do not
+flush Redis or rotate shared secrets. After provisioning, run the role-matrix smoke with fresh logins
+and the actual API/CCD document reads before enabling operational use. Legacy retirement is a later,
+coordinated task under the infra criteria.
