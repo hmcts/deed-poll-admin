@@ -1,4 +1,8 @@
-import * as appInsights from "applicationinsights";
+// A default import, not `import * as`: applicationinsights is CommonJS, and Node gives an ES module a snapshot of a
+// CommonJS module's exports taken at import time — before setup() creates `defaultClient`, so the namespace's copy
+// stays undefined for good and every track call below silently did nothing (measured 2026-10-12).
+import appInsights from "applicationinsights";
+import { queryRedactingSpanProcessor } from "./query-redacting-span-processor.js";
 
 export class MonitoringService {
   private client?: appInsights.TelemetryClient;
@@ -8,8 +12,15 @@ export class MonitoringService {
     serviceName: string,
     private readonly logger: Logger = console
   ) {
-    // Set cloud role name via environment variable before setup (required for AI v3)
-    process.env.APPLICATIONINSIGHTS_ROLE_NAME = serviceName;
+    // The SDK is process-global, so a second service (the middleware's, after startMonitoring) reuses the first.
+    if (appInsights.defaultClient) {
+      this.client = appInsights.defaultClient;
+      return;
+    }
+
+    // The v3 SDK names cloud_RoleName from the OpenTelemetry resource and ignores APPLICATIONINSIGHTS_ROLE_NAME,
+    // which left AAT reporting `unknown_service:node`.
+    process.env.OTEL_SERVICE_NAME = serviceName;
 
     appInsights
       .setup(connectionString)
@@ -19,6 +30,9 @@ export class MonitoringService {
       .setAutoCollectDependencies(true)
       .setAutoCollectConsole(true, true)
       .setUseDiskRetryCaching(true)
+      // Before start(), which is when the options are read. Only spanProcessors is passed: the shim merges these
+      // over its own defaults, so the connection string and instrumentation settings are kept.
+      .setAzureMonitorOptions({ spanProcessors: [queryRedactingSpanProcessor] })
       .start();
 
     this.client = appInsights.defaultClient;

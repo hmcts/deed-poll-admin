@@ -1,6 +1,7 @@
-import * as appInsights from "applicationinsights";
+import appInsights from "applicationinsights";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type Logger, MonitoringService } from "./monitoring-service.js";
+import { queryRedactingSpanProcessor } from "./query-redacting-span-processor.js";
 
 vi.mock("applicationinsights", () => {
   const mockClient = {
@@ -24,13 +25,21 @@ vi.mock("applicationinsights", () => {
     setAutoCollectDependencies: vi.fn(() => mockSetup),
     setAutoCollectConsole: vi.fn(() => mockSetup),
     setUseDiskRetryCaching: vi.fn(() => mockSetup),
-    start: vi.fn(() => mockSetup)
+    setAzureMonitorOptions: vi.fn(() => mockSetup),
+    start: vi.fn(() => {
+      sdk.defaultClient = mockClient;
+      return mockSetup;
+    })
   };
 
-  return {
-    setup: vi.fn(() => mockSetup),
-    defaultClient: mockClient
+  // The client exists only once start() has run, as in the real SDK, and is read off the default export: a test that
+  // mocked it as a named export would pass while the real namespace import saw nothing.
+  const sdk: { defaultClient: typeof mockClient | undefined; setup: () => typeof mockSetup } = {
+    defaultClient: undefined,
+    setup: vi.fn(() => mockSetup)
   };
+
+  return { default: sdk };
 });
 
 describe("MonitoringService", () => {
@@ -40,6 +49,7 @@ describe("MonitoringService", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    (appInsights as { defaultClient: unknown }).defaultClient = undefined;
     mockLogger = {
       log: vi.fn(),
       info: vi.fn(),
@@ -49,6 +59,15 @@ describe("MonitoringService", () => {
   });
 
   describe("constructor", () => {
+    it("should register the query-redacting span processor before Application Insights starts", () => {
+      service = new MonitoringService(connectionString, "test-service", mockLogger);
+
+      const setupMock = vi.mocked(appInsights.setup)(connectionString);
+      expect(setupMock.setAzureMonitorOptions).toHaveBeenCalledWith({ spanProcessors: [queryRedactingSpanProcessor] });
+      // Options are read when the client initialises at start(), so a later call would register nothing.
+      expect(vi.mocked(setupMock.setAzureMonitorOptions).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(setupMock.start).mock.invocationCallOrder[0]);
+    });
+
     it("should setup Application Insights with correct configuration", () => {
       service = new MonitoringService(connectionString, "test-service", mockLogger);
 
@@ -64,10 +83,21 @@ describe("MonitoringService", () => {
       expect(setupMock.start).toHaveBeenCalled();
     });
 
-    it("should set cloud role name before starting", () => {
+    it("should set the OpenTelemetry service name, which the SDK reports as the cloud role name", () => {
       service = new MonitoringService(connectionString, "test-service", mockLogger);
 
-      expect(process.env.APPLICATIONINSIGHTS_ROLE_NAME).toBe("test-service");
+      expect(process.env.OTEL_SERVICE_NAME).toBe("test-service");
+    });
+
+    it("should reuse the running client rather than set the SDK up twice", () => {
+      new MonitoringService(connectionString, "test-service", mockLogger);
+      vi.mocked(appInsights.setup).mockClear();
+
+      service = new MonitoringService(connectionString, "test-service", mockLogger);
+      service.trackEvent("Reused");
+
+      expect(appInsights.setup).not.toHaveBeenCalled();
+      expect(appInsights.defaultClient.trackEvent).toHaveBeenCalledWith({ name: "Reused", properties: undefined });
     });
 
     it("should use console as default logger", () => {

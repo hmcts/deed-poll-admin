@@ -14,6 +14,22 @@ one email attempt and explicit uncertainty. It is a design, not an available API
 refresh OpenAPI only after each corresponding operation is implemented and published.
 This plan records the matching admin behavior below. The five-item checklist and
 whether it blocks selection still require a business answer.
+## Execution status — 9 October 2026
+
+The read-only foundation, relinquishment exclusion and recipient editor are merged
+(admin PR #163, API PR #89). The API ledger/guard and delivery/recovery slices have
+now merged, most recently API PR #93 (`742cb5a`). The API publishes preview, keyed
+submission, request listing, status and full frozen membership.
+
+Admin PR #165 delivers the complete contract and request/status/member pages (16b).
+The follow-on [16c slice](16c-gazette-mandatory-review-and-send.md) implements mandatory
+review, selection, confirmation, submission and recovery in an isolated worktree.
+These changes are awaiting merge; deployment and activation are separate steps.
+
+**Business decision, 9 October 2026:** Steve chose the checklist to be mandatory
+initially. All five acknowledgements must be completed for every selected application.
+The wording remains open to later business refinement; this is a per-visit UI check,
+not a persisted API business sign-off.
 
 ## Recipient settings slice — 8 October 2026
 
@@ -28,8 +44,8 @@ is substituted. English/Welsh copy and a browser journey are included.
 - [x] Implement recipient editor and contract/client/domain/mock support.
 - [x] Cover persistence, validation, role refusal, stale forms, Welsh and accessibility.
 - [ ] Deploy the API settings contract and migration before this admin version.
-- [ ] Show the recipient on batch confirmation, submit the settings revision and
-  handle changes through the future send contract.
+- [x] Show the recipient on batch confirmation, submit the settings revision and
+  handle changes through the merged send contract (16c).
 
 See [recipient settings validation](gazette-recipient-settings-validation.md).
 This implements only the recipient setting. The remaining review/selection/send
@@ -79,7 +95,7 @@ existing explicit deferred CCD inventory. The recipient contract is already cons
 1. Follow the admin-only count to the existing ready list. Its API predicate stays
    unchanged; reservations may make a listed case temporarily unavailable for a new
    batch. Preview/admission explain this and link to the request list.
-2. Review and select cases using the checklist rule once business-validated. Keep
+2. Review and select cases using the mandatory checklist rule. Keep
    this visit's state separate from other tabs and from persisted case data.
 3. Request an API preview for the selection. Show its recipient, group counts and
    full selected reference list; retain its fingerprint and original settings
@@ -131,9 +147,10 @@ awaiting-confirmation counts, which any caseworker can act on, the Gazette count
 render it conditionally on `isAdmin`, and skip the api call entirely for a non-admin session rather than
 fetching a number the viewer cannot follow through on.
 
-### 4. The review checklist — a proposed default set, not yet business-validated
+### 4. The review checklist — mandatory initially
 
-Confirmed with you this plan should propose a sensible set for the team to validate afterwards. Proposed:
+Steve confirmed mandatory gating on 9 October 2026. Use the proposed five items initially;
+the team can refine their wording later:
 
 1. The case's state is `Enroled`.
 2. There is no open referral or unresolved query against the case.
@@ -143,24 +160,25 @@ Confirmed with you this plan should propose a sensible set for the team to valid
 5. The caseworker-admin's own sign-off: "I have checked this case and it is ready to be sent to the London
    Gazette."
 
-**An incomplete checklist blocks the case from being sent.** Proposed, also flagged for validation: a case
-whose checklist is not fully checked cannot be selected in the ready list, matching the "a send is a
-deliberate act by somebody who has read what is going out" ethos already stated in `CaseEmailService`'s own
-docblock. If the business prefers the checklist to be advisory only, this is the one decision in this plan to
-revisit first — it changes the ready list's selection logic (decision 6) directly.
+**An incomplete checklist blocks selection and sending.** All five items must be
+acknowledged exactly once; a disabled checkbox is backed by server validation.
+The form carries signed, session-bound review versions. An edited case, nested note,
+witness or document invalidates the acknowledgement when rechecked.
 
-**The checklist is per-visit state, not a persisted business sign-off.** Until its
-rule is agreed, do not implement or imply a verified “reviewed” state in API. Once
-agreed, carry review acknowledgements against case IDs and their reviewed data
-version within the visit's form flow. Changes invalidate them. Never use one global
-session “current batch”; duplicated tabs must not overwrite each other's selection.
-The API fingerprint prevents stale data; it does not certify completion of a checklist.
+**The checklist is per-visit state, not a persisted business sign-off.** No API field
+or admin database has been added. Each visit gets independent form-carried state;
+duplicated forms retain their original identity. Reviews expire after two hours.
+The API fingerprint still owns final exported-data, recipient and readiness checks;
+it does not certify checklist completion. Recovery of an attempted submission keeps
+the original payload even after the review/preview expiry.
 
-### 5. The review page is reached from the ready list, and links back to it — never a standalone route
+### 5. Reach review from the existing ready list
 
-`src/pages/deed-polls/gazette/index.ts` (ready list) and `src/pages/deed-polls/gazette/[id]/review.ts` (the
-checklist), following the existing `[id]` case-detail routing convention. The review page reads the same case
-detail read the main case page uses (`findDeedPoll`) — do not add a second, gazette-specific case read.
+The ready list links to `/deed-polls/gazette/batch`. This one form endpoint owns
+selection, per-case review, confirmation and recovery phases, keeping private journey
+state in POST bodies rather than URLs. The initial GET starts a fresh review visit
+and performs no send. A review reads the same `findDeedPoll` detail as the case page
+and offers a separate tab for checking its full details.
 
 ### 6. Separate editable selection from an attempted submission
 
@@ -178,7 +196,9 @@ prevent overlapping selections from being admitted through another tab.
 
 ### 7. Keys survive transport failure, reload and back navigation
 
-Mint a UUID at first confirmation, never in the send handler. All confirmation/back
+Derive a UUID at first confirmation from the signed visit identity and session, never in the send handler.
+Returning to an old selection form derives the same UUID, even after a different preview, so it cannot create
+a replacement identity after an earlier POST. A new explicit visit has its own identity. All confirmation/back
 forms preserve it and the preview token/revision. Repeating a POST uses byte-equivalent
 semantic content (case ID order is irrelevant to API). A reload of a status or attempted
 confirmation page never mints a replacement key or implies that sending failed.
@@ -234,8 +254,7 @@ in the successful sent count. The request detail has no repair/resend control.
 2. **Domain** (`libs/deed-poll`): a `gazette` module — view models for the ready list row, the review
    checklist, the confirmation summary and the history row. No business logic beyond formatting; api owns
    the predicate, the selection validation and the send.
-3. **Pages** — `src/pages/deed-polls/gazette/index.ts` (ready list), `[id]/review.ts` (checklist),
-   `confirm.ts` (confirmation + send), `history.ts`; the `requireRole` mount in `app.ts`; the worklist count
+3. **Pages** — `src/pages/deed-polls/gazette/index.ts` (ready list), `batch.ts` (selection, review, confirmation and send), `history.ts`; the `requireRole` mount in `app.ts`; the worklist count
    addition to `src/pages/deed-polls/index.ts`.
 4. **Locales** — `en`/`cy` pairs for every new page; add `src/pages/deed-polls/gazette` to
    `scripts/extract-welsh-strings.mjs`'s `INCLUDE` list in the same commit that adds the first page, not
@@ -271,18 +290,18 @@ A further reconciliation is required when the send operation is published; the o
 Refresh `openapi.json` per `SPEC-PROVENANCE.md` once the api plan has merged. Measure and account for the entire delta described above, including batch IDs and
 Gazette-specific errors, while preserving unrelated operations. Record baselines.
 
-- [ ] Contract reconciled; baselines recorded
+- [x] Contract reconciled; baselines recorded (16b, API `742cb5a`)
 
 ### Task 1: Client, domain and mock
 
-Read client/domain/mock and seed fixtures delivered by plan 16a. Sending and any business-approved
-review/selection state remain outstanding; no mock "reviewed" state has been invented.
+Read client/domain/mock fixtures were delivered in 16a/16b. Domain writes and
+mandatory review transport are implemented in 16c; API still stores no reviewed flag.
 
 Add the client methods, wire types, view models, and mock support — including fixtures for `Preparing`, `Sending`, `Sent`, `NotSent`, `Uncertain`, stale
 recipient/selection and legacy full membership. Use separate journey fixtures;
 do not imply that the API stores checklist sign-off.
 
-- [ ] Client/domain/mock implemented; contract and mock tests green
+- [x] Client/domain/mock implemented; contract and mock tests green (16b/16c).
 
 ### Task 2: Role gate and worklist banner
 
@@ -294,20 +313,20 @@ is covered by the mount.
 
 ### Task 3: Ready list
 
-Read-only list delivered by plan 16a with case-detail links, API ordering and paging. Selection,
-checklist gating and review links remain outstanding.
+The read-only list is delivered by 16a. In 16c it links to the mandatory review and
+selection form, preserving API ordering/paging and selections across pages.
 
-The list page, checkboxes, reviewed/unreviewed disabled-state logic per decision 4's proposed rule, links to
+The list page, checkboxes, reviewed/unreviewed disabled-state logic per decision 4's mandatory rule, links to
 review and to history.
 
-- [ ] Ready list implemented; selection logic tested for both reviewed and unreviewed cases
+- [x] Ready list implemented; selection logic tested for both reviewed and unreviewed cases
 
 ### Task 4: Review checklist
 
 The per-case checklist page with the proposed five items from decision 4, marking the case reviewed for the
 current visit only (decision 4's "not persisted" rule).
 
-- [ ] Review page implemented and tested
+- [x] Review page implemented and tested
 
 ### Task 5: Confirmation and send
 
@@ -315,9 +334,9 @@ The API-preview confirmation page, stable request identity (decision 7), typed
 admission refusal/status handling (decision 8), request list/detail and complete
 membership. Missing/changed recipients require a fresh confirmation.
 
-- [ ] Confirmation/send and request status implemented; all state/action rows above tested
-- [ ] Complete frozen-member navigation works for new and legacy batches above 100 references
-- [ ] Lost responses, duplicate submissions and concurrent tabs cannot trigger duplicate sending
+- [x] Confirmation/send and request status implemented; all state/action rows above tested
+- [x] Complete frozen-member navigation works for new and legacy batches above 100 references (16b)
+- [x] Lost responses, duplicate submissions and concurrent tabs cannot trigger duplicate sending
 
 ### Task 6: History page
 
@@ -327,14 +346,16 @@ membership. Missing/changed recipients require a fresh confirmation.
 
 Plan 16a supplies extracted bilingual read pages and dedicated browser journeys for empty/populated
 counts, ready/case/history navigation, pagination, truncation and non-admin refusal, with inline axe
-and Welsh checks. A full review/select/confirm/send/history E2E journey is still missing. Welsh
+and Welsh checks. 16c adds the complete mandatory review/select/confirm/send/history journey and all five outcomes,
+including lost-response recovery and duplicate-tab submission. Welsh
 language review is still required; the existing identical-English baseline is not a clean Welsh check.
 
 Add the new area to `extract-welsh-strings.mjs`'s `INCLUDE` if not already done incrementally. Write the E2E
 journey: an admin sees the banner, reviews a case, sends a subset, sees the history entry; a non-admin cannot
 reach `/deed-polls/gazette` at all.
 
-- [ ] Welsh extraction covers the new pages; E2E journey green; full validation commands green
+- [x] Welsh extraction covers the new pages; E2E journey green; full validation commands green (16c).
+- [ ] Human review of Welsh and checklist wording.
 
 ## Relinquishment exclusion — 8 October 2026
 
@@ -344,14 +365,12 @@ those answers without filtering a page locally. The development mock mirrors the
 exclusion. Existing Unknown/unset-type read behaviour is unchanged. When selection
 and sending are implemented, a case reclassified as relinquishment after selection
 must cause a clear refusal before sending, without silently reducing the batch.
-The generator is merged in API PR #88; send-path enforcement remains outstanding.
+The generator is merged in API PR #88; send-path enforcement is merged in the API ledger and delivery slices.
 
 ## Next execution slices
 
-The API ledger/guard slice comes first. The UI may consume status/preview work once
-its generated contract is merged; the send control waits for complete delivery and
-recovery support. Checklist wording/gating remains a separate business input and
-must not be inferred from this technical design. New copy needs English/Welsh,
-extraction and human review, and the full browser journey must cover every outcome
-above with accessibility checks. The design-only PR changes no app, mock or runtime
-OpenAPI and requires document/link consistency checks rather than a fresh runtime suite.
+1. Review and merge admin #165, followed by the dependent 16c implementation PR.
+2. Complete human Welsh/checklist wording review.
+3. Provision the agreed Notify templates/download-link retention and deploy API
+   migrations before enabling sending. Perform environment acceptance checks with
+   the configured recipient. No live provisioning or activation was performed by 16c.

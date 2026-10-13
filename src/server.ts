@@ -6,6 +6,11 @@ const PORT = process.env.PORT || 3000;
 // import is evaluated before any statement here runs, and the first thing that reaches `config` freezes
 // the environment it was loaded with for the life of the process. See ./secrets.ts.
 await loadSecrets();
+// Monitoring next, and before the app for the same reason: Application Insights collects no requests unless it
+// starts before express is loaded. See startMonitoring.
+const { default: config } = await import("config");
+const { startMonitoring } = await import("@hmcts-cft/cloud-native-platform");
+startMonitoring(config.get("applicationInsights"));
 const { createApp } = await import("./app.js");
 
 async function startServer() {

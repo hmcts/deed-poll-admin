@@ -1,4 +1,4 @@
-import * as appInsights from "applicationinsights";
+import appInsights from "applicationinsights";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { trackException } from "./track-exception.js";
 
@@ -7,9 +7,7 @@ vi.mock("applicationinsights", () => {
     trackException: vi.fn()
   };
 
-  return {
-    defaultClient: mockClient
-  };
+  return { default: { defaultClient: mockClient } };
 });
 
 describe("trackException", () => {

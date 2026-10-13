@@ -1,41 +1,54 @@
 import type { NextFunction, Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { type MonitoringMiddlewareConfig, monitoringMiddleware } from "./monitoring-middleware.js";
+import { type MonitoringMiddlewareConfig, monitoringMiddleware, startMonitoring } from "./monitoring-middleware.js";
 import { MonitoringService } from "./monitoring-service.js";
 
 vi.mock("./monitoring-service.js");
+
+describe("startMonitoring", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should start and return the monitoring service when enabled", () => {
+    const service = startMonitoring({ serviceName: "test-service", connectionString: "InstrumentationKey=test", enabled: true });
+
+    expect(MonitoringService).toHaveBeenCalledWith("InstrumentationKey=test", "test-service");
+    expect(service).toBe(vi.mocked(MonitoringService).mock.instances[0]);
+  });
+
+  it("should start the monitoring service when enabled is not given", () => {
+    startMonitoring({ serviceName: "test-service", connectionString: "InstrumentationKey=test" });
+
+    expect(MonitoringService).toHaveBeenCalledTimes(1);
+  });
+
+  it("should not start the monitoring service when disabled", () => {
+    const service = startMonitoring({ serviceName: "test-service", connectionString: "InstrumentationKey=test", enabled: false });
+
+    expect(MonitoringService).not.toHaveBeenCalled();
+    expect(service).toBeUndefined();
+  });
+});
 
 describe("monitoringMiddleware", () => {
   let req: Partial<Request>;
   let res: Partial<Response>;
   let next: NextFunction;
   let config: MonitoringMiddlewareConfig;
+  const trackException = vi.fn();
+  const trackRequest = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(MonitoringService).mockImplementation(function (this: unknown) {
+      return { trackException, trackRequest };
+    } as never);
 
-    req = {
-      method: "GET",
-      path: "/test",
-      url: "/test?query=value",
-      route: { path: "/test" },
-      headers: {
-        "user-agent": "Mozilla/5.0"
-      }
-    };
-
-    res = {
-      statusCode: 200,
-      on: vi.fn()
-    };
-
+    req = { method: "GET", path: "/test", originalUrl: "/test?q=Testperson" };
+    res = { statusCode: 200, on: vi.fn() };
     next = vi.fn();
-
-    config = {
-      serviceName: "test-service",
-      connectionString: "InstrumentationKey=test",
-      enabled: true
-    };
+    config = { serviceName: "test-service", connectionString: "InstrumentationKey=test", enabled: true };
   });
 
   it("should call next function", () => {
@@ -57,177 +70,31 @@ describe("monitoringMiddleware", () => {
   });
 
   it("should initialize monitoring service when enabled", () => {
-    vi.mocked(MonitoringService).mockImplementation(function (this: any) {
-      return {
-        trackRequest: vi.fn(),
-        trackException: vi.fn(),
-        trackEvent: vi.fn(),
-        trackMetric: vi.fn(),
-        flush: vi.fn()
-      };
-    } as any);
-
-    const middleware = monitoringMiddleware(config);
-
-    middleware(req as Request, res as Response, next);
+    monitoringMiddleware(config);
 
     expect(MonitoringService).toHaveBeenCalledWith("InstrumentationKey=test", "test-service");
   });
 
-  it("should track request on finish event", () => {
-    const mockTrackRequest = vi.fn();
-    const mockTrackException = vi.fn();
-
-    vi.mocked(MonitoringService).mockImplementation(function (this: any) {
-      return {
-        trackRequest: mockTrackRequest,
-        trackException: mockTrackException,
-        trackEvent: vi.fn(),
-        trackMetric: vi.fn(),
-        flush: vi.fn()
-      };
-    } as any);
-
+  it("should not track the request itself, because the SDK already collects it", () => {
     const middleware = monitoringMiddleware(config);
-    let finishCallback: () => void;
-
-    res.on = vi.fn((event: string, callback: () => void) => {
-      if (event === "finish") {
-        finishCallback = callback;
-      }
-    }) as any;
 
     middleware(req as Request, res as Response, next);
 
-    expect(res.on).toHaveBeenCalledWith("finish", expect.any(Function));
-
-    finishCallback!();
-
-    expect(mockTrackRequest).toHaveBeenCalledWith({
-      name: "GET /test",
-      url: "/test?query=value",
-      duration: expect.any(Number),
-      resultCode: 200,
-      success: true,
-      properties: {
-        method: "GET",
-        path: "/test",
-        userAgent: "Mozilla/5.0"
-      }
-    });
+    expect(res.on).not.toHaveBeenCalledWith("finish", expect.any(Function));
+    expect(trackRequest).not.toHaveBeenCalled();
   });
 
   it("should track exception on error event", () => {
-    const mockTrackException = vi.fn();
-
-    vi.mocked(MonitoringService).mockImplementation(function (this: any) {
-      return {
-        trackRequest: vi.fn(),
-        trackException: mockTrackException,
-        trackEvent: vi.fn(),
-        trackMetric: vi.fn(),
-        flush: vi.fn()
-      };
-    } as any);
-
     const middleware = monitoringMiddleware(config);
-    let errorCallback: (err: Error) => void;
-
+    let errorCallback: ((err: Error) => void) | undefined;
     res.on = vi.fn((event: string, callback: (err: Error) => void) => {
-      if (event === "error") {
-        errorCallback = callback;
-      }
-    }) as any;
+      if (event === "error") errorCallback = callback;
+    }) as never;
 
     middleware(req as Request, res as Response, next);
-
-    expect(res.on).toHaveBeenCalledWith("error", expect.any(Function));
-
     const testError = new Error("Test error");
-    errorCallback!(testError);
+    errorCallback?.(testError);
 
-    expect(mockTrackException).toHaveBeenCalledWith(testError);
-  });
-
-  it("should handle request without route", () => {
-    const mockTrackRequest = vi.fn();
-
-    vi.mocked(MonitoringService).mockImplementation(function (this: any) {
-      return {
-        trackRequest: mockTrackRequest,
-        trackException: vi.fn(),
-        trackEvent: vi.fn(),
-        trackMetric: vi.fn(),
-        flush: vi.fn()
-      };
-    } as any);
-
-    delete req.route;
-
-    const middleware = monitoringMiddleware(config);
-    let finishCallback: () => void;
-
-    res.on = vi.fn((event: string, callback: () => void) => {
-      if (event === "finish") {
-        finishCallback = callback;
-      }
-    }) as any;
-
-    middleware(req as Request, res as Response, next);
-    finishCallback!();
-
-    expect(mockTrackRequest).toHaveBeenCalledWith({
-      name: "GET /test",
-      url: "/test?query=value",
-      duration: expect.any(Number),
-      resultCode: 200,
-      success: true,
-      properties: {
-        method: "GET",
-        path: "/test",
-        userAgent: "Mozilla/5.0"
-      }
-    });
-  });
-
-  it("should track failed request", () => {
-    const mockTrackRequest = vi.fn();
-
-    vi.mocked(MonitoringService).mockImplementation(function (this: any) {
-      return {
-        trackRequest: mockTrackRequest,
-        trackException: vi.fn(),
-        trackEvent: vi.fn(),
-        trackMetric: vi.fn(),
-        flush: vi.fn()
-      };
-    } as any);
-
-    res.statusCode = 500;
-
-    const middleware = monitoringMiddleware(config);
-    let finishCallback: () => void;
-
-    res.on = vi.fn((event: string, callback: () => void) => {
-      if (event === "finish") {
-        finishCallback = callback;
-      }
-    }) as any;
-
-    middleware(req as Request, res as Response, next);
-    finishCallback!();
-
-    expect(mockTrackRequest).toHaveBeenCalledWith({
-      name: "GET /test",
-      url: "/test?query=value",
-      duration: expect.any(Number),
-      resultCode: 500,
-      success: false,
-      properties: {
-        method: "GET",
-        path: "/test",
-        userAgent: "Mozilla/5.0"
-      }
-    });
+    expect(trackException).toHaveBeenCalledWith(testError);
   });
 });

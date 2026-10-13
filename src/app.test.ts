@@ -265,6 +265,9 @@ const gates = vi.hoisted(() => ({
   judicial: function requireJudicialDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
+  noStore: function noStoreDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
   persona: function personaSwitcherLocalsDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
@@ -281,6 +284,7 @@ vi.mock("./auth/require-auth.js", () => ({ requireAuth: () => gates.auth, isPubl
 vi.mock("./auth/require-role.js", () => ({ requireRole: vi.fn(() => gates.gazette), requireJudicial: () => gates.judicial }));
 vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gates.persona }));
 vi.mock("./auth/same-origin.js", () => ({ requireSameOrigin: () => gates.sameOrigin }));
+vi.mock("./auth/no-store.js", () => ({ noStore: () => gates.noStore }));
 
 describe("createApp's judicial gate", () => {
   let stack: MountedLayer[];
@@ -487,3 +491,69 @@ describe("createApp's Gazette gate", () => {
     }
   });
 });
+
+describe("createApp's no-store layer", () => {
+  let stack: MountedLayer[];
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+  });
+
+  it("should be mounted once, for every path, after requireAuth and before the router", () => {
+    const layers = stack.filter((layer) => layer.handle === gates.noStore);
+    const index = stack.findIndex((layer) => layer.handle === gates.noStore);
+
+    expect(layers).toHaveLength(1);
+    expect(layers[0].match("/deed-polls/a-sample-id")).toBe(true);
+    expect(index).toBeGreaterThan(stack.findIndex((layer) => layer.handle === gates.auth));
+    expect(index).toBeLessThan(stack.findIndex((layer) => layer.handle === gates.judicial));
+    expect(index).toBeLessThan(stack.findIndex((layer) => layer.handle === gates.router));
+  });
+
+  // The header is skipped exactly where requireAuth's allowlist says a page is public, so this reads every page off
+  // the filesystem and pins which ones those are. A new page is a signed-in page, and uncacheable, unless it is
+  // added here on purpose.
+  it("should treat every page but the sign-in flow, the home redirect and the footer pages as signed-in", async () => {
+    const { isPublicPath } = await vi.importActual<typeof import("./auth/require-auth.js")>("./auth/require-auth.js");
+    const publicPages = new Set([
+      "/",
+      "/login",
+      "/logout",
+      "/oauth2/callback",
+      "/accessibility-statement",
+      "/contact-us",
+      "/privacy-policy",
+      "/terms-and-conditions"
+    ]);
+    const pages = pagePaths();
+
+    expect(pages.length).toBeGreaterThanOrEqual(40);
+    expect(pages.filter((page) => publicPages.has(page)).sort()).toEqual([...publicPages].sort());
+    for (const page of pages) {
+      expect(isPublicPath(page), page).toBe(publicPages.has(page));
+    }
+  });
+});
+
+/**
+ * The URL of every page under `src/pages`, the way `simple-router` derives it: `index` is its directory, a
+ * `(group)` directory is dropped, and a `[param]` segment stands for any value. Layouts and error templates are
+ * not routes and have no `.ts` file.
+ */
+function pagePaths(): string[] {
+  const root = path.join(fileURLToPath(import.meta.url), "../pages");
+
+  return readdirSync(root, { recursive: true, encoding: "utf8" })
+    .filter((entry) => entry.endsWith(".ts") && !entry.endsWith(".test.ts"))
+    .map((entry) => {
+      const route = entry
+        .replace(/\.ts$/, "")
+        .replace(/\([^)]+\)\//g, "")
+        .replace(/(^|\/)index$/, "")
+        .replace(/\[[^\]]+\]/g, "a-sample-id");
+      return `/${route}`.replace(/\/$/, "") || "/";
+    });
+}

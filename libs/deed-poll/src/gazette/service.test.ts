@@ -1,11 +1,14 @@
-import { getGazetteNoticeHistory, listCases } from "@hmcts/deed-poll-api-client";
+import { getGazetteMembers, getGazetteNoticeHistory, getGazetteRequests, getGazetteStatus, listCases } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } from "../errors.js";
-import { countGazetteReadyCases, findGazetteHistory, findGazetteReadyCases } from "./service.js";
+import { countGazetteReadyCases, findGazetteHistory, findGazetteMembers, findGazetteReadyCases, findGazetteRequests, findGazetteStatus } from "./service.js";
 
 vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll-api-client")>()),
   listCases: vi.fn(),
+  getGazetteRequests: vi.fn(),
+  getGazetteStatus: vi.fn(),
+  getGazetteMembers: vi.fn(),
   getGazetteNoticeHistory: vi.fn()
 }));
 const CALLER = { accessToken: "admin-token" };
@@ -85,4 +88,20 @@ it("should preserve historical batches and their full counts while dropping unsu
 
   expect(await findGazetteHistory(query, CALLER)).toBe(history);
   expect(getGazetteNoticeHistory).toHaveBeenCalledExactlyOnceWith({ page: 3, size: 7 }, expect.objectContaining({ accessToken: CALLER.accessToken }));
+});
+
+it("should preserve request and member paging while forwarding only published query fields and the caller token", async () => {
+  const requests = { requests: [], page: 2, size: 10, total: 20, totalPages: 2 };
+  const members = { cases: [{ caseId: "case-1", referenceNumber: "FROZEN" }], page: 5, size: 25, total: 101, totalPages: 5 };
+  const status = { batchId: "00000000-0000-4000-8000-000000000001", state: "Uncertain" as const, caseCount: 101 };
+  vi.mocked(getGazetteRequests).mockResolvedValue({ ok: true, data: requests });
+  vi.mocked(getGazetteStatus).mockResolvedValue({ ok: true, data: status });
+  vi.mocked(getGazetteMembers).mockResolvedValue({ ok: true, data: members });
+  const query = { page: 2, size: 10, state: "Uncertain" as const, sort: "submittedAt:asc", q: "ignored" };
+  expect(await findGazetteRequests(query, CALLER)).toBe(requests);
+  expect(await findGazetteStatus(status.batchId, CALLER)).toBe(status);
+  expect(await findGazetteMembers(status.batchId, { ...query, page: 5, size: 25 }, CALLER)).toBe(members);
+  expect(getGazetteRequests).toHaveBeenCalledExactlyOnceWith({ page: 2, size: 10, state: "Uncertain" }, expect.objectContaining(CALLER));
+  expect(getGazetteStatus).toHaveBeenCalledExactlyOnceWith(status.batchId, expect.objectContaining(CALLER));
+  expect(getGazetteMembers).toHaveBeenCalledExactlyOnceWith(status.batchId, { page: 5, size: 25 }, expect.objectContaining(CALLER));
 });

@@ -16,6 +16,10 @@ export const GET = async (req: Request, res: Response) => {
 
   const away = await endSessionUrl(idamSettings(), idToken);
 
+  // A cached case page is an exposure from the moment the user has gone, so tell the browser to drop them.
+  // "cache" only: "cookies" would also wipe the cookie-consent choice, and the app keeps nothing in storage.
+  res.setHeader("Clear-Site-Data", '"cache"');
+
   // No end-session endpoint advertised: the local sign-out is done, so say so rather than pretending
   // the IDAM session is gone too.
   res.redirect(away ?? "/");

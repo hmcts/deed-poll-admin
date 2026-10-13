@@ -62,6 +62,19 @@ app.use(
 
 If `enabled` is false (e.g. local dev) the middleware is a no-op.
 
+### Query strings are never sent to Application Insights
+
+Telemetry never carries a URL's query. A query can hold personal data, such as a case search's names and dates of birth, or credentials, such as an OAuth `code`. Telemetry sits outside the service's own access and retention controls, so neither belongs there.
+
+Redaction happens in two places:
+
+- **The middleware's own request record** stores `redactUrl(req.originalUrl)`, for example `/deed-polls?REDACTED`.
+- **Auto-collected spans** pass through `queryRedactingSpanProcessor`. `MonitoringService` registers it with `setAzureMonitorOptions` before `start()`. It rewrites `http.url`, `url.full`, `http.target` and `url.query`, which covers both HTTP semantic conventions.
+
+Register a span processor, not `addTelemetryProcessor`. In applicationinsights 3.x, `addTelemetryProcessor` only logs a warning and does nothing.
+
+`redactUrl` and `queryRedactingSpanProcessor` are exported for any other telemetry path that needs them.
+
 ### `trackException`
 
 For route handlers that don't have a `MonitoringService` instance to hand:

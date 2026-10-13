@@ -1,4 +1,5 @@
-import * as appInsights from "applicationinsights";
+// A default import: see monitoring-service.ts for why the namespace form never sees the client.
+import appInsights from "applicationinsights";
 
 /**
  * Tracks an exception to Application Insights using the default client.

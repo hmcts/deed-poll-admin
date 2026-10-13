@@ -5,12 +5,14 @@
  * case page. It is a stand-in for the CONTRACT, not a second implementation of api: there is no database,
  * no signature verification, no S2S and no document storage, and it forgets everything when it stops.
  *
- * Five routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
+ * Seven routes are OUTSIDE the contract and exist only here, all under `/__mock` so no route in this file
  * could be mistaken for one api serves:
  *
  *   POST /__mock/scenario   switch behaviour (see fixtures.ts)
  *   POST /__mock/reset      forget every case
  *   POST /__mock/cases      seed a case without going through a create
+ *   POST /__mock/gazette-requests  seed a request outcome and frozen members
+ *   POST /__mock/gazette-outcome   choose the next simulated send outcome/lost response
  *   POST /__mock/gazette-batches  seed frozen audit membership without sending
  *   POST /__mock/referrals/{id}/confirmation-request
  *                           start the wait for an applicant's confirmation, which no contract route here can
@@ -151,6 +153,7 @@ import {
   type MockNotification,
   type MockScenario
 } from "./fixtures.js";
+import { createGazetteRequests } from "./gazette-requests.js";
 
 /** Fixture-only batch input: full frozen membership, never a production send operation. */
 const SEEDABLE_GAZETTE_BATCH = z
@@ -304,6 +307,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     updatedAt: null,
     updatedBy: null
   };
+  const gazetteRequests = createGazetteRequests();
   const gazetteBatches = new Map<string, z.infer<typeof SEEDABLE_GAZETTE_BATCH>>();
   const savedQueries = new Map<string, MockSavedQuery>();
   /**
@@ -346,6 +350,15 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (method === "POST" && pathname === "/__mock/reset") {
       reset();
       return send(res, 200, { scenario });
+    }
+
+    if (method === "POST" && pathname === "/__mock/gazette-requests") {
+      const result = gazetteRequests.seed(await readJsonBody(req));
+      return send(res, result.status, result.body);
+    }
+    if (method === "POST" && pathname === "/__mock/gazette-outcome") {
+      const result = gazetteRequests.configure(await readJsonBody(req));
+      return send(res, result.status, result.body);
     }
 
     if (method === "POST" && pathname === "/__mock/gazette-batches") {
@@ -442,6 +455,39 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, 200, gazetteSettings);
     }
 
+    if (
+      pathname === "/caseworker/gazette-notice-previews" ||
+      pathname === "/caseworker/gazette-notice-requests" ||
+      pathname.startsWith("/caseworker/gazette-notices/") ||
+      (pathname === "/caseworker/gazette-notices" && method === "POST")
+    ) {
+      const claims = await gazetteClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      if (!Array.isArray(claims.roles) || !claims.roles.includes("caseworker-deedpoll-admin")) {
+        return send(res, 403, { error: "Administrator role required" });
+      }
+      if (method === "POST" && (typeof claims.sub !== "string" || !claims.sub)) return send(res, 401, { error: "Subject required" });
+      const result = gazetteRequests.handle(
+        method,
+        pathname,
+        searchParams,
+        method === "POST" ? await readJsonBody(req) : undefined,
+        req.headers["idempotency-key"],
+        typeof claims.sub === "string" ? claims.sub : "",
+        typeof claims.name === "string" ? claims.name : "Administrator",
+        cases,
+        gazetteSettings,
+        gazetteBatches
+      );
+      if (result.loseResponse) {
+        res.destroy();
+        return;
+      }
+      if (pathname === "/caseworker/gazette-notices" && result.status < 300 && result.body && typeof result.body === "object" && "batchId" in result.body)
+        res.setHeader("Location", `/caseworker/gazette-notices/${result.body.batchId}`);
+      return send(res, result.status, result.body);
+    }
+
     // GazetteNoticeHistory reads frozen batches, independently of today's case records.
     if (pathname === "/caseworker/gazette-notices") {
       const claims = await gazetteClaims(req, options.userInfoUrl);
@@ -455,6 +501,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       const ordered = [...gazetteBatches.values()].sort((a, b) => rank(b.sentAt, a.sentAt) || rank(b.id, a.id));
       const from = (paging.page - 1) * paging.size;
       const batches = ordered.slice(from, from + paging.size).map((batch) => ({
+        batchId: batch.id,
         sentAt: iso(batch.sentAt),
         sentBy: batch.sentBy,
         caseCount: batch.referenceNumbers.length,
@@ -1539,6 +1586,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   function reset(): void {
     cases.clear();
     gazetteBatches.clear();
+    gazetteRequests.reset();
     gazetteSettings = { recipientEmail: null, revision: 0, updatedAt: null, updatedBy: null };
     serials.clear();
     savedQueries.clear();
@@ -1659,7 +1707,7 @@ function callerSubject(req: IncomingMessage): string {
 }
 
 // Local IDAM puts roles in userinfo, not its access token. Fixture tokens still carry roles directly.
-async function gazetteClaims(req: IncomingMessage, userInfoUrl?: string): Promise<{ roles?: unknown; name?: unknown } | null> {
+async function gazetteClaims(req: IncomingMessage, userInfoUrl?: string): Promise<{ sub?: unknown; roles?: unknown; name?: unknown } | null> {
   const claims = tokenClaims(req);
   if (!claims || claims.roles !== undefined || !userInfoUrl) return claims;
   try {
