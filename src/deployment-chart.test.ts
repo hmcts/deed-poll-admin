@@ -184,8 +184,8 @@ describe("charts/deed-poll-admin", () => {
     // The adapter falls back to `http://localhost:3200`, the in-repo mock — right for `yarn dev` and wrong
     // everywhere else, so an unset value is a pod whose every case page 500s.
     expect(readValues("values.yaml").nodejs.environment?.DEED_POLL_API_URL).toContain("deed-poll-api-");
-    // Preview points at AAT's api on purpose: `global.environment` is `preview` and no
-    // `deed-poll-api-preview.service.core-compute-preview.internal` exists.
+    // Preview names AAT's api explicitly. Jenkins deploys it with `global.environment=aat` (docs/PIPELINES.md), so
+    // values.yaml would resolve to the same host, but there is no preview api to fall back to if that changes.
     expect(readValues("values.preview.template.yaml").nodejs.environment?.DEED_POLL_API_URL).toBe("http://deed-poll-api-aat.service.core-compute-aat.internal");
   });
 
@@ -213,7 +213,7 @@ describe("charts/deed-poll-admin", () => {
     // The switcher signs a tester in as another persona's real IDAM user, so it is a privilege-escalation
     // mechanism by design. `NODE_ENV` cannot keep it out of production — `package.json`'s `start` sets
     // `NODE_ENV=production` in *every* deployed pod, aat and preview included — so this file being off, and
-    // only the aat and preview templates turning it on, is the whole control. A future production deploy
+    // only the aat template turning it on, is the whole control. A future production deploy
     // gets `values.yaml` plus no template, which must mean off.
     const base = readValues("values.yaml").nodejs.environment?.[PERSONA_SWITCHER_FLAG];
 
@@ -228,12 +228,21 @@ describe("charts/deed-poll-admin", () => {
     const templates = readdirSync(CHART_DIR).filter((file) => /^values\..+\.template\.yaml$/.test(file));
     const enabled = templates.filter((file) => readValues(file).nodejs.environment?.[PERSONA_SWITCHER_FLAG] === "true");
 
-    expect(enabled.sort()).toEqual(["values.aat.template.yaml", "values.preview.template.yaml"]);
+    expect(enabled.sort()).toEqual(["values.aat.template.yaml"]);
     for (const file of enabled) {
       const environment = file.replace(/^values\.(.+)\.template\.yaml$/, "$1");
 
       expect(PERSONA_SWITCHER_ENVIRONMENTS.has(environment), `${file} enables the persona switcher for an environment persona-switcher.ts refuses`).toBe(true);
     }
+  });
+
+  it("should leave the persona switcher off in preview, whose ENVIRONMENT_NAME also reads aat", () => {
+    // Jenkins deploys preview with `global.environment=aat`, so the runtime allowlist cannot tell preview from AAT.
+    // The flag is the only control there, and every PR's unreviewed code would otherwise hold a privilege switcher
+    // that writes to AAT's data (OWASP M1).
+    const preview = readValues("values.preview.template.yaml").nodejs.environment?.[PERSONA_SWITCHER_FLAG];
+
+    expect(preview, "values.preview.template.yaml sets the persona switcher flag").toBeUndefined();
   });
 
   it("should tell the application which environment it is, since NODE_ENV says production in all of them", () => {

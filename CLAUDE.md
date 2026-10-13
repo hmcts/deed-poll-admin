@@ -291,6 +291,10 @@ as that persona's real IDAM user (`src/auth/persona-switcher.ts`, `src/auth/pers
   environment. `config/production.json` restates the flag's `false` and cannot enforce it: node-config applies
   `custom-environment-variables.json` *after* `{NODE_ENV}.json`, so the variable always wins. Same allowlist
   argument as `libs/deed-poll/src/auth/plain-http.ts` — **do not "simplify" either to `!== "production"`**.
+- **Preview has no switcher, and the flag is what keeps it that way.** Jenkins deploys preview with
+  `global.environment=aat`, so `ENVIRONMENT_NAME` reads `aat` there and the allowlist cannot tell the two apart.
+  `values.preview.template.yaml` therefore never sets `PERSONA_SWITCHER_ENABLED`, and `src/deployment-chart.test.ts`
+  fails if it does. Otherwise every PR's unreviewed code would get a privilege switcher writing to AAT's data (OWASP M1).
 - The switcher's copy is **English-only in a `COPY` const**, not in `src/locales`: `yarn welsh:check` fails on a
   `cy` identical to its `en`, so the alternative to billing a translator for a development tool is a red check
   with no defect behind it. This is the one exception to "every page has `en`/`cy`" — do not copy it for
