@@ -3,7 +3,7 @@ appVersion: '1.0'
 name: deed-poll-admin
 description: A Helm chart for deed-poll-admin
 type: application
-version: 0.0.3
+version: 0.0.4
 annotations:
   team: deed-poll
 home: https://github.com/hmcts/deed-poll-admin
@@ -41,6 +41,6 @@ dependencies:
   # session key collision or a flush in one PR is felt in all of them, and preview sessions would outlive
   # the PR inside a store nothing here can clear. `deed-poll-web` settled the same question the same way.
   - name: redis
-    version: 27.0.18
+    version: 28.3.1
     repository: 'oci://registry-1.docker.io/bitnamicharts'
     condition: redis.enabled
