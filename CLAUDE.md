@@ -329,7 +329,10 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
   `src/app.ts`: a session is transport state, and putting it behind api would invert
   authorisation. Local Redis comes from `docker compose`, so `yarn dev` needs Docker running. Preview gets an
   ephemeral `redis` subchart per pull request rather than AAT's cache, because one cache shared across every
-  open PR means a collision or a flush in one is felt in the rest — the reasoning is in `charts/…/Chart.yaml`.
+  open PR means a collision or a flush in one is felt in the rest — the reasoning is in `charts/…/Chart.yaml`. That subchart
+  speaks only `redis://`, which `assertRedisUrl` refuses under `NODE_ENV=production`, so the preview template alone sets
+  `REDIS_PLAINTEXT_PERMITTED`. It admits `redis://` only to a `deed-poll-admin-pr-<n>-redis-master` host, and
+  `src/deployment-chart.test.ts` fails if any other values file sets it.
   `libs/express-session-postgres` is still on disk and still a dependency of the root package deliberately —
   it is template-provided and unwiring it invites a re-scaffold conflict — but nothing imports it, and a
   change that puts sessions back on Postgres is a regression, not a refactor.

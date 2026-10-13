@@ -236,6 +236,19 @@ describe("charts/deed-poll-admin", () => {
     }
   });
 
+  it("should permit plaintext Redis only in preview, whose Redis is the per-PR subchart", () => {
+    // `assertRedisUrl` admits `redis://` only with this flag, and only to a `deed-poll-admin-pr-<n>-redis-master`
+    // host. The flag must never reach values.yaml, which a production deploy inherits, or the AAT template, whose
+    // cache is real (OWASP blocker B3).
+    const templates = readdirSync(CHART_DIR).filter((file) => /^values\..+\.template\.yaml$/.test(file));
+    const setting = (file: string) => readValues(file).nodejs.environment?.REDIS_PLAINTEXT_PERMITTED;
+
+    expect(templates.filter((file) => setting(file) !== undefined)).toEqual(["values.preview.template.yaml"]);
+    expect(setting("values.preview.template.yaml")).toBe("true");
+    expect(setting("values.yaml")).toBeUndefined();
+    expect(readMapping().redis?.plaintextPermitted).toEqual({ __name: "REDIS_PLAINTEXT_PERMITTED", __format: "json" });
+  });
+
   it("should tell the application which environment it is, since NODE_ENV says production in all of them", () => {
     // `ENVIRONMENT_NAME` is resolved here, from the `global.environment` `helmInstall` passes with `--set`,
     // and read through `config`. The mapping is asserted by *structure* and not by searching the file for the
@@ -323,4 +336,5 @@ interface Chart {
 interface EnvironmentMapping {
   environmentName?: string;
   personaSwitcher?: { enabled?: unknown };
+  redis?: { plaintextPermitted?: unknown };
 }
