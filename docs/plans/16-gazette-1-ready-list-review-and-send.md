@@ -1,5 +1,19 @@
 # Plan: London Gazette publication — admin UI (ready list, review, send, history)
 
+## Execution status — 8 October 2026
+
+The read-only foundation (plan 16a), relinquishment exclusion and recipient editor
+are merged, most recently admin PR #163 (`5cd70ad`) and API PR #89 (`7ff8352`).
+The production spreadsheet generator is also merged in API PR #88. There is still
+**no batch-send API or send control**. This parent remains active.
+
+The next API design is
+[`gazette-1b-send-and-recovery-contract.md`](https://github.com/hmcts/deed-poll-api/blob/783f21f24f165e601deee234a5016f714cf7cc8a/docs/plans/gazette-1b-send-and-recovery-contract.md).
+It replaces the former rollback-and-retry assumption with a durable request ledger,
+one email attempt and explicit uncertainty. It is a design, not an available API;
+refresh OpenAPI only after each corresponding operation is implemented and published.
+This plan records the matching admin behavior below. The five-item checklist and
+whether it blocks selection still require a business answer.
 ## Execution status — 9 October 2026
 
 The read-only foundation, relinquishment exclusion and recipient editor are merged
