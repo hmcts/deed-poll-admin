@@ -76,7 +76,7 @@
     "@types/express-session": "1.19.0",
     "@types/govuk-frontend": "5.11.0",
     "@types/multer": "2.2.0",
-    "@types/node": "24.13.3",
+    "@types/node": "24.19.2",
     "@types/nunjucks": "3.2.6",
     "@types/supertest": "7.2.1",
     "@vitest/coverage-v8": "4.1.11",
