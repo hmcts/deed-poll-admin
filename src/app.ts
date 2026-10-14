@@ -16,7 +16,7 @@ import { refreshMiddleware } from "./auth/refresh-middleware.js";
 import { requireAuth } from "./auth/require-auth.js";
 import { requireJudicial, requireRole } from "./auth/require-role.js";
 import { requireSameOrigin } from "./auth/same-origin.js";
-import { assertRedisUrl, assertSessionSecret } from "./auth/session.js";
+import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts } from "./auth/session.js";
 import { assertIdamSettings, idamSettings } from "./auth/settings.js";
 import { domainErrorHandler } from "./errors.js";
 
@@ -69,6 +69,7 @@ export async function createApp(): Promise<Express> {
   app.use(configureHelmet());
   const sessionSecret = config.get<string>("session.secret");
   assertSessionSecret(sessionSecret);
+  assertSessionTimeouts(config.get("session.idleTimeoutSeconds"), config.get("session.absoluteTimeoutSeconds"));
   // Checked here rather than at first use: a wrong redirect URI or an empty client secret fails only
   // when a caseworker tries to log in, and fails on IDAM's page, where no request reaches this app.
   assertIdamSettings(idamSettings());

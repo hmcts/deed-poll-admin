@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { deedPollApiStatus } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
+import { assertSessionTimeouts } from "./auth/session.js";
 
 /**
  * The URL the assertion below expects to reach `createClient`, set rather than assumed.
@@ -79,6 +80,12 @@ vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
   monitoringMiddleware: vi.fn(() => mocks.passthrough),
   healthcheck: mocks.healthcheck
 }));
+// Wrapped, not replaced: the real check still runs, so this file also proves the defaults pass it. node-config freezes
+// itself on first read, so a bad value cannot be injected through `config.get` once another test has started the app.
+vi.mock("./auth/session.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./auth/session.js")>();
+  return { ...original, assertSessionTimeouts: vi.fn(original.assertSessionTimeouts) };
+});
 // `@hmcts/deed-poll` is deliberately **not** mocked. Nothing reaches api until a check is called, and the
 // readiness assertion below compares the mounted check against the real `deedPollApiStatus` by identity —
 // mocking it was how the earlier version of that assertion came to check a hardcoded list against a
@@ -535,6 +542,27 @@ describe("createApp's no-store layer", () => {
     for (const page of pages) {
       expect(isPublicPath(page), page).toBe(publicPages.has(page));
     }
+  });
+});
+
+// The limits are checked in `session.test.ts`; this pins that `createApp` checks them at all, before serving anything.
+describe("createApp's session limits", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should check the configured limits, which default to 30 minutes idle and 10 hours absolute", async () => {
+    await createApp();
+
+    expect(assertSessionTimeouts).toHaveBeenCalledWith(1800, 36_000);
+  });
+
+  it("should refuse to start when the check refuses the limits", async () => {
+    vi.mocked(assertSessionTimeouts).mockImplementationOnce(() => {
+      throw new Error("SESSION_IDLE_TIMEOUT_SECONDS must be shorter than SESSION_ABSOLUTE_TIMEOUT_SECONDS");
+    });
+
+    await expect(createApp()).rejects.toThrow(/SESSION_IDLE_TIMEOUT_SECONDS/);
   });
 });
 

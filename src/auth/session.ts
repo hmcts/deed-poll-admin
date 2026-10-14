@@ -16,6 +16,13 @@ import type { AuthFlowState, IdamTokens } from "./idam.js";
 /** The service name the chart's per-PR Redis subchart gets: `{{ .Release.Name }}-redis-master`. */
 const PREVIEW_REDIS_HOST = /^deed-poll-admin-pr-\d+-redis-master$/;
 
+/**
+ * The range a session limit may take, in seconds. The floor leaves room for the two-minute warning and a reply to
+ * it; the ceiling is the 24-hour cookie these limits replace, so a value above it would be no limit at all.
+ */
+const MIN_IDLE_TIMEOUT_SECONDS = 300;
+const MAX_ABSOLUTE_TIMEOUT_SECONDS = 86_400;
+
 interface DeedPollSession {
   user?: CurrentUser;
   /** Present only between the redirect out to IDAM and the callback back. */
@@ -87,6 +94,27 @@ export function assertSessionSecret(secret: string): void {
   throw new Error(
     `SESSION_SECRET is still the placeholder from config/default.json under NODE_ENV ${JSON.stringify(process.env.NODE_ENV)}. Session cookies signed with it are forgeable, so anyone could assert any role without logging in. Set it from the key vault.`
   );
+}
+
+/**
+ * Refuse to start on session limits that would not limit anything, and return them once checked.
+ *
+ * Both values come from `config` with `__format: "json"`, so a mistyped chart value arrives as a string or a fraction
+ * rather than failing to parse. Unlike the guards above this applies everywhere, local runs included: a nonsense
+ * limit is as wrong on a laptop as in a pod, and the defaults in `config/default.json` satisfy it. The messages name
+ * the setting and the rule, never the value. See OWASP plan 03, decision 6.
+ */
+export function assertSessionTimeouts(idle: unknown, absolute: unknown): SessionTimeouts {
+  if (!Number.isInteger(idle) || (idle as number) < MIN_IDLE_TIMEOUT_SECONDS) {
+    throw new Error(`SESSION_IDLE_TIMEOUT_SECONDS must be a whole number of seconds, at least ${MIN_IDLE_TIMEOUT_SECONDS}.`);
+  }
+  if (!Number.isInteger(absolute) || (absolute as number) > MAX_ABSOLUTE_TIMEOUT_SECONDS) {
+    throw new Error(`SESSION_ABSOLUTE_TIMEOUT_SECONDS must be a whole number of seconds, at most ${MAX_ABSOLUTE_TIMEOUT_SECONDS}.`);
+  }
+  if ((idle as number) >= (absolute as number)) {
+    throw new Error("SESSION_IDLE_TIMEOUT_SECONDS must be shorter than SESSION_ABSOLUTE_TIMEOUT_SECONDS, or the idle limit could never apply.");
+  }
+  return { idleSeconds: idle as number, absoluteSeconds: absolute as number };
 }
 
 /**
@@ -254,4 +282,10 @@ export function signOut(req: Request): Promise<void> {
   return new Promise((resolve, reject) => {
     req.session.destroy((error) => (error ? reject(error) : resolve()));
   });
+}
+
+/** Session lifetime limits in seconds, as checked by `assertSessionTimeouts`. */
+export interface SessionTimeouts {
+  idleSeconds: number;
+  absoluteSeconds: number;
 }

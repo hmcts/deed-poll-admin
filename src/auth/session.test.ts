@@ -3,7 +3,7 @@ import type { Request } from "express";
 import { afterEach, describe, expect, it } from "vitest";
 import { pageRequest, type RequestDouble } from "../express-doubles.js";
 import type { AuthFlowState } from "./idam.js";
-import { assertRedisUrl, assertSessionSecret, sessionIdToken, sessionUser, signIn, signOut, startFlow, takeFlow } from "./session.js";
+import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts, sessionIdToken, sessionUser, signIn, signOut, startFlow, takeFlow } from "./session.js";
 
 const FLOW: AuthFlowState = { codeVerifier: "a-verifier", state: "a-state", returnTo: "/deed-polls" };
 
@@ -191,6 +191,50 @@ describe("assertSessionSecret", () => {
     process.env.NODE_ENV = "production";
 
     expect(() => assertSessionSecret("a-real-secret-from-the-key-vault")).not.toThrow();
+  });
+});
+
+describe("assertSessionTimeouts", () => {
+  it("should accept the plan's defaults of 30 minutes idle and 10 hours absolute", () => {
+    expect(assertSessionTimeouts(1800, 36_000)).toEqual({ idleSeconds: 1800, absoluteSeconds: 36_000 });
+  });
+
+  it("should accept the bounds themselves, 300 seconds idle and 24 hours absolute", () => {
+    expect(assertSessionTimeouts(300, 86_400)).toEqual({ idleSeconds: 300, absoluteSeconds: 86_400 });
+  });
+
+  // An idle limit at or past the absolute one could never fire, so the setting would be a no-op that reads like a control.
+  it.each([
+    [36_000, 36_000],
+    [36_001, 36_000]
+  ])("should refuse an idle limit of %o that is not shorter than the absolute limit of %o", (idle, absolute) => {
+    expect(() => assertSessionTimeouts(idle, absolute)).toThrow(/SESSION_IDLE_TIMEOUT_SECONDS.*SESSION_ABSOLUTE_TIMEOUT_SECONDS/);
+  });
+
+  // Under five minutes there is no room for the two-minute warning and a reply to it.
+  it("should refuse an idle limit under 300 seconds", () => {
+    expect(() => assertSessionTimeouts(299, 36_000)).toThrow(/SESSION_IDLE_TIMEOUT_SECONDS/);
+  });
+
+  it("should refuse an absolute limit over 24 hours, which would be no tighter than the cookie it replaces", () => {
+    expect(() => assertSessionTimeouts(1800, 86_401)).toThrow(/SESSION_ABSOLUTE_TIMEOUT_SECONDS/);
+  });
+
+  it.each([
+    ["a fraction", 1800.5, 36_000, /SESSION_IDLE_TIMEOUT_SECONDS/],
+    ["text", "abc", 36_000, /SESSION_IDLE_TIMEOUT_SECONDS/],
+    ["a numeric string", 1800, "36000", /SESSION_ABSOLUTE_TIMEOUT_SECONDS/],
+    ["missing", 1800, undefined, /SESSION_ABSOLUTE_TIMEOUT_SECONDS/]
+  ])("should refuse %s", (_label, idle, absolute, message) => {
+    expect(() => assertSessionTimeouts(idle, absolute)).toThrow(message);
+  });
+
+  // The message names the setting and the rule only. It is read in startup logs, and quoting values from config
+  // is how a secret ends up there when a neighbouring setting is mis-mapped.
+  it("should not quote the rejected value", () => {
+    expect(() => assertSessionTimeouts("not-a-secret-but-could-be", 36_000)).toThrow(
+      expect.objectContaining({ message: expect.not.stringContaining("not-a-secret-but-could-be") })
+    );
   });
 });
 

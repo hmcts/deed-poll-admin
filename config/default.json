@@ -11,7 +11,9 @@
     "plaintextPermitted": false
   },
   "session": {
-    "secret": "session-secret"
+    "secret": "session-secret",
+    "idleTimeoutSeconds": 1800,
+    "absoluteTimeoutSeconds": 36000
   },
   "gtm": {
     "containerId": "GTM-XXXXXX",
