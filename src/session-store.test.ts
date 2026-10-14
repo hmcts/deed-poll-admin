@@ -28,6 +28,7 @@ import { expressSessionRedis } from "@hmcts-cft/express-session-redis";
 import express from "express";
 import { createClient } from "redis";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { sessionStoreTtl } from "./auth/session.js";
 
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
 /** The prefix `src/app.ts` passes. Restated here so this asserts against a real keyspace. */
@@ -107,6 +108,90 @@ describe.skipIf(!redisReachable)("a session through a real Redis", () => {
     // From the cookie's `maxAge`, which is what `connect-redis` derives its TTL from. Positive rather than
     // an exact value: the assertion is that a TTL was set at all, not how many seconds have elapsed since.
     expect(await client.ttl(`${PREFIX}${id}`)).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The key lifetimes OWASP plan 03 sets, through a real Redis, because the point is what connect-redis does with the
+ * TTL function on every write and every touch, and a double cannot show that. The limits are the app's defaults.
+ */
+describe.skipIf(!redisReachable)("session key lifetimes through a real Redis", () => {
+  const LIMITS = { idleSeconds: 1800, absoluteSeconds: 36_000 };
+  const SIGNED_IN_AN_HOUR_AGO = () => Math.floor(Date.now() / 1000) - 3600;
+  /** The most a signed-in key may have left: its remaining absolute lifetime plus fifteen minutes. */
+  const SIGNED_IN_CEILING = 36_000 - 3600 + 900;
+  let client: Awaited<ReturnType<typeof connect>>;
+  let baseUrl: string;
+  let close: () => Promise<void>;
+
+  beforeAll(async () => {
+    client = await connect();
+
+    const app = express();
+    app.use(
+      expressSessionRedis({
+        redisConnection: client,
+        sessionOptions: { secret: "a-test-secret", cookie: { maxAge: LIMITS.absoluteSeconds * 1000, httpOnly: true, secure: false, sameSite: "lax" } },
+        storeOptions: { prefix: PREFIX, ttl: sessionStoreTtl(LIMITS) }
+      })
+    );
+    const namespace = (req: express.Request) => req.session as unknown as { deedPoll?: Record<string, unknown> };
+    app.get("/start-sign-in", (req, res) => {
+      namespace(req).deedPoll = { flow: { state: "a-state" } };
+      req.session.save(() => res.json({ id: req.sessionID }));
+    });
+    app.get("/signed-in", (req, res) => {
+      const at = SIGNED_IN_AN_HOUR_AGO();
+      namespace(req).deedPoll = { user: { name: "A Caseworker" }, authenticatedAt: at, lastSeenAt: at };
+      req.session.save(() => res.json({ id: req.sessionID }));
+    });
+    app.get("/read", (req, res) => {
+      res.json({ id: req.sessionID });
+    });
+
+    const server = createServer(app);
+    server.listen(0);
+    await once(server, "listening");
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    close = () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+  });
+
+  afterAll(async () => {
+    await close?.();
+    await client?.quit();
+  });
+
+  it("should keep a session that is only signing in for ten minutes at most", async () => {
+    const { id } = (await (await fetch(`${baseUrl}/start-sign-in`)).json()) as { id: string };
+
+    const ttl = await client.ttl(`${PREFIX}${id}`);
+
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(600);
+  });
+
+  it("should keep a signed-in session no longer than its remaining absolute lifetime plus fifteen minutes", async () => {
+    const { id } = (await (await fetch(`${baseUrl}/signed-in`)).json()) as { id: string };
+
+    const ttl = await client.ttl(`${PREFIX}${id}`);
+
+    expect(ttl).toBeLessThanOrEqual(SIGNED_IN_CEILING);
+    expect(ttl).toBeGreaterThan(SIGNED_IN_CEILING - 30);
+  });
+
+  // The behaviour that was missing: every request used to slide the key a full cookie lifetime further on.
+  it("should not let a later request push the signed-in key past that", async () => {
+    const written = await fetch(`${baseUrl}/signed-in`);
+    const cookie = written.headers.get("set-cookie") as string;
+    const { id } = (await written.json()) as { id: string };
+
+    const read = await fetch(`${baseUrl}/read`, { headers: { cookie } });
+
+    expect(((await read.json()) as { id: string }).id).toBe(id);
+    expect(await client.ttl(`${PREFIX}${id}`)).toBeLessThanOrEqual(SIGNED_IN_CEILING);
   });
 });
 

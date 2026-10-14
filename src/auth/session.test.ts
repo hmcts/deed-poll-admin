@@ -8,6 +8,7 @@ import {
   assertSessionSecret,
   assertSessionTimeouts,
   sessionIdToken,
+  sessionStoreTtl,
   sessionTimestamps,
   sessionUser,
   signIn,
@@ -215,6 +216,42 @@ describe("session timestamps", () => {
 
     expect(sessionTimestamps(untimed)).toBeUndefined();
     expect(sessionTimestamps(halfTimed)).toBeUndefined();
+  });
+});
+
+describe("sessionStoreTtl", () => {
+  const LIMITS = { idleSeconds: 1800, absoluteSeconds: 36_000 };
+  const NOW = new Date("2026-10-14T12:00:00Z");
+  const NOW_SECONDS = NOW.getTime() / 1000;
+  const ttl = sessionStoreTtl(LIMITS);
+  const stored = (deedPoll?: Record<string, unknown>) => ({ cookie: {}, ...(deedPoll ? { deedPoll } : {}) }) as unknown as Parameters<typeof ttl>[0];
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Ten minutes is long enough to finish a sign-in at IDAM, and short enough that a crawler's sessions do not linger.
+  it.each([
+    ["an empty session", undefined],
+    ["a sign-in in flight", { flow: { state: "a-state" } }],
+    ["a timed-out session holding only its return path", { timedOutReturnTo: "/deed-polls" }]
+  ])("should keep %s for ten minutes", (_label, deedPoll) => {
+    expect(ttl(stored(deedPoll))).toBe(600);
+  });
+
+  // Fifteen minutes past the absolute deadline, so it is the middleware, not eviction, that ends every session on time
+  // and sends the user through IDAM end-session.
+  it("should keep a signed-in session until fifteen minutes after its absolute deadline", () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+
+    expect(ttl(stored({ user: { name: "A" }, authenticatedAt: NOW_SECONDS - 3600, lastSeenAt: NOW_SECONDS }))).toBe(36_000 - 3600 + 900);
+  });
+
+  // connect-redis deletes the key on a TTL of zero or less, which would lose the session mid-request.
+  it("should never answer less than one second, even long past the deadline", () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+
+    expect(ttl(stored({ user: { name: "A" }, authenticatedAt: NOW_SECONDS - 100_000, lastSeenAt: NOW_SECONDS - 100_000 }))).toBe(1);
   });
 });
 

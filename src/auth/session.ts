@@ -11,6 +11,7 @@
  */
 import { type CurrentUser, plainHttpPermitted } from "@hmcts/deed-poll";
 import type { Request } from "express";
+import type { SessionData } from "express-session";
 import type { AuthFlowState, IdamTokens } from "./idam.js";
 
 /** The service name the chart's per-PR Redis subchart gets: `{{ .Release.Name }}-redis-master`. */
@@ -22,6 +23,11 @@ const PREVIEW_REDIS_HOST = /^deed-poll-admin-pr-\d+-redis-master$/;
  */
 const MIN_IDLE_TIMEOUT_SECONDS = 300;
 const MAX_ABSOLUTE_TIMEOUT_SECONDS = 86_400;
+
+/** How long the store keeps a session nobody is signed in to: enough to finish a sign-in at IDAM. */
+const ANONYMOUS_STORE_TTL_SECONDS = 600;
+/** How long past the absolute deadline the store keeps a signed-in session, so `sessionLifetime` always ends it first. */
+const SIGNED_IN_STORE_GRACE_SECONDS = 900;
 
 interface DeedPollSession {
   user?: CurrentUser;
@@ -124,6 +130,24 @@ export function assertSessionTimeouts(idle: unknown, absolute: unknown): Session
     throw new Error("SESSION_IDLE_TIMEOUT_SECONDS must be shorter than SESSION_ABSOLUTE_TIMEOUT_SECONDS, or the idle limit could never apply.");
   }
   return { idleSeconds: idle as number, absoluteSeconds: absolute as number };
+}
+
+/**
+ * How long Redis keeps a session, in seconds, derived from the session rather than from its cookie.
+ *
+ * connect-redis otherwise takes the TTL from `cookie.expires`, which express-session slides forward on every request,
+ * so the key would live as long as anyone kept using it. Here a signed-in session lives until fifteen minutes past
+ * its absolute deadline, whatever its activity, so the middleware rather than eviction ends it and signs the user out
+ * of IDAM. Anything else lives ten minutes. Never below one second: connect-redis deletes the key on zero or less,
+ * which would lose a session mid-request. OWASP plan 03, decision 5.
+ */
+export function sessionStoreTtl(limits: SessionTimeouts): (sess: SessionData) => number {
+  return (sess) => {
+    const stored = (sess as SessionData & { deedPoll?: DeedPollSession }).deedPoll;
+    if (!stored?.user || stored.authenticatedAt === undefined) return ANONYMOUS_STORE_TTL_SECONDS;
+    const remaining = stored.authenticatedAt + limits.absoluteSeconds - nowSeconds();
+    return Math.max(1, remaining + SIGNED_IN_STORE_GRACE_SECONDS);
+  };
 }
 
 /**

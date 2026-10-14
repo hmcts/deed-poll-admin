@@ -100,7 +100,7 @@ type HealthcheckOptions = {
 
 type SessionRedisOptions = {
   sessionOptions: { secret: string; cookie: Record<string, unknown> };
-  storeOptions: { prefix: string };
+  storeOptions: { prefix: string; ttl?: unknown };
 };
 
 function healthcheckOptions(): HealthcheckOptions {
@@ -130,14 +130,22 @@ describe("createApp", () => {
   // `expressSessionRedis` defaults `maxAge` to four hours where the Postgres store it replaced defaulted to
   // twenty-four, and `express-session` sets no `sameSite` at all. `secure` is false only because vitest sets
   // `NODE_ENV=test`, which `plainHttpPermitted` allowlists.
-  it("should give the session cookie a 24-hour lifetime, httpOnly and sameSite=lax explicitly", async () => {
-    expect(sessionRedisOptions().sessionOptions.cookie).toEqual({ maxAge: 86_400_000, httpOnly: true, secure: false, sameSite: "lax" });
+  // The cookie lasts as long as the absolute limit (10 hours by default). It is a convenience: sessionLifetime decides.
+  it("should give the session cookie the absolute limit's lifetime, httpOnly and sameSite=lax explicitly", async () => {
+    expect(sessionRedisOptions().sessionOptions.cookie).toEqual({ maxAge: 36_000_000, httpOnly: true, secure: false, sameSite: "lax" });
   });
 
   // One Redis per product, shared with `deed-poll-web`, so the library's default `sess:` prefix would put a
   // public service's sessions and this one's IDAM tokens in a single keyspace.
   it("should prefix session keys per component, since the product's Redis is shared with deed-poll-web", async () => {
-    expect(sessionRedisOptions().storeOptions).toEqual({ prefix: "admin-sess:" });
+    expect(sessionRedisOptions().storeOptions).toEqual({ prefix: "admin-sess:", ttl: expect.any(Function) });
+  });
+
+  // Derived from the session rather than the cookie, which every request slides. See sessionStoreTtl.
+  it("should give the store a TTL that a signed-in session's activity cannot extend", async () => {
+    const { ttl } = sessionRedisOptions().storeOptions as { ttl: (sess: unknown) => number };
+
+    expect(ttl({ cookie: {} })).toBe(600);
   });
 
   it("should connect a Redis client at the configured URL before mounting the session middleware", async () => {

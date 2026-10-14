@@ -16,7 +16,7 @@ import { refreshMiddleware } from "./auth/refresh-middleware.js";
 import { requireAuth } from "./auth/require-auth.js";
 import { requireJudicial, requireRole } from "./auth/require-role.js";
 import { requireSameOrigin } from "./auth/same-origin.js";
-import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts } from "./auth/session.js";
+import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts, sessionStoreTtl } from "./auth/session.js";
 import { sessionLifetime } from "./auth/session-lifetime.js";
 import { assertIdamSettings, idamSettings } from "./auth/settings.js";
 import { domainErrorHandler } from "./errors.js";
@@ -34,14 +34,6 @@ const REDIS_CONNECT_TIMEOUT_MS = 2_000;
  * waits indefinitely reports nothing at all.
  */
 const REDIS_PING_TIMEOUT_MS = 1_000;
-/**
- * Twenty-four hours, stated rather than inherited.
- *
- * This is the lifetime the Postgres store this replaced defaulted to. `expressSessionRedis` defaults to
- * four, so leaving it to the library would have signed caseworkers out three times as often as an
- * unremarked side effect of a store swap.
- */
-const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24;
 /**
  * Keyed per component, because the shared root provisions **one** Redis for the whole product and
  * `deed-poll-web` reads the same `redis-url`. Under the library default of `sess:` a public-facing
@@ -100,7 +92,8 @@ export async function createApp(): Promise<Express> {
       sessionOptions: {
         secret: sessionSecret,
         cookie: {
-          maxAge: SESSION_MAX_AGE_MS,
+          // The absolute limit: no cookie outlives the session it belongs to. A convenience, not the control.
+          maxAge: sessionTimeouts.absoluteSeconds * 1000,
           httpOnly: true,
           // `plainHttpPermitted()` rather than `NODE_ENV === "production"`, which is what the library
           // uses: that reading leaves the cookie sent in cleartext in `aat`, in preview, and anywhere
@@ -113,7 +106,7 @@ export async function createApp(): Promise<Express> {
           sameSite: "lax"
         }
       },
-      storeOptions: { prefix: SESSION_KEY_PREFIX }
+      storeOptions: { prefix: SESSION_KEY_PREFIX, ttl: sessionStoreTtl(sessionTimeouts) }
     })
   );
   // Every state-changing request must come from this app's own pages. `SameSite=Lax` above stops
