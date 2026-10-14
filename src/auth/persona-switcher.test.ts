@@ -42,8 +42,8 @@ describe("personaSwitcherEnabled", () => {
     settings.clear();
   });
 
-  it("should permit the switcher in development, test, aat and preview, and nowhere else", () => {
-    expect([...PERSONA_SWITCHER_ENVIRONMENTS].sort()).toEqual(["aat", "development", "preview", "test"]);
+  it("should permit the switcher in development, test and aat, and nowhere else", () => {
+    expect([...PERSONA_SWITCHER_ENVIRONMENTS].sort()).toEqual(["aat", "development", "test"]);
   });
 
   it.each([...PERSONA_SWITCHER_ENVIRONMENTS])("should enable it in %s when the chart flag is on", (environmentName) => {
@@ -56,12 +56,15 @@ describe("personaSwitcherEnabled", () => {
   // The point of the allowlist, and the assertions that fail if someone "simplifies" it to
   // `!== "production"`. Every deployed pod runs as `NODE_ENV=production`, so these environment names are the
   // only thing that tells one deployment from another.
-  it.each(["production", "prod", "demo", "ithc", "perftest", "staging", ""])("should refuse it in %o even with the chart flag on", (environmentName) => {
-    settings.set("personaSwitcher.enabled", true);
-    settings.set("environmentName", environmentName);
+  it.each(["production", "prod", "demo", "ithc", "perftest", "staging", "preview", ""])(
+    "should refuse it in %o even with the chart flag on",
+    (environmentName) => {
+      settings.set("personaSwitcher.enabled", true);
+      settings.set("environmentName", environmentName);
 
-    expect(personaSwitcherEnabled()).toBe(false);
-  });
+      expect(personaSwitcherEnabled()).toBe(false);
+    }
+  );
 
   it.each([...PERSONA_SWITCHER_ENVIRONMENTS])("should refuse it in %s while the chart flag is off, which is the default", (environmentName) => {
     settings.set("personaSwitcher.enabled", false);

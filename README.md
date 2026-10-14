@@ -220,8 +220,8 @@ gated twice, and neither gate is `NODE_ENV` (every deployed pod runs `NODE_ENV=p
 
 | Variable | What it does |
 |---|---|
-| `PERSONA_SWITCHER_ENABLED` | Must be exactly `true`. Off in `config/default.json` and in the chart's `values.yaml`, which a production deploy inherits; only `values.aat.template.yaml` and `values.preview.template.yaml` turn it on |
-| `ENVIRONMENT_NAME` | Must name one of `development`, `test`, `aat`, `preview`. The chart renders it from `global.environment`; `yarn dev` exports `development` and the test suite sets `test`. **Unset matches nothing**, so a deploy that loses it gets no switcher rather than falling back to a permitted name |
+| `PERSONA_SWITCHER_ENABLED` | Must be exactly `true`. Off in `config/default.json` and in the chart's `values.yaml`, which a production deploy inherits; only `values.aat.template.yaml` turns it on. Preview deliberately does not (OWASP M1) |
+| `ENVIRONMENT_NAME` | Must name one of `development`, `test`, `aat`. The chart renders it from `global.environment`; `yarn dev` exports `development` and the test suite sets `test`. **Unset matches nothing**, so a deploy that loses it gets no switcher rather than falling back to a permitted name |
 
 Both must agree, or nothing is rendered and `POST /switch-persona` is a 404. See
 `src/auth/persona-switcher.ts` for the full reasoning and `docs/plans/completed/dev-persona-switcher.md`

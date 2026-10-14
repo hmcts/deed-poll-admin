@@ -27,7 +27,7 @@
  *
  *   - **The chart flag** (`PERSONA_SWITCHER_ENABLED`), default off in `config/default.json`.
  *     `charts/deed-poll-admin/values.yaml` — the base, which a future production deploy inherits — leaves it
- *     off; the aat and preview templates turn it on explicitly. This catches the switcher being deployed
+ *     off; only the aat template turns it on, and preview deliberately does not. This catches the switcher being deployed
  *     somewhere nobody asked for it. **`config/production.json` restates the `false` and cannot enforce it**:
  *     node-config applies `custom-environment-variables.json` *after* `{NODE_ENV}.json`, so the environment
  *     variable always wins — as it must, since every deployed pod including AAT's runs `NODE_ENV=production`.
@@ -59,7 +59,7 @@ import { type Persona, personaState, switcherUnavailableReason } from "./persona
 import { sessionSubject, sessionUser } from "./session.js";
 
 /** The only environments in which the persona switcher may be offered. */
-export const PERSONA_SWITCHER_ENVIRONMENTS = new Set(["development", "test", "aat", "preview"]);
+export const PERSONA_SWITCHER_ENVIRONMENTS = new Set(["development", "test", "aat"]);
 
 /**
  * Where the switcher posts.
