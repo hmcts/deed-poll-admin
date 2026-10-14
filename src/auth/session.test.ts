@@ -216,6 +216,37 @@ describe("assertRedisUrl", () => {
     expect(() => assertRedisUrl("redis://localhost:6379")).toThrow(/placeholder/);
   });
 
+  describe("with REDIS_PLAINTEXT_PERMITTED, which only the preview template sets", () => {
+    it("admits plain redis:// to a preview release's own subchart service", () => {
+      process.env.NODE_ENV = "production";
+
+      expect(() => assertRedisUrl("redis://deed-poll-admin-pr-172-redis-master:6379", true)).not.toThrow();
+    });
+
+    it.each([
+      "redis://deed-poll-admin-aat.redis.cache.windows.net:6379",
+      "redis://deed-poll-admin-pr-172-redis-master.evil.example:6379",
+      "redis://other-service-pr-172-redis-master:6379",
+      "redis://deed-poll-admin-pr-abc-redis-master:6379"
+    ])("still refuses plain redis:// to %s, which is not a per-PR subchart service", (url) => {
+      process.env.NODE_ENV = "production";
+
+      expect(() => assertRedisUrl(url, true)).toThrow(/unencrypted/);
+    });
+
+    it("still refuses the loopback placeholder", () => {
+      process.env.NODE_ENV = "production";
+
+      expect(() => assertRedisUrl("redis://localhost:6379", true)).toThrow(/placeholder/);
+    });
+
+    it("refuses the preview host without the flag, which AAT and production never set", () => {
+      process.env.NODE_ENV = "production";
+
+      expect(() => assertRedisUrl("redis://deed-poll-admin-pr-172-redis-master:6379")).toThrow(/unencrypted/);
+    });
+  });
+
   it.each(["rediss://127.0.0.1:6380", "rediss://[::1]:6380"])("refuses %s as well as the localhost spelling", (url) => {
     process.env.NODE_ENV = "production";
 

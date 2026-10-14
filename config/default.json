@@ -7,7 +7,8 @@
     "emailDomain": "example.com"
   },
   "redis": {
-    "url": "redis://localhost:6379"
+    "url": "redis://localhost:6379",
+    "plaintextPermitted": false
   },
   "session": {
     "secret": "session-secret"

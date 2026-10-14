@@ -98,7 +98,9 @@ describe("representative dataset", () => {
   });
 });
 
-describe("seed through the real adapter over HTTP", () => {
+// These start a real HTTP mock and seed thirty cases through the adapter, so they take 3-4s normally and longer
+// under coverage instrumentation. Vitest's 5s default failed PR-173's `test:coverage` stage at 5,051ms.
+describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
   it("should seed and verify caseworker data without judicial requests, then resume those actions without duplicates", async () => {
     mock = await startMockApi();
     const journal = newJournal(mock.url);
