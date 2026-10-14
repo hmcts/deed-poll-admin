@@ -13,6 +13,9 @@ import { type CurrentUser, plainHttpPermitted } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import type { AuthFlowState, IdamTokens } from "./idam.js";
 
+/** The service name the chart's per-PR Redis subchart gets: `{{ .Release.Name }}-redis-master`. */
+const PREVIEW_REDIS_HOST = /^deed-poll-admin-pr-\d+-redis-master$/;
+
 interface DeedPollSession {
   user?: CurrentUser;
   /** Present only between the redirect out to IDAM and the callback back. */
@@ -99,8 +102,16 @@ export function assertSessionSecret(secret: string): void {
  *
  * Same allowlist and the same reason as `assertSessionSecret` and `assertIdamSettings`: a
  * `!== "production"` test would accept both in `aat`, in preview, and anywhere `NODE_ENV` is unset.
+ *
+ * **One exception, for preview only.** Each pull request gets its own throwaway Redis from the chart's subchart,
+ * which speaks only `redis://`, and every deployed pod runs `NODE_ENV=production`, so preview could never start.
+ * `plaintextPermitted` (`REDIS_PLAINTEXT_PERMITTED`, set only in `values.preview.template.yaml` and pinned there
+ * by `src/deployment-chart.test.ts`) admits `redis://` **only** to a host shaped like that subchart's service,
+ * `deed-poll-admin-pr-<n>-redis-master`: a bare in-namespace name that no Azure Cache host can match. The tokens
+ * still cross the cluster network unencrypted, but only to a per-PR store of short-lived AAT test sessions.
+ * Accepted by the tech lead on 2026-10-13 (OWASP blocker B3).
  */
-export function assertRedisUrl(url: string): void {
+export function assertRedisUrl(url: string, plaintextPermitted = false): void {
   if (plainHttpPermitted()) return;
 
   // Only ever the scheme and host reach a message. The real value is `rediss://:<access-key>@host:6380`,
@@ -117,6 +128,8 @@ export function assertRedisUrl(url: string): void {
   }
 
   if (protocol !== "rediss:") {
+    if (plaintextPermitted && protocol === "redis:" && PREVIEW_REDIS_HOST.test(hostname)) return;
+
     throw new Error(
       `REDIS_URL uses ${protocol} under NODE_ENV ${JSON.stringify(process.env.NODE_ENV)}. Sessions carry IDAM access and refresh tokens, so an unencrypted connection puts them on the wire. The redis-url key vault entry is written as rediss:// against the TLS port.`
     );
