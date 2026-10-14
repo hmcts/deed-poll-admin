@@ -10,7 +10,11 @@
     "emailDomain": "PERSONA_SWITCHER_EMAIL_DOMAIN"
   },
   "redis": {
-    "url": "REDIS_URL"
+    "url": "REDIS_URL",
+    "plaintextPermitted": {
+      "__name": "REDIS_PLAINTEXT_PERMITTED",
+      "__format": "json"
+    }
   },
   "session": {
     "secret": "SESSION_SECRET"

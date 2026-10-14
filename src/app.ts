@@ -55,7 +55,7 @@ export async function createApp(): Promise<Express> {
   // it has to be that way round rather than a call from here: see ./secrets.ts.
   const { default: config } = await import("config");
   const redisUrl = config.get<string>("redis.url");
-  assertRedisUrl(redisUrl);
+  assertRedisUrl(redisUrl, config.get<boolean>("redis.plaintextPermitted") === true);
   const redisConnection = await getRedisClient(redisUrl);
   const app = express();
 
