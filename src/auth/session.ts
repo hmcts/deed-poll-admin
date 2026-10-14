@@ -43,6 +43,13 @@ interface DeedPollSession {
   accessToken?: string;
   /** Unix timestamp (seconds) when the access token expires. */
   tokenExpiresAt?: number;
+  /**
+   * Unix timestamp (seconds) of the sign-in this session belongs to: the start of the absolute limit. Only `signIn`
+   * writes it, so no refresh can move the deadline. OWASP plan 03, decision 1.
+   */
+  authenticatedAt?: number;
+  /** Unix timestamp (seconds) of the last request that counts as activity: the start of the idle limit. */
+  lastSeenAt?: number;
 }
 
 type SessionWithDeedPoll = Request["session"] & { deedPoll?: DeedPollSession };
@@ -219,6 +226,9 @@ export function signIn(req: Request, user: CurrentUser, subject: string, tokens:
       session.accessToken = tokens.accessToken;
       session.refreshToken = tokens.refreshToken;
       session.tokenExpiresAt = tokens.expiresAt;
+      // Both clocks start here and only here, so a login and a persona switch each begin a fresh session.
+      session.authenticatedAt = nowSeconds();
+      session.lastSeenAt = session.authenticatedAt;
       req.session.save((saveError) => (saveError ? reject(saveError) : resolve()));
     });
   });
@@ -256,6 +266,32 @@ export function sessionSubject(req: Request): string | undefined {
 }
 
 /**
+ * When this session was signed in and when it was last active, or undefined unless both are recorded.
+ *
+ * Undefined rather than a partial answer because a signed-in session without both is one this app cannot time,
+ * and the lifetime check ends it rather than guessing.
+ */
+export function sessionTimestamps(req: Request): SessionTimestamps | undefined {
+  const session = namespace(req);
+  if (session?.authenticatedAt === undefined || session.lastSeenAt === undefined) return undefined;
+  return { authenticatedAt: session.authenticatedAt, lastSeenAt: session.lastSeenAt };
+}
+
+/**
+ * Record activity now, and save it before resolving.
+ *
+ * Saved explicitly, at the start of a request, rather than left to `express-session`'s end-of-request write: that
+ * write is of the whole session, so a slow upload finishing late could overwrite tokens a concurrent request had
+ * just refreshed, and spend a rotated refresh token. OWASP plan 03, decision 3.
+ */
+export function touchLastSeen(req: Request): Promise<void> {
+  return new Promise((resolve, reject) => {
+    writableNamespace(req).lastSeenAt = nowSeconds();
+    req.session.save((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+/**
  * Update stored tokens after a successful refresh.
  *
  * Does NOT regenerate the session — the user was already authenticated, this just extends it.
@@ -266,6 +302,7 @@ export function updateTokens(req: Request, tokens: IdamTokens): Promise<void> {
     session.accessToken = tokens.accessToken;
     session.refreshToken = tokens.refreshToken;
     session.tokenExpiresAt = tokens.expiresAt;
+    // `authenticatedAt` and `lastSeenAt` are not touched either: a refresh moving them would make the session endless.
     // `subject` is deliberately not touched: it records who this session was established for, and a
     // refresh that describes someone else is refused by `refreshTokens` rather than adopted here.
     //
@@ -284,8 +321,18 @@ export function signOut(req: Request): Promise<void> {
   });
 }
 
+function nowSeconds(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
 /** Session lifetime limits in seconds, as checked by `assertSessionTimeouts`. */
 export interface SessionTimeouts {
   idleSeconds: number;
   absoluteSeconds: number;
+}
+
+/** When a session was signed in and last active, in Unix seconds. */
+export interface SessionTimestamps {
+  authenticatedAt: number;
+  lastSeenAt: number;
 }

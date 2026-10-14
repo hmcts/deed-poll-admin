@@ -1,9 +1,22 @@
 import { currentUser, DEEDPOLL_ADMIN } from "@hmcts/deed-poll";
 import type { Request } from "express";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, type RequestDouble } from "../express-doubles.js";
 import type { AuthFlowState } from "./idam.js";
-import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts, sessionIdToken, sessionUser, signIn, signOut, startFlow, takeFlow } from "./session.js";
+import {
+  assertRedisUrl,
+  assertSessionSecret,
+  assertSessionTimeouts,
+  sessionIdToken,
+  sessionTimestamps,
+  sessionUser,
+  signIn,
+  signOut,
+  startFlow,
+  takeFlow,
+  touchLastSeen,
+  updateTokens
+} from "./session.js";
 
 const FLOW: AuthFlowState = { codeVerifier: "a-verifier", state: "a-state", returnTo: "/deed-polls" };
 
@@ -139,6 +152,69 @@ describe("signIn", () => {
 
     expect(sessionUser(req)).toBeDefined();
     expect(sessionIdToken(req)).toBeUndefined();
+  });
+});
+
+describe("session timestamps", () => {
+  const user = currentUser([DEEDPOLL_ADMIN], "A Caseworker");
+  const tokens = { idToken: "an-id-token", accessToken: "an-access-token", refreshToken: "a-refresh-token", expiresAt: 1_800_000_000 };
+  const SIGNED_IN_AT = new Date("2026-10-14T09:00:00Z");
+  const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("should start both clocks at sign-in", async () => {
+    vi.useFakeTimers({ now: SIGNED_IN_AT, toFake: ["Date"] });
+    const req = request();
+
+    await signIn(req, user, "caseworker@example.com", tokens);
+
+    expect(sessionTimestamps(req)).toEqual({ authenticatedAt: seconds(SIGNED_IN_AT), lastSeenAt: seconds(SIGNED_IN_AT) });
+  });
+
+  // The guard that matters most: a refresh that moved either clock would make the session endless again.
+  it("should leave both clocks alone when tokens are refreshed", async () => {
+    vi.useFakeTimers({ now: SIGNED_IN_AT, toFake: ["Date"] });
+    const req = request();
+    await signIn(req, user, "caseworker@example.com", tokens);
+    vi.setSystemTime(new Date("2026-10-14T17:00:00Z"));
+
+    await updateTokens(req, { ...tokens, accessToken: "a-refreshed-token" });
+
+    expect(sessionTimestamps(req)).toEqual({ authenticatedAt: seconds(SIGNED_IN_AT), lastSeenAt: seconds(SIGNED_IN_AT) });
+  });
+
+  it("should move only the last-seen clock, and save it, when activity is recorded", async () => {
+    vi.useFakeTimers({ now: SIGNED_IN_AT, toFake: ["Date"] });
+    const req = request();
+    await signIn(req, user, "caseworker@example.com", tokens);
+    const later = new Date("2026-10-14T09:20:00Z");
+    vi.setSystemTime(later);
+    req.session.save.mockClear();
+
+    await touchLastSeen(req);
+
+    expect(sessionTimestamps(req)).toEqual({ authenticatedAt: seconds(SIGNED_IN_AT), lastSeenAt: seconds(later) });
+    expect(req.session.save).toHaveBeenCalled();
+  });
+
+  it("should reject when the last-seen save fails, rather than carrying on as if it had been recorded", async () => {
+    const req = request({ signedIn: true });
+    req.session.save.mockImplementation((callback: (error?: Error) => void) => callback(new Error("store down")));
+
+    await expect(touchLastSeen(req)).rejects.toThrow("store down");
+  });
+
+  // A session from before this change has neither. Reading it as "no timestamps" lets the lifetime check end it.
+  it("should report no timestamps for a session that has none, or only one", () => {
+    const untimed = request({ signedIn: true });
+    const halfTimed = request({ signedIn: true });
+    halfTimed.session.deedPoll.authenticatedAt = seconds(SIGNED_IN_AT);
+
+    expect(sessionTimestamps(untimed)).toBeUndefined();
+    expect(sessionTimestamps(halfTimed)).toBeUndefined();
   });
 });
 
