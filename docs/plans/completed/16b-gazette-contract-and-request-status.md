@@ -3,12 +3,12 @@
 ## Scope — 9 October 2026
 
 Historical slice record: Steve subsequently chose mandatory gating.
-[16c](16c-gazette-mandatory-review-and-send.md) implements the next journey; the
+[16c](../16c-gazette-mandatory-review-and-send.md) implements the next journey; the
 statements below describe 16b at completion.
 
 This slice consumes merged API PR #93 (`742cb5a`) in an isolated admin worktree,
 based on admin master `5cd70ad`. It completes contract reconciliation and the
-read-only request/status/member part of [plan 16](16-gazette-1-ready-list-review-and-send.md).
+read-only request/status/member part of [plan 16](../16-gazette-1-ready-list-review-and-send.md).
 
 The five-item review checklist and whether it blocks selection still need a business
 answer. This slice does not choose that rule. It adds no send form or domain write
@@ -50,7 +50,7 @@ replay tests do **not** establish that the as-yet unimplemented browser journey 
   against `742cb5a`; raw SHA-256
   `c5465002de9a57d175cad73a9b33392b22d8e73337cd02df5ece51eec80b86cc`.
   Detailed provenance is in
-  [SPEC-PROVENANCE.md](../../libs/deed-poll-api-client/SPEC-PROVENANCE.md).
+  [SPEC-PROVENANCE.md](../../../libs/deed-poll-api-client/SPEC-PROVENANCE.md).
 - Clean admin baseline: lint passed; serial suite passed 3,597 tests, three skipped.
   Welsh extraction: 554 strings, 474 identical (467 prose, seven non-prose).
 - Updated `yarn build`: passed. Existing GOV.UK asset/CSS warnings remain.

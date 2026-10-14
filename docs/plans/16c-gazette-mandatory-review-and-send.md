@@ -9,7 +9,7 @@ refined later; the rule is implemented without adding a configurable advisory mo
 This slice builds on admin PR #165 (`43a05d6`) in a separate worktree. It consumes
 the already merged API PR #93 contract and changes no API code or OpenAPI artifact.
 The parent [plan 16](16-gazette-1-ready-list-review-and-send.md) remains the feature
-record; [16b](16b-gazette-contract-and-request-status.md) records its read foundation.
+record; [16b](completed/16b-gazette-contract-and-request-status.md) records its read foundation.
 
 ## Implemented journey
 
