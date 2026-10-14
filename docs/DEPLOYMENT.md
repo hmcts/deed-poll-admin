@@ -211,6 +211,30 @@ database to connect to: that is api's, along with the schema and the Flyway migr
 An api change that needs reverting is reverted in api. This app holds no schema, so a rollback here is a
 Helm rollback of a stateless pod — see [Rollback Procedures](#rollback-procedures).
 
+## Session lifetime
+
+A signed-in session has two limits, enforced by `src/auth/session-lifetime.ts` from timestamps held in Redis.
+The cookie expiry and any client-side warning are conveniences; neither decides anything.
+
+| Variable | Chart value | Meaning |
+|---|---|---|
+| `SESSION_IDLE_TIMEOUT_SECONDS` | `1800` (30 min) | Ends a session with no activity for this long |
+| `SESSION_ABSOLUTE_TIMEOUT_SECONDS` | `36000` (10 h) | Ends a session this long after sign-in, however active. A token refresh never extends it |
+| `SESSION_TIMEOUT_LOGOUT_PATH_REGISTERED` | `"false"` | `"true"` once IDAM has `/session-timed-out` registered as a post-logout address for this client |
+
+- **The values are recommended defaults, not a decision.** The service owner sets the policy; a decision changes only
+  the chart. `assertSessionTimeouts` refuses to start unless `300 <= idle < absolute <= 86400`.
+- **A timeout ends the session here and at IDAM**, as logout does. A GET returns, after IDAM end-session, to
+  `/session-timed-out` (or `/` until the address is registered), and "Sign in again" resumes the original page. A
+  timed-out POST gets a 401 page saying the changes were not saved; nothing is replayed.
+- **Activity** is any signed-in request to a non-public page, recorded at most once a minute. Public pages, health
+  probes and assets do not count.
+- **Redis TTL** is derived from the session: a signed-in key lives until 15 minutes after its absolute deadline, any
+  other key 10 minutes. The cookie `maxAge` is the absolute limit.
+- **First deploy signs everyone out once.** Sessions created before the limits carry no timestamps and are ended.
+- **Rollback:** raise `SESSION_IDLE_TIMEOUT_SECONDS` in the chart, or revert the release. Older code ignores the new
+  session fields.
+
 ## Secrets Management
 
 ### Azure Key Vault Integration
