@@ -17,6 +17,7 @@ import { requireAuth } from "./auth/require-auth.js";
 import { requireJudicial, requireRole } from "./auth/require-role.js";
 import { requireSameOrigin } from "./auth/same-origin.js";
 import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts } from "./auth/session.js";
+import { sessionLifetime } from "./auth/session-lifetime.js";
 import { assertIdamSettings, idamSettings } from "./auth/settings.js";
 import { domainErrorHandler } from "./errors.js";
 
@@ -69,7 +70,7 @@ export async function createApp(): Promise<Express> {
   app.use(configureHelmet());
   const sessionSecret = config.get<string>("session.secret");
   assertSessionSecret(sessionSecret);
-  assertSessionTimeouts(config.get("session.idleTimeoutSeconds"), config.get("session.absoluteTimeoutSeconds"));
+  const sessionTimeouts = assertSessionTimeouts(config.get("session.idleTimeoutSeconds"), config.get("session.absoluteTimeoutSeconds"));
   // Checked here rather than at first use: a wrong redirect URI or an empty client secret fails only
   // when a caseworker tries to log in, and fails on IDAM's page, where no request reaches this app.
   assertIdamSettings(idamSettings());
@@ -176,6 +177,16 @@ export async function createApp(): Promise<Express> {
       preferences: ["language"]
     }
   });
+
+  // Idle and absolute session limits (OWASP plan 03). Before requireAuth, so a timed-out session is ended rather than
+  // treated as signed in, and before refreshMiddleware, so no refresh can renew a session past its absolute limit.
+  // After configureGovuk, because a timed-out POST renders a page. See ./auth/session-lifetime.ts.
+  app.use(
+    sessionLifetime({
+      ...sessionTimeouts,
+      logoutPathRegistered: config.get<boolean>("session.timeoutLogoutPathRegistered") === true
+    })
+  );
 
   // Before the router, so a page is authenticated unless it is on the allowlist rather than because
   // someone remembered to guard it. See ./auth/require-auth.ts for why the polarity is that way.

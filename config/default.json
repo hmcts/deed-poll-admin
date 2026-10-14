@@ -13,7 +13,8 @@
   "session": {
     "secret": "session-secret",
     "idleTimeoutSeconds": 1800,
-    "absoluteTimeoutSeconds": 36000
+    "absoluteTimeoutSeconds": 36000,
+    "timeoutLogoutPathRegistered": false
   },
   "gtm": {
     "containerId": "GTM-XXXXXX",

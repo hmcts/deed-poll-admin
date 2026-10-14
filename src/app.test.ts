@@ -21,7 +21,9 @@ import { fileURLToPath } from "node:url";
 import { deedPollApiStatus } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
+import { refreshMiddleware } from "./auth/refresh-middleware.js";
 import { assertSessionTimeouts } from "./auth/session.js";
+import { sessionLifetime } from "./auth/session-lifetime.js";
 
 /**
  * The URL the assertion below expects to reach `createClient`, set rather than assumed.
@@ -281,6 +283,9 @@ const gates = vi.hoisted(() => ({
   sameOrigin: function requireSameOriginDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
+  sessionLifetime: function sessionLifetimeDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
   /** Named, unlike the other doubles in this file, only so the layer it mounts as can be told apart. */
   router: function simpleRouterDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
@@ -292,6 +297,7 @@ vi.mock("./auth/require-role.js", () => ({ requireRole: vi.fn(() => gates.gazett
 vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gates.persona }));
 vi.mock("./auth/same-origin.js", () => ({ requireSameOrigin: () => gates.sameOrigin }));
 vi.mock("./auth/no-store.js", () => ({ noStore: () => gates.noStore }));
+vi.mock("./auth/session-lifetime.js", () => ({ sessionLifetime: vi.fn(() => gates.sessionLifetime) }));
 
 describe("createApp's judicial gate", () => {
   let stack: MountedLayer[];
@@ -466,6 +472,44 @@ function judicialPagePaths(area = "judicial"): string[] {
 }
 
 /** The part of an Express layer this file reads: what was mounted, and the paths it answers for. */
+/**
+ * That the session lifetime limits are enforced, for every path, before anything can renew the session.
+ *
+ * After the cross-origin gate, so a forged post is refused as forged rather than ending the victim's session. Before
+ * `requireAuth`, so a timed-out request is ended rather than treated as signed in. And before `refreshMiddleware`,
+ * which is the point: mounted after it, a session past its absolute limit would be renewed first, and the limit would
+ * be no limit. Nothing about running the app shows the order. OWASP plan 03, decision 2.
+ */
+describe("createApp's session lifetime limits", () => {
+  let stack: MountedLayer[];
+  const at = (handle: unknown) => stack.findIndex((layer) => layer.handle === handle);
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+  });
+
+  it("should enforce the configured limits, with the timed-out return address not yet registered", () => {
+    expect(sessionLifetime).toHaveBeenCalledWith({ idleSeconds: 1800, absoluteSeconds: 36_000, logoutPathRegistered: false });
+  });
+
+  it("should mount after the cross-origin gate and before requireAuth and the token refresh", () => {
+    expect(at(gates.sessionLifetime)).toBeGreaterThan(at(gates.sameOrigin));
+    expect(at(gates.sessionLifetime)).toBeLessThan(at(gates.auth));
+    expect(at(gates.sessionLifetime)).toBeLessThan(at(refreshMiddleware));
+  });
+
+  it("should mount for every path, so a page added later is covered by existing", () => {
+    const layer = stack.find((entry) => entry.handle === gates.sessionLifetime) as MountedLayer;
+
+    for (const path of ["/", "/deed-polls", "/deed-polls/abc/notes", "/judicial/referrals", "/deed-polls/gazette"]) {
+      expect(layer.match(path), path).toBe(true);
+    }
+  });
+});
+
 type MountedLayer = { handle: unknown; matchers: ((path: string) => unknown)[]; match: (path: string) => boolean };
 
 describe("createApp's Gazette gate", () => {
@@ -523,13 +567,15 @@ describe("createApp's no-store layer", () => {
   // The header is skipped exactly where requireAuth's allowlist says a page is public, so this reads every page off
   // the filesystem and pins which ones those are. A new page is a signed-in page, and uncacheable, unless it is
   // added here on purpose.
-  it("should treat every page but the sign-in flow, the home redirect and the footer pages as signed-in", async () => {
+  // `/session-timed-out` is for a user who is no longer signed in, and shows no case data.
+  it("should treat every page but the sign-in flow, the home redirect, the timed-out page and the footer pages as signed-in", async () => {
     const { isPublicPath } = await vi.importActual<typeof import("./auth/require-auth.js")>("./auth/require-auth.js");
     const publicPages = new Set([
       "/",
       "/login",
       "/logout",
       "/oauth2/callback",
+      "/session-timed-out",
       "/accessibility-statement",
       "/contact-us",
       "/privacy-policy",

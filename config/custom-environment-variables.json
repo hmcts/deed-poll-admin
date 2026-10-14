@@ -25,6 +25,10 @@
     "absoluteTimeoutSeconds": {
       "__name": "SESSION_ABSOLUTE_TIMEOUT_SECONDS",
       "__format": "json"
+    },
+    "timeoutLogoutPathRegistered": {
+      "__name": "SESSION_TIMEOUT_LOGOUT_PATH_REGISTERED",
+      "__format": "json"
     }
   },
   "applicationInsights": {

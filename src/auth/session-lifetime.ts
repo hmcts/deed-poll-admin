@@ -1,0 +1,91 @@
+/**
+ * Idle and absolute limits on a signed-in session, decided only from the timestamps held in the store.
+ *
+ * OWASP plan 03 (M7). Before this, a session ended only after a whole day unused: express-session slid the cookie on
+ * every request, and token refresh re-issued it, so a session left open on a shared PC never ended while anyone
+ * touched it once a day.
+ *
+ * Mounted once, globally, before `requireAuth` and `refreshMiddleware`, so a session past either limit is ended
+ * before a refresh can renew it, and a page added later is covered by existing. The cookie's own expiry and the
+ * client-side warning are conveniences; neither decides anything here.
+ *
+ * A timeout ends the session here and then at IDAM, as logout does. **Not a redirect to `/login`:** the IDAM session
+ * usually outlives ours, so `/login` would sign whoever is at the PC straight back in. That looks equivalent
+ * locally, where the IDAM simulator keeps no session, and is not.
+ */
+import type { NextFunction, Request, RequestHandler, Response } from "express";
+import { renderTimedOut } from "../pages/session-timed-out/index.js";
+import { endSessionUrl } from "./idam.js";
+import { isProbeOrAssetPath, isPublicPath } from "./require-auth.js";
+import { safeReturnTo } from "./return-to.js";
+import { restartAfterTimeout, sessionIdToken, sessionTimestamps, sessionUser, touchLastSeen } from "./session.js";
+import { idamSettings } from "./settings.js";
+
+export const TIMED_OUT_PATH = "/session-timed-out";
+
+/** Activity is recorded at most this often, so most requests write nothing to the store. */
+const LAST_SEEN_RESOLUTION_SECONDS = 60;
+
+/** What a timed-out user still needs: to finish signing out, and to read why they were. */
+const EXEMPT_PATHS = new Set(["/logout", TIMED_OUT_PATH]);
+
+export function sessionLifetime(limits: SessionLifetimeLimits): RequestHandler {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    if (EXEMPT_PATHS.has(req.path) || isProbeOrAssetPath(req.path) || !sessionUser(req)) return next();
+
+    const now = Math.floor(Date.now() / 1000);
+    const timestamps = sessionTimestamps(req);
+    const reason = endReason(timestamps, now, limits);
+    if (reason) return endTimedOutSession(req, res, reason, limits);
+
+    // Public pages are not activity: `/` and the footer pages can be reached by a browser left open, without a user.
+    if (timestamps && !isPublicPath(req.path) && now - timestamps.lastSeenAt >= LAST_SEEN_RESOLUTION_SECONDS) {
+      await touchLastSeen(req);
+    }
+    next();
+  };
+}
+
+/**
+ * Why this session must end, or undefined if it may go on.
+ *
+ * A signed-in session without both timestamps ends rather than being grandfathered: it predates the limits, or was
+ * written by something that bypassed `signIn`, and either way nothing can say how old it is.
+ */
+function endReason(timestamps: ReturnType<typeof sessionTimestamps>, now: number, limits: SessionLifetimeLimits): EndReason | undefined {
+  if (!timestamps) return "untimed";
+  if (now - timestamps.authenticatedAt >= limits.absoluteSeconds) return "absolute";
+  if (now - timestamps.lastSeenAt >= limits.idleSeconds) return "idle";
+  return undefined;
+}
+
+async function endTimedOutSession(req: Request, res: Response, reason: EndReason, limits: SessionLifetimeLimits): Promise<void> {
+  // A plain line, with no identity or token. Adding the subject is the audit-logging plan's job (M9).
+  console.warn(`session ended: ${reason}`);
+
+  const idToken = sessionIdToken(req);
+  const away = await endSessionUrl(idamSettings(), idToken, limits.logoutPathRegistered ? TIMED_OUT_PATH : "/");
+
+  if (req.method === "GET") {
+    await restartAfterTimeout(req, safeReturnTo(req.originalUrl));
+    return res.redirect(away ?? TIMED_OUT_PATH);
+  }
+
+  // Never replayed: the person at the PC may not be who submitted it. The sign-in link ends the IDAM session first,
+  // for the same reason the GET route does, rather than offering `/login`.
+  await restartAfterTimeout(req, undefined);
+  res.status(401);
+  renderTimedOut(res, { unsaved: true, signInHref: away ?? "/login" });
+}
+
+type EndReason = "idle" | "absolute" | "untimed";
+
+export interface SessionLifetimeLimits {
+  idleSeconds: number;
+  absoluteSeconds: number;
+  /**
+   * Whether IDAM has `/session-timed-out` registered as a post-logout address for this client. Until it has, IDAM
+   * refuses it, so end-session returns to `/` instead. `SESSION_TIMEOUT_LOGOUT_PATH_REGISTERED`, set after Task 10.
+   */
+  logoutPathRegistered: boolean;
+}

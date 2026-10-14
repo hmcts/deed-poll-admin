@@ -277,7 +277,7 @@ export async function refreshTokens(config: IdamConfig, refreshToken: string, ex
  * Returning undefined lets the caller finish a local sign-out and say so, rather than inventing a path
  * and sending the user somewhere that 404s.
  */
-export async function endSessionUrl(config: IdamConfig, idToken: string | undefined): Promise<string | undefined> {
+export async function endSessionUrl(config: IdamConfig, idToken: string | undefined, postLogoutPath = "/"): Promise<string | undefined> {
   const configuration = await idamConfiguration(config);
   const metadata = configuration.serverMetadata();
   if (!metadata.end_session_endpoint) return undefined;
@@ -286,7 +286,8 @@ export async function endSessionUrl(config: IdamConfig, idToken: string | undefi
   // The id token proves which session to end. Without it IDAM may prompt the user to confirm, which
   // is a worse logout than no redirect at all.
   if (idToken) url.searchParams.set("id_token_hint", idToken);
-  url.searchParams.set("post_logout_redirect_uri", new URL("/", config.redirectUri).href);
+  // IDAM refuses a return address not registered for the client, so a new one waits on idam-access-config.
+  url.searchParams.set("post_logout_redirect_uri", new URL(postLogoutPath, config.redirectUri).href);
   return url.href;
 }
 

@@ -50,6 +50,8 @@ interface DeedPollSession {
   authenticatedAt?: number;
   /** Unix timestamp (seconds) of the last request that counts as activity: the start of the idle limit. */
   lastSeenAt?: number;
+  /** Where a GET was heading when its session timed out, for the timed-out page's sign-in link. Anonymous only. */
+  timedOutReturnTo?: string;
 }
 
 type SessionWithDeedPoll = Request["session"] & { deedPoll?: DeedPollSession };
@@ -289,6 +291,28 @@ export function touchLastSeen(req: Request): Promise<void> {
     writableNamespace(req).lastSeenAt = nowSeconds();
     req.session.save((error) => (error ? reject(error) : resolve()));
   });
+}
+
+/**
+ * Replace a timed-out session with a fresh anonymous one, holding at most where the user was heading.
+ *
+ * Regenerated rather than destroyed: the new session carries the destination to the timed-out page, and its id was
+ * never the signed-in one. It holds no user or tokens, so `requireAuth` treats it as anonymous, and its store
+ * lifetime is the short anonymous one. The caller must already have passed `returnTo` through `safeReturnTo`.
+ */
+export function restartAfterTimeout(req: Request, returnTo: string | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate((error) => {
+      if (error) return reject(error);
+      if (returnTo !== undefined) writableNamespace(req).timedOutReturnTo = returnTo;
+      req.session.save((saveError) => (saveError ? reject(saveError) : resolve()));
+    });
+  });
+}
+
+/** Where a timed-out GET was heading, if `restartAfterTimeout` recorded one. */
+export function sessionTimedOutReturnTo(req: Request): string | undefined {
+  return namespace(req)?.timedOutReturnTo;
 }
 
 /**
