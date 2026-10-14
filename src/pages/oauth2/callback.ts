@@ -6,7 +6,7 @@
  * code obtained in a different browser cannot be redeemed here.
  */
 import type { Request, Response } from "express";
-import { callbackUrl, completeLogin } from "../../auth/idam.js";
+import { callbackUrl, completeLogin, describeIdamError } from "../../auth/idam.js";
 import { signIn, takeFlow } from "../../auth/session.js";
 import { idamSettings } from "../../auth/settings.js";
 
@@ -39,7 +39,7 @@ export const GET = async (req: Request, res: Response) => {
     //
     // Logged at error level regardless, because the operator's reading of "nobody can log in" is
     // entirely different from the user's, and only the log distinguishes a forgery from an outage.
-    console.error("IDAM authorization code exchange failed:", error);
+    console.error("IDAM authorization code exchange failed:", describeIdamError(error));
     return res.status(403).render("errors/403");
   }
 

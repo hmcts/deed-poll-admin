@@ -18,7 +18,7 @@ import { DEEDPOLL_ADMIN } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import * as client from "openid-client";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { beginLogin, callbackUrl, completeLogin, endSessionUrl, type IdamConfig, refreshTokens, resetIdamDiscovery } from "./idam.js";
+import { beginLogin, callbackUrl, completeLogin, describeIdamError, endSessionUrl, type IdamConfig, refreshTokens, resetIdamDiscovery } from "./idam.js";
 
 vi.mock("openid-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("openid-client")>()),
@@ -446,5 +446,43 @@ describe("endSessionUrl", () => {
     resetIdamDiscovery();
 
     expect(await endSessionUrl(config, "an-id-token")).toBeUndefined();
+  });
+});
+
+describe("describeIdamError", () => {
+  it("should keep only the name, message, code, error, description and status of a ResponseBodyError-shaped error", () => {
+    // Arrange: the shape openid-client throws, with the response and its parsed body attached.
+    const error = Object.assign(new Error("server responded with an error in the response body"), {
+      name: "ResponseBodyError",
+      code: "OAUTH_RESPONSE_BODY_ERROR",
+      error: "invalid_grant",
+      error_description: "Authorization code is invalid",
+      status: 400,
+      cause: { error: "invalid_grant", access_token: "a-token-that-must-not-be-logged" },
+      response: { url: "https://idam.example/o/token?code=a-code" }
+    });
+
+    // Act
+    const summary = describeIdamError(error);
+
+    // Assert
+    expect(summary).toEqual({
+      name: "ResponseBodyError",
+      message: "server responded with an error in the response body",
+      code: "OAUTH_RESPONSE_BODY_ERROR",
+      error: "invalid_grant",
+      error_description: "Authorization code is invalid",
+      status: 400
+    });
+    expect(JSON.stringify(summary)).not.toContain("a-token-that-must-not-be-logged");
+    expect(JSON.stringify(summary)).not.toContain("a-code");
+  });
+
+  it("should reduce a plain error to its name and message", () => {
+    expect(describeIdamError(new TypeError("fetch failed"))).toEqual({ name: "TypeError", message: "fetch failed" });
+  });
+
+  it("should stringify something that is not an Error", () => {
+    expect(describeIdamError("refused")).toBe("refused");
   });
 });
