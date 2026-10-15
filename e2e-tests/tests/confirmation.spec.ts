@@ -109,8 +109,14 @@ test("caseworker follows the awaiting-confirmation count to the longest wait and
   // "All applications" rather than from Enroled, because this run's rows are the only ones the store guarantees
   // and a tab holding none renders no table to sort.
   await page.getByRole("link", { name: "All applications" }).click();
-  await page.getByRole("link", { name: "Sort by Received" }).click();
-  expect(new URL(page.url()).searchParams.get("sort")).toBe("dateReceived:asc");
+  // Activated from the keyboard, for the reason `deed-polls.spec.ts` gives for "Sort by New surname": with this
+  // run's two rows the column is narrow enough for the link to wrap, and a synthetic centre click then lands in
+  // the gutter between its line boxes, where the `<th>` intercepts it. Waited for, because a key press does not
+  // await the navigation it starts.
+  const receivedHeader = page.getByRole("link", { name: "Sort by Received" });
+  await receivedHeader.focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/[?&]sort=dateReceived%3Aasc/);
   // The tab, exactly — the banner's link above it goes to the same place under longer words.
   await page.getByRole("link", { name: "Awaiting confirmation", exact: true }).click();
   await expect(page).toHaveURL(WORKLIST_URL);
