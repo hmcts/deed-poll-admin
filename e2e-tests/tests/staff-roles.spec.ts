@@ -3,6 +3,9 @@ import { expect, test } from "@playwright/test";
 import { DELIVERY_MANAGER_STORAGE_STATE, DEPLOYED_STACK_SKIP_REASON, RUNS_AGAINST_DEPLOYED_STACK, TEAM_LEADER_STORAGE_STATE } from "./idam-session.js";
 
 const MOCK_API_URL = process.env.DEED_POLL_API_URL ?? "http://localhost:3200";
+// The same WCAG scope every other journey checks. Unscoped, axe adds best-practice rules such as `region`, which
+// flags the skip link, the dev-only persona switcher and the phase banner on every page.
+const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
 
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
 
@@ -24,21 +27,21 @@ for (const [role, storageState] of [
       await page.goto(`${casePath}/edit/application`);
       await expect(page.getByLabel("Privacy", { exact: true })).toBeEnabled();
       await expect(page.getByLabel("Privacy", { exact: true })).toHaveValue("Private");
-      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
 
       await page.goto(`${casePath}/notes/new`);
       await page.getByLabel("Note").fill(`Role journey ${suffix}`);
       await page.getByRole("button", { name: "Add note", exact: true }).click();
       await page.getByRole("link", { name: /amend this note/ }).click();
       await expect(page.getByRole("button", { name: "Delete note" })).toBeVisible();
-      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
       await page.getByRole("button", { name: "Delete note" }).click();
       await expect(page).toHaveURL(`${casePath}#notes`);
       await expect(page.locator("#notes")).toContainText("None recorded.");
 
       await page.goto(`/deed-polls/queries/new?where=newSurname%3Ais%3A${suffix}`);
       await expect(page.getByLabel("Add this query to the library, so colleagues can find it")).toBeEnabled();
-      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
 
       for (const path of ["/judicial/referrals", "/judicial/referrals/00000000-0000-4000-8000-000000000001"]) {
         expect((await page.goto(path))?.status()).toBe(403);
