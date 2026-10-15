@@ -139,7 +139,10 @@ test("caseworker tells a refused applicant why, checks the wording first, and is
   // nothing in it is an element of this page. Read as an attribute rather than through the frame's document, which
   // is the point — an opaque origin with no scripts is not somewhere this page can look.
   expect(await frame.getAttribute("srcdoc")).toContain(`<p>${MASTER_REASON}</p>`);
-  await expectNoAccessibilityViolations(page);
+  // The preview frame is left out of the scan. axe runs itself inside every frame it finds, and in a frame sandboxed
+  // with no scripts that evaluation never returns, so the scan hung until the test timed out (reported as a protocol
+  // error in AxeBuilder). What axe would check on the element, its sandbox and accessible name, is asserted above.
+  await expectNoAccessibilityViolations(page, [], ["iframe"]);
 
   // Back to the wording, which is a submit and not a link precisely so the typing survives it.
   await page.getByRole("button", { name: "Change the wording" }).click();
@@ -420,8 +423,9 @@ async function expectWelshKeysResolve(browser: Browser, path: string): Promise<v
  * Reported as `id: selector` strings rather than raw violation objects so a failure names the rule and the element
  * instead of printing an unreadable object graph.
  */
-async function expectNoAccessibilityViolations(page: Page, allowed: string[] = []): Promise<void> {
-  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+async function expectNoAccessibilityViolations(page: Page, allowed: string[] = [], excluded: string[] = []): Promise<void> {
+  const builder = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]);
+  const results = await excluded.reduce((scan, selector) => scan.exclude(selector), builder).analyze();
   const findings = results.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target).join(", ")}`);
 
   expect(findings.filter((finding) => !allowed.includes(finding))).toEqual([]);
