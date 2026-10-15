@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import deferredContract from "./deferred-contract.json";
-import { GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, UNSPECIFIED_SCHEMAS, WIRE_SCHEMAS } from "./wire.js";
+import { CAPABILITY, GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, UNSPECIFIED_SCHEMAS, WIRE_SCHEMAS } from "./wire.js";
 
 const SPEC_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../openapi.json");
 const spec = JSON.parse(readFileSync(SPEC_PATH, "utf8")) as OpenApiSpec;
@@ -83,7 +83,8 @@ const IMPLEMENTED_OPERATIONS = [
   "GET /judicial/referrals/mine",
   "GET /judicial/referrals/{referralId}",
   "POST /judicial/referrals/{referralId}/claim",
-  "POST /judicial/referrals/{referralId}/direction"
+  "POST /judicial/referrals/{referralId}/direction",
+  "GET /me"
 ];
 
 describe("openapi.json and the wire schemas", () => {
@@ -131,6 +132,13 @@ describe("openapi.json and the wire schemas", () => {
     for (const field of ["idempotencyKey", "submittedById", "selectionFingerprint", "notificationId", "documentId"]) {
       expect(Object.keys(spec.components.schemas.GazetteStatusResponse.properties ?? {})).not.toContain(field);
     }
+  });
+
+  it("should publish the capability members in api's declaration order", () => {
+    // Array items, so the property enum comparison below does not reach them. Order is pinned as well as
+    // membership because api promises declaration order and the mock reproduces it.
+    expect(spec.components.schemas.CallerAccessResponse.properties?.capabilities?.items?.enum).toEqual([...CAPABILITY]);
+    expect(spec.components.schemas.CallerAccessResponse.required?.toSorted()).toEqual(["capabilities", "judicial", "staff"]);
   });
 
   it("should describe exactly the consumed and explicitly deferred schemas", () => {
@@ -489,5 +497,8 @@ interface OpenApiSchema {
    * `RecordConfirmationRequest`, where one is ignored, and absent everywhere else.
    */
   additionalProperties?: boolean | Record<string, unknown>;
-  properties?: Record<string, { enum?: (string | null)[]; pattern?: string; maxLength?: number; minLength?: number; items?: { $ref?: string } }>;
+  properties?: Record<
+    string,
+    { enum?: (string | null)[]; pattern?: string; maxLength?: number; minLength?: number; items?: { $ref?: string; enum?: string[] } }
+  >;
 }

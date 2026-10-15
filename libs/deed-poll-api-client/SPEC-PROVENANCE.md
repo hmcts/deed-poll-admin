@@ -6,10 +6,11 @@ one of them rather than licence to invent.
 
 | | |
 |---|---|
-| **api source** | Merged master `be3291a5c3bb6acbef3a189f650a2c1057c4607f` (API PR #100). |
-| **Taken on** | 2026-10-12 |
-| **How** | Clean detached API worktree; `JAVA_TOOL_OPTIONS=-XX:UseSVE=0 TESTCONTAINERS_RYUK_DISABLED=true ./gradlew integration --tests '*OpenAPIPublisherTest*' --no-watch-fs`. Raw SHA-256 `647a110a74114db4f1114a469d85240876224becb90be0b3d038121d5fb1e70e`. Reformatted with Biome. |
-| **Delta** | Ten descriptions only: eight Gazette operations, the case-list operation and its filter parameter. All 51 operations, 36 paths, 55 schemas and deferred entries are unchanged. |
+| **api source** | Merged master `e8907d0` (API PR #105), which publishes `GET /me`. |
+| **Taken on** | 2026-10-15 |
+| **How** | Clean detached API worktree; `JAVA_TOOL_OPTIONS=-XX:UseSVE=0 TESTCONTAINERS_RYUK_DISABLED=true ./gradlew integration --tests '*OpenAPIPublisherTest*' --no-watch-fs`. Raw SHA-256 `3ab71b0263c7dced9bbe1d5aecdca07fed0fb218c79bf15dafed8c7279e8a0d7`. 2-space JSON, then Biome. |
+| **Delta** | Exactly `GET /me` (`getCallerAccess`) and `CallerAccessResponse`, measured by parsed comparison: every other path, operation, schema, the metadata and the deferred CCD entries are identical. Now 52 operations, 37 paths and 56 schemas. Both additions are registered, so nothing new is deferred. `CallerAccessResponse`'s three properties are all strict: `staff` and `judicial` are Java `boolean`s and `capabilities` is a `List.copyOf` in `Capability` declaration order. Its members are on array items, which the property enum comparison does not reach, so `contract.test.ts` pins `CAPABILITY` against them separately, order included. |
+| **Previous api source** | Merged master `be3291a5c3bb6acbef3a189f650a2c1057c4607f` (API PR #100), taken 2026-10-12 by the same command. Raw SHA-256 `647a110a74114db4f1114a469d85240876224becb90be0b3d038121d5fb1e70e`. Its delta was ten descriptions only: eight Gazette operations, the case-list operation and its filter parameter. 51 operations, 36 paths, 55 schemas. |
 | **Previous source** | API `742cb5a6a842a6e76b4e98cd59869da889032d50`, recorded below. |
 | **Previous api source** | Merged master `742cb5a6a842a6e76b4e98cd59869da889032d50` (API PR #93), including the Gazette ledger, preview, send and recovery contract. |
 | **Taken on** | 2026-10-09 |

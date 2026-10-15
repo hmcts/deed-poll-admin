@@ -28,6 +28,7 @@ import type {
 import {
   UNSPECIFIED_SCHEMAS,
   WIRE_SCHEMAS,
+  type WireCallerAccess,
   type WireCaseDetail,
   type WireCaseEmails,
   type WireCaseList,
@@ -75,6 +76,9 @@ import {
  * enum members and Dynamics label maps out of them now that Prisma's generated ones are going.
  */
 export {
+  // The caller's capabilities, for the same reason: admin renders every privileged control from `GET /me`'s
+  // answer, and narrowing a stored answer against the published members is what drops one api has retired.
+  CAPABILITY,
   // The applicant's two possible answers to *Request confirmation to proceed*. Re-exported for the same reason
   // as the option sets: the confirmation form renders a radio per member, and the members are api's. It is the
   // one vocabulary here that is NOT a named schema in the document — api publishes both member lists inline —
@@ -189,6 +193,14 @@ export function getGazetteMembers(batchId: string, query: GazetteNoticeHistoryQu
   if (query.page !== undefined) parameters.set("page", String(query.page));
   if (query.size !== undefined) parameters.set("size", String(query.size));
   return request(config, "GET", `/caseworker/gazette-notices/${encodeURIComponent(batchId)}/cases?${parameters}`, WIRE_SCHEMAS.GazetteMembersResponse);
+}
+
+/**
+ * What api will let the caller do. Any authenticated token gets 200; a caller with no deed-poll role gets
+ * `staff: false, judicial: false` and no capabilities rather than a 403.
+ */
+export function getCallerAccess(config: ApiConfig): Promise<ApiResult<CallerAccess>> {
+  return request(config, "GET", "/me", WIRE_SCHEMAS.CallerAccessResponse);
 }
 
 export function getGazetteSettings(config: ApiConfig): Promise<ApiResult<GazetteSettings>> {
@@ -1319,6 +1331,8 @@ export interface GazetteNoticeHistoryQuery {
   size?: number;
 }
 
+export type CallerAccess = WireCallerAccess;
+export type Capability = CallerAccess["capabilities"][number];
 export type GazetteSettings = WireGazetteSettings;
 export type UpdateGazetteSettings = WireUpdateGazetteSettings;
 

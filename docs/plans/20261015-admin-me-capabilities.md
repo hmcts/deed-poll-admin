@@ -149,7 +149,7 @@ failure. E2E isn't run from a worktree (docker compose project names collide); s
 
 ### Task 1: The spec refresh, the `/me` client and the mock
 
-- [ ] Copy in the api document regenerated at `e8907d0`, supplied as
+- [x] Copy in the api document regenerated at `e8907d0`, supplied as
       `/Users/steve.newman/Documents/GitHub/deed-poll-admin-workspace/cft-workspace/local-notes/deed-poll-admin/openapi-e8907d0.json`.
       It was generated on 2026-10-15 in a clean detached api worktree by
       `JAVA_TOOL_OPTIONS=-XX:UseSVE=0 TESTCONTAINERS_RYUK_DISABLED=true ./gradlew integration --tests '*OpenAPIPublisherTest*' --no-watch-fs`.
@@ -157,11 +157,11 @@ failure. E2E isn't run from a worktree (docker compose project names collide); s
       37 paths and 56 schemas. **The parsed delta against the committed document is exactly `GET /me` and
       `CallerAccessResponse`**; nothing else changed, so nothing is deferred. Format it as 2-space JSON, then Biome,
       and add a provenance entry in `SPEC-PROVENANCE.md`'s existing style.
-- [ ] Register `getCallerAccess` and `CallerAccessResponse` fully (decision 9). Defer anything else new.
+- [x] Register `getCallerAccess` and `CallerAccessResponse` fully (decision 9). Defer anything else new.
       `contract.test.ts` must pass.
-- [ ] Add the mock's `/me` route and the shared role table. Move the mock's Gazette gate onto the table. Add a test that
+- [x] Add the mock's `/me` route and the shared role table. Move the mock's Gazette gate onto the table. Add a test that
       pins the table to the spec enum, and a test for each persona's `/me` answer.
-- [ ] Mark completed
+- [x] Mark completed
 
 ### Task 2: The session user is the stored answer
 

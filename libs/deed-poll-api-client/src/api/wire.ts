@@ -99,6 +99,14 @@ export const CONFIRMATION_OUTCOME = ["Confirmed", "Withdrawn"] as const;
  */
 export const LIST_FILTER = ["all", "open", "received", "enroled", "returned", "awaitingConfirmation", "readyForPublication"] as const;
 
+/**
+ * What a caller may do beyond ordinary casework, as api's `Capability` declares it, in declaration order.
+ *
+ * Published on `CallerAccessResponse.capabilities`' array items, so the drift test's property enum comparison
+ * does not reach it; `contract.test.ts` pins it against the items separately, order included.
+ */
+export const CAPABILITY = ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD", "ACCESS_GAZETTE"] as const;
+
 /** The two `sortDirection` tokens api matches exactly. A bare field with no direction means ascending. */
 export const SORT_DIRECTION = ["asc", "desc"] as const;
 
@@ -1046,6 +1054,16 @@ const gazetteConflictSchema = z.object({
 });
 const gazetteErrorSchema = z.object({ code: z.enum(GAZETTE_REFUSAL_CODE), error: z.string(), conflicts: z.array(gazetteConflictSchema).optional() });
 
+/**
+ * `GET /me`: which staff areas admit the caller and what their roles grant. Both flags are Java primitives and
+ * the list is a `List.copyOf`, so all three are strict. No identity, on purpose: admin has IDAM's.
+ */
+const callerAccessSchema = z.object({
+  staff: z.boolean(),
+  judicial: z.boolean(),
+  capabilities: z.array(z.enum(CAPABILITY))
+});
+
 /** api's failure body. `errors` is omitted rather than empty when there are none (`@JsonInclude`). */
 const apiErrorSchema = z.object({
   error: z.string(),
@@ -1062,6 +1080,7 @@ const apiErrorSchema = z.object({
  * it separately, so the day api's two bodies diverge, one of the two comparisons fails.
  */
 export const WIRE_SCHEMAS = {
+  CallerAccessResponse: callerAccessSchema,
   GazetteMemberResponse: gazetteMemberSchema,
   GazetteStatusResponse: gazetteStatusSchema,
   GazetteRequestsResponse: gazetteRequestsSchema,
@@ -1144,6 +1163,7 @@ export const UNSPECIFIED_SCHEMAS = { ApiError: apiErrorSchema } as const;
  * Everything else is nullable, and a schema insisting otherwise would reject an ordinary half-logged case.
  */
 export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string[]>> = {
+  CallerAccessResponse: ["staff", "judicial", "capabilities"],
   GazetteMemberResponse: ["caseId", "referenceNumber"],
   GazetteStatusResponse: ["batchId", "state", "caseCount"],
   GazetteRequestsResponse: ["page", "size", "total", "totalPages", "requests"],
@@ -1261,6 +1281,7 @@ export type WireSentEmail = z.infer<typeof sentEmailSchema>;
 /** `z.input` for the write, as `WireCaseWrite` is: a body is what goes out, before any transform. */
 export type WireEmailSlotsWrite = z.input<typeof emailSlotsWriteSchema>;
 export type WireApiError = z.infer<typeof apiErrorSchema>;
+export type WireCallerAccess = z.infer<typeof callerAccessSchema>;
 
 export type WireGazetteNoticeHistory = z.infer<typeof gazetteNoticeHistorySchema>;
 export type WireGazetteNoticeBatch = z.infer<typeof gazetteNoticeBatchSchema>;

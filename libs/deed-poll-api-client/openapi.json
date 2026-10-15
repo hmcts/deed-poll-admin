@@ -1864,10 +1864,52 @@
         },
         "tags": ["judicial-referral-controller"]
       }
+    },
+    "/me": {
+      "get": {
+        "description": "Any authenticated caller may call this. staff and judicial say whether the caseworker and judicial areas admit the caller's roles, and capabilities lists what those roles grant. A caller with no deed-poll role gets staff false, judicial false and no capabilities, not 403: signed in, but no access. No identity is returned.",
+        "operationId": "getCallerAccess",
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallerAccessResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Read what the caller may do",
+        "tags": ["caller-access-controller"]
+      }
     }
   },
   "components": {
     "schemas": {
+      "CallerAccessResponse": {
+        "type": "object",
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "description": "The caller's capabilities, in declaration order",
+            "items": {
+              "type": "string",
+              "enum": ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD", "ACCESS_GAZETTE"]
+            }
+          },
+          "judicial": {
+            "type": "boolean",
+            "description": "Whether the judicial area admits the caller"
+          },
+          "staff": {
+            "type": "boolean",
+            "description": "Whether the caseworker area admits the caller"
+          }
+        },
+        "required": ["capabilities", "judicial", "staff"]
+      },
       "CaseDetailResponse": {
         "type": "object",
         "properties": {
