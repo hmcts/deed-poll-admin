@@ -3,29 +3,13 @@
  *
  * The workspace standard is explicit that these are separate concerns: *"OpenID Connect establishes
  * the user identity. Services are responsible for their own authorization decisions."*
- * (`docs/reference/standards/authentication-and-authorization.md`). So this file does the narrowest
- * possible job — take whatever IDAM asserts and reduce it to the roles and display name this service
- * recognises. Every authorization decision downstream is made against that, unchanged from the
- * header-based days.
+ * (`docs/reference/standards/authentication-and-authorization.md`). IDAM is sign-in only, so this file reads
+ * nothing from the claims but a display name. **No role an IDAM token asserts is read here**: what a caller may
+ * do is api's `GET /me` answer, passed in beside the claims.
  *
- * In the domain rather than in the app because it is the same reduction wherever it happens: the
- * SSR pages resolve it from a session and the API would resolve it from a bearer token, and both must
- * agree on which asserted roles count. It takes a plain claims object, so the domain needs no OIDC
- * library.
+ * It takes a plain claims object, so the domain needs no OIDC library.
  */
 import { type CurrentUser, currentUser } from "./current-user.js";
-import { DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_JUDICIAL, DEEDPOLL_TEAM_LEADER, type Role } from "./roles.js";
-
-/**
- * Every role this service acts on. Anything IDAM asserts that is not here is ignored.
- *
- * **A role missing from here is not a smaller permission, it is no role at all** — `rolesFrom` filters
- * against this list, so an unlisted role is dropped and the judge it belonged to resolves to an empty
- * `roles` and is refused their own area. That fails closed, which is right, but it presents as a
- * permissions bug rather than a missing list entry. Adding a role to `Role` without adding it here is
- * therefore silent and total.
- */
-const KNOWN_ROLES: readonly string[] = [DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL, DEEDPOLL_TEAM_LEADER, DEEDPOLL_DELIVERY_MANAGER];
 
 /**
  * The subset of an IDAM ID token this service reads.
@@ -35,7 +19,6 @@ const KNOWN_ROLES: readonly string[] = [DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEE
  * runtime the first time a claim moved. Everything is narrowed defensively below.
  */
 export interface IdamClaims {
-  roles?: unknown;
   name?: unknown;
   given_name?: unknown;
   family_name?: unknown;
@@ -43,27 +26,9 @@ export interface IdamClaims {
   [claim: string]: unknown;
 }
 
-/**
- * Reduce IDAM's claims to a `CurrentUser`.
- *
- * **Unrecognised roles are dropped, not carried.** IDAM issues roles across the whole CFT estate, so
- * a caseworker's token can name roles from other services entirely. Keeping them would put strings
- * this service has no rules for into the object its authorization decisions are made from, and
- * `isAdmin` would then depend on a list nobody here maintains.
- */
-export function userFromClaims(claims: IdamClaims): CurrentUser {
-  return currentUser(rolesFrom(claims.roles), displayNameFrom(claims));
-}
-
-/**
- * IDAM may send roles as an array or, on some configurations, a single string. Both are accepted
- * because getting it wrong yields an empty role list, which fails closed but looks like a
- * permissions bug rather than a parsing one.
- */
-export function rolesFrom(raw: unknown): Role[] {
-  const values = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(",") : [];
-
-  return values.map((value) => String(value).trim()).filter((value): value is Role => KNOWN_ROLES.includes(value));
+/** IDAM's name for the caller, with api's `GET /me` answer as their access. No answer is no access. */
+export function userFromClaims(claims: IdamClaims, access?: unknown): CurrentUser {
+  return currentUser(access, displayNameFrom(claims));
 }
 
 /**

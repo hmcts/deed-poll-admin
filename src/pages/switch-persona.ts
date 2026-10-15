@@ -8,7 +8,7 @@
  *
  * **It swaps identity, not roles.** `passwordGrantLogin` obtains a real IDAM token for the persona's own user,
  * so api authorises the new persona correctly and stamps the audit columns with it. See that file for why the
- * obvious alternative — rewriting `CurrentUser.roles` — produces a UI that lies.
+ * obvious alternative — rewriting the session's `CurrentUser` — produces a UI that lies.
  *
  * **`signIn` and deliberately not `updateTokens`.** Three reasons, and the middle one is the trap this task
  * exists for:

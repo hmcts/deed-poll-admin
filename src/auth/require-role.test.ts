@@ -1,12 +1,12 @@
 /**
  * Both directions, because a gate tested only for who it admits is a gate that may admit everyone.
  */
-import { ACCESS_GAZETTE, DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL, DEEDPOLL_TEAM_LEADER, ForbiddenError } from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, ForbiddenError } from "@hmcts/deed-poll";
 import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
 import { requireAuth } from "./require-auth.js";
-import { requireCapability, requireJudicial, requireRole } from "./require-role.js";
+import { requireCapability, requireJudicial } from "./require-role.js";
 
 describe("requireJudicial", () => {
   let next: NextFunction;
@@ -60,22 +60,26 @@ describe("requireJudicial", () => {
     expect(res.status).not.toHaveBeenCalled();
   });
 
-  it("names the role and the path in the error, for the log rather than the page", () => {
+  it("names the access and the path in the error, for the log rather than the page", () => {
     requireJudicial()(pageRequest({ originalUrl: "/judicial/referrals/abc" }), pageResponse(), next);
 
     const error = vi.mocked(next).mock.calls[0][0] as unknown as ForbiddenError;
-    expect(error.message).toContain(DEEDPOLL_JUDICIAL);
+    expect(error.message).toContain("judicial access");
     expect(error.message).toContain("/judicial/referrals/abc");
   });
-});
 
-describe("requireRole", () => {
-  it("gates on the role it is given, so a second area needs no second middleware", () => {
-    const next = vi.fn();
+  it.each(["teamLeader", "deliveryManager", "legacyAdmin", "caseworker", "none"] as const)("refuses a %s, whose stored answer is not judicial", (persona) => {
+    requireJudicial()(pageRequest({ persona, originalUrl: "/judicial/referrals" }), pageResponse(), next);
 
-    requireRole(DEEDPOLL_JUDICIAL)(pageRequest({ judicial: true }), pageResponse(), next);
+    expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
+  });
 
-    expect(next).toHaveBeenCalledWith();
+  it("refuses a session whose stored answer is malformed, even one that still lists the judicial role", () => {
+    const access = { roles: ["caseworker-deedpoll-judicial"], isJudicial: true, judicial: "true", capabilities: [] };
+
+    requireJudicial()(pageRequest({ access, originalUrl: "/judicial/referrals" }), pageResponse(), next);
+
+    expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
   });
 });
 
@@ -88,12 +92,12 @@ describe("Gazette area access", () => {
     "/deed-polls/gazette/requests",
     "/deed-polls/gazette/requests/a-batch"
   ];
-  it.each([DEEDPOLL_TEAM_LEADER, DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL])(
+  it.each(["teamLeader", "legacyAdmin", "caseworker", "judge", "none"] as const)(
     "should refuse every Gazette page and form to %s before any API call",
-    (role) => {
+    (persona) => {
       for (const path of paths) {
         for (const method of ["GET", "POST"]) {
-          const req = pageRequest({ roles: [role], originalUrl: path });
+          const req = pageRequest({ persona, originalUrl: path });
           Object.assign(req, { method, path });
           const res = pageResponse();
           const apiCall = vi.fn();

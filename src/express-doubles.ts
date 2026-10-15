@@ -12,9 +12,36 @@
  *
  * Excluded from the build in `tsconfig.json`: it imports `vitest`, so it must not reach `dist`.
  */
-import { currentUser, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_JUDICIAL, DEEDPOLL_TEAM_LEADER, type Role } from "@hmcts/deed-poll";
+import {
+  ACCESS_GAZETTE,
+  type CallerAccess,
+  currentUser,
+  DELETE_NOTE,
+  DELETE_WITNESS,
+  MANAGE_SHARED_QUERIES,
+  OVERRIDE_PRIVACY,
+  REPAIR_CCD
+} from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { vi } from "vitest";
+
+const CASEWORK = [OVERRIDE_PRIVACY, DELETE_NOTE, DELETE_WITNESS, MANAGE_SHARED_QUERIES, REPAIR_CCD];
+
+/**
+ * What api's `GET /me` answers for each persona, which is all a page decides from.
+ *
+ * Restated from api's `RoleCapabilities` rather than imported from the mock's table, because nothing outside the
+ * client package may import the mock. The legacy admin is here so a page test can show it gets Team leader's grants
+ * and never the Gazette.
+ */
+export const PERSONA_ACCESS = {
+  teamLeader: { staff: true, judicial: false, capabilities: CASEWORK },
+  deliveryManager: { staff: true, judicial: false, capabilities: [...CASEWORK, ACCESS_GAZETTE] },
+  legacyAdmin: { staff: true, judicial: false, capabilities: CASEWORK },
+  caseworker: { staff: true, judicial: false, capabilities: [] },
+  judge: { staff: false, judicial: true, capabilities: [] },
+  none: { staff: false, judicial: false, capabilities: [] }
+} as const satisfies Record<string, CallerAccess>;
 
 export interface PageRequestOptions {
   params?: Record<string, string>;
@@ -25,7 +52,10 @@ export interface PageRequestOptions {
   /** Signed in holding the privileged role. */
   teamLeader?: boolean;
   deliveryManager?: boolean;
-  roles?: Role[];
+  /** Signed in as this persona, alongside any of the flags. */
+  persona?: Persona;
+  /** The stored `/me` answer verbatim, for tests of a malformed one. Overrides the persona options. */
+  access?: unknown;
   /**
    * Signed in holding the judicial role — the persona `/judicial/**` is for.
    *
@@ -67,7 +97,8 @@ export function pageRequest({
   signedIn = true,
   teamLeader = false,
   deliveryManager = false,
-  roles: explicitRoles,
+  persona,
+  access,
   judicial = false,
   name,
   flow,
@@ -76,12 +107,13 @@ export function pageRequest({
   subject,
   originalUrl
 }: PageRequestOptions = {}): RequestDouble {
-  const roles =
-    explicitRoles ??
-    [deliveryManager ? DEEDPOLL_DELIVERY_MANAGER : undefined, teamLeader ? DEEDPOLL_TEAM_LEADER : undefined, judicial ? DEEDPOLL_JUDICIAL : undefined].filter(
-      (role): role is Role => role !== undefined
-    );
-  const user = signedIn ? currentUser(roles, name) : undefined;
+  const personas: Persona[] = [
+    ...(persona ? [persona] : []),
+    ...(teamLeader ? (["teamLeader"] as const) : []),
+    ...(deliveryManager ? (["deliveryManager"] as const) : []),
+    ...(judicial ? (["judge"] as const) : [])
+  ];
+  const user = signedIn ? currentUser(access ?? combinedAccess(personas), name) : undefined;
 
   const req = {
     params: params ?? {},
@@ -98,6 +130,16 @@ export function pageRequest({
   } as unknown as RequestDouble;
 
   return req;
+}
+
+/** A caller holding several personas at once gets the union of their answers, as api's would be. */
+function combinedAccess(personas: readonly Persona[]): CallerAccess {
+  const answers = personas.map((each) => PERSONA_ACCESS[each]);
+  return {
+    staff: answers.some((answer) => answer.staff),
+    judicial: answers.some((answer) => answer.judicial),
+    capabilities: answers.flatMap((answer) => answer.capabilities)
+  };
 }
 
 /**
@@ -127,6 +169,8 @@ export function sessionDouble(deedPoll: Record<string, unknown> = {}): SessionDo
 
   return session;
 }
+
+export type Persona = keyof typeof PERSONA_ACCESS;
 
 export type SessionDouble = Request["session"] & {
   deedPoll: Record<string, unknown>;

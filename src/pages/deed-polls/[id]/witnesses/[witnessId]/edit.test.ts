@@ -88,6 +88,21 @@ describe("amend a witness page", () => {
       await expect(GET(request(), response())).rejects.toThrow(NotFoundError);
     });
 
+    it.each([
+      ["teamLeader", true],
+      ["deliveryManager", true],
+      ["legacyAdmin", true],
+      ["caseworker", false],
+      ["judge", false],
+      ["none", false]
+    ] as const)("should let %s's stored answer decide the delete button (%s)", async (persona, expected) => {
+      const res = response();
+
+      await GET(pageRequest({ params: PARAMS, persona, accessToken: "session-token" }), res);
+
+      expect(res.render.mock.calls[0][1].canDelete).toBe(expected);
+    });
+
     it("should offer the delete button to an administrator", async () => {
       const res = response();
 

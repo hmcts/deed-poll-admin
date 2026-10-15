@@ -81,7 +81,7 @@ vi.mock("../auth/idam.js", async (importOriginal) => ({
 }));
 
 const JUDGE = {
-  user: currentUser([DEEDPOLL_JUDICIAL], "A Judge"),
+  user: currentUser({ staff: false, judicial: true, capabilities: [] }, "A Judge"),
   subject: "judge@example.com",
   tokens: { idToken: "a-judge-id-token", accessToken: "a-judge-access-token", refreshToken: "a-judge-refresh-token", expiresAt: 1_800_000_000 }
 };

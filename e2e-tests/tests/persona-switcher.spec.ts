@@ -7,7 +7,7 @@
  *
  * **What only a browser can show here, and why this file is the plan's proof rather than its coverage.** The
  * plan rests on one finding: *changing your role does not change your permissions*. api derives roles from
- * `/o/userinfo` using the session's access token, so the obvious implementation — rewriting `CurrentUser.roles`
+ * `/o/userinfo` using the session's access token, so the obvious implementation — rewriting the session's `CurrentUser`
  * — yields the judicial chrome and then a 403 on every judicial call, which looks exactly like a defect in the
  * screens the tester came to test. Nothing in a unit test can tell the two implementations apart: both put
  * `caseworker-deedpoll-judicial` on `CurrentUser`. What tells them apart is **api answering the switched

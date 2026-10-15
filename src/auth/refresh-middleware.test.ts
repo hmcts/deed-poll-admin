@@ -63,7 +63,7 @@ interface SessionState {
  */
 function request(without: (keyof SessionState)[] = [], overrides: SessionState = {}): RequestDouble {
   const deedPoll: SessionState = {
-    user: { roles: [], isAdmin: false, name: "An Admin" },
+    user: { staff: false, judicial: false, capabilities: [], isAdmin: false, isJudicial: false, name: "An Admin" },
     subject: SUBJECT,
     refreshToken: "a-refresh-token",
     tokenExpiresAt: expiringIn(60),

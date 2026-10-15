@@ -42,7 +42,7 @@ describe("domainErrorHandler", () => {
     const res = pageResponse();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    domainErrorHandler()(new ForbiddenError("/judicial/referrals requires the caseworker-deedpoll-judicial role"), REQUEST, res, next);
+    domainErrorHandler()(new ForbiddenError("/judicial/referrals requires judicial access"), REQUEST, res, next);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.render).toHaveBeenCalledWith("errors/404");
@@ -55,9 +55,9 @@ describe("domainErrorHandler", () => {
   it("should log the refusal, because nothing downstream of it will", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    domainErrorHandler()(new ForbiddenError("/judicial/referrals requires the caseworker-deedpoll-judicial role"), REQUEST, pageResponse(), next);
+    domainErrorHandler()(new ForbiddenError("/judicial/referrals requires judicial access"), REQUEST, pageResponse(), next);
 
-    expect(error).toHaveBeenCalledWith(expect.stringContaining("/judicial/referrals requires the caseworker-deedpoll-judicial role"));
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("/judicial/referrals requires judicial access"));
     error.mockRestore();
   });
 

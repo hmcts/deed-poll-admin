@@ -1,4 +1,4 @@
-import { DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_TEAM_LEADER, FORM_TABS, findDeedPoll, InvalidInputError, NotFoundError, updateDeedPoll } from "@hmcts/deed-poll";
+import { FORM_TABS, findDeedPoll, InvalidInputError, NotFoundError, updateDeedPoll } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../express-doubles.js";
@@ -111,14 +111,19 @@ describe("case edit tab page", () => {
       expect(field.value).toBe("Stored");
     });
 
-    it.each([DEEDPOLL_TEAM_LEADER, DEEDPOLL_DELIVERY_MANAGER])("locks privacy for ordinary caseworkers and unlocks it for %s", async (role) => {
-      const asCaseworker = response();
-      await GET(request(APPLICATION), asCaseworker);
-      const asAdmin = response();
-      await GET(pageRequest({ params: { id: "case-1", tab: APPLICATION }, roles: [role] }), asAdmin);
+    it.each([
+      ["teamLeader", false],
+      ["deliveryManager", false],
+      ["legacyAdmin", false],
+      ["caseworker", true],
+      ["judge", true],
+      ["none", true]
+    ] as const)("decides the privacy lock for %s from the stored answer (locked %s)", async (persona, locked) => {
+      const res = response();
 
-      expect(privacyField(asCaseworker).locked).toBe(true);
-      expect(privacyField(asAdmin).locked).toBe(false);
+      await GET(pageRequest({ params: { id: "case-1", tab: APPLICATION }, persona }), res);
+
+      expect(privacyField(res).locked).toBe(locked);
     });
 
     it("renders no errors on a fresh load", async () => {

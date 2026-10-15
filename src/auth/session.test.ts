@@ -1,4 +1,4 @@
-import { ACCESS_GAZETTE, can, currentUser, DEEDPOLL_ADMIN, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_TEAM_LEADER } from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, can, currentUser, DEEDPOLL_ADMIN, DEEDPOLL_DELIVERY_MANAGER, DELETE_NOTE, OVERRIDE_PRIVACY } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, type RequestDouble } from "../express-doubles.js";
@@ -93,7 +93,7 @@ describe("startFlow and takeFlow", () => {
 });
 
 describe("signIn", () => {
-  const user = currentUser([DEEDPOLL_TEAM_LEADER], "A Caseworker");
+  const user = currentUser({ staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY] }, "A Caseworker");
   const SUBJECT = "caseworker@example.com";
   const tokens = {
     idToken: "an-id-token",
@@ -158,7 +158,7 @@ describe("signIn", () => {
 });
 
 describe("session timestamps", () => {
-  const user = currentUser([DEEDPOLL_ADMIN], "A Caseworker");
+  const user = currentUser({ staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY] }, "A Caseworker");
   const tokens = { idToken: "an-id-token", accessToken: "an-access-token", refreshToken: "a-refresh-token", expiresAt: 1_800_000_000 };
   const SIGNED_IN_AT = new Date("2026-10-14T09:00:00Z");
   const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
@@ -467,19 +467,27 @@ describe("assertRedisUrl", () => {
   });
 });
 
-describe("stored role migration", () => {
+describe("stored access", () => {
   it.each([
-    { roles: [DEEDPOLL_ADMIN], privacy: true, gazette: false },
-    { roles: [DEEDPOLL_TEAM_LEADER], privacy: true, gazette: false },
-    { roles: [DEEDPOLL_DELIVERY_MANAGER], privacy: true, gazette: true },
-    { roles: ["unknown"], privacy: false, gazette: false },
-    { roles: undefined, privacy: false, gazette: false }
-  ])("should rederive a stored session with $roles and ignore stale booleans", ({ roles, privacy, gazette }) => {
+    {
+      label: "a Delivery Manager's answer",
+      access: { staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY, ACCESS_GAZETTE] },
+      privacy: true,
+      gazette: true
+    },
+    { label: "a Team leader's answer", access: { staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY, DELETE_NOTE] }, privacy: true, gazette: false },
+    { label: "an unknown capability", access: { staff: true, judicial: false, capabilities: ["MANAGE_USERS"] }, privacy: false, gazette: false },
+    { label: "a roles-era Delivery Manager", access: { roles: [DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_ADMIN] }, privacy: false, gazette: false },
+    { label: "a malformed answer", access: { staff: true, judicial: false, capabilities: "ACCESS_GAZETTE" }, privacy: false, gazette: false }
+  ])("should revalidate $label and ignore stale booleans", ({ access, privacy, gazette }) => {
     const req = request();
-    const stored = { roles, name: "Same person", isAdmin: !privacy, isJudicial: true };
+    const stored = { ...access, name: "Same person", isAdmin: !privacy, isJudicial: true };
     req.session.deedPoll.user = stored;
+
     const user = sessionUser(req);
+
     expect(user).toMatchObject({ name: "Same person", isAdmin: privacy, isJudicial: false });
+    expect(user).not.toHaveProperty("roles");
     expect(can(user!, ACCESS_GAZETTE)).toBe(gazette);
     expect(req.session.deedPoll.user).toBe(stored);
     expect(req.session.save).not.toHaveBeenCalled();

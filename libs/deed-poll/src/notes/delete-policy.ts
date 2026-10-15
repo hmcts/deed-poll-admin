@@ -6,4 +6,4 @@ export function canDeleteNote(user: NoteDeletePermission): boolean {
   return can(user, DELETE_NOTE);
 }
 
-export type NoteDeletePermission = Pick<CurrentUser, "roles">;
+export type NoteDeletePermission = Pick<CurrentUser, "capabilities">;

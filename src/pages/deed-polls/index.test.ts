@@ -2,11 +2,6 @@ import {
   countAwaitingConfirmation,
   countGazetteReadyCases,
   countReturnedForAction,
-  DEEDPOLL_ADMIN,
-  DEEDPOLL_CASEWORKER,
-  DEEDPOLL_DELIVERY_MANAGER,
-  DEEDPOLL_JUDICIAL,
-  DEEDPOLL_TEAM_LEADER,
   findDeedPolls,
   findSavedQueries,
   InvalidInputError
@@ -82,18 +77,18 @@ describe("deed-polls list page", () => {
     vi.mocked(countGazetteReadyCases).mockResolvedValue(0);
   });
 
-  it.each([DEEDPOLL_ADMIN, DEEDPOLL_TEAM_LEADER, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL])("should make no Gazette count request for %s", async (role) => {
+  it.each(["legacyAdmin", "teamLeader", "caseworker", "judge", "none"] as const)("should make no Gazette count request for %s", async (persona) => {
     const res = pageResponse();
-    await GET(pageRequest({ roles: [role] }), res);
+    await GET(pageRequest({ persona }), res);
     expect(countGazetteReadyCases).not.toHaveBeenCalled();
     expect(res.render.mock.calls[0][1]).toMatchObject({ showGazette: false });
   });
 
-  it.each([DEEDPOLL_ADMIN, DEEDPOLL_TEAM_LEADER, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL])(
+  it.each(["legacyAdmin", "teamLeader", "deliveryManager", "caseworker", "judge", "none"] as const)(
     "should retain the ordinary-list fallback for %s with a bookmarked Gazette filter",
-    async (role) => {
+    async (persona) => {
       const res = pageResponse();
-      await GET(pageRequest({ roles: [role], query: { filter: "readyForPublication" } }), res);
+      await GET(pageRequest({ persona, query: { filter: "readyForPublication" } }), res);
       expect(findDeedPolls).toHaveBeenCalledWith(expect.objectContaining({ filter: "all" }), expect.anything());
     }
   );

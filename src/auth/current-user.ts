@@ -8,7 +8,7 @@
  * `header-user.ts` went with it, so the bypass no longer exists anywhere.
  *
  * `requireAuth` runs before every non-public page, so a page reaching this always has a user. The
- * fallback is not a "logged out" state: it is `currentUser([])`, which holds no roles and is
+ * fallback is not a "logged out" state: it is `currentUser(undefined)`, which holds no access and is
  * attributed to the service account — so a bug that let an unauthenticated request through would fail
  * closed rather than silently acting as an admin.
  */
@@ -17,7 +17,7 @@ import type { Request } from "express";
 import { sessionAccessToken, sessionUser } from "./session.js";
 
 export function userFromRequest(req: Request): CurrentUser {
-  return sessionUser(req) ?? currentUser([]);
+  return sessionUser(req) ?? currentUser(undefined);
 }
 
 /**

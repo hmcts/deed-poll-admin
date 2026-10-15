@@ -9,7 +9,7 @@
  * Namespaced under `deedPoll` per `.claude/rules/frontend.md`, so a second journey added later cannot
  * collide with it in the same store.
  */
-import { type CurrentUser, currentUser, plainHttpPermitted, rolesFrom } from "@hmcts/deed-poll";
+import { type CurrentUser, currentUser, plainHttpPermitted } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import type { SessionData } from "express-session";
 import type { AuthFlowState, IdamTokens } from "./idam.js";
@@ -87,7 +87,7 @@ function writableNamespace(req: Request): DeedPollSession {
  * The placeholder in `config/default.json`, which is checked into a public repository.
  *
  * A session cookie is signed with this secret, and after Phase 5 the session is what says a caller is
- * signed in and which roles they hold. So a known secret is not a weak secret — it is no
+ * signed in and what api has granted them. So a known secret is not a weak secret — it is no
  * authentication at all: anyone can mint a cookie asserting `deedpoll-admin` and skip IDAM entirely.
  * The login flow this app now has would be decoration.
  */
@@ -226,11 +226,12 @@ function parseRedisUrl(url: string): URL {
   }
 }
 
-/** The signed-in user, or undefined. Undefined means not signed in — never "signed in with no roles". */
+/** The signed-in user, or undefined. Undefined means not signed in — never "signed in with no access". */
 export function sessionUser(req: Request): CurrentUser | undefined {
   const stored = namespace(req)?.user;
-  // Stored booleans may predate a permission change. Roles are the only authority.
-  return stored ? currentUser(rolesFrom(stored.roles), stored.name) : undefined;
+  // The stored `/me` answer is revalidated and its flags rebuilt, so neither a stale flag nor a session from before
+  // this shape grants anything.
+  return stored ? currentUser(stored, stored.name) : undefined;
 }
 
 export function startFlow(req: Request, flow: AuthFlowState): void {

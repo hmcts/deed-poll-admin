@@ -15,21 +15,20 @@ describe("userFromRequest", () => {
     expect(user).toMatchObject({ isAdmin: true, name: "A Caseworker" });
   });
 
-  it("gives a caller with no roles no admin", () => {
+  it("gives a caller with no access no admin", () => {
     expect(userFromRequest(pageRequest({ name: "A Caseworker" }))).toMatchObject({ isAdmin: false, isJudicial: false });
   });
 
-  it("carries the judicial role through from the session, which is what the judicial gate reads", () => {
+  it("carries the judicial answer through from the session, which is what the judicial gate reads", () => {
     expect(userFromRequest(pageRequest({ judicial: true, name: "A Judge" }))).toMatchObject({ isJudicial: true, isAdmin: false });
   });
 
-  it("falls back to no roles at all when there is no session user", () => {
+  it("falls back to no access at all when there is no session user", () => {
     // Fails closed. The alternative — inheriting anything from the request — is how an unauthenticated
     // request would end up acting as an admin, silently.
     const user = userFromRequest(pageRequest({ signedIn: false }));
 
-    expect(user.isAdmin).toBe(false);
-    expect(user.roles).toEqual([]);
+    expect(user).toMatchObject({ staff: false, judicial: false, capabilities: [], isAdmin: false, isJudicial: false });
   });
 
   it("attributes a write with no session user to the service account", () => {

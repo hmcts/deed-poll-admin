@@ -28,7 +28,6 @@
  * route this file could no longer see. Nothing is disclosed either way: the redirect target does the refusing.
  */
 import type { CurrentUser } from "@hmcts/deed-poll";
-import { capabilitiesFor } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { userFromRequest } from "../auth/current-user.js";
 import { sessionUser } from "../auth/session.js";
@@ -60,7 +59,7 @@ export const GET = async (req: Request, res: Response) => {
  * judicial lists have their own navigation between themselves (`referrals-admin-6`), but it renders only on pages
  * inside the area, the shared chrome renders no service-navigation, and `judicial.spec.ts` asserts the case list
  * carries no `/judicial` link — so a dual-role user reaches their pool only by typing `/judicial/referrals`. The
- * gate admits them (`requireRole` in `src/auth/require-role.ts`, pinned by its test), so this is a missing route
+ * gate admits them (`requireJudicial` in `src/auth/require-role.ts`, pinned by its test), so this is a missing route
  * into a permitted area and not a refusal. An earlier version of this docblock claimed the judge's area was "one
  * link away", which was never true and made the default look free. Whether such a user exists is
  * `referrals-admin-3`'s flagged open question; if the business confirms one does, the answer is a link on the case
@@ -71,5 +70,5 @@ export const GET = async (req: Request, res: Response) => {
  * be a page built for a state no role assignment produces.
  */
 function landingPath(user: CurrentUser): string {
-  return user.isJudicial && capabilitiesFor(user.roles).length === 0 ? JUDICIAL_POOL_PATH : CASE_LIST_PATH;
+  return user.judicial && user.capabilities.length === 0 ? JUDICIAL_POOL_PATH : CASE_LIST_PATH;
 }

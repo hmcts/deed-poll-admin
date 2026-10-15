@@ -6,4 +6,4 @@ export function canDeleteWitness(user: WitnessDeletePermission): boolean {
   return can(user, DELETE_WITNESS);
 }
 
-export type WitnessDeletePermission = Pick<CurrentUser, "roles">;
+export type WitnessDeletePermission = Pick<CurrentUser, "capabilities">;

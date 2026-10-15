@@ -198,23 +198,19 @@ describe("completeLogin", () => {
     vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: "team-leader@example.com", name: "A Team leader", roles: [DEEDPOLL_TEAM_LEADER] } as never);
   });
 
-  it("reads roles from userinfo, not from the ID token", async () => {
-    // The bug this file exists for. CFT IDAM's ID token is thin — `JwTokenGeneratorService` puts no
-    // roles in it at all — so reading claims would have yielded no roles against real IDAM. And because
-    // unknown roles are dropped rather than rejected, the symptom would have been "nobody can edit
-    // privacy" rather than an error.
+  it("grants nothing from the roles userinfo or the ID token asserts, because access is api's answer", async () => {
     vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "team-leader@example.com", roles: [DEEDPOLL_TEAM_LEADER] }, 900));
-    vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: "team-leader@example.com", name: "A Team leader", roles: [] } as never);
 
     const { user } = await completeLogin(config, flow, currentUrl);
 
-    expect(user.isAdmin).toBe(false);
+    expect(user).toMatchObject({ staff: false, judicial: false, capabilities: [], isAdmin: false });
+    expect(user).not.toHaveProperty("roles");
   });
 
-  it("returns the user userinfo describes", async () => {
+  it("returns the name userinfo describes", async () => {
     const { user } = await completeLogin(config, flow, currentUrl);
 
-    expect(user).toMatchObject({ isAdmin: true, name: "A Team leader" });
+    expect(user.name).toBe("A Team leader");
   });
 
   it("passes the PKCE verifier and the expected state from the session", async () => {

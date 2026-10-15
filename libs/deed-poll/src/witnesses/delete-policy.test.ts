@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { ACCESS_GAZETTE, DELETE_WITNESS, OVERRIDE_PRIVACY } from "../auth/capabilities.js";
 import { currentUser } from "../auth/current-user.js";
-import { DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_JUDICIAL, DEEDPOLL_TEAM_LEADER } from "../auth/roles.js";
 import { canDeleteWitness } from "./delete-policy.js";
 
 describe("witnesses deletion", () => {
-  it.each([DEEDPOLL_TEAM_LEADER, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_ADMIN])("should allow %s", (role) => {
-    expect(canDeleteWitness(currentUser([role]))).toBe(true);
+  it("should allow a caller api grants DELETE_WITNESS", () => {
+    expect(canDeleteWitness(currentUser({ staff: true, judicial: false, capabilities: [DELETE_WITNESS] }))).toBe(true);
   });
-  it.each([DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL])("should refuse %s despite a stale privilege flag", (role) => {
-    expect(canDeleteWitness({ ...currentUser([role]), isAdmin: true })).toBe(false);
+
+  it("should refuse a caller without DELETE_WITNESS despite a stale privilege flag", () => {
+    const stale = { ...currentUser({ staff: true, judicial: true, capabilities: [OVERRIDE_PRIVACY, ACCESS_GAZETTE] }), isAdmin: true };
+
+    expect(canDeleteWitness(stale)).toBe(false);
   });
 });

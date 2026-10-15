@@ -101,15 +101,10 @@ describe("passwordGrantLogin", () => {
     });
   });
 
-  it("should return the persona's roles as userinfo describes them, not as the token does", async () => {
-    // The finding the whole feature rests on. CFT IDAM's tokens carry no roles at all — api reads
-    // `/o/userinfo` with the access token, and so does this — so roles read from the token would be empty
-    // against real IDAM and the switch would present as a permissions bug.
-    vi.mocked(client.genericGrantRequest).mockResolvedValue(tokenResponse({}, { sub: "judge@example.com", roles: [] }));
-
+  it("should return the persona's name from userinfo and grant nothing from the roles it asserts", async () => {
     const { user } = await passwordGrantLogin(config, "judge@example.com", "Pa55word11");
 
-    expect(user).toMatchObject({ isJudicial: true, isAdmin: false, name: "A Judge" });
+    expect(user).toMatchObject({ staff: false, judicial: false, capabilities: [], isJudicial: false, name: "A Judge" });
   });
 
   it("should check userinfo against the ID token's subject, so a response describing someone else is refused", async () => {

@@ -165,15 +165,15 @@ failure. E2E isn't run from a worktree (docker compose project names collide); s
 
 ### Task 2: The session user is the stored answer
 
-- [ ] Change `CurrentUser` and the session to `{ name, staff, judicial, capabilities }` (decision 1). Add read-time
+- [x] Change `CurrentUser` and the session to `{ name, staff, judicial, capabilities }` (decision 1). Add read-time
       validation (decision 2), `can`, `isAdmin`, `isJudicial` and `staffAccess` (decision 6). Delete `capabilitiesFor`
       and every role read in the authorisation path. Update `src/express-doubles.ts`.
-- [ ] Tests:
+- [x] Tests:
   - an unknown capability is dropped
   - a malformed or missing answer means no access
   - each capability call site behaves as before for Team leader, Delivery Manager, legacy admin, caseworker, judge
     and no-role callers
-- [ ] Mark completed
+- [x] Mark completed
 
 ### Task 3: Fetch at login and on refresh
 

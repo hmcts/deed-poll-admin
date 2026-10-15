@@ -403,7 +403,7 @@ function oauthError(error: string): client.ResponseBodyError {
 
 function loginFor(subject: string): LoginResult {
   return {
-    user: currentUser([], "A Persona"),
+    user: currentUser(undefined, "A Persona"),
     subject,
     tokens: { idToken: "an-id-token", accessToken: "an-access-token", refreshToken: "a-refresh-token", expiresAt: 1_800_000_000 }
   };
