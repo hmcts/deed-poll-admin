@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { load as yamlLoad } from "js-yaml";
 import { describe, expect, it } from "vitest";
 import { PERSONA_SWITCHER_ENVIRONMENTS } from "./auth/persona-switcher.js";
+import { assertSessionTimeouts } from "./auth/session.js";
 
 // `src/secrets.ts` resolves this path relative to its own directory, and `getPropertiesVolumeSecrets`
 // swallows a missing or unparseable chart: the aliases below are silently dropped and every secret arrives
@@ -284,6 +285,33 @@ describe("charts/deed-poll-admin", () => {
     );
   });
 
+  // Stated in the chart so operators can see the policy, and equal to config/default.json so a deploy and a local run
+  // enforce the same limits. Raising SESSION_IDLE_TIMEOUT_SECONDS is the rollback lever. OWASP plan 03, Task 8.
+  it("should state the session limits operators can see, matching the defaults and passing the startup check", () => {
+    const environment = readValues("values.yaml").nodejs.environment ?? {};
+    const defaults = (JSON.parse(readFileSync(path.join(APP_DIR, "../config/default.json"), "utf8")) as { session: Record<string, unknown> }).session;
+    const mapping = readMapping().session;
+
+    expect(JSON.parse(environment.SESSION_IDLE_TIMEOUT_SECONDS)).toBe(defaults.idleTimeoutSeconds);
+    expect(JSON.parse(environment.SESSION_ABSOLUTE_TIMEOUT_SECONDS)).toBe(defaults.absoluteTimeoutSeconds);
+    expect(() =>
+      assertSessionTimeouts(JSON.parse(environment.SESSION_IDLE_TIMEOUT_SECONDS), JSON.parse(environment.SESSION_ABSOLUTE_TIMEOUT_SECONDS))
+    ).not.toThrow();
+    // `__format: "json"` makes these numbers and a boolean. Without it config hands back strings, which the startup
+    // check refuses, and "false" would be truthy.
+    expect(mapping?.idleTimeoutSeconds).toEqual({ __name: "SESSION_IDLE_TIMEOUT_SECONDS", __format: "json" });
+    expect(mapping?.absoluteTimeoutSeconds).toEqual({ __name: "SESSION_ABSOLUTE_TIMEOUT_SECONDS", __format: "json" });
+    expect(mapping?.timeoutLogoutPathRegistered).toEqual({ __name: "SESSION_TIMEOUT_LOGOUT_PATH_REGISTERED", __format: "json" });
+  });
+
+  // IDAM refuses an unregistered post-logout address, so this flips to true only after idam-access-config registers
+  // /session-timed-out (Task 10). Until then a timed-out session returns to /, which is registered.
+  it("should not claim the timed-out page is registered with IDAM in any environment yet", () => {
+    for (const file of TEMPLATES.concat("values.yaml")) {
+      expect(readValues(file).nodejs.environment?.SESSION_TIMEOUT_LOGOUT_PATH_REGISTERED ?? "false", file).toBe("false");
+    }
+  });
+
   it("should give the preview redis a probe budget that survives Dynatrace instrumentation", () => {
     // HDPI-8155: the chart-default 2s exec-probe budget leaves redis Running-but-not-Ready on preview
     // (`apps/pcs/pcs-frontend` measured 3.4-4.1s), and a master missing from its Service endpoints leaves
@@ -346,4 +374,5 @@ interface EnvironmentMapping {
   environmentName?: string;
   personaSwitcher?: { enabled?: unknown };
   redis?: { plaintextPermitted?: unknown };
+  session?: { idleTimeoutSeconds?: unknown; absoluteTimeoutSeconds?: unknown; timeoutLogoutPathRegistered?: unknown };
 }

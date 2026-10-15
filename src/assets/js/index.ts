@@ -46,7 +46,9 @@ const config = {
       categoryName: "essential",
       optional: false,
       matchBy: "exact",
-      cookies: ["connect.sid", "_csrf", "cookie_policy", "cookies_preferences_set", "locale"]
+      // Both forms of the session cookie's name, since the browser cannot tell which the server chose. See
+      // sessionCookieName in src/auth/session.ts.
+      cookies: ["__Host-deed-poll-admin-sid", "deed-poll-admin-sid", "_csrf", "cookie_policy", "cookies_preferences_set", "locale"]
     },
     {
       categoryName: "analytics",

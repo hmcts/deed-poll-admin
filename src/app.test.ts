@@ -21,6 +21,9 @@ import { fileURLToPath } from "node:url";
 import { deedPollApiStatus } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
+import { refreshMiddleware } from "./auth/refresh-middleware.js";
+import { assertSessionTimeouts } from "./auth/session.js";
+import { sessionLifetime } from "./auth/session-lifetime.js";
 
 /**
  * The URL the assertion below expects to reach `createClient`, set rather than assumed.
@@ -79,6 +82,12 @@ vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
   monitoringMiddleware: vi.fn(() => mocks.passthrough),
   healthcheck: mocks.healthcheck
 }));
+// Wrapped, not replaced: the real check still runs, so this file also proves the defaults pass it. node-config freezes
+// itself on first read, so a bad value cannot be injected through `config.get` once another test has started the app.
+vi.mock("./auth/session.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./auth/session.js")>();
+  return { ...original, assertSessionTimeouts: vi.fn(original.assertSessionTimeouts) };
+});
 // `@hmcts/deed-poll` is deliberately **not** mocked. Nothing reaches api until a check is called, and the
 // readiness assertion below compares the mounted check against the real `deedPollApiStatus` by identity —
 // mocking it was how the earlier version of that assertion came to check a hardcoded list against a
@@ -90,8 +99,8 @@ type HealthcheckOptions = {
 };
 
 type SessionRedisOptions = {
-  sessionOptions: { secret: string; cookie: Record<string, unknown> };
-  storeOptions: { prefix: string };
+  sessionOptions: { secret: string; name?: string; cookie: Record<string, unknown> };
+  storeOptions: { prefix: string; ttl?: unknown };
 };
 
 function healthcheckOptions(): HealthcheckOptions {
@@ -121,14 +130,32 @@ describe("createApp", () => {
   // `expressSessionRedis` defaults `maxAge` to four hours where the Postgres store it replaced defaulted to
   // twenty-four, and `express-session` sets no `sameSite` at all. `secure` is false only because vitest sets
   // `NODE_ENV=test`, which `plainHttpPermitted` allowlists.
-  it("should give the session cookie a 24-hour lifetime, httpOnly and sameSite=lax explicitly", async () => {
-    expect(sessionRedisOptions().sessionOptions.cookie).toEqual({ maxAge: 86_400_000, httpOnly: true, secure: false, sameSite: "lax" });
+  // The cookie lasts as long as the absolute limit (10 hours by default). It is a convenience: sessionLifetime decides.
+  // Path stated, and no domain, because the __Host- name used where cookies are secure requires both.
+  it("should give the session cookie the absolute limit's lifetime, path=/, httpOnly and sameSite=lax explicitly", async () => {
+    expect(sessionRedisOptions().sessionOptions.cookie).toEqual({ maxAge: 36_000_000, path: "/", httpOnly: true, secure: false, sameSite: "lax" });
+  });
+
+  // Not the library default `connect.sid`, which names the framework. Plain under vitest's NODE_ENV=test; the
+  // __Host- form is session.test.ts's subject.
+  it("should name the session cookie for this service, and list that name as an essential cookie", async () => {
+    const { configureCookieManager } = await import("@hmcts-cft/express-govuk-starter");
+
+    expect(sessionRedisOptions().sessionOptions.name).toBe("deed-poll-admin-sid");
+    expect(vi.mocked(configureCookieManager).mock.calls[0][1]).toMatchObject({ categories: { essential: ["deed-poll-admin-sid"] } });
   });
 
   // One Redis per product, shared with `deed-poll-web`, so the library's default `sess:` prefix would put a
   // public service's sessions and this one's IDAM tokens in a single keyspace.
   it("should prefix session keys per component, since the product's Redis is shared with deed-poll-web", async () => {
-    expect(sessionRedisOptions().storeOptions).toEqual({ prefix: "admin-sess:" });
+    expect(sessionRedisOptions().storeOptions).toEqual({ prefix: "admin-sess:", ttl: expect.any(Function) });
+  });
+
+  // Derived from the session rather than the cookie, which every request slides. See sessionStoreTtl.
+  it("should give the store a TTL that a signed-in session's activity cannot extend", async () => {
+    const { ttl } = sessionRedisOptions().storeOptions as { ttl: (sess: unknown) => number };
+
+    expect(ttl({ cookie: {} })).toBe(600);
   });
 
   it("should connect a Redis client at the configured URL before mounting the session middleware", async () => {
@@ -274,6 +301,9 @@ const gates = vi.hoisted(() => ({
   sameOrigin: function requireSameOriginDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
+  sessionLifetime: function sessionLifetimeDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
   /** Named, unlike the other doubles in this file, only so the layer it mounts as can be told apart. */
   router: function simpleRouterDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
@@ -285,6 +315,7 @@ vi.mock("./auth/require-role.js", () => ({ requireRole: vi.fn(() => gates.gazett
 vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gates.persona }));
 vi.mock("./auth/same-origin.js", () => ({ requireSameOrigin: () => gates.sameOrigin }));
 vi.mock("./auth/no-store.js", () => ({ noStore: () => gates.noStore }));
+vi.mock("./auth/session-lifetime.js", () => ({ sessionLifetime: vi.fn(() => gates.sessionLifetime) }));
 
 describe("createApp's judicial gate", () => {
   let stack: MountedLayer[];
@@ -459,6 +490,44 @@ function judicialPagePaths(area = "judicial"): string[] {
 }
 
 /** The part of an Express layer this file reads: what was mounted, and the paths it answers for. */
+/**
+ * That the session lifetime limits are enforced, for every path, before anything can renew the session.
+ *
+ * After the cross-origin gate, so a forged post is refused as forged rather than ending the victim's session. Before
+ * `requireAuth`, so a timed-out request is ended rather than treated as signed in. And before `refreshMiddleware`,
+ * which is the point: mounted after it, a session past its absolute limit would be renewed first, and the limit would
+ * be no limit. Nothing about running the app shows the order. OWASP plan 03, decision 2.
+ */
+describe("createApp's session lifetime limits", () => {
+  let stack: MountedLayer[];
+  const at = (handle: unknown) => stack.findIndex((layer) => layer.handle === handle);
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+  });
+
+  it("should enforce the configured limits, with the timed-out return address not yet registered", () => {
+    expect(sessionLifetime).toHaveBeenCalledWith({ idleSeconds: 1800, absoluteSeconds: 36_000, logoutPathRegistered: false });
+  });
+
+  it("should mount after the cross-origin gate and before requireAuth and the token refresh", () => {
+    expect(at(gates.sessionLifetime)).toBeGreaterThan(at(gates.sameOrigin));
+    expect(at(gates.sessionLifetime)).toBeLessThan(at(gates.auth));
+    expect(at(gates.sessionLifetime)).toBeLessThan(at(refreshMiddleware));
+  });
+
+  it("should mount for every path, so a page added later is covered by existing", () => {
+    const layer = stack.find((entry) => entry.handle === gates.sessionLifetime) as MountedLayer;
+
+    for (const path of ["/", "/deed-polls", "/deed-polls/abc/notes", "/judicial/referrals", "/deed-polls/gazette"]) {
+      expect(layer.match(path), path).toBe(true);
+    }
+  });
+});
+
 type MountedLayer = { handle: unknown; matchers: ((path: string) => unknown)[]; match: (path: string) => boolean };
 
 describe("createApp's Gazette gate", () => {
@@ -516,13 +585,15 @@ describe("createApp's no-store layer", () => {
   // The header is skipped exactly where requireAuth's allowlist says a page is public, so this reads every page off
   // the filesystem and pins which ones those are. A new page is a signed-in page, and uncacheable, unless it is
   // added here on purpose.
-  it("should treat every page but the sign-in flow, the home redirect and the footer pages as signed-in", async () => {
+  // `/session-timed-out` is for a user who is no longer signed in, and shows no case data.
+  it("should treat every page but the sign-in flow, the home redirect, the timed-out page and the footer pages as signed-in", async () => {
     const { isPublicPath } = await vi.importActual<typeof import("./auth/require-auth.js")>("./auth/require-auth.js");
     const publicPages = new Set([
       "/",
       "/login",
       "/logout",
       "/oauth2/callback",
+      "/session-timed-out",
       "/accessibility-statement",
       "/contact-us",
       "/privacy-policy",
@@ -535,6 +606,27 @@ describe("createApp's no-store layer", () => {
     for (const page of pages) {
       expect(isPublicPath(page), page).toBe(publicPages.has(page));
     }
+  });
+});
+
+// The limits are checked in `session.test.ts`; this pins that `createApp` checks them at all, before serving anything.
+describe("createApp's session limits", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should check the configured limits, which default to 30 minutes idle and 10 hours absolute", async () => {
+    await createApp();
+
+    expect(assertSessionTimeouts).toHaveBeenCalledWith(1800, 36_000);
+  });
+
+  it("should refuse to start when the check refuses the limits", async () => {
+    vi.mocked(assertSessionTimeouts).mockImplementationOnce(() => {
+      throw new Error("SESSION_IDLE_TIMEOUT_SECONDS must be shorter than SESSION_ABSOLUTE_TIMEOUT_SECONDS");
+    });
+
+    await expect(createApp()).rejects.toThrow(/SESSION_IDLE_TIMEOUT_SECONDS/);
   });
 });
 

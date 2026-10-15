@@ -9,10 +9,11 @@
 - Provide `Sign out` / `Allgofnodi` and the account navigation label through the shared
   locale files, included in the translation catalogue. Welsh copy remains subject to
   the service's normal translation review.
-- **Session-timeout policy remains open.** The historical observation below does not
-  mean there is no configured expiry: `src/app.ts` currently sets a 24-hour cookie
-  lifetime, and refresh failure can end authentication. A business-defined inactivity
-  timeout is a separate decision; this implementation changes neither mechanism.
+- **Session timeouts are now implemented (14 October 2026).** Idle and absolute limits,
+  30 minutes and 10 hours by default, replaced the 24-hour cookie lifetime this note
+  described. The values are still recommended defaults pending the service owner's
+  decision. See `docs/DEPLOYMENT.md`, "Session lifetime". This plan changed neither
+  mechanism.
 - Leave the existing GET `/logout` route and starter library unchanged.
 
 ## Completion and validation — 2 October 2026

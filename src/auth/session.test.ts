@@ -1,9 +1,24 @@
 import { currentUser, DEEDPOLL_ADMIN } from "@hmcts/deed-poll";
 import type { Request } from "express";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, type RequestDouble } from "../express-doubles.js";
 import type { AuthFlowState } from "./idam.js";
-import { assertRedisUrl, assertSessionSecret, sessionIdToken, sessionUser, signIn, signOut, startFlow, takeFlow } from "./session.js";
+import {
+  assertRedisUrl,
+  assertSessionSecret,
+  assertSessionTimeouts,
+  sessionCookieName,
+  sessionIdToken,
+  sessionStoreTtl,
+  sessionTimestamps,
+  sessionUser,
+  signIn,
+  signOut,
+  startFlow,
+  takeFlow,
+  touchLastSeen,
+  updateTokens
+} from "./session.js";
 
 const FLOW: AuthFlowState = { codeVerifier: "a-verifier", state: "a-state", returnTo: "/deed-polls" };
 
@@ -142,6 +157,128 @@ describe("signIn", () => {
   });
 });
 
+describe("session timestamps", () => {
+  const user = currentUser([DEEDPOLL_ADMIN], "A Caseworker");
+  const tokens = { idToken: "an-id-token", accessToken: "an-access-token", refreshToken: "a-refresh-token", expiresAt: 1_800_000_000 };
+  const SIGNED_IN_AT = new Date("2026-10-14T09:00:00Z");
+  const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("should start both clocks at sign-in", async () => {
+    vi.useFakeTimers({ now: SIGNED_IN_AT, toFake: ["Date"] });
+    const req = request();
+
+    await signIn(req, user, "caseworker@example.com", tokens);
+
+    expect(sessionTimestamps(req)).toEqual({ authenticatedAt: seconds(SIGNED_IN_AT), lastSeenAt: seconds(SIGNED_IN_AT) });
+  });
+
+  // The guard that matters most: a refresh that moved either clock would make the session endless again.
+  it("should leave both clocks alone when tokens are refreshed", async () => {
+    vi.useFakeTimers({ now: SIGNED_IN_AT, toFake: ["Date"] });
+    const req = request();
+    await signIn(req, user, "caseworker@example.com", tokens);
+    vi.setSystemTime(new Date("2026-10-14T17:00:00Z"));
+
+    await updateTokens(req, { ...tokens, accessToken: "a-refreshed-token" });
+
+    expect(sessionTimestamps(req)).toEqual({ authenticatedAt: seconds(SIGNED_IN_AT), lastSeenAt: seconds(SIGNED_IN_AT) });
+  });
+
+  it("should move only the last-seen clock, and save it, when activity is recorded", async () => {
+    vi.useFakeTimers({ now: SIGNED_IN_AT, toFake: ["Date"] });
+    const req = request();
+    await signIn(req, user, "caseworker@example.com", tokens);
+    const later = new Date("2026-10-14T09:20:00Z");
+    vi.setSystemTime(later);
+    req.session.save.mockClear();
+
+    await touchLastSeen(req);
+
+    expect(sessionTimestamps(req)).toEqual({ authenticatedAt: seconds(SIGNED_IN_AT), lastSeenAt: seconds(later) });
+    expect(req.session.save).toHaveBeenCalled();
+  });
+
+  it("should reject when the last-seen save fails, rather than carrying on as if it had been recorded", async () => {
+    const req = request({ signedIn: true });
+    req.session.save.mockImplementation((callback: (error?: Error) => void) => callback(new Error("store down")));
+
+    await expect(touchLastSeen(req)).rejects.toThrow("store down");
+  });
+
+  // A session from before this change has neither. Reading it as "no timestamps" lets the lifetime check end it.
+  it("should report no timestamps for a session that has none, or only one", () => {
+    const untimed = request({ signedIn: true });
+    const halfTimed = request({ signedIn: true });
+    halfTimed.session.deedPoll.authenticatedAt = seconds(SIGNED_IN_AT);
+
+    expect(sessionTimestamps(untimed)).toBeUndefined();
+    expect(sessionTimestamps(halfTimed)).toBeUndefined();
+  });
+});
+
+describe("sessionStoreTtl", () => {
+  const LIMITS = { idleSeconds: 1800, absoluteSeconds: 36_000 };
+  const NOW = new Date("2026-10-14T12:00:00Z");
+  const NOW_SECONDS = NOW.getTime() / 1000;
+  const ttl = sessionStoreTtl(LIMITS);
+  const stored = (deedPoll?: Record<string, unknown>) => ({ cookie: {}, ...(deedPoll ? { deedPoll } : {}) }) as unknown as Parameters<typeof ttl>[0];
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Ten minutes is long enough to finish a sign-in at IDAM, and short enough that a crawler's sessions do not linger.
+  it.each([
+    ["an empty session", undefined],
+    ["a sign-in in flight", { flow: { state: "a-state" } }],
+    ["a timed-out session holding only its return path", { timedOutReturnTo: "/deed-polls" }]
+  ])("should keep %s for ten minutes", (_label, deedPoll) => {
+    expect(ttl(stored(deedPoll))).toBe(600);
+  });
+
+  // Fifteen minutes past the absolute deadline, so it is the middleware, not eviction, that ends every session on time
+  // and sends the user through IDAM end-session.
+  it("should keep a signed-in session until fifteen minutes after its absolute deadline", () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+
+    expect(ttl(stored({ user: { name: "A" }, authenticatedAt: NOW_SECONDS - 3600, lastSeenAt: NOW_SECONDS }))).toBe(36_000 - 3600 + 900);
+  });
+
+  // connect-redis deletes the key on a TTL of zero or less, which would lose the session mid-request.
+  it("should never answer less than one second, even long past the deadline", () => {
+    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+
+    expect(ttl(stored({ user: { name: "A" }, authenticatedAt: NOW_SECONDS - 100_000, lastSeenAt: NOW_SECONDS - 100_000 }))).toBe(1);
+  });
+});
+
+describe("sessionCookieName", () => {
+  const original = process.env.NODE_ENV;
+
+  afterEach(() => {
+    process.env.NODE_ENV = original;
+  });
+
+  // `__Host-` makes the browser refuse the cookie unless it is Secure, Path=/ and has no Domain, so a sibling
+  // *.platform.hmcts.net site cannot plant or overwrite it. OWASP plan 03, Task 13.
+  it.each(["production", "aat", ""])("should use the __Host- name where cookies must be secure, under NODE_ENV=%o", (env) => {
+    process.env.NODE_ENV = env;
+
+    expect(sessionCookieName()).toBe("__Host-deed-poll-admin-sid");
+  });
+
+  // Browsers refuse a __Host- cookie over plain http, so local runs would never keep a session.
+  it.each(["development", "test"])("should drop the prefix where plain http is permitted, under NODE_ENV=%o", (env) => {
+    process.env.NODE_ENV = env;
+
+    expect(sessionCookieName()).toBe("deed-poll-admin-sid");
+  });
+});
+
 describe("signOut", () => {
   it("destroys the whole session, not just this app's namespace", async () => {
     const req = request({ signedIn: true, idToken: "an-id-token" });
@@ -191,6 +328,50 @@ describe("assertSessionSecret", () => {
     process.env.NODE_ENV = "production";
 
     expect(() => assertSessionSecret("a-real-secret-from-the-key-vault")).not.toThrow();
+  });
+});
+
+describe("assertSessionTimeouts", () => {
+  it("should accept the plan's defaults of 30 minutes idle and 10 hours absolute", () => {
+    expect(assertSessionTimeouts(1800, 36_000)).toEqual({ idleSeconds: 1800, absoluteSeconds: 36_000 });
+  });
+
+  it("should accept the bounds themselves, 300 seconds idle and 24 hours absolute", () => {
+    expect(assertSessionTimeouts(300, 86_400)).toEqual({ idleSeconds: 300, absoluteSeconds: 86_400 });
+  });
+
+  // An idle limit at or past the absolute one could never fire, so the setting would be a no-op that reads like a control.
+  it.each([
+    [36_000, 36_000],
+    [36_001, 36_000]
+  ])("should refuse an idle limit of %o that is not shorter than the absolute limit of %o", (idle, absolute) => {
+    expect(() => assertSessionTimeouts(idle, absolute)).toThrow(/SESSION_IDLE_TIMEOUT_SECONDS.*SESSION_ABSOLUTE_TIMEOUT_SECONDS/);
+  });
+
+  // Under five minutes there is no room for the two-minute warning and a reply to it.
+  it("should refuse an idle limit under 300 seconds", () => {
+    expect(() => assertSessionTimeouts(299, 36_000)).toThrow(/SESSION_IDLE_TIMEOUT_SECONDS/);
+  });
+
+  it("should refuse an absolute limit over 24 hours, which would be no tighter than the cookie it replaces", () => {
+    expect(() => assertSessionTimeouts(1800, 86_401)).toThrow(/SESSION_ABSOLUTE_TIMEOUT_SECONDS/);
+  });
+
+  it.each([
+    ["a fraction", 1800.5, 36_000, /SESSION_IDLE_TIMEOUT_SECONDS/],
+    ["text", "abc", 36_000, /SESSION_IDLE_TIMEOUT_SECONDS/],
+    ["a numeric string", 1800, "36000", /SESSION_ABSOLUTE_TIMEOUT_SECONDS/],
+    ["missing", 1800, undefined, /SESSION_ABSOLUTE_TIMEOUT_SECONDS/]
+  ])("should refuse %s", (_label, idle, absolute, message) => {
+    expect(() => assertSessionTimeouts(idle, absolute)).toThrow(message);
+  });
+
+  // The message names the setting and the rule only. It is read in startup logs, and quoting values from config
+  // is how a secret ends up there when a neighbouring setting is mis-mapped.
+  it("should not quote the rejected value", () => {
+    expect(() => assertSessionTimeouts("not-a-secret-but-could-be", 36_000)).toThrow(
+      expect.objectContaining({ message: expect.not.stringContaining("not-a-secret-but-could-be") })
+    );
   });
 });
 

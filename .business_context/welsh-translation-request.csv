@@ -674,3 +674,7 @@ src/pages/judicial/referrals/mine.ts,title,"My referrals","My referrals",YES,"",
 src/pages/judicial/referrals/mine.ts,urgencyHeading,"Urgency","Urgency",YES,"",,""
 src/pages/judicial/referrals/mine.ts,view,"View","View",YES,"Gweld",high,""
 src/pages/judicial/referrals/mine.ts,viewHintFor,"`the referral referred on ${raisedOn}, ${status}`","`the referral referred on ${raisedOn}, ${status}`",YES,"",,""
+src/pages/session-timed-out/index.ts,body,"You were signed out because you had not used the service for a while, or had been signed in for too long. This protects the information in the service.","Cawsoch eich allgofnodi oherwydd nad oeddech wedi defnyddio’r gwasanaeth ers tro, neu oherwydd eich bod wedi mewngofnodi am ormod o amser. Mae hyn yn diogelu’r wybodaeth yn y gwasanaeth.",already translated,"",,""
+src/pages/session-timed-out/index.ts,signIn,"Sign in again","Mewngofnodi eto",already translated,"",,""
+src/pages/session-timed-out/index.ts,title,"You have been signed out","Rydych wedi cael eich allgofnodi",already translated,"",,""
+src/pages/session-timed-out/index.ts,unsavedText,"Any changes you were making were not saved.","Ni chafodd unrhyw newidiadau yr oeddech yn eu gwneud eu cadw.",already translated,"",,""

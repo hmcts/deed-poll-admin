@@ -1,6 +1,6 @@
 import { RedisStore } from "connect-redis";
 import type { RequestHandler } from "express";
-import session, { type SessionOptions } from "express-session";
+import session, { type SessionData, type SessionOptions } from "express-session";
 
 export function expressSessionRedis(options: ExpressSessionRedisOptions): RequestHandler {
   const { redisConnection, sessionOptions = {}, storeOptions = {} } = options;
@@ -33,7 +33,8 @@ export type ExpressSessionRedisOptions = {
   sessionOptions?: Partial<SessionOptions>;
   storeOptions?: {
     prefix?: string;
-    ttl?: number;
+    /** Seconds, or a function of the session, as connect-redis accepts. */
+    ttl?: number | ((sess: SessionData) => number);
     disableTouch?: boolean;
     disableTTL?: boolean;
   };

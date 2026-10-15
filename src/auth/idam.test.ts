@@ -432,6 +432,13 @@ describe("endSessionUrl", () => {
     expect(new URL(away as string).searchParams.get("post_logout_redirect_uri")).toBe("http://localhost:3000/");
   });
 
+  // The timed-out page, once idam-access-config registers it. IDAM refuses an unregistered return address.
+  it("sends a named path on this service as the post-logout destination when asked to", async () => {
+    const away = await endSessionUrl(config, "an-id-token", "/session-timed-out");
+
+    expect(new URL(away as string).searchParams.get("post_logout_redirect_uri")).toBe("http://localhost:3000/session-timed-out");
+  });
+
   it("still returns a URL when there is no id token to hint with", async () => {
     const away = await endSessionUrl(config, undefined);
 

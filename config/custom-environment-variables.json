@@ -17,7 +17,19 @@
     }
   },
   "session": {
-    "secret": "SESSION_SECRET"
+    "secret": "SESSION_SECRET",
+    "idleTimeoutSeconds": {
+      "__name": "SESSION_IDLE_TIMEOUT_SECONDS",
+      "__format": "json"
+    },
+    "absoluteTimeoutSeconds": {
+      "__name": "SESSION_ABSOLUTE_TIMEOUT_SECONDS",
+      "__format": "json"
+    },
+    "timeoutLogoutPathRegistered": {
+      "__name": "SESSION_TIMEOUT_LOGOUT_PATH_REGISTERED",
+      "__format": "json"
+    }
   },
   "applicationInsights": {
     "serviceName": "SERVICE_NAME",

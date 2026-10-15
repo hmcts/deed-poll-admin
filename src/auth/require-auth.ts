@@ -36,6 +36,7 @@ const PUBLIC_PATHS = new Set([
   "/login",
   "/oauth2/callback",
   "/logout",
+  "/session-timed-out",
   "/accessibility-statement",
   "/contact-us",
   "/privacy-policy",
@@ -46,7 +47,12 @@ const PUBLIC_PATHS = new Set([
 const PUBLIC_PREFIXES = ["/health", "/assets/", "/@vite", "/@fs", "/src/", "/favicon"];
 
 export function isPublicPath(path: string): boolean {
-  return PUBLIC_PATHS.has(path) || PUBLIC_PREFIXES.some((prefix) => path.startsWith(prefix));
+  return PUBLIC_PATHS.has(path) || isProbeOrAssetPath(path);
+}
+
+/** The health probes and static assets: public, and never a sign of a user's activity. */
+export function isProbeOrAssetPath(path: string): boolean {
+  return PUBLIC_PREFIXES.some((prefix) => path.startsWith(prefix));
 }
 
 export function requireAuth(): RequestHandler {

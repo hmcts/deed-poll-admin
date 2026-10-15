@@ -11,10 +11,23 @@
  */
 import { type CurrentUser, plainHttpPermitted } from "@hmcts/deed-poll";
 import type { Request } from "express";
+import type { SessionData } from "express-session";
 import type { AuthFlowState, IdamTokens } from "./idam.js";
 
 /** The service name the chart's per-PR Redis subchart gets: `{{ .Release.Name }}-redis-master`. */
 const PREVIEW_REDIS_HOST = /^deed-poll-admin-pr-\d+-redis-master$/;
+
+/**
+ * The range a session limit may take, in seconds. The floor leaves room for the two-minute warning and a reply to
+ * it; the ceiling is the 24-hour cookie these limits replace, so a value above it would be no limit at all.
+ */
+const MIN_IDLE_TIMEOUT_SECONDS = 300;
+const MAX_ABSOLUTE_TIMEOUT_SECONDS = 86_400;
+
+/** How long the store keeps a session nobody is signed in to: enough to finish a sign-in at IDAM. */
+const ANONYMOUS_STORE_TTL_SECONDS = 600;
+/** How long past the absolute deadline the store keeps a signed-in session, so `sessionLifetime` always ends it first. */
+const SIGNED_IN_STORE_GRACE_SECONDS = 900;
 
 interface DeedPollSession {
   user?: CurrentUser;
@@ -36,6 +49,15 @@ interface DeedPollSession {
   accessToken?: string;
   /** Unix timestamp (seconds) when the access token expires. */
   tokenExpiresAt?: number;
+  /**
+   * Unix timestamp (seconds) of the sign-in this session belongs to: the start of the absolute limit. Only `signIn`
+   * writes it, so no refresh can move the deadline. OWASP plan 03, decision 1.
+   */
+  authenticatedAt?: number;
+  /** Unix timestamp (seconds) of the last request that counts as activity: the start of the idle limit. */
+  lastSeenAt?: number;
+  /** Where a GET was heading when its session timed out, for the timed-out page's sign-in link. Anonymous only. */
+  timedOutReturnTo?: string;
 }
 
 type SessionWithDeedPoll = Request["session"] & { deedPoll?: DeedPollSession };
@@ -87,6 +109,58 @@ export function assertSessionSecret(secret: string): void {
   throw new Error(
     `SESSION_SECRET is still the placeholder from config/default.json under NODE_ENV ${JSON.stringify(process.env.NODE_ENV)}. Session cookies signed with it are forgeable, so anyone could assert any role without logging in. Set it from the key vault.`
   );
+}
+
+/**
+ * The session cookie's name: `__Host-deed-poll-admin-sid` wherever cookies are secure, `deed-poll-admin-sid` where
+ * plain http is permitted.
+ *
+ * The `__Host-` prefix makes the browser accept the cookie only if it is Secure, has `Path=/` and has no `Domain`, so
+ * a sibling `*.platform.hmcts.net` site cannot plant or overwrite this app's session. Browsers refuse it over plain
+ * http, hence the local form. Not the library default `connect.sid`, which names the framework. Renaming signs every
+ * user out once. OWASP plan 03, Task 13.
+ */
+export function sessionCookieName(): string {
+  return plainHttpPermitted() ? "deed-poll-admin-sid" : "__Host-deed-poll-admin-sid";
+}
+
+/**
+ * Refuse to start on session limits that would not limit anything, and return them once checked.
+ *
+ * Both values come from `config` with `__format: "json"`, so a mistyped chart value arrives as a string or a fraction
+ * rather than failing to parse. Unlike the guards above this applies everywhere, local runs included: a nonsense
+ * limit is as wrong on a laptop as in a pod, and the defaults in `config/default.json` satisfy it. The messages name
+ * the setting and the rule, never the value. See OWASP plan 03, decision 6.
+ */
+export function assertSessionTimeouts(idle: unknown, absolute: unknown): SessionTimeouts {
+  if (!Number.isInteger(idle) || (idle as number) < MIN_IDLE_TIMEOUT_SECONDS) {
+    throw new Error(`SESSION_IDLE_TIMEOUT_SECONDS must be a whole number of seconds, at least ${MIN_IDLE_TIMEOUT_SECONDS}.`);
+  }
+  if (!Number.isInteger(absolute) || (absolute as number) > MAX_ABSOLUTE_TIMEOUT_SECONDS) {
+    throw new Error(`SESSION_ABSOLUTE_TIMEOUT_SECONDS must be a whole number of seconds, at most ${MAX_ABSOLUTE_TIMEOUT_SECONDS}.`);
+  }
+  if ((idle as number) >= (absolute as number)) {
+    throw new Error("SESSION_IDLE_TIMEOUT_SECONDS must be shorter than SESSION_ABSOLUTE_TIMEOUT_SECONDS, or the idle limit could never apply.");
+  }
+  return { idleSeconds: idle as number, absoluteSeconds: absolute as number };
+}
+
+/**
+ * How long Redis keeps a session, in seconds, derived from the session rather than from its cookie.
+ *
+ * connect-redis otherwise takes the TTL from `cookie.expires`, which express-session slides forward on every request,
+ * so the key would live as long as anyone kept using it. Here a signed-in session lives until fifteen minutes past
+ * its absolute deadline, whatever its activity, so the middleware rather than eviction ends it and signs the user out
+ * of IDAM. Anything else lives ten minutes. Never below one second: connect-redis deletes the key on zero or less,
+ * which would lose a session mid-request. OWASP plan 03, decision 5.
+ */
+export function sessionStoreTtl(limits: SessionTimeouts): (sess: SessionData) => number {
+  return (sess) => {
+    const stored = (sess as SessionData & { deedPoll?: DeedPollSession }).deedPoll;
+    if (!stored?.user || stored.authenticatedAt === undefined) return ANONYMOUS_STORE_TTL_SECONDS;
+    const remaining = stored.authenticatedAt + limits.absoluteSeconds - nowSeconds();
+    return Math.max(1, remaining + SIGNED_IN_STORE_GRACE_SECONDS);
+  };
 }
 
 /**
@@ -191,6 +265,9 @@ export function signIn(req: Request, user: CurrentUser, subject: string, tokens:
       session.accessToken = tokens.accessToken;
       session.refreshToken = tokens.refreshToken;
       session.tokenExpiresAt = tokens.expiresAt;
+      // Both clocks start here and only here, so a login and a persona switch each begin a fresh session.
+      session.authenticatedAt = nowSeconds();
+      session.lastSeenAt = session.authenticatedAt;
       req.session.save((saveError) => (saveError ? reject(saveError) : resolve()));
     });
   });
@@ -228,6 +305,54 @@ export function sessionSubject(req: Request): string | undefined {
 }
 
 /**
+ * When this session was signed in and when it was last active, or undefined unless both are recorded.
+ *
+ * Undefined rather than a partial answer because a signed-in session without both is one this app cannot time,
+ * and the lifetime check ends it rather than guessing.
+ */
+export function sessionTimestamps(req: Request): SessionTimestamps | undefined {
+  const session = namespace(req);
+  if (session?.authenticatedAt === undefined || session.lastSeenAt === undefined) return undefined;
+  return { authenticatedAt: session.authenticatedAt, lastSeenAt: session.lastSeenAt };
+}
+
+/**
+ * Record activity now, and save it before resolving.
+ *
+ * Saved explicitly, at the start of a request, rather than left to `express-session`'s end-of-request write: that
+ * write is of the whole session, so a slow upload finishing late could overwrite tokens a concurrent request had
+ * just refreshed, and spend a rotated refresh token. OWASP plan 03, decision 3.
+ */
+export function touchLastSeen(req: Request): Promise<void> {
+  return new Promise((resolve, reject) => {
+    writableNamespace(req).lastSeenAt = nowSeconds();
+    req.session.save((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+/**
+ * Replace a timed-out session with a fresh anonymous one, holding at most where the user was heading.
+ *
+ * Regenerated rather than destroyed: the new session carries the destination to the timed-out page, and its id was
+ * never the signed-in one. It holds no user or tokens, so `requireAuth` treats it as anonymous, and its store
+ * lifetime is the short anonymous one. The caller must already have passed `returnTo` through `safeReturnTo`.
+ */
+export function restartAfterTimeout(req: Request, returnTo: string | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate((error) => {
+      if (error) return reject(error);
+      if (returnTo !== undefined) writableNamespace(req).timedOutReturnTo = returnTo;
+      req.session.save((saveError) => (saveError ? reject(saveError) : resolve()));
+    });
+  });
+}
+
+/** Where a timed-out GET was heading, if `restartAfterTimeout` recorded one. */
+export function sessionTimedOutReturnTo(req: Request): string | undefined {
+  return namespace(req)?.timedOutReturnTo;
+}
+
+/**
  * Update stored tokens after a successful refresh.
  *
  * Does NOT regenerate the session — the user was already authenticated, this just extends it.
@@ -238,6 +363,7 @@ export function updateTokens(req: Request, tokens: IdamTokens): Promise<void> {
     session.accessToken = tokens.accessToken;
     session.refreshToken = tokens.refreshToken;
     session.tokenExpiresAt = tokens.expiresAt;
+    // `authenticatedAt` and `lastSeenAt` are not touched either: a refresh moving them would make the session endless.
     // `subject` is deliberately not touched: it records who this session was established for, and a
     // refresh that describes someone else is refused by `refreshTokens` rather than adopted here.
     //
@@ -254,4 +380,20 @@ export function signOut(req: Request): Promise<void> {
   return new Promise((resolve, reject) => {
     req.session.destroy((error) => (error ? reject(error) : resolve()));
   });
+}
+
+function nowSeconds(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+/** Session lifetime limits in seconds, as checked by `assertSessionTimeouts`. */
+export interface SessionTimeouts {
+  idleSeconds: number;
+  absoluteSeconds: number;
+}
+
+/** When a session was signed in and last active, in Unix seconds. */
+export interface SessionTimestamps {
+  authenticatedAt: number;
+  lastSeenAt: number;
 }

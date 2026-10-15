@@ -149,6 +149,20 @@ describe("the persona switch", () => {
     expect(req.session.save).toHaveBeenCalled();
   });
 
+  // A switch is a new IDAM identity, so it gets fresh session clocks rather than inheriting the caseworker's.
+  it("should restart both session clocks for the new persona", async () => {
+    const req = signedInCaseworker();
+    req.session.deedPoll.authenticatedAt = 1_700_000_000;
+    req.session.deedPoll.lastSeenAt = 1_700_000_100;
+    const before = Math.floor(Date.now() / 1000);
+
+    await route.POST(req, pageResponse(), vi.fn());
+
+    expect(req.session.regenerate).toHaveBeenCalled();
+    expect(req.session.deedPoll.authenticatedAt).toBeGreaterThanOrEqual(before);
+    expect(req.session.deedPoll.lastSeenAt).toBe(req.session.deedPoll.authenticatedAt);
+  });
+
   it("should redirect to the root, leaving index.ts to decide the new persona's home", async () => {
     // Not `/judicial/referrals`: a destination chosen here would be a second copy of that routing, wrong for
     // whichever persona it drifted away from.
