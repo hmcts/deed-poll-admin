@@ -157,6 +157,7 @@ export function sessionDouble(deedPoll: Record<string, unknown> = {}): SessionDo
   const session = {
     deedPoll,
     save: vi.fn((callback?: (error?: Error) => void) => callback?.()),
+    reload: vi.fn((callback?: (error?: Error) => void) => callback?.()),
     regenerate: vi.fn((callback?: (error?: Error) => void) => {
       session.deedPoll = {};
       callback?.();
@@ -175,6 +176,7 @@ export type Persona = keyof typeof PERSONA_ACCESS;
 export type SessionDouble = Request["session"] & {
   deedPoll: Record<string, unknown>;
   save: ReturnType<typeof vi.fn>;
+  reload: ReturnType<typeof vi.fn>;
   regenerate: ReturnType<typeof vi.fn>;
   destroy: ReturnType<typeof vi.fn>;
 };

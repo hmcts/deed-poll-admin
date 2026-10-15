@@ -551,8 +551,51 @@ describe("the /me answer after sign-in", () => {
     expect(req.session.save).toHaveBeenCalled();
   });
 
+  it("should keep tokens another request refreshed while the backfill awaited api", async () => {
+    const req = request();
+    req.session.deedPoll = {
+      user: { roles: [DEEDPOLL_DELIVERY_MANAGER], isAdmin: true, name: "Same person" },
+      accessToken: "old-access",
+      refreshToken: "old-refresh"
+    };
+    req.session.reload.mockImplementation((callback: (error?: Error) => void) => {
+      req.session.deedPoll = {
+        user: { roles: [DEEDPOLL_DELIVERY_MANAGER], isAdmin: true, name: "Same person" },
+        accessToken: "new-access",
+        refreshToken: "new-refresh"
+      };
+      callback();
+    });
+
+    await storeAccess(req, GAZETTE);
+
+    expect(req.session.deedPoll).toMatchObject({ accessToken: "new-access", refreshToken: "new-refresh" });
+    expect(sessionHoldsAccess(req)).toBe(true);
+  });
+
+  it("should not overwrite an answer another request stored first", async () => {
+    const req = request();
+    req.session.reload.mockImplementation((callback: (error?: Error) => void) => {
+      req.session.deedPoll = { user: currentUser(GAZETTE, "Same person") };
+      callback();
+    });
+
+    await storeAccess(req, { staff: true, judicial: false, capabilities: [] });
+
+    expect(req.session.save).not.toHaveBeenCalled();
+    expect(can(sessionUser(req)!, ACCESS_GAZETTE)).toBe(true);
+  });
+
+  it("should reject when the session cannot be reloaded", async () => {
+    const req = request();
+    req.session.reload.mockImplementation((callback: (error?: Error) => void) => callback(new Error("gone")));
+
+    await expect(storeAccess(req, GAZETTE)).rejects.toThrow("gone");
+  });
+
   it("should reject when the backfill save fails", async () => {
-    const req = request({ signedIn: true });
+    const req = request();
+    req.session.deedPoll.user = { roles: [DEEDPOLL_DELIVERY_MANAGER], isAdmin: true, name: "Same person" };
     req.session.save.mockImplementation((callback: (error?: Error) => void) => callback(new Error("store down")));
 
     await expect(storeAccess(req, GAZETTE)).rejects.toThrow("store down");

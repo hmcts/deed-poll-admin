@@ -247,12 +247,21 @@ export function sessionHoldsAccess(req: Request): boolean {
  *
  * Saved explicitly for the reason `touchLastSeen` is: an end-of-request write of the whole session could overwrite
  * tokens a concurrent request had just refreshed. Touches no token and neither clock.
+ *
+ * Reloaded first, because this runs after an await on api: the snapshot this request started with can predate a
+ * refresh another request has since saved, and saving it would put the old tokens back, spending a rotated refresh
+ * token. Only the user is written onto what the store holds now, and nothing is written if that already holds an
+ * answer.
  */
 export function storeAccess(req: Request, access: CallerAccess): Promise<void> {
   return new Promise((resolve, reject) => {
-    const session = writableNamespace(req);
-    session.user = currentUser(access, session.user?.name);
-    req.session.save((error) => (error ? reject(error) : resolve()));
+    req.session.reload((reloadError) => {
+      if (reloadError) return reject(reloadError);
+      if (holdsCallerAccess(namespace(req)?.user)) return resolve();
+      const session = writableNamespace(req);
+      session.user = currentUser(access, session.user?.name);
+      req.session.save((error) => (error ? reject(error) : resolve()));
+    });
   });
 }
 
