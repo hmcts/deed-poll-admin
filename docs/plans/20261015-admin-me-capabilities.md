@@ -177,9 +177,9 @@ failure. E2E isn't run from a worktree (docker compose project names collide); s
 
 ### Task 3: Fetch at login and on refresh
 
-- [ ] `loginFrom` calls `/me` (decision 3). The refresh middleware calls it after a successful refresh (decision 4),
+- [x] `loginFrom` calls `/me` (decision 3). The refresh middleware calls it after a successful refresh (decision 4),
       and backfills sessions that have no answer (decision 5).
-- [ ] Tests:
+- [x] Tests:
   - login with `/me` OK
   - login with `/me` failing: signed in, no access, WARN
   - refresh OK replaces the answer
@@ -187,7 +187,7 @@ failure. E2E isn't run from a worktree (docker compose project names collide); s
   - backfill OK, and backfill failing then succeeding on a later request
   - `authenticatedAt` is unchanged by refresh, and `session-lifetime-refresh.test.ts` is still green
   - the persona switcher's password-grant path also stores the answer
-- [ ] Mark completed
+- [x] Mark completed
 
 ### Task 4: Landing, personas and docs
 

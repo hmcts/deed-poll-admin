@@ -6,6 +6,7 @@ import {
   can,
   DELETE_NOTE,
   DELETE_WITNESS,
+  holdsCallerAccess,
   MANAGE_SHARED_QUERIES,
   NO_ACCESS,
   OVERRIDE_PRIVACY,
@@ -70,6 +71,12 @@ describe("callerAccessFrom", () => {
   ])("should fail closed to no access when the answer is %s", (_label, raw) => {
     expect(callerAccessFrom(raw)).toEqual(NO_ACCESS);
     expect(currentUser(raw)).toMatchObject({ staff: false, judicial: false, capabilities: [], isAdmin: false, isJudicial: false });
+    expect(holdsCallerAccess(raw)).toBe(false);
+  });
+
+  it("should tell an answer of no access apart from no answer, so only the second is asked for again", () => {
+    expect(holdsCallerAccess({ staff: false, judicial: false, capabilities: [] })).toBe(true);
+    expect(holdsCallerAccess({ staff: true, judicial: false, capabilities: ["MANAGE_USERS"] })).toBe(true);
   });
 
   it("should not let one caller's answer alter another's", () => {

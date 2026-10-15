@@ -9,7 +9,7 @@
  * Namespaced under `deedPoll` per `.claude/rules/frontend.md`, so a second journey added later cannot
  * collide with it in the same store.
  */
-import { type CurrentUser, currentUser, plainHttpPermitted } from "@hmcts/deed-poll";
+import { type CallerAccess, type CurrentUser, currentUser, holdsCallerAccess, plainHttpPermitted } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import type { SessionData } from "express-session";
 import type { AuthFlowState, IdamTokens } from "./idam.js";
@@ -234,6 +234,28 @@ export function sessionUser(req: Request): CurrentUser | undefined {
   return stored ? currentUser(stored, stored.name) : undefined;
 }
 
+/**
+ * Whether the signed-in user's stored value is a `/me` answer at all, which a session saved before admin read
+ * `/me` is not. An answer of no access is still an answer, so only the older session is asked for one.
+ */
+export function sessionHoldsAccess(req: Request): boolean {
+  return holdsCallerAccess(namespace(req)?.user);
+}
+
+/**
+ * Store a `/me` answer for a session that held none, keeping its name, and save it before resolving.
+ *
+ * Saved explicitly for the reason `touchLastSeen` is: an end-of-request write of the whole session could overwrite
+ * tokens a concurrent request had just refreshed. Touches no token and neither clock.
+ */
+export function storeAccess(req: Request, access: CallerAccess): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const session = writableNamespace(req);
+    session.user = currentUser(access, session.user?.name);
+    req.session.save((error) => (error ? reject(error) : resolve()));
+  });
+}
+
 export function startFlow(req: Request, flow: AuthFlowState): void {
   writableNamespace(req).flow = flow;
 }
@@ -356,13 +378,16 @@ export function sessionTimedOutReturnTo(req: Request): string | undefined {
 }
 
 /**
- * Update stored tokens after a successful refresh.
+ * Update stored tokens after a successful refresh, with the `/me` answer for the new token when api gave one.
  *
- * Does NOT regenerate the session — the user was already authenticated, this just extends it.
+ * Does NOT regenerate the session — the user was already authenticated, this just extends it. Without an answer
+ * the previous one is kept, so a failed `/me` costs no access the caller already had. Written with the tokens in
+ * one save rather than a second one.
  */
-export function updateTokens(req: Request, tokens: IdamTokens): Promise<void> {
+export function updateTokens(req: Request, tokens: IdamTokens, access?: CallerAccess): Promise<void> {
   return new Promise((resolve, reject) => {
     const session = writableNamespace(req);
+    if (access && session.user) session.user = currentUser(access, session.user.name);
     session.accessToken = tokens.accessToken;
     session.refreshToken = tokens.refreshToken;
     session.tokenExpiresAt = tokens.expiresAt;

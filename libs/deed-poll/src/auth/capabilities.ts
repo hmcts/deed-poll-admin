@@ -18,11 +18,22 @@ export const NO_ACCESS: CallerAccess = Object.freeze({ staff: false, judicial: f
  * Kept in api's declaration order without duplicates, as api promises.
  */
 export function callerAccessFrom(raw: unknown): CallerAccess {
-  if (typeof raw !== "object" || raw === null) return NO_ACCESS;
-  const { staff, judicial, capabilities } = raw as Record<string, unknown>;
-  if (typeof staff !== "boolean" || typeof judicial !== "boolean" || !Array.isArray(capabilities)) return NO_ACCESS;
+  if (!holdsCallerAccess(raw)) return NO_ACCESS;
+  const { staff, judicial, capabilities } = raw;
 
   return { staff, judicial, capabilities: CAPABILITY.filter((capability) => capabilities.includes(capability)) };
+}
+
+/**
+ * Whether a stored value is shaped like a `/me` answer at all, unknown capability names allowed.
+ *
+ * The difference between "api said no access" and "api has not been asked", which `callerAccessFrom` reads alike:
+ * a session saved before this shape existed is the second, and is asked rather than left with nothing.
+ */
+export function holdsCallerAccess(raw: unknown): raw is { staff: boolean; judicial: boolean; capabilities: unknown[] } {
+  if (typeof raw !== "object" || raw === null) return false;
+  const { staff, judicial, capabilities } = raw as Record<string, unknown>;
+  return typeof staff === "boolean" && typeof judicial === "boolean" && Array.isArray(capabilities);
 }
 
 /** The UI policy entry point. api enforces the same capability from the token, so this decides chrome, not data. */

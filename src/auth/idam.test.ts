@@ -8,17 +8,22 @@
  * a token endpoint that would have to sign real tokens to answer.
  *
  * What is being tested in `completeLogin` is therefore the glue, and the glue is where the bug was:
- * roles were read from the ID token, which is thin, instead of from `/o/userinfo`. That reading is
- * asserted directly below, because it passed for a week against a stub that put them in the token.
+ * roles were read from the ID token, which is thin, instead of from `/o/userinfo`. Access now comes from
+ * neither but from api's `GET /me`, so `findCallerAccess` is stubbed at the domain seam too.
  */
 
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { DEEDPOLL_TEAM_LEADER } from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, DEEDPOLL_TEAM_LEADER, findCallerAccess, OVERRIDE_PRIVACY } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import * as client from "openid-client";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { beginLogin, callbackUrl, completeLogin, describeIdamError, endSessionUrl, type IdamConfig, refreshTokens, resetIdamDiscovery } from "./idam.js";
+
+vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  findCallerAccess: vi.fn()
+}));
 
 vi.mock("openid-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("openid-client")>()),
@@ -196,15 +201,39 @@ describe("completeLogin", () => {
   beforeEach(() => {
     vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "team-leader@example.com" }, 900));
     vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: "team-leader@example.com", name: "A Team leader", roles: [DEEDPOLL_TEAM_LEADER] } as never);
+    vi.mocked(findCallerAccess).mockResolvedValue({ staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY, ACCESS_GAZETTE] });
+  });
+
+  it("should take the user's access from api's /me answer, asked with the new access token", async () => {
+    const { user } = await completeLogin(config, flow, currentUrl);
+
+    expect(findCallerAccess).toHaveBeenCalledWith({ accessToken: "an-access-token" });
+    expect(user).toMatchObject({ staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY, ACCESS_GAZETTE], isAdmin: true });
   });
 
   it("grants nothing from the roles userinfo or the ID token asserts, because access is api's answer", async () => {
     vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "team-leader@example.com", roles: [DEEDPOLL_TEAM_LEADER] }, 900));
+    vi.mocked(findCallerAccess).mockResolvedValue({ staff: false, judicial: false, capabilities: [] });
 
     const { user } = await completeLogin(config, flow, currentUrl);
 
     expect(user).toMatchObject({ staff: false, judicial: false, capabilities: [], isAdmin: false });
     expect(user).not.toHaveProperty("roles");
+  });
+
+  it("should still sign in, with no access and one warning naming neither token nor subject, when /me fails", async () => {
+    vi.mocked(findCallerAccess).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): fetch failed"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const result = await completeLogin(config, flow, currentUrl);
+
+    expect(result.user).toMatchObject({ name: "A Team leader", staff: false, judicial: false, capabilities: [], isAdmin: false, isJudicial: false });
+    expect(result.subject).toBe("team-leader@example.com");
+    expect(warn).toHaveBeenCalledTimes(1);
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).toContain("sign-in");
+    expect(logged).not.toContain("an-access-token");
+    expect(logged).not.toContain("team-leader@example.com");
   });
 
   it("returns the name userinfo describes", async () => {
