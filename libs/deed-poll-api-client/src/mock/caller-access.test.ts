@@ -73,6 +73,14 @@ describe("GET /me on the mock", () => {
     expect(result).toMatchObject({ ok: false, error: { kind: "unauthorized", status: 401 } });
   });
 
+  it("should refuse a method other than GET on /me", async () => {
+    // Act
+    const response = await fetch(`${mock.url}/me`, { method: "POST", headers: { authorization: `Bearer ${token({ roles: ["caseworker-deedpoll"] })}` } });
+
+    // Assert
+    expect(response.status).toBe(405);
+  });
+
   it("should be unreachable when the scenario says api is down", async () => {
     // Arrange
     mock.setScenario("api-unavailable");
@@ -96,6 +104,25 @@ describe("GET /me on the mock", () => {
     // Assert
     expect(refused.status).toBe(403);
     expect(admitted.status).toBe(200);
+  });
+
+  it("should drop a capability it does not list rather than refuse the whole answer", async () => {
+    // Arrange
+    const api = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ staff: true, judicial: false, capabilities: ["ACCESS_GAZETTE", "SOMETHING_NEW", "DELETE_NOTE"] }));
+    });
+    await new Promise<void>((resolve) => api.listen(0, "127.0.0.1", resolve));
+
+    try {
+      // Act
+      const result = await getCallerAccess({ baseUrl: `http://127.0.0.1:${(api.address() as AddressInfo).port}`, accessToken: token({}) });
+
+      // Assert
+      expect(result).toEqual({ ok: true, data: { staff: true, judicial: false, capabilities: ["DELETE_NOTE", "ACCESS_GAZETTE"] } });
+    } finally {
+      await new Promise<void>((resolve, reject) => api.close((error) => (error ? reject(error) : resolve())));
+    }
   });
 
   it("should resolve roles from local IDAM userinfo when the token carries none", async () => {

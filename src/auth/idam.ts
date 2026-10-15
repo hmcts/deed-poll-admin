@@ -217,10 +217,8 @@ export function callbackUrl(config: IdamConfig, req: Request): URL {
  * can distinguish "this session is over" from "try again".
  *
  * **Returns tokens only, and does not read `/o/userinfo`.** It used to build a `CurrentUser` from
- * userinfo, and the only caller discarded it — a wasted round trip per refresh. Re-reading roles here
- * would be a real feature — it would make a withdrawn role take effect mid-session, which is what the
- * deleted `apps/api` got for free by reading userinfo per request — but it is a deliberate behaviour
- * change rather than part of a refresh, so it is not smuggled in here.
+ * userinfo, and the only caller discarded it — a wasted round trip per refresh. Access is
+ * re-read by the refresh middleware, which asks api's `GET /me` with the new token.
  *
  * **An absent `id_token` is not an error.** OpenID Connect Core §12.2 states the refresh response is a
  * normal token response *"except that it might not contain an `id_token`"*, and its own example omits

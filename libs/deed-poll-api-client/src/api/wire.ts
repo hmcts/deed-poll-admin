@@ -1057,11 +1057,14 @@ const gazetteErrorSchema = z.object({ code: z.enum(GAZETTE_REFUSAL_CODE), error:
 /**
  * `GET /me`: which staff areas admit the caller and what their roles grant. Both flags are Java primitives and
  * the list is a `List.copyOf`, so all three are strict. No identity, on purpose: admin has IDAM's.
+ *
+ * A capability this build does not list is dropped rather than refused: api may ship one before admin is redeployed,
+ * and rejecting the whole answer would sign every caller in with no access at all.
  */
 const callerAccessSchema = z.object({
   staff: z.boolean(),
   judicial: z.boolean(),
-  capabilities: z.array(z.enum(CAPABILITY))
+  capabilities: z.array(z.string()).transform((names) => CAPABILITY.filter((capability) => names.includes(capability)))
 });
 
 /** api's failure body. `errors` is omitted rather than empty when there are none (`@JsonInclude`). */
