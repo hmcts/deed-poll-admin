@@ -6,13 +6,13 @@
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
 
 {#
-  Save-a-query form. Three controls for an Administrator and two for everybody else, and the query itself is
+  Save-a-query form. Three controls for a caller with MANAGE_SHARED_QUERIES and two for everybody else, and the query itself is
   not among them: it is in the form's action, because a list URL *is* the query and hidden inputs would be a
   second copy of it — see `new.ts`.
 
   The share box is a single checkbox rather than radios: not publishing is the state a query is in until
   somebody asks for it, so there is no second answer to give. It renders only on `canPublish`, which is the
-  app's own `isAdmin` and not one of api's per-query flags — publishing is the caller's right, not the row's
+  app's own `MANAGE_SHARED_QUERIES` and not one of api's per-query flags — publishing is the caller's right, not the row's
   property. Hidden rather than disabled, per `witness-edit.njk`. No `maxlength` attributes, following the other
   forms here — the bound is stated in the hint and enforced by the schema, where an error can be rendered
   beside the control rather than silently truncating what was typed.

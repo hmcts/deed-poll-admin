@@ -50,7 +50,7 @@ const IDAM: IdamConfig = {
 };
 
 const CASEWORKER = personaById("caseworker");
-const ADMIN = personaById("admin");
+const TEAM_LEADER = personaById("team-leader");
 const JUDGE = personaById("judge");
 
 describe("resolving a persona", () => {
@@ -152,11 +152,11 @@ describe("resolving a persona", () => {
     it("should give a created user a name that reads as a persona, since api stamps it on the audit trail", async () => {
       vi.mocked(passwordGrantLogin).mockImplementation(async (_config, username) => loginFor(username));
 
-      await loginAsPersona(IDAM, ADMIN);
+      await loginAsPersona(IDAM, TEAM_LEADER);
 
       // api derives the audit author from the token, so whatever is here appears against anything this persona
       // does. A plausible human name would be a lie in a timeline.
-      expect(createRequest(0).user).toMatchObject({ forename: "Persona", surname: "Caseworker with admin" });
+      expect(createRequest(0).user).toMatchObject({ forename: "Persona", surname: "Team leader" });
     });
 
     it("should reuse the user it created rather than leaving an account behind on every switch", async () => {
@@ -187,10 +187,10 @@ describe("resolving a persona", () => {
     it("should still create separate users for two personas switched to at once", async () => {
       vi.mocked(passwordGrantLogin).mockImplementation(async (_config, username) => loginFor(username));
 
-      await Promise.all([loginAsPersona(IDAM, JUDGE), loginAsPersona(IDAM, ADMIN)]);
+      await Promise.all([loginAsPersona(IDAM, JUDGE), loginAsPersona(IDAM, TEAM_LEADER)]);
 
       expect(createTestUser).toHaveBeenCalledTimes(2);
-      expect(personaState(JUDGE).username).not.toBe(personaState(ADMIN).username);
+      expect(personaState(JUDGE).username).not.toBe(personaState(TEAM_LEADER).username);
     });
 
     it("should not remember a failed creation, so the next switch tries again", async () => {
@@ -270,7 +270,7 @@ describe("resolving a persona", () => {
       await loginAsPersona(IDAM, JUDGE);
 
       expect(personaState(CASEWORKER).isAvailable).toBe(true);
-      expect(personaState(ADMIN).isAvailable).toBe(true);
+      expect(personaState(TEAM_LEADER).isAvailable).toBe(true);
       expect(switcherUnavailableReason()).toBeUndefined();
     });
 
@@ -343,7 +343,7 @@ describe("resolving a persona", () => {
 
       expect(switcherUnavailableReason()).toEqual(expect.stringContaining("no persona can be switched to"));
       expect(personaState(CASEWORKER).isAvailable).toBe(false);
-      await expect(loginAsPersona(IDAM, ADMIN)).resolves.toMatchObject({ ok: false });
+      await expect(loginAsPersona(IDAM, TEAM_LEADER)).resolves.toMatchObject({ ok: false });
       // Nothing further is asked of IDAM: the answer is known and asking again would create accounts for
       // personas that cannot be signed in to.
       expect(createTestUser).toHaveBeenCalledOnce();
@@ -403,7 +403,7 @@ function oauthError(error: string): client.ResponseBodyError {
 
 function loginFor(subject: string): LoginResult {
   return {
-    user: currentUser([], "A Persona"),
+    user: currentUser(undefined, "A Persona"),
     subject,
     tokens: { idToken: "an-id-token", accessToken: "an-access-token", refreshToken: "a-refresh-token", expiresAt: 1_800_000_000 }
   };

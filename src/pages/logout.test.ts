@@ -9,7 +9,7 @@ vi.mock("../auth/settings.js", () => ({ idamSettings: () => ({ issuerUrl: "https
 const AWAY = "https://idam.example/o/endSession?id_token_hint=an-id-token";
 
 function signedIn() {
-  return pageRequest({ admin: true, name: "An Admin", idToken: "an-id-token" });
+  return pageRequest({ teamLeader: true, name: "An Admin", idToken: "an-id-token" });
 }
 
 describe("the logout page", () => {

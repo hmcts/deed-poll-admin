@@ -105,7 +105,7 @@ beforeEach(() => {
 });
 
 describe("getGazetteNoticeHistory", () => {
-  const token = `x.${Buffer.from(JSON.stringify({ sub: "admin-1", roles: ["caseworker-deedpoll-admin"] })).toString("base64url")}.signature`;
+  const token = `x.${Buffer.from(JSON.stringify({ sub: "admin-1", roles: ["caseworker-deedpoll-delivery-manager"] })).toString("base64url")}.signature`;
 
   it("should read empty history with api's paging defaults", async () => {
     expect(await getGazetteNoticeHistory({}, { ...config, accessToken: token })).toEqual({
@@ -128,7 +128,7 @@ describe("getGazetteNoticeHistory", () => {
     });
   });
 
-  it("should distinguish absent credentials from a caller without the admin role", async () => {
+  it("should distinguish absent credentials from a caller without the Delivery Manager role", async () => {
     expect(await getGazetteNoticeHistory({}, { ...config, accessToken: undefined })).toMatchObject({
       ok: false,
       error: { kind: "unauthorized", status: 401 }

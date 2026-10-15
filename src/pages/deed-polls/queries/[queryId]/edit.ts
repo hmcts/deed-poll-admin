@@ -1,14 +1,14 @@
 /**
- * Amend a saved query: its name, its description, and — for an Administrator — whether it is published.
+ * Amend a saved query: its name, its description, and — for a caller with MANAGE_SHARED_QUERIES — whether it is published.
  *
  * **Two different flags decide what renders, and conflating them is the mistake to avoid.** `canAmend` is
- * api's per-query `editable`; `canPublish` is this app's own `isAdmin`. Publishing is a property of the
+ * api's per-query `editable`; `canPublish` is this app's MANAGE_SHARED_QUERIES capability. Publishing is a property of the
  * *caller* and amending is a property of the *row*, so there is no flag api could return for the first and no
  * reason to ask it for one. Plan 14.
  *
  * **A caller who may not publish sends no `shared` at all, and the patch must omit it rather than send
  * `false`.** See the call site: sending `false` would silently unpublish a query on an edit to its name, for
- * an owner who published it while an Administrator and has since lost the role.
+ * an owner who published it with MANAGE_SHARED_QUERIES and has since lost that capability.
  *
  * **Not its conditions.** A query's filters are amended by opening it, changing them in the builder and
  * saving again — the URL is the query, so there is nothing here for a second copy of the builder to edit that
@@ -26,7 +26,7 @@
  * authority in two places.
  *
  * A query the caller cannot see is a 404 and not a 403 — api's decision, so that no id is discoverable by
- * watching status codes. That includes an administrator naming somebody else's *unshared* query. This page
+ * watching status codes. That includes a staff member naming somebody else's *unshared* query. This page
  * renders "gone or never yours" and cannot say which.
  *
  * **Delete is immediate only for an unshared query.** A published one goes through `delete.ts`'s confirmation,
@@ -35,9 +35,11 @@
  * decide whether anybody else is affected.
  */
 import {
+  can,
   type FieldError,
   findSavedQuery,
   InvalidInputError,
+  MANAGE_SHARED_QUERIES,
   MAX_SAVED_QUERY_DESCRIPTION,
   MAX_SAVED_QUERY_NAME,
   removeSavedQuery,
@@ -131,7 +133,7 @@ export const POST = async (req: Request, res: Response) => {
         // hand-crafting: an Administrator publishes a query and later loses the role, keeping ownership.
         // Omitting the property is exactly what the three-state patch is for, and it is distinguishable on
         // the wire because `JSON.stringify` drops an undefined one.
-        ...(userFromRequest(req).isAdmin ? { shared: parsed.data.shared } : {})
+        ...(can(userFromRequest(req), MANAGE_SHARED_QUERIES) ? { shared: parsed.data.shared } : {})
       },
       callerFromRequest(req)
     );
@@ -182,7 +184,7 @@ async function render(
     // whether this caller may change *this row*; publishing asks whether they may publish *at all*, which is
     // a property of the caller and so not something api could return per query. Read on every render for the
     // same reason `canAmend` is.
-    canPublish: userFromRequest(req).isAdmin,
+    canPublish: can(userFromRequest(req), MANAGE_SHARED_QUERIES),
     libraryPath: LIBRARY_PATH,
     en,
     cy

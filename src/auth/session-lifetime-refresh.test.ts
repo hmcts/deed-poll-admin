@@ -18,6 +18,7 @@ vi.mock("./idam.js", async (importOriginal) => ({
   endSessionUrl: vi.fn(async () => "https://hmcts-access.example/o/endSession"),
   refreshTokens: vi.fn()
 }));
+vi.mock("./caller-access.js", () => ({ fetchCallerAccess: vi.fn(async () => undefined) }));
 vi.mock("./settings.js", () => ({ idamSettings: () => ({ redirectUri: "https://deed-poll-admin.example/oauth2/callback" }) }));
 
 const LIMITS = { idleSeconds: 1800, absoluteSeconds: 36_000, logoutPathRegistered: false };

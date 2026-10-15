@@ -1,4 +1,4 @@
-import { currentUser, DEEDPOLL_ADMIN } from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, can, currentUser, DEEDPOLL_ADMIN, DEEDPOLL_DELIVERY_MANAGER, DELETE_NOTE, OVERRIDE_PRIVACY } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, type RequestDouble } from "../express-doubles.js";
@@ -8,6 +8,7 @@ import {
   assertSessionSecret,
   assertSessionTimeouts,
   sessionCookieName,
+  sessionHoldsAccess,
   sessionIdToken,
   sessionStoreTtl,
   sessionTimestamps,
@@ -15,6 +16,7 @@ import {
   signIn,
   signOut,
   startFlow,
+  storeAccess,
   takeFlow,
   touchLastSeen,
   updateTokens
@@ -28,7 +30,7 @@ function request(options: Parameters<typeof pageRequest>[0] = {}): RequestDouble
 
 describe("sessionUser", () => {
   it("returns the signed-in user", () => {
-    expect(sessionUser(request({ signedIn: true, admin: true, name: "A Caseworker" }))).toMatchObject({ isAdmin: true, name: "A Caseworker" });
+    expect(sessionUser(request({ signedIn: true, teamLeader: true, name: "A Caseworker" }))).toMatchObject({ isAdmin: true, name: "A Caseworker" });
   });
 
   it("returns undefined when nobody is signed in, rather than a role-less user", () => {
@@ -93,7 +95,7 @@ describe("startFlow and takeFlow", () => {
 });
 
 describe("signIn", () => {
-  const user = currentUser([DEEDPOLL_ADMIN], "A Caseworker");
+  const user = currentUser({ staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY] }, "A Caseworker");
   const SUBJECT = "caseworker@example.com";
   const tokens = {
     idToken: "an-id-token",
@@ -158,7 +160,7 @@ describe("signIn", () => {
 });
 
 describe("session timestamps", () => {
-  const user = currentUser([DEEDPOLL_ADMIN], "A Caseworker");
+  const user = currentUser({ staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY] }, "A Caseworker");
   const tokens = { idToken: "an-id-token", accessToken: "an-access-token", refreshToken: "a-refresh-token", expiresAt: 1_800_000_000 };
   const SIGNED_IN_AT = new Date("2026-10-14T09:00:00Z");
   const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
@@ -184,6 +186,17 @@ describe("session timestamps", () => {
     vi.setSystemTime(new Date("2026-10-14T17:00:00Z"));
 
     await updateTokens(req, { ...tokens, accessToken: "a-refreshed-token" });
+
+    expect(sessionTimestamps(req)).toEqual({ authenticatedAt: seconds(SIGNED_IN_AT), lastSeenAt: seconds(SIGNED_IN_AT) });
+  });
+
+  it("should leave both clocks alone when a refresh also brings a new /me answer", async () => {
+    vi.useFakeTimers({ now: SIGNED_IN_AT, toFake: ["Date"] });
+    const req = request();
+    await signIn(req, user, "caseworker@example.com", tokens);
+    vi.setSystemTime(new Date("2026-10-14T17:00:00Z"));
+
+    await updateTokens(req, { ...tokens, accessToken: "a-refreshed-token" }, { staff: true, judicial: false, capabilities: [ACCESS_GAZETTE] });
 
     expect(sessionTimestamps(req)).toEqual({ authenticatedAt: seconds(SIGNED_IN_AT), lastSeenAt: seconds(SIGNED_IN_AT) });
   });
@@ -464,5 +477,127 @@ describe("assertRedisUrl", () => {
     process.env.NODE_ENV = "production";
 
     expect(() => assertRedisUrl("rediss://deed-poll-prod.redis.cache.windows.net:6380")).not.toThrow();
+  });
+});
+
+describe("stored access", () => {
+  it.each([
+    {
+      label: "a Delivery Manager's answer",
+      access: { staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY, ACCESS_GAZETTE] },
+      privacy: true,
+      gazette: true
+    },
+    { label: "a Team leader's answer", access: { staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY, DELETE_NOTE] }, privacy: true, gazette: false },
+    { label: "an unknown capability", access: { staff: true, judicial: false, capabilities: ["MANAGE_USERS"] }, privacy: false, gazette: false },
+    { label: "a roles-era Delivery Manager", access: { roles: [DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_ADMIN] }, privacy: false, gazette: false },
+    { label: "a malformed answer", access: { staff: true, judicial: false, capabilities: "ACCESS_GAZETTE" }, privacy: false, gazette: false }
+  ])("should revalidate $label and ignore stale booleans", ({ access, privacy, gazette }) => {
+    const req = request();
+    const stored = { ...access, name: "Same person", isAdmin: !privacy, isJudicial: true };
+    req.session.deedPoll.user = stored;
+
+    const user = sessionUser(req);
+
+    expect(user).toMatchObject({ name: "Same person", isAdmin: privacy, isJudicial: false });
+    expect(user).not.toHaveProperty("roles");
+    expect(can(user!, ACCESS_GAZETTE)).toBe(gazette);
+    expect(req.session.deedPoll.user).toBe(stored);
+    expect(req.session.save).not.toHaveBeenCalled();
+  });
+});
+
+describe("the /me answer after sign-in", () => {
+  const tokens = { idToken: "an-id-token", accessToken: "an-access-token", refreshToken: "a-refresh-token", expiresAt: 1_800_000_000 };
+  const GAZETTE = { staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY, ACCESS_GAZETTE] };
+
+  it("should replace the answer and keep the name when a refresh brings a new one", async () => {
+    const req = request();
+    await signIn(req, currentUser({ staff: true, judicial: false, capabilities: [] }, "A Caseworker"), "caseworker@example.com", tokens);
+
+    await updateTokens(req, { ...tokens, accessToken: "a-refreshed-token" }, GAZETTE);
+
+    expect(sessionUser(req)).toMatchObject({ ...GAZETTE, isAdmin: true, name: "A Caseworker" });
+    expect(req.session.deedPoll.accessToken).toBe("a-refreshed-token");
+  });
+
+  it("should keep the previous answer when a refresh brings none", async () => {
+    const req = request();
+    await signIn(req, currentUser(GAZETTE, "A Caseworker"), "caseworker@example.com", tokens);
+
+    await updateTokens(req, { ...tokens, accessToken: "a-refreshed-token" });
+
+    expect(can(sessionUser(req)!, ACCESS_GAZETTE)).toBe(true);
+  });
+
+  it("should tell a session with no answer from one whose answer is no access", () => {
+    const rolesEra = request();
+    rolesEra.session.deedPoll.user = { roles: [DEEDPOLL_DELIVERY_MANAGER], isAdmin: true, name: "Same person" };
+
+    expect(sessionHoldsAccess(rolesEra)).toBe(false);
+    expect(sessionHoldsAccess(request({ signedIn: true, persona: "none" }))).toBe(true);
+    expect(sessionHoldsAccess(request())).toBe(false);
+  });
+
+  it("should store a backfilled answer under the existing name, and save it", async () => {
+    const req = request();
+    req.session.deedPoll.user = { roles: [DEEDPOLL_DELIVERY_MANAGER], isAdmin: true, name: "Same person" };
+
+    await storeAccess(req, GAZETTE);
+
+    expect(sessionHoldsAccess(req)).toBe(true);
+    expect(sessionUser(req)).toMatchObject({ ...GAZETTE, name: "Same person" });
+    expect(req.session.deedPoll.user).not.toHaveProperty("roles");
+    expect(req.session.save).toHaveBeenCalled();
+  });
+
+  it("should keep tokens another request refreshed while the backfill awaited api", async () => {
+    const req = request();
+    req.session.deedPoll = {
+      user: { roles: [DEEDPOLL_DELIVERY_MANAGER], isAdmin: true, name: "Same person" },
+      accessToken: "old-access",
+      refreshToken: "old-refresh"
+    };
+    req.session.reload.mockImplementation((callback: (error?: Error) => void) => {
+      req.session.deedPoll = {
+        user: { roles: [DEEDPOLL_DELIVERY_MANAGER], isAdmin: true, name: "Same person" },
+        accessToken: "new-access",
+        refreshToken: "new-refresh"
+      };
+      callback();
+    });
+
+    await storeAccess(req, GAZETTE);
+
+    expect(req.session.deedPoll).toMatchObject({ accessToken: "new-access", refreshToken: "new-refresh" });
+    expect(sessionHoldsAccess(req)).toBe(true);
+  });
+
+  it("should not overwrite an answer another request stored first", async () => {
+    const req = request();
+    req.session.reload.mockImplementation((callback: (error?: Error) => void) => {
+      req.session.deedPoll = { user: currentUser(GAZETTE, "Same person") };
+      callback();
+    });
+
+    await storeAccess(req, { staff: true, judicial: false, capabilities: [] });
+
+    expect(req.session.save).not.toHaveBeenCalled();
+    expect(can(sessionUser(req)!, ACCESS_GAZETTE)).toBe(true);
+  });
+
+  it("should reject when the session cannot be reloaded", async () => {
+    const req = request();
+    req.session.reload.mockImplementation((callback: (error?: Error) => void) => callback(new Error("gone")));
+
+    await expect(storeAccess(req, GAZETTE)).rejects.toThrow("gone");
+  });
+
+  it("should reject when the backfill save fails", async () => {
+    const req = request();
+    req.session.deedPoll.user = { roles: [DEEDPOLL_DELIVERY_MANAGER], isAdmin: true, name: "Same person" };
+    req.session.save.mockImplementation((callback: (error?: Error) => void) => callback(new Error("store down")));
+
+    await expect(storeAccess(req, GAZETTE)).rejects.toThrow("store down");
   });
 });

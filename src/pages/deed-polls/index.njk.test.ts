@@ -62,9 +62,9 @@ const record = {
 };
 
 /** The list page as a browser receives it, for the query the URL carries. */
-const render = async (query: Record<string, unknown> = {}, admin = false): Promise<string> => {
+const render = async (query: Record<string, unknown> = {}, deliveryManager = false): Promise<string> => {
   const res = pageResponse();
-  await GET(pageRequest({ query, admin }), res);
+  await GET(pageRequest({ query, deliveryManager }), res);
   const model = res.render.mock.calls[0][1];
 
   return environment.render("deed-polls/index.njk", { ...model.en, ...model });

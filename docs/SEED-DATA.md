@@ -14,7 +14,7 @@ yarn seed:cases --environment demo \
 
 Without `--apply`, this only prints the dataset. It makes no network requests. The URL is an example: supply the actual API origin for your environment, not the admin web address.
 
-To create the cases, supply two real IDAM **user access tokens** through `SEED_CASEWORKER_TOKEN` and `SEED_JUDGE_TOKEN`, then repeat the same command with `--apply`. The caseworker token should have `caseworker-deedpoll-admin` so the private scenarios are preserved. The judicial token needs `caseworker-deedpoll-judicial`. A client-credentials token cannot substitute for either user. Tokens are never printed or written to the journal.
+To create the cases, supply two real IDAM **user access tokens** through `SEED_CASEWORKER_TOKEN` and `SEED_JUDGE_TOKEN`, then repeat the same command with `--apply`. The caseworker token should have `caseworker-deedpoll-team-leader` so the private scenarios are preserved. The judicial token needs `caseworker-deedpoll-judicial`. A client-credentials token cannot substitute for either user. Tokens are never printed or written to the journal.
 
 ```bash
 yarn seed:cases --environment demo \
@@ -30,7 +30,7 @@ Production names and hostnames are refused, including `prod`, `production`, `liv
 
 ## Create the temporary users automatically
 
-On a VPN-connected machine with Azure CLI already signed in, add `--create-test-users --apply`. This reads `admin-idam-client-secret` from the selected environment's `deed-poll-<environment>` vault and normally provisions two IDAM fixtures: an admin and a judge. With `--defer-judicial`, it provisions only the admin. Their user tokens are held in memory. It checks API reachability before creating users.
+On a VPN-connected machine with Azure CLI already signed in, add `--create-test-users --apply`. This reads `admin-idam-client-secret` from the selected environment's `deed-poll-<environment>` vault and normally provisions two IDAM fixtures: a Team leader and a judge. With `--defer-judicial`, it provisions only the Team leader. Their user tokens are held in memory. It checks API reachability before creating users.
 
 For the verified AAT API ingress, run from the repository root:
 

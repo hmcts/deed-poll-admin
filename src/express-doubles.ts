@@ -7,14 +7,41 @@
  * doubles had no `session` for the namespace helper to write to. One place to change would have been
  * one edit.
  *
- * `pageRequest({ admin: true })` is the signed-in-as-an-admin case, which is what most tests actually
+ * `pageRequest({ teamLeader: true })` is the case of a signed-in Team leader, which is what most tests actually
  * want to express; the session shape is an implementation detail they should not have to know.
  *
  * Excluded from the build in `tsconfig.json`: it imports `vitest`, so it must not reach `dist`.
  */
-import { currentUser, DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL, type Role } from "@hmcts/deed-poll";
+import {
+  ACCESS_GAZETTE,
+  type CallerAccess,
+  currentUser,
+  DELETE_NOTE,
+  DELETE_WITNESS,
+  MANAGE_SHARED_QUERIES,
+  OVERRIDE_PRIVACY,
+  REPAIR_CCD
+} from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { vi } from "vitest";
+
+const CASEWORK = [OVERRIDE_PRIVACY, DELETE_NOTE, DELETE_WITNESS, MANAGE_SHARED_QUERIES, REPAIR_CCD];
+
+/**
+ * What api's `GET /me` answers for each persona, which is all a page decides from.
+ *
+ * Restated from api's `RoleCapabilities` rather than imported from the mock's table, because nothing outside the
+ * client package may import the mock. The legacy admin is here so a page test can show it gets Team leader's grants
+ * and never the Gazette.
+ */
+export const PERSONA_ACCESS = {
+  teamLeader: { staff: true, judicial: false, capabilities: CASEWORK },
+  deliveryManager: { staff: true, judicial: false, capabilities: [...CASEWORK, ACCESS_GAZETTE] },
+  legacyAdmin: { staff: true, judicial: false, capabilities: CASEWORK },
+  caseworker: { staff: true, judicial: false, capabilities: [] },
+  judge: { staff: false, judicial: true, capabilities: [] },
+  none: { staff: false, judicial: false, capabilities: [] }
+} as const satisfies Record<string, CallerAccess>;
 
 export interface PageRequestOptions {
   params?: Record<string, string>;
@@ -23,12 +50,17 @@ export interface PageRequestOptions {
   /** Signed in at all. Defaults to true, since `requireAuth` means a page only runs when someone is. */
   signedIn?: boolean;
   /** Signed in holding the privileged role. */
-  admin?: boolean;
+  teamLeader?: boolean;
+  deliveryManager?: boolean;
+  /** Signed in as this persona, alongside any of the flags. */
+  persona?: Persona;
+  /** The stored `/me` answer verbatim, for tests of a malformed one. Overrides the persona options. */
+  access?: unknown;
   /**
    * Signed in holding the judicial role — the persona `/judicial/**` is for.
    *
-   * Independent of `admin` rather than a level above it, because the two are separate personas: a
-   * judicial test user who also passed as an admin would make "a caseworker is refused the judicial
+   * Independent of `teamLeader` rather than a level above it, because the two are separate personas: a
+   * judicial test user who also passed as a Team leader would make "a caseworker is refused the judicial
    * area" untestable in the direction that matters.
    */
   judicial?: boolean;
@@ -50,7 +82,7 @@ export interface PageRequestOptions {
    * The IDAM subject the session was established for.
    *
    * Only the persona switcher reads it — it is how the strip marks which persona you currently are — and it
-   * is deliberately not derived from `admin`/`judicial`, because the two answer different questions: those
+   * is deliberately not derived from `teamLeader`/`judicial`, because the two answer different questions: those
    * say what the session may do, this says who IDAM authenticated. A session whose subject matches no
    * persona is the ordinary case for a real user, not an error.
    */
@@ -63,7 +95,10 @@ export function pageRequest({
   query,
   body,
   signedIn = true,
-  admin = false,
+  teamLeader = false,
+  deliveryManager = false,
+  persona,
+  access,
   judicial = false,
   name,
   flow,
@@ -72,8 +107,13 @@ export function pageRequest({
   subject,
   originalUrl
 }: PageRequestOptions = {}): RequestDouble {
-  const roles = [admin ? DEEDPOLL_ADMIN : undefined, judicial ? DEEDPOLL_JUDICIAL : undefined].filter((role): role is Role => role !== undefined);
-  const user = signedIn ? currentUser(roles, name) : undefined;
+  const personas: Persona[] = [
+    ...(persona ? [persona] : []),
+    ...(teamLeader ? (["teamLeader"] as const) : []),
+    ...(deliveryManager ? (["deliveryManager"] as const) : []),
+    ...(judicial ? (["judge"] as const) : [])
+  ];
+  const user = signedIn ? currentUser(access ?? combinedAccess(personas), name) : undefined;
 
   const req = {
     params: params ?? {},
@@ -92,6 +132,16 @@ export function pageRequest({
   return req;
 }
 
+/** A caller holding several personas at once gets the union of their answers, as api's would be. */
+function combinedAccess(personas: readonly Persona[]): CallerAccess {
+  const answers = personas.map((each) => PERSONA_ACCESS[each]);
+  return {
+    staff: answers.some((answer) => answer.staff),
+    judicial: answers.some((answer) => answer.judicial),
+    capabilities: answers.flatMap((answer) => answer.capabilities)
+  };
+}
+
 /**
  * A session with the three callback-style methods `express-session` provides.
  *
@@ -107,6 +157,7 @@ export function sessionDouble(deedPoll: Record<string, unknown> = {}): SessionDo
   const session = {
     deedPoll,
     save: vi.fn((callback?: (error?: Error) => void) => callback?.()),
+    reload: vi.fn((callback?: (error?: Error) => void) => callback?.()),
     regenerate: vi.fn((callback?: (error?: Error) => void) => {
       session.deedPoll = {};
       callback?.();
@@ -120,9 +171,12 @@ export function sessionDouble(deedPoll: Record<string, unknown> = {}): SessionDo
   return session;
 }
 
+export type Persona = keyof typeof PERSONA_ACCESS;
+
 export type SessionDouble = Request["session"] & {
   deedPoll: Record<string, unknown>;
   save: ReturnType<typeof vi.fn>;
+  reload: ReturnType<typeof vi.fn>;
   regenerate: ReturnType<typeof vi.fn>;
   destroy: ReturnType<typeof vi.fn>;
 };

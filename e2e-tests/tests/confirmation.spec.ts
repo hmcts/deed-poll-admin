@@ -35,19 +35,19 @@
  * can start a wait. Everything else is driven: the referral is raised, claimed and refused through the contract,
  * because a judge's refusal is what leads the office to ask the applicant at all.
  *
- * The caseworker signs in as `admin@example.com` for the first three, because nothing here is gated on a role —
+ * The caseworker signs in as `team-leader@example.com` for the first three, because nothing here is gated on a role —
  * which is what the fourth test, on the roleless fixture, is for.
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 import {
-  ADMIN_EMAIL,
-  ADMIN_STORAGE_STATE,
   CASEWORKER_EMAIL,
   CASEWORKER_STORAGE_STATE,
   DEPLOYED_STACK_SKIP_REASON,
   RUNS_AGAINST_DEPLOYED_STACK,
-  signInAsAdmin
+  signInAsTeamLeader,
+  TEAM_LEADER_EMAIL,
+  TEAM_LEADER_STORAGE_STATE
 } from "./idam-session.js";
 
 /** The mock api, which `playwright.config.ts` starts on 3200 beside the app on 3000. */
@@ -65,7 +65,7 @@ const OTHER_CASEWORKER = "e2e.colleague@example.com";
 const JUDGES_REASON = "The application cannot be dealt with without notice being given.";
 
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
-test.use({ storageState: ADMIN_STORAGE_STATE });
+test.use({ storageState: TEAM_LEADER_STORAGE_STATE });
 
 test("caseworker follows the awaiting-confirmation count to the longest wait and records that the applicant wants to proceed", async ({
   page,
@@ -230,7 +230,7 @@ test("caseworker follows the awaiting-confirmation count to the longest wait and
   // The answer in the same words the radio offered, so a caseworker reads back the sentence they ticked.
   await expect(summaryRow(page, "Applicant's response")).toContainText("The applicant wants to proceed");
   // The recorder is api's, from the token this page forwarded — never a name this app sent.
-  await expect(summaryRow(page, "Recorded by")).toContainText(ADMIN_EMAIL);
+  await expect(summaryRow(page, "Recorded by")).toContainText(TEAM_LEADER_EMAIL);
   await expect(summaryRow(page, "Response recorded")).toHaveCount(1);
   // Nothing here says what to do about the case next, and nothing offers to replace the answer (decision 8).
   await expect(page.getByRole("button", { name: "Record applicant response" })).toHaveCount(0);
@@ -350,7 +350,7 @@ test("a referral id from another case discloses nothing about its confirmation, 
  * there is no new role or presentational gate here, and this is where that is shown rather than asserted by the
  * absence of code.
  *
- * `isAdmin` is derived from the admin role, so this fixture is the negative case for every role rule in the app;
+ * Privacy override is derived from staff capabilities, so this fixture is the negative case for every role rule in the app;
  * api gates neither the worklist nor the recording on one. A gate added later — here or at api's end — fails this
  * test rather than being discovered by a caseworker who cannot finish their work.
  */
@@ -607,7 +607,7 @@ async function expectWelshKeysResolve(browser: Browser, path: string, reference:
 
   try {
     const page = await context.newPage();
-    await signInAsAdmin(page);
+    await signInAsTeamLeader(page);
     await page.goto(`${path}?lng=cy`);
 
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Record the applicant's response");

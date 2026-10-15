@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { currentUser, DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fetchCallerAccess } from "../auth/caller-access.js";
 import { refreshTokens } from "../auth/idam.js";
 import { PERSONA_SWITCH_PATH } from "../auth/persona-switcher.js";
 import { loginAsPersona } from "../auth/persona-users.js";
@@ -80,8 +81,11 @@ vi.mock("../auth/idam.js", async (importOriginal) => ({
   refreshTokens: vi.fn()
 }));
 
+// The persona's `/me` answer, asked again with the renewed token, so the refresh below stays off the network.
+vi.mock("../auth/caller-access.js", () => ({ fetchCallerAccess: vi.fn(async () => ({ staff: false, judicial: true, capabilities: [] })) }));
+
 const JUDGE = {
-  user: currentUser([DEEDPOLL_JUDICIAL], "A Judge"),
+  user: currentUser({ staff: false, judicial: true, capabilities: [] }, "A Judge"),
   subject: "judge@example.com",
   tokens: { idToken: "a-judge-id-token", accessToken: "a-judge-access-token", refreshToken: "a-judge-refresh-token", expiresAt: 1_800_000_000 }
 };
@@ -310,7 +314,7 @@ describe("the persona switch", () => {
       const rendered = vi.mocked(res.render).mock.calls[0][1] as { personaSwitcher?: { personas: { id: string }[] } };
 
       expect(rendered.personaSwitcher).not.toBe(res.locals.personaSwitcher);
-      expect(rendered.personaSwitcher?.personas.map((persona) => persona.id)).toEqual(["caseworker", "admin", "judge"]);
+      expect(rendered.personaSwitcher?.personas.map((persona) => persona.id)).toEqual(["caseworker", "team-leader", "delivery-manager", "judge"]);
     });
   });
 });
@@ -350,6 +354,7 @@ describe("a forced refresh after switching", () => {
     await switchedThenRenewed();
 
     expect(refreshTokens).toHaveBeenCalledWith(expect.anything(), "a-judge-refresh-token", "judge@example.com");
+    expect(fetchCallerAccess).toHaveBeenCalledWith("a-renewed-judge-access-token", "refresh");
   });
 
   it("should leave the session as the persona, not the user who was signed in before", async () => {

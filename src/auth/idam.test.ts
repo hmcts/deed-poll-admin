@@ -8,17 +8,22 @@
  * a token endpoint that would have to sign real tokens to answer.
  *
  * What is being tested in `completeLogin` is therefore the glue, and the glue is where the bug was:
- * roles were read from the ID token, which is thin, instead of from `/o/userinfo`. That reading is
- * asserted directly below, because it passed for a week against a stub that put them in the token.
+ * roles were read from the ID token, which is thin, instead of from `/o/userinfo`. Access now comes from
+ * neither but from api's `GET /me`, so `findCallerAccess` is stubbed at the domain seam too.
  */
 
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { DEEDPOLL_ADMIN } from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, DEEDPOLL_TEAM_LEADER, findCallerAccess, OVERRIDE_PRIVACY } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import * as client from "openid-client";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { beginLogin, callbackUrl, completeLogin, describeIdamError, endSessionUrl, type IdamConfig, refreshTokens, resetIdamDiscovery } from "./idam.js";
+
+vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  findCallerAccess: vi.fn()
+}));
 
 vi.mock("openid-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("openid-client")>()),
@@ -194,27 +199,47 @@ describe("completeLogin", () => {
   }
 
   beforeEach(() => {
-    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com" }, 900));
-    vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: "admin@example.com", name: "An Admin", roles: [DEEDPOLL_ADMIN] } as never);
+    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "team-leader@example.com" }, 900));
+    vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: "team-leader@example.com", name: "A Team leader", roles: [DEEDPOLL_TEAM_LEADER] } as never);
+    vi.mocked(findCallerAccess).mockResolvedValue({ staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY, ACCESS_GAZETTE] });
   });
 
-  it("reads roles from userinfo, not from the ID token", async () => {
-    // The bug this file exists for. CFT IDAM's ID token is thin — `JwTokenGeneratorService` puts no
-    // roles in it at all — so reading claims would have yielded no roles against real IDAM. And because
-    // unknown roles are dropped rather than rejected, the symptom would have been "nobody can edit
-    // privacy" rather than an error.
-    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com", roles: [DEEDPOLL_ADMIN] }, 900));
-    vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: "admin@example.com", name: "An Admin", roles: [] } as never);
+  it("should take the user's access from api's /me answer, asked with the new access token", async () => {
+    const { user } = await completeLogin(config, flow, currentUrl);
+
+    expect(findCallerAccess).toHaveBeenCalledWith({ accessToken: "an-access-token" });
+    expect(user).toMatchObject({ staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY, ACCESS_GAZETTE], isAdmin: true });
+  });
+
+  it("grants nothing from the roles userinfo or the ID token asserts, because access is api's answer", async () => {
+    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "team-leader@example.com", roles: [DEEDPOLL_TEAM_LEADER] }, 900));
+    vi.mocked(findCallerAccess).mockResolvedValue({ staff: false, judicial: false, capabilities: [] });
 
     const { user } = await completeLogin(config, flow, currentUrl);
 
-    expect(user.isAdmin).toBe(false);
+    expect(user).toMatchObject({ staff: false, judicial: false, capabilities: [], isAdmin: false });
+    expect(user).not.toHaveProperty("roles");
   });
 
-  it("returns the user userinfo describes", async () => {
+  it("should still sign in, with no access and one warning naming neither token nor subject, when /me fails", async () => {
+    vi.mocked(findCallerAccess).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): fetch failed"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const result = await completeLogin(config, flow, currentUrl);
+
+    expect(result.user).toMatchObject({ name: "A Team leader", staff: false, judicial: false, capabilities: [], isAdmin: false, isJudicial: false });
+    expect(result.subject).toBe("team-leader@example.com");
+    expect(warn).toHaveBeenCalledTimes(1);
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).toContain("sign-in");
+    expect(logged).not.toContain("an-access-token");
+    expect(logged).not.toContain("team-leader@example.com");
+  });
+
+  it("returns the name userinfo describes", async () => {
     const { user } = await completeLogin(config, flow, currentUrl);
 
-    expect(user).toMatchObject({ isAdmin: true, name: "An Admin" });
+    expect(user.name).toBe("A Team leader");
   });
 
   it("passes the PKCE verifier and the expected state from the session", async () => {
@@ -232,7 +257,7 @@ describe("completeLogin", () => {
     // Otherwise a userinfo response describing someone else is accepted as this user's identity.
     await completeLogin(config, flow, currentUrl);
 
-    expect(client.fetchUserInfo).toHaveBeenCalledWith(expect.anything(), "an-access-token", "admin@example.com");
+    expect(client.fetchUserInfo).toHaveBeenCalledWith(expect.anything(), "an-access-token", "team-leader@example.com");
   });
 
   it("returns the tokens including id token so logout can end the IDAM session too", async () => {
@@ -246,7 +271,7 @@ describe("completeLogin", () => {
     // The expiry drives the refresh window, so inventing it means refreshing at the wrong time. Reading
     // a non-existent `expires_at` gave every session an hour whatever IDAM said — and if IDAM's real
     // lifetime is shorter than that, the refresh never fires and the user gets a 401 mid-session.
-    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com" }, 900));
+    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "team-leader@example.com" }, 900));
 
     const before = Math.floor(Date.now() / 1000);
     const { tokens } = await completeLogin(config, flow, currentUrl);
@@ -258,7 +283,7 @@ describe("completeLogin", () => {
   it("falls back to an hour only when the issuer omits expires_in", async () => {
     // `expires_in` is optional in OIDC, so the fallback is a real case rather than dead code — but it
     // must be the exception, which is what the test above pins.
-    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "admin@example.com" }, undefined));
+    vi.mocked(client.authorizationCodeGrant).mockResolvedValue(tokensWith({ sub: "team-leader@example.com" }, undefined));
 
     const before = Math.floor(Date.now() / 1000);
     const { tokens } = await completeLogin(config, flow, currentUrl);
@@ -283,7 +308,7 @@ describe("completeLogin", () => {
   it("returns the authenticated subject, so a later refresh has something to be checked against", async () => {
     const { subject } = await completeLogin(config, flow, currentUrl);
 
-    expect(subject).toBe("admin@example.com");
+    expect(subject).toBe("team-leader@example.com");
   });
 });
 
@@ -294,7 +319,7 @@ describe("completeLogin", () => {
  * a 400 from it. That makes these the only check there is on this path until real IDAM answers.
  */
 describe("refreshTokens", () => {
-  const SUBJECT = "admin@example.com";
+  const SUBJECT = "team-leader@example.com";
 
   function refreshResponse(overrides: Record<string, unknown> = {}, claims?: Record<string, unknown>) {
     return {

@@ -1,6 +1,6 @@
 /**
  * The persona switcher — the non-production control that signs the user in as a different test persona so one
- * person can exercise the caseworker, caseworker-admin and judicial screens in a single sitting. See
+ * person can exercise the caseworker, Team leader, Delivery Manager and judicial screens in a single sitting. See
  * `docs/plans/completed/dev-persona-switcher.md`.
  *
  * Three things live here: whether this process may offer it at all, the personas it offers, and the strip the
@@ -52,7 +52,7 @@
  * "test" is here because `vitest.config.ts` sets `ENVIRONMENT_NAME=test` — but note that the flag is still
  * off by default there, so a test that wants the switcher has to ask for it.
  */
-import { DEEDPOLL_ADMIN, DEEDPOLL_CASEWORKER, DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
+import { DEEDPOLL_CASEWORKER, DEEDPOLL_DELIVERY_MANAGER, DEEDPOLL_JUDICIAL, DEEDPOLL_TEAM_LEADER } from "@hmcts/deed-poll";
 import config from "config";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { type Persona, personaState, switcherUnavailableReason } from "./persona-users.js";
@@ -81,8 +81,8 @@ export const PERSONA_SWITCH_PATH = "/switch-persona";
  *
  * `fixtureUsername` is the local account `scripts/seed-idam-users.mjs` creates, and it is only the identity in
  * the environments `SEEDED_PERSONA_ENVIRONMENTS` names. AAT cannot use fixed accounts at all — its test users
- * are swept after about three hours — so there the same three personas are **created on demand** from
- * `roleNames`; `./persona-users.ts` owns that half. What stays either way is the shape: three named personas,
+ * are swept after about three hours — so there the same four personas are **created on demand** from
+ * `roleNames`; `./persona-users.ts` owns that half. What stays either way is the shape: four named personas,
  * each with one identity behind it.
  *
  * **`roleNames` is what a persona *is*, and the roles are imported rather than spelled out.** A copy of one of
@@ -93,7 +93,8 @@ export const PERSONA_SWITCH_PATH = "/switch-persona";
  */
 export const PERSONAS: readonly Persona[] = [
   { id: "caseworker", name: "Caseworker", fixtureUsername: "caseworker@example.com", roleNames: [DEEDPOLL_CASEWORKER] },
-  { id: "admin", name: "Caseworker with admin", fixtureUsername: "admin@example.com", roleNames: [DEEDPOLL_ADMIN] },
+  { id: "team-leader", name: "Team leader", fixtureUsername: "team-leader@example.com", roleNames: [DEEDPOLL_TEAM_LEADER] },
+  { id: "delivery-manager", name: "Delivery Manager", fixtureUsername: "delivery-manager@example.com", roleNames: [DEEDPOLL_DELIVERY_MANAGER] },
   { id: "judge", name: "Judge", fixtureUsername: "judge@example.com", roleNames: [DEEDPOLL_JUDICIAL] }
 ];
 

@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import deferredContract from "./deferred-contract.json";
-import { GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, UNSPECIFIED_SCHEMAS, WIRE_SCHEMAS } from "./wire.js";
+import { CAPABILITY, GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, UNSPECIFIED_SCHEMAS, WIRE_SCHEMAS } from "./wire.js";
 
 const SPEC_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../openapi.json");
 const spec = JSON.parse(readFileSync(SPEC_PATH, "utf8")) as OpenApiSpec;
@@ -83,7 +83,8 @@ const IMPLEMENTED_OPERATIONS = [
   "GET /judicial/referrals/mine",
   "GET /judicial/referrals/{referralId}",
   "POST /judicial/referrals/{referralId}/claim",
-  "POST /judicial/referrals/{referralId}/direction"
+  "POST /judicial/referrals/{referralId}/direction",
+  "GET /me"
 ];
 
 describe("openapi.json and the wire schemas", () => {
@@ -133,6 +134,13 @@ describe("openapi.json and the wire schemas", () => {
     }
   });
 
+  it("should publish the capability members in api's declaration order", () => {
+    // Array items, so the property enum comparison below does not reach them. Order is pinned as well as
+    // membership because api promises declaration order and the mock reproduces it.
+    expect(spec.components.schemas.CallerAccessResponse.properties?.capabilities?.items?.enum).toEqual([...CAPABILITY]);
+    expect(spec.components.schemas.CallerAccessResponse.required?.toSorted()).toEqual(["capabilities", "judicial", "staff"]);
+  });
+
   it("should describe exactly the consumed and explicitly deferred schemas", () => {
     const inSpec = Object.keys(spec.components.schemas).sort();
     const inCode = [...Object.keys(WIRE_SCHEMAS), ...Object.keys(deferredContract.schemas)].sort();
@@ -180,7 +188,7 @@ describe("openapi.json and the wire schemas", () => {
     expect(operation.responses).toEqual({
       "200": { description: "OK", content: { "*/*": { schema: { $ref: "#/components/schemas/GazetteNoticeHistoryResponse" } } } }
     });
-    expect(operation.description).toContain("Requires caseworker-deedpoll-admin");
+    expect(operation.description).toContain("Requires caseworker-deedpoll-delivery-manager");
     expect(operation.description).toContain("At most 100 references per batch");
     expect(spec.components.schemas.GazetteNoticeHistoryResponse.properties?.batches?.items?.$ref).toBe("#/components/schemas/GazetteNoticeBatchResponse");
     const filter = spec.paths["/caseworker/cases"].get.parameters?.find((parameter) => parameter.name === "filter");
@@ -489,5 +497,8 @@ interface OpenApiSchema {
    * `RecordConfirmationRequest`, where one is ignored, and absent everywhere else.
    */
   additionalProperties?: boolean | Record<string, unknown>;
-  properties?: Record<string, { enum?: (string | null)[]; pattern?: string; maxLength?: number; minLength?: number; items?: { $ref?: string } }>;
+  properties?: Record<
+    string,
+    { enum?: (string | null)[]; pattern?: string; maxLength?: number; minLength?: number; items?: { $ref?: string; enum?: string[] } }
+  >;
 }

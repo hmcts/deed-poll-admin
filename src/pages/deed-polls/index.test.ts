@@ -77,18 +77,34 @@ describe("deed-polls list page", () => {
     vi.mocked(countGazetteReadyCases).mockResolvedValue(0);
   });
 
-  it.each([false, true])("should make no Gazette count call for a non-admin (judicial %s)", async (judicial) => {
+  it.each(["legacyAdmin", "teamLeader", "caseworker", "judge", "none"] as const)("should make no Gazette count request for %s", async (persona) => {
+    const res = pageResponse();
+    await GET(pageRequest({ persona }), res);
+    expect(countGazetteReadyCases).not.toHaveBeenCalled();
+    expect(res.render.mock.calls[0][1]).toMatchObject({ showGazette: false });
+  });
+
+  it.each(["legacyAdmin", "teamLeader", "deliveryManager", "caseworker", "judge", "none"] as const)(
+    "should retain the ordinary-list fallback for %s with a bookmarked Gazette filter",
+    async (persona) => {
+      const res = pageResponse();
+      await GET(pageRequest({ persona, query: { filter: "readyForPublication" } }), res);
+      expect(findDeedPolls).toHaveBeenCalledWith(expect.objectContaining({ filter: "all" }), expect.anything());
+    }
+  );
+
+  it.each([false, true])("should make no Gazette count call for a non-deliveryManager (judicial %s)", async (judicial) => {
     const res = pageResponse();
     await GET(pageRequest({ judicial }), res);
     expect(countGazetteReadyCases).not.toHaveBeenCalled();
     expect(res.render.mock.calls[0][1]).toMatchObject({ showGazette: false, gazetteFailed: false, gazetteCount: "" });
   });
 
-  it.each([0, 42])("should read and show the admin's global Gazette count of %s", async (count) => {
+  it.each([0, 42])("should read and show the deliveryManager's global Gazette count of %s", async (count) => {
     vi.mocked(countGazetteReadyCases).mockResolvedValue(count);
     const res = pageResponse();
-    await GET(pageRequest({ admin: true, accessToken: "admin-token", query: { filter: "enroled", q: "Smith" } }), res);
-    expect(countGazetteReadyCases).toHaveBeenCalledExactlyOnceWith({ accessToken: "admin-token" });
+    await GET(pageRequest({ deliveryManager: true, accessToken: "deliveryManager-token", query: { filter: "enroled", q: "Smith" } }), res);
+    expect(countGazetteReadyCases).toHaveBeenCalledExactlyOnceWith({ accessToken: "deliveryManager-token" });
     expect(res.render.mock.calls[0][1]).toMatchObject({
       showGazette: true,
       gazetteFailed: false,
@@ -102,7 +118,7 @@ describe("deed-polls list page", () => {
     vi.mocked(countReturnedForAction).mockResolvedValue(3);
     vi.mocked(countAwaitingConfirmation).mockResolvedValue(4);
     const res = pageResponse();
-    await GET(pageRequest({ admin: true }), res);
+    await GET(pageRequest({ deliveryManager: true }), res);
     expect(res.render.mock.calls[0][1]).toMatchObject({
       showGazette: true,
       gazetteFailed: true,
@@ -122,7 +138,7 @@ describe("deed-polls list page", () => {
     vi.mocked(countAwaitingConfirmation).mockRejectedValue(new Error("unavailable"));
     vi.mocked(countGazetteReadyCases).mockResolvedValue(7);
     const res = pageResponse();
-    await GET(pageRequest({ admin: true }), res);
+    await GET(pageRequest({ deliveryManager: true }), res);
     expect(res.render.mock.calls[0][1]).toMatchObject({
       gazetteFailed: false,
       gazetteCount: "Applications ready for the London Gazette: 7",

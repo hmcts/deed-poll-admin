@@ -217,8 +217,8 @@ resolves.
      against `apps/deed-poll/base/roles.yaml` in `idam-access-config` — #993 covered the client and the admin
      role only. As at **2026-09-19** the change exists only as a local branch in the gitignored
      `platops/idam-access-config` clone, so nothing is registered. Until it merges, a judge signs in to a
-     deployed environment **successfully** and then resolves to no roles — `KNOWN_ROLES` drops what IDAM does
-     not assert — so every judicial URL answers the "Page not found" view at 403 and nothing in this repo is at
+     deployed environment **successfully** and then api's `GET /me` answers `judicial: false` for them
+     (this was `KNOWN_ROLES` dropping the unasserted role before admin read `/me`) — so every judicial URL answers the "Page not found" view at 403 and nothing in this repo is at
      fault. Local development and the e2e suite are unaffected: `scripts/seed-idam-users.mjs` seeds
      `judge@example.com` straight into the simulator. The exact YAML, the claim-string constraint and the
      push instructions are in

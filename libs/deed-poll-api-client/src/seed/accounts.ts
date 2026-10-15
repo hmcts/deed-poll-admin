@@ -15,6 +15,7 @@ export async function seedTestAccounts(options: TestAccountOptions): Promise<See
     if (JSON.stringify(accounts.identity) !== JSON.stringify(identity)) throw new Error("Seed account file belongs to a different IDAM environment or client.");
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    // Keep the journal key and subject IDs stable; this account now holds Team leader.
     accounts = { identity, admin: account("admin"), judge: account("judge") };
     await mkdir(dirname(options.filename), { recursive: true });
     // Persist before creating anything: a failed request can be retried using exactly the same fixture UUID.
@@ -40,7 +41,7 @@ export async function seedTestAccounts(options: TestAccountOptions): Promise<See
           email: user.email,
           forename: "Synthetic",
           surname: `Seed ${persona}`,
-          roleNames: [persona === "admin" ? "caseworker-deedpoll-admin" : "caseworker-deedpoll-judicial"]
+          roleNames: [persona === "admin" ? "caseworker-deedpoll-team-leader" : "caseworker-deedpoll-judicial"]
         }
       })
     });
@@ -99,6 +100,7 @@ interface TestAccount {
 }
 interface Accounts {
   identity: { environment: string; clientId: string; issuerUrl: string; supportUrl: string };
+  /** Historical journal key retained to preserve resumable subject IDs; now grants Team leader. */
   admin: TestAccount;
   judge: TestAccount;
 }

@@ -6,9 +6,9 @@ import { getGazetteMembers, getGazetteRequests, getGazetteStatus, previewGazette
 import { GAZETTE_REFUSAL_CODE, GAZETTE_REQUEST_STATE } from "../api/wire.js";
 import { type RunningMockApi, startMockApi } from "./server.js";
 
-const ADMIN = `x.${Buffer.from(JSON.stringify({ sub: "admin", roles: ["caseworker-deedpoll-admin"] })).toString("base64url")}.signature`;
+const DELIVERY_MANAGER = `x.${Buffer.from(JSON.stringify({ sub: "admin", roles: ["caseworker-deedpoll-delivery-manager"] })).toString("base64url")}.signature`;
 let mock: RunningMockApi;
-const config = () => ({ baseUrl: mock.url, accessToken: ADMIN });
+const config = () => ({ baseUrl: mock.url, accessToken: DELIVERY_MANAGER });
 beforeAll(async () => {
   mock = await startMockApi();
 });
@@ -122,7 +122,7 @@ it("should page all legacy members beyond the history preview and leave missing 
   expect(await getGazetteRequests({}, config())).toMatchObject({ ok: true, data: { requests: [], total: 0 } });
 });
 
-it("should gate every new read and write by the authenticated admin role", async () => {
+it("should gate every new read and write by the authenticated Delivery Manager role", async () => {
   for (const [method, path] of [
     ["POST", "gazette-notice-previews"],
     ["POST", "gazette-notices"],
@@ -227,4 +227,36 @@ it("should read full new-ledger membership beyond 100 without truncation and cle
   mock.reset();
   expect(await getGazetteStatus(batchId, config())).toMatchObject({ ok: false, error: { kind: "not-found" } });
   expect(await getGazetteRequests({}, config())).toMatchObject({ ok: true, data: { total: 0 } });
+});
+
+it.each([
+  { roles: [], allowed: false },
+  { roles: ["unknown"], allowed: false },
+  { roles: ["caseworker-deedpoll"], allowed: false },
+  { roles: ["caseworker-deedpoll-admin"], allowed: false },
+  { roles: ["caseworker-deedpoll-team-leader"], allowed: false },
+  { roles: ["caseworker-deedpoll-judicial"], allowed: false },
+  { roles: ["caseworker-deedpoll-team-leader", "caseworker-deedpoll-judicial"], allowed: false },
+  { roles: ["caseworker-deedpoll-delivery-manager"], allowed: true },
+  { roles: ["caseworker-deedpoll-delivery-manager", "caseworker-deedpoll-judicial"], allowed: true }
+])("should enforce the complete Gazette HTTP boundary for $roles", async ({ roles, allowed }) => {
+  const accessToken = `x.${Buffer.from(JSON.stringify({ sub: "staff", roles })).toString("base64url")}.signature`;
+  for (const [method, path, admittedStatus] of [
+    ["GET", "gazette-settings", 200],
+    ["PUT", "gazette-settings", 400],
+    ["GET", "gazette-notices", 200],
+    ["POST", "gazette-notice-previews", 400],
+    ["POST", "gazette-notices", 400],
+    ["GET", "gazette-notice-requests", 200],
+    ["GET", `gazette-notices/${randomUUID()}`, 404],
+    ["GET", `gazette-notices/${randomUUID()}/cases`, 404],
+    ["GET", "cases?filter=readyForPublication&size=1", 200]
+  ] as const) {
+    const response = await fetch(`${mock.url}/caseworker/${path}`, {
+      method,
+      headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+      ...(method === "POST" || method === "PUT" ? { body: "{}" } : {})
+    });
+    expect(response.status, `${method} ${path}`).toBe(allowed ? admittedStatus : 403);
+  }
 });

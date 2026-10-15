@@ -1,5 +1,4 @@
-import type { Role } from "./roles.js";
-import { DEEDPOLL_ADMIN, DEEDPOLL_JUDICIAL } from "./roles.js";
+import { type CallerAccess, callerAccessFrom, OVERRIDE_PRIVACY } from "./capabilities.js";
 
 /**
  * Fallback author for a write with no identified user. Matches the service account the
@@ -11,39 +10,38 @@ export const SERVICE_ACCOUNT_NAME = "# svc_HMCTS_LCPT_Dev";
 /**
  * The authenticated caller, as far as the domain is concerned.
  *
- * How this is populated is a transport concern and lives in the apps. The prototype read
- * it from `x-user-roles` / `x-user-name` request headers, which was explicitly a stand-in:
- * anyone could send `x-user-roles: deedpoll-admin` and become an admin. Replacing that with
- * a real IdP session is a separate piece of work, and nothing in this file assumes either
- * mechanism.
+ * `staff`, `judicial` and `capabilities` are api's `GET /me` answer, which api resolves from AM. This app keeps no
+ * mapping from roles to any of them. Every session read revalidates the answer and rebuilds the derived flags, so a
+ * stored flag is never what a decision is made from.
  *
- * `name` is only ever used as audit text (createdBy / modifiedBy), never for
- * authorisation — that is driven entirely by `roles` — so a wrong name cannot escalate
- * anything.
+ * `name` is only ever used as audit text (createdBy / modifiedBy), never for authorisation, so a wrong name cannot
+ * escalate anything.
  */
-export interface CurrentUser {
-  roles: Role[];
+export interface CurrentUser extends CallerAccess {
+  /** Compatibility adapter for privacy form/presentation code; use can for other capabilities. */
   isAdmin: boolean;
   /**
    * Whether this caller is a judge, and so may reach `/judicial/**`.
    *
-   * Alongside `isAdmin` rather than derived from it, because the two personas are alternatives: a judge
-   * is not a privileged caseworker (the judicial api surface returns a *narrower* view of an application
-   * than any caseworker sees), so neither flag implies the other and a caller may hold both, one or
-   * neither. The gate this feeds is a UI boundary — api gates every `/judicial/**` route on the same role
+   * Not derived from `isAdmin`, because the two personas are alternatives: a judge is not a privileged caseworker
+   * (the judicial api surface returns a *narrower* view of an application than any caseworker sees), so a caller
+   * may hold both, one or neither. The gate this feeds is a UI boundary — api gates every `/judicial/**` route
    * itself — so a wrong value here shows the wrong chrome, never the wrong data.
    */
   isJudicial: boolean;
   name: string;
 }
 
-/** Build a CurrentUser from a resolved set of roles and an optional display name. */
-export function currentUser(roles: Role[], name?: string | null): CurrentUser {
+/** Build a CurrentUser from an unvalidated `/me` answer, which fails closed, and an optional display name. */
+export function currentUser(access: unknown, name?: string | null): CurrentUser {
+  const { staff, judicial, capabilities } = callerAccessFrom(access);
   const trimmed = (name ?? "").trim();
   return {
-    roles,
-    isAdmin: roles.includes(DEEDPOLL_ADMIN),
-    isJudicial: roles.includes(DEEDPOLL_JUDICIAL),
+    staff,
+    judicial,
+    capabilities,
+    isAdmin: capabilities.includes(OVERRIDE_PRIVACY),
+    isJudicial: judicial,
     name: trimmed.length > 0 ? trimmed : SERVICE_ACCOUNT_NAME
   };
 }

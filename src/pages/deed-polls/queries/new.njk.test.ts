@@ -56,7 +56,7 @@ describe("save a query template", () => {
   it("should offer an Administrator three controls, with a share box that is not ticked by default", async () => {
     const res = pageResponse();
 
-    await GET(pageRequest({ query: QUERY, accessToken: "session-token", admin: true }), res);
+    await GET(pageRequest({ query: QUERY, accessToken: "session-token", teamLeader: true }), res);
     const page = html(res.render.mock.calls[0][1]);
 
     expect(page).toContain('id="name"');

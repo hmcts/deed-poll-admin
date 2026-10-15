@@ -46,7 +46,7 @@
 // because the count was right. Every case came out `state=Received, type=null, urgency=null` and four of
 // the status tabs were empty. Hence `must()` — a renamed member now fails loudly rather than seeding
 // a dataset that looks fine and tests nothing. Requires `libs/deed-poll` to have been built.
-import { DEEDPOLL_ADMIN, DeedPollState, DeedPollType, Urgency } from "@hmcts/deed-poll";
+import { DEEDPOLL_DELIVERY_MANAGER, DeedPollState, DeedPollType, Urgency } from "@hmcts/deed-poll";
 
 /** Fail on an option-set member that does not exist, rather than sending `undefined` and seeding a default. */
 function must(set, name, member) {
@@ -68,8 +68,8 @@ const KEEP = process.argv.includes("--keep");
 const RECEIVED_CASES = 26;
 const READY_CASES = 26;
 const GAZETTE_BATCHES = 26;
-const ADMIN_HEADERS = {
-  authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: "seed.admin", roles: [DEEDPOLL_ADMIN] })).toString("base64url")}.signature`
+const DELIVERY_MANAGER_HEADERS = {
+  authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: "seed.delivery-manager", roles: [DEEDPOLL_DELIVERY_MANAGER] })).toString("base64url")}.signature`
 };
 
 /**
@@ -342,9 +342,9 @@ for (let n = 1; n <= GAZETTE_BATCHES; n++) {
   );
 }
 
-const ready = await step("GET", "/caseworker/cases?filter=readyForPublication&size=100", undefined, ADMIN_HEADERS, "read Gazette-ready cases");
-const history = await step("GET", "/caseworker/gazette-notices", undefined, ADMIN_HEADERS, "read Gazette history");
-const historyTail = await step("GET", "/caseworker/gazette-notices?page=2", undefined, ADMIN_HEADERS, "read Gazette history page 2");
+const ready = await step("GET", "/caseworker/cases?filter=readyForPublication&size=100", undefined, DELIVERY_MANAGER_HEADERS, "read Gazette-ready cases");
+const history = await step("GET", "/caseworker/gazette-notices", undefined, DELIVERY_MANAGER_HEADERS, "read Gazette history");
+const historyTail = await step("GET", "/caseworker/gazette-notices?page=2", undefined, DELIVERY_MANAGER_HEADERS, "read Gazette history page 2");
 const preview = history.batches[0];
 console.log(
   `Gazette-ready: ${ready.total}; history: ${history.total} batches, newest preview: ${preview.referenceNumbers.length}/${preview.caseCount} references.`

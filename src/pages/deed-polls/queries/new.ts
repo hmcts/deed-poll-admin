@@ -1,10 +1,10 @@
 /**
- * Save this query: name it, describe it, and — if you are an Administrator — publish it to the library.
+ * Save this query: name it, describe it, and — if you hold MANAGE_SHARED_QUERIES — publish it to the library.
  *
- * **Publishing is an Administrator's act, and the checkbox is hidden rather than disabled** for the reason
+ * **Publishing requires MANAGE_SHARED_QUERIES, and the checkbox is hidden rather than disabled** for the reason
  * `witness-edit.njk` records: a disabled control has no value to read. Saving a query for yourself is every
  * caseworker's, so the form itself is unchanged for them; only the third control goes. The gate is
- * presentational — api refuses a non-Administrator's `shared: true` with a 403, which is what makes a
+ * presentational — api refuses an unentitled caller's `shared: true` with a 403, which is what makes a
  * hand-crafted POST fail rather than publish. Plan 14.
  *
  * **Nothing forces `shared` false here for a caseworker, deliberately.** The schema already yields `false`
@@ -29,11 +29,13 @@
 import {
   type Caller,
   type CaseListLink,
+  can,
   caseListSearch,
   createSavedQuery,
   type FieldError,
   filterFor,
   InvalidInputError,
+  MANAGE_SHARED_QUERIES,
   MAX_SAVED_QUERY_DESCRIPTION,
   MAX_SAVED_QUERY_NAME,
   parseConditions,
@@ -177,7 +179,7 @@ function render(
     // row, so there is no flag api could return for it. Resolved here rather than in `GET` for the reason
     // `canAmend` is read on every render — a flag read once puts the control back the moment a caseworker
     // submits an over-long name.
-    canPublish: userFromRequest(req).isAdmin,
+    canPublish: can(userFromRequest(req), MANAGE_SHARED_QUERIES),
     en,
     cy
   });

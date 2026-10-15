@@ -9,7 +9,7 @@
  * Namespaced under `deedPoll` per `.claude/rules/frontend.md`, so a second journey added later cannot
  * collide with it in the same store.
  */
-import { type CurrentUser, plainHttpPermitted } from "@hmcts/deed-poll";
+import { type CallerAccess, type CurrentUser, currentUser, holdsCallerAccess, plainHttpPermitted } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import type { SessionData } from "express-session";
 import type { AuthFlowState, IdamTokens } from "./idam.js";
@@ -87,7 +87,7 @@ function writableNamespace(req: Request): DeedPollSession {
  * The placeholder in `config/default.json`, which is checked into a public repository.
  *
  * A session cookie is signed with this secret, and after Phase 5 the session is what says a caller is
- * signed in and which roles they hold. So a known secret is not a weak secret — it is no
+ * signed in and what api has granted them. So a known secret is not a weak secret — it is no
  * authentication at all: anyone can mint a cookie asserting `deedpoll-admin` and skip IDAM entirely.
  * The login flow this app now has would be decoration.
  */
@@ -226,9 +226,43 @@ function parseRedisUrl(url: string): URL {
   }
 }
 
-/** The signed-in user, or undefined. Undefined means not signed in — never "signed in with no roles". */
+/** The signed-in user, or undefined. Undefined means not signed in — never "signed in with no access". */
 export function sessionUser(req: Request): CurrentUser | undefined {
-  return namespace(req)?.user;
+  const stored = namespace(req)?.user;
+  // The stored `/me` answer is revalidated and its flags rebuilt, so neither a stale flag nor a session from before
+  // this shape grants anything.
+  return stored ? currentUser(stored, stored.name) : undefined;
+}
+
+/**
+ * Whether the signed-in user's stored value is a `/me` answer at all, which a session saved before admin read
+ * `/me` is not. An answer of no access is still an answer, so only the older session is asked for one.
+ */
+export function sessionHoldsAccess(req: Request): boolean {
+  return holdsCallerAccess(namespace(req)?.user);
+}
+
+/**
+ * Store a `/me` answer for a session that held none, keeping its name, and save it before resolving.
+ *
+ * Saved explicitly for the reason `touchLastSeen` is: an end-of-request write of the whole session could overwrite
+ * tokens a concurrent request had just refreshed. Touches no token and neither clock.
+ *
+ * Reloaded first, because this runs after an await on api: the snapshot this request started with can predate a
+ * refresh another request has since saved, and saving it would put the old tokens back, spending a rotated refresh
+ * token. Only the user is written onto what the store holds now, and nothing is written if that already holds an
+ * answer.
+ */
+export function storeAccess(req: Request, access: CallerAccess): Promise<void> {
+  return new Promise((resolve, reject) => {
+    req.session.reload((reloadError) => {
+      if (reloadError) return reject(reloadError);
+      if (holdsCallerAccess(namespace(req)?.user)) return resolve();
+      const session = writableNamespace(req);
+      session.user = currentUser(access, session.user?.name);
+      req.session.save((error) => (error ? reject(error) : resolve()));
+    });
+  });
 }
 
 export function startFlow(req: Request, flow: AuthFlowState): void {
@@ -353,13 +387,16 @@ export function sessionTimedOutReturnTo(req: Request): string | undefined {
 }
 
 /**
- * Update stored tokens after a successful refresh.
+ * Update stored tokens after a successful refresh, with the `/me` answer for the new token when api gave one.
  *
- * Does NOT regenerate the session — the user was already authenticated, this just extends it.
+ * Does NOT regenerate the session — the user was already authenticated, this just extends it. Without an answer
+ * the previous one is kept, so a failed `/me` costs no access the caller already had. Written with the tokens in
+ * one save rather than a second one.
  */
-export function updateTokens(req: Request, tokens: IdamTokens): Promise<void> {
+export function updateTokens(req: Request, tokens: IdamTokens, access?: CallerAccess): Promise<void> {
   return new Promise((resolve, reject) => {
     const session = writableNamespace(req);
+    if (access && session.user) session.user = currentUser(access, session.user.name);
     session.accessToken = tokens.accessToken;
     session.refreshToken = tokens.refreshToken;
     session.tokenExpiresAt = tokens.expiresAt;

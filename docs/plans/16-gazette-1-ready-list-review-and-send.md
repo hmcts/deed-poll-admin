@@ -1,5 +1,11 @@
 # Plan: London Gazette publication — admin UI (ready list, review, send, history)
 
+> **Role boundary superseded, 12 October 2026:** Gazette now requires the Delivery Manager's
+> `ACCESS_GAZETTE` capability. Team leader and legacy admin alone are refused, including the ready count.
+> Historical admin-role references below describe the earlier implementation. See
+> [the role-change plan](20261009-team-leader-delivery-manager.md) for the matrix, rollout prerequisites
+> and local validation; this note does not claim deployment or live role verification.
+
 ## Execution status — 8 October 2026
 
 The read-only foundation (plan 16a), relinquishment exclusion and recipient editor
@@ -14,6 +20,7 @@ one email attempt and explicit uncertainty. It is a design, not an available API
 refresh OpenAPI only after each corresponding operation is implemented and published.
 This plan records the matching admin behavior below. The five-item checklist and
 whether it blocks selection still require a business answer.
+
 ## Execution status — 9 October 2026
 
 The read-only foundation, relinquishment exclusion and recipient editor are merged

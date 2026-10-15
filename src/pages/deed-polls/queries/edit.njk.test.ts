@@ -57,13 +57,13 @@ const savedQuery = (overrides: Partial<SavedQuery> = {}): SavedQuery =>
 /**
  * The amend form as a browser receives it, for the query api answers with.
  *
- * `admin` decides the share box and **api's `editable` decides the write controls** — two different flags from
+ * `teamLeader` decides the share box and **api's `editable` decides the write controls** — two different flags from
  * two different places, so a test about one must not assume the other.
  */
-const render = async (query: SavedQuery, { admin = false }: { admin?: boolean } = {}): Promise<string> => {
+const render = async (query: SavedQuery, { teamLeader = false }: { teamLeader?: boolean } = {}): Promise<string> => {
   vi.mocked(findSavedQuery).mockResolvedValue(query as never);
   const res = pageResponse();
-  await GET(pageRequest({ params: { queryId: "sq-1" }, accessToken: "session-token", admin }), res);
+  await GET(pageRequest({ params: { queryId: "sq-1" }, accessToken: "session-token", teamLeader }), res);
   const model = res.render.mock.calls[0][1];
 
   return environment.render("deed-polls/queries/edit.njk", { ...model.en, ...model });
@@ -75,7 +75,7 @@ describe("amend a saved query template", () => {
   });
 
   it("should render the stored query in its controls, with the share box ticked for a published one", async () => {
-    const page = await render(savedQuery(), { admin: true });
+    const page = await render(savedQuery(), { teamLeader: true });
 
     expect(page).toContain('value="Awaiting enrolment"');
     expect(page).toContain("Received cases with a Gazette notice");
@@ -94,7 +94,7 @@ describe("amend a saved query template", () => {
     // An Administrator on somebody else's unpublished query is impossible (they cannot see it), but an
     // Administrator on a query api marks read-only is not -- and they may still publish in general. The
     // template must not have tied the share box to `canAmend`.
-    const page = await render(savedQuery({ editable: false }), { admin: true });
+    const page = await render(savedQuery({ editable: false }), { teamLeader: true });
 
     expect(page).not.toContain("Save changes");
     expect(page).toContain('name="shared"');

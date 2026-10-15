@@ -6,7 +6,7 @@
  * so they are independent under `fullyParallel`.
  *
  * **Where a rule differs by role, the test name says which role it signs in as.** The notes and witnesses
- * journeys run as `admin@example.com`, the only fixture holding `caseworker-deedpoll-admin`, and say so —
+ * journeys run as `team-leader@example.com`, the only fixture holding `caseworker-deedpoll-team-leader`, and say so —
  * deleting either is an administrator's to do. The last two tests run as the roleless fixture, because a
  * rule that hides a control has no negative case without one. Adding and amending a witness is open to both
  * roles, and only the delete halves of those journeys need the split.
@@ -17,14 +17,14 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 import {
-  ADMIN_EMAIL,
-  ADMIN_STORAGE_STATE,
   CASEWORKER_STORAGE_STATE,
   DEPLOYED_STACK_SKIP_REASON,
   JUDGE_EMAIL,
   JUDGE_STORAGE_STATE,
   RUNS_AGAINST_DEPLOYED_STACK,
-  signInAsAdmin
+  signInAsTeamLeader,
+  TEAM_LEADER_EMAIL,
+  TEAM_LEADER_STORAGE_STATE
 } from "./idam-session.js";
 
 /** The reference number's year comes from Date Received, so a fixed date keeps the shape assertable. */
@@ -57,7 +57,7 @@ const MINOR_CASES_TO_QUERY = 3;
 const SEED_JUDGE = "e2e.judge@example.com";
 
 test.skip(RUNS_AGAINST_DEPLOYED_STACK, DEPLOYED_STACK_SKIP_REASON);
-test.use({ storageState: ADMIN_STORAGE_STATE });
+test.use({ storageState: TEAM_LEADER_STORAGE_STATE });
 
 test("caseworker creates a case and edits one of its tabs", async ({ page, browser }) => {
   await page.goto("/deed-polls");
@@ -95,7 +95,7 @@ test("caseworker creates a case and edits one of its tabs", async ({ page, brows
   // The subject rather than "An Admin" because the mock has no IDAM to resolve the display name from: it
   // stamps the token's `sub`, which `rse-idam-simulator` sets to the email. Against api this reads "An
   // Admin". See `auditName` in the mock.
-  await expect(caseHeader(page)).toContainText(ADMIN_EMAIL);
+  await expect(caseHeader(page)).toContainText(TEAM_LEADER_EMAIL);
   await expectNoAccessibilityViolations(page);
 
   await expectWelshKeysResolve(browser, caseUrl);
@@ -140,7 +140,7 @@ test("caseworker creates a case and edits one of its tabs", async ({ page, brows
 // `deed-poll-api` holds the notes now instead of Postgres; the journey is otherwise the one the
 // prototype had, deletion included.
 //
-// **Administrator, not caseworker** — this file signs in as `admin@example.com` throughout, and once api
+// **Administrator, not caseworker** — this file signs in as `team-leader@example.com` throughout, and once api
 // gates deletion to Administrators (`../../deed-poll-api/docs/plans/gate-note-deletion.md`) the old name
 // asserted a caseworker can do what a caseworker cannot. It kept passing either way, so the name was the
 // only thing that would have carried the false claim. The caseworker's half of the rule is the test below.
@@ -213,7 +213,7 @@ test("administrator adds, amends and deletes a note", async ({ page }) => {
  * The witnesses journey — add, then amend, then delete.
  *
  * **Administrator, and the name says so**, because the last step is one only an Administrator is offered:
- * api gates `DELETE .../witnesses/{witnessId}` on `caseworker-deedpoll-admin` in its domain. Adding and
+ * api gates `DELETE .../witnesses/{witnessId}` on `caseworker-deedpoll-team-leader` in its domain. Adding and
  * amending are open to both roles — "Add and edit witnesses" is ✓ for both in the business capability
  * matrix — so the caseworker's half of the rule is the second test in the `describe` below, exactly as the
  * note delete needs both halves.
@@ -740,7 +740,7 @@ test("caseworker actions a returned direction, and the returned-direction count 
   // **The assertion the whole of decision 4 rests on.** Closing changed the modifier to the caseworker who did
   // it; the direction is still the judge's. Reading the author off `modifiedBy` would have swapped these two.
   await expect(summaryRow(page, "Decided by")).toContainText(JUDGE_EMAIL);
-  await expect(summaryRow(page, "Last updated")).toContainText(ADMIN_EMAIL);
+  await expect(summaryRow(page, "Last updated")).toContainText(TEAM_LEADER_EMAIL);
   // Neither control applies to a referral that is over.
   await expect(page.getByRole("button", { name: "Mark direction as actioned" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Withdraw this referral" })).toHaveCount(0);
@@ -775,7 +775,7 @@ test("caseworker actions a returned direction, and the returned-direction count 
   await expect(noteRows.nth(0)).toContainText("marked as actioned.");
   // The caseworker who did the closing, not the judge who gave the direction — the attribution decision 4 turns
   // on, in the grid rather than on the referral this time.
-  await expect(noteRows.nth(0)).toContainText(ADMIN_EMAIL);
+  await expect(noteRows.nth(0)).toContainText(TEAM_LEADER_EMAIL);
   await expect(noteRows.nth(1)).toContainText("Judicial direction recorded for referral");
   await expect(noteRows.nth(1)).toContainText("Decision: Approved.");
   // Spelled out rather than abbreviated to the presence of a word: publication names the applicant in a public
@@ -785,7 +785,7 @@ test("caseworker actions a returned direction, and the returned-direction count 
   await expect(noteRows.nth(2)).toContainText("claimed by the judiciary.");
   await expect(noteRows.nth(2)).toContainText(JUDGE_EMAIL);
   await expect(noteRows.nth(3)).toContainText("Referred to the judiciary. Reasons: Minor.");
-  await expect(noteRows.nth(3)).toContainText(ADMIN_EMAIL);
+  await expect(noteRows.nth(3)).toContainText(TEAM_LEADER_EMAIL);
 
   // **The direction is summarised in the note and kept whole on the referral**, which is the pair that makes the
   // pointer honest: api allows a direction twice what a note may hold, so a copy would be truncated and read as
@@ -1128,7 +1128,7 @@ test("caseworker saves the query they built, follows it from the filter bar, and
   await expect(row).not.toContainText("Published");
   // Owned by the signed-in caseworker, and the subject rather than "An Admin" for the reason the case header
   // is — the mock stamps the token's `sub`, having no IDAM to resolve a display name from.
-  await expect(row).toContainText(ADMIN_EMAIL);
+  await expect(row).toContainText(TEAM_LEADER_EMAIL);
   await expect(row.getByRole("link", { name: "Amend" })).toBeVisible();
   await expectNoAccessibilityViolations(page);
 
@@ -1148,7 +1148,7 @@ test("caseworker saves the query they built, follows it from the filter bar, and
  * **What the unit suite cannot reach.** The gate is `canPublish` in two render models and an `{% if %}` in two
  * templates, and a page test can only assert the flag it was handed. What is asserted here is that the flag
  * comes from **the roles IDAM issued for the session that actually signed in** — this file's fixture is
- * `admin@example.com` and the second context's is the roleless `caseworker@example.com`, so the control
+ * `team-leader@example.com` and the second context's is the roleless `caseworker@example.com`, so the control
  * appearing on one and absent from the other is the real derivation working, not a boolean a test passed in.
  *
  * **The caseworker's half only reads**, which is what makes restoring `CASEWORKER_STORAGE_STATE` safe here —
@@ -1171,7 +1171,7 @@ test("administrator publishes a query to the library, where a caseworker finds i
   await page.getByRole("link", { name: "Save this query" }).click();
   await expect(page).toHaveURL(savePath);
 
-  // The control the rule is about, offered because this session holds `caseworker-deedpoll-admin`.
+  // The control the rule is about, offered because this session holds `caseworker-deedpoll-team-leader`.
   const publish = page.getByLabel("Add this query to the library, so colleagues can find it");
   await expect(publish).toBeVisible();
 
@@ -1194,7 +1194,7 @@ test("administrator publishes a query to the library, where a caseworker finds i
   // Under the library heading on the screen as well, tagged, and attributed to the administrator who saved it.
   await expect(librarySection(page, "Query library")).toContainText(queryName);
   await expect(libraryRow(page, queryName)).toContainText("Published");
-  await expect(libraryRow(page, queryName)).toContainText(ADMIN_EMAIL);
+  await expect(libraryRow(page, queryName)).toContainText(TEAM_LEADER_EMAIL);
   await expectNoAccessibilityViolations(page);
 
   // ── the caseworker, in a session of its own ───────────────────────────────────────────────────────────────
@@ -1836,7 +1836,7 @@ function conditionsOf(page: Page): string[] {
  *
  * **In a context and session of its own, which is the whole point of the function.** `localeMiddleware`
  * persists the chosen language to `req.session.locale`, so requesting `?lng=cy` is a *write* to the
- * session — and the session behind `ADMIN_STORAGE_STATE` is shared with every other test that restores
+ * session — and the session behind `TEAM_LEADER_STORAGE_STATE` is shared with every other test that restores
  * it. Done on the shared session, this line switched another spec into Welsh mid-run and its English
  * locators stopped matching. The symptom was a 30-second timeout waiting for a button whose name had
  * changed, in a different file, which reads as anything but a language leak.
@@ -1848,7 +1848,7 @@ function conditionsOf(page: Page): string[] {
  * `browser.newContext()` inherits this file's `test.use({ storageState })` — verified by inspecting a
  * context created without it, which arrives holding four cookies (`connect.sid`, `locale`,
  * `Idam.Session`, `idam_ui_locales`). So the "own session" was the shared one: this check was writing
- * `locale` to the very session it was written to stop writing to, and `signInAsAdmin` then hung
+ * `locale` to the very session it was written to stop writing to, and `signInAsTeamLeader` then hung
  * forever because `/login` redirects an already-authenticated browser to `/deed-polls`, so the
  * simulator's `#username` never renders. The symptom was a bare test timeout with no failed
  * assertion, which reads as a slow app rather than a context that was never anonymous.
@@ -1858,7 +1858,7 @@ async function expectWelshKeysResolve(browser: Browser, caseUrl: string): Promis
 
   try {
     const page = await context.newPage();
-    await signInAsAdmin(page);
+    await signInAsTeamLeader(page);
     await page.goto(`${caseUrl}?lng=cy`);
 
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^\s*KBDP2026-\d{5}\s*$/);
@@ -1885,7 +1885,7 @@ async function expectReferralWelshKeysResolve(browser: Browser, referralUrl: str
 
   try {
     const page = await context.newPage();
-    await signInAsAdmin(page);
+    await signInAsTeamLeader(page);
 
     await page.goto(`${referralUrl}?lng=cy`);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to the judiciary");
@@ -1924,7 +1924,7 @@ async function expectNotesWelshKeysResolve(browser: Browser, caseUrl: string): P
 
   try {
     const page = await context.newPage();
-    await signInAsAdmin(page);
+    await signInAsTeamLeader(page);
     await page.goto(`${caseUrl}?lng=cy`);
     await page.getByRole("tab", { name: "Notes" }).click();
 
@@ -1981,7 +1981,7 @@ async function expectJudgeReadsLifecycleNotes(browser: Browser, referralId: stri
     // The caseworker's, unfiltered: a judge reads the office's own words about the referral they are answering,
     // and the note names the reasons in api's members as every lifecycle note does.
     await expect(entries.nth(2)).toContainText("Referred to the judiciary. Reasons: Minor.");
-    await expect(entries.nth(2)).toContainText(ADMIN_EMAIL);
+    await expect(entries.nth(2)).toContainText(TEAM_LEADER_EMAIL);
     // The full direction is still on the page the note points at — here, above the timeline.
     await expect(summaryRow(page, "Directions")).toContainText(directionOnlyFragment);
     await expectNoAccessibilityViolations(page);

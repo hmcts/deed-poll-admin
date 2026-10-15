@@ -5,7 +5,7 @@ import { getGazetteNoticeHistory, listCases } from "../api/client.js";
 import { DEED_POLL_STATE, DEED_POLL_TYPE } from "../api/wire.js";
 import { type RunningMockApi, startMockApi } from "./server.js";
 
-const ADMIN = token(["caseworker-deedpoll-admin"]);
+const DELIVERY_MANAGER = token(["caseworker-deedpoll-delivery-manager"]);
 const SENT_AT = "2026-09-01T10:00:00.000";
 let mock: RunningMockApi;
 
@@ -32,7 +32,7 @@ async function seedBatch(referenceNumbers: string[], fields: Record<string, unkn
   });
 }
 
-function history(page?: number, size?: number, accessToken = ADMIN) {
+function history(page?: number, size?: number, accessToken = DELIVERY_MANAGER) {
   return getGazetteNoticeHistory({ page, size }, { baseUrl: mock.url, accessToken });
 }
 
@@ -43,9 +43,9 @@ describe("readyForPublication", () => {
     );
     const expected = records.filter((record) => record.type !== "DeedOfRelinquishment");
 
-    const ready = await listCases({ filter: "readyForPublication", size: 100 }, { baseUrl: mock.url });
-    const count = await listCases({ filter: "readyForPublication", size: 1 }, { baseUrl: mock.url });
-    const all = await listCases({ filter: "all", size: 100 }, { baseUrl: mock.url });
+    const ready = await listCases({ filter: "readyForPublication", size: 100 }, { baseUrl: mock.url, accessToken: DELIVERY_MANAGER });
+    const count = await listCases({ filter: "readyForPublication", size: 1 }, { baseUrl: mock.url, accessToken: DELIVERY_MANAGER });
+    const all = await listCases({ filter: "all", size: 100 }, { baseUrl: mock.url, accessToken: DELIVERY_MANAGER });
 
     expect(ready).toMatchObject({ ok: true, data: { total: expected.length } });
     if (!ready.ok) throw new Error("Expected the ready list to succeed");
@@ -54,7 +54,7 @@ describe("readyForPublication", () => {
     expect(all).toMatchObject({ ok: true, data: { total: records.length } });
 
     records[0].type = "DeedOfRelinquishment";
-    const changed = await listCases({ filter: "readyForPublication", size: 100 }, { baseUrl: mock.url });
+    const changed = await listCases({ filter: "readyForPublication", size: 100 }, { baseUrl: mock.url, accessToken: DELIVERY_MANAGER });
     expect(changed).toMatchObject({ ok: true, data: { total: expected.length - 1 } });
     if (!changed.ok) throw new Error("Expected the refreshed ready list to succeed");
     expect(changed.data.cases.map((record) => record.id)).not.toContain(records[0].id);
@@ -67,7 +67,7 @@ describe("readyForPublication", () => {
       }
     }
 
-    const result = await listCases({ filter: "readyForPublication" }, { baseUrl: mock.url });
+    const result = await listCases({ filter: "readyForPublication" }, { baseUrl: mock.url, accessToken: DELIVERY_MANAGER });
 
     expect(result).toMatchObject({ ok: true, data: { filter: "readyForPublication", total: state === "Enroled" ? 1 : 0 } });
   });
@@ -82,9 +82,9 @@ describe("readyForPublication", () => {
       mock.seed({ id, dateEnroled, state: "Enroled", publishToLondonGazette: true, dateNoticeSentToLondonGazette: null });
     }
 
-    const first = await listCases({ filter: "readyForPublication", size: 2 }, { baseUrl: mock.url });
-    const second = await listCases({ filter: "readyForPublication", page: 2, size: 2 }, { baseUrl: mock.url });
-    const beyond = await listCases({ filter: "readyForPublication", page: 3, size: 2 }, { baseUrl: mock.url });
+    const first = await listCases({ filter: "readyForPublication", size: 2 }, { baseUrl: mock.url, accessToken: DELIVERY_MANAGER });
+    const second = await listCases({ filter: "readyForPublication", page: 2, size: 2 }, { baseUrl: mock.url, accessToken: DELIVERY_MANAGER });
+    const beyond = await listCases({ filter: "readyForPublication", page: 3, size: 2 }, { baseUrl: mock.url, accessToken: DELIVERY_MANAGER });
 
     expect(first).toMatchObject({ ok: true, data: { cases: [{ id: "a" }, { id: "b" }], total: 4, totalPages: 2 } });
     expect(second).toMatchObject({ ok: true, data: { cases: [{ id: "c" }, { id: "z" }], page: 2, total: 4 } });
@@ -139,7 +139,7 @@ describe("frozen Gazette history", () => {
     });
     expect(second).toMatchObject({ ok: true, data: { total: 3, page: 2, batches: [{ referenceNumbers: ["old"] }] } });
     expect(beyond).toMatchObject({ ok: true, data: { total: 3, page: 3, batches: [] } });
-    const raw = await (await fetch(`${mock.url}/caseworker/gazette-notices`, { headers: { authorization: `Bearer ${ADMIN}` } })).json();
+    const raw = await (await fetch(`${mock.url}/caseworker/gazette-notices`, { headers: { authorization: `Bearer ${DELIVERY_MANAGER}` } })).json();
     expect(raw.batches[0].sentAt).toBe(SENT_AT);
     expect(Object.keys(raw.batches[0]).sort()).toEqual(["batchId", "caseCount", "referenceNumbers", "referencesTruncated", "sentAt", "sentBy"]);
   });
@@ -157,7 +157,7 @@ describe("frozen Gazette history", () => {
   });
 
   it.each([[], ["caseworker-deedpoll"], ["caseworker-deedpoll-judicial"], ["admin"]])(
-    "should refuse non-admin roles %j even with populated history",
+    "should refuse non-Delivery-Manager roles %j even with populated history",
     async (...roles) => {
       await seedBatch(["secret"]);
 
@@ -167,7 +167,9 @@ describe("frozen Gazette history", () => {
 
   it("should refuse unauthenticated reads and unsupported methods", async () => {
     expect(await history(1, 25, "")).toMatchObject({ ok: false, error: { kind: "unauthorized", status: 401 } });
-    expect((await fetch(`${mock.url}/caseworker/gazette-notices`, { method: "DELETE", headers: { authorization: `Bearer ${ADMIN}` } })).status).toBe(405);
+    expect((await fetch(`${mock.url}/caseworker/gazette-notices`, { method: "DELETE", headers: { authorization: `Bearer ${DELIVERY_MANAGER}` } })).status).toBe(
+      405
+    );
   });
 
   it("should reject invalid fixture dates and repeated identities without replacing history", async () => {
@@ -192,9 +194,9 @@ describe("frozen Gazette history", () => {
 
 describe("Gazette roles from local IDAM userinfo", () => {
   it.each([
-    { status: 200, body: { roles: ["caseworker-deedpoll-admin"] }, expected: 200 },
+    { status: 200, body: { roles: ["caseworker-deedpoll-delivery-manager"] }, expected: 200 },
     { status: 200, body: { roles: [] }, expected: 403 },
-    { status: 200, body: { roles: "caseworker-deedpoll-admin" }, expected: 403 },
+    { status: 200, body: { roles: "caseworker-deedpoll-delivery-manager" }, expected: 403 },
     { status: 200, body: null, expected: 401 },
     { status: 401, body: {}, expected: 401 },
     { status: 503, body: {}, expected: 401 }

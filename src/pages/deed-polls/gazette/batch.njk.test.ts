@@ -74,7 +74,7 @@ beforeEach(() => {
 });
 
 async function render(body?: Record<string, unknown>, locale = "en", sessionID = "admin-session") {
-  const req = Object.assign(pageRequest({ body, admin: true, accessToken: "token" }), { sessionID });
+  const req = Object.assign(pageRequest({ body, teamLeader: true, accessToken: "token" }), { sessionID });
   const res = pageResponse();
   res.locals.locale = locale;
   await (body ? POST : GET)(req, res);

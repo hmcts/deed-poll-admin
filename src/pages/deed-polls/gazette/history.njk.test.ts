@@ -33,7 +33,7 @@ const PAGE = { batches: [BATCH], page: 1, size: 25, total: 26, totalPages: 2 };
 async function render(query: Record<string, unknown> = {}, locale = "en") {
   const res = pageResponse();
   res.locals.locale = locale;
-  await GET(pageRequest({ admin: true, accessToken: "admin-token", query }), res);
+  await GET(pageRequest({ teamLeader: true, accessToken: "admin-token", query }), res);
   const model = res.render.mock.calls[0][1];
   return environment.render("deed-polls/gazette/history.njk", { ...model[locale], ...model });
 }
@@ -139,7 +139,7 @@ describe("Gazette send history", () => {
     const error = new Error("API unavailable");
     vi.mocked(findGazetteHistory).mockRejectedValue(error);
     const res = pageResponse();
-    await expect(GET(pageRequest({ admin: true }), res)).rejects.toBe(error);
+    await expect(GET(pageRequest({ teamLeader: true }), res)).rejects.toBe(error);
     expect(res.render).not.toHaveBeenCalled();
   });
 });

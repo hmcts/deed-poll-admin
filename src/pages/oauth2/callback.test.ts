@@ -1,4 +1,4 @@
-import { currentUser, DEEDPOLL_ADMIN } from "@hmcts/deed-poll";
+import { currentUser, OVERRIDE_PRIVACY } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { callbackUrl, completeLogin } from "../../auth/idam.js";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
@@ -21,7 +21,7 @@ describe("the IDAM callback", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(completeLogin).mockResolvedValue({
-      user: currentUser([DEEDPOLL_ADMIN], "An Admin"),
+      user: currentUser({ staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY] }, "A Team leader"),
       tokens: {
         idToken: "an-id-token",
         accessToken: "an-access-token",
@@ -38,7 +38,7 @@ describe("the IDAM callback", () => {
 
     await GET(req, res);
 
-    expect(req.session.deedPoll.user).toMatchObject({ isAdmin: true, name: "An Admin" });
+    expect(req.session.deedPoll.user).toMatchObject({ isAdmin: true, name: "A Team leader" });
     expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1");
   });
 

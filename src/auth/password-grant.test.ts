@@ -9,11 +9,16 @@
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
+import { DEEDPOLL_JUDICIAL, findCallerAccess } from "@hmcts/deed-poll";
 import * as client from "openid-client";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type IdamConfig, resetIdamDiscovery } from "./idam.js";
 import { passwordGrantLogin } from "./password-grant.js";
+
+vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  findCallerAccess: vi.fn()
+}));
 
 vi.mock("openid-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("openid-client")>()),
@@ -87,6 +92,7 @@ describe("passwordGrantLogin", () => {
     vi.clearAllMocks();
     vi.mocked(client.genericGrantRequest).mockResolvedValue(tokenResponse({}, JUDGE_CLAIMS));
     vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: "judge@example.com", name: "A Judge", roles: [DEEDPOLL_JUDICIAL] } as never);
+    vi.mocked(findCallerAccess).mockResolvedValue({ staff: false, judicial: true, capabilities: [] });
   });
 
   it("should ask the issuer for a password grant with the persona's credentials and the configured scope", async () => {
@@ -101,15 +107,22 @@ describe("passwordGrantLogin", () => {
     });
   });
 
-  it("should return the persona's roles as userinfo describes them, not as the token does", async () => {
-    // The finding the whole feature rests on. CFT IDAM's tokens carry no roles at all — api reads
-    // `/o/userinfo` with the access token, and so does this — so roles read from the token would be empty
-    // against real IDAM and the switch would present as a permissions bug.
-    vi.mocked(client.genericGrantRequest).mockResolvedValue(tokenResponse({}, { sub: "judge@example.com", roles: [] }));
+  it("should return the persona's name from userinfo and its access from /me, asked with the persona's own token", async () => {
+    // The switcher signs in through this path, so a switched persona's access is api's answer for the new token
+    // rather than whatever the previous persona's session held.
+    const { user } = await passwordGrantLogin(config, "judge@example.com", "Pa55word11");
+
+    expect(findCallerAccess).toHaveBeenCalledWith({ accessToken: "a-judge-access-token" });
+    expect(user).toMatchObject({ staff: false, judicial: true, capabilities: [], isJudicial: true, name: "A Judge" });
+  });
+
+  it("should grant nothing from the roles userinfo asserts when /me gives no answer", async () => {
+    vi.mocked(findCallerAccess).mockRejectedValue(new Error("deed-poll-api call failed (timeout): aborted"));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     const { user } = await passwordGrantLogin(config, "judge@example.com", "Pa55word11");
 
-    expect(user).toMatchObject({ isJudicial: true, isAdmin: false, name: "A Judge" });
+    expect(user).toMatchObject({ staff: false, judicial: false, capabilities: [], isJudicial: false, name: "A Judge" });
   });
 
   it("should check userinfo against the ID token's subject, so a response describing someone else is refused", async () => {

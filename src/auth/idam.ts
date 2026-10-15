@@ -18,6 +18,7 @@
 import { type IdamClaims, plainHttpPermitted, userFromClaims } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import * as client from "openid-client";
+import { fetchCallerAccess } from "./caller-access.js";
 
 /** What the flow needs to remember between the redirect out and the callback back. */
 export interface AuthFlowState {
@@ -132,13 +133,11 @@ export interface LoginResult {
  * code obtained in someone else's browser is refused rather than logged in. Without it the callback
  * is an open redirect into an authenticated session.
  *
- * **Roles and name come from userinfo, not from the ID token.** This originally read them from the ID
- * token's claims, which was wrong: CFT IDAM's ID token is thin. Checked against
+ * **The name comes from userinfo, not from the ID token**, because CFT IDAM's ID token is thin. Checked against
  * `hmcts/rse-idam-simulator`, the HMCTS-standard local IDAM — its `JwTokenGeneratorService` puts only
  * `sub`, `aud`, `scope`, `realm`, `auth_level` and similar into the token, while `IdamUserInfo` (the
- * `/o/userinfo` response) is what carries `roles`, `name`, `given_name` and `family_name`. Reading the
- * token would have yielded no roles at all against real IDAM — and because unknown roles are dropped
- * rather than rejected, the symptom would have been "nobody can edit privacy" rather than an error.
+ * `/o/userinfo` response) is what carries `name`, `given_name` and `family_name`. Access comes from neither:
+ * see `loginFrom`.
  *
  * The ID token is still validated by `authorizationCodeGrant` — signature, issuer, audience, expiry —
  * and its `sub` is what `fetchUserInfo` checks the userinfo response against, so a userinfo response
@@ -168,6 +167,10 @@ export async function completeLogin(config: IdamConfig, flow: AuthFlowState, cur
  * rather than from the thin CFT ID token, which `fetchUserInfo` checks against that same `sub`. The
  * password grant in `./password-grant.ts` had its own copy of both, so a fix to one would have reached only
  * the flow whose bug was noticed.
+ *
+ * **What the user may do is api's `GET /me` answer, asked with the new access token.** A failed `/me` still
+ * signs the user in, with no access at all: refusing the login is OWASP plan 01 Task 6's decision, not this
+ * one's. The next successful refresh replaces it.
  */
 export async function loginFrom(
   configuration: client.Configuration,
@@ -177,9 +180,10 @@ export async function loginFrom(
   if (!claims?.sub) throw new Error("IDAM returned no ID token subject");
 
   const info = await client.fetchUserInfo(configuration, tokens.access_token, claims.sub);
+  const access = await fetchCallerAccess(tokens.access_token, "sign-in");
 
   return {
-    user: userFromClaims(info as IdamClaims),
+    user: userFromClaims(info as IdamClaims, access),
     subject: claims.sub,
     tokens: {
       idToken: tokens.id_token,
@@ -213,10 +217,8 @@ export function callbackUrl(config: IdamConfig, req: Request): URL {
  * can distinguish "this session is over" from "try again".
  *
  * **Returns tokens only, and does not read `/o/userinfo`.** It used to build a `CurrentUser` from
- * userinfo, and the only caller discarded it — a wasted round trip per refresh. Re-reading roles here
- * would be a real feature — it would make a withdrawn role take effect mid-session, which is what the
- * deleted `apps/api` got for free by reading userinfo per request — but it is a deliberate behaviour
- * change rather than part of a refresh, so it is not smuggled in here.
+ * userinfo, and the only caller discarded it — a wasted round trip per refresh. Access is
+ * re-read by the refresh middleware, which asks api's `GET /me` with the new token.
  *
  * **An absent `id_token` is not an error.** OpenID Connect Core §12.2 states the refresh response is a
  * normal token response *"except that it might not contain an `id_token`"*, and its own example omits

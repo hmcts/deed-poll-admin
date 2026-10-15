@@ -56,9 +56,9 @@ export function updateWitness(deedPollId: string, id: string, dto: UpdateWitness
 }
 
 /**
- * Delete a witness. **Administrators only, and api is what says so.**
+ * Delete a witness. **DELETE_WITNESS capability required, and api is what says so.**
  *
- * No role check here: api's `WitnessService.removeWitness` gates on `caseworker-deedpoll-admin` before it
+ * No role check here: api's `WitnessService.removeWitness` requires DELETE_WITNESS before it
  * resolves the witness, and it derives the role from the token this `Caller` carries. Re-checking would
  * assert an identity this app never verified — the flag in the session decides what the page *offers*
  * (`canDeleteWitness`), not what is permitted. A refusal arrives as `ForbiddenError`, a witness that is not

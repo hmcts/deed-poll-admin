@@ -71,13 +71,14 @@
  *      api's `EmailNotes`, and the failure half is reachable only under the `email-send-failure` scenario,
  *      because nothing else here drives a row out of `Sent`. See `emailSentNote` and `emailCouldNotBeSentNote`.
  *
- *  13. Gazette history's admin role and paging. Fixture claims are decoded, never verified;
- *      local IDAM tokens without roles use the configured userinfo endpoint; the history
+ *  13. `GET /me` and the Gazette's `ACCESS_GAZETTE` gate, both from one role table (`caller-access.ts`, after
+ *      api's `StaffArea` and `RoleCapabilities`), and Gazette history's paging. Fixture claims are decoded,
+ *      never verified; local IDAM tokens without roles use the configured userinfo endpoint; the history
  *      reads frozen batches, newest first with an identity tie-break and a sorted 100-reference preview.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `ReferralNotes`, `JudicialReferralService`,
- * `CaseEmailService`, `GazetteNoticeHistory` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
+ * `CaseEmailService`, `GazetteNoticeHistory`, `RoleCapabilities`, `StaffArea` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
  * privacy lock, the minor and Gazette write gates, create-time defaults, the saved-query permission rules —
  * see `savedQuery`) is deliberately NOT modelled: no
  * page's behaviour depends on it, and a half-copy would be a second opinion to keep in step. If a page
@@ -140,6 +141,7 @@ import type {
   WireWitness
 } from "../api/wire.js";
 import { REFERRAL_STATE, URGENCY, WIRE_SCHEMAS } from "../api/wire.js";
+import { callerAccess } from "./caller-access.js";
 import {
   APPLICATION_REJECTED,
   DEFAULT_SCENARIO,
@@ -293,6 +295,11 @@ const CASE_DEFAULTS = {
   awaitingConfirmationSince: null
 } as const;
 
+/** The same table `GET /me` answers from, as api gates the Gazette on the capability its `/me` publishes. */
+function hasGazetteAccess(claims: { roles?: unknown }): boolean {
+  return callerAccess(claims).capabilities.includes("ACCESS_GAZETTE");
+}
+
 /**
  * Build the mock. Nothing is listening until `listen` is called — `startMockApi` does that.
  *
@@ -426,11 +433,18 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     // down — including reads, which is what makes `api-unavailable` a realistic outage.
     if (!MOCK_SCENARIOS[scenario].reachable) return send(res, 503, { error: "deed-poll-api is unavailable" });
 
-    if (pathname === "/caseworker/gazette-settings") {
-      const claims = await gazetteClaims(req, options.userInfoUrl);
+    if (pathname === "/me") {
+      if (method !== "GET") return send(res, 405, { error: "Method not allowed" });
+      const claims = await callerClaims(req, options.userInfoUrl);
       if (!claims) return send(res, 401, { error: "Authentication required" });
-      if (!Array.isArray(claims.roles) || !claims.roles.includes("caseworker-deedpoll-admin")) {
-        return send(res, 403, { error: "Administrator role required" });
+      return send(res, 200, callerAccess(claims));
+    }
+
+    if (pathname === "/caseworker/gazette-settings") {
+      const claims = await callerClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      if (!hasGazetteAccess(claims)) {
+        return send(res, 403, { error: "Delivery Manager role required" });
       }
       if (method === "GET") return send(res, 200, gazetteSettings);
       if (method !== "PUT") return send(res, 405, { error: "Method not allowed" });
@@ -461,10 +475,10 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       pathname.startsWith("/caseworker/gazette-notices/") ||
       (pathname === "/caseworker/gazette-notices" && method === "POST")
     ) {
-      const claims = await gazetteClaims(req, options.userInfoUrl);
+      const claims = await callerClaims(req, options.userInfoUrl);
       if (!claims) return send(res, 401, { error: "Authentication required" });
-      if (!Array.isArray(claims.roles) || !claims.roles.includes("caseworker-deedpoll-admin")) {
-        return send(res, 403, { error: "Administrator role required" });
+      if (!hasGazetteAccess(claims)) {
+        return send(res, 403, { error: "Delivery Manager role required" });
       }
       if (method === "POST" && (typeof claims.sub !== "string" || !claims.sub)) return send(res, 401, { error: "Subject required" });
       const result = gazetteRequests.handle(
@@ -490,10 +504,10 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
     // GazetteNoticeHistory reads frozen batches, independently of today's case records.
     if (pathname === "/caseworker/gazette-notices") {
-      const claims = await gazetteClaims(req, options.userInfoUrl);
+      const claims = await callerClaims(req, options.userInfoUrl);
       if (!claims) return send(res, 401, { error: "Authentication required" });
-      if (!Array.isArray(claims.roles) || !claims.roles.includes("caseworker-deedpoll-admin")) {
-        return send(res, 403, { error: "Administrator role required" });
+      if (!hasGazetteAccess(claims)) {
+        return send(res, 403, { error: "Delivery Manager role required" });
       }
       if (method !== "GET") return send(res, 405, { error: "No Gazette write operation" });
       const paging = parsePaging(searchParams.get("page"), searchParams.get("size"));
@@ -554,6 +568,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (method === "GET" && pathname === "/caseworker/cases/field-rules") return fieldRules(res, searchParams);
 
     if (pathname === "/caseworker/cases") {
+      if (method === "GET" && searchParams.get("filter") === "readyForPublication") {
+        const claims = await callerClaims(req, options.userInfoUrl);
+        if (!claims) return send(res, 401, { error: "Authentication required" });
+        if (!hasGazetteAccess(claims)) return send(res, 403, { error: "Delivery Manager role required" });
+      }
       if (method === "GET") return list(res, searchParams);
       if (method === "POST") return createCase(req, res);
       return send(res, 405, { error: `no such route: ${method} ${pathname}` });
@@ -1706,8 +1725,9 @@ function callerSubject(req: IncomingMessage): string {
   return typeof subject === "string" && subject.length > 0 ? subject : MOCK_SUBJECT;
 }
 
-// Local IDAM puts roles in userinfo, not its access token. Fixture tokens still carry roles directly.
-async function gazetteClaims(req: IncomingMessage, userInfoUrl?: string): Promise<{ sub?: unknown; roles?: unknown; name?: unknown } | null> {
+// Local IDAM puts roles in userinfo, not its access token. Fixture tokens still carry roles directly. Shared by
+// `GET /me` and the Gazette gate so the two read the same roles for one token.
+async function callerClaims(req: IncomingMessage, userInfoUrl?: string): Promise<{ sub?: unknown; roles?: unknown; name?: unknown } | null> {
   const claims = tokenClaims(req);
   if (!claims || claims.roles !== undefined || !userInfoUrl) return claims;
   try {

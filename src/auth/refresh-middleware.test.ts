@@ -9,11 +9,13 @@
  * The distinction this file exists to pin is therefore **which failures end a session and which do
  * not**. A revoked token and a substituted subject must sign the user out; IDAM being unreachable must
  * not, because signing everyone out during a blip is a worse outcome than a session expiring on time.
- * `refreshTokens` is stubbed here, since its own behaviour is covered in `idam.test.ts`.
+ * `refreshTokens` is stubbed here, since its own behaviour is covered in `idam.test.ts`, and so is
+ * `fetchCallerAccess`, whose failure is already its `undefined`.
  */
 import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageResponse, type RequestDouble, type ResponseDouble, sessionDouble } from "../express-doubles.js";
+import { fetchCallerAccess } from "./caller-access.js";
 import { refreshTokens } from "./idam.js";
 import { refreshMiddleware } from "./refresh-middleware.js";
 
@@ -21,6 +23,8 @@ vi.mock("./idam.js", async (importOriginal) => ({
   describeIdamError: (await importOriginal<typeof import("./idam.js")>()).describeIdamError,
   refreshTokens: vi.fn()
 }));
+
+vi.mock("./caller-access.js", () => ({ fetchCallerAccess: vi.fn() }));
 
 vi.mock("./settings.js", () => ({
   idamSettings: () => ({
@@ -33,6 +37,14 @@ vi.mock("./settings.js", () => ({
 }));
 
 const SUBJECT = "admin@example.com";
+const TEAM_LEADER = {
+  staff: true,
+  judicial: false,
+  capabilities: ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD"]
+};
+const DELIVERY_MANAGER = { ...TEAM_LEADER, capabilities: [...TEAM_LEADER.capabilities, "ACCESS_GAZETTE"] };
+/** A session saved before admin read `/me`: it holds roles and stale flags, and no answer. */
+const ROLES_ERA_USER = { roles: ["caseworker-deedpoll-delivery-manager"], isAdmin: true, isJudicial: false, name: "An Admin" };
 
 /** Seconds from now, so a test can put the token inside or outside the refresh window explicitly. */
 function expiringIn(seconds: number): number {
@@ -42,6 +54,8 @@ function expiringIn(seconds: number): number {
 interface SessionState {
   user?: unknown;
   subject?: string;
+  accessToken?: string;
+  authenticatedAt?: number;
   refreshToken?: string;
   tokenExpiresAt?: number;
 }
@@ -63,7 +77,7 @@ interface SessionState {
  */
 function request(without: (keyof SessionState)[] = [], overrides: SessionState = {}): RequestDouble {
   const deedPoll: SessionState = {
-    user: { roles: [], isAdmin: false, name: "An Admin" },
+    user: { staff: false, judicial: false, capabilities: [], isAdmin: false, isJudicial: false, name: "An Admin" },
     subject: SUBJECT,
     refreshToken: "a-refresh-token",
     tokenExpiresAt: expiringIn(60),
@@ -86,6 +100,7 @@ beforeEach(() => {
   next = vi.fn();
   res = pageResponse();
   vi.mocked(refreshTokens).mockResolvedValue({ accessToken: "a-new-access-token", refreshToken: "a-refresh-token", expiresAt: expiringIn(900) });
+  vi.mocked(fetchCallerAccess).mockResolvedValue(undefined);
 });
 
 describe("refreshMiddleware", () => {
@@ -216,5 +231,89 @@ describe("refreshMiddleware", () => {
     await refreshMiddleware(req, res, next);
 
     expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2Fdeed-polls%2Fcase-1%2Fnotes");
+  });
+});
+
+describe("refreshMiddleware and the caller's access", () => {
+  const stored = (req: RequestDouble) => req.session.deedPoll as SessionState;
+
+  it("should replace the stored answer with api's answer for the refreshed token", async () => {
+    vi.mocked(fetchCallerAccess).mockResolvedValue(DELIVERY_MANAGER as never);
+    const req = request([], { user: { ...TEAM_LEADER, isAdmin: true, isJudicial: false, name: "An Admin" }, authenticatedAt: 1_700_000_000 });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(fetchCallerAccess).toHaveBeenCalledWith("a-new-access-token", "refresh");
+    expect(stored(req).user).toMatchObject({ ...DELIVERY_MANAGER, name: "An Admin" });
+    expect(stored(req).accessToken).toBe("a-new-access-token");
+    expect(stored(req).authenticatedAt).toBe(1_700_000_000);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it("should keep the previous answer when /me fails after a successful refresh", async () => {
+    const previous = { ...TEAM_LEADER, isAdmin: true, isJudicial: false, name: "An Admin" };
+    const req = request([], { user: previous });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(fetchCallerAccess).toHaveBeenCalledTimes(1);
+    expect(stored(req).user).toEqual(previous);
+    expect(stored(req).accessToken).toBe("a-new-access-token");
+    expect(next).toHaveBeenCalled();
+  });
+
+  it("should ask once for a session saved before /me, with its own token, and store the answer", async () => {
+    vi.mocked(fetchCallerAccess).mockResolvedValue(TEAM_LEADER as never);
+    const req = request([], { user: ROLES_ERA_USER, accessToken: "the-session-token", tokenExpiresAt: expiringIn(3600) });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(fetchCallerAccess).toHaveBeenCalledWith("the-session-token", "backfill");
+    expect(stored(req).user).toMatchObject({ ...TEAM_LEADER, name: "An Admin" });
+    expect(stored(req).user).not.toHaveProperty("roles");
+    expect(req.session.save).toHaveBeenCalled();
+    expect(next).toHaveBeenCalled();
+  });
+
+  it("should leave a failed backfill with no access and ask again on the next request", async () => {
+    const req = request([], { user: ROLES_ERA_USER, accessToken: "the-session-token", tokenExpiresAt: expiringIn(3600) });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(stored(req).user).toEqual(ROLES_ERA_USER);
+    expect(next).toHaveBeenCalledTimes(1);
+
+    vi.mocked(fetchCallerAccess).mockResolvedValue(DELIVERY_MANAGER as never);
+    await refreshMiddleware(req, res, next);
+
+    expect(fetchCallerAccess).toHaveBeenCalledTimes(2);
+    expect(stored(req).user).toMatchObject({ ...DELIVERY_MANAGER, name: "An Admin" });
+    expect(next).toHaveBeenCalledTimes(2);
+  });
+
+  it("should not ask again for a session that already holds an answer, even one of no access", async () => {
+    const req = request([], {
+      user: { staff: false, judicial: false, capabilities: [], isAdmin: false, isJudicial: false, name: "An Admin" },
+      accessToken: "the-session-token",
+      tokenExpiresAt: expiringIn(3600)
+    });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(fetchCallerAccess).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalled();
+  });
+
+  it("should backfill while IDAM is unreachable if the token still works", async () => {
+    vi.mocked(refreshTokens).mockRejectedValue(new Error("getaddrinfo EAI_AGAIN"));
+    vi.mocked(fetchCallerAccess).mockResolvedValue(TEAM_LEADER as never);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const req = request([], { user: ROLES_ERA_USER, accessToken: "the-session-token" });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(fetchCallerAccess).toHaveBeenCalledWith("the-session-token", "backfill");
+    expect(stored(req).user).toMatchObject(TEAM_LEADER);
   });
 });

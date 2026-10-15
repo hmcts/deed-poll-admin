@@ -311,7 +311,7 @@ const gates = vi.hoisted(() => ({
 }));
 
 vi.mock("./auth/require-auth.js", () => ({ requireAuth: () => gates.auth, isPublicPath: () => false }));
-vi.mock("./auth/require-role.js", () => ({ requireRole: vi.fn(() => gates.gazette), requireJudicial: () => gates.judicial }));
+vi.mock("./auth/require-role.js", () => ({ requireCapability: vi.fn(() => gates.gazette), requireJudicial: () => gates.judicial }));
 vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gates.persona }));
 vi.mock("./auth/same-origin.js", () => ({ requireSameOrigin: () => gates.sameOrigin }));
 vi.mock("./auth/no-store.js", () => ({ noStore: () => gates.noStore }));
@@ -531,21 +531,21 @@ describe("createApp's session lifetime limits", () => {
 type MountedLayer = { handle: unknown; matchers: ((path: string) => unknown)[]; match: (path: string) => boolean };
 
 describe("createApp's Gazette gate", () => {
-  it("should require the admin role after authentication and before routing for every Gazette page", async () => {
-    const { requireRole } = await import("./auth/require-role.js");
-    const { DEEDPOLL_ADMIN } = await import("@hmcts/deed-poll");
+  it("should require Gazette capability after authentication and before routing for every Gazette page", async () => {
+    const { requireCapability } = await import("./auth/require-role.js");
+    const { ACCESS_GAZETTE } = await import("@hmcts/deed-poll");
     mocks.redisClient.isReady = true;
     const app = await createApp();
     const stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
     const index = stack.findIndex((entry) => entry.handle === gates.gazette);
     const paths = judicialPagePaths("deed-polls/gazette");
 
-    expect(requireRole).toHaveBeenCalledWith(DEEDPOLL_ADMIN);
+    expect(requireCapability).toHaveBeenCalledWith(ACCESS_GAZETTE);
     expect(stack.filter((entry) => entry.handle === gates.gazette)).toHaveLength(1);
     expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.auth));
     expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.persona));
     expect(index).toBeLessThan(stack.findIndex((entry) => entry.handle === gates.router));
-    expect(paths.length).toBeGreaterThanOrEqual(1);
+    expect(paths.length).toBeGreaterThanOrEqual(6);
     for (const url of [...paths, "/deed-polls/gazette/history", "/deed-polls/gazette/future-page"]) {
       expect(
         stack[index].matchers.some((matches) => matches(url) !== false),

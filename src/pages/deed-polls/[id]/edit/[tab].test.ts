@@ -30,8 +30,8 @@ const found = {
   documents: []
 };
 
-function request(tab: string, body: Record<string, unknown> = {}, admin = false): Request {
-  return pageRequest({ params: { id: "case-1", tab }, body, admin, name: "A Caseworker", accessToken: "caseworker-token" });
+function request(tab: string, body: Record<string, unknown> = {}, teamLeader = false): Request {
+  return pageRequest({ params: { id: "case-1", tab }, body, teamLeader, name: "A Caseworker", accessToken: "caseworker-token" });
 }
 
 const response = pageResponse;
@@ -111,14 +111,19 @@ describe("case edit tab page", () => {
       expect(field.value).toBe("Stored");
     });
 
-    it("locks privacy for a non-admin and unlocks it for an admin", async () => {
-      const asCaseworker = response();
-      await GET(request(APPLICATION), asCaseworker);
-      const asAdmin = response();
-      await GET(request(APPLICATION, {}, true), asAdmin);
+    it.each([
+      ["teamLeader", false],
+      ["deliveryManager", false],
+      ["legacyAdmin", false],
+      ["caseworker", true],
+      ["judge", true],
+      ["none", true]
+    ] as const)("decides the privacy lock for %s from the stored answer (locked %s)", async (persona, locked) => {
+      const res = response();
 
-      expect(privacyField(asCaseworker).locked).toBe(true);
-      expect(privacyField(asAdmin).locked).toBe(false);
+      await GET(pageRequest({ params: { id: "case-1", tab: APPLICATION }, persona }), res);
+
+      expect(privacyField(res).locked).toBe(locked);
     });
 
     it("renders no errors on a fresh load", async () => {

@@ -24,7 +24,7 @@ function request(body?: Record<string, unknown>, query: Record<string, unknown> 
 
 /** An Administrator, who is the only caller the share box renders for. */
 function adminRequest(body?: Record<string, unknown>, query: Record<string, unknown> = QUERY): Request {
-  return pageRequest({ query, body, accessToken: "session-token", admin: true });
+  return pageRequest({ query, body, accessToken: "session-token", teamLeader: true });
 }
 
 const response = pageResponse;
@@ -47,12 +47,19 @@ describe("save a query page", () => {
       expect(res.render.mock.calls[0][1].errorList).toEqual([]);
     });
 
-    it("should offer the share box to an Administrator", async () => {
+    it.each([
+      ["teamLeader", true],
+      ["deliveryManager", true],
+      ["legacyAdmin", true],
+      ["caseworker", false],
+      ["judge", false],
+      ["none", false]
+    ] as const)("should decide the share box for %s from the stored answer (%s)", async (persona, expected) => {
       const res = response();
 
-      await GET(adminRequest(), res);
+      await GET(pageRequest({ query: QUERY, accessToken: "session-token", persona }), res);
 
-      expect(res.render.mock.calls[0][1].canPublish).toBe(true);
+      expect(res.render.mock.calls[0][1].canPublish).toBe(expected);
     });
 
     it("should hide the share box from a caseworker, because publishing is an Administrator's act", async () => {

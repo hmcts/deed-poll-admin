@@ -1,5 +1,12 @@
 # Plan 16c: Mandatory Gazette review and confirmed sending
 
+> **Role boundary superseded, 12 October 2026:** Gazette now requires the Delivery Manager's
+> `ACCESS_GAZETTE` capability. Team leader and legacy admin alone are refused, including the ready count.
+> Historical admin-role references below describe the earlier implementation. See
+> [the role-change plan](20261009-team-leader-delivery-manager.md) for the matrix, rollout prerequisites
+> and local validation; this note does not claim deployment or live role verification.
+
+
 ## Decision and scope — 9 October 2026
 
 Steve chose mandatory checklist completion initially. All five proposed checks are

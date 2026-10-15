@@ -86,8 +86,8 @@ const SENT_EMAIL = {
   documents: []
 };
 
-function request(admin = false): Request {
-  return pageRequest({ params: { id: "case-1" }, admin });
+function request(teamLeader = false): Request {
+  return pageRequest({ params: { id: "case-1" }, teamLeader });
 }
 
 /** Every summary-list key rendered across every tab, which is what type rules add to or remove. */
@@ -531,7 +531,7 @@ describe("case detail page", () => {
     }
   });
 
-  it("treats an admin caller as able to edit privacy", async () => {
+  it("treats a Team leader caller as able to edit privacy", async () => {
     const res = response();
 
     await GET(request(true), res);
@@ -539,7 +539,7 @@ describe("case detail page", () => {
     expect(res.render.mock.calls[0][1].presentation.privacy.editable).toBe(true);
   });
 
-  it("treats a non-admin caller as unable to edit privacy on an existing case", async () => {
+  it("treats a caseworker without staff capabilities caller as unable to edit privacy on an existing case", async () => {
     const res = response();
 
     await GET(request(), res);

@@ -440,7 +440,7 @@ describe("the witness routes", () => {
   });
 
   it("should delete without asking for a role, because a 403 is not a state this mock models", async () => {
-    // api gates `removeWitness` on `caseworker-deedpoll-admin`; this mock reads no roles out of a token, so
+    // API gates `removeWitness` on DELETE_WITNESS; this mock does not enforce witness permissions, so
     // an anonymous DELETE succeeds here. What that leaves untested locally is api's gate, which is api's own
     // test — and `canDeleteWitness` is what decides whether the control is offered at all.
     const seeded = mock.seed(null);

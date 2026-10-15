@@ -7,7 +7,7 @@ describe("service root", () => {
     it("should redirect a caseworker to the case list", async () => {
       const res = pageResponse();
 
-      await GET(pageRequest({ admin: true }), res);
+      await GET(pageRequest({ teamLeader: true }), res);
 
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls");
     });
@@ -29,7 +29,7 @@ describe("service root", () => {
     it("should redirect a user holding both roles to the case list", async () => {
       const res = pageResponse();
 
-      await GET(pageRequest({ admin: true, judicial: true }), res);
+      await GET(pageRequest({ teamLeader: true, judicial: true }), res);
 
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls");
     });
@@ -57,7 +57,7 @@ describe("service root", () => {
     it("should not render a page of its own", async () => {
       const res = pageResponse();
 
-      await GET(pageRequest({ admin: true }), res);
+      await GET(pageRequest({ teamLeader: true }), res);
 
       expect(res.render).not.toHaveBeenCalled();
     });
@@ -69,5 +69,25 @@ describe("service root", () => {
 
       expect(res.redirect).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe("staff role landing", () => {
+  it.each(["teamLeader", "deliveryManager", "legacyAdmin", "caseworker"] as const)("should keep %s independent of judicial access", async (persona) => {
+    for (const judicial of [false, true]) {
+      const res = pageResponse();
+
+      await GET(pageRequest({ persona, judicial }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith(judicial && persona === "caseworker" ? "/judicial/referrals" : "/deed-polls");
+    }
+  });
+
+  it("should send a judge to the case list when the stored answer is malformed, rather than trust a stale flag", async () => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ access: { roles: ["caseworker-deedpoll-judicial"], isJudicial: true } }), res);
+
+    expect(res.redirect).toHaveBeenCalledWith("/deed-polls");
   });
 });

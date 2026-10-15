@@ -49,7 +49,7 @@ beforeEach(() => {
 async function render(handler: typeof list, query: Record<string, unknown> = {}, locale = "en") {
   const res = pageResponse();
   res.locals.locale = locale;
-  await handler(pageRequest({ params: { batchId: ID }, query, accessToken: "admin-token", admin: true }), res);
+  await handler(pageRequest({ params: { batchId: ID }, query, accessToken: "admin-token", teamLeader: true }), res);
   const [view, model] = res.render.mock.calls[0];
   return { res, markup: environment.render(`${view}.njk`, { ...model[locale], ...model }) };
 }

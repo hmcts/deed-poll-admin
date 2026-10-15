@@ -9,10 +9,26 @@
  * need a valid token — the API might receive an expired token while the refresh is in flight. Refreshing
  * early ensures the token is always valid when sent. The window is a trade-off: too early wastes
  * refreshes, too late causes failures.
+ *
+ * **It is also where the caller's access is kept current.** Each successful refresh asks api's `GET /me` with the
+ * new token, so a changed AM assignment takes effect within one token lifetime; a failed `/me` keeps the previous
+ * answer. A session holding no answer at all — one saved before this app read `/me` — is asked once on the next
+ * request that does not refresh, and asked again on the one after if that fails, so nobody has to sign in again.
  */
 import type { NextFunction, Request, Response } from "express";
+import { fetchCallerAccess } from "./caller-access.js";
 import { describeIdamError, refreshTokens } from "./idam.js";
-import { sessionRefreshToken, sessionSubject, sessionTokenExpiry, sessionUser, signOut, updateTokens } from "./session.js";
+import {
+  sessionAccessToken,
+  sessionHoldsAccess,
+  sessionRefreshToken,
+  sessionSubject,
+  sessionTokenExpiry,
+  sessionUser,
+  signOut,
+  storeAccess,
+  updateTokens
+} from "./session.js";
 import { idamSettings } from "./settings.js";
 
 const REFRESH_WINDOW_SECONDS = 5 * 60; // Refresh 5 minutes before expiry
@@ -43,14 +59,14 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
 
   // No expiry time or no refresh token — can't refresh. Session will expire naturally.
   if (!expiresAt || !refreshToken) {
-    return next();
+    return continueWithAccess(req, next);
   }
 
   const timeUntilExpiry = expiresAt - now;
 
   // Token still has time — no refresh needed yet.
   if (timeUntilExpiry > REFRESH_WINDOW_SECONDS) {
-    return next();
+    return continueWithAccess(req, next);
   }
 
   // A signed-in session with no recorded subject cannot have its refresh checked against anything, so
@@ -88,7 +104,7 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
     // defensible while the token still works; once it does not, there is nothing left to continue with.
     // Signing out here cannot loop the way a redirect from the error handler would, because the session
     // is destroyed first: the next request has no user and `requireAuth` owns it.
-    if (timeUntilExpiry > 0) return next();
+    if (timeUntilExpiry > 0) return continueWithAccess(req, next);
 
     console.warn("Token refresh failed and the access token has expired — signing out");
     await signOut(req);
@@ -103,7 +119,18 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
     return res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
   }
 
-  // Refresh succeeded — update session with new tokens and continue.
-  await updateTokens(req, refreshed);
+  // Refresh succeeded — update session with new tokens, and the answer for them if api gave one, and continue.
+  const access = await fetchCallerAccess(refreshed.accessToken, "refresh");
+  await updateTokens(req, refreshed, access);
+  next();
+}
+
+/** Ask `/me` for a session that holds no answer, with the token it already has, before the request goes on. */
+async function continueWithAccess(req: Request, next: NextFunction): Promise<void> {
+  const accessToken = sessionAccessToken(req);
+  if (accessToken && !sessionHoldsAccess(req)) {
+    const access = await fetchCallerAccess(accessToken, "backfill");
+    if (access) await storeAccess(req, access);
+  }
   next();
 }

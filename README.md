@@ -165,9 +165,9 @@ yarn mock:seed                  # Fill the running mock with cases: every tab, a
 The mock starts **empty**, so `yarn mock:seed` is what makes the list page, its filters and the dashboard's
 count show anything at all. An empty store looks the same as a feature that is not working.
 
-Administrators can follow the London Gazette count from the case list to an oldest-enrolled-first,
+Delivery Managers can follow the London Gazette count from the case list to an oldest-enrolled-first,
 read-only ready list and paginated send history. History shows the full case count and identifies
-truncated reference previews. The ready list links to **London Gazette recipient**, an admin-only
+truncated reference previews. The ready list links to **London Gazette recipient**, a Delivery Manager-only
 settings editor backed by the API. It starts unset, validates one email address, displays the last
 change attribution, and requires reloading after a concurrent edit. The court contact mailbox is
 not used as a default recipient. Saving settings sends no email. Deploy the API settings contract
@@ -193,7 +193,7 @@ the local IDAM simulator (`yarn idam:build` if its image is missing, then `docke
 and seed it with `yarn idam:users`. Then provide a separate Redis instance on port 6316 (for example,
 `docker run --rm -p 6316:6379 redis:8-alpine`). Run `yarn test:gazette` from this repository root.
 The suite starts/stops its own app on 3316 and fresh mock on 3216, uses Redis database 1, and refuses
-to reuse occupied app/mock ports. All five journeys sign in through IDAM and include axe checks; the admin
+to reuse occupied app/mock ports. All eight journeys sign in through IDAM and include axe checks; the Delivery Manager
 read and recipient-settings journeys also check Welsh. The dedicated config keeps the empty-state fixture out of the shared
 `yarn test:e2e` suite. It never resets an existing mock. These checks cover ready/history reads, recipient settings (including invalid and stale edits),
 all request outcomes and complete legacy membership, with Welsh and axe checks;
@@ -219,9 +219,25 @@ See [the seeding guide](docs/SEED-DATA.md) for credentials, dataset coverage and
 ### The persona switcher
 
 `yarn dev` puts a red **Dev only — Switch persona** strip at the top of every page, offering *Caseworker*,
-*Caseworker with admin* and *Judge*. Pressing one signs you in as that persona's real IDAM user, so one
-sitting covers the caseworker screens, the admin-only controls and `/judicial/**` without signing out. It
-needs `yarn idam:users` to have seeded the simulator, since the personas are the three fixture accounts.
+*Team leader*, *Delivery Manager* and *Judge*. Pressing one signs you in as that persona's real IDAM user, so one
+sitting covers the caseworker screens, the staff controls and Gazette and `/judicial/**` without signing out. It
+needs `yarn idam:users` to have seeded the simulator, since the personas are four separate fixture accounts.
+
+Team leaders (`caseworker-deedpoll-team-leader`) can override privacy, delete notes/witnesses,
+manage shared queries and perform API CCD repair. Delivery Managers (`caseworker-deedpoll-delivery-manager`)
+have those capabilities plus Gazette access. Neither role grants judicial access. The temporary legacy
+admin role retains Team leader capabilities and cannot use Gazette; its seeded account is only for
+migration-refusal checks. Ordinary caseworker and judge permissions are unchanged.
+
+The app reads none of these roles. It asks api's `GET /me` for the caller's `staff`, `judicial` and
+`capabilities` at sign-in and after each token refresh, stores that answer on the session and gates every
+control on it. If `/me` fails at sign-in the user is signed in with no access; on refresh the previous answer
+is kept. Locally, the mock works `/me` out from the token's roles with the same table as api.
+
+Before deploying, ensure API #105 (`GET /me`) is serving throughout the target environment and both new IDAM roles
+and CCD reader mappings exist. A changed role assignment takes effect within one token lifetime, not at next
+login. See the [role-change plan](docs/plans/20261009-team-leader-delivery-manager.md) for the handoff, and
+[the `/me` plan](docs/plans/20261015-admin-me-capabilities.md).
 
 It is a **privilege-escalation control by design** — it obtains a genuine token for another user — so it is
 gated twice, and neither gate is `NODE_ENV` (every deployed pod runs `NODE_ENV=production`, AAT included):

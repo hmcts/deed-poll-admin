@@ -39,7 +39,9 @@ The seed also provides 26 Gazette-ready cases and 26 frozen past batches, with a
 reference preview stops at 100. These are mock fixtures; mock request outcomes never send email.
 
 The Gazette area `/deed-polls/gazette/**` is gated once in `app.ts` after authentication, using
-`DEEDPOLL_ADMIN`. Its independent main-list count is requested only for admins; zero and unavailable
+`requireCapability(ACCESS_GAZETTE)`, read from the session's stored `GET /me` answer — never from a role string,
+which is what master's `caseworker-deedpoll-admin` gate got wrong once api moved to `ACCESS_GAZETTE` (#100). Its
+independent main-list count is requested only for callers holding `ACCESS_GAZETTE`; zero and unavailable
 both retain the area link. Ready reads forward only paging and `filter=readyForPublication`, never a
 sort or local membership predicate. History preserves API totals and the explicit truncation flag.
 The recipient editor at `/deed-polls/gazette/settings` uses API GET/PUT settings,
@@ -63,7 +65,7 @@ request status redirects to its read-only page. Unknown outcomes never offer a n
 The domain's `callGazetteApi` seam accepts only typed Gazette refusals as evidence of
 non-admission and strips provider diagnostics. Ordinary operations still use `callApi`.
 
-`yarn test:gazette` runs five browser journeys against a fresh mock on 3216 and this app on 3316,
+`yarn test:gazette` runs eight browser journeys against a fresh mock on 3216 and this app on 3316,
 using Redis on 6316/database 1 and local IDAM on 5556. It is separate from `yarn test:e2e` because its
 empty-state check must never reset a shared developer mock. See README for prerequisites.
 The standalone mock resolves missing token roles from local IDAM userinfo (override with
@@ -192,7 +194,7 @@ of them:
 
 ## Personas and role gating
 
-**Two personas, one deployable.** A caseworker works `/deed-polls/**`; a judge works `/judicial/**` — the
+**Four staff personas, one deployable.** Caseworkers, Team leaders and Delivery Managers work `/deed-polls/**`; a judge works `/judicial/**` — the
 shared referral pool, one referral, the claim, and the direction flow. Facts that are not derivable from a
 single file:
 
@@ -203,22 +205,29 @@ single file:
   one. **Do not add a per-page role check** — the pages deliberately never ask about the role, which is also
   why no page test can show the boundary.
 - **This is a persona boundary, not the data boundary.** Every role rule before it was presentational
-  (`canDeleteWitness` hides a button). api gates the same `/judicial/**` routes on the same role, so a
+  (`canDeleteWitness` hides a button). API gates the same `/judicial/**` routes on the same role, so a
   caseworker who defeated this gate would see a screen of 403s, not a judge's referrals. The gate decides which
   chrome a signed-in user gets.
 - **It refuses with `next(new ForbiddenError(...))` and renders nothing.** `src/errors.ts` answers 403 on the
   **404** view, so a guessed judicial URL discloses nothing, and logs the message the gate built — that render
   is the end of the chain, and the starter's handler (the only thing that logs) is never reached.
   `src/pages/errors/403.njk` exists but belongs to the login flow, where the user already knows who they are.
-- **`isAdmin` and `isJudicial` are alternatives, not a ladder.** An admin is refused `/judicial/**`. A user may
-  hold both, one, or neither.
-- **A new role must be added to `KNOWN_ROLES`** (`libs/deed-poll/src/auth/idam-claims.ts`) as well as to `Role`.
-  `rolesFrom` filters against that list, so an unlisted role is dropped silently and its holder resolves to no
-  roles — it fails closed, and presents as a permissions bug rather than a missing list entry.
+- **Staff capabilities do not imply judicial access.** Team leaders and Delivery Managers are refused
+  `/judicial/**` unless they separately hold the judicial role. `isAdmin` remains only the privacy adapter.
+- **Access comes from api's `GET /me`, not from IDAM roles.** IDAM is sign-in only; api resolves permissions
+  (from AM) and answers `{ staff, judicial, capabilities }`. `loginFrom` (`src/auth/idam.ts`) asks at sign-in and
+  the refresh middleware asks after each token refresh and once for a session holding no answer
+  (`src/auth/caller-access.ts`); the answer is stored on the session user. Nothing in the authorisation path
+  reads a role — `KNOWN_ROLES` and `rolesFrom` are gone, and the role constants in `roles.ts` survive only for
+  provisioning test identities (persona users, seed scripts) and for the mock. A new api capability must be added
+  to `capabilities.ts` and to the mock's table (`libs/deed-poll-api-client/src/mock/caller-access.ts`), whose test
+  pins it to the `CallerAccessResponse` enum in `openapi.json`. `callerAccessFrom` drops unknown capability
+  strings and turns a missing or malformed answer into no access, so an unlisted capability fails closed.
 - **`/` is where each persona's home is decided, and the only place it can be.** A judge's home is
-  `/judicial/referrals`, a caseworker's is `/deed-polls`, and a user holding both lands on the case list.
-  `/login`'s `returnTo` fallback is therefore `/` and **not** a concrete list path: the roles do not exist until
-  the token has been exchanged, so hard-coding `/deed-polls` there strands every judge on a list api answers
+  `/judicial/referrals`, other staff land on `/deed-polls`. A judge who also has staff capabilities lands on the case list;
+  ordinary caseworker plus judicial still lands on the pool.
+  `/login`'s `returnTo` fallback is therefore `/` and **not** a concrete list path: the `/me` answer does not
+  exist until the token has been exchanged, so hard-coding `/deed-polls` there strands every judge on a list api answers
   403 to, with nothing in the logs to say why.
 - **Judicial page copy must never name or imply a holder.** api answers withdrawn, closed, another judge's and
   never-there as one indistinguishable 404 on purpose, so the "no longer available" wording has to stay true of
@@ -263,14 +272,40 @@ single file:
   one row per sentence (`returnedForActionFor.1`, `.2`) because English needs a singular and a plural where Welsh
   needs more, so which sentence covers which count is a translator briefing rather than a string.
 
-Ordinary caseworkers hold `caseworker-deedpoll` for CCD document READ. Admin and judicial roles also map
-to the API's reader profile; no staff persona receives the system role. The AAT IDAM role registration must
-land before the updated ordinary-caseworker persona can be created. Existing real accounts need assignment
-and a fresh login. UI admin/judicial gates are unchanged.
+Ordinary caseworkers hold `caseworker-deedpoll` for CCD document READ. Both new staff roles need mappings
+to the API's reader profile alongside the existing legacy admin and judicial mappings; no staff persona receives the system role. The AAT IDAM role registration must
+land before the updated ordinary-caseworker persona can be created. Existing real accounts need assignment.
+The judicial gate still requires `judicial` in the `/me` answer.
+
+api owns the capability matrix (`RoleCapabilities.java`); the mock mirrors it, and admin holds no copy:
+
+| Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Gazette | Judicial |
+|---|---|---|---|
+| `caseworker-deedpoll` | No | No | No |
+| `caseworker-deedpoll-team-leader` | Yes | No | No |
+| `caseworker-deedpoll-delivery-manager` | Yes | Yes | No |
+| `caseworker-deedpoll-admin` (temporary compatibility) | Yes | No | No |
+| `caseworker-deedpoll-judicial` | No | No | Yes |
+
+`can(user, capability)` is the UI policy entry point (`libs/deed-poll/src/auth/capabilities.ts`); `staffAccess(user)`
+gives `{ staff, judicial }` for the future staff block, which this app does not yet enforce. CCD repair has no
+Admin UI control. `isAdmin` is derived from `OVERRIDE_PRIVACY` solely for the existing form/presentation
+interfaces, and `isJudicial` from `judicial`. `sessionUser` validates the stored answer on every read and
+recomputes the flags, ignoring stale booleans. The answer *is* persisted on the session; staleness is bounded by
+refreshing it with the token. A changed role assignment takes effect within one token lifetime, not at next
+login. If `/me` fails at sign-in the user is signed in with no access until the next refresh; if it fails on
+refresh the previous answer is kept.
+
+Deploy this Admin change only after API #105 (`GET /me`) is serving on every target instance, both new roles are
+registered with IDAM, and CCD reader mappings are imported. Assign Delivery Manager explicitly to
+Gazette operators. `scripts/seed-idam-users.mjs` retains legacy admin only as a negative Gazette fixture;
+the switcher has no legacy persona. The case seeder uses Team leader but keeps its journal's `admin`
+key and subject IDs so existing runs remain resumable. See the
+[role-change plan](docs/plans/20261009-team-leader-delivery-manager.md) for validation and infra handoff.
 
 ## The dev persona switcher, and the two patterns it establishes
 
-A tester switches between the caseworker, admin and judicial personas from a strip on every page, by signing in
+A tester switches between the Caseworker, Team leader, Delivery Manager and Judge personas from a strip on every page, by signing in
 as that persona's real IDAM user (`src/auth/persona-switcher.ts`, `src/auth/persona-users.ts`,
 `src/pages/switch-persona.ts`). Two things about it generalise beyond the feature:
 
@@ -452,7 +487,7 @@ Follow these strict naming conventions throughout the project:
   referral information" snapshot comes off the case, so nesting it inside the live-history branch would let a
   failed referrals read hide a historical record that was never at risk
 - **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its additive calls — the saved-query nav, the returned-for-action and awaiting-confirmation
-  counts, and the admin-only Gazette count — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
+  counts, and the Delivery Manager-only Gazette count — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
   (`[]`, `null`); only the list read is fatal. Reach for that shape on a page with one load-bearing call rather
   than `Promise.allSettled`, which is `[id].ts`'s answer to two. `worklistCount(name, read)` is the generalised
   degrade-and-log helper, and the counts are separate reads on purpose: a caseworker whose confirmation count
