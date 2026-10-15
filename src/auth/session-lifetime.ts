@@ -22,6 +22,8 @@ import { restartAfterTimeout, sessionIdToken, sessionTimestamps, sessionUser, to
 import { idamSettings } from "./settings.js";
 
 export const TIMED_OUT_PATH = "/session-timed-out";
+/** The timeout warning's read-only question: how long is left. Never activity, and never ends a session. */
+export const STATUS_PATH = "/session/status";
 
 /** Activity is recorded at most this often, so most requests write nothing to the store. */
 const LAST_SEEN_RESOLUTION_SECONDS = 60;
@@ -35,6 +37,13 @@ export function sessionLifetime(limits: SessionLifetimeLimits): RequestHandler {
 
     const now = Math.floor(Date.now() / 1000);
     const timestamps = sessionTimestamps(req);
+    // Answered, never enforced: the warning asks before declaring a timeout, and then reloads the page, which is
+    // where an expired session is ended properly, through IDAM, with its destination kept.
+    if (req.path === STATUS_PATH) {
+      res.locals.sessionClock = timeLeft(timestamps, now, limits);
+      return next();
+    }
+
     const reason = endReason(timestamps, now, limits);
     if (reason) return endTimedOutSession(req, res, reason, limits);
 
@@ -42,6 +51,8 @@ export function sessionLifetime(limits: SessionLifetimeLimits): RequestHandler {
     if (timestamps && !isPublicPath(req.path) && now - timestamps.lastSeenAt >= LAST_SEEN_RESOLUTION_SECONDS) {
       await touchLastSeen(req);
     }
+    // For the layout's timeout warning. A convenience only: this middleware, not the browser, ends the session.
+    res.locals.sessionClock = timeLeft(sessionTimestamps(req), now, limits);
     next();
   };
 }
@@ -57,6 +68,16 @@ function endReason(timestamps: ReturnType<typeof sessionTimestamps>, now: number
   if (now - timestamps.authenticatedAt >= limits.absoluteSeconds) return "absolute";
   if (now - timestamps.lastSeenAt >= limits.idleSeconds) return "idle";
   return undefined;
+}
+
+/** Whole seconds left on each limit, never negative, for the timeout warning. No timestamps means none left. */
+function timeLeft(timestamps: ReturnType<typeof sessionTimestamps>, now: number, limits: SessionLifetimeLimits): SessionTimeLeft {
+  if (!timestamps) return { idleSeconds: limits.idleSeconds, idleRemaining: 0, absoluteRemaining: 0 };
+  return {
+    idleSeconds: limits.idleSeconds,
+    idleRemaining: Math.max(0, timestamps.lastSeenAt + limits.idleSeconds - now),
+    absoluteRemaining: Math.max(0, timestamps.authenticatedAt + limits.absoluteSeconds - now)
+  };
 }
 
 async function endTimedOutSession(req: Request, res: Response, reason: EndReason, limits: SessionLifetimeLimits): Promise<void> {
@@ -79,6 +100,13 @@ async function endTimedOutSession(req: Request, res: Response, reason: EndReason
 }
 
 type EndReason = "idle" | "absolute" | "untimed";
+
+/** What the timeout warning is told: the idle limit itself, and the seconds left on each limit. */
+export interface SessionTimeLeft {
+  idleSeconds: number;
+  idleRemaining: number;
+  absoluteRemaining: number;
+}
 
 export interface SessionLifetimeLimits {
   idleSeconds: number;

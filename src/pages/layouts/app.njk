@@ -32,3 +32,9 @@
   {% include "layouts/persona-switcher.njk" %}
   {{ super() }}
 {% endblock %}
+
+{# The session timeout warning, on every signed-in page. Before the starter's scripts, which start the code that opens it. #}
+{% block bodyEnd %}
+  {% include "layouts/session-timeout.njk" %}
+  {{ super() }}
+{% endblock %}

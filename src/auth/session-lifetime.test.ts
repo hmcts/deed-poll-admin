@@ -198,6 +198,38 @@ describe("sessionLifetime", () => {
     });
   });
 
+  describe("what it tells the timeout warning", () => {
+    it("should give a page the seconds left on each limit, after recording this request's activity", async () => {
+      const req = request({ authenticatedAt: NOW_SECONDS - 3600, lastSeenAt: NOW_SECONDS - 120 });
+
+      const { res } = await run(req);
+
+      expect(res.locals.sessionClock).toEqual({ idleSeconds: 1800, idleRemaining: 1800, absoluteRemaining: 36_000 - 3600 });
+    });
+
+    // Read-only: the warning asks before declaring a timeout, and a question that answered by extending the session
+    // or ending it would be the bug the warning exists to prevent.
+    it("should report the time left on /session/status without recording activity or ending the session", async () => {
+      const req = request({ path: "/session/status", lastSeenAt: NOW_SECONDS - 1700 });
+
+      const { res, next } = await run(req);
+
+      expect(next).toHaveBeenCalledWith();
+      expect(req.session.deedPoll.lastSeenAt).toBe(NOW_SECONDS - 1700);
+      expect(res.locals.sessionClock).toMatchObject({ idleRemaining: 100 });
+    });
+
+    it("should report no time left on /session/status for a session already past a limit, without ending it", async () => {
+      const req = request({ path: "/session/status", lastSeenAt: NOW_SECONDS - 7200 });
+
+      const { res } = await run(req);
+
+      expect(res.locals.sessionClock).toMatchObject({ idleRemaining: 0 });
+      expect(req.session.deedPoll.user).toBeDefined();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
+
   // The routes a timed-out user needs, and the probes and assets that are not activity.
   it.each(["/logout", "/session-timed-out", "/health", "/health/readiness", "/assets/js/index.js"])(
     "should let %o through even for a session past its limits",

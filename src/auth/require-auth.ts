@@ -37,6 +37,8 @@ const PUBLIC_PATHS = new Set([
   "/oauth2/callback",
   "/logout",
   "/session-timed-out",
+  "/session/keep-alive",
+  "/session/status",
   "/accessibility-statement",
   "/contact-us",
   "/privacy-policy",

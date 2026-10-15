@@ -18,6 +18,7 @@
     "test:a11y": "echo 'No separate a11y suite: the axe-core checks run inside the Playwright suite (yarn test:e2e), which needs browsers and a running app. Present because YarnBuilder.test() invokes it and fails the Jenkins test stage on a missing script — see docs/PIPELINES.md.'",
     "test:changed": "turbo test test:app --filter='...[HEAD^1]'",
     "test:gazette": "yarn workspace e2e-tests exec playwright test --config playwright.gazette.config.ts",
+    "test:session": "yarn workspace e2e-tests exec playwright test --config playwright.session.config.ts",
     "test:e2e": "yarn workspace e2e-tests run test:e2e",
     "test:smoke": "yarn workspace e2e-tests run test:smoke",
     "test:functional": "echo 'No functional suite: every journey spec needs a caseworker signed in through the local rse-idam-simulator and the in-memory deed-poll-api mock on :3200, neither of which a deployed environment has, so the deployed subset is test:smoke. Present because sectionDeployToAKS invokes it on aat AND preview — every PR — and fails the deploy on a missing script. See docs/PIPELINES.md.'",
