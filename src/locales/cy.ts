@@ -19,6 +19,16 @@ export const content: Translations = {
   back: "Yn ôl",
   signOut: "Allgofnodi",
   accountNavigation: "Cyfrif",
+  sessionTimeout: {
+    idleHeading: "Rydych ar fin cael eich allgofnodi",
+    idleBody:
+      "Er eich diogelwch, byddwch yn cael eich allgofnodi ymhen 2 funud os na fyddwch yn gwneud unrhyw beth. Bydd unrhyw newidiadau nad ydych wedi’u cadw yn cael eu colli.",
+    staySignedIn: "Aros wedi mewngofnodi",
+    signOutNow: "Allgofnodi",
+    absoluteHeading: "Bydd angen i chi fewngofnodi eto cyn bo hir",
+    absoluteBody: "Er eich diogelwch, byddwch yn cael eich allgofnodi am {time}. Cadwch eich gwaith nawr. Bydd angen i chi fewngofnodi eto.",
+    continue: "Parhau"
+  },
   navigation: {
     home: "Hafan",
     about: "Amdanom",

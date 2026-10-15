@@ -198,6 +198,14 @@ read and recipient-settings journeys also check Welsh. The dedicated config keep
 `yarn test:e2e` suite. It never resets an existing mock. These checks cover ready/history reads, recipient settings (including invalid and stale edits),
 all request outcomes and complete legacy membership, with Welsh and axe checks;
 the mandatory review/send journey covers all five outcomes, lost responses and duplicate confirmation tabs.
+
+For the session timeout journeys (`yarn test:session`), prepare the same way: `yarn build`, the IDAM simulator
+running and seeded with `yarn idam:users` (the simulator holds its users in memory, so seed it again after any
+restart), and Redis on 6379 (`docker compose up -d redis`). The suite starts its own app on 3317, with a
+330-second idle limit and `SESSION_TIMEOUT_LOGOUT_PATH_REGISTERED=true`, plus a fresh mock on 3217, and uses Redis
+database 2. It takes about twelve minutes, because it waits on a real clock: the warning opens at 210 seconds,
+"Stay signed in" extends the session, and the session then runs out to `/session-timed-out`, with axe checks on
+the warning and the timed-out page. A second journey, without JavaScript, shows the server still ends the session.
 These local checks use the mock and never send a real Notify email.
 
 There are no database commands: this repo has no database.
