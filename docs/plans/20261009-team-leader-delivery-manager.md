@@ -271,9 +271,12 @@ These are manual, not ralphex tasks.
 - Deploy only once API enforcement from PR #100 is serving on every instance, and both IDAM roles and their CCD
   reader mappings exist in the target environment. AAT personas are created on demand from `roleNames`, so the
   Team leader and Delivery Manager personas fail to create until IDAM registers the roles.
-- A new role assignment needs a fresh login, because a refresh does not update stored roles. Use the infra
-  runbook to invalidate the affected sessions. Do not flush shared Redis, or rotate OAuth or session secrets,
-  just to rename roles.
+- ~~A new role assignment needs a fresh login, because a refresh does not update stored roles.~~ Superseded by
+  [`20261015-admin-me-capabilities.md`](20261015-admin-me-capabilities.md): admin now stores api's `GET /me`
+  answer and re-reads it on each token refresh, so a changed assignment takes effect within one token lifetime,
+  not at next login, and deploying admin also needs API #105 serving. Invalidating affected sessions via the
+  infra runbook remains the way to make a change immediate. Do not flush shared Redis, or rotate OAuth or
+  session secrets, just to rename roles.
 - Legacy-only accounts keep Team leader rights and lose Gazette as soon as this deploys. Only explicitly
   assigned Delivery Managers regain Gazette. Remove the legacy role, its compatibility code and its tests in a
   coordinated follow-up, once the infra retirement criteria are met.
@@ -348,7 +351,8 @@ at the earlier inspection; the prepared roles patch should follow that registrat
 it has landed. The infra agent's files and shared checkouts were not modified by this implementation.
 
 Re-deriving stored roles removes stale boolean grants immediately, including legacy Gazette access.
-It does not retrieve changed IDAM assignments. Staff and on-demand AAT personas require registered
+It does not retrieve changed IDAM assignments. (Superseded on 2026-10-15: admin no longer reads roles; the
+`/me` plan refreshes api's answer with the token.) Staff and on-demand AAT personas require registered
 roles and fresh authentication; invalidate only affected sessions using the infra runbook. Do not
 flush Redis or rotate shared secrets. After provisioning, run the role-matrix smoke with fresh logins
 and the actual API/CCD document reads before enabling operational use. Legacy retirement is a later,

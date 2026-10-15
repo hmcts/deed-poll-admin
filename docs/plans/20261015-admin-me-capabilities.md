@@ -191,17 +191,33 @@ failure. E2E isn't run from a worktree (docker compose project names collide); s
 
 ### Task 4: Landing, personas and docs
 
-- [ ] Landing per decision 7. Persona switcher and e2e fixtures per decision 11. Gazette gate and count per decision 8,
+- [x] Landing per decision 7. Persona switcher and e2e fixtures per decision 11. Gazette gate and count per decision 8,
       and check they now read the stored answer.
-- [ ] Update `CLAUDE.md`:
+- [x] Update `CLAUDE.md`:
   - "Personas and role gating": the `/me` source, and the `KNOWN_ROLES` rule no longer applying to authorisation
   - the Gazette gate paragraph, now `ACCESS_GAZETTE`
   - the role-assignment line, which becomes "takes effect within one token lifetime, not at next login"
   Also update the README and the branch plan's rollout notes.
-- [ ] Record the validation counts and the branch SHA in Execution notes. Don't claim any e2e or live verification.
-- [ ] Mark completed
+- [x] Record the validation counts and the branch SHA in Execution notes. Don't claim any e2e or live verification.
+- [x] Mark completed
 
 ## Execution notes
+
+Task 4, 2026-10-15, on top of `3107b14`:
+- Landing (`src/pages/index.ts`), the Gazette gate (`src/app.ts`, `requireCapability(ACCESS_GAZETTE)`) and the
+  main-list Gazette count (`src/pages/deed-polls/index.ts`, `can(…, ACCESS_GAZETTE)`) already read the stored
+  `/me` answer after Tasks 2–3; no code change was needed. No role is read in `src/` outside the persona users.
+- The persona switcher and e2e fixtures keep their IDAM role strings (they provision identities). Their UI
+  assertions were already capability-shaped; only `persona-switcher.spec.ts`'s comments were updated to say the
+  controls follow the mock's `/me` answer.
+- Docs: `CLAUDE.md` (Gazette paragraph, "Personas and role gating", the capability-matrix section and the
+  deploy dependency on API #105), `README.md`, `docs/PIPELINES.md`'s `KNOWN_ROLES` reference, and the
+  Team leader / Delivery Manager plan's rollout notes, marked superseded where they said a fresh login is needed.
+- Validation: `yarn lint` clean (460 files, one existing Biome schema info). `npx turbo test test:app
+  --concurrency=1 --force`: 8 successful, 8 total; 200 test files, 3,943 tests (app 1,717, deed-poll 1,169,
+  api-client 706, cloud-native-platform 153, govuk-starter 127, simple-router 41, session-postgres 23,
+  session-redis 7). `yarn build` OK. `git diff --check` clean.
+- No e2e or live verification has been run (see Post-Completion).
 
 ## Post-Completion
 

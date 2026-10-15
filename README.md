@@ -229,10 +229,15 @@ have those capabilities plus Gazette access. Neither role grants judicial access
 admin role retains Team leader capabilities and cannot use Gazette; its seeded account is only for
 migration-refusal checks. Ordinary caseworker and judge permissions are unchanged.
 
-Before deploying, ensure API #100 is serving throughout the target environment and both new IDAM roles
-and CCD reader mappings exist. Existing staff need their new role assigned and a fresh login. The app
-recomputes permissions from stored roles, but token refresh does not fetch new role assignments.
-See the [role-change plan](docs/plans/20261009-team-leader-delivery-manager.md) for the handoff.
+The app reads none of these roles. It asks api's `GET /me` for the caller's `staff`, `judicial` and
+`capabilities` at sign-in and after each token refresh, stores that answer on the session and gates every
+control on it. If `/me` fails at sign-in the user is signed in with no access; on refresh the previous answer
+is kept. Locally, the mock works `/me` out from the token's roles with the same table as api.
+
+Before deploying, ensure API #105 (`GET /me`) is serving throughout the target environment and both new IDAM roles
+and CCD reader mappings exist. A changed role assignment takes effect within one token lifetime, not at next
+login. See the [role-change plan](docs/plans/20261009-team-leader-delivery-manager.md) for the handoff, and
+[the `/me` plan](docs/plans/20261015-admin-me-capabilities.md).
 
 It is a **privilege-escalation control by design** — it obtains a genuine token for another user — so it is
 gated twice, and neither gate is `NODE_ENV` (every deployed pod runs `NODE_ENV=production`, AAT included):

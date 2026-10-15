@@ -21,8 +21,9 @@
  *
  * The two role-derived refusals are the app's own gate — `/judicial/**` is refused to both caseworker personas
  * — and the staff control appearing on a page where the same URL offered none minutes earlier is the third
- * switch taking effect. Neither is provable from the outside any other way: the judicial pages never ask about
- * the role, so a gated and an ungated build render identically under test.
+ * switch taking effect. Both follow from api's `GET /me` answer for the switched token, which sign-in stores; the
+ * app reads no role. Neither is provable from the outside any other way: the judicial pages never ask about
+ * access, so a gated and an ungated build render identically under test.
  *
  * **This spec signs itself in and must keep doing so.** Do not give it `TEAM_LEADER_STORAGE_STATE` or
  * `CASEWORKER_STORAGE_STATE`: a switch calls `signIn`, which regenerates the session id and destroys the
@@ -144,8 +145,8 @@ test("one tester works as a caseworker, a judge, a Team leader and a Delivery Ma
   await expect(page.getByRole("link", { name: "View London Gazette applications" })).toHaveCount(0);
 
   // The same note page as before the switches, and the control `caseworker-deedpoll-team-leader` unlocks is now on
-  // it. Nothing about the URL changed, so the only thing that can have is the role list api derived from the
-  // token this persona arrived with.
+  // it. Nothing about the URL changed, so the only thing that can have is api's `GET /me` answer for the token
+  // this persona arrived with, which the switch's sign-in stored.
   await page.goto(seeded.noteEditUrl);
   await expect(page.getByLabel("Note")).toHaveValue(seeded.note);
   await expect(deleteNote(page)).toBeVisible();
@@ -169,7 +170,7 @@ test("one tester works as a caseworker, a judge, a Team leader and a Delivery Ma
   await page.goto(CASE_LIST_PATH);
 
   // Back where the sitting started, which is what makes the strip a switcher rather than four one-way doors —
-  // and the staff control goes with the role rather than sticking to the session that once held it.
+  // and the staff control goes with the new `/me` answer rather than sticking to the session that once held it.
   await switchTo(page, "Caseworker").click();
   await expect(page).toHaveURL(CASE_LIST_PATH);
   await expect(currentPersona(page)).toHaveText("Caseworker (current)");
