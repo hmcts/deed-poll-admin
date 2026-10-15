@@ -1,0 +1,29 @@
+{#
+  The session timeout warning (OWASP plan 03, Task 7; WCAG 2.2.1 Timing Adjustable). Progressive enhancement only:
+  `src/assets/js/session-timeout.ts` opens these dialogs, and without JavaScript they never open. The server-side
+  limits in `src/auth/session-lifetime.ts` apply either way, so nothing here is a control.
+
+  `sessionClock` is set by `sessionLifetime` for a signed-in session and is absent everywhere else, so an
+  anonymous page carries no warning. Two dialogs: the idle limit can be extended, so it offers "Stay signed in";
+  the absolute limit cannot, so its notice only says when (decision 2, 2026-10-15).
+#}
+{% if sessionClock %}
+  <dialog id="session-timeout-idle" class="app-session-timeout" role="alertdialog" aria-modal="true"
+          aria-labelledby="session-timeout-idle-heading" aria-describedby="session-timeout-idle-body"
+          data-idle-seconds="{{ sessionClock.idleSeconds }}"
+          data-idle-remaining="{{ sessionClock.idleRemaining }}"
+          data-absolute-remaining="{{ sessionClock.absoluteRemaining }}">
+    <h2 class="govuk-heading-m" id="session-timeout-idle-heading">{{ sessionTimeout.idleHeading }}</h2>
+    <p class="govuk-body" id="session-timeout-idle-body">{{ sessionTimeout.idleBody }}</p>
+    <div class="govuk-button-group">
+      <button type="button" class="govuk-button" data-module="govuk-button" data-session-stay>{{ sessionTimeout.staySignedIn }}</button>
+      <a class="govuk-link" href="/logout">{{ sessionTimeout.signOutNow }}</a>
+    </div>
+  </dialog>
+  <dialog id="session-timeout-absolute" class="app-session-timeout" role="alertdialog" aria-modal="true"
+          aria-labelledby="session-timeout-absolute-heading" aria-describedby="session-timeout-absolute-body">
+    <h2 class="govuk-heading-m" id="session-timeout-absolute-heading">{{ sessionTimeout.absoluteHeading }}</h2>
+    <p class="govuk-body" id="session-timeout-absolute-body" data-session-template="{{ sessionTimeout.absoluteBody }}">{{ sessionTimeout.absoluteBody }}</p>
+    <button type="button" class="govuk-button" data-module="govuk-button" data-session-continue>{{ sessionTimeout.continue }}</button>
+  </dialog>
+{% endif %}

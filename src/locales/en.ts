@@ -12,6 +12,16 @@ export const content = {
   back: "Back",
   signOut: "Sign out",
   accountNavigation: "Account",
+  // The timeout warning on every signed-in page (OWASP plan 03, Task 7). `{time}` is filled in by the script.
+  sessionTimeout: {
+    idleHeading: "You’re about to be signed out",
+    idleBody: "For your security, you will be signed out in 2 minutes if you do not do anything. Any changes you have not saved will be lost.",
+    staySignedIn: "Stay signed in",
+    signOutNow: "Sign out",
+    absoluteHeading: "You will need to sign in again soon",
+    absoluteBody: "For your security, you will be signed out at {time}. Save your work now. You will need to sign in again.",
+    continue: "Continue"
+  },
   navigation: {
     home: "Home",
     about: "About",

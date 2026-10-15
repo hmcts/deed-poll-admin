@@ -182,6 +182,44 @@ describe("the app layout", () => {
   });
 });
 
+// The timeout warning (OWASP plan 03, Task 7). Markup only; the server decides when a session ends.
+describe.each(APP_LAYOUTS)("the session timeout warning in %s", (layout) => {
+  const TIMEOUT = { idleSeconds: 1800, idleRemaining: 1750, absoluteRemaining: 33_000 };
+
+  it("should carry the deadlines for the script, in dialogs that are announced as alerts", () => {
+    const html = environment.render(layout, { ...en, sessionClock: TIMEOUT });
+
+    expect(html).toContain('data-idle-seconds="1800"');
+    expect(html).toContain('data-idle-remaining="1750"');
+    expect(html).toContain('data-absolute-remaining="33000"');
+    expect(html.match(/<dialog[^>]*role="alertdialog"/g)).toHaveLength(2);
+  });
+
+  // The idle warning can be extended; the absolute notice cannot, so it offers no way to stay signed in.
+  it("should offer to stay signed in for the idle limit only", () => {
+    const html = environment.render(layout, { ...en, sessionClock: TIMEOUT });
+    const idle = html.slice(html.indexOf('id="session-timeout-idle"'), html.indexOf('id="session-timeout-absolute"'));
+    const absolute = html.slice(html.indexOf('id="session-timeout-absolute"'));
+
+    expect(idle).toContain("Stay signed in");
+    expect(idle).toContain('href="/logout"');
+    expect(absolute).not.toContain("Stay signed in");
+    expect(absolute).toContain("Continue");
+  });
+
+  it("should render the warning in Welsh on a Welsh page", () => {
+    const html = environment.render(layout, { ...cy, sessionClock: TIMEOUT });
+
+    expect(html).toContain(cy.sessionTimeout.staySignedIn);
+    expect(html).not.toContain(en.sessionTimeout.staySignedIn);
+  });
+
+  // An anonymous page has nothing to time out, and the dialog would only invite a pointless keep-alive.
+  it("should render no warning on a page without a signed-in session", () => {
+    expect(environment.render(layout, en)).not.toContain("session-timeout");
+  });
+});
+
 describe("the starter's layouts", () => {
   // Not a style rule. A re-scaffold overwrites `libs/express-govuk-starter`, so an app-specific edit there is
   // lost with nothing failing — the switcher would simply stop being on any page, at whatever later date

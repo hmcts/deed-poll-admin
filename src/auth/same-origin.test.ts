@@ -46,6 +46,15 @@ describe("requireSameOrigin", () => {
     expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
   });
 
+  // The timeout warning's keep-alive is a write like any other: a sibling site must not be able to keep a session alive.
+  it("refuses a same-site post to the session keep-alive", () => {
+    const next = vi.fn();
+
+    requireSameOrigin()(requestDouble({ secFetchSite: "same-site", originalUrl: "/session/keep-alive" }), pageResponse(), next);
+
+    expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
+  });
+
   it("refuses a cross-site post", () => {
     const next = vi.fn();
 
