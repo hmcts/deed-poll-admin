@@ -16,7 +16,7 @@ import { refreshMiddleware } from "./auth/refresh-middleware.js";
 import { requireAuth } from "./auth/require-auth.js";
 import { requireJudicial, requireRole } from "./auth/require-role.js";
 import { requireSameOrigin } from "./auth/same-origin.js";
-import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts, sessionStoreTtl } from "./auth/session.js";
+import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts, sessionCookieName, sessionStoreTtl } from "./auth/session.js";
 import { sessionLifetime } from "./auth/session-lifetime.js";
 import { assertIdamSettings, idamSettings } from "./auth/settings.js";
 import { domainErrorHandler } from "./errors.js";
@@ -91,9 +91,12 @@ export async function createApp(): Promise<Express> {
       redisConnection,
       sessionOptions: {
         secret: sessionSecret,
+        name: sessionCookieName(),
         cookie: {
           // The absolute limit: no cookie outlives the session it belongs to. A convenience, not the control.
           maxAge: sessionTimeouts.absoluteSeconds * 1000,
+          // Stated, and no `domain`, because the `__Host-` name requires exactly that. See `sessionCookieName`.
+          path: "/",
           httpOnly: true,
           // `plainHttpPermitted()` rather than `NODE_ENV === "production"`, which is what the library
           // uses: that reading leaves the cookie sent in cleartext in `aat`, in preview, and anywhere
@@ -165,7 +168,7 @@ export async function createApp(): Promise<Express> {
 
   await configureCookieManager(app, {
     categories: {
-      essential: ["connect.sid"],
+      essential: [sessionCookieName()],
       analytics: ["_ga", "_gid", "dtCookie", "dtSa", "rxVisitor", "rxvt"],
       preferences: ["language"]
     }

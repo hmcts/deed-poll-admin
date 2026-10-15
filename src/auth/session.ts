@@ -112,6 +112,19 @@ export function assertSessionSecret(secret: string): void {
 }
 
 /**
+ * The session cookie's name: `__Host-deed-poll-admin-sid` wherever cookies are secure, `deed-poll-admin-sid` where
+ * plain http is permitted.
+ *
+ * The `__Host-` prefix makes the browser accept the cookie only if it is Secure, has `Path=/` and has no `Domain`, so
+ * a sibling `*.platform.hmcts.net` site cannot plant or overwrite this app's session. Browsers refuse it over plain
+ * http, hence the local form. Not the library default `connect.sid`, which names the framework. Renaming signs every
+ * user out once. OWASP plan 03, Task 13.
+ */
+export function sessionCookieName(): string {
+  return plainHttpPermitted() ? "deed-poll-admin-sid" : "__Host-deed-poll-admin-sid";
+}
+
+/**
  * Refuse to start on session limits that would not limit anything, and return them once checked.
  *
  * Both values come from `config` with `__format: "json"`, so a mistyped chart value arrives as a string or a fraction

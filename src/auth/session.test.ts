@@ -7,6 +7,7 @@ import {
   assertRedisUrl,
   assertSessionSecret,
   assertSessionTimeouts,
+  sessionCookieName,
   sessionIdToken,
   sessionStoreTtl,
   sessionTimestamps,
@@ -252,6 +253,29 @@ describe("sessionStoreTtl", () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
 
     expect(ttl(stored({ user: { name: "A" }, authenticatedAt: NOW_SECONDS - 100_000, lastSeenAt: NOW_SECONDS - 100_000 }))).toBe(1);
+  });
+});
+
+describe("sessionCookieName", () => {
+  const original = process.env.NODE_ENV;
+
+  afterEach(() => {
+    process.env.NODE_ENV = original;
+  });
+
+  // `__Host-` makes the browser refuse the cookie unless it is Secure, Path=/ and has no Domain, so a sibling
+  // *.platform.hmcts.net site cannot plant or overwrite it. OWASP plan 03, Task 13.
+  it.each(["production", "aat", ""])("should use the __Host- name where cookies must be secure, under NODE_ENV=%o", (env) => {
+    process.env.NODE_ENV = env;
+
+    expect(sessionCookieName()).toBe("__Host-deed-poll-admin-sid");
+  });
+
+  // Browsers refuse a __Host- cookie over plain http, so local runs would never keep a session.
+  it.each(["development", "test"])("should drop the prefix where plain http is permitted, under NODE_ENV=%o", (env) => {
+    process.env.NODE_ENV = env;
+
+    expect(sessionCookieName()).toBe("deed-poll-admin-sid");
   });
 });
 

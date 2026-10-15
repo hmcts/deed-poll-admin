@@ -99,7 +99,7 @@ type HealthcheckOptions = {
 };
 
 type SessionRedisOptions = {
-  sessionOptions: { secret: string; cookie: Record<string, unknown> };
+  sessionOptions: { secret: string; name?: string; cookie: Record<string, unknown> };
   storeOptions: { prefix: string; ttl?: unknown };
 };
 
@@ -131,8 +131,18 @@ describe("createApp", () => {
   // twenty-four, and `express-session` sets no `sameSite` at all. `secure` is false only because vitest sets
   // `NODE_ENV=test`, which `plainHttpPermitted` allowlists.
   // The cookie lasts as long as the absolute limit (10 hours by default). It is a convenience: sessionLifetime decides.
-  it("should give the session cookie the absolute limit's lifetime, httpOnly and sameSite=lax explicitly", async () => {
-    expect(sessionRedisOptions().sessionOptions.cookie).toEqual({ maxAge: 36_000_000, httpOnly: true, secure: false, sameSite: "lax" });
+  // Path stated, and no domain, because the __Host- name used where cookies are secure requires both.
+  it("should give the session cookie the absolute limit's lifetime, path=/, httpOnly and sameSite=lax explicitly", async () => {
+    expect(sessionRedisOptions().sessionOptions.cookie).toEqual({ maxAge: 36_000_000, path: "/", httpOnly: true, secure: false, sameSite: "lax" });
+  });
+
+  // Not the library default `connect.sid`, which names the framework. Plain under vitest's NODE_ENV=test; the
+  // __Host- form is session.test.ts's subject.
+  it("should name the session cookie for this service, and list that name as an essential cookie", async () => {
+    const { configureCookieManager } = await import("@hmcts-cft/express-govuk-starter");
+
+    expect(sessionRedisOptions().sessionOptions.name).toBe("deed-poll-admin-sid");
+    expect(vi.mocked(configureCookieManager).mock.calls[0][1]).toMatchObject({ categories: { essential: ["deed-poll-admin-sid"] } });
   });
 
   // One Redis per product, shared with `deed-poll-web`, so the library's default `sess:` prefix would put a
