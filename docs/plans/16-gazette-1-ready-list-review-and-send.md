@@ -20,6 +20,7 @@ one email attempt and explicit uncertainty. It is a design, not an available API
 refresh OpenAPI only after each corresponding operation is implemented and published.
 This plan records the matching admin behavior below. The five-item checklist and
 whether it blocks selection still require a business answer.
+
 ## Execution status — 9 October 2026
 
 The read-only foundation, relinquishment exclusion and recipient editor are merged
