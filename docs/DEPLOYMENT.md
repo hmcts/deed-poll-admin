@@ -235,6 +235,32 @@ The cookie expiry and any client-side warning are conveniences; neither decides 
 - **Rollback:** raise `SESSION_IDLE_TIMEOUT_SECONDS` in the chart, or revert the release. Older code ignores the new
   session fields.
 
+## Security events
+
+Sign-ins, sign-outs, persona switches and refusals go to App Insights as `customEvents`, through
+`securityEvent` in `src/auth/security-events.ts`. The vocabulary and property rules are in `CLAUDE.md`. Without an App
+Insights client (local and test runs) each event is one JSON `console.info` line instead.
+
+To check them in AAT, run this in the App Insights resource's Logs:
+
+```kusto
+customEvents
+| where timestamp > ago(1d)
+| where name startswith "auth." or name in ("authz.denied", "csrf.refused")
+| extend subject = tostring(customDimensions.subject),
+         sid = tostring(customDimensions.sid),
+         reason = tostring(customDimensions.reason),
+         route = tostring(customDimensions.route)
+| project timestamp, name, subject, sid, reason, route
+| order by timestamp desc
+```
+
+Expect **no** `route` containing `?` and **no** `subject` containing `@`. Either is a leak of a query string or an
+email address, and is a defect to fix, not a value to filter out. Add
+`| where route contains "?" or subject contains "@"` to the query above: it should return no rows.
+
+Alert rules over these events are not in this repo; they belong to a later `deed-poll-infra` change.
+
 ## Secrets Management
 
 ### Azure Key Vault Integration

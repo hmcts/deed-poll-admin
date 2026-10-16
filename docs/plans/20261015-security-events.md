@@ -155,13 +155,13 @@ their tests.
 
 ### Task 7: Documentation and handoff
 
-- [ ] Document the vocabulary and the property rules in `CLAUDE.md`. A new security-relevant path emits through
+- [x] Document the vocabulary and the property rules in `CLAUDE.md`. A new security-relevant path emits through
   `securityEvent`; nothing calls `trackEvent` directly.
-- [ ] Add a KQL query to `docs/DEPLOYMENT.md` for checking the events in AAT: `customEvents` where
+- [x] Add a KQL query to `docs/DEPLOYMENT.md` for checking the events in AAT: `customEvents` where
   `name startswith "auth."` or `name in ("authz.denied", "csrf.refused")`, projecting `subject`, `sid`, `reason` and
   `route`. Expect no `route` containing `?` and no `subject` containing `@`.
-- [ ] Record the validation counts and the branch SHA in Execution notes. Do not claim any live verification.
-- [ ] Mark completed
+- [x] Record the validation counts and the branch SHA in Execution notes. Do not claim any live verification.
+- [x] Mark completed
 
 ## Execution notes
 
@@ -221,6 +221,14 @@ and U+2029, and caps the result at 500 code points so the cap never splits a sur
 sixteen files are wrapped; `error instanceof Error ? error.message : error` in `referrals/new.ts` became
 `String(error)` in the fallback, since `forLog` takes a string. The source sweep matches each `console.*(` call's
 balanced parentheses, so it also catches multi-line calls and a `.message` passed as a separate argument.
+
+Task 7, 2026-10-16, on `5b98ea6` (Task 6) plus this task's documentation-only changes: `yarn lint` exit 0 (the same
+one info); `yarn build` exit 0; the suite **204 files / 4,058 tests, 0 skipped, no type errors** — app 96 / 1,824,
+deed-poll 66 / 1,171, api-client 10 / 708, cloud-native-platform 13 / 157, express-govuk-starter 12 / 127,
+express-session-postgres 2 / 23, simple-router 4 / 41, express-session-redis 1 / 7; `session-store.test.ts` ran
+(7 tests). The vocabulary and property rules are a "Security events" section of `CLAUDE.md`, and the AAT query a
+"Security events" section of `docs/DEPLOYMENT.md`. **Nothing has been verified live:** no event has been seen in any
+App Insights resource, and the query has not been run against AAT.
 
 ## Post-Completion
 
