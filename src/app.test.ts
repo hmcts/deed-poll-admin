@@ -652,3 +652,19 @@ function pagePaths(): string[] {
       return `/${route}`.replace(/\/$/, "") || "/";
     });
 }
+
+describe("createApp's abuse limits", () => {
+  // Before the router is what puts the upload cap and limiter ahead of the page's multipart parser, and after the
+  // Gazette gate so a refused user is not counted. See ./rate-limit/routes.ts.
+  it("should mount the upload cap and limiter after the gates and before the router", async () => {
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    const stack = (app as unknown as { router: { stack: (MountedLayer & { route?: { path: string; stack: unknown[] } })[] } }).router.stack;
+
+    const upload = stack.findIndex((layer) => layer.route?.path === "/deed-polls/:id/documents/upload");
+
+    expect(stack[upload]?.route?.stack).toHaveLength(2);
+    expect(upload).toBeGreaterThan(stack.findIndex((layer) => layer.handle === gates.gazette));
+    expect(upload).toBeLessThan(stack.findIndex((layer) => layer.handle === gates.router));
+  });
+});

@@ -66,12 +66,15 @@ export function createRateLimiter(redis: RateLimitRedis, settings: RateLimitSett
  * string (a missing `__format: json`) would compare as text.
  */
 export function rateLimitSettings(raw: unknown): RateLimitSettings {
-  const { mode, buckets } = (raw ?? {}) as { mode?: unknown; buckets?: Record<string, unknown> };
+  const { mode, buckets, uploadInFlight } = (raw ?? {}) as { mode?: unknown; buckets?: Record<string, unknown>; uploadInFlight?: unknown };
   if (!MODES.includes(mode as RateLimitMode)) {
     throw new Error(`rateLimit.mode must be one of ${MODES.join(", ")}, got ${JSON.stringify(mode)}`);
   }
   const checked = Object.fromEntries(BUCKETS.map((bucket) => [bucket, bucketSettings(bucket, buckets?.[bucket])]));
-  return { mode: mode as RateLimitMode, buckets: checked as Record<RateLimitBucket, BucketSettings> };
+  if (!isPositiveInteger(uploadInFlight)) {
+    throw new Error(`rateLimit.uploadInFlight must be a positive whole number, got ${JSON.stringify(uploadInFlight)}`);
+  }
+  return { mode: mode as RateLimitMode, buckets: checked as Record<RateLimitBucket, BucketSettings>, uploadInFlight };
 }
 
 function bucketSettings(bucket: RateLimitBucket, raw: unknown): BucketSettings {
@@ -98,6 +101,8 @@ export interface BucketSettings {
 export interface RateLimitSettings {
   mode: RateLimitMode;
   buckets: Record<RateLimitBucket, BucketSettings>;
+  /** The per-pod in-flight upload cap, which `createRateLimiter` does not read. See ./upload-in-flight.ts. */
+  uploadInFlight: number;
 }
 
 /** The slice of a node-redis client the limiter uses, so the logic is tested against a fake. */

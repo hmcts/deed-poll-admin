@@ -131,15 +131,15 @@ describe("rate-limit/limiter", () => {
 
   describe("rateLimitSettings", () => {
     it("should accept the three modes and positive whole-number limits", () => {
-      expect(rateLimitSettings({ mode: "observe", buckets: BUCKETS })).toEqual({ mode: "observe", buckets: BUCKETS });
+      expect(rateLimitSettings({ mode: "observe", buckets: BUCKETS, uploadInFlight: 4 })).toEqual({ mode: "observe", buckets: BUCKETS, uploadInFlight: 4 });
     });
 
     it("should refuse an unknown mode, rather than guess which way to fail", () => {
-      expect(() => rateLimitSettings({ mode: "enforcing", buckets: BUCKETS })).toThrow(/rateLimit.mode/);
+      expect(() => rateLimitSettings({ mode: "enforcing", buckets: BUCKETS, uploadInFlight: 4 })).toThrow(/rateLimit.mode/);
     });
 
     it("should refuse a limit config handed back as a string", () => {
-      expect(() => rateLimitSettings({ mode: "observe", buckets: { ...BUCKETS, upload: { limit: "30", windowSeconds: 600 } } })).toThrow(
+      expect(() => rateLimitSettings({ mode: "observe", buckets: { ...BUCKETS, upload: { limit: "30", windowSeconds: 600 } }, uploadInFlight: 4 })).toThrow(
         /rateLimit.buckets.upload/
       );
     });
@@ -147,7 +147,12 @@ describe("rate-limit/limiter", () => {
     it("should refuse a missing bucket", () => {
       const { upload: _upload, ...rest } = BUCKETS;
 
-      expect(() => rateLimitSettings({ mode: "observe", buckets: rest })).toThrow(/rateLimit.buckets.upload/);
+      expect(() => rateLimitSettings({ mode: "observe", buckets: rest, uploadInFlight: 4 })).toThrow(/rateLimit.buckets.upload/);
+    });
+
+    it("should refuse an in-flight upload cap that is not a positive whole number", () => {
+      expect(() => rateLimitSettings({ mode: "observe", buckets: BUCKETS, uploadInFlight: "4" })).toThrow(/rateLimit.uploadInFlight/);
+      expect(() => rateLimitSettings({ mode: "observe", buckets: BUCKETS, uploadInFlight: 0 })).toThrow(/rateLimit.uploadInFlight/);
     });
   });
 });
@@ -184,7 +189,7 @@ describe.skipIf(!redisReachable)("rate-limit/limiter through a real Redis", () =
 });
 
 function settings(mode: RateLimitSettings["mode"]): RateLimitSettings {
-  return { mode, buckets: BUCKETS };
+  return { mode, buckets: BUCKETS, uploadInFlight: 4 };
 }
 
 function windowIndex(windowSeconds: number): number {

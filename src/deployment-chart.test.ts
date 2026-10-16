@@ -347,6 +347,13 @@ describe("charts/deed-poll-admin", () => {
     }
   });
 
+  it("should default the per-pod in-flight upload cap to 4, mapped as a number", () => {
+    const defaults = (JSON.parse(readFileSync(path.join(APP_DIR, "../config/default.json"), "utf8")) as { rateLimit: unknown }).rateLimit;
+
+    expect(rateLimitSettings(defaults).uploadInFlight).toBe(4);
+    expect(readMapping().rateLimit?.uploadInFlight).toEqual({ __name: "RATE_LIMIT_UPLOAD_IN_FLIGHT", __format: "json" });
+  });
+
   // Flux reconciles on the chart version, so a values.yaml change without a bump never deploys.
   it("should carry the chart version that ships RATE_LIMIT_MODE", () => {
     const chart = yamlLoad(readFileSync(path.join(CHART_DIR, "Chart.yaml"), "utf8")) as { version: string };
@@ -417,5 +424,5 @@ interface EnvironmentMapping {
   personaSwitcher?: { enabled?: unknown };
   redis?: { plaintextPermitted?: unknown };
   session?: { idleTimeoutSeconds?: unknown; absoluteTimeoutSeconds?: unknown; timeoutLogoutPathRegistered?: unknown };
-  rateLimit?: { mode?: unknown; buckets?: Record<string, unknown> };
+  rateLimit?: { mode?: unknown; buckets?: Record<string, unknown>; uploadInFlight?: unknown };
 }

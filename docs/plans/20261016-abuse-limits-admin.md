@@ -170,11 +170,14 @@ npx turbo test test:app --concurrency=1 --force
 
 **Files:** the four routes in decision 7; `src/rate-limit/` for the cap.
 
-- [ ] Route tests: a refused upload never reaches multer (no `req.file`, no buffer); the counter is released on finish
+- [x] Route tests: a refused upload never reaches multer (no `req.file`, no buffer); the counter is released on finish
   and on error.
-- [ ] A dashboard view, a worklist tab and a saved-query link without `q` do not count; `GET /deed-polls?q=Smith` does.
-- [ ] The cap enforces in every mode.
-- [ ] Mark completed
+- [x] A dashboard view, a worklist tab and a saved-query link without `q` do not count; `GET /deed-polls?q=Smith` does.
+- [x] The cap enforces in every mode.
+- [x] Mark completed (mounted by `mountAbuseLimits` in `src/rate-limit/routes.ts`, called from `app.ts` ahead of the
+  router, rather than in the page's `POST` array: the limiter needs the Redis client `createApp` connects. The order
+  is the same, cap then limiter then multer, and `app.test.ts` pins it. The cap's count is per `createApp`, which is
+  per pod, and `rateLimit.uploadInFlight` ← `RATE_LIMIT_UPLOAD_IN_FLIGHT`)
 
 ### Task 6: Documentation
 

@@ -50,7 +50,8 @@
         "limit": { "__name": "RATE_LIMIT_UPLOAD_LIMIT", "__format": "json" },
         "windowSeconds": { "__name": "RATE_LIMIT_UPLOAD_WINDOW_SECONDS", "__format": "json" }
       }
-    }
+    },
+    "uploadInFlight": { "__name": "RATE_LIMIT_UPLOAD_IN_FLIGHT", "__format": "json" }
   },
   "applicationInsights": {
     "serviceName": "SERVICE_NAME",

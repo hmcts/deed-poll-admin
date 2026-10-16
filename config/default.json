@@ -23,7 +23,8 @@
       "email-preview": { "limit": 30, "windowSeconds": 600 },
       "email-send": { "limit": 20, "windowSeconds": 3600 },
       "upload": { "limit": 30, "windowSeconds": 600 }
-    }
+    },
+    "uploadInFlight": 4
   },
   "gtm": {
     "containerId": "GTM-XXXXXX",
