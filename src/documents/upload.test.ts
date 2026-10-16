@@ -117,9 +117,7 @@ describe("uploadSingleFile", () => {
 
     const response = await request(app).post("/upload").field("name", "x".repeat(bytes));
 
-    expect(response.body.rejection?.errors).toEqual([
-      { field: "file", message: "The upload contains too much text. Shorten the text and select the file again." }
-    ]);
+    expect(response.body.rejection?.errors).toEqual([{ field: "name", message: "The name must be 100 characters or fewer" }]);
     expect(faults).toEqual([]);
   });
 

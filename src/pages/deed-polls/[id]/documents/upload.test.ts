@@ -106,9 +106,12 @@ describe("document upload page", () => {
 
   describe("POST", () => {
     it.each([
-      ["oversized text", { name: "x".repeat(1024) }, "The upload contains too much text. Shorten the text and select the file again."],
-      ["excess fields", { name: "Typed", extra: "x" }, "The upload contains too many fields. Reload the page and select the file again."]
-    ])("should re-render a real multipart submission with %s as 400 without uploading", async (_reason, fields, message) => {
+      ["101-character name", { name: "x".repeat(101) }, "name", "The name must be 100 characters or fewer"],
+      ["1023-byte name", { name: "x".repeat(1023) }, "name", "The name must be 100 characters or fewer"],
+      ["1024-byte name", { name: "x".repeat(1024) }, "name", "The name must be 100 characters or fewer"],
+      ["1025-byte name", { name: "x".repeat(1025) }, "name", "The name must be 100 characters or fewer"],
+      ["excess fields", { name: "Typed", extra: "x" }, "file", "The upload contains too many fields. Reload the page and select the file again."]
+    ])("should re-render a real multipart submission with %s as 400 without uploading", async (_reason, fields, errorField, message) => {
       const app = express();
       app.use((req, res, next) => {
         req.session = pageRequest({ accessToken: "session-token" }).session;
@@ -128,7 +131,7 @@ describe("document upload page", () => {
 
       expect(result.status).toBe(400);
       expect(result.body.view).toBe("deed-polls/document-upload");
-      expect(result.body.model).toMatchObject({ errorField: "file", errorMessage: message, values: { documentTypeId: TYPE_ID, direction: "Incoming" } });
+      expect(result.body.model).toMatchObject({ errorField, errorMessage: message, values: { documentTypeId: TYPE_ID, direction: "Incoming" } });
       expect(uploadDocument).not.toHaveBeenCalled();
     });
 

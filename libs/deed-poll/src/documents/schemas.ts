@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DocumentDirection } from "../deed-poll/enums/option-sets.js";
+import { MAX_UPLOAD_NAME_LENGTH, UPLOAD_NAME_TOO_LONG } from "./upload-policy.js";
 
 /**
  * The non-file fields of the upload form, which arrive alongside the file in a multipart body.
@@ -24,7 +25,7 @@ import { DocumentDirection } from "../deed-poll/enums/option-sets.js";
  */
 export const uploadFormSchema = z.object({
   documentTypeId: z.uuid(),
-  name: z.string().max(100).optional(),
+  name: z.string().max(MAX_UPLOAD_NAME_LENGTH, UPLOAD_NAME_TOO_LONG).optional(),
   direction: z.enum(DocumentDirection).optional()
 });
 

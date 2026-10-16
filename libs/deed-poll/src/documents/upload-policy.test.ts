@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { InvalidInputError } from "../errors.js";
+import { uploadFormSchema } from "./schemas.js";
 import {
   ALLOWED_UPLOAD_MIME_TYPES,
   isAllowedUploadType,
@@ -45,6 +46,24 @@ describe("documents/upload-policy", () => {
   });
 
   describe("uploadLimitRejection", () => {
+    it("should use the name schema's message and field when multipart parsing rejects a long name", () => {
+      const parsed = uploadFormSchema.safeParse({ documentTypeId: "3f0f5b62-1f0a-4c1e-9b3a-2c1d4e5f6a7b", name: "x".repeat(101) });
+      expect(parsed.success).toBe(false);
+
+      const rejection = uploadLimitRejection("LIMIT_FIELD_VALUE", "name");
+
+      expect(rejection.errors).toEqual([{ field: "name", message: "The name must be 100 characters or fewer" }]);
+      expect(rejection.message).toBe(parsed.error?.issues[0].message);
+    });
+
+    it.each(["documentTypeId", "direction"])("should attribute oversized %s text to its form control", (field) => {
+      expect(uploadLimitRejection("LIMIT_FIELD_VALUE", field).errors[0].field).toBe(field);
+    });
+
+    it.each([undefined, "unexpected", "name[nested]"])("should use the file control for an unknown text field %s", (field) => {
+      expect(uploadLimitRejection("LIMIT_FIELD_VALUE", field).errors[0].field).toBe("file");
+    });
+
     it("states the limit in megabytes for an over-size file", () => {
       const rejection = uploadLimitRejection("LIMIT_FILE_SIZE");
 

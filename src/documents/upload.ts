@@ -12,7 +12,7 @@
  *
  * **It does NOT propagate a rejection, and that is the one real difference from the API's copy.**
  * The API wants Multer's failures to reach its error middleware, which turns them into a JSON 400.
- * A page cannot work that way: re-rendering the form with the message against the file input is the
+ * A page cannot work that way: re-rendering the form with the message against the affected input is the
  * page's job, and an error handler has no idea which form to re-render. So a rejection is recorded on
  * `res.locals` and `next()` is called normally, leaving the handler to decide.
  *
@@ -37,7 +37,8 @@ const parser = multer({
     fileSize: MAX_UPLOAD_BYTES,
     files: 1,
     // documentTypeId, name and direction in document-upload.njk. The longest valid value is
-    // schemas.ts's 100-character name; 1 KiB also accommodates its UTF-8 encoding.
+    // schemas.ts's 100-character name. The parser rejects at 1024 bytes (allows up to 1023),
+    // leaving room for the name's UTF-8 encoding.
     fields: 3,
     fieldSize: 1024,
     // Three text fields plus one file; also bounds parts ignored by the field/file counters.
@@ -63,7 +64,7 @@ export function uploadSingleFile(): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
     parse(req, res, (error: unknown) => {
       if (error instanceof multer.MulterError) {
-        res.locals.uploadRejection = uploadLimitRejection(error.code);
+        res.locals.uploadRejection = uploadLimitRejection(error.code, error.field);
         return next();
       }
       // The fileFilter's rejection is already a domain error; anything else is a real fault.

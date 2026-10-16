@@ -15,6 +15,9 @@ import { InvalidInputError } from "../errors.js";
 /** The multipart field name both the API and the SSR form post the file under. */
 export const UPLOAD_FILE_FIELD = "file";
 
+export const MAX_UPLOAD_NAME_LENGTH = 100;
+export const UPLOAD_NAME_TOO_LONG = `The name must be ${MAX_UPLOAD_NAME_LENGTH} characters or fewer`;
+
 /**
  * 25 MB. Raised from 10 MB on Steve's call, 2026-09-03.
  *
@@ -67,9 +70,11 @@ export function uploadTypeRejection(mimeType: string): InvalidInputError {
  * it reaches the apps' error handlers unrecognised and becomes a 500, telling a caseworker the server
  * has broken when in fact their file was too big. That is the trap three Phase 3 defects fell into.
  */
-export function uploadLimitRejection(code: string): InvalidInputError {
-  const message = messageForLimit(code);
-  return new InvalidInputError(message, [{ field: UPLOAD_FILE_FIELD, message }]);
+export function uploadLimitRejection(code: string, field?: string): InvalidInputError {
+  // Only link to controls the form renders, never an arbitrary multipart field name.
+  const errorField = code === "LIMIT_FIELD_VALUE" && (field === "name" || field === "documentTypeId" || field === "direction") ? field : UPLOAD_FILE_FIELD;
+  const message = errorField === "name" ? UPLOAD_NAME_TOO_LONG : messageForLimit(code);
+  return new InvalidInputError(message, [{ field: errorField, message }]);
 }
 
 function messageForLimit(code: string): string {
