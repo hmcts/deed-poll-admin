@@ -22,6 +22,12 @@ contract in memory, `yarn dev` starts it alongside the app, and the unit suite d
 
 ## Deployment
 
+Document upload policy (2026-10-16): PDF, JPEG, PNG, TIFF and Word DOCX are accepted declared types;
+legacy binary Word `.doc` is refused. Admin filters declared MIME types only: authoritative content checks
+belong to the API. The API content-policy change rejects mismatched signatures, encrypted PDF/DOCX and the
+specified active-content PDF/Word features. Deploy the coordinated API change before relying on those checks.
+Mock content-check fidelity remains Plan 05 Task 9; no malware-scanning claim is made by this UI change.
+
 This repo deploys through the **Jenkins CNP pipeline**: `Jenkinsfile_CNP` at the root, `withPipeline("nodejs",
 "deed-poll", "admin")`. There is no GitHub Actions pipeline — `.github/workflows/` was deleted in full, and
 `.github/renovate.json` is the only thing left under `.github/` that the platform reads.

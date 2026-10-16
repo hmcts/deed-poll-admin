@@ -38,7 +38,7 @@ const en = {
   // Derived from the policy rather than restated, because a hint that disagrees with the limit is worse
   // than no hint: it told the caseworker 10MB while the limit was raised to 25MB, so the number they
   // were shown and the number enforced would have drifted apart the moment either changed.
-  fileHint: `PDF, JPG, PNG, TIFF or Word, up to ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))}MB.`,
+  fileHint: `PDF, JPG, PNG, TIFF or Word (.docx), up to ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))}MB. Legacy Word (.doc) files are not accepted.`,
   typeLabel: "Document type",
   typeEmpty: "Choose a type",
   nameLabel: "Name (optional)",

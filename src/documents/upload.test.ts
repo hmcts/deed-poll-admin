@@ -180,7 +180,6 @@ describe("uploadSingleFile", () => {
     ["image/jpeg", "a.jpg"],
     ["image/png", "a.png"],
     ["image/tiff", "a.tif"],
-    ["application/msword", "a.doc"],
     ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "a.docx"]
   ])("should accept %s", async (contentType, filename) => {
     const { app } = appWithUpload();
@@ -189,6 +188,13 @@ describe("uploadSingleFile", () => {
 
     expect(response.body.rejection).toBeNull();
     expect(response.body.received.type).toBe(contentType);
+  });
+
+  it("should reject legacy Word documents against the file field", async () => {
+    const { app, faults } = appWithUpload();
+    const response = await request(app).post("/upload").attach("file", Buffer.from("legacy Word"), { filename: "a.doc", contentType: "application/msword" });
+    expect(response.body.rejection.errors).toEqual([{ field: "file", message: "Upload a PDF, image or Word document" }]);
+    expect(faults).toEqual([]);
   });
 
   it("should record a second file as a rejection rather than silently taking one of them", async () => {
