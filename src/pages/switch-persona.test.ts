@@ -13,9 +13,11 @@
  * randomly losing your persona rather than as anything traceable to here. Nothing about a switch that has just
  * happened would reveal it, which is why the renewal is driven rather than reasoned about.
  */
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { currentUser, DEEDPOLL_JUDICIAL } from "@hmcts/deed-poll";
+import { trackEvent } from "@hmcts-cft/cloud-native-platform";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchCallerAccess } from "../auth/caller-access.js";
 import { refreshTokens } from "../auth/idam.js";
@@ -81,24 +83,47 @@ vi.mock("../auth/idam.js", async (importOriginal) => ({
   refreshTokens: vi.fn()
 }));
 
+vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts-cft/cloud-native-platform")>()),
+  trackEvent: vi.fn()
+}));
+
 // The persona's `/me` answer, asked again with the renewed token, so the refresh below stays off the network.
 vi.mock("../auth/caller-access.js", () => ({ fetchCallerAccess: vi.fn(async () => ({ staff: false, judicial: true, capabilities: [] })) }));
 
 const JUDGE = {
   user: currentUser({ staff: false, judicial: true, capabilities: [] }, "A Judge"),
-  subject: "judge@example.com",
+  subject: "judge-idam-subject",
   tokens: { idToken: "a-judge-id-token", accessToken: "a-judge-access-token", refreshToken: "a-judge-refresh-token", expiresAt: 1_800_000_000 }
 };
 
 /** A login for the judge persona, as `loginAsPersona` resolves it where the environment can provide one. */
 const SWITCHED = { ok: true as const, login: JUDGE };
 
+const CASEWORKER_SESSION_ID = "caseworker-session-id";
+const JUDGE_SESSION_ID = "judge-session-id";
+
 /** A caseworker part-way through a session, which is who every test here starts as. */
 function signedInCaseworker(body: unknown = { persona: "judge" }): RequestDouble {
-  const req = pageRequest({ subject: "caseworker@example.com", accessToken: "a-caseworker-access-token", body });
+  const req = Object.assign(pageRequest({ subject: "caseworker-idam-subject", accessToken: "a-caseworker-access-token", body }), {
+    sessionID: CASEWORKER_SESSION_ID,
+    method: "POST",
+    baseUrl: "",
+    path: "/switch-persona"
+  });
+  // express-session gives the regenerated session a new id, which is the one a switched event must carry.
+  const regenerate = req.session.regenerate.getMockImplementation();
+  req.session.regenerate.mockImplementation((done?: (error?: Error) => void) => {
+    req.sessionID = JUDGE_SESSION_ID;
+    regenerate?.(done);
+  });
   req.session.deedPoll.refreshToken = "a-caseworker-refresh-token";
   req.session.deedPoll.tokenExpiresAt = 1_700_000_000;
   return req;
+}
+
+function sidOf(sessionId: string): string {
+  return createHash("sha256").update(sessionId).digest("hex").slice(0, 16);
 }
 
 describe("the persona switch", () => {
@@ -129,7 +154,7 @@ describe("the persona switch", () => {
 
     expect(req.session.deedPoll).toMatchObject({
       user: JUDGE.user,
-      subject: "judge@example.com",
+      subject: "judge-idam-subject",
       accessToken: "a-judge-access-token",
       idToken: "a-judge-id-token"
     });
@@ -189,6 +214,35 @@ describe("the persona switch", () => {
     expect(PERSONA_SWITCH_PATH).toBe(`/${path.basename(fileURLToPath(import.meta.url), ".test.ts")}`);
   });
 
+  it("should emit auth.persona.switched with both subjects, the persona and the new session's sid", async () => {
+    await route.POST(signedInCaseworker(), pageResponse(), vi.fn());
+
+    expect(vi.mocked(trackEvent).mock.calls).toEqual([
+      [
+        "auth.persona.switched",
+        {
+          subject: "judge-idam-subject",
+          fromSubject: "caseworker-idam-subject",
+          toSubject: "judge-idam-subject",
+          personaId: "judge",
+          sid: sidOf(JUDGE_SESSION_ID),
+          env: "development",
+          method: "POST",
+          route: "/switch-persona"
+        }
+      ]
+    ]);
+  });
+
+  it("should put no token, name, email or raw session id in the switched event", async () => {
+    await route.POST(signedInCaseworker(), pageResponse(), vi.fn());
+
+    const serialised = JSON.stringify(vi.mocked(trackEvent).mock.calls);
+    for (const secret of ["token", "A Judge", "Pa55word11", CASEWORKER_SESSION_ID, JUDGE_SESSION_ID, "@"]) {
+      expect(serialised).not.toContain(secret);
+    }
+  });
+
   describe("when the switcher is not on offer", () => {
     // `next()` reaches `notFoundHandler()`, which `app.ts` mounts after the router — so a deployed environment
     // outside the allowlist answers exactly as it would for a route that does not exist. Same non-enumerability
@@ -203,6 +257,7 @@ describe("the persona switch", () => {
       expect(next).toHaveBeenCalledWith();
       expect(loginAsPersona).not.toHaveBeenCalled();
       expect(req.session.deedPoll.accessToken).toBe("a-caseworker-access-token");
+      expect(trackEvent).not.toHaveBeenCalled();
     });
 
     it("should hand it on in an environment outside the allowlist, whatever the flag says", async () => {
@@ -215,11 +270,12 @@ describe("the persona switch", () => {
 
       expect(next).toHaveBeenCalledWith();
       expect(loginAsPersona).not.toHaveBeenCalled();
+      expect(trackEvent).not.toHaveBeenCalled();
     });
 
     it("should refuse a request carrying no body at all", async () => {
       // A POST with nothing in it, which is what a crafted request tends to be.
-      const req = pageRequest({ subject: "caseworker@example.com" });
+      const req = pageRequest({ subject: "caseworker-idam-subject" });
       const next = vi.fn();
 
       await route.POST(req, pageResponse(), next);
@@ -242,6 +298,7 @@ describe("the persona switch", () => {
         expect(next).toHaveBeenCalledWith();
         expect(loginAsPersona).not.toHaveBeenCalled();
         expect(req.session.deedPoll.user).toBeDefined();
+        expect(trackEvent).not.toHaveBeenCalled();
       }
     );
   });
@@ -282,8 +339,27 @@ describe("the persona switch", () => {
 
       await route.POST(req, pageResponse(), vi.fn());
 
-      expect(req.session.deedPoll).toMatchObject({ subject: "caseworker@example.com", accessToken: "a-caseworker-access-token" });
+      expect(req.session.deedPoll).toMatchObject({ subject: "caseworker-idam-subject", accessToken: "a-caseworker-access-token" });
       expect(req.session.regenerate).not.toHaveBeenCalled();
+    });
+
+    // The reason is prose that may quote IDAM's own error text, so the event names the persona and not the cause.
+    it("should emit auth.persona.switch_failed for the current session, without the reason", async () => {
+      await route.POST(signedInCaseworker(), pageResponse(), vi.fn());
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([
+        [
+          "auth.persona.switch_failed",
+          {
+            subject: "caseworker-idam-subject",
+            personaId: "judge",
+            sid: sidOf(CASEWORKER_SESSION_ID),
+            env: "development",
+            method: "POST",
+            route: "/switch-persona"
+          }
+        ]
+      ]);
     });
 
     it("should not reach the not-found handler, which would report the wrong thing entirely", async () => {
@@ -356,7 +432,7 @@ describe("a forced refresh after switching", () => {
   it("should renew with the persona's own refresh token and subject", async () => {
     await switchedThenRenewed();
 
-    expect(refreshTokens).toHaveBeenCalledWith(expect.anything(), "a-judge-refresh-token", "judge@example.com");
+    expect(refreshTokens).toHaveBeenCalledWith(expect.anything(), "a-judge-refresh-token", "judge-idam-subject");
     expect(fetchCallerAccess).toHaveBeenCalledWith("a-renewed-judge-access-token", "refresh");
   });
 
@@ -365,7 +441,7 @@ describe("a forced refresh after switching", () => {
 
     expect(req.session.deedPoll).toMatchObject({
       user: JUDGE.user,
-      subject: "judge@example.com",
+      subject: "judge-idam-subject",
       accessToken: "a-renewed-judge-access-token",
       refreshToken: "a-rotated-judge-refresh-token"
     });

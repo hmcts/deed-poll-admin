@@ -125,11 +125,11 @@ path), `src/auth/session-lifetime.ts`; their tests.
 
 **Files:** `src/pages/switch-persona.ts`; `switch-persona.test.ts`.
 
-- [ ] Emit `auth.persona.switched` with `fromSubject` (read before `signIn`), `toSubject`, `personaId` and the new
+- [x] Emit `auth.persona.switched` with `fromSubject` (read before `signIn`), `toSubject`, `personaId` and the new
   `sid`.
-- [ ] Emit `auth.persona.switch_failed` on the 503 path.
-- [ ] Tests cover both events. The disabled-switcher path emits nothing.
-- [ ] Mark completed
+- [x] Emit `auth.persona.switch_failed` on the 503 path.
+- [x] Tests cover both events. The disabled-switcher path emits nothing.
+- [x] Mark completed
 
 ### Task 5: One emission point for 403s
 
@@ -197,6 +197,12 @@ Task 3, 2026-10-16: `yarn lint` exit 0 (the same one info); `yarn build` exit 0;
 `refreshTokens` answers `{ ok: false, reason: "invalid_grant" }`, which the middleware records as `refresh_refused`,
 or `subject_mismatch`, recorded as itself. A refresh that throws while the token still works ends nothing and emits
 nothing. `switch-persona.test.ts`'s `refreshTokens` stub moved to the new shape; its assertions are unchanged.
+
+Task 4, 2026-10-16: `yarn lint` exit 0 (the same one info); `yarn build` exit 0; the suite **203 files / 3,989 tests,
+0 skipped, no type errors** — app 95 / 1,757, the rest unchanged; `session-store.test.ts` ran (7 tests).
+`auth.persona.switch_failed` carries the persona id and the current session's subject and sid, but **not**
+`loginAsPersona`'s reason: that is prose which may quote IDAM's error text. `switch-persona.test.ts`'s session
+subjects were emails; they are now opaque IDAM-subject fixtures (decision 7), with the assertions unchanged.
 
 ## Post-Completion
 
