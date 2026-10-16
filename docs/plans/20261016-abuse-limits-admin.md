@@ -158,13 +158,13 @@ npx turbo test test:app --concurrency=1 --force
 **Files:** `src/rate-limit/limiter.ts`; `config/default.json`; `config/custom-environment-variables.json`;
 `charts/deed-poll-admin/values.yaml`; `charts/deed-poll-admin/Chart.yaml`.
 
-- [ ] Fake-client tests: counts per subject, not per IP; falls back to the session id; resets in the next window;
+- [x] Fake-client tests: counts per subject, not per IP; falls back to the session id; resets in the next window;
   `enforce` raises with the remaining seconds; `observe` logs and passes; `off` does nothing; a Redis error passes and
   warns.
-- [ ] A real-Redis test (skipped when unreachable): two requests in one window count 2 and the key carries a TTL.
-- [ ] `src/deployment-chart.test.ts` pins the mode mapping structurally and that `values.yaml` says `observe`.
-- [ ] `Chart.yaml` is 0.0.4.
-- [ ] Mark completed
+- [x] A real-Redis test (skipped when unreachable): two requests in one window count 2 and the key carries a TTL.
+- [x] `src/deployment-chart.test.ts` pins the mode mapping structurally and that `values.yaml` says `observe`.
+- [x] `Chart.yaml` is 0.0.4.
+- [x] Mark completed (`app.ts` does not read `rateLimit` yet; Task 5 wires it when it mounts the routes)
 
 ### Task 5: Mount the limiter and the in-flight upload cap
 
