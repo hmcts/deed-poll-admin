@@ -415,6 +415,32 @@ only — api keeps the audit trail of writes and reads, and this app must not du
   and other control characters and caps the text at 500 characters. `src/for-log.test.ts` scans `src/pages` and fails
   a `console.*` call that interpolates `.message` without it.
 
+## Abuse limits
+
+Search, email preview, email send and upload are limited per IDAM subject
+(`docs/plans/20261016-abuse-limits-admin.md`, OWASP M6). Facts that are not derivable from a single file:
+
+- **api is authoritative; this app's limiter is not the control.** `src/rate-limit/limiter.ts` exists so a caseworker
+  is refused on this app's page before a pod spends a multipart parse or an api round trip, and its numbers mirror
+  api's so it never refuses what api would allow. Change a limit in both places or in neither. It is keyed on the
+  subject, falling back to the session id, and **never on IP or `X-Forwarded-For`**.
+- **It fails open.** A Redis error passes the request with a `console.warn`, because Redis being down already means no
+  sessions. `rateLimit.mode` (`RATE_LIMIT_MODE`) is `off | observe | enforce`, defaulting to `observe`, which logs the
+  `rate_limit …` line `enforce` would refuse on and refuses nothing. Never gate it on `NODE_ENV`.
+- **A 429 means "slow down", a 409 means "not in this state".** Both api's 429 (`rate-limited` in the adapter) and this
+  app's own refusal arrive as `TooManyRequestsError` and render `errors/429` with `Retry-After` when the wait is
+  known; no page catches it, and the refused request did nothing. A 409 stays what the sections above say it is — a state
+  conflict or a reused key — and is resolved by the page that made the call. Do not map one onto the other.
+- **The cap and the limiter go before multer.** `mountAbuseLimits` (`src/rate-limit/routes.ts`) mounts them in
+  `app.ts` ahead of the router, in the order in-flight cap, limiter, then the page's `uploadSingleFile()`;
+  `app.test.ts` pins it. A limiter after parsing protects nothing. The per-pod in-flight upload cap
+  (`rateLimit.uploadInFlight`) enforces in every mode.
+- **Search counts only a non-blank `q`.** Saved-query and worklist links carry `where` or `filter`, and the dashboard's
+  counts are internal reads; counting either would refuse a caseworker for clicking their own dashboard.
+- **Gazette's 429 stays an unknown outcome.** `callGazetteApi` turns it into `GazetteOutcomeUnknownError`, not
+  `TooManyRequestsError`, because only a published Gazette refusal proves nothing was admitted under the request's
+  key. The Gazette batch page is not limited here; api limits it.
+
 # Agent instructions
 
 Claude must follow these instructions strictly when contributing code. Rules and conventions are mandatory and must be adhered to without exception. After implementing code, Claude must review it to ensure full compliance with these guidelines.

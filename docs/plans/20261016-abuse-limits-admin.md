@@ -181,10 +181,10 @@ npx turbo test test:app --concurrency=1 --force
 
 ### Task 6: Documentation
 
-- [ ] `CLAUDE.md`: a short section on the limiter. Cover that api is authoritative; that admin fails open; what 429
+- [x] `CLAUDE.md`: a short section on the limiter. Cover that api is authoritative; that admin fails open; what 429
   and 409 each mean here; the order rule (the cap and limiter before multer); and that Gazette's 429 stays an unknown
   outcome.
-- [ ] Mark completed
+- [x] Mark completed
 
 ## Post-Completion
 
