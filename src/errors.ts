@@ -15,7 +15,7 @@
  * starter's handler outright would mean reimplementing both, in a file the next re-scaffold
  * overwrites.
  */
-import { ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } from "@hmcts/deed-poll";
+import { ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "@hmcts/deed-poll";
 import type { ErrorRequestHandler, NextFunction, Request, Response } from "express";
 import { type SecurityEventName, type SecurityEventProps, securityEvent } from "./auth/security-events.js";
 import { signOut } from "./auth/session.js";
@@ -68,6 +68,16 @@ export function domainErrorHandler(): ErrorRequestHandler {
         () => res.status(401).render("errors/401", { returnTo: req.method === "GET" ? req.originalUrl : null }),
         (error: unknown) => next(error)
       );
+    }
+
+    if (err instanceof TooManyRequestsError) {
+      // Not logged here: the limit that refused records it — api in its own logs, this app's limiter in its `rate_limit` line.
+      const seconds = err.retryAfterSeconds;
+      if (seconds !== null) {
+        res.setHeader("Retry-After", String(seconds));
+      }
+      // Rounded up and never below one, because "try again in 0 minutes" reads as "now".
+      return res.status(429).render("errors/429", { retryAfterMinutes: seconds === null ? null : Math.max(1, Math.ceil(seconds / 60)) });
     }
 
     if (err instanceof InvalidInputError) {

@@ -10,7 +10,7 @@
  * "corrects".
  */
 import { createHash } from "node:crypto";
-import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } from "@hmcts/deed-poll";
+import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "@hmcts/deed-poll";
 import { trackEvent } from "@hmcts-cft/cloud-native-platform";
 import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -248,6 +248,43 @@ describe("domainErrorHandler", () => {
 
       expect(next).toHaveBeenCalledWith(failure);
       expect(res.render).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("when a limit refuses the caller", () => {
+    it("should answer 429 with Retry-After and the wait in minutes when the wait is known", () => {
+      const res = pageResponse();
+
+      domainErrorHandler()(new TooManyRequestsError("rate limited", 120), REQUEST, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(429);
+      expect(res.setHeader).toHaveBeenCalledWith("Retry-After", "120");
+      expect(res.render).toHaveBeenCalledWith("errors/429", { retryAfterMinutes: 2 });
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    // "Try again in 0 minutes" would read as "now", and a partial minute is still a wait.
+    it.each([
+      [1, 1],
+      [0, 1],
+      [61, 2],
+      [3600, 60]
+    ])("should round %i seconds up to %i minutes, never below one", (seconds, minutes) => {
+      const res = pageResponse();
+
+      domainErrorHandler()(new TooManyRequestsError("rate limited", seconds), REQUEST, res, next);
+
+      expect(res.render).toHaveBeenCalledWith("errors/429", { retryAfterMinutes: minutes });
+    });
+
+    it("should answer 429 with no Retry-After and no wait when the wait is unknown", () => {
+      const res = pageResponse();
+
+      domainErrorHandler()(new TooManyRequestsError("rate limited", null), REQUEST, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(429);
+      expect(res.setHeader).not.toHaveBeenCalled();
+      expect(res.render).toHaveBeenCalledWith("errors/429", { retryAfterMinutes: null });
     });
   });
 

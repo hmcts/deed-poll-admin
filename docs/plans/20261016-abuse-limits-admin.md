@@ -146,12 +146,12 @@ npx turbo test test:app --concurrency=1 --force
 
 **Files:** `src/errors.ts`; `src/pages/errors/429.njk`; `src/locales/en.ts` and `cy.ts`.
 
-- [ ] `errors.test.ts`: status 429, the `Retry-After` header when known, "try again in N minutes" (rounded up, at least
+- [x] `errors.test.ts`: status 429, the `Retry-After` header when known, "try again in N minutes" (rounded up, at least
   1), and the generic sentence when unknown.
-- [ ] `429.njk.test.ts` follows the template-test spread order (`.claude/rules/testing.md`), and the page extends
+- [x] `429.njk.test.ts` follows the template-test spread order (`.claude/rules/testing.md`), and the page extends
   `layouts/app.njk`.
-- [ ] The Welsh count moved only by the new keys.
-- [ ] Mark completed
+- [x] The Welsh count moved only by the new keys. (686 → 691 strings, identical stayed 474)
+- [x] Mark completed
 
 ### Task 4: The Redis limiter
 
