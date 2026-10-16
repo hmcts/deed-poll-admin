@@ -1,0 +1,10 @@
+{
+  // For vitest's typecheck mode only (`vitest.config.ts`). `tsconfig.json` deliberately has no `include`, so
+  // `tsc` against it compiles every file in the repository, and the runtime test files are not written to
+  // type-check. This narrows `tsc` to the type-level tests and whatever they import.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*.test-d.ts", "libs/*/src/**/*.test-d.ts"]
+}

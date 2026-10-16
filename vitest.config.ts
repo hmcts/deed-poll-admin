@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { defineConfig } from "vitest/config";
 
@@ -16,6 +17,13 @@ export default defineConfig({
     // is, the other being `dev:app`; `test` is what `PERSONA_SWITCHER_ENVIRONMENTS` and
     // `SEEDED_PERSONA_ENVIRONMENTS` both name.
     env: { ENVIRONMENT_NAME: "test" },
+    // `tsc -p tsconfig.app.json` excludes every test file, so a `@ts-expect-error` in one is checked by nothing.
+    // A `*.test-d.ts` is run through `tsc` here instead. Absolute, since `root` is whichever package is running.
+    typecheck: {
+      enabled: true,
+      include: ["src/**/*.test-d.ts"],
+      tsconfig: fileURLToPath(new URL("./tsconfig.typecheck.json", import.meta.url))
+    },
     coverage: {
       reporter: ["lcov", "text"],
       reportsDirectory: "coverage"

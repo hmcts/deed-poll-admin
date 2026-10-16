@@ -84,16 +84,16 @@ npx turbo test test:app --concurrency=1 --force
 **Files:** new `libs/cloud-native-platform/src/monitoring/track-event.ts` (and its export); new
 `src/auth/security-events.ts`; tests beside both.
 
-- [ ] Add `trackEvent`, mirroring `track-exception.ts`, with the console fallback (decision 1).
-- [ ] Add `securityEvent` with the closed names and properties (decisions 2–4).
-- [ ] Tests:
+- [x] Add `trackEvent`, mirroring `track-exception.ts`, with the console fallback (decision 1).
+- [x] Add `securityEvent` with the closed names and properties (decisions 2–4).
+- [x] Tests:
   - the vocabulary is exactly decision 2;
   - an unknown property key is a type error (a `@ts-expect-error` line, which only `yarn build` checks);
   - `sid` is never the raw session id, and is stable within a session;
   - `route` drops the query string;
   - the console fallback runs when there is no client.
-- [ ] No caller yet.
-- [ ] Mark completed
+- [x] No caller yet.
+- [x] Mark completed
 
 ### Task 2: Login and logout
 
@@ -177,6 +177,14 @@ findings; `yarn build` exit 0; the suite **200 files / 3,948 tests, 0 skipped**:
 - express-session-redis 1 / 7
 
 `session-store.test.ts` ran (7 tests). Re-run 2026-10-16 after merging master (`f7dcf82`, js-yaml 5.4.3): identical counts, lint and build clean.
+
+Task 1, 2026-10-16: `yarn lint` exit 0 (one info only: `biome.json`'s schema 2.5.13 against CLI 2.5.15, present before
+this task); `yarn build` exit 0; the suite **203 files / 3,964 tests, 0 skipped, no type errors** — app 95 / 1,732,
+cloud-native-platform 13 / 157, the rest unchanged; `session-store.test.ts` ran (7 tests). One correction to the plan:
+`yarn build` does **not** check test files, because every tsconfig excludes `*.test.ts`. The `@ts-expect-error` checks
+are therefore in `src/auth/security-events.test-d.ts`, run through `tsc` by vitest's typecheck mode
+(`vitest.config.ts`, narrowed by `tsconfig.typecheck.json` because the root `tsconfig.json` has no `include`). Seen
+failing with an unused directive before being restored.
 
 ## Post-Completion
 
