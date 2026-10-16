@@ -42,15 +42,15 @@ export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
  *
  * **Hygiene, not security.** This is the `Content-Type` the client puts on the multipart part, which
  * a client can simply lie about. It stops an accidental upload of the wrong thing and keeps obvious
- * executables out; it does not verify that the bytes are what they claim. Real inspection and virus
- * scanning belong with CDAM in Phase 10.
+ * executables out; it does not verify that the bytes are what they claim. Content verification belongs
+ * to the API, and malware scanning to CDAM. Legacy binary Word (.doc) is no longer accepted;
+ * Word uploads must use DOCX (Steve's decision, 2026-10-16).
  */
 export const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "application/pdf",
   "image/jpeg",
   "image/png",
   "image/tiff",
-  "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 ]);
 

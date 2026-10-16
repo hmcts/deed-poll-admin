@@ -16,13 +16,14 @@ describe("documents/upload-policy", () => {
   });
 
   it("accepts PDF, the common scan formats and Word", () => {
-    for (const type of ["application/pdf", "image/jpeg", "image/png", "image/tiff", "application/msword"]) {
+    for (const type of ["application/pdf", "image/jpeg", "image/png", "image/tiff"]) {
       expect(isAllowedUploadType(type)).toBe(true);
     }
     expect(isAllowedUploadType("application/vnd.openxmlformats-officedocument.wordprocessingml.document")).toBe(true);
   });
 
   it("rejects an executable and anything else not on the list", () => {
+    expect(isAllowedUploadType("application/msword")).toBe(false);
     expect(isAllowedUploadType("application/x-msdownload")).toBe(false);
     expect(isAllowedUploadType("application/zip")).toBe(false);
     expect(isAllowedUploadType("")).toBe(false);
@@ -112,6 +113,6 @@ describe("documents/upload-policy", () => {
   });
 
   it("exposes the accepted set for anything that needs to list it", () => {
-    expect(ALLOWED_UPLOAD_MIME_TYPES.size).toBe(6);
+    expect(ALLOWED_UPLOAD_MIME_TYPES.size).toBe(5);
   });
 });
