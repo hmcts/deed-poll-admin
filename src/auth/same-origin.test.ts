@@ -191,6 +191,13 @@ describe("requireSameOrigin", () => {
       expect(error.fetchSite).toBeUndefined();
     });
 
+    it("records no host for an Origin longer than a DNS name can be", () => {
+      const error = refusal({ origin: `https://${"a".repeat(300)}.example` });
+
+      expect(error.reason).toBe("same-origin");
+      expect(error.originHost).toBeUndefined();
+    });
+
     it("records no host for an Origin that does not parse", () => {
       const error = refusal({ origin: "not a url" });
 

@@ -409,7 +409,8 @@ only — api keeps the audit trail of writes and reads, and this app must not du
 - **Every 403 is emitted in one place, `src/errors.ts`.** `ForbiddenError` carries `reason` (`role`, `same-origin` or
   the default `api`, which `callApi` raises) and the gate's details; `requireJudicial`, `requireCapability` and
   `same-origin.ts` set them, and `errors.ts` maps them to `authz.denied` or `csrf.refused`. Do not emit a refusal at
-  the gate as well, or it is counted twice.
+  the gate as well, or it is counted twice. The one 403 outside it is `requireAuth`'s refusal of an unauthenticated non-GET request, which has no
+  session subject to record and is deliberately not an event.
 - **An api error message reaches a log only through `forLog`** (`src/for-log.ts`), which strips CR, LF, ANSI escapes
   and other control characters and caps the text at 500 characters. `src/for-log.test.ts` scans `src/pages` and fails
   a `console.*` call that interpolates `.message` without it.

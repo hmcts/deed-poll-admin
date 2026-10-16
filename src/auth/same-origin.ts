@@ -71,6 +71,8 @@ const PERMITTED_FETCH_SITES = new Set(["same-origin", "none"]);
  */
 const REFUSED_FETCH_SITES = new Set(["same-site", "cross-site"]);
 
+const MAX_HOST_LENGTH = 253;
+
 export function requireSameOrigin(): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!UNSAFE_METHODS.has(req.method)) return next();
@@ -121,7 +123,9 @@ function isSameHost(origin: string, req: Request): boolean {
 /** The host alone, because a full origin is not a value the security event's `originHost` admits. */
 function hostOf(origin: string): string | undefined {
   try {
-    return new URL(origin).host.toLowerCase() || undefined;
+    const host = new URL(origin).host.toLowerCase();
+    // 253 is a DNS name's limit, so a longer value is not a host and must not reach a telemetry property.
+    return host && host.length <= MAX_HOST_LENGTH ? host : undefined;
   } catch {
     return undefined;
   }
