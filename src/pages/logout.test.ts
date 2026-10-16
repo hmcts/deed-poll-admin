@@ -1,15 +1,33 @@
+import { createHash } from "node:crypto";
+import { trackEvent } from "@hmcts-cft/cloud-native-platform";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { endSessionUrl } from "../auth/idam.js";
 import { pageRequest, pageResponse } from "../express-doubles.js";
 import { GET } from "./logout.js";
 
 vi.mock("../auth/idam.js", () => ({ endSessionUrl: vi.fn() }));
+vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts-cft/cloud-native-platform")>()),
+  trackEvent: vi.fn()
+}));
 vi.mock("../auth/settings.js", () => ({ idamSettings: () => ({ issuerUrl: "https://idam.example/o" }) }));
 
 const AWAY = "https://idam.example/o/endSession?id_token_hint=an-id-token";
 
+const SESSION_ID = "signed-in-session-id";
+
 function signedIn() {
-  return pageRequest({ teamLeader: true, name: "An Admin", idToken: "an-id-token" });
+  const req = Object.assign(
+    pageRequest({ teamLeader: true, name: "An Admin", idToken: "an-id-token", accessToken: "an-access-token", subject: "idam-subject-1" }),
+    { sessionID: SESSION_ID, method: "GET", baseUrl: "", path: "/logout" }
+  );
+  // express-session drops the id along with the session, so an event emitted afterwards would carry no sid.
+  const destroy = req.session.destroy.getMockImplementation();
+  req.session.destroy.mockImplementation((done?: (error?: Error) => void) => {
+    Reflect.deleteProperty(req, "sessionID");
+    destroy?.(done);
+  });
+  return req;
 }
 
 describe("the logout page", () => {
@@ -91,5 +109,33 @@ describe("the logout page", () => {
 
     expect(req.session.destroy).toHaveBeenCalled();
     expect(req.session.deedPoll.user).toBeUndefined();
+  });
+
+  describe("security events", () => {
+    it("should emit auth.logout with the subject and sid of the session being ended", async () => {
+      await GET(signedIn(), pageResponse());
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([
+        [
+          "auth.logout",
+          {
+            subject: "idam-subject-1",
+            sid: createHash("sha256").update(SESSION_ID).digest("hex").slice(0, 16),
+            env: "test",
+            method: "GET",
+            route: "/logout"
+          }
+        ]
+      ]);
+    });
+
+    it("should put no token, name or raw session id in the event", async () => {
+      await GET(signedIn(), pageResponse());
+
+      const serialised = JSON.stringify(vi.mocked(trackEvent).mock.calls);
+      for (const secret of ["an-id-token", "an-access-token", "An Admin", SESSION_ID, "@"]) {
+        expect(serialised).not.toContain(secret);
+      }
+    });
   });
 });

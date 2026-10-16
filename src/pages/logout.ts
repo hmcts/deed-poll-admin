@@ -7,11 +7,14 @@
  */
 import type { Request, Response } from "express";
 import { endSessionUrl } from "../auth/idam.js";
+import { securityEvent } from "../auth/security-events.js";
 import { sessionIdToken, signOut } from "../auth/session.js";
 import { idamSettings } from "../auth/settings.js";
 
 export const GET = async (req: Request, res: Response) => {
   const idToken = sessionIdToken(req);
+  // Before `signOut`, which takes the subject and the session id with it.
+  securityEvent("auth.logout", req);
   await signOut(req);
 
   const away = await endSessionUrl(idamSettings(), idToken);

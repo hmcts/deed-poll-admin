@@ -99,13 +99,13 @@ npx turbo test test:app --concurrency=1 --force
 
 **Files:** `src/pages/oauth2/callback.ts`, `src/pages/logout.ts`; their tests.
 
-- [ ] Emit `auth.login.succeeded` after `signIn`, with the new session's `sid`.
-- [ ] Emit `auth.login.failed`:
+- [x] Emit `auth.login.succeeded` after `signIn`, with the new session's `sid`.
+- [x] Emit `auth.login.failed`:
   - on IDAM's `?error=` (`reason: idam_error`; record IDAM's `error` code only, never `error_description`);
   - on a failed code exchange (`exchange_failed`).
-- [ ] Emit `auth.logout` before `signOut`, so it carries the old `sid`.
-- [ ] Tests assert each event and its properties. The serialised call contains no token, email or name.
-- [ ] Mark completed
+- [x] Emit `auth.logout` before `signOut`, so it carries the old `sid`.
+- [x] Tests assert each event and its properties. The serialised call contains no token, email or name.
+- [x] Mark completed
 
 ### Task 3: Forced sign-outs
 
@@ -185,6 +185,12 @@ cloud-native-platform 13 / 157, the rest unchanged; `session-store.test.ts` ran 
 are therefore in `src/auth/security-events.test-d.ts`, run through `tsc` by vitest's typecheck mode
 (`vitest.config.ts`, narrowed by `tsconfig.typecheck.json` because the root `tsconfig.json` has no `include`). Seen
 failing with an unused directive before being restored.
+
+Task 2, 2026-10-16: `yarn lint` exit 0 (the same one info); `yarn build` exit 0; the suite **203 files / 3,972 tests,
+0 skipped, no type errors** — app 95 / 1,740, the rest unchanged; `session-store.test.ts` ran (7 tests). IDAM's `error`
+code goes in `outcome`, the only allowlisted key that fits. Because the browser writes that query, a value that is not
+an RFC 6749-shaped code (`^[a-z_]{1,64}$`) is recorded as `unrecognised` rather than as attacker-chosen text. A
+bookmarked `/logout` with no session still emits `auth.logout`, with no subject.
 
 ## Post-Completion
 

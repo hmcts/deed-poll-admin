@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { currentUser, OVERRIDE_PRIVACY } from "@hmcts/deed-poll";
+import { trackEvent } from "@hmcts-cft/cloud-native-platform";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { callbackUrl, completeLogin } from "../../auth/idam.js";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
@@ -9,12 +11,39 @@ vi.mock("../../auth/idam.js", async (importOriginal) => ({
   completeLogin: vi.fn(),
   callbackUrl: vi.fn(() => new URL("http://localhost:3000/oauth2/callback?code=abc&state=a-state"))
 }));
+vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts-cft/cloud-native-platform")>()),
+  trackEvent: vi.fn()
+}));
 vi.mock("../../auth/settings.js", () => ({ idamSettings: () => ({ issuerUrl: "https://idam.example/o" }) }));
 
 const FLOW = { codeVerifier: "a-verifier", state: "a-state", returnTo: "/deed-polls/case-1" };
 
+const PRE_LOGIN_SESSION_ID = "pre-login-session-id";
+const SIGNED_IN_SESSION_ID = "signed-in-session-id";
+
 function callback(options: Parameters<typeof pageRequest>[0] = {}) {
-  return pageRequest({ signedIn: false, flow: FLOW, originalUrl: "/oauth2/callback?code=abc&state=a-state", ...options });
+  const req = Object.assign(pageRequest({ signedIn: false, flow: FLOW, originalUrl: "/oauth2/callback?code=abc&state=a-state", ...options }), {
+    sessionID: PRE_LOGIN_SESSION_ID,
+    method: "GET",
+    baseUrl: "",
+    path: "/oauth2/callback"
+  });
+  // express-session gives the regenerated session a new id, which is the one a signed-in event must carry.
+  const regenerate = req.session.regenerate.getMockImplementation();
+  req.session.regenerate.mockImplementation((done?: (error?: Error) => void) => {
+    req.sessionID = SIGNED_IN_SESSION_ID;
+    regenerate?.(done);
+  });
+  return req;
+}
+
+function sid(sessionId: string): string {
+  return createHash("sha256").update(sessionId).digest("hex").slice(0, 16);
+}
+
+function events(): [string, Record<string, string>][] {
+  return vi.mocked(trackEvent).mock.calls as [string, Record<string, string>][];
 }
 
 describe("the IDAM callback", () => {
@@ -22,6 +51,7 @@ describe("the IDAM callback", () => {
     vi.clearAllMocks();
     vi.mocked(completeLogin).mockResolvedValue({
       user: currentUser({ staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY] }, "A Team leader"),
+      subject: "idam-subject-1",
       tokens: {
         idToken: "an-id-token",
         accessToken: "an-access-token",
@@ -158,6 +188,60 @@ describe("the IDAM callback", () => {
 
       expect(res.render).toHaveBeenCalledWith("errors/403");
       expect(res.render.mock.calls[0][1]).toBeUndefined();
+    });
+  });
+
+  describe("security events", () => {
+    it("should emit auth.login.succeeded with the new session's subject and sid", async () => {
+      await GET(callback(), pageResponse());
+
+      expect(events()).toEqual([
+        ["auth.login.succeeded", { subject: "idam-subject-1", sid: sid(SIGNED_IN_SESSION_ID), env: "test", method: "GET", route: "/oauth2/callback" }]
+      ]);
+    });
+
+    it("should emit auth.login.failed with IDAM's error code and never its description", async () => {
+      await GET(callback({ query: { error: "access_denied", error_description: "User jane@example.com declined" } }), pageResponse());
+
+      expect(events()).toEqual([
+        [
+          "auth.login.failed",
+          { sid: sid(PRE_LOGIN_SESSION_ID), env: "test", method: "GET", route: "/oauth2/callback", reason: "idam_error", outcome: "access_denied" }
+        ]
+      ]);
+      expect(JSON.stringify(events())).not.toContain("declined");
+    });
+
+    it("should record an error code that is not one IDAM could send as unrecognised", async () => {
+      // The query is the browser's to write, so a crafted value must not reach the event as free text.
+      await GET(callback({ query: { error: "access_denied\nforged: line" } }), pageResponse());
+
+      expect(events()[0][1].outcome).toBe("unrecognised");
+    });
+
+    it("should emit auth.login.failed when the code exchange fails", async () => {
+      vi.mocked(completeLogin).mockRejectedValue(new Error("unexpected state parameter"));
+
+      await GET(callback(), pageResponse());
+
+      expect(events()).toEqual([
+        ["auth.login.failed", { sid: sid(PRE_LOGIN_SESSION_ID), env: "test", method: "GET", route: "/oauth2/callback", reason: "exchange_failed" }]
+      ]);
+    });
+
+    it("should emit nothing when there is no flow, because no login was attempted", async () => {
+      await GET(callback({ flow: undefined }), pageResponse());
+
+      expect(trackEvent).not.toHaveBeenCalled();
+    });
+
+    it("should put no token, name or raw session id in any event", async () => {
+      await GET(callback(), pageResponse());
+
+      const serialised = JSON.stringify(events());
+      for (const secret of ["an-id-token", "an-access-token", "a-refresh-token", "A Team leader", SIGNED_IN_SESSION_ID, "@"]) {
+        expect(serialised).not.toContain(secret);
+      }
     });
   });
 });
