@@ -412,6 +412,7 @@ export async function downloadDocument(caseId: string, documentId: string, confi
       contentType: response.headers.get("content-type") ?? "application/octet-stream",
       contentDisposition: response.headers.get("content-disposition"),
       contentSecurityPolicy: response.headers.get("content-security-policy"),
+      // Retained as upstream metadata; the download route enforces nosniff rather than trusting it.
       contentTypeOptions: response.headers.get("x-content-type-options")
     }
   };
