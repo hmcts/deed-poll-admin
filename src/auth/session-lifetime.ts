@@ -18,6 +18,7 @@ import { renderTimedOut } from "../pages/session-timed-out/index.js";
 import { endSessionUrl } from "./idam.js";
 import { isProbeOrAssetPath, isPublicPath } from "./require-auth.js";
 import { safeReturnTo } from "./return-to.js";
+import { securityEvent } from "./security-events.js";
 import { restartAfterTimeout, sessionIdToken, sessionTimestamps, sessionUser, touchLastSeen } from "./session.js";
 import { idamSettings } from "./settings.js";
 
@@ -81,8 +82,10 @@ function timeLeft(timestamps: ReturnType<typeof sessionTimestamps>, now: number,
 }
 
 async function endTimedOutSession(req: Request, res: Response, reason: EndReason, limits: SessionLifetimeLimits): Promise<void> {
-  // A plain line, with no identity or token. Adding the subject is the audit-logging plan's job (M9).
+  // A plain line, with no identity or token. The subject goes only in the event, which is read before the session
+  // is regenerated so it carries the ended session's sid rather than the fresh one's.
   console.warn(`session ended: ${reason}`);
+  securityEvent("auth.session.ended", req, { reason });
 
   const idToken = sessionIdToken(req);
   const away = await endSessionUrl(idamSettings(), idToken, limits.logoutPathRegistered ? TIMED_OUT_PATH : "/");

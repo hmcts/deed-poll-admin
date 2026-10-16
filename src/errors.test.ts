@@ -9,11 +9,18 @@
  * what keeps `/judicial/**` non-enumerable, and it is exactly the kind of deliberate mismatch a later reader
  * "corrects".
  */
+import { createHash } from "node:crypto";
 import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } from "@hmcts/deed-poll";
+import { trackEvent } from "@hmcts-cft/cloud-native-platform";
 import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { domainErrorHandler } from "./errors.js";
 import { pageResponse } from "./express-doubles.js";
+
+vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts-cft/cloud-native-platform")>()),
+  trackEvent: vi.fn()
+}));
 
 const REQUEST = { path: "/judicial/referrals" } as never;
 
@@ -116,6 +123,40 @@ describe("domainErrorHandler", () => {
       await domainErrorHandler()(new UnauthorizedError("deed-poll-api answered 401"), req, res, next);
 
       expect(res.render).toHaveBeenCalledWith("errors/401", { returnTo: null });
+    });
+
+    it("should emit api_401 with the subject and sid of the session it ends, read before ending it", async () => {
+      const req = {
+        method: "GET",
+        baseUrl: "/deed-polls",
+        path: "/c-1/notes/new",
+        originalUrl: "/deed-polls/c-1/notes/new?q=Smith",
+        sessionID: "a-refused-session-id",
+        session: { deedPoll: { subject: "idam-subject-1", accessToken: "a-refused-token" } } as Record<string, unknown>
+      };
+      // express-session drops the id and the data along with the session.
+      req.session.destroy = vi.fn((callback: (error?: Error) => void) => {
+        Reflect.deleteProperty(req, "sessionID");
+        Reflect.deleteProperty(req.session, "deedPoll");
+        callback();
+      });
+
+      await domainErrorHandler()(new UnauthorizedError("deed-poll-api answered 401"), req as never, pageResponse(), next);
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([
+        [
+          "auth.session.ended",
+          {
+            subject: "idam-subject-1",
+            sid: createHash("sha256").update("a-refused-session-id").digest("hex").slice(0, 16),
+            env: "test",
+            method: "GET",
+            route: "/deed-polls/c-1/notes/new",
+            reason: "api_401"
+          }
+        ]
+      ]);
+      expect(JSON.stringify(vi.mocked(trackEvent).mock.calls)).not.toContain("a-refused-token");
     });
 
     it("should hand a failure to end the session to the starter's handler", async () => {

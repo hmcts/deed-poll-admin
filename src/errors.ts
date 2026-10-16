@@ -17,6 +17,7 @@
  */
 import { ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } from "@hmcts/deed-poll";
 import type { ErrorRequestHandler, NextFunction, Request, Response } from "express";
+import { securityEvent } from "./auth/security-events.js";
 import { signOut } from "./auth/session.js";
 
 export function domainErrorHandler(): ErrorRequestHandler {
@@ -56,6 +57,8 @@ export function domainErrorHandler(): ErrorRequestHandler {
       // audience, say), whereas a link costs one click and cannot. Signing out first is what makes the link
       // honest, since `/login` with a live session would hand the same token straight back.
       console.error(`signing out after api refused the session's token: ${err.message}`);
+      // Before `signOut`, which takes the subject and the session id with it.
+      securityEvent("auth.session.ended", req, { reason: "api_401" });
       return signOut(req).then(
         // Back to the page they were on, but only for a read: a POST has nothing to return to, and `/login`
         // checks `returnTo` itself, so this is a convenience rather than a trust decision.

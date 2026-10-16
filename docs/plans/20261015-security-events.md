@@ -112,14 +112,14 @@ npx turbo test test:app --concurrency=1 --force
 **Files:** `src/auth/idam.ts` (`refreshTokens`), `src/auth/refresh-middleware.ts`, `src/errors.ts` (the api-401
 path), `src/auth/session-lifetime.ts`; their tests.
 
-- [ ] Apply decision 6. Update `refreshTokens`'s callers and tests.
-- [ ] Emit `auth.session.ended` with the right reason on each refresh-middleware sign-out path, in `errors.ts`'s api-401
+- [x] Apply decision 6. Update `refreshTokens`'s callers and tests.
+- [x] Emit `auth.session.ended` with the right reason on each refresh-middleware sign-out path, in `errors.ts`'s api-401
   path (`api_401`), and in `session-lifetime.ts`'s `endTimedOutSession` (`idle` | `absolute` | `untimed`). Read the
   `sid` before the session is ended.
-- [ ] Test each branch, including `subject_mismatch` as distinct from `refresh_refused`.
-- [ ] Existing refresh and session-lifetime tests are unchanged in behaviour (the same redirects, sign-outs and
+- [x] Test each branch, including `subject_mismatch` as distinct from `refresh_refused`.
+- [x] Existing refresh and session-lifetime tests are unchanged in behaviour (the same redirects, sign-outs and
   renders), and `session-lifetime-refresh.test.ts` is green.
-- [ ] Mark completed
+- [x] Mark completed
 
 ### Task 4: Persona switch
 
@@ -191,6 +191,12 @@ Task 2, 2026-10-16: `yarn lint` exit 0 (the same one info); `yarn build` exit 0;
 code goes in `outcome`, the only allowlisted key that fits. Because the browser writes that query, a value that is not
 an RFC 6749-shaped code (`^[a-z_]{1,64}$`) is recorded as `unrecognised` rather than as attacker-chosen text. A
 bookmarked `/logout` with no session still emits `auth.logout`, with no subject.
+
+Task 3, 2026-10-16: `yarn lint` exit 0 (the same one info); `yarn build` exit 0; the suite **203 files / 3,986 tests,
+0 skipped, no type errors** — app 95 / 1,754, the rest unchanged; `session-store.test.ts` ran (7 tests).
+`refreshTokens` answers `{ ok: false, reason: "invalid_grant" }`, which the middleware records as `refresh_refused`,
+or `subject_mismatch`, recorded as itself. A refresh that throws while the token still works ends nothing and emits
+nothing. `switch-persona.test.ts`'s `refreshTokens` stub moved to the new shape; its assertions are unchanged.
 
 ## Post-Completion
 

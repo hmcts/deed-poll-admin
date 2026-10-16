@@ -333,10 +333,13 @@ describe("a forced refresh after switching", () => {
     resetSettings();
     vi.mocked(loginAsPersona).mockResolvedValue(SWITCHED);
     vi.mocked(refreshTokens).mockResolvedValue({
-      idToken: "a-renewed-judge-id-token",
-      accessToken: "a-renewed-judge-access-token",
-      refreshToken: "a-rotated-judge-refresh-token",
-      expiresAt: 1_900_000_000
+      ok: true,
+      tokens: {
+        idToken: "a-renewed-judge-id-token",
+        accessToken: "a-renewed-judge-access-token",
+        refreshToken: "a-rotated-judge-refresh-token",
+        expiresAt: 1_900_000_000
+      }
     });
   });
 

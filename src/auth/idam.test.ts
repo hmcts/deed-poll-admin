@@ -331,6 +331,13 @@ describe("refreshTokens", () => {
     } as never;
   }
 
+  /** The tokens of a refresh that must have succeeded, failing the test with the refusal if it did not. */
+  async function refreshed(refreshToken = "a-refresh-token") {
+    const result = await refreshTokens(config, refreshToken, SUBJECT);
+    if (!result.ok) throw new Error(`refresh refused: ${result.reason}`);
+    return result.tokens;
+  }
+
   it("succeeds when the response carries no id token, which the spec permits", async () => {
     // OIDC Core §12.2: the refresh response is a normal token response "except that it might not
     // contain an id_token". Requiring one meant every refresh threw against a compliant issuer that
@@ -338,10 +345,10 @@ describe("refreshTokens", () => {
     // never been built, silently. This is the regression test for that.
     vi.mocked(client.refreshTokenGrant).mockResolvedValue(refreshResponse({ id_token: undefined }, undefined));
 
-    const tokens = await refreshTokens(config, "a-refresh-token", SUBJECT);
+    const tokens = await refreshed();
 
-    expect(tokens?.accessToken).toBe("a-new-access-token");
-    expect(tokens?.idToken).toBeUndefined();
+    expect(tokens.accessToken).toBe("a-new-access-token");
+    expect(tokens.idToken).toBeUndefined();
   });
 
   it("does not call userinfo, because no caller reads the result", async () => {
@@ -354,34 +361,34 @@ describe("refreshTokens", () => {
     expect(client.fetchUserInfo).not.toHaveBeenCalled();
   });
 
-  it("refuses a response whose id token names a different subject", async () => {
+  it("refuses a response whose id token names a different subject, and says that is why", async () => {
     // §12.2 requires the subject to be stable across a refresh, and `openid-client` does not enforce
     // it — its required-claims check is presence-only and it holds no expected subject for a token
     // response. Without this check a refresh could swap the identity behind a live session.
+    // The reason is distinct from invalid_grant because a substituted identity is worth an alert and a revoked token is not.
     vi.mocked(client.refreshTokenGrant).mockResolvedValue(refreshResponse({ id_token: "an-id-token" }, { sub: "someone-else@example.com" }));
 
-    await expect(refreshTokens(config, "a-refresh-token", SUBJECT)).resolves.toBeUndefined();
+    await expect(refreshTokens(config, "a-refresh-token", SUBJECT)).resolves.toEqual({ ok: false, reason: "subject_mismatch" });
   });
 
   it("accepts a response whose id token names the same subject", async () => {
     // The other side of the same check: one that only ever refused would pass if it refused everything.
     vi.mocked(client.refreshTokenGrant).mockResolvedValue(refreshResponse({ id_token: "an-id-token" }, { sub: SUBJECT }));
 
-    await expect(refreshTokens(config, "a-refresh-token", SUBJECT)).resolves.toMatchObject({ idToken: "an-id-token" });
+    await expect(refreshTokens(config, "a-refresh-token", SUBJECT)).resolves.toMatchObject({ ok: true, tokens: { idToken: "an-id-token" } });
   });
 
-  it("returns undefined on invalid_grant, so the caller signs out rather than retrying", async () => {
+  it("refuses with invalid_grant, so the caller signs out rather than retrying", async () => {
     vi.mocked(client.refreshTokenGrant).mockRejectedValue(
       new client.ResponseBodyError("invalid_grant", { cause: { error: "invalid_grant" }, response: new Response() })
     );
 
-    await expect(refreshTokens(config, "a-refresh-token", SUBJECT)).resolves.toBeUndefined();
+    await expect(refreshTokens(config, "a-refresh-token", SUBJECT)).resolves.toEqual({ ok: false, reason: "invalid_grant" });
   });
 
   it("propagates any other failure, so an outage is not read as a revoked token", async () => {
     // A caller that treated IDAM being down as "your session ended" would sign everyone out during a
-    // blip. The distinction is the whole reason this returns undefined for one case and throws for the
-    // other.
+    // blip. The distinction is the whole reason this refuses for one case and throws for the other.
     vi.mocked(client.refreshTokenGrant).mockRejectedValue(new Error("getaddrinfo EAI_AGAIN"));
 
     await expect(refreshTokens(config, "a-refresh-token", SUBJECT)).rejects.toThrow("EAI_AGAIN");
@@ -390,9 +397,9 @@ describe("refreshTokens", () => {
   it("takes a rotated refresh token when IDAM sends one", async () => {
     vi.mocked(client.refreshTokenGrant).mockResolvedValue(refreshResponse({ refresh_token: "a-rotated-token" }));
 
-    const tokens = await refreshTokens(config, "the-old-token", SUBJECT);
+    const tokens = await refreshed("the-old-token");
 
-    expect(tokens?.refreshToken).toBe("a-rotated-token");
+    expect(tokens.refreshToken).toBe("a-rotated-token");
   });
 
   it("keeps the existing refresh token when IDAM sends none", async () => {
@@ -400,19 +407,19 @@ describe("refreshTokens", () => {
     // reason the logs would explain.
     vi.mocked(client.refreshTokenGrant).mockResolvedValue(refreshResponse({ refresh_token: undefined }));
 
-    const tokens = await refreshTokens(config, "the-old-token", SUBJECT);
+    const tokens = await refreshed("the-old-token");
 
-    expect(tokens?.refreshToken).toBe("the-old-token");
+    expect(tokens.refreshToken).toBe("the-old-token");
   });
 
   it("takes the new expiry from the response rather than carrying the old one forward", async () => {
     const before = Math.floor(Date.now() / 1000);
     vi.mocked(client.refreshTokenGrant).mockResolvedValue(refreshResponse());
 
-    const tokens = await refreshTokens(config, "a-refresh-token", SUBJECT);
+    const tokens = await refreshed();
 
-    expect(tokens?.expiresAt).toBeGreaterThanOrEqual(before + 900);
-    expect(tokens?.expiresAt).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 900);
+    expect(tokens.expiresAt).toBeGreaterThanOrEqual(before + 900);
+    expect(tokens.expiresAt).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 900);
   });
 });
 

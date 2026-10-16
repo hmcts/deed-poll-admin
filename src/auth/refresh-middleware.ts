@@ -18,6 +18,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { fetchCallerAccess } from "./caller-access.js";
 import { describeIdamError, refreshTokens } from "./idam.js";
+import { securityEvent } from "./security-events.js";
 import {
   sessionAccessToken,
   sessionHoldsAccess,
@@ -53,6 +54,7 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
   // expired-token branch in the refresh failure below.
   if (expiresAt && expiresAt - now <= 0 && !refreshToken) {
     console.warn("Access token has expired and the session holds no refresh token — signing out");
+    securityEvent("auth.session.ended", req, { reason: "no_refresh_token" });
     await signOut(req);
     return res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
   }
@@ -76,6 +78,7 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
   const subject = sessionSubject(req);
   if (!subject) {
     console.warn("Session has no recorded IDAM subject, so its refresh cannot be verified — signing out");
+    securityEvent("auth.session.ended", req, { reason: "no_subject" });
     await signOut(req);
     return res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
   }
@@ -107,21 +110,23 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
     if (timeUntilExpiry > 0) return continueWithAccess(req, next);
 
     console.warn("Token refresh failed and the access token has expired — signing out");
+    securityEvent("auth.session.ended", req, { reason: "refresh_failed_expired" });
     await signOut(req);
     return res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
   }
 
   // Revoked, expired, refused — or a response describing a different subject. All mean this session is
-  // over rather than retryable.
-  if (!refreshed) {
+  // over rather than retryable, and only the event tells them apart: a substituted subject is worth an alert.
+  if (!refreshed.ok) {
     console.log("Token refresh was refused — signing out");
+    securityEvent("auth.session.ended", req, { reason: refreshed.reason === "subject_mismatch" ? "subject_mismatch" : "refresh_refused" });
     await signOut(req);
     return res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
   }
 
   // Refresh succeeded — update session with new tokens, and the answer for them if api gave one, and continue.
-  const access = await fetchCallerAccess(refreshed.accessToken, "refresh");
-  await updateTokens(req, refreshed, access);
+  const access = await fetchCallerAccess(refreshed.tokens.accessToken, "refresh");
+  await updateTokens(req, refreshed.tokens, access);
   next();
 }
 
