@@ -235,3 +235,24 @@ App Insights resource, and the query has not been run against AAT.
 - Alert rules over these events (denial bursts, login-failure bursts, any `subject_mismatch`, any persona switch
   outside AAT) are a later infra plan. Destinations are App Insights and Dynatrace (decided 2026-10-15).
 - Verify in AAT with the Task 7 query after deploying.
+
+### Post-run verification (Gale, 2026-10-16)
+
+ralphex completed all 7 tasks in 24 minutes. The internal review found no issues. The external review (Copilot
+`gpt-6-astra`, against `origin/master`) answered NO ISSUES FOUND in one 2-minute round, with no record of what it read,
+so it was **not counted**. The review of record is a direct, read-only Copilot `gpt-6-astra` run (08:20:54–08:24:47
+UTC, 72 tool calls). It ran `git diff origin/master...HEAD` and opened all 29 changed non-test files: **NO ISSUES
+FOUND**. Its event log and prompt are kept locally.
+
+Checked by hand:
+- **A forced rerun** (`turbo --force`, Redis up): **204 files / 4,059 tests** (from 3,948), typecheck "no errors" in
+  every package, `session-store.test.ts` ran. `yarn lint` clean, `yarn build` clean.
+- **The type test can fail.** An allowed key under the `@ts-expect-error` gives "Unused '@ts-expect-error' directive".
+  It runs because `vitest.config.ts` enables typecheck mode for `*.test-d.ts`; `yarn build` excludes test files, which
+  this plan's own Task 1 note had wrongly assumed.
+- **#180's `/me` invariants.** `fetchCallerAccess` and `updateTokens` follow only a successful `refreshTokens`. The
+  backfill and `loginFrom`'s `/me` call are untouched. `refresh-middleware.test.ts`, `session.test.ts` and
+  `session-lifetime-refresh.test.ts` pass.
+- **Every ending event fires before `signOut` or the timeout restart.**
+- **Fixed:** `CLAUDE.md`'s link to this plan, which moved to `completed/`.
+

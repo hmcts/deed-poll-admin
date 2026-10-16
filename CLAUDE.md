@@ -382,7 +382,7 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
 ## Security events
 
 Sign-ins, sign-outs, persona switches and refusals go to App Insights as `customEvents`
-(`docs/plans/20261015-security-events.md`; the AAT query is in `docs/DEPLOYMENT.md`). They are about the session
+(`docs/plans/completed/20261015-security-events.md`; the AAT query is in `docs/DEPLOYMENT.md`). They are about the session
 only — api keeps the audit trail of writes and reads, and this app must not duplicate it.
 
 - **A new security-relevant path emits through `securityEvent(name, req, props)`** (`src/auth/security-events.ts`).
