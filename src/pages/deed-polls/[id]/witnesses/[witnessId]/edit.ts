@@ -42,6 +42,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../../../../auth/current-user.js";
+import { forLog } from "../../../../../for-log.js";
 
 const FIELD_ORDER = ["witnessName", "witnessAddress", "witnessOccupation", "declarant"];
 
@@ -118,7 +119,7 @@ export const POST = async (req: Request, res: Response) => {
   } catch (error) {
     if (error instanceof InvalidInputError) {
       if (error.errors.length === 0) {
-        console.error(`witness save refused with no field named: ${error.message}`);
+        console.error(`witness save refused with no field named: ${forLog(error.message)}`);
         return rerender(req, res, {}, en.witnessRefused);
       }
       return rerender(req, res, apiMessages(error.errors));

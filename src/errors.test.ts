@@ -9,13 +9,20 @@
  * what keeps `/judicial/**` non-enumerable, and it is exactly the kind of deliberate mismatch a later reader
  * "corrects".
  */
+import { createHash } from "node:crypto";
 import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } from "@hmcts/deed-poll";
+import { trackEvent } from "@hmcts-cft/cloud-native-platform";
 import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { domainErrorHandler } from "./errors.js";
 import { pageResponse } from "./express-doubles.js";
 
-const REQUEST = { path: "/judicial/referrals" } as never;
+vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts-cft/cloud-native-platform")>()),
+  trackEvent: vi.fn()
+}));
+
+const REQUEST = { path: "/judicial/referrals", session: {} } as never;
 
 describe("domainErrorHandler", () => {
   let next: NextFunction;
@@ -59,6 +66,86 @@ describe("domainErrorHandler", () => {
 
     expect(error).toHaveBeenCalledWith(expect.stringContaining("/judicial/referrals requires judicial access"));
     error.mockRestore();
+  });
+
+  it("should log an api message on one line when the message carries a newline", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    domainErrorHandler()(new ForbiddenError("refused\nINFO auth.login.succeeded subject=forged"), REQUEST, pageResponse(), next);
+
+    expect(error).toHaveBeenCalledWith("forbidden: refusedINFO auth.login.succeeded subject=forged");
+    error.mockRestore();
+  });
+
+  describe("security events for a refusal", () => {
+    const refusedRequest = {
+      method: "POST",
+      baseUrl: "",
+      path: "/deed-polls/gazette/batch",
+      originalUrl: "/deed-polls/gazette/batch?q=Smith",
+      sessionID: "a-refused-session-id",
+      session: { deedPoll: { subject: "idam-subject-1", accessToken: "a-refused-token" } }
+    } as never;
+    const common = {
+      subject: "idam-subject-1",
+      sid: createHash("sha256").update("a-refused-session-id").digest("hex").slice(0, 16),
+      env: "test",
+      method: "POST",
+      route: "/deed-polls/gazette/batch"
+    };
+
+    beforeEach(() => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    it("should emit one authz.denied from the role gate, with the capability it wanted", () => {
+      const error = new ForbiddenError("/deed-polls/gazette/batch requires ACCESS_GAZETTE", {
+        reason: "role",
+        requiredCapability: "ACCESS_GAZETTE"
+      });
+
+      domainErrorHandler()(error, refusedRequest, pageResponse(), next);
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([["authz.denied", { ...common, source: "role", requiredCapability: "ACCESS_GAZETTE" }]]);
+    });
+
+    it("should emit one authz.denied sourced to api when api refuses, which is what a bare ForbiddenError means", () => {
+      domainErrorHandler()(new ForbiddenError("Gazette access refused"), refusedRequest, pageResponse(), next);
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([["authz.denied", { ...common, source: "api" }]]);
+    });
+
+    it("should emit one csrf.refused, not authz.denied, for a cross-site write", () => {
+      const error = new ForbiddenError("POST /deed-polls/gazette/batch from a same-site initiator", {
+        reason: "same-origin",
+        fetchSite: "same-site"
+      });
+
+      domainErrorHandler()(error, refusedRequest, pageResponse(), next);
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([["csrf.refused", { ...common, fetchSite: "same-site" }]]);
+    });
+
+    it("should record the origin's host for a cross-site write from a browser without fetch metadata", () => {
+      const error = new ForbiddenError("POST /deed-polls/gazette/batch from cross-origin https://evil.example", {
+        reason: "same-origin",
+        originHost: "evil.example"
+      });
+
+      domainErrorHandler()(error, refusedRequest, pageResponse(), next);
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([["csrf.refused", { ...common, originHost: "evil.example" }]]);
+    });
+
+    it("should keep the token, the query string and the log message out of the event", () => {
+      domainErrorHandler()(new ForbiddenError("Gazette access refused"), refusedRequest, pageResponse(), next);
+
+      const serialised = JSON.stringify(vi.mocked(trackEvent).mock.calls);
+      expect(serialised).not.toContain("a-refused-token");
+      expect(serialised).not.toContain("Smith");
+      expect(serialised).not.toContain("a-refused-session-id");
+      expect(serialised).not.toContain("Gazette access refused");
+    });
   });
 
   // A handler that validates input is expected to catch this and re-render its form with the errors against the
@@ -116,6 +203,40 @@ describe("domainErrorHandler", () => {
       await domainErrorHandler()(new UnauthorizedError("deed-poll-api answered 401"), req, res, next);
 
       expect(res.render).toHaveBeenCalledWith("errors/401", { returnTo: null });
+    });
+
+    it("should emit api_401 with the subject and sid of the session it ends, read before ending it", async () => {
+      const req = {
+        method: "GET",
+        baseUrl: "/deed-polls",
+        path: "/c-1/notes/new",
+        originalUrl: "/deed-polls/c-1/notes/new?q=Smith",
+        sessionID: "a-refused-session-id",
+        session: { deedPoll: { subject: "idam-subject-1", accessToken: "a-refused-token" } } as Record<string, unknown>
+      };
+      // express-session drops the id and the data along with the session.
+      req.session.destroy = vi.fn((callback: (error?: Error) => void) => {
+        Reflect.deleteProperty(req, "sessionID");
+        Reflect.deleteProperty(req.session, "deedPoll");
+        callback();
+      });
+
+      await domainErrorHandler()(new UnauthorizedError("deed-poll-api answered 401"), req as never, pageResponse(), next);
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([
+        [
+          "auth.session.ended",
+          {
+            subject: "idam-subject-1",
+            sid: createHash("sha256").update("a-refused-session-id").digest("hex").slice(0, 16),
+            env: "test",
+            method: "GET",
+            route: "/deed-polls/c-1/notes/new",
+            reason: "api_401"
+          }
+        ]
+      ]);
+      expect(JSON.stringify(vi.mocked(trackEvent).mock.calls)).not.toContain("a-refused-token");
     });
 
     it("should hand a failure to end the session to the starter's handler", async () => {

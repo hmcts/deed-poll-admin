@@ -49,6 +49,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
+import { forLog } from "../../../../for-log.js";
 
 const POOL_PATH = "/judicial/referrals";
 
@@ -249,7 +250,7 @@ function apiRefused(req: Request, res: Response, error: InvalidInputError) {
   const body = (req.body ?? {}) as Record<string, unknown>;
 
   if (unplaceable.length > 0 || placed.length === 0) {
-    console.error(`direction refused with rejections this form cannot place (${unplaceable.join(", ") || "no field named"}): ${error.message}`);
+    console.error(`direction refused with rejections this form cannot place (${unplaceable.join(", ") || "no field named"}): ${forLog(error.message)}`);
     return rerender(req, res, 400, values(body), Object.fromEntries(placed.map((field) => [field, messages[field]])), content(res).directionRefused);
   }
 

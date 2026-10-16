@@ -379,6 +379,42 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
   `libs/deed-poll/src/api/deed-poll-api.ts` is what replaced the Postgres table check: a probe that went
   green while api was unreachable would have Kubernetes send traffic to a pod that 500s every case page.
 
+## Security events
+
+Sign-ins, sign-outs, persona switches and refusals go to App Insights as `customEvents`
+(`docs/plans/completed/20261015-security-events.md`; the AAT query is in `docs/DEPLOYMENT.md`). They are about the session
+only — api keeps the audit trail of writes and reads, and this app must not duplicate it.
+
+- **A new security-relevant path emits through `securityEvent(name, req, props)`** (`src/auth/security-events.ts`).
+  Nothing calls `trackEvent` from `@hmcts-cft/cloud-native-platform` directly: the emitter is what fills in `sid`,
+  `env`, `method`, `route` and `subject`, and what keeps the names and keys closed. Without an App Insights client
+  `trackEvent` writes one JSON `console.info` line, so local runs and tests still show the event.
+- **The vocabulary is a closed union, `SecurityEventName`:** `auth.login.succeeded`, `auth.login.failed`
+  (`reason`: `idam_error` | `exchange_failed`; IDAM's `error` code in `outcome`, or `unrecognised`), `auth.logout`,
+  `auth.session.ended` (`reason`: `no_refresh_token` | `no_subject` | `refresh_refused` | `refresh_failed_expired` |
+  `subject_mismatch` | `api_401` | `idle` | `absolute` | `untimed`), `auth.persona.switched`,
+  `auth.persona.switch_failed`, `authz.denied` (`source`: `role` | `api`, plus `requiredCapability` when known) and
+  `csrf.refused` (`fetchSite` or `originHost`). A new name is a change to the union and to its test, not a string.
+- **The properties are a closed allowlist, `SecurityEventProperties`**, and an unknown key is a compile error, checked
+  by `src/auth/security-events.test-d.ts` under vitest's typecheck mode — `yarn build` excludes test files, so it
+  would not catch one. The rules behind the keys:
+  - **`route` is `req.baseUrl + req.path`, never `originalUrl` or `url`**, because a search's query string carries
+    names. Callers cannot set it.
+  - **`sid` is the first 16 hex characters of `sha256(req.sessionID)`**, never the raw id. Emit **before** `signOut`
+    so an ending event carries the old session, and **after** `signIn` so a login carries the new one.
+  - **`subject` is the IDAM subject from `sessionSubject(req)`.** Never an email address or a display name.
+  - **Never a token, secret, raw session id, cookie, email address, display name or applicant data**, test fixtures
+    included. A value the browser or IDAM chose (an `error` code, a `Sec-Fetch-Site`, an `Origin`) is recorded only if
+    it has the expected shape — otherwise `unrecognised`, or the host alone, or nothing — and never as prose.
+- **Every 403 is emitted in one place, `src/errors.ts`.** `ForbiddenError` carries `reason` (`role`, `same-origin` or
+  the default `api`, which `callApi` raises) and the gate's details; `requireJudicial`, `requireCapability` and
+  `same-origin.ts` set them, and `errors.ts` maps them to `authz.denied` or `csrf.refused`. Do not emit a refusal at
+  the gate as well, or it is counted twice. The one 403 outside it is `requireAuth`'s refusal of an unauthenticated non-GET request, which has no
+  session subject to record and is deliberately not an event.
+- **An api error message reaches a log only through `forLog`** (`src/for-log.ts`), which strips CR, LF, ANSI escapes
+  and other control characters and caps the text at 500 characters. `src/for-log.test.ts` scans `src/pages` and fails
+  a `console.*` call that interpolates `.message` without it.
+
 # Agent instructions
 
 Claude must follow these instructions strictly when contributing code. Rules and conventions are mandatory and must be adhered to without exception. After implementing code, Claude must review it to ensure full compliance with these guidelines.

@@ -53,6 +53,7 @@ import { randomUUID } from "node:crypto";
 import { InvalidInputError, previewCaseEmail, validateEmailSlots } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
+import { forLog } from "../../../../../for-log.js";
 import { en as composeEn, type EmailJourney, hasControl, loadEmailJourney, renderCompose, submittedSlots } from "./compose.js";
 
 export const en = {
@@ -178,7 +179,7 @@ export function renderContentRejection(res: Response, journey: EmailJourney, slo
 
   if (unplaceable.length > 0) {
     console.error(
-      `email ${step} refused with rejections this form cannot place (${unplaceable.map((rejection) => rejection.field).join(", ")}): ${error.message}`
+      `email ${step} refused with rejections this form cannot place (${unplaceable.map((rejection) => rejection.field).join(", ")}): ${forLog(error.message)}`
     );
   }
 

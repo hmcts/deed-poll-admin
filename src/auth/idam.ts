@@ -113,6 +113,8 @@ export interface IdamTokens {
   expiresAt: number;
 }
 
+export type RefreshResult = { ok: true; tokens: IdamTokens } | { ok: false; reason: "invalid_grant" | "subject_mismatch" };
+
 export interface LoginResult {
   user: ReturnType<typeof userFromClaims>;
   /**
@@ -211,9 +213,10 @@ export function callbackUrl(config: IdamConfig, req: Request): URL {
 /**
  * Exchange a refresh token for a fresh access token, without re-authenticating the user.
  *
- * Returns `undefined` when the refresh must not be honoured — the token was revoked or expired, or the
- * response describes a different subject. Both mean the same thing to the caller: sign out and make the
- * user log in again. Throws only on faults that might be transient (network, IDAM down), so the caller
+ * Refuses when the refresh must not be honoured — the token was revoked or expired (`invalid_grant`), or the
+ * response describes a different subject (`subject_mismatch`). Both mean the same thing to the caller: sign out
+ * and make the user log in again. They are told apart only so a substituted identity can be alerted on, which a
+ * revoked token is not worth. Throws only on faults that might be transient (network, IDAM down), so the caller
  * can distinguish "this session is over" from "try again".
  *
  * **Returns tokens only, and does not read `/o/userinfo`.** It used to build a `CurrentUser` from
@@ -238,7 +241,7 @@ export function callbackUrl(config: IdamConfig, req: Request): URL {
  * **IDAM may rotate the refresh token.** When the response carries a new one it replaces the old, which
  * is now spent; when it does not, the original stays valid and is carried forward.
  */
-export async function refreshTokens(config: IdamConfig, refreshToken: string, expectedSubject: string): Promise<IdamTokens | undefined> {
+export async function refreshTokens(config: IdamConfig, refreshToken: string, expectedSubject: string): Promise<RefreshResult> {
   const configuration = await idamConfiguration(config);
 
   // The helpers half of the type matters: `claims()` and `expiresIn()` live there, and annotating this
@@ -250,7 +253,7 @@ export async function refreshTokens(config: IdamConfig, refreshToken: string, ex
     // Refresh token is invalid/revoked/expired — this is a normal flow, not an error to log.
     // The caller should sign out and force re-authentication.
     if (error instanceof client.ResponseBodyError && error.error === "invalid_grant") {
-      return undefined;
+      return { ok: false, reason: "invalid_grant" };
     }
     // Some other error (network, IDAM down, unexpected response) — let it bubble up so the caller
     // can decide whether to retry or give up.
@@ -261,14 +264,17 @@ export async function refreshTokens(config: IdamConfig, refreshToken: string, ex
   if (subject !== undefined && subject !== expectedSubject) {
     // Refusing rather than throwing: this is not a fault to retry, it is a session to end.
     console.error("IDAM refresh returned a different subject than the session was established with");
-    return undefined;
+    return { ok: false, reason: "subject_mismatch" };
   }
 
   return {
-    idToken: tokens.id_token,
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token ?? refreshToken,
-    expiresAt: expiresAtFrom(tokens)
+    ok: true,
+    tokens: {
+      idToken: tokens.id_token,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token ?? refreshToken,
+      expiresAt: expiresAtFrom(tokens)
+    }
   };
 }
 

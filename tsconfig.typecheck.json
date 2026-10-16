@@ -1,0 +1,24 @@
+{
+  // For vitest's typecheck mode only (`vitest.config.ts`). `tsconfig.json` deliberately has no `include`, so
+  // `tsc` against it compiles every file in the repository, and the runtime test files are not written to
+  // type-check. This narrows `tsc` to the type-level tests and whatever they import.
+  //
+  // The `paths` are restated to name each library's `index.ts` rather than its `src` directory. Under
+  // `nodenext` an ESM import cannot resolve a directory to its index, so the directory form misses and `tsc`
+  // falls through to the package's `exports` — the built `dist`. Jenkins runs `yarn test` before any build,
+  // so there that is "Cannot find module" (PR #184 build 2); locally a built `dist` hides it.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "@hmcts-cft/express-govuk-starter": ["./libs/express-govuk-starter/src/index.ts"],
+      "@hmcts-cft/express-session-postgres": ["./libs/express-session-postgres/src/index.ts"],
+      "@hmcts-cft/express-session-redis": ["./libs/express-session-redis/src/index.ts"],
+      "@hmcts-cft/cloud-native-platform": ["./libs/cloud-native-platform/src/index.ts"],
+      "@hmcts-cft/simple-router": ["./libs/simple-router/src/index.ts"],
+      "@hmcts/deed-poll": ["./libs/deed-poll/src/index.ts"],
+      "@hmcts/deed-poll-api-client": ["./libs/deed-poll-api-client/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.test-d.ts", "libs/*/src/**/*.test-d.ts"]
+}

@@ -25,12 +25,35 @@ export class NotFoundError extends Error {
  * Authorisation is a domain rule here, not a transport one — which role gates which
  * operation is part of the deed-poll model (see `auth/roles.ts`), so the error belongs
  * with the other domain errors even though only the apps currently throw it.
+ *
+ * `reason` says which gate refused, so the app's one error mapping can record the refusal as the right security
+ * event. It defaults to `"api"` because that is what `callApi` raises; the app's own gates set it, along with the
+ * one detail each can safely record. The details are bounded values, never the message: the message is free text
+ * for the log.
  */
 export class ForbiddenError extends Error {
-  constructor(message: string) {
+  readonly reason: ForbiddenReason;
+  readonly requiredCapability?: string;
+  readonly fetchSite?: string;
+  readonly originHost?: string;
+
+  constructor(message: string, details: ForbiddenDetails = {}) {
     super(message);
     this.name = "ForbiddenError";
+    this.reason = details.reason ?? "api";
+    this.requiredCapability = details.requiredCapability;
+    this.fetchSite = details.fetchSite;
+    this.originHost = details.originHost;
   }
+}
+
+export type ForbiddenReason = "role" | "same-origin" | "api";
+
+export interface ForbiddenDetails {
+  reason?: ForbiddenReason;
+  requiredCapability?: string;
+  fetchSite?: string;
+  originHost?: string;
 }
 
 /**

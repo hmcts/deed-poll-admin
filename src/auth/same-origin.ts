@@ -43,7 +43,7 @@
  * Refuses with `next(new ForbiddenError(...))` and renders nothing, so the status and how much it discloses
  * both stay in the one mapping in `src/errors.ts` — the shape `./require-role.ts` uses.
  */
-import { ForbiddenError } from "@hmcts/deed-poll";
+import { type ForbiddenDetails, ForbiddenError } from "@hmcts/deed-poll";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 
 /**
@@ -64,6 +64,15 @@ const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  */
 const PERMITTED_FETCH_SITES = new Set(["same-origin", "none"]);
 
+/**
+ * The refused `Sec-Fetch-Site` values the specification defines, which are all the security event records verbatim.
+ * A page cannot set the header but a script can, so anything else is recorded as `unrecognised` rather than as text
+ * the sender chose.
+ */
+const REFUSED_FETCH_SITES = new Set(["same-site", "cross-site"]);
+
+const MAX_HOST_LENGTH = 253;
+
 export function requireSameOrigin(): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!UNSAFE_METHODS.has(req.method)) return next();
@@ -73,16 +82,18 @@ export function requireSameOrigin(): RequestHandler {
 
     // For the log, never for the user: `errors.ts` renders the shared "Page not found" view. It names what
     // the headers said, because that is the only thing identifying which sibling service — or which
-    // compromised page in one — sent the request, and nobody could reconstruct it afterwards.
-    next(new ForbiddenError(`${req.method} ${req.originalUrl} ${refusal}`));
+    // compromised page in one — sent the request, and nobody could reconstruct it afterwards. The event gets
+    // only the bounded detail, never this text.
+    next(new ForbiddenError(`${req.method} ${req.originalUrl} ${refusal.text}`, { reason: "same-origin", ...refusal.details }));
   };
 }
 
 /** Why this write is not one of this app's own pages, or `undefined` if there is no reason to think it is not. */
-function crossSiteRefusal(req: Request): string | undefined {
+function crossSiteRefusal(req: Request): Refusal | undefined {
   const site = req.get("sec-fetch-site");
   if (site !== undefined) {
-    return PERMITTED_FETCH_SITES.has(site) ? undefined : `from a ${site} initiator`;
+    if (PERMITTED_FETCH_SITES.has(site)) return undefined;
+    return { text: `from a ${site} initiator`, details: { fetchSite: REFUSED_FETCH_SITES.has(site) ? site : "unrecognised" } };
   }
 
   // Only a browser too old to send fetch metadata reaches here. `null` is not evidence either way — this
@@ -91,7 +102,7 @@ function crossSiteRefusal(req: Request): string | undefined {
   const origin = req.get("origin");
   if (origin === undefined || origin === "null") return undefined;
 
-  return isSameHost(origin, req) ? undefined : `from cross-origin ${origin}`;
+  return isSameHost(origin, req) ? undefined : { text: `from cross-origin ${origin}`, details: { originHost: hostOf(origin) } };
 }
 
 /**
@@ -106,9 +117,21 @@ function isSameHost(origin: string, req: Request): boolean {
   const host = req.get("host");
   if (!host) return false;
 
+  return hostOf(origin) === host.toLowerCase();
+}
+
+/** The host alone, because a full origin is not a value the security event's `originHost` admits. */
+function hostOf(origin: string): string | undefined {
   try {
-    return new URL(origin).host.toLowerCase() === host.toLowerCase();
+    const host = new URL(origin).host.toLowerCase();
+    // 253 is a DNS name's limit, so a longer value is not a host and must not reach a telemetry property.
+    return host && host.length <= MAX_HOST_LENGTH ? host : undefined;
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+interface Refusal {
+  text: string;
+  details: Pick<ForbiddenDetails, "fetchSite" | "originHost">;
 }

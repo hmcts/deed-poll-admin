@@ -17,6 +17,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
 import { GET } from "./mine.js";
 
+// The router below imports every page, and two of them emit security events through the platform package, whose
+// index loads the App Insights SDK. That cold load took this file's first request from under a second to over ten
+// under coverage, past the test timeout. Dispatch is this file's subject, not monitoring, so the package is a stub
+// here, and deliberately not `importOriginal`, which would load the SDK anyway.
+vi.mock("@hmcts-cft/cloud-native-platform", () => ({ trackEvent: vi.fn() }));
+
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
   listMyReferrals: vi.fn(),

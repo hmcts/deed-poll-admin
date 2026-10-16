@@ -12,6 +12,8 @@
  * `refreshTokens` is stubbed here, since its own behaviour is covered in `idam.test.ts`, and so is
  * `fetchCallerAccess`, whose failure is already its `undefined`.
  */
+import { createHash } from "node:crypto";
+import { trackEvent } from "@hmcts-cft/cloud-native-platform";
 import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageResponse, type RequestDouble, type ResponseDouble, sessionDouble } from "../express-doubles.js";
@@ -26,6 +28,11 @@ vi.mock("./idam.js", async (importOriginal) => ({
 
 vi.mock("./caller-access.js", () => ({ fetchCallerAccess: vi.fn() }));
 
+vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts-cft/cloud-native-platform")>()),
+  trackEvent: vi.fn()
+}));
+
 vi.mock("./settings.js", () => ({
   idamSettings: () => ({
     issuerUrl: "https://hmcts-access.aat.platform.hmcts.net/o",
@@ -36,7 +43,9 @@ vi.mock("./settings.js", () => ({
   })
 }));
 
-const SUBJECT = "admin@example.com";
+const SUBJECT = "idam-subject-1";
+const SESSION_ID = "a-refreshing-session-id";
+const REFUSED = { ok: false, reason: "invalid_grant" } as const;
 const TEAM_LEADER = {
   staff: true,
   judicial: false,
@@ -86,10 +95,25 @@ function request(without: (keyof SessionState)[] = [], overrides: SessionState =
 
   for (const field of without) delete deedPoll[field];
 
-  return {
+  const req = {
+    method: "GET",
+    baseUrl: "",
+    path: "/deed-polls",
     originalUrl: "/deed-polls",
+    sessionID: SESSION_ID,
     session: sessionDouble(deedPoll as Record<string, unknown>)
   } as unknown as RequestDouble;
+  // express-session drops the id along with the session, so an event emitted afterwards would carry no sid.
+  const destroy = req.session.destroy.getMockImplementation();
+  req.session.destroy.mockImplementation((done?: (error?: Error) => void) => {
+    Reflect.deleteProperty(req, "sessionID");
+    destroy?.(done);
+  });
+  return req;
+}
+
+function events(): [string, Record<string, string>][] {
+  return vi.mocked(trackEvent).mock.calls as [string, Record<string, string>][];
 }
 
 let next: NextFunction;
@@ -99,7 +123,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   next = vi.fn();
   res = pageResponse();
-  vi.mocked(refreshTokens).mockResolvedValue({ accessToken: "a-new-access-token", refreshToken: "a-refresh-token", expiresAt: expiringIn(900) });
+  vi.mocked(refreshTokens).mockResolvedValue({
+    ok: true,
+    tokens: { accessToken: "a-new-access-token", refreshToken: "a-refresh-token", expiresAt: expiringIn(900) }
+  });
   vi.mocked(fetchCallerAccess).mockResolvedValue(undefined);
 });
 
@@ -175,9 +202,9 @@ describe("refreshMiddleware", () => {
   });
 
   it("signs out when the refresh is refused", async () => {
-    // `refreshTokens` answers undefined for a revoked or expired token and for a response naming a
-    // different subject. Both mean this session is over, so neither may continue into the request.
-    vi.mocked(refreshTokens).mockResolvedValue(undefined);
+    // `refreshTokens` refuses a revoked or expired token and a response naming a different subject. Both
+    // mean this session is over, so neither may continue into the request.
+    vi.mocked(refreshTokens).mockResolvedValue(REFUSED);
     const req = request();
 
     await refreshMiddleware(req, res, next);
@@ -225,12 +252,85 @@ describe("refreshMiddleware", () => {
   });
 
   it("carries the attempted URL into the login redirect, so the user lands where they were going", async () => {
-    vi.mocked(refreshTokens).mockResolvedValue(undefined);
+    vi.mocked(refreshTokens).mockResolvedValue(REFUSED);
     const req = { ...request(), originalUrl: "/deed-polls/case-1/notes" } as RequestDouble;
 
     await refreshMiddleware(req, res, next);
 
     expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2Fdeed-polls%2Fcase-1%2Fnotes");
+  });
+});
+
+describe("refreshMiddleware's security events", () => {
+  const SID = createHash("sha256").update(SESSION_ID).digest("hex").slice(0, 16);
+
+  const ended = (reason: string) => ["auth.session.ended", { subject: SUBJECT, sid: SID, env: "test", method: "GET", route: "/deed-polls", reason }];
+
+  it("should emit no_refresh_token when an expired token has nothing to refresh it with", async () => {
+    await refreshMiddleware(request(["refreshToken"], { tokenExpiresAt: expiringIn(-30) }), res, next);
+
+    expect(events()).toEqual([ended("no_refresh_token")]);
+  });
+
+  it("should emit no_subject, with no subject, for a session that recorded none", async () => {
+    await refreshMiddleware(request(["subject"]), res, next);
+
+    expect(events()).toEqual([["auth.session.ended", { sid: SID, env: "test", method: "GET", route: "/deed-polls", reason: "no_subject" }]]);
+  });
+
+  it("should emit refresh_refused when IDAM refuses the refresh token", async () => {
+    vi.mocked(refreshTokens).mockResolvedValue(REFUSED);
+
+    await refreshMiddleware(request(), res, next);
+
+    expect(events()).toEqual([ended("refresh_refused")]);
+  });
+
+  it("should emit subject_mismatch, not refresh_refused, when the refresh names somebody else", async () => {
+    // The one sign-out here that says a session was being handed to another identity, so it must be alertable alone.
+    vi.mocked(refreshTokens).mockResolvedValue({ ok: false, reason: "subject_mismatch" });
+    const req = request();
+
+    await refreshMiddleware(req, res, next);
+
+    expect(events()).toEqual([ended("subject_mismatch")]);
+    expect(req.session.destroy).toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2Fdeed-polls");
+  });
+
+  it("should emit refresh_failed_expired when the refresh throws and the token has expired", async () => {
+    vi.mocked(refreshTokens).mockRejectedValue(new Error("getaddrinfo EAI_AGAIN"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await refreshMiddleware(request([], { tokenExpiresAt: expiringIn(-30) }), res, next);
+
+    expect(events()).toEqual([ended("refresh_failed_expired")]);
+  });
+
+  it("should emit nothing when the refresh throws while the token still works, because the session goes on", async () => {
+    vi.mocked(refreshTokens).mockRejectedValue(new Error("getaddrinfo EAI_AGAIN"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await refreshMiddleware(request(), res, next);
+
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it("should emit nothing for a successful refresh", async () => {
+    await refreshMiddleware(request(), res, next);
+
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it("should put no token or raw session id in the event", async () => {
+    vi.mocked(refreshTokens).mockResolvedValue(REFUSED);
+
+    await refreshMiddleware(request([], { accessToken: "an-access-token" }), res, next);
+
+    const serialised = JSON.stringify(events());
+    for (const secret of ["a-refresh-token", "an-access-token", SESSION_ID, "An Admin", "@"]) {
+      expect(serialised).not.toContain(secret);
+    }
   });
 });
 

@@ -35,7 +35,8 @@
 import type { NextFunction, Request, Response } from "express";
 import { personaFor, personaSwitcherEnabled, personaSwitcherView } from "../auth/persona-switcher.js";
 import { loginAsPersona } from "../auth/persona-users.js";
-import { signIn } from "../auth/session.js";
+import { securityEvent } from "../auth/security-events.js";
+import { sessionSubject, signIn } from "../auth/session.js";
 import { idamSettings } from "../auth/settings.js";
 
 /**
@@ -63,6 +64,8 @@ export const POST = async (req: Request, res: Response, next: NextFunction) => {
 
   const switched = await loginAsPersona(idamSettings(), persona);
   if (!switched.ok) {
+    // Not the reason: it is prose that may quote IDAM's own error text, and the persona id says which one failed.
+    securityEvent("auth.persona.switch_failed", req, { personaId: persona.id });
     // 503 and not 400: nothing the tester sent is wrong, and nothing they can retype makes it work. It is also
     // not a 500 — this is a known state of a known environment, and the page names it.
     //
@@ -79,7 +82,11 @@ export const POST = async (req: Request, res: Response, next: NextFunction) => {
     });
   }
 
+  // Before `signIn`, which replaces the subject.
+  const fromSubject = sessionSubject(req);
   await signIn(req, switched.login.user, switched.login.subject, switched.login.tokens);
+  // After it, so the sid is the regenerated session's.
+  securityEvent("auth.persona.switched", req, { fromSubject, toSubject: switched.login.subject, personaId: persona.id });
 
   // `/` and not a list path: `src/pages/index.ts` decides which home the new persona gets, and a destination
   // chosen here would be a second copy of that routing — wrong for the judge the day it drifts.

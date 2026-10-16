@@ -43,6 +43,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
+import { forLog } from "../../../../../for-log.js";
 
 // The order the controls appear in, so the error summary reads down the page rather than in whatever order the
 // issues arrived.
@@ -151,7 +152,7 @@ function apiRefused(req: Request, res: Response, error: InvalidInputError) {
   if (unplaceable.length > 0 || placed.length === 0) {
     // The rejection, not the note: the caseworker's text is the one thing on this form that could carry an
     // applicant's words, and a log is read by whoever is asked why rather than by them.
-    console.error(`confirmation refused with rejections this form cannot place (${unplaceable.join(", ") || "no field named"}): ${error.message}`);
+    console.error(`confirmation refused with rejections this form cannot place (${unplaceable.join(", ") || "no field named"}): ${forLog(error.message)}`);
     return rerender(req, res, 400, body, Object.fromEntries(placed.map((field) => [field, messages[field]])), content(res).confirmationRefused);
   }
 

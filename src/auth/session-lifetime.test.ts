@@ -6,6 +6,8 @@
  * looks equivalent locally, where the simulator keeps no session, and silently signs the user straight back in
  * anywhere else. `endSessionUrl` is stubbed because its URL-building is `idam.test.ts`'s subject.
  */
+import { createHash } from "node:crypto";
+import { trackEvent } from "@hmcts-cft/cloud-native-platform";
 import type { NextFunction } from "express";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageResponse, type RequestDouble, type ResponseDouble, sessionDouble } from "../express-doubles.js";
@@ -13,11 +15,16 @@ import { endSessionUrl } from "./idam.js";
 import { sessionLifetime } from "./session-lifetime.js";
 
 vi.mock("./idam.js", () => ({ endSessionUrl: vi.fn() }));
+vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts-cft/cloud-native-platform")>()),
+  trackEvent: vi.fn()
+}));
 vi.mock("./settings.js", () => ({ idamSettings: () => ({ redirectUri: "https://deed-poll-admin.aat.platform.hmcts.net/oauth2/callback" }) }));
 
 const NOW = new Date("2026-10-14T12:00:00Z");
 const NOW_SECONDS = NOW.getTime() / 1000;
 const LIMITS = { idleSeconds: 1800, absoluteSeconds: 36_000, logoutPathRegistered: false };
+const SESSION_ID = "a-timed-session-id";
 const END_SESSION = "https://hmcts-access.aat.platform.hmcts.net/o/endSession?id_token_hint=an-id-token";
 
 interface Options {
@@ -37,9 +44,23 @@ function request({
   lastSeenAt = NOW_SECONDS - 10
 }: Options = {}): RequestDouble {
   const deedPoll = signedIn
-    ? { user: { name: "A Caseworker" }, idToken: "an-id-token", accessToken: "a-secret-access-token", authenticatedAt, lastSeenAt }
+    ? {
+        user: { name: "A Caseworker" },
+        subject: "idam-subject-1",
+        idToken: "an-id-token",
+        accessToken: "a-secret-access-token",
+        authenticatedAt,
+        lastSeenAt
+      }
     : {};
-  return { method, path, originalUrl: path, session: sessionDouble(deedPoll) } as unknown as RequestDouble;
+  const req = { method, baseUrl: "", path, originalUrl: path, sessionID: SESSION_ID, session: sessionDouble(deedPoll) } as unknown as RequestDouble;
+  // A timeout regenerates the session, and with it the id, so an event emitted afterwards would carry the new one.
+  const regenerate = req.session.regenerate.getMockImplementation();
+  req.session.regenerate.mockImplementation((done?: (error?: Error) => void) => {
+    Object.assign(req, { sessionID: "the-fresh-anonymous-session-id" });
+    regenerate?.(done);
+  });
+  return req;
 }
 
 async function run(req: RequestDouble, limits = LIMITS): Promise<{ res: ResponseDouble; next: NextFunction }> {
@@ -195,6 +216,56 @@ describe("sessionLifetime", () => {
 
       expect(console.warn).toHaveBeenCalledTimes(1);
       expect(console.warn).toHaveBeenCalledWith("session ended: idle");
+    });
+  });
+
+  describe("its security events", () => {
+    const ended = (reason: string, method = "GET") => [
+      "auth.session.ended",
+      {
+        subject: "idam-subject-1",
+        sid: createHash("sha256").update(SESSION_ID).digest("hex").slice(0, 16),
+        env: "test",
+        method,
+        route: "/deed-polls/case-1",
+        reason
+      }
+    ];
+
+    it("should emit idle, with the subject and sid of the session being ended", async () => {
+      await run(request({ lastSeenAt: NOW_SECONDS - 1800 }));
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([ended("idle")]);
+    });
+
+    it("should emit absolute for a session past the absolute limit, on a POST too", async () => {
+      await run(request({ method: "POST", authenticatedAt: NOW_SECONDS - 36_000 }));
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([ended("absolute", "POST")]);
+    });
+
+    it("should emit untimed for a signed-in session with no timestamps", async () => {
+      const req = request();
+      Reflect.deleteProperty(req.session.deedPoll, "authenticatedAt");
+
+      await run(req);
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([ended("untimed")]);
+    });
+
+    it("should emit nothing for a session within both limits", async () => {
+      await run(request());
+
+      expect(trackEvent).not.toHaveBeenCalled();
+    });
+
+    it("should put no token or raw session id in the event", async () => {
+      await run(request({ lastSeenAt: NOW_SECONDS - 1800 }));
+
+      const serialised = JSON.stringify(vi.mocked(trackEvent).mock.calls);
+      for (const secret of ["an-id-token", "a-secret-access-token", "A Caseworker", SESSION_ID]) {
+        expect(serialised).not.toContain(secret);
+      }
     });
   });
 

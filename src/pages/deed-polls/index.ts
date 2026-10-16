@@ -62,6 +62,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
+import { forLog } from "../../for-log.js";
 
 const LIST_PATH = "/deed-polls";
 
@@ -283,7 +284,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
     if (!(error instanceof InvalidInputError)) throw error;
 
     const refusals = queryErrors(error.errors, conditions);
-    if (refusals.unaddressed.length > 0) console.error(`case query refused: ${error.message}`);
+    if (refusals.unaddressed.length > 0) console.error(`case query refused: ${forLog(error.message)}`);
     res.status(400);
 
     // No paging: a refused query has no page of results to be one of. The counts survive, because the
@@ -314,7 +315,7 @@ async function savedQueryEntries(caller: Caller, { filter, q, conditions, sort }
     // a key that could never hold a `q=`.
     return buildSavedQueryNav(queries, { listPath: LIST_PATH, current: { filter: filter.key, q, conditions, sort: serialiseSort(sort) } });
   } catch (error) {
-    console.error(`saved queries unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`saved queries unavailable: ${forLog(error instanceof Error ? error.message : String(error))}`);
 
     // Both groups empty, so the degraded bar is the status group alone — **not** a labelled group over
     // nothing, and not one empty group beside a populated one. Same sentinel shape as before, one level down.
@@ -364,7 +365,7 @@ async function worklistCount(name: string, read: () => Promise<number>): Promise
   try {
     return await read();
   } catch (error) {
-    console.error(`${name} count unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`${name} count unavailable: ${forLog(error instanceof Error ? error.message : String(error))}`);
 
     return null;
   }

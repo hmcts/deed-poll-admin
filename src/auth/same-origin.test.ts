@@ -162,6 +162,50 @@ describe("requireSameOrigin", () => {
     expect(error.message).toContain("same-site");
   });
 
+  describe("what it records for the security event", () => {
+    const refusal = (headers: { secFetchSite?: string; origin?: string }) => {
+      const next = vi.fn();
+      requireSameOrigin()(requestDouble(headers), pageResponse(), next);
+      return next.mock.calls[0][0] as ForbiddenError;
+    };
+
+    it("marks its refusal as the same-origin gate's and records the fetch site", () => {
+      const error = refusal({ secFetchSite: "same-site" });
+
+      expect(error.reason).toBe("same-origin");
+      expect(error.fetchSite).toBe("same-site");
+      expect(error.originHost).toBeUndefined();
+    });
+
+    // `Sec-Fetch-Site` is forbidden to a page but not to a script, so a value outside the spec is recorded as
+    // that rather than as whatever text the sender chose.
+    it("records a fetch site outside the specification as unrecognised", () => {
+      expect(refusal({ secFetchSite: "evil\nline" }).fetchSite).toBe("unrecognised");
+    });
+
+    it("records only the host of a cross-origin Origin, never the full value", () => {
+      const error = refusal({ origin: "https://evil.example:8443" });
+
+      expect(error.reason).toBe("same-origin");
+      expect(error.originHost).toBe("evil.example:8443");
+      expect(error.fetchSite).toBeUndefined();
+    });
+
+    it("records no host for an Origin longer than a DNS name can be", () => {
+      const error = refusal({ origin: `https://${"a".repeat(300)}.example` });
+
+      expect(error.reason).toBe("same-origin");
+      expect(error.originHost).toBeUndefined();
+    });
+
+    it("records no host for an Origin that does not parse", () => {
+      const error = refusal({ origin: "not a url" });
+
+      expect(error.reason).toBe("same-origin");
+      expect(error.originHost).toBeUndefined();
+    });
+  });
+
   it("does not render or set a status itself, leaving the 403 to the one error mapping", () => {
     const res = pageResponse();
 

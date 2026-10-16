@@ -7,8 +7,13 @@
  */
 import type { Request, Response } from "express";
 import { callbackUrl, completeLogin, describeIdamError } from "../../auth/idam.js";
+import { securityEvent } from "../../auth/security-events.js";
 import { signIn, takeFlow } from "../../auth/session.js";
 import { idamSettings } from "../../auth/settings.js";
+
+// RFC 6749's error codes are lower-case words joined by underscores. The query is the browser's to write, so
+// anything else is recorded as one fixed value rather than as text an attacker chose.
+const IDAM_ERROR_CODE = /^[a-z_]{1,64}$/;
 
 export const GET = async (req: Request, res: Response) => {
   const flow = takeFlow(req);
@@ -23,6 +28,8 @@ export const GET = async (req: Request, res: Response) => {
   // this the code exchange would fail on a missing `code` and report a server fault for what is
   // usually the user declining or a misconfigured client.
   if (typeof req.query.error === "string") {
+    // The code only: `error_description` is prose IDAM may fill with the user's own details.
+    securityEvent("auth.login.failed", req, { reason: "idam_error", outcome: idamErrorCode(req.query.error) });
     return res.status(403).render("errors/403", { reason: req.query.error_description ?? req.query.error });
   }
 
@@ -40,10 +47,17 @@ export const GET = async (req: Request, res: Response) => {
     // Logged at error level regardless, because the operator's reading of "nobody can log in" is
     // entirely different from the user's, and only the log distinguishes a forgery from an outage.
     console.error("IDAM authorization code exchange failed:", describeIdamError(error));
+    securityEvent("auth.login.failed", req, { reason: "exchange_failed" });
     return res.status(403).render("errors/403");
   }
 
   await signIn(req, signedIn.user, signedIn.subject, signedIn.tokens);
+  // After `signIn`, so the sid is the regenerated session's rather than the pre-login one.
+  securityEvent("auth.login.succeeded", req);
 
   res.redirect(flow.returnTo);
 };
+
+function idamErrorCode(error: string): string {
+  return IDAM_ERROR_CODE.test(error) ? error : "unrecognised";
+}
