@@ -22,6 +22,12 @@ export function uploadInFlightCap(max: number): RequestHandler {
       return next(new TooManyRequestsError(`Upload in-flight cap of ${max} reached`, RETRY_AFTER_SECONDS));
     }
 
+    // A client that dropped during earlier async middleware has already fired `close`, which will not fire again,
+    // so counting it would hold the slot until the pod restarts.
+    if (res.destroyed) {
+      return next();
+    }
+
     inFlight += 1;
     let isReleased = false;
     const release = () => {

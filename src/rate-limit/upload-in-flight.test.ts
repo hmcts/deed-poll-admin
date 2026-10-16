@@ -1,10 +1,62 @@
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
+import { request as httpRequest, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { TooManyRequestsError } from "@hmcts/deed-poll";
-import type { NextFunction, Request, Response } from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 import { describe, expect, it } from "vitest";
 import { uploadInFlightCap } from "./upload-in-flight.js";
 
 describe("rate-limit/upload-in-flight", () => {
+  it("should not leak a slot when a real client disconnects while earlier middleware is still waiting", async () => {
+    // The shape the external review reproduced: an async step (a token refresh) ahead of the cap, and a client that
+    // goes away during it, so `close` has fired before the cap runs.
+    let releaseEarlierStep: () => void = () => {};
+    const earlierStep = new Promise<void>((resolve) => {
+      releaseEarlierStep = resolve;
+    });
+    const reachedEarlierStep = new EventEmitter();
+    const app = express();
+    app.post(
+      "/upload",
+      async (_req: Request, _res: Response, next: NextFunction) => {
+        reachedEarlierStep.emit("arrived");
+        await earlierStep;
+        next();
+      },
+      uploadInFlightCap(1),
+      (_req: Request, res: Response) => {
+        res.status(204).end();
+      }
+    );
+    const server: Server = app.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const { port } = server.address() as AddressInfo;
+    try {
+      const arrived = once(reachedEarlierStep, "arrived");
+      const abandoned = httpRequest({ host: "127.0.0.1", port, method: "POST", path: "/upload" });
+      abandoned.on("error", () => {});
+      abandoned.end();
+      await arrived;
+      abandoned.destroy();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      releaseEarlierStep();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const status = await new Promise<number | undefined>((resolve, reject) => {
+        const next = httpRequest({ host: "127.0.0.1", port, method: "POST", path: "/upload" }, (res) => {
+          res.resume();
+          resolve(res.statusCode);
+        });
+        next.on("error", reject);
+        next.end();
+      });
+
+      expect(status).toBe(204);
+    } finally {
+      server.close();
+    }
+  });
+
   it("should admit uploads up to the cap while they are in flight", () => {
     const cap = uploadInFlightCap(2);
 
@@ -54,6 +106,14 @@ describe("rate-limit/upload-in-flight", () => {
     run(cap, response());
 
     expect(run(cap, response())).toBeInstanceOf(TooManyRequestsError);
+  });
+
+  it("should not hold a slot for a response already destroyed when the cap is reached", () => {
+    const cap = uploadInFlightCap(1);
+    const gone = Object.assign(response(), { destroyed: true });
+    run(cap, gone);
+
+    expect(run(cap, response())).toBeUndefined();
   });
 
   it("should not hold a slot for a refused upload", () => {

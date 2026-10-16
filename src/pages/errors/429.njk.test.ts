@@ -34,6 +34,12 @@ describe("errors/429.njk", () => {
     expect(template).toMatch(/^{% extends "layouts\/app\.njk" %}/);
   });
 
+  it("should title the browser tab with the heading, so the page's purpose is announced", () => {
+    const page = html({ retryAfterMinutes: null });
+
+    expect(page).toMatch(new RegExp(`<title[^>]*>\\s*${en.tooManyRequests.heading} - `));
+  });
+
   it("should tell the caseworker how many minutes to wait when the wait is known", () => {
     const page = html({ retryAfterMinutes: 3 });
 
