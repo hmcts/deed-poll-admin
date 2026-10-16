@@ -6,8 +6,9 @@
  */
 const MAX_LENGTH = 500;
 // CSI (`ESC [ … final`), OSC (`ESC ] … BEL|ST`) and the two-byte `ESC <char>` forms, in that order of precedence.
+// NOSONAR below is Sonar's S6324, the same rule as Biome's: it flags exactly the characters this exists to remove.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point.
-const ESCAPE_SEQUENCE = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-_]/g;
+const ESCAPE_SEQUENCE = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-_]/g; // NOSONAR
 // C0, DEL, C1, and the two Unicode line terminators some log viewers break on.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point.
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
