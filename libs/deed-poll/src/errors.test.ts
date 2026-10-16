@@ -15,6 +15,17 @@ describe("domain errors", () => {
     expect(new InvalidInputError("bad")).toBeInstanceOf(Error);
   });
 
+  it("should default a ForbiddenError's reason to api, which is what callApi raises", () => {
+    expect(new ForbiddenError("nope").reason).toBe("api");
+  });
+
+  it("should carry the reason and details a gate gives a ForbiddenError", () => {
+    const error = new ForbiddenError("nope", { reason: "role", requiredCapability: "ACCESS_GAZETTE" });
+
+    expect(error.reason).toBe("role");
+    expect(error.requiredCapability).toBe("ACCESS_GAZETTE");
+  });
+
   it("should default InvalidInputError's field errors to empty rather than undefined", () => {
     // A caller doing `err.errors.map(...)` must not have to null-check.
     expect(new InvalidInputError("bad").errors).toEqual([]);

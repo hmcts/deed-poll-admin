@@ -68,6 +68,13 @@ describe("requireJudicial", () => {
     expect(error.message).toContain("/judicial/referrals/abc");
   });
 
+  it("marks its refusal as the role gate's, so the one error mapping records it as such", () => {
+    requireJudicial()(pageRequest({ originalUrl: "/judicial/referrals" }), pageResponse(), next);
+
+    const error = vi.mocked(next).mock.calls[0][0] as unknown as ForbiddenError;
+    expect(error.reason).toBe("role");
+  });
+
   it.each(["teamLeader", "deliveryManager", "legacyAdmin", "caseworker", "none"] as const)("refuses a %s, whose stored answer is not judicial", (persona) => {
     requireJudicial()(pageRequest({ persona, originalUrl: "/judicial/referrals" }), pageResponse(), next);
 
@@ -116,6 +123,13 @@ describe("Gazette area access", () => {
     const next = vi.fn();
     requireCapability(ACCESS_GAZETTE)(pageRequest({ deliveryManager: true, judicial }), pageResponse(), next);
     expect(next).toHaveBeenCalledExactlyOnceWith();
+  });
+  it("should mark its refusal as the role gate's and name the capability it wanted", () => {
+    const next = vi.fn();
+    requireCapability(ACCESS_GAZETTE)(pageRequest({ persona: "caseworker" }), pageResponse(), next);
+    const error = next.mock.calls[0][0] as ForbiddenError;
+    expect(error.reason).toBe("role");
+    expect(error.requiredCapability).toBe(ACCESS_GAZETTE);
   });
   it.each(paths)("should redirect anonymous visitors to login for %s before checking capabilities", (url) => {
     const req = pageRequest({ signedIn: false, originalUrl: url });

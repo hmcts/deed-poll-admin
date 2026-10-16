@@ -136,11 +136,11 @@ path), `src/auth/session-lifetime.ts`; their tests.
 **Files:** `libs/deed-poll/src/errors.ts`, `src/auth/require-role.ts`, `src/auth/same-origin.ts`, `src/errors.ts`;
 their tests.
 
-- [ ] Apply decision 5. `requireCapability` sets `requiredCapability`. `same-origin.ts` sets `fetchSite`, or the
+- [x] Apply decision 5. `requireCapability` sets `requiredCapability`. `same-origin.ts` sets `fetchSite`, or the
   `originHost` host only, never a full URL.
-- [ ] `errors.test.ts` covers role, api and same-origin, each emitting exactly one event of the right name.
-- [ ] The existing `same-origin.test.ts` and `require-role.test.ts` tests pass unchanged.
-- [ ] Mark completed
+- [x] `errors.test.ts` covers role, api and same-origin, each emitting exactly one event of the right name.
+- [x] The existing `same-origin.test.ts` and `require-role.test.ts` tests pass unchanged.
+- [x] Mark completed
 
 ### Task 6: Neutralise log injection
 
@@ -203,6 +203,15 @@ Task 4, 2026-10-16: `yarn lint` exit 0 (the same one info); `yarn build` exit 0;
 `auth.persona.switch_failed` carries the persona id and the current session's subject and sid, but **not**
 `loginAsPersona`'s reason: that is prose which may quote IDAM's error text. `switch-persona.test.ts`'s session
 subjects were emails; they are now opaque IDAM-subject fixtures (decision 7), with the assertions unchanged.
+
+Task 5, 2026-10-16: `yarn lint` exit 0 (the same one info); `yarn build` exit 0; the suite **203 files / 4,002 tests,
+0 skipped, no type errors** — app 95 / 1,768, deed-poll 66 / 1,171, the rest unchanged; `session-store.test.ts` ran
+(7 tests). `ForbiddenError` takes an optional details object (`reason`, `requiredCapability`, `fetchSite`,
+`originHost`) rather than a bare reason, because the gates' details have to travel with it. `requireJudicial` sets
+`reason: "role"` with no `requiredCapability`, since judicial access is not a capability. A `Sec-Fetch-Site` outside
+the specification's `same-site`/`cross-site` is recorded as `unrecognised`, and an unparseable `Origin` records no
+host, so neither event carries sender-chosen text. The existing gate tests only gained cases; `errors.test.ts`'s
+shared request fixture gained an empty `session`, which every real request has after the session middleware.
 
 ## Post-Completion
 

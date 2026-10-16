@@ -17,7 +17,7 @@
  */
 import { ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } from "@hmcts/deed-poll";
 import type { ErrorRequestHandler, NextFunction, Request, Response } from "express";
-import { securityEvent } from "./auth/security-events.js";
+import { type SecurityEventName, type SecurityEventProps, securityEvent } from "./auth/security-events.js";
 import { signOut } from "./auth/session.js";
 
 export function domainErrorHandler(): ErrorRequestHandler {
@@ -40,6 +40,8 @@ export function domainErrorHandler(): ErrorRequestHandler {
       // the path and the role it wanted in the message for exactly this line — a refusal on the app's one
       // authorization boundary that left no trace anywhere is a question nobody could answer later.
       console.error(`forbidden: ${err.message}`);
+      const [event, props] = refusalEvent(err);
+      securityEvent(event, req, props);
 
       // Reached by `requireJudicial` (./auth/require-role.ts), which refuses an authenticated non-judge this
       // way rather than rendering its own page, and by api's own 403. The 404 **view** on a 403 status keeps
@@ -77,4 +79,15 @@ export function domainErrorHandler(): ErrorRequestHandler {
 
     next(err);
   };
+}
+
+/**
+ * Every 403 is recorded here and nowhere else, so each refusal is exactly one event whichever gate raised it. The
+ * error's bounded details travel; its message, which is free text for the log, does not.
+ */
+function refusalEvent(err: ForbiddenError): [SecurityEventName, SecurityEventProps] {
+  if (err.reason === "same-origin") {
+    return ["csrf.refused", { fetchSite: err.fetchSite, originHost: err.originHost }];
+  }
+  return ["authz.denied", { source: err.reason, requiredCapability: err.requiredCapability }];
 }
