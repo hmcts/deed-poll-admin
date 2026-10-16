@@ -145,8 +145,8 @@ describe("rate-limit/limiter", () => {
   });
 
   describe("rateLimitSettings", () => {
-    it("should accept the three modes and positive whole-number limits", () => {
-      expect(rateLimitSettings({ mode: "observe", buckets: BUCKETS, uploadInFlight: 4 })).toEqual({ mode: "observe", buckets: BUCKETS, uploadInFlight: 4 });
+    it.each(["off", "observe", "enforce"])("should accept the %s mode and positive whole-number limits", (mode) => {
+      expect(rateLimitSettings({ mode, buckets: BUCKETS, uploadInFlight: 4 })).toEqual({ mode, buckets: BUCKETS, uploadInFlight: 4 });
     });
 
     it("should refuse an unknown mode, rather than guess which way to fail", () => {
