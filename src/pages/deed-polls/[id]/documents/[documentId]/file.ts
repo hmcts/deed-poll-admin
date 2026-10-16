@@ -12,7 +12,7 @@
  * mid-response. That check now runs at the only place holding the untrusted text, so repeating it here
  * would be a second opinion about a value that arrives already safe.
  *
- * **Four headers are forwarded, and the last two are the reason the first two are safe.** api serves
+ * **Content headers travel with their containment policy; nosniff is enforced here too.** api serves
  * PDFs, JPEGs and PNGs `inline` rather than as attachments, and a PDF viewer executes script embedded in
  * the document — so api pairs that disposition with `Content-Security-Policy: default-src 'none';
  * sandbox` and `X-Content-Type-Options: nosniff`. Forwarding `Content-Disposition` alone would render a
@@ -39,7 +39,7 @@ export const GET = async (req: Request, res: Response, next: NextFunction) => {
   res.setHeader("Content-Type", download.contentType);
   res.setHeader("Content-Disposition", containedDisposition(download.contentDisposition, download.contentSecurityPolicy));
   if (download.contentSecurityPolicy) res.setHeader("Content-Security-Policy", download.contentSecurityPolicy);
-  if (download.contentTypeOptions) res.setHeader("X-Content-Type-Options", download.contentTypeOptions);
+  res.setHeader("X-Content-Type-Options", "nosniff");
   // Documents are case data; a shared cache must not keep a copy.
   res.setHeader("Cache-Control", "no-store");
 

@@ -33,7 +33,16 @@ import multer from "multer";
 
 const parser = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+  limits: {
+    fileSize: MAX_UPLOAD_BYTES,
+    files: 1,
+    // documentTypeId, name and direction in document-upload.njk. The longest valid value is
+    // schemas.ts's 100-character name; 1 KiB also accommodates its UTF-8 encoding.
+    fields: 3,
+    fieldSize: 1024,
+    // Three text fields plus one file; also bounds parts ignored by the field/file counters.
+    parts: 4
+  },
   fileFilter: (_req, file, callback) => {
     if (!isAllowedUploadType(file.mimetype)) {
       callback(uploadTypeRejection(file.mimetype));

@@ -79,5 +79,14 @@ function messageForLimit(code: string): string {
   if (code === "LIMIT_FILE_COUNT" || code === "LIMIT_UNEXPECTED_FILE") {
     return "Upload one file at a time";
   }
+  if (code === "LIMIT_FIELD_VALUE") {
+    return "The upload contains too much text. Shorten the text and select the file again.";
+  }
+  if (code === "LIMIT_FIELD_COUNT") {
+    return "The upload contains too many fields. Reload the page and select the file again.";
+  }
+  if (code === "LIMIT_PART_COUNT") {
+    return "The upload contains too many parts. Reload the page and select one file again.";
+  }
   return "The file could not be read";
 }

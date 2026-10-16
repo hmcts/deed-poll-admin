@@ -15,7 +15,7 @@
  * stops testing that threshold the moment the two disagree, which is what happened when the limit moved from
  * 10MB to 25MB.
  */
-import { MAX_UPLOAD_BYTES } from "@hmcts/deed-poll";
+import { MAX_UPLOAD_BYTES, uploadFormSchema } from "@hmcts/deed-poll";
 import express, { type Express } from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
@@ -84,6 +84,65 @@ describe("uploadSingleFile", () => {
     expect(response.status).toBe(200);
     expect(response.body.received).toBeNull();
     expect(response.body.rejection).toBeNull();
+  });
+
+  it.each([true, false])("should accept all three fields and a maximum-length multibyte name (file first: %s)", async (fileFirst) => {
+    const { app } = appWithUpload();
+    const fields = { documentTypeId: "07f3f0e0-0000-4000-8000-000000000000", name: "漢".repeat(100), direction: "Incoming" };
+    expect(uploadFormSchema.safeParse(fields).success).toBe(true);
+
+    const upload = request(app).post("/upload");
+    const response = await (fileFirst
+      ? upload.attach("file", Buffer.from("x"), A_PDF).field(fields)
+      : upload.field(fields).attach("file", Buffer.from("x"), A_PDF));
+
+    expect(response.body.rejection).toBeNull();
+    expect(response.body.fields).toEqual(fields);
+    expect(response.body.received.size).toBe(1);
+  });
+
+  it("should reject a fourth text field without propagating a fault", async () => {
+    const { app, faults } = appWithUpload();
+
+    const response = await request(app).post("/upload").field({ documentTypeId: "x", name: "x", direction: "Incoming", extra: "x" });
+
+    expect(response.body.rejection?.errors).toEqual([
+      { field: "file", message: "The upload contains too many fields. Reload the page and select the file again." }
+    ]);
+    expect(faults).toEqual([]);
+  });
+
+  it.each([1024, 1025])("should reject a %s-byte text field without propagating a fault", async (bytes) => {
+    const { app, faults } = appWithUpload();
+
+    const response = await request(app).post("/upload").field("name", "x".repeat(bytes));
+
+    expect(response.body.rejection?.errors).toEqual([
+      { field: "file", message: "The upload contains too much text. Shorten the text and select the file again." }
+    ]);
+    expect(faults).toEqual([]);
+  });
+
+  it("should leave text below the parser limit for the form schema to validate", async () => {
+    const { app } = appWithUpload();
+
+    const response = await request(app).post("/upload").field("name", "x".repeat(1023));
+
+    expect(response.body.rejection).toBeNull();
+    expect(response.body.fields.name).toHaveLength(1023);
+  });
+
+  it("should count ignored multipart sections towards the parts limit", async () => {
+    const { app, faults } = appWithUpload();
+    // No Content-Disposition: ignored by the field/file counters, but still consumes parser work.
+    const body = `${"--boundary\r\nContent-Type: text/plain\r\n\r\nx\r\n".repeat(5)}--boundary--\r\n`;
+
+    const response = await request(app).post("/upload").set("Content-Type", "multipart/form-data; boundary=boundary").send(body);
+
+    expect(response.body.rejection?.errors).toEqual([
+      { field: "file", message: "The upload contains too many parts. Reload the page and select one file again." }
+    ]);
+    expect(faults).toEqual([]);
   });
 
   it("should record an over-large file as a rejection the handler can render, not as a fault", async () => {
