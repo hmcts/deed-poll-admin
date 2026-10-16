@@ -19,6 +19,7 @@ import { ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } f
 import type { ErrorRequestHandler, NextFunction, Request, Response } from "express";
 import { type SecurityEventName, type SecurityEventProps, securityEvent } from "./auth/security-events.js";
 import { signOut } from "./auth/session.js";
+import { forLog } from "./for-log.js";
 
 export function domainErrorHandler(): ErrorRequestHandler {
   return (err: Error, req: Request, res: Response, next: NextFunction) => {
@@ -39,7 +40,7 @@ export function domainErrorHandler(): ErrorRequestHandler {
       // handler is the only thing in the chain that logs, and it is never reached. `requireJudicial` puts
       // the path and the role it wanted in the message for exactly this line — a refusal on the app's one
       // authorization boundary that left no trace anywhere is a question nobody could answer later.
-      console.error(`forbidden: ${err.message}`);
+      console.error(`forbidden: ${forLog(err.message)}`);
       const [event, props] = refusalEvent(err);
       securityEvent(event, req, props);
 
@@ -58,7 +59,7 @@ export function domainErrorHandler(): ErrorRequestHandler {
       // loops when IDAM's own session silently re-issues a token api refuses again (a misconfigured
       // audience, say), whereas a link costs one click and cannot. Signing out first is what makes the link
       // honest, since `/login` with a live session would hand the same token straight back.
-      console.error(`signing out after api refused the session's token: ${err.message}`);
+      console.error(`signing out after api refused the session's token: ${forLog(err.message)}`);
       // Before `signOut`, which takes the subject and the session id with it.
       securityEvent("auth.session.ended", req, { reason: "api_401" });
       return signOut(req).then(

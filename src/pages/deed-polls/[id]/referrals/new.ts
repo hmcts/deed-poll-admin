@@ -40,6 +40,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
+import { forLog } from "../../../../for-log.js";
 
 // The order the controls appear in, so the error summary reads down the page rather than in whatever order
 // the issues arrived.
@@ -103,7 +104,9 @@ export const POST = async (req: Request, res: Response) => {
       const unplaceable = Object.keys(messages).filter((field) => !FIELD_ORDER.includes(field));
 
       if (unplaceable.length > 0 || placed.length === 0) {
-        console.error(`referral create refused with rejections this form cannot place (${unplaceable.join(", ") || "no field named"}): ${error.message}`);
+        console.error(
+          `referral create refused with rejections this form cannot place (${unplaceable.join(", ") || "no field named"}): ${forLog(error.message)}`
+        );
         return rerender(req, res, 400, Object.fromEntries(placed.map((field) => [field, messages[field]])), en.referralRefused);
       }
 
@@ -185,7 +188,7 @@ async function openReferralHref(req: Request): Promise<string> {
 
     return live ? `/deed-polls/${req.params.id}/referrals/${live.id}` : referralsTab;
   } catch (error) {
-    console.error(`could not resolve the open referral to link to: ${error instanceof Error ? error.message : error}`);
+    console.error(`could not resolve the open referral to link to: ${forLog(error instanceof Error ? error.message : String(error))}`);
     return referralsTab;
   }
 }

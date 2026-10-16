@@ -48,6 +48,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../../auth/current-user.js";
+import { forLog } from "../../../for-log.js";
 
 const LIST_PATH = "/deed-polls";
 
@@ -106,7 +107,7 @@ export const POST = async (req: Request, res: Response) => {
     if (!(error instanceof InvalidInputError)) throw error;
 
     if (error.errors.length === 0) {
-      console.error(`saved query create refused with no field named: ${error.message}`);
+      console.error(`saved query create refused with no field named: ${forLog(error.message)}`);
 
       return render(res, req, body, {}, [{ text: en.saveRefused, href: "#name" }], 400);
     }
@@ -130,7 +131,7 @@ async function select(id: string, caller: Caller) {
   try {
     await selectSavedQuery(id, caller);
   } catch (error) {
-    console.error(`saved query created but could not be selected: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`saved query created but could not be selected: ${forLog(error instanceof Error ? error.message : String(error))}`);
   }
 }
 

@@ -29,6 +29,7 @@ import {
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
 import { uploadRejection, uploadSingleFile } from "../../../../documents/upload.js";
+import { forLog } from "../../../../for-log.js";
 
 const en = {
   title: "Upload a document",
@@ -108,7 +109,7 @@ const handler = async (req: Request, res: Response) => {
     // developer-facing wording is logged and this page's own copy is rendered.
     if (error instanceof InvalidInputError) {
       const first = error.errors[0];
-      if (!first) console.error(`document upload refused with no field named: ${error.message}`);
+      if (!first) console.error(`document upload refused with no field named: ${forLog(error.message)}`);
       return rerender(req, res, first?.field ?? "file", first?.message ?? en.uploadRefused);
     }
     if (error instanceof NotFoundError) {

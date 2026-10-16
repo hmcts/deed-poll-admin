@@ -39,6 +39,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../../../../auth/current-user.js";
+import { forLog } from "../../../../../for-log.js";
 
 const en = {
   titlePrefix: "Amend note",
@@ -102,7 +103,7 @@ export const POST = async (req: Request, res: Response) => {
       // A rejection naming no field carries api's own wording rather than anything a caseworker can act
       // on, so it is logged and this page's copy is shown — see the same split on `../new.ts`.
       if (error.errors.length === 0) {
-        console.error(`note save refused with no field named: ${error.message}`);
+        console.error(`note save refused with no field named: ${forLog(error.message)}`);
         return rerender(req, res, en.noteRefused);
       }
       return rerender(req, res, error.errors[0].message);

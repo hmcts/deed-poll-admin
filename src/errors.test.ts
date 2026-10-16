@@ -68,6 +68,15 @@ describe("domainErrorHandler", () => {
     error.mockRestore();
   });
 
+  it("should log an api message on one line when the message carries a newline", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    domainErrorHandler()(new ForbiddenError("refused\nINFO auth.login.succeeded subject=forged"), REQUEST, pageResponse(), next);
+
+    expect(error).toHaveBeenCalledWith("forbidden: refusedINFO auth.login.succeeded subject=forged");
+    error.mockRestore();
+  });
+
   describe("security events for a refusal", () => {
     const refusedRequest = {
       method: "POST",

@@ -66,6 +66,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
+import { forLog } from "../../for-log.js";
 
 const en = {
   title: "Case",
@@ -196,13 +197,13 @@ export const GET = async (req: Request, res: Response) => {
   // wrong URL and bury the real ones. No caller and no case id, per `client.ts`'s no-PII rule: what a search
   // of the logs needs to answer is whether the panel is degrading, not whose case it was.
   if (referralsRead.status === "rejected") {
-    console.error(`referrals unavailable: ${referralsRead.reason instanceof Error ? referralsRead.reason.message : String(referralsRead.reason)}`);
+    console.error(`referrals unavailable: ${forLog(referralsRead.reason instanceof Error ? referralsRead.reason.message : String(referralsRead.reason))}`);
   }
   // Same rule and the same reasons — and one of its own: api answers this read 400 for a case whose refusal
   // carries no directions text (flag 7 of the plan), so the message is worth having in the logs to tell that
   // apart from an outage.
   if (emailsRead.status === "rejected") {
-    console.error(`emails unavailable: ${emailsRead.reason instanceof Error ? emailsRead.reason.message : String(emailsRead.reason)}`);
+    console.error(`emails unavailable: ${forLog(emailsRead.reason instanceof Error ? emailsRead.reason.message : String(emailsRead.reason))}`);
   }
 
   const referrals = referralsRead.status === "fulfilled" ? referralsRead.value : null;

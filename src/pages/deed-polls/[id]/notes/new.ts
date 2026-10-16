@@ -20,6 +20,7 @@
 import { createNote, createNoteSchema, findDeedPoll, InvalidInputError, MAX_NOTE_LENGTH, zodErrorToFieldErrors } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
+import { forLog } from "../../../../for-log.js";
 
 const en = {
   title: "Add a note",
@@ -70,7 +71,7 @@ export const POST = async (req: Request, res: Response) => {
       // `deed-poll-api answered 400`. So api's wording is logged and this page's own copy is shown, the
       // same split as the edit tab and the new-case form.
       if (error.errors.length === 0) {
-        console.error(`note create refused with no field named: ${error.message}`);
+        console.error(`note create refused with no field named: ${forLog(error.message)}`);
         return rerender(req, res, en.noteRefused);
       }
       return rerender(req, res, error.errors[0].message);

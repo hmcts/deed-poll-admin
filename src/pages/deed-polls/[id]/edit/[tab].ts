@@ -37,6 +37,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../../../auth/current-user.js";
+import { forLog } from "../../../../for-log.js";
 
 const en = {
   titlePrefix: "Edit",
@@ -113,7 +114,7 @@ export const POST = async (req: Request, res: Response) => {
       // Naming no field also means the refusal is api's alone, since every local rejection attributes
       // itself. So api's wording is logged and this page's own copy is shown — see `en.saveRefused`.
       if (error.errors.length === 0) {
-        console.error(`case save refused with no field named: ${error.message}`);
+        console.error(`case save refused with no field named: ${forLog(error.message)}`);
         return rerenderWithErrors(req, res, tab, [{ field: "", message: en.saveRefused }]);
       }
       return rerenderWithErrors(req, res, tab, error.errors);

@@ -146,12 +146,12 @@ their tests.
 
 **Files:** a new helper beside `src/errors.ts`; every `console.*` that interpolates an api `error.message`.
 
-- [ ] Add `forLog(text)`. It strips CR, LF and C0/C1 control characters (including ANSI escapes) and caps the text at
+- [x] Add `forLog(text)`. It strips CR, LF and C0/C1 control characters (including ANSI escapes) and caps the text at
   500 characters.
-- [ ] Apply it to every `console.*` under `src/pages/**` and in `src/errors.ts` that interpolates an api error message.
-- [ ] Unit tests for CR/LF, ANSI escapes and the cap. A source-scanning test: no `console.*(` call under `src/pages`
+- [x] Apply it to every `console.*` under `src/pages/**` and in `src/errors.ts` that interpolates an api error message.
+- [x] Unit tests for CR/LF, ANSI escapes and the cap. A source-scanning test: no `console.*(` call under `src/pages`
   interpolates `.message` without `forLog`.
-- [ ] Mark completed
+- [x] Mark completed
 
 ### Task 7: Documentation and handoff
 
@@ -212,6 +212,15 @@ Task 5, 2026-10-16: `yarn lint` exit 0 (the same one info); `yarn build` exit 0;
 the specification's `same-site`/`cross-site` is recorded as `unrecognised`, and an unparseable `Origin` records no
 host, so neither event carries sender-chosen text. The existing gate tests only gained cases; `errors.test.ts`'s
 shared request fixture gained an empty `session`, which every real request has after the session middleware.
+
+Task 6, 2026-10-16: `yarn lint` exit 0 (the same one info); `yarn build` exit 0; the suite **204 files / 4,058 tests,
+0 skipped, no type errors** — app 96 / 1,824, the rest unchanged; `session-store.test.ts` ran (7 tests). `forLog`
+lives in `src/for-log.ts`, beside `src/errors.ts` but outside `src/pages`, where `simple-router` would take it for a
+page. It removes whole ANSI escape sequences (CSI, OSC and two-byte), then any C0, DEL or C1 character, plus U+2028
+and U+2029, and caps the result at 500 code points so the cap never splits a surrogate pair. Twenty-two calls in
+sixteen files are wrapped; `error instanceof Error ? error.message : error` in `referrals/new.ts` became
+`String(error)` in the fallback, since `forLog` takes a string. The source sweep matches each `console.*(` call's
+balanced parentheses, so it also catches multi-line calls and a `.message` passed as a separate argument.
 
 ## Post-Completion
 

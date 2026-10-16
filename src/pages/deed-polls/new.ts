@@ -21,6 +21,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../auth/current-user.js";
+import { forLog } from "../../for-log.js";
 
 const en = {
   title: "New deed poll case",
@@ -120,7 +121,7 @@ function summaryFor(error: InvalidInputError): { text: string; href?: string }[]
   // No field named means the refusal came from api rather than from this form's own schema, so its
   // developer-facing wording is logged and the page's copy is rendered without a link to any input.
   if (error.errors.length === 0) {
-    console.error(`case create refused with no field named: ${error.message}`);
+    console.error(`case create refused with no field named: ${forLog(error.message)}`);
     return [{ text: en.createRefused }];
   }
 

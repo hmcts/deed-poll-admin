@@ -22,6 +22,7 @@
 import { createWitness, createWitnessSchema, type FieldError, findDeedPoll, InvalidInputError, zodErrorToFieldErrors } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
+import { forLog } from "../../../../for-log.js";
 
 // Read off the schema rather than restated, so the message and the rule it explains cannot drift: the
 // caps are api's, and a hint naming 100 while the schema rejects at 250 is worse than no hint.
@@ -84,7 +85,7 @@ export const POST = async (req: Request, res: Response) => {
       // the adapter with nothing but `deed-poll-api answered 400`, so it is logged and this page's copy is
       // shown, the same split as the note forms.
       if (error.errors.length === 0) {
-        console.error(`witness create refused with no field named: ${error.message}`);
+        console.error(`witness create refused with no field named: ${forLog(error.message)}`);
         return rerender(req, res, {}, en.witnessRefused);
       }
       return rerender(req, res, apiMessages(error.errors));

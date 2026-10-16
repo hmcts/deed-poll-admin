@@ -50,6 +50,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../../../auth/current-user.js";
+import { forLog } from "../../../../for-log.js";
 
 const LIST_PATH = "/deed-polls";
 
@@ -141,7 +142,7 @@ export const POST = async (req: Request, res: Response) => {
     if (!(error instanceof InvalidInputError)) throw error;
 
     if (error.errors.length === 0) {
-      console.error(`saved query save refused with no field named: ${error.message}`);
+      console.error(`saved query save refused with no field named: ${forLog(error.message)}`);
 
       return await render(req, res, body, {}, [{ text: en.saveRefused, href: "#name" }], 400);
     }
