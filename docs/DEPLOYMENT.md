@@ -177,7 +177,7 @@ a production template carrying it reds the build rather than shipping. See the n
 `RATE_LIMIT_MODE` is set to `observe` in `charts/deed-poll-admin/values.yaml` (`src/rate-limit/`, OWASP plan 06).
 Roll out in `observe`, compare the `rate_limit …` log lines with api's, then move to `enforce` together with api;
 `off` is the rollback. `Chart.yaml` was bumped to 0.0.4 with the value because Flux reconciles on chart version.
-See `docs/plans/20261016-abuse-limits-admin.md`.
+See `docs/plans/completed/20261016-abuse-limits-admin.md`.
 
 ### The persona switcher's two environment variables
 

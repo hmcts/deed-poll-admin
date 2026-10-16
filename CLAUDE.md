@@ -418,7 +418,7 @@ only — api keeps the audit trail of writes and reads, and this app must not du
 ## Abuse limits
 
 Search, email preview, email send and upload are limited per IDAM subject
-(`docs/plans/20261016-abuse-limits-admin.md`, OWASP M6). Facts that are not derivable from a single file:
+(`docs/plans/completed/20261016-abuse-limits-admin.md`, OWASP M6). Facts that are not derivable from a single file:
 
 - **api is authoritative; this app's limiter is not the control.** `src/rate-limit/limiter.ts` exists so a caseworker
   is refused on this app's page before a pod spends a multipart parse or an api round trip, and its numbers mirror

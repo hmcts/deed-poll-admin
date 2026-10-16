@@ -194,3 +194,22 @@ Manual, not for this run:
   load.
 - Check the 429 page in a browser by setting a bucket's limit to 1 in a local `enforce` run.
 - Tune and enforce together with api (OWASP plan 06 Task 11).
+
+### Post-run verification (Gale, 2026-10-16)
+
+The ralphex run (claude-copilot-astra) completed Tasks 1–6, and its internal review reached REVIEW_DONE. The external
+Copilot review's first iteration found two real defects. Claude fixed them but did not commit, and the second
+iteration then timed out, which stopped the run. Verified and finished by hand:
+
+- **Upload slot leak (fixed):** a client that disconnected during earlier async middleware reached the in-flight cap
+  after `close` had fired, so its slot was never released. Four of them blocked uploads on that pod until a restart,
+  in every mode. The cap now skips an already-destroyed response. A new real-HTTP test reproduces the leak on the
+  previous code and passes with the fix, three runs out of three.
+- **429 page title (fixed):** the page set no `title`, so the browser title omitted the error (WCAG 2.4.2).
+- A direct read-only Copilot `gpt-6-astra` review of all 16 changed source files found no defects. Of its seven
+  coverage gaps, two are closed: all three modes are now tested in `rateLimitSettings`, and a contract test pins 429
+  to exactly the six operations.
+- The committed `openapi.json` parses identical to api `fb6a00a`. Chart 0.0.4 against master's 0.0.3.
+- Final: `yarn lint` clean; `yarn build` clean; `npx turbo test test:app --concurrency=1 --force` 4,153 tests across
+  8/8 tasks (baseline 4,084). With every `libs/*/dist` moved aside, as Jenkins runs, `yarn test` and
+  `yarn test:coverage` are both 8/8. The real-Redis limiter and session tests ran rather than skipped.
