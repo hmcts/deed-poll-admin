@@ -70,6 +70,17 @@ describe("documents/upload-policy", () => {
       expect(uploadLimitRejection("")).toBeInstanceOf(InvalidInputError);
     });
 
+    it.each([
+      ["LIMIT_FIELD_VALUE", "The upload contains too much text. Shorten the text and select the file again."],
+      ["LIMIT_FIELD_COUNT", "The upload contains too many fields. Reload the page and select the file again."],
+      ["LIMIT_PART_COUNT", "The upload contains too many parts. Reload the page and select one file again."]
+    ])("gives a recoverable form error for %s", (code, message) => {
+      const rejection = uploadLimitRejection(code);
+
+      expect(rejection).toBeInstanceOf(InvalidInputError);
+      expect(rejection.errors).toEqual([{ field: UPLOAD_FILE_FIELD, message }]);
+    });
+
     it("always attributes the failure to a field, so a form can render it in place", () => {
       for (const code of ["LIMIT_FILE_SIZE", "LIMIT_FILE_COUNT", "LIMIT_UNEXPECTED_FILE", "SOMETHING_ELSE"]) {
         expect(uploadLimitRejection(code).errors).toHaveLength(1);

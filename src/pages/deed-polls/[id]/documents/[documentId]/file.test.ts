@@ -120,10 +120,19 @@ describe("document download route", () => {
     await GET(pageRequest({ params: PARAMS }), res, vi.fn());
 
     expect(res.headers["Content-Security-Policy"]).toBeUndefined();
-    expect(res.headers["X-Content-Type-Options"]).toBeUndefined();
+    expect(res.headers["X-Content-Type-Options"]).toBe("nosniff");
     // An `inline` PDF under this app's own `default-src 'self'` is the one combination the route must not
     // produce, so the disposition is downgraded — with api's filename kept, which was never the hazard.
     expect(res.headers["Content-Disposition"]).toBe('attachment; filename="deed poll.pdf"');
+  });
+
+  it.each([null, "", "invalid", "nosniff"])("should enforce nosniff when api sends %s", async (contentTypeOptions) => {
+    vi.mocked(downloadDocument).mockResolvedValue(apiDownload({ contentTypeOptions }) as never);
+    const res = streamResponse();
+
+    await GET(pageRequest({ params: PARAMS }), res, vi.fn());
+
+    expect(res.headers["X-Content-Type-Options"]).toBe("nosniff");
   });
 
   it("should download rather than render in place when the policy sent does not sandbox the response", async () => {

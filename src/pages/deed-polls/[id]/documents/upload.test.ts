@@ -1,5 +1,6 @@
 import { findDeedPoll, findDocumentTypes, InvalidInputError, NotFoundError, uploadDocument } from "@hmcts/deed-poll";
-import type { Request, Response } from "express";
+import express, { type Request, type Response } from "express";
+import supertest from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest } from "../../../../express-doubles.js";
 import { GET, POST } from "./upload.js";
@@ -104,6 +105,33 @@ describe("document upload page", () => {
   });
 
   describe("POST", () => {
+    it.each([
+      ["oversized text", { name: "x".repeat(1024) }, "The upload contains too much text. Shorten the text and select the file again."],
+      ["excess fields", { name: "Typed", extra: "x" }, "The upload contains too many fields. Reload the page and select the file again."]
+    ])("should re-render a real multipart submission with %s as 400 without uploading", async (_reason, fields, message) => {
+      const app = express();
+      app.use((req, res, next) => {
+        req.session = pageRequest({ accessToken: "session-token" }).session;
+        res.render = (view, model) => {
+          res.json({ view, model });
+        };
+        next();
+      });
+      app.post("/deed-polls/:id/documents/upload", ...POST);
+
+      const result = await supertest(app)
+        .post("/deed-polls/case-1/documents/upload")
+        .field("documentTypeId", TYPE_ID)
+        .field("direction", "Incoming")
+        .field(fields)
+        .attach("file", aFile.buffer, { filename: aFile.originalname, contentType: aFile.mimetype });
+
+      expect(result.status).toBe(400);
+      expect(result.body.view).toBe("deed-polls/document-upload");
+      expect(result.body.model).toMatchObject({ errorField: "file", errorMessage: message, values: { documentTypeId: TYPE_ID, direction: "Incoming" } });
+      expect(uploadDocument).not.toHaveBeenCalled();
+    });
+
     it("uploads the file and redirects to the documents tab", async () => {
       const res = response();
 
