@@ -132,7 +132,11 @@ function appWith({ mode, limit = 30, inFlight = 4 }: { mode: RateLimitMode; limi
   const reached: string[] = [];
   const hold = deferredHold();
   const bucket = { limit, windowSeconds: 600 };
-  const limiter = createRateLimiter(redis, { mode, buckets: { search: bucket, "email-preview": bucket, "email-send": bucket, upload: bucket } }, () => NOW);
+  const limiter = createRateLimiter(
+    redis,
+    { mode, buckets: { search: bucket, "email-preview": bucket, "email-send": bucket, upload: bucket }, uploadInFlight: inFlight },
+    () => NOW
+  );
   const app = express();
 
   app.use((req: Request, _res: Response, next: NextFunction) => {

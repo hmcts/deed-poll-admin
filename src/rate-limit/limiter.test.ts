@@ -127,6 +127,21 @@ describe("rate-limit/limiter", () => {
       expect(result).toBeUndefined();
       expect(warn).toHaveBeenCalledWith("rate_limit bucket=search unavailable, passing: The client is closed");
     });
+
+    it("should pass and warn when Redis replies with something that is not a count, rather than refusing on NaN", async () => {
+      const redis: RateLimitRedis = {
+        multi: () => {
+          const chain = { incr: () => chain, expire: () => chain, exec: async () => [new Error("WRONGTYPE")] };
+          return chain;
+        }
+      };
+      const limit = createRateLimiter(redis, settings("enforce"), () => NOW)("search");
+
+      const result = await run(limit, request({ subject: "user-a" }));
+
+      expect(result).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("rate_limit bucket=search unavailable, passing"));
+    });
   });
 
   describe("rateLimitSettings", () => {

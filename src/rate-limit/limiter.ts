@@ -44,6 +44,7 @@ export function createRateLimiter(redis: RateLimitRedis, settings: RateLimitSett
       try {
         const [incremented] = await redis.multi().incr(key).expire(key, windowSeconds).exec();
         count = Number(incremented);
+        if (!Number.isInteger(count)) throw new Error(`INCR replied ${JSON.stringify(String(incremented))}`);
       } catch (error) {
         console.warn(`rate_limit bucket=${bucket} unavailable, passing: ${forLog(error instanceof Error ? error.message : String(error))}`);
         return next();
