@@ -126,10 +126,10 @@ npx turbo test test:app --concurrency=1 --force
 **Files:** `libs/deed-poll-api-client/openapi.json`; `SPEC-PROVENANCE.md`; any `contract.test.ts` assertion the six
 429s break.
 
-- [ ] Copy decision 1's document in; confirm the parsed delta is exactly the six 429s.
-- [ ] Record it in `SPEC-PROVENANCE.md`: api `fb6a00a`, the SHA-256, the method, and the delta.
-- [ ] Update any contract assertion that pins those operations' responses, and nothing else.
-- [ ] Mark completed
+- [x] Copy decision 1's document in; confirm the parsed delta is exactly the six 429s.
+- [x] Record it in `SPEC-PROVENANCE.md`: api `fb6a00a`, the SHA-256, the method, and the delta.
+- [x] Update any contract assertion that pins those operations' responses, and nothing else. (none needed: no assertion pins those six operations' responses; all tests green)
+- [x] Mark completed
 
 ### Task 2: Classify 429 as `rate-limited`
 
