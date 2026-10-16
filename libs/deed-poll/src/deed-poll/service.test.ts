@@ -1,6 +1,6 @@
 import { createCase, getCase, getFieldRules, listCases, patchCase } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } from "../errors.js";
+import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "../errors.js";
 import { createDeedPoll, findDeedPoll, findDeedPolls, getCaseFieldRules, updateDeedPoll, validateCaseForSubmit } from "./service.js";
 
 // The adapter is mocked and nothing else. What these tests are about is the seam: that each function
@@ -232,6 +232,18 @@ describe("deed-poll/service", () => {
       vi.mocked(getCase).mockResolvedValue({ ok: false, error: { kind, message: "no" } } as never);
 
       await expect(findDeedPoll("case-1", CALLER)).rejects.toBeInstanceOf(expected);
+    });
+
+    it.each([120, null])("turns a rate-limited result into TooManyRequestsError carrying a wait of %s", async (retryAfterSeconds) => {
+      vi.mocked(getCase).mockResolvedValue({
+        ok: false,
+        error: { kind: "rate-limited", status: 429, message: "Too many requests", retryAfterSeconds }
+      } as never);
+
+      const error = await findDeedPoll("case-1", CALLER).catch((thrown: unknown) => thrown);
+
+      expect(error).toBeInstanceOf(TooManyRequestsError);
+      expect((error as TooManyRequestsError).retryAfterSeconds).toBe(retryAfterSeconds);
     });
 
     it.each(["unavailable", "timeout", "invalid-response", "unknown"])("lets a %s result surface as a fault, naming api", async (kind) => {

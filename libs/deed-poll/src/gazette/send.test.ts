@@ -36,6 +36,19 @@ it.each(["unavailable", "timeout", "invalid-response", "conflict", "validation",
   }
 );
 
+it("should treat a rate-limited send as an unknown outcome, because only a Gazette refusal proves non-admission", async () => {
+  vi.mocked(submitGazetteNotice).mockResolvedValue({
+    ok: false,
+    error: { kind: "rate-limited", status: 429, message: "private diagnostic", retryAfterSeconds: 60 }
+  });
+  await expect(sendGazetteSelection(input, "key", caller)).rejects.toBeInstanceOf(GazetteOutcomeUnknownError);
+  vi.mocked(previewGazetteNotice).mockResolvedValue({
+    ok: false,
+    error: { kind: "rate-limited", status: 429, message: "private diagnostic", retryAfterSeconds: 60 }
+  });
+  await expect(previewGazetteSelection(["case-1"], caller)).rejects.toBeInstanceOf(GazetteOutcomeUnknownError);
+});
+
 it.each([
   ["unauthorized", UnauthorizedError],
   ["forbidden", ForbiddenError]

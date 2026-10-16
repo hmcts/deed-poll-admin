@@ -136,11 +136,11 @@ npx turbo test test:app --concurrency=1 --force
 **Files:** `libs/deed-poll-api-client/src/api/client.ts`; `libs/deed-poll/src/errors.ts`;
 `libs/deed-poll/src/api/deed-poll-api.ts`.
 
-- [ ] `client.test.ts`: 429 is `rate-limited` with `retryAfterSeconds` from `Retry-After`; absent, negative or
+- [x] `client.test.ts`: 429 is `rate-limited` with `retryAfterSeconds` from `Retry-After`; absent, negative or
   non-numeric gives `null`; 408 and 5xx stay `unavailable`.
-- [ ] `callApi` raises `TooManyRequestsError`, carrying the seconds.
-- [ ] `callGazetteApi` still raises `GazetteOutcomeUnknownError` for a 429.
-- [ ] Mark completed
+- [x] `callApi` raises `TooManyRequestsError`, carrying the seconds.
+- [x] `callGazetteApi` still raises `GazetteOutcomeUnknownError` for a 429.
+- [x] Mark completed
 
 ### Task 3: The 429 page
 
