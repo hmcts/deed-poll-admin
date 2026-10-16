@@ -176,7 +176,7 @@ findings; `yarn build` exit 0; the suite **200 files / 3,948 tests, 0 skipped**:
 - simple-router 4 / 41
 - express-session-redis 1 / 7
 
-`session-store.test.ts` ran (7 tests).
+`session-store.test.ts` ran (7 tests). Re-run 2026-10-16 after merging master (`f7dcf82`, js-yaml 5.4.3): identical counts, lint and build clean.
 
 ## Post-Completion
 
