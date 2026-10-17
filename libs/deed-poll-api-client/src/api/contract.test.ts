@@ -178,6 +178,27 @@ describe("openapi.json and the wire schemas", () => {
     }
   });
 
+  it("should publish api's 429 on exactly the six rate-limited operations", () => {
+    // api#113's limits. Admin classifies a 429 as `rate-limited`; a refresh that drops one, or adds one elsewhere,
+    // changes which actions can show the too-many-requests page.
+    const limited = Object.entries(spec.paths)
+      .flatMap(([route, methods]) =>
+        Object.entries(methods)
+          .filter(([, operation]) => (operation as { responses?: Record<string, unknown> }).responses?.["429"] !== undefined)
+          .map(([method]) => `${method.toUpperCase()} ${route}`)
+      )
+      .sort();
+
+    expect(limited).toEqual([
+      "GET /caseworker/cases",
+      "POST /caseworker/cases/{id}/documents",
+      "POST /caseworker/cases/{id}/emails/{template}",
+      "POST /caseworker/cases/{id}/emails/{template}/preview",
+      "POST /caseworker/gazette-notice-previews",
+      "POST /caseworker/gazette-notices"
+    ]);
+  });
+
   it("should publish the Gazette read, paging vocabulary, bounded preview and ready filter", () => {
     const operation = spec.paths["/caseworker/gazette-notices"].get;
     expect(Object.keys(spec.paths["/caseworker/gazette-notices"])).toEqual(["get", "post"]);

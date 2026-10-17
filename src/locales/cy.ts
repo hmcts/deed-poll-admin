@@ -29,6 +29,13 @@ export const content: Translations = {
     absoluteBody: "Er eich diogelwch, byddwch yn cael eich allgofnodi am {time}. Cadwch eich gwaith nawr. Bydd angen i chi fewngofnodi eto.",
     continue: "Parhau"
   },
+  tooManyRequests: {
+    heading: "Rydych wedi gwneud gormod o geisiadau",
+    explanation: "Er mwyn diogelu’r gwasanaeth, mae cyfyngiad ar ba mor aml y gellir gwneud hyn.",
+    tryAgainInOneMinute: "Rhowch gynnig arall arni ymhen 1 munud.",
+    tryAgainInMinutes: "Rhowch gynnig arall arni ymhen {minutes} munud.",
+    tryAgainLater: "Rhowch gynnig arall arni yn nes ymlaen."
+  },
   navigation: {
     home: "Hafan",
     about: "Amdanom",

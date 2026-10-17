@@ -47,6 +47,7 @@ import {
   patchNote,
   patchSavedQuery,
   previewEmail,
+  previewGazetteNotice,
   type ReferralCreate,
   recordConfirmation,
   selectSavedQuery,
@@ -1910,6 +1911,28 @@ describe("when api answers a status the contract does not describe", () => {
     }
   });
 
+  it("should keep 408 and 5xx unavailable, so only api's limiter reads as a limit", async () => {
+    for (const status of [408, 500, 502, 503]) {
+      const answering = await listen(
+        createServer((_req, res) => {
+          res.writeHead(status, { "content-type": "application/json", "retry-after": "30" });
+          res.end(JSON.stringify({ error: `answered ${status}` }));
+        })
+      );
+
+      try {
+        const result = await listCases({}, { baseUrl: answering.url, timeoutMs: 2000 });
+
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.error.kind, `status ${status}`).toBe("unavailable");
+        expect(result.error.retryAfterSeconds, `status ${status}`).toBeUndefined();
+      } finally {
+        await answering.close();
+      }
+    }
+  });
+
   it("should still classify a failure whose body is not api's JSON", async () => {
     // An unavailable api often answers with a proxy's HTML, which must not turn a 503 into a crash.
     const proxy = await listen(
@@ -1928,6 +1951,55 @@ describe("when api answers a status the contract does not describe", () => {
       expect(result.error.message).toBe("deed-poll-api answered 503");
     } finally {
       await proxy.close();
+    }
+  });
+});
+
+describe("when api's abuse limiter refuses the caller", () => {
+  it.each([
+    ["120", 120],
+    ["0", 0],
+    [undefined, null],
+    ["-5", null],
+    ["soon", null],
+    ["1.5", null],
+    ["Fri, 16 Oct 2026 21:00:00 GMT", null]
+  ] as const)("should classify 429 as rate-limited with Retry-After %s read as %s", async (retryAfter, expected) => {
+    const limiting = await listen(
+      createServer((_req, res) => {
+        res.writeHead(429, { "content-type": "application/json", ...(retryAfter === undefined ? {} : { "retry-after": retryAfter }) });
+        res.end(JSON.stringify({ error: "Too many requests" }));
+      })
+    );
+
+    try {
+      const result = await listCases({ q: "Smith" }, { baseUrl: limiting.url, timeoutMs: 2000 });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toEqual({ kind: "rate-limited", status: 429, message: "Too many requests", retryAfterSeconds: expected });
+    } finally {
+      await limiting.close();
+    }
+  });
+
+  it("should classify a Gazette write's 429 as rate-limited rather than a Gazette refusal", async () => {
+    // Only a published Gazette refusal proves nothing was admitted; the domain treats a limit as unknown.
+    const limiting = await listen(
+      createServer((_req, res) => {
+        res.writeHead(429, { "content-type": "application/json", "retry-after": "60" });
+        res.end(JSON.stringify({ error: "Too many requests" }));
+      })
+    );
+
+    try {
+      const result = await previewGazetteNotice({ caseIds: ["00000000-0000-4000-8000-000000000001"] }, { baseUrl: limiting.url, timeoutMs: 2000 });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toMatchObject({ kind: "rate-limited", retryAfterSeconds: 60 });
+    } finally {
+      await limiting.close();
     }
   });
 });

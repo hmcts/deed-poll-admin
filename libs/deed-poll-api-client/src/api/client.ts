@@ -945,7 +945,7 @@ async function gazetteRequest<S extends z.ZodType>(
   ) {
     return { ok: false, error: { kind: "gazette-refusal", code: refusal.data.code, conflicts: refusal.data.conflicts ?? [] } };
   }
-  return { ok: false, error: classifyFailure(response.status, payload) };
+  return { ok: false, error: classifyFailure(response, payload) };
 }
 
 async function exchange(
@@ -1033,10 +1033,11 @@ function isAborted(error: unknown): boolean {
  */
 async function failureFromResponse(response: Response): Promise<ApiError> {
   const payload = await readJsonOrNull(response);
-  return classifyFailure(response.status, payload);
+  return classifyFailure(response, payload);
 }
 
-function classifyFailure(status: number, payload: unknown): ApiError {
+function classifyFailure(response: Response, payload: unknown): ApiError {
+  const status = response.status;
   const parsed = UNSPECIFIED_SCHEMAS.ApiError.safeParse(payload);
   const message = parsed.success ? parsed.data.error : `deed-poll-api answered ${status}`;
   const fieldErrors = parsed.success ? (parsed.data.errors ?? []) : [];
@@ -1054,12 +1055,26 @@ function classifyFailure(status: number, payload: unknown): ApiError {
   if (status === 404) return { kind: "not-found", status, message };
   if (status === 409) return { kind: "conflict", status, message };
 
-  // 408 and 429 sit with the 5xxs: all of them mean "come back shortly", not "your input is wrong".
-  if (status === 408 || status === 429 || status >= 500) {
+  // api's abuse limiter, not an outage: the caseworker is told how long to wait rather than that the
+  // service has broken.
+  if (status === 429) return { kind: "rate-limited", status, message, retryAfterSeconds: retryAfterSeconds(response.headers.get("retry-after")) };
+
+  // 408 sits with the 5xxs: all of them mean "come back shortly", not "your input is wrong".
+  if (status === 408 || status >= 500) {
     return { kind: "unavailable", status, message };
   }
 
   return { kind: "unknown", status, message };
+}
+
+/**
+ * `Retry-After` as whole seconds, which is the only form api sends. The HTTP-date form, a fraction or a
+ * negative are read as "not known" rather than guessed at, so the page falls back to its generic sentence.
+ */
+function retryAfterSeconds(header: string | null): number | null {
+  if (header === null || !/^\d+$/.test(header.trim())) return null;
+  const seconds = Number(header.trim());
+  return Number.isSafeInteger(seconds) ? seconds : null;
 }
 
 /** A failure body is best-effort — an unavailable api often answers with a proxy's HTML. */
@@ -1100,6 +1115,8 @@ export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError 
  * - `not-found` — no such case, note or document
  * - `forbidden` / `unauthorized` — the caller's token is missing, expired, or lacks a role
  * - `conflict` — the record's state does not allow this
+ * - `rate-limited` — api's abuse limiter refused this caller; `retryAfterSeconds` says for how long, or
+ *   `null` when api did not say in a form this reads
  * - `unavailable` / `timeout` — nobody's fault; try again shortly
  * - `invalid-response` — a 2xx whose body does not match the contract. A bug at one end or the other,
  *   and worth distinguishing from `unavailable` so it is not dismissed as a blip
@@ -1111,9 +1128,21 @@ export interface ApiError {
   /** For developers and logs. Never rendered as-is: pages carry their own copy. */
   message: string;
   fieldErrors?: readonly ApiFieldError[];
+  /** Set for `rate-limited` only. */
+  retryAfterSeconds?: number | null;
 }
 
-export type ApiErrorKind = "validation" | "not-found" | "forbidden" | "unauthorized" | "conflict" | "unavailable" | "timeout" | "invalid-response" | "unknown";
+export type ApiErrorKind =
+  | "validation"
+  | "not-found"
+  | "forbidden"
+  | "unauthorized"
+  | "conflict"
+  | "rate-limited"
+  | "unavailable"
+  | "timeout"
+  | "invalid-response"
+  | "unknown";
 
 export interface ApiFieldError {
   /** api's field name, so an error summary can link to the input that caused it. */

@@ -20,6 +20,9 @@ import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts, sessionCook
 import { sessionLifetime } from "./auth/session-lifetime.js";
 import { assertIdamSettings, idamSettings } from "./auth/settings.js";
 import { domainErrorHandler } from "./errors.js";
+import { createRateLimiter, rateLimitSettings } from "./rate-limit/limiter.js";
+import { mountAbuseLimits } from "./rate-limit/routes.js";
+import { uploadInFlightCap } from "./rate-limit/upload-in-flight.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,6 +53,8 @@ export async function createApp(): Promise<Express> {
   const redisUrl = config.get<string>("redis.url");
   assertRedisUrl(redisUrl, config.get<boolean>("redis.plaintextPermitted") === true);
   const redisConnection = await getRedisClient(redisUrl);
+  // Read before anything is mounted, so a bad mode or a limit that arrived as a string stops startup.
+  const rateLimits = rateLimitSettings(config.get("rateLimit"));
   const app = express();
 
   app.set("trust proxy", 1);
@@ -214,6 +219,10 @@ export async function createApp(): Promise<Express> {
   // See ./auth/require-role.ts — and note that api gates the same routes itself; this is the UI boundary.
   app.use("/judicial", requireJudicial());
   app.use("/deed-polls/gazette", requireCapability(ACCESS_GAZETTE));
+
+  // After the gates, so a refused user is not counted, and before the router, so the cap and the limiter run
+  // before the upload page's multipart parser. See ./rate-limit/routes.ts. api is authoritative; this is UX.
+  mountAbuseLimits(app, createRateLimiter(redisConnection, rateLimits), uploadInFlightCap(rateLimits.uploadInFlight));
 
   app.use(await createSimpleRouter({ path: `${__dirname}/pages` }));
   app.use(notFoundHandler());

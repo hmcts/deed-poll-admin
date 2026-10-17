@@ -31,6 +31,28 @@
       "__format": "json"
     }
   },
+  "rateLimit": {
+    "mode": "RATE_LIMIT_MODE",
+    "buckets": {
+      "search": {
+        "limit": { "__name": "RATE_LIMIT_SEARCH_LIMIT", "__format": "json" },
+        "windowSeconds": { "__name": "RATE_LIMIT_SEARCH_WINDOW_SECONDS", "__format": "json" }
+      },
+      "email-preview": {
+        "limit": { "__name": "RATE_LIMIT_EMAIL_PREVIEW_LIMIT", "__format": "json" },
+        "windowSeconds": { "__name": "RATE_LIMIT_EMAIL_PREVIEW_WINDOW_SECONDS", "__format": "json" }
+      },
+      "email-send": {
+        "limit": { "__name": "RATE_LIMIT_EMAIL_SEND_LIMIT", "__format": "json" },
+        "windowSeconds": { "__name": "RATE_LIMIT_EMAIL_SEND_WINDOW_SECONDS", "__format": "json" }
+      },
+      "upload": {
+        "limit": { "__name": "RATE_LIMIT_UPLOAD_LIMIT", "__format": "json" },
+        "windowSeconds": { "__name": "RATE_LIMIT_UPLOAD_WINDOW_SECONDS", "__format": "json" }
+      }
+    },
+    "uploadInFlight": { "__name": "RATE_LIMIT_UPLOAD_IN_FLIGHT", "__format": "json" }
+  },
   "applicationInsights": {
     "serviceName": "SERVICE_NAME",
     "connectionString": "APPLICATION_INSIGHTS_CONNECTION_STRING"

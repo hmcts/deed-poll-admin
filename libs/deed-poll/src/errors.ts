@@ -97,6 +97,22 @@ export class ConflictError extends Error {
   }
 }
 
+/**
+ * An abuse limit refused the caller — api's, or this app's own in front of it.
+ *
+ * Not a plain `Error`, because the 500 page would tell a caseworker the service has broken when it is
+ * asking them to wait. `retryAfterSeconds` is `null` when the wait is not known.
+ */
+export class TooManyRequestsError extends Error {
+  readonly retryAfterSeconds: number | null;
+
+  constructor(message: string, retryAfterSeconds: number | null) {
+    super(message);
+    this.name = "TooManyRequestsError";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 /** A failure addressed to a specific field, so a form can render it in place. */
 export interface FieldError {
   field: string;

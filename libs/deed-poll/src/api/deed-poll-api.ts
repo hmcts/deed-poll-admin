@@ -20,7 +20,7 @@
  * correct at any point in the startup sequence.
  */
 import { type ApiConfig, type ApiError, type ApiResult, checkApiReachable, type GazetteApiResult } from "@hmcts/deed-poll-api-client";
-import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } from "../errors.js";
+import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "../errors.js";
 
 import { GazetteOutcomeUnknownError, GazetteRefusalError } from "../gazette/errors.js";
 
@@ -68,7 +68,10 @@ export async function callApi<T>(caller: Caller, call: (config: ApiConfig) => Pr
   throw errorFor(result.error);
 }
 
-/** Only a published Gazette refusal proves non-admission; discard untrusted diagnostic prose. */
+/**
+ * Only a published Gazette refusal proves non-admission; discard untrusted diagnostic prose. A 429 stays an
+ * unknown outcome too: api's limiter answering does not prove an earlier attempt under the same key was not admitted.
+ */
 export async function callGazetteApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<GazetteApiResult<T>>): Promise<T> {
   const result = await call(apiConfig(caller));
   if (result.ok) return result.data;
@@ -152,6 +155,8 @@ function errorFor(error: ApiError): Error {
       return new UnauthorizedError(error.message);
     case "conflict":
       return new ConflictError(error.message);
+    case "rate-limited":
+      return new TooManyRequestsError(error.message, error.retryAfterSeconds ?? null);
     case "validation":
       // The field errors are api's, unrenamed: its property names are this app's field names, so an
       // error summary can already link to the input that caused it.

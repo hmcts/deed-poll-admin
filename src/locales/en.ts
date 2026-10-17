@@ -22,6 +22,14 @@ export const content = {
     absoluteBody: "For your security, you will be signed out at {time}. Save your work now. You will need to sign in again.",
     continue: "Continue"
   },
+  // The 429 page (`src/pages/errors/429.njk`): an abuse limit, api's or this app's, asking the caseworker to wait.
+  tooManyRequests: {
+    heading: "You have made too many requests",
+    explanation: "To protect the service, there is a limit on how often this can be done.",
+    tryAgainInOneMinute: "Try again in 1 minute.",
+    tryAgainInMinutes: "Try again in {minutes} minutes.",
+    tryAgainLater: "Try again later."
+  },
   navigation: {
     home: "Home",
     about: "About",

@@ -8,6 +8,7 @@ import { load as yamlLoad } from "js-yaml";
 import { describe, expect, it } from "vitest";
 import { PERSONA_SWITCHER_ENVIRONMENTS } from "./auth/persona-switcher.js";
 import { assertSessionTimeouts } from "./auth/session.js";
+import { rateLimitSettings } from "./rate-limit/limiter.js";
 
 // `src/secrets.ts` resolves this path relative to its own directory, and `getPropertiesVolumeSecrets`
 // swallows a missing or unparseable chart: the aliases below are silently dropped and every secret arrives
@@ -312,6 +313,54 @@ describe("charts/deed-poll-admin", () => {
     }
   });
 
+  // OWASP plan 06: deploy counting and refusing nothing, so the log lines can be compared with api's before either
+  // enforces. Asserted structurally for the same reason as ENVIRONMENT_NAME: a mis-nested key leaves the name present
+  // while config falls back to the default, which here would also say observe and so hide the mistake.
+  it("should deploy the rate limiter in observe mode, mapped from RATE_LIMIT_MODE", () => {
+    const defaults = (JSON.parse(readFileSync(path.join(APP_DIR, "../config/default.json"), "utf8")) as { rateLimit: { mode: string } }).rateLimit;
+
+    expect(readValues("values.yaml").nodejs.environment?.RATE_LIMIT_MODE).toBe("observe");
+    expect(defaults.mode).toBe("observe");
+    expect(readMapping().rateLimit?.mode).toBe("RATE_LIMIT_MODE");
+    for (const template of TEMPLATES) {
+      expect(readValues(template).nodejs.environment?.RATE_LIMIT_MODE, `${template} changes the rate-limit mode`).toBeUndefined();
+    }
+  });
+
+  // api's numbers (api#113), so this app never refuses what api would allow.
+  it("should default every bucket to api's limit and window, and map each as a number", () => {
+    const defaults = (JSON.parse(readFileSync(path.join(APP_DIR, "../config/default.json"), "utf8")) as { rateLimit: unknown }).rateLimit;
+    const buckets = readMapping().rateLimit?.buckets ?? {};
+
+    expect(rateLimitSettings(defaults).buckets).toEqual({
+      search: { limit: 120, windowSeconds: 60 },
+      "email-preview": { limit: 30, windowSeconds: 600 },
+      "email-send": { limit: 20, windowSeconds: 3600 },
+      upload: { limit: 30, windowSeconds: 600 }
+    });
+    for (const bucket of ["search", "email-preview", "email-send", "upload"]) {
+      const prefix = `RATE_LIMIT_${bucket.toUpperCase().replace("-", "_")}`;
+      expect(buckets[bucket], bucket).toEqual({
+        limit: { __name: `${prefix}_LIMIT`, __format: "json" },
+        windowSeconds: { __name: `${prefix}_WINDOW_SECONDS`, __format: "json" }
+      });
+    }
+  });
+
+  it("should default the per-pod in-flight upload cap to 4, mapped as a number", () => {
+    const defaults = (JSON.parse(readFileSync(path.join(APP_DIR, "../config/default.json"), "utf8")) as { rateLimit: unknown }).rateLimit;
+
+    expect(rateLimitSettings(defaults).uploadInFlight).toBe(4);
+    expect(readMapping().rateLimit?.uploadInFlight).toEqual({ __name: "RATE_LIMIT_UPLOAD_IN_FLIGHT", __format: "json" });
+  });
+
+  // Flux reconciles on the chart version, so a values.yaml change without a bump never deploys.
+  it("should carry the chart version that ships RATE_LIMIT_MODE", () => {
+    const chart = yamlLoad(readFileSync(path.join(CHART_DIR, "Chart.yaml"), "utf8")) as { version: string };
+
+    expect(chart.version).toBe("0.0.4");
+  });
+
   it("should give the preview redis a probe budget that survives Dynatrace instrumentation", () => {
     // HDPI-8155: the chart-default 2s exec-probe budget leaves redis Running-but-not-Ready on preview
     // (`apps/pcs/pcs-frontend` measured 3.4-4.1s), and a master missing from its Service endpoints leaves
@@ -375,4 +424,5 @@ interface EnvironmentMapping {
   personaSwitcher?: { enabled?: unknown };
   redis?: { plaintextPermitted?: unknown };
   session?: { idleTimeoutSeconds?: unknown; absoluteTimeoutSeconds?: unknown; timeoutLogoutPathRegistered?: unknown };
+  rateLimit?: { mode?: unknown; buckets?: Record<string, unknown>; uploadInFlight?: unknown };
 }

@@ -138,7 +138,7 @@ yarn dev
 |---------|-----|-------------|
 | Web Application | http://localhost:3000 | Main web interface with GOV.UK styling |
 | deed-poll-api mock | http://localhost:3200 | The in-memory api the pages develop against (`yarn mock:api`). Overridden by `DEED_POLL_API_URL` |
-| Redis | localhost:6379 | Session store, from `docker compose`. Overridden by `REDIS_URL`; the default is `redis://localhost:6379` |
+| Redis | localhost:6379 | Session store and rate-limit counters, from `docker compose`. Overridden by `REDIS_URL`; the default is `redis://localhost:6379` |
 | IDAM simulator | http://localhost:5556 | Local OIDC issuer for the login flow. Build the image first with `yarn idam:build`, then seed users with `yarn idam:users` |
 
 
@@ -256,6 +256,20 @@ gated twice, and neither gate is `NODE_ENV` (every deployed pod runs `NODE_ENV=p
 Both must agree, or nothing is rendered and `POST /switch-persona` is a 404. See
 `src/auth/persona-switcher.ts` for the full reasoning and `docs/plans/completed/dev-persona-switcher.md`
 for the decisions.
+
+### Abuse limits
+
+Search, email preview, email send and upload are limited per IDAM subject in `src/rate-limit/`; api is the
+authoritative control and this limiter only spares a pod the work. Counters live in the session Redis and a Redis
+error lets the request through.
+
+| Variable | What it does |
+|---|---|
+| `RATE_LIMIT_MODE` | `off`, `observe` or `enforce`. Defaults to `observe`, which logs a `rate_limit …` line for what `enforce` would refuse and refuses nothing |
+| `RATE_LIMIT_<BUCKET>_LIMIT`, `RATE_LIMIT_<BUCKET>_WINDOW_SECONDS` | Per-bucket count and fixed window; `<BUCKET>` is `SEARCH`, `EMAIL_PREVIEW`, `EMAIL_SEND` or `UPLOAD`. Defaults mirror api's in `config/default.json` |
+| `RATE_LIMIT_UPLOAD_IN_FLIGHT` | Concurrent uploads allowed per pod (default 4); enforced in every mode |
+
+A refusal renders a 429 page with `Retry-After` when the wait is known.
 
 ### Shared libraries
 
