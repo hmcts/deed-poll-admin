@@ -31,7 +31,7 @@
     "lint:fix": "biome check --write ."
   },
   "dependencies": {
-    "pg": "8.23.0",
+    "pg": "8.23.1",
     "pg-format": "1.0.4"
   },
   "peerDependencies": {
