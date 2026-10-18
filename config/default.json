@@ -31,5 +31,8 @@
     "clientSecret": "",
     "redirectUri": "http://localhost:3000/oauth2/callback",
     "scope": "openid profile roles offline_access"
+  },
+  "externalLinks": {
+    "xuiStaffAdmin": "https://xui-internal/staff-administrator"
   }
 }

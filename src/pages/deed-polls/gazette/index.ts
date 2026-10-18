@@ -1,4 +1,5 @@
 import { buildCaseList, buildPaging, findGazetteReadyCases, parsePage } from "@hmcts/deed-poll";
+import config from "config";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../auth/current-user.js";
 
@@ -13,6 +14,7 @@ const en = {
   history: "Send history",
   startReview: "Review and select applications",
   settings: "London Gazette recipient",
+  staffAdmin: "Manage staff (requires staff-admin access)",
   reference: "Reference",
   privacy: "Privacy",
   forename: "New forename",
@@ -34,6 +36,7 @@ const cy = {
   history: "Hanes anfon",
   startReview: "Adolygu a dewis ceisiadau",
   settings: "Derbynnydd y London Gazette",
+  staffAdmin: "Rheoli staff (mae angen mynediad staff-admin)",
   reference: "Cyfeirnod",
   privacy: "Preifatrwydd",
   forename: "Enw cyntaf newydd",
@@ -51,10 +54,12 @@ export const GET = async (req: Request, res: Response) => {
   const content = res.locals.locale === "cy" ? cy : en;
   const results = await findGazetteReadyCases({ page: parsePage(req.query.page) }, callerFromRequest(req));
   const paging = buildPaging(results, (page) => `${LIST_PATH}?page=${page}`);
+  const xuiStaffAdminUrl = config.get<string>("externalLinks.xuiStaffAdmin");
 
   res.render("deed-polls/gazette/index", {
     en,
     cy,
+    xuiStaffAdminUrl,
     cases: buildCaseList(results.cases),
     paging,
     isBeyondEnd: results.total > 0 && results.page > results.totalPages,
