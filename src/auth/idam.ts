@@ -125,6 +125,8 @@ export interface LoginResult {
    * decisions are made from.
    */
   subject: string;
+  /** False when api's `/me` could not be asked, so `user` holds no access for want of an answer rather than by one. */
+  accessAnswered: boolean;
   tokens: IdamTokens;
 }
 
@@ -170,9 +172,9 @@ export async function completeLogin(config: IdamConfig, flow: AuthFlowState, cur
  * password grant in `./password-grant.ts` had its own copy of both, so a fix to one would have reached only
  * the flow whose bug was noticed.
  *
- * **What the user may do is api's `GET /me` answer, asked with the new access token.** A failed `/me` still
- * signs the user in, with no access at all: refusing the login is OWASP plan 01 Task 6's decision, not this
- * one's. The next successful refresh replaces it.
+ * **What the user may do is api's `GET /me` answer, asked with the new access token.** A failed `/me` is
+ * returned as no access with `accessAnswered: false`, and the caller decides: the IDAM callback refuses the
+ * login with a try-again page (OWASP plan 01 Task 6), because "we could not check" is not "you have no access".
  */
 export async function loginFrom(
   configuration: client.Configuration,
@@ -187,6 +189,7 @@ export async function loginFrom(
   return {
     user: userFromClaims(info as IdamClaims, access),
     subject: claims.sub,
+    accessAnswered: access !== undefined,
     tokens: {
       idToken: tokens.id_token,
       accessToken: tokens.access_token,
