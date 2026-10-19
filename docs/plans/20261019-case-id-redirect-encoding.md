@@ -211,22 +211,23 @@ Read `src/case-path.ts` and its test first, and mirror that contract rather than
 Execution notes. Read the two reported handlers and the existing page tests. The optional local reproduction
 files in Context can inform the test but must not be imported or required by committed tests.
 
-- [ ] Add a portable Vitest/Express integration test using existing Supertest: exercise the actual edit and
+- [x] Add a portable Vitest/Express integration test using existing Supertest: exercise the actual edit and
       confirmation handlers with domain I/O mocked and no live API. Send percent-encoded request paths so
       Express's decoding and the real `Location` header are tested, not only response doubles.
-- [ ] Include confirmation's exact line-136 guard path and success/conflict paths. Assert literal encoded
+- [x] Include confirmation's exact line-136 guard path and success/conflict paths. Assert literal encoded
       `Location` values, preserved deliberate query/fragment suffixes, no raw header controls, and no change
       of origin after URL resolution. Demonstrate that delimiter payloads fail the new expectations on the
       baseline; merely asserting same-origin would pass before the fix and would not prove the hardening.
-- [ ] Test dot-only rejection directly at the handler/helper boundary as well: HTTP clients can normalise
+- [x] Test dot-only rejection directly at the handler/helper boundary as well: HTTP clients can normalise
       dot segments before the handler sees them. State this limitation rather than claiming a request
       reached a route it never exercised. Cover literal percent sequences without a second decode.
-- [ ] Document the `casePath` rule and the judicial `referralPath` helper (Task 5), raw-ID domain calls, dot-only
+- [x] Document the `casePath` rule and the judicial `referralPath` helper (Task 5), raw-ID domain calls, dot-only
       rejection and single encoding in `CLAUDE.md`.
       Record changed files, starting/final commits, red/green evidence, test counts, skips and limitations in
       Execution notes. Do not copy machine-specific evidence files into the repository.
-- [ ] Run all Validation Commands. Leave the implementation ready for the normal Ralphex review phases;
+- [x] Run all Validation Commands. Leave the implementation ready for the normal Ralphex review phases;
       record review outcomes and rerun validation if review fixes change code before declaring completion.
+      (Review outcomes are deferred to Ralphex's review phases, which run after the task loop.)
 
 ## Acceptance Criteria
 
@@ -327,6 +328,35 @@ direction across form/invalid/change/check/confirm) failed. The new delimiter te
 on the baseline as well, as expected: both files already encoded once, and those tests pin that they still do via
 the helper. Green: focused run 3 files / 92 tests. Full validation: lint clean (same Biome migrate info), build
 passed, app 102 files / 2050 tests, session-store 7 tests ran, libraries unchanged and passing, no skips.
+
+Task 6 result: added `src/case-redirects.test.ts` (71 tests), a Supertest run of the real edit and confirmation
+handlers on a minimal Express app — urlencoded body parsing, a session double carrying only the access token, and a
+`NotFoundError`-to-404 handler; domain I/O mocked, no live api, no session store, authentication or CSRF gate.
+Requests send percent-encoded paths, so Express's decoding and the `Location` Node writes are both exercised. Eight
+payloads (slash/`?`/`#`, backslash, protocol-relative and absolute URL text, `../` traversal, CR/LF, literal `%2F`,
+literal `%2e%2e`) run through edit's legacy GET and POST, and confirmation's GET guard, POST success, POST conflict,
+the reported line-136 guard via the invalid-body re-render, and the same guard via api's-rejection re-render. Each
+asserts the literal `Location`, no header control characters, and that it resolves on the origin to exactly the
+expected path, query (`?confirmation=…`) and fragment (`#referrals`, `#<tab>`); each also asserts the raw decoded id
+reached the domain exactly once. A further eight tests show each payload's raw interpolation resolves elsewhere, so
+same-origin alone could not have proven the fix. Added the "Redirect paths" section to `CLAUDE.md`.
+Red: with the two handlers restored from `0dd4b98` (then restored to HEAD), 59 of 71 failed — every delimiter case
+on both routes and the three boundary tests. The 12 that passed are the 8 payload proofs, the 2 normal-id
+destinations, and the 2 HTTP dot-only tests below.
+Limitation found and recorded in the test: `%2E` and `%2E%2E` cannot reach a handler over HTTP. The WHATWG URL
+parser Supertest uses resolves them as dot segments (`/deed-polls/%2E%2E/edit/notes` is sent as `/edit/notes`), so
+no case route matches. Those two tests now pin "never reaches a handler", pass on the baseline too, and are not
+claimed as evidence. The dot-only refusal is proven by the handler-boundary test (`""`, `.`, `..` against edit POST
+and confirmation GET/POST: `NotFoundError`, no read, no write, no redirect) and by `src/case-path.test.ts`.
+The local evidence files in `local-notes/` were neither imported nor copied.
+Full validation: lint clean (same Biome migrate info), build passed, app 103 files / 2121 tests, session-store
+7 tests ran, libraries deed-poll 1183, deed-poll-api-client 718, cloud-native-platform 157, express-govuk-starter
+127, simple-router 41, express-session-postgres 23, express-session-redis 7; no failures or skips.
+Commits: review base `0dd4b98b4e79a936e534eab671a118523db2d1dc`; Tasks 1–5 end at `6fe8e69`; Task 6 is the commit
+after it. The branch changes 36 files plus this test: the two helpers and their tests, the thirteen
+`src/pages/deed-polls` handlers in the inventory, the judicial claim and direction handlers, their colocated tests,
+`CLAUDE.md` and this plan. Review outcomes: not run in this iteration. Ralphex's review phases follow
+the task loop, and their findings and any revalidation are recorded by that phase.
 
 ## Post-Completion
 

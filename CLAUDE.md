@@ -441,6 +441,23 @@ Search, email preview, email send and upload are limited per IDAM subject
   `TooManyRequestsError`, because only a published Gazette refusal proves nothing was admitted under the request's
   key. The Gazette batch page is not limited here; api limits it.
 
+## Redirect paths
+
+A redirect that names a case builds its path with `casePath(id)` (`src/case-path.ts`), and one that names a judicial
+referral with `referralPath(id)` (`src/judicial-referral-path.ts`). Never interpolate an id into a `res.redirect`
+target. This is internal URL-construction hardening (Fortify `14866335…`, `250FCCE3…`, `2950F280…`; plan
+`docs/plans/20261019-case-id-redirect-encoding.md`); it is not proof that every redirect is safe.
+
+- **Encode once, from the value Express or api gave you.** Route parameters arrive decoded, so the helper's single
+  `encodeURIComponent` keeps a literal `%2F` literal (`%252F`). Do not decode again, encode a whole URL, or mutate
+  `req.params`. Domain calls keep the raw id.
+- **Empty, `.` and `..` are a fixed-message `NotFoundError`**, because encoding leaves dots alone and a browser drops
+  a dot segment. Build the path **before** any write (and, on the judicial pages, before any read), so a refusal
+  cannot follow a write. For an api-returned id (`created.id`, `referenceMatch`) build it after the response and
+  never retry the write.
+- `src/case-redirects.test.ts` drives the two reported handlers over HTTP. A URL-parsing client resolves `.`, `..`
+  and `%2E` as dot segments before sending, so the dot-only refusal is tested at the handler boundary instead.
+
 # Agent instructions
 
 Claude must follow these instructions strictly when contributing code. Rules and conventions are mandatory and must be adhered to without exception. After implementing code, Claude must review it to ensure full compliance with these guidelines.
