@@ -111,6 +111,12 @@ both ways, so the spec and the adapter must land together in Task 1, or the suit
   handler's model over it (`.claude/rules/testing.md`).
 - No new dependency. Pinned versions only. No `any`. Do not push.
 - No page reads a role. Access is api's answer, and the `/judicial` mount in `src/app.ts` already gates the area.
+- **Every new path containing an id is built in the handler, never in a template** (CLAUDE.md "Redirect paths").
+  This covers the document links, the change and withdraw links, and every redirect:
+  - use `referralPath(referralId)`, and `pathSegment(documentId, "document")` for the document id;
+  - pass the finished hrefs to the template;
+  - never interpolate `{{ referral.id }}` or a document id into an `.njk` href;
+  - build a redirect target before the api call that precedes it.
 
 ## Validation Commands
 
