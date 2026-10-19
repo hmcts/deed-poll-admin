@@ -389,7 +389,7 @@ describe("judicial/view", () => {
     it("should offer the claim control on an Open referral and not the direction one", () => {
       const view = buildJudicialReferral(detail({ state: "Open" }));
 
-      expect(view).toMatchObject({ claimable: true, directable: false });
+      expect(view).toMatchObject({ claimable: true, directable: false, changeable: false });
     });
 
     // api's visibility admits a Claimed referral only to its holder, so Claimed means claimed by this
@@ -397,19 +397,21 @@ describe("judicial/view", () => {
     it("should offer the direction control on a Claimed referral without asking who holds it", () => {
       const view = buildJudicialReferral(detail({ state: "Claimed", claimedBy: null, claimedAt: new Date("2026-09-04T10:00:00Z") }));
 
-      expect(view).toMatchObject({ claimable: false, directable: true, claimedOn: "4 September 2026 at 11:00am" });
+      expect(view).toMatchObject({ claimable: false, directable: true, changeable: false, claimedOn: "4 September 2026 at 11:00am" });
     });
 
-    it("should offer neither control on a Decided referral", () => {
+    // api's visibility admits a Decided referral only to the judge who directed it, so Decided means directed by
+    // this judge, and that judge may change or withdraw the direction until the office closes the referral.
+    it("should offer change and withdraw on a Decided referral, and neither claim nor direct", () => {
       const view = buildJudicialReferral(detail({ state: "Decided" }));
 
-      expect(view).toMatchObject({ claimable: false, directable: false });
+      expect(view).toMatchObject({ claimable: false, directable: false, changeable: true });
     });
 
     it("should offer neither control when api published no state", () => {
       const view = buildJudicialReferral(detail({ state: null }));
 
-      expect(view).toMatchObject({ state: "Not recorded", claimable: false, directable: false, stateTagClasses: "govuk-tag--grey" });
+      expect(view).toMatchObject({ state: "Not recorded", claimable: false, directable: false, changeable: false, stateTagClasses: "govuk-tag--grey" });
     });
 
     // Decision 5: which list the referral is on, which is the way back to it. Keyed on the state api published

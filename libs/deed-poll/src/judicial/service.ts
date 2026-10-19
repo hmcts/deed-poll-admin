@@ -1,7 +1,7 @@
 /**
  * The judicial surface — the two lists a judge works from, and the two writes they make on a referral.
  *
- * Five thin functions over `/judicial/**`, and they are a **sibling** of `../referrals/service.ts` rather than
+ * Thin functions over `/judicial/**`, and they are a **sibling** of `../referrals/service.ts` rather than
  * a section of it. Three things follow from that, and all three are api's decisions rather than this file's:
  *
  * **No case id, anywhere.** api keys the whole judicial surface on the referral so a judge cannot name an
@@ -45,7 +45,9 @@ import {
   type JudicialMyReferrals,
   type JudicialPool,
   type JudicialPoolQuery,
-  type JudicialReferralDetail
+  type JudicialReferralDetail,
+  reviseDirection,
+  withdrawDirection
 } from "@hmcts/deed-poll-api-client";
 import { type Caller, callApi } from "../api/deed-poll-api.js";
 import type { DirectionInput } from "./schemas.js";
@@ -144,4 +146,27 @@ export function claimReferral(referralId: string, caller: Caller): Promise<Judic
  */
 export function recordDirection(referralId: string, direction: DirectionInput, caller: Caller): Promise<JudicialReferralDetail> {
   return callApi(caller, (config) => directJudicialReferral(referralId, direction, config));
+}
+
+/**
+ * Replace the direction this judge gave, while the referral is `Decided` and before the office closes it.
+ *
+ * The body is {@link recordDirection}'s and validated by the same form. api keeps the earlier direction on its audit
+ * trail, writes the caseworker a case note and sets `directionChangedAt`, so nothing here says what changed.
+ * `ConflictError` is a visible referral that is not this judge's direction; `NotFoundError` is one out of sight,
+ * closed included. Neither can mean somebody else directed it.
+ */
+export function changeDirection(referralId: string, direction: DirectionInput, caller: Caller): Promise<JudicialReferralDetail> {
+  return callApi(caller, (config) => reviseDirection(referralId, direction, config));
+}
+
+/**
+ * Take back the direction this judge gave, leaving the referral `Claimed` by them with the direction cleared, to be
+ * directed again with {@link recordDirection}. No body. The refusals are {@link changeDirection}'s.
+ *
+ * Named apart from the adapter's `withdrawDirection`, and from the caseworker's `withdrawReferral`, which withdraws
+ * the referral itself.
+ */
+export function withdrawOwnDirection(referralId: string, caller: Caller): Promise<JudicialReferralDetail> {
+  return callApi(caller, (config) => withdrawDirection(referralId, config));
 }

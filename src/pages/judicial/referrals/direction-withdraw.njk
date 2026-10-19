@@ -1,0 +1,31 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+
+{#
+  Withdraw your direction — the confirmation before the one write.
+
+  `preventDoubleClick` on the button because api withdraws the first press and 409s the second, which would leave
+  the judge looking at "no direction from you to withdraw" for a withdrawal that went in. Cancel is a link, so it
+  acts on nothing.
+#}
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+
+    {# Empty when api sent no application with the referral; there is nothing to caption it with then. #}
+    {% if reference %}
+      <span class="govuk-caption-l">{{ reference }}</span>
+    {% endif %}
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+
+    <p class="govuk-body">{{ body }}</p>
+
+    <form method="post" action="{{ withdrawHref }}" novalidate>
+      <div class="govuk-button-group">
+        {{ govukButton({ text: withdraw, classes: "govuk-button--warning", preventDoubleClick: true }) }}
+        <a class="govuk-link" href="{{ referralHref }}">{{ cancel }}</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

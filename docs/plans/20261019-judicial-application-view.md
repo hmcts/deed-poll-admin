@@ -195,13 +195,25 @@ stale `.claude/worktrees/`, not this change. Record test files and test counts a
   4507 tests; app 105/2187, deed-poll 66/1195, all others unchanged.)
 
 ### Task 4: Change and withdraw
-- [ ] Tests:
+- [x] Tests:
   - the prefilled change form, its check page and the `reviseDirection` call;
   - the withdraw confirmation, its call, and the redirect to a referral showing the direction form;
   - links only on `Decided`;
   - 409 and 404 as decision 7.
-- [ ] A Playwright journey in `e2e-tests/tests/`, happy path only: a judge opens a decided referral, sees the
+  (Red first: 10 domain tests, 14 referral page/template tests, 16 change-mode tests, then the two withdraw test
+  files with no module to load. `changeable` (`Decided`) on the view; `changeDirection`/`withdrawOwnDirection` in
+  `judicial/service.ts`. `?change=1` on `direction.ts` switches guard, prefill, a `changeEn`/`changeCy` pair and the
+  commit; every href carries the flag. New `[referralId]/withdraw.ts` + `direction-withdraw.njk`. Both 409s redirect
+  `?direction=notchangeable`, both 404s render the unavailable page. The check page's "You cannot change a direction
+  once it is recorded." is no longer true and became "You can change or withdraw your direction until the office
+  closes the referral." (key `irreversible` renamed `afterwards`). The banner model key is now `directionBanner`.
+  Validation: `yarn lint` clean apart from the schema-version info. Turbo 8/8: 216 files, 4555 tests; app
+  107/2229, deed-poll 66/1201, all others unchanged.)
+- [x] A Playwright journey in `e2e-tests/tests/`, happy path only: a judge opens a decided referral, sees the
   application and its documents, changes the direction, then withdraws it and directs again.
+  (`judicial.spec.ts`, "judge changes a direction they gave, then withdraws it and directs again", and the first
+  journey's assertion of the old check-page sentence updated. Type-checked only, not run here: it needs local IDAM
+  and a browser.)
 
 ### Task 5: Caseworker notice, Welsh, handoff
 - [ ] Decision 8, with view-model and template tests.

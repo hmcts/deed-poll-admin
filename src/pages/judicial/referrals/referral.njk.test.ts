@@ -241,11 +241,22 @@ describe("judicial referral template", () => {
     expect(html).not.toContain("disabled");
   });
 
-  it("should offer neither control on a referral that has been directed", async () => {
+  it("should offer change and withdraw links, and neither claim nor direct, on a referral this judge has directed", async () => {
     const html = await render(detail({ state: "Decided", decision: "Approved", publishToGazette: true, decisionDate: new Date("2026-09-05T16:05:00Z") }));
 
     expect(html).not.toContain("Claim this referral");
     expect(html).not.toContain("Record a direction");
+    expect(html).toMatch(/<a class="govuk-link" href="\/judicial\/referrals\/ref-1\/direction\?change=1">Change your direction<\/a>/);
+    expect(html).toMatch(/<a class="govuk-link" href="\/judicial\/referrals\/ref-1\/withdraw">Withdraw your direction<\/a>/);
+  });
+
+  it("should offer neither change nor withdraw on a referral that is not yet directed", async () => {
+    for (const state of ["Open", "Claimed"] as const) {
+      const html = await render(detail({ state }));
+
+      expect(html).not.toContain("Change your direction");
+      expect(html).not.toContain("Withdraw your direction");
+    }
   });
 
   // The Gazette answer is asserted against its own row rather than against the page: "No" is a substring of
@@ -322,6 +333,22 @@ describe("judicial referral template", () => {
 
     expect(html).toContain("govuk-notification-banner--success");
     expect(html).toContain("Your direction has been recorded.");
+  });
+
+  it("should announce a withdrawn direction and offer the direction form again", async () => {
+    const html = await render(detail({ state: "Claimed", claimedAt: new Date("2026-09-04T10:00:00Z") }), { direction: "withdrawn" });
+
+    expect(html).toContain("govuk-notification-banner--success");
+    expect(html).toContain("Your direction has been withdrawn. Record a new direction.");
+    expect(html).toContain('href="/judicial/referrals/ref-1/direction"');
+  });
+
+  it("should show a refused change as an error summary, naming no other judge", async () => {
+    const html = await render(detail({ state: "Claimed", claimedAt: new Date("2026-09-04T10:00:00Z") }), { direction: "notchangeable" });
+
+    expect(html).toContain("govuk-error-summary");
+    expect(html).toContain("This referral does not have a direction from you to change or withdraw.");
+    expect(html).not.toMatch(/another judge|directed by/i);
   });
 
   it("should show a refused direction as an error summary, naming no other judge", async () => {

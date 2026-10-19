@@ -16,7 +16,7 @@
 
   **The declaration sits above the submit rather than in a tick box.** Pressing the button *is* the attestation,
   which is the Design System's check-answers pattern; the sentence beside it says so, and the one below says
-  what cannot be undone.
+  what happens afterwards.
 #}
 {% block content %}
 <div class="govuk-grid-row">
@@ -46,7 +46,7 @@
       <input type="hidden" name="publishToGazette" value="{{ values.publishToGazette }}">
 
       <p class="govuk-body">{{ declaration }}</p>
-      <p class="govuk-body">{{ irreversible }}</p>
+      <p class="govuk-body">{{ afterwards }}</p>
 
       {#
         `preventDoubleClick` on the confirm only. It is the one submit here that records something, and a second

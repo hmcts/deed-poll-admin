@@ -1,4 +1,4 @@
-import { ConflictError, getReferral, InvalidInputError, NotFoundError, recordDirection } from "@hmcts/deed-poll";
+import { ConflictError, changeDirection, getReferral, InvalidInputError, NotFoundError, recordDirection } from "@hmcts/deed-poll";
 import type { JudicialReferralDetail } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../express-doubles.js";
@@ -7,7 +7,8 @@ import { GET, POST } from "./direction.js";
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
   getReferral: vi.fn(),
-  recordDirection: vi.fn()
+  recordDirection: vi.fn(),
+  changeDirection: vi.fn()
 }));
 
 const CALLER = { accessToken: "judge-token" };
@@ -49,6 +50,22 @@ function request(body?: unknown, referralId = "ref-1") {
   return pageRequest({ params: { referralId }, body, judicial: true, accessToken: "judge-token" });
 }
 
+/** The same route asked to change the direction, which is how every step of the change journey arrives. */
+function changeRequest(body?: unknown) {
+  return pageRequest({ params: { referralId: "ref-1" }, query: { change: "1" }, body, judicial: true, accessToken: "judge-token" });
+}
+
+/** A referral this judge has directed — api shows a Decided referral to nobody else. */
+const decided = (): JudicialReferralDetail =>
+  detail({
+    state: "Decided",
+    decision: "Approved",
+    directionsText: "Grant the application.",
+    publishToGazette: true,
+    decisionDate: new Date("2026-09-05T16:05:00Z"),
+    decidedBy: "a-judge"
+  } as Partial<JudicialReferralDetail>);
+
 /** A complete, valid direction as the form posts it — strings, because that is what a browser sends. */
 const posted = (overrides: Record<string, unknown> = {}) => ({
   decision: "Approved",
@@ -75,7 +92,7 @@ describe("recording a judicial direction", () => {
     });
 
     // A judge must be able to see which application they are directing before they attest to it, and the
-    // reference is one of the fields `JudicialCaseView` carries.
+    // reference is one of the fields the application view carries.
     it("should caption the form with the application's reference", async () => {
       const res = pageResponse();
 
@@ -528,5 +545,164 @@ describe("recording a judicial direction", () => {
         expect(res.render).not.toHaveBeenCalled();
       }
     );
+  });
+
+  // Decision 5: the same form, check step and attestation, prefilled from the direction given, and committed with
+  // `changeDirection` rather than `recordDirection`.
+  describe("changing a direction this judge has given", () => {
+    beforeEach(() => {
+      vi.mocked(getReferral).mockResolvedValue(decided() as never);
+      vi.mocked(changeDirection).mockResolvedValue(decided() as never);
+    });
+
+    it("should prefill the form from the direction already given", async () => {
+      const res = pageResponse();
+
+      await GET(changeRequest(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(res.render.mock.calls[0][0]).toBe("judicial/referrals/direction-form");
+      expect(model.values).toEqual({ decision: "Approved", directionsText: "Grant the application.", publishToGazette: "true" });
+      expect(model.decisionItems.find((item: { checked: boolean }) => item.checked).value).toBe("Approved");
+      expect(model.gazetteItems.find((item: { checked: boolean }) => item.checked).value).toBe("true");
+    });
+
+    it("should prefill the Gazette answer as unanswered when api recorded none", async () => {
+      vi.mocked(getReferral).mockResolvedValue({ ...decided(), publishToGazette: null, directionsText: null } as never);
+      const res = pageResponse();
+
+      await GET(changeRequest(), res);
+
+      expect(res.render.mock.calls[0][1].values).toEqual({ decision: "Approved", directionsText: "", publishToGazette: undefined });
+    });
+
+    it("should say change in the heading and post back to the change route", async () => {
+      const res = pageResponse();
+
+      await GET(changeRequest(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.en.title).toBe("Change your direction");
+      expect(model.en.heading).toBe("Change your direction");
+      expect(model.directionHref).toBe("/judicial/referrals/ref-1/direction?change=1");
+    });
+
+    it("should send a judge back to the referral when there is no direction of theirs to change", async () => {
+      vi.mocked(getReferral).mockResolvedValue(detail() as never);
+      const res = pageResponse();
+
+      await GET(changeRequest(), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/judicial/referrals/ref-1?direction=notchangeable");
+      expect(res.render).not.toHaveBeenCalled();
+    });
+
+    it("should render 'no longer available' with a 404 once the referral is out of sight", async () => {
+      vi.mocked(getReferral).mockRejectedValue(new NotFoundError("Referral ref-1 not found"));
+      const res = pageResponse();
+
+      await GET(changeRequest(), res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.render.mock.calls[0][0]).toBe("judicial/referrals/unavailable");
+    });
+
+    it("should say change on the check step, its title and its button", async () => {
+      const res = pageResponse();
+
+      await POST(changeRequest(posted()), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(res.render.mock.calls[0][0]).toBe("judicial/referrals/direction-check");
+      expect(model.en).toMatchObject({
+        title: "Check your changed direction",
+        checkHeading: "Check your changed direction",
+        confirm: "Confirm and change the direction"
+      });
+      expect(model.directionHref).toBe("/judicial/referrals/ref-1/direction?change=1");
+      expect(changeDirection).not.toHaveBeenCalled();
+    });
+
+    it("should go back to the change form with the answers when the judge asks to change them", async () => {
+      const res = pageResponse();
+
+      await POST(changeRequest({ ...posted({ decision: "Rejected" }), action: "change" }), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.en.heading).toBe("Change your direction");
+      expect(model.values.decision).toBe("Rejected");
+    });
+
+    it("should re-render the change form at 400 with the existing validation", async () => {
+      const res = pageResponse();
+
+      await POST(changeRequest(posted({ decision: undefined })), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].en.heading).toBe("Change your direction");
+      expect(res.render.mock.calls[0][1].errors.decision).toBeDefined();
+    });
+
+    it("should change the direction once with the three fields, and record none", async () => {
+      const res = pageResponse();
+
+      await POST(changeRequest({ ...posted({ decision: "Rejected" }), action: "confirm" }), res);
+
+      expect(changeDirection).toHaveBeenCalledTimes(1);
+      expect(changeDirection).toHaveBeenCalledWith(
+        "ref-1",
+        { decision: "Rejected", directionsText: "Grant the application.", publishToGazette: false },
+        CALLER
+      );
+      expect(recordDirection).not.toHaveBeenCalled();
+      expect(getReferral).not.toHaveBeenCalled();
+    });
+
+    it("should return the judge to the referral, saying the direction was changed", async () => {
+      const res = pageResponse();
+
+      await POST(changeRequest({ ...posted(), action: "confirm" }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/judicial/referrals/ref-1?direction=changed");
+    });
+
+    // Decision 7: a 409 re-reads the referral and renders its current state, which the redirect does.
+    it("should send the judge to the referral's current state when api 409s the change", async () => {
+      vi.mocked(changeDirection).mockRejectedValue(new ConflictError("Referral ref-1 is not Decided"));
+      const res = pageResponse();
+
+      await POST(changeRequest({ ...posted(), action: "confirm" }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/judicial/referrals/ref-1?direction=notchangeable");
+    });
+
+    it("should render 'no longer available' when api 404s the change", async () => {
+      vi.mocked(changeDirection).mockRejectedValue(new NotFoundError("Referral ref-1 not found"));
+      const res = pageResponse();
+
+      await POST(changeRequest({ ...posted(), action: "confirm" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.render.mock.calls[0][0]).toBe("judicial/referrals/unavailable");
+    });
+
+    it("should re-render the change form with api's own rejection when it refuses the change", async () => {
+      vi.mocked(changeDirection).mockRejectedValue(new InvalidInputError("Invalid", [{ field: "decision", message: "must not be null" }]));
+      const res = pageResponse();
+
+      await POST(changeRequest({ ...posted(), action: "confirm" }), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].en.heading).toBe("Change your direction");
+      expect(res.render.mock.calls[0][1].errors).toEqual({ decision: "must not be null" });
+    });
+
+    it("should treat any other value of the change flag as a new direction", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ params: { referralId: "ref-1" }, query: { change: "yes" }, judicial: true, accessToken: "judge-token" }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/judicial/referrals/ref-1?direction=notheld");
+    });
   });
 });

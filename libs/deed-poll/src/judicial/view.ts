@@ -184,11 +184,12 @@ export function buildMyReferralRows(referrals: JudicialReferralSummary[]): MyRef
 /**
  * One referral, its application and its timeline — one payload, one screen.
  *
- * **`claimable` and `directable` govern which control is offered and nothing else.** api re-checks both and
- * answers 409, so these are the two cases a judge can see are pointless before the click; every other outcome
+ * **`claimable`, `directable` and `changeable` govern which control is offered and nothing else.** api re-checks
+ * each and answers 409, so these are the cases a judge can see are pointless before the click; every other outcome
  * is api's word. `directable` is `Claimed` without asking *who* claimed it, because api's visibility admits a
  * claimed referral only to its holder — `claimedBy` can name this caller or nobody, so a comparison here would
- * re-derive a fact the 404 has already established.
+ * re-derive a fact the 404 has already established. `changeable` is `Decided` for the same reason: api shows a
+ * decided referral only to the judge who directed it, and hides it from everyone once the office closes it.
  *
  * **An unknown state offers neither control**, which is the opposite of `buildReferralDetail`'s choice for
  * withdraw and deliberately so: there, withholding a control a caseworker is entitled to is the worse failure;
@@ -220,6 +221,7 @@ export function buildJudicialReferral(detail: JudicialReferralDetail): JudicialR
     claimedOn: detail.claimedAt === null || detail.claimedAt === undefined ? null : formatTimestamp(detail.claimedAt),
     claimable: detail.state === "Open",
     directable: detail.state === "Claimed",
+    changeable: detail.state === "Decided",
     isOnMyList: isMyListState(detail.state),
     application: buildApplicationView(detail.application),
     caseNotes: (detail.caseNotes ?? []).map(buildNoteRow),
@@ -475,6 +477,8 @@ export interface JudicialReferralView {
   claimable: boolean;
   /** `Claimed`, which api's visibility means claimed *by this judge* — so the direction control is offered. */
   directable: boolean;
+  /** `Decided`, which api's visibility means directed *by this judge* — so change and withdraw are offered. */
+  changeable: boolean;
   /**
    * `Claimed` or `Decided`, the two states api's personal list admits — so the way back is My referrals rather than
    * the shared pool the referral has left. Never a `returnTo`: see `buildJudicialReferral`.

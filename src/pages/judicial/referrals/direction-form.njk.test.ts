@@ -172,4 +172,26 @@ describe("direction form template", () => {
     expect(html).toContain("Select whether the application is approved or rejected");
     expect(html).toContain("Select whether this direction is published in the Gazette");
   });
+
+  describe("when changing a direction", () => {
+    it("should be headed for the change and come back with the direction already given checked and typed", async () => {
+      vi.mocked(getReferral).mockResolvedValue({
+        ...detail(),
+        state: "Decided",
+        decision: "Rejected",
+        directionsText: "Insufficient evidence.",
+        publishToGazette: false
+      } as never);
+      const res = pageResponse();
+      await GET(pageRequest({ params: { referralId: "ref-1" }, query: { change: "1" }, judicial: true, accessToken: "judge-token" }), res);
+
+      const html = render(res.render.mock.calls[0][1]);
+
+      expect(html).toMatch(/<h1[^>]*>Change your direction<\/h1>/);
+      expect(html).toMatch(/value="Rejected" checked/);
+      expect(html).toMatch(/value="false" checked/);
+      expect(html).toContain("Insufficient evidence.");
+      expect(html).toContain('action="/judicial/referrals/ref-1/direction?change=1"');
+    });
+  });
 });
