@@ -22,15 +22,77 @@
 import {
   type JudicialApplicationView,
   type JudicialCaseNote,
+  type JudicialDocument,
   type JudicialReferralDetail,
   type JudicialReferralSummary,
+  type JudicialWitness,
   MASTER_DECISION
 } from "@hmcts/deed-poll-api-client";
 import { formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
-import { NOT_PROVIDED } from "../deed-poll/detail-view.js";
-import { DEED_POLL_TYPE_LABEL, MASTER_DECISION_LABEL } from "../deed-poll/enums/dynamics-values.js";
+import { getFieldRules } from "../deed-poll/deed-poll-validation.js";
+import { formatValue, NOT_PROVIDED } from "../deed-poll/detail-view.js";
+import { MASTER_DECISION_LABEL } from "../deed-poll/enums/dynamics-values.js";
 import type { MasterDecision } from "../deed-poll/enums/option-sets.js";
+import { FIELD_BY_NAME, type FieldDef } from "../deed-poll/form-fields.js";
+import { buildLegacyReferralView, type LegacyReferralView } from "../referrals/legacy-referral-view.js";
 import { REFERRAL_STATE_TAG, REFERRAL_URGENCY_LABEL, referralReasonLabel } from "../referrals/referrals-view.js";
+
+/**
+ * The application's case fields, grouped under the caseworker detail page's section names and in its order.
+ *
+ * **Typed on `JudicialApplicationView` and listed here, never derived from `FORM_TABS`**, so the judicial page
+ * cannot grow a field because the caseworker one did: a name api's judicial view does not carry is a compile
+ * error. Only the labels and the formatting come from the caseworker's metadata (`FIELD_BY_NAME`, `formatValue`),
+ * so one value reads the same on both pages. The seven previous-system referral fields are not here: they are a
+ * populated-only snapshot, as on the caseworker's Referrals panel — see `buildLegacyReferralView`.
+ */
+const APPLICATION_SECTIONS: { label: string; fields: ApplicationField[] }[] = [
+  {
+    label: "General",
+    fields: [
+      "displayReference",
+      "dateOfApplication",
+      "inPerson",
+      "dateReceived",
+      "type",
+      "maritalStatus",
+      "minorDateOfBirth",
+      "ageOfMinor",
+      "ageOfMinorMonths",
+      "parents",
+      "privacy",
+      "state",
+      "urgency",
+      "urgencyreason",
+      "awaitingFurtherDocsInfo"
+    ]
+  },
+  { label: "Names", fields: ["newForename", "newMiddleName", "newSurname", "oldForename", "oldMiddleName", "oldSurname"] },
+  {
+    label: "Applicant address and contact details",
+    fields: ["applicantBuildingNoName", "applicantTownCity", "applicantPostcode", "applicantEmail", "applicantTelephone"]
+  },
+  {
+    label: "Representative address and contact details",
+    fields: [
+      "representativeName",
+      "representativeCompany",
+      "representativeEmail",
+      "representativeTelephone",
+      "representativeBuildingNoName",
+      "representativeTownCity",
+      "representativePostcode"
+    ]
+  },
+  { label: "Nationality", fields: ["nationality", "nationalitySection", "nationalitySectionOther"] },
+  { label: "Declarations", fields: ["dateOfDeclaration"] }
+];
+
+/** A document's upload date is a date, as the caseworker's "Added" column is, and not a timestamp. */
+const UPLOADED_FIELD: FieldDef = { name: "uploadedOn", label: "Uploaded", kind: "date" };
+
+const KILOBYTE = 1024;
+const MEGABYTE = KILOBYTE * 1024;
 
 /**
  * The decision radios on the direction form, in api's published order.
@@ -166,31 +228,75 @@ export function buildJudicialReferral(detail: JudicialReferralDetail): JudicialR
 }
 
 /**
- * The narrow application view: a reference, a type, and both names in full.
+ * The application as a judge reads it: its case fields in the caseworker page's groups, its witnesses, its
+ * documents and the previous system's referral record.
  *
- * **Exactly the eight fields `JudicialCaseView` carries.** No fee, no payment reference, no privacy
- * editability, no audit trail — not because they are filtered here but because api does not send them, which is
- * the only place that boundary can be enforced (`referrals-api-3` flag 1, confirmed 2026-09-17). A field
- * appearing on this screen that a judge must not see is a change to api's DTO, so there is nothing to add here
- * when one is wanted and nothing to remove when one must go.
+ * **What a judge may see is api's decision, not a filter here.** `JudicialApplicationView` carries no payment,
+ * refund or fee field and no case id (api#118, confirmed 2026-10-19), so there is nothing to withhold and nothing
+ * withheld — a private case renders in full. Every field is listed in `APPLICATION_SECTIONS`, which is the one
+ * edit a field api adds to the view needs.
+ *
+ * Rows the application's type does not use are dropped by the same `getFieldRules` matrix the caseworker forms
+ * apply, so an adult's application has no minor rows; an empty value keeps its row as "Not provided", which is
+ * the caseworker detail card's rule too.
  *
  * `null` when api sent no application at all. A referral is always about one, so this is a shape the type
- * permits rather than a state anyone expects — and the page says so instead of rendering four placeholders,
- * which would read as an application with no name.
- *
- * Both names are joined from their three components rather than shown part by part: a deed poll is about the
- * whole name, and "John Peter Smith" beside "John Peter Smyth" hides the only part that moved if the middle
- * name is dropped from either.
+ * permits rather than a state anyone expects — and the page says so instead of rendering a column of
+ * placeholders, which would read as an application whose applicant has no name.
  */
 function buildApplicationView(application: JudicialApplicationView | null | undefined): ApplicationView | null {
   if (application === null || application === undefined) return null;
 
+  const rules = getFieldRules(application.type);
+  const sections = APPLICATION_SECTIONS.map((section) => ({
+    label: section.label,
+    rows: section.fields
+      .filter((name) => rules[name]?.visible !== false)
+      .map((name) => ({ key: FIELD_BY_NAME[name].label, value: formatValue(FIELD_BY_NAME[name], application[name]) }))
+  }));
+
   return {
     reference: orPlaceholder(application.displayReference, NOT_RECORDED),
-    type: application.type ? DEED_POLL_TYPE_LABEL[application.type] : NOT_RECORDED,
-    oldName: fullName(application.oldForename, application.oldMiddleName, application.oldSurname),
-    newName: fullName(application.newForename, application.newMiddleName, application.newSurname)
+    sections,
+    witnesses: application.witnesses.map(buildWitnessRow),
+    documents: application.documents.map(buildDocumentRow),
+    previousReferral: buildLegacyReferralView(application)
   };
+}
+
+/** One witness, read-only. api's judicial witness has no id, so there is nothing to link to. */
+function buildWitnessRow(witness: JudicialWitness): JudicialWitnessRow {
+  return {
+    name: orPlaceholder(witness.witnessName),
+    address: orPlaceholder(witness.witnessAddress),
+    occupation: orPlaceholder(witness.witnessOccupation),
+    declarant: witness.declarant
+  };
+}
+
+/**
+ * One document, every cell a display string. The id is carried for the download link, which the page builds:
+ * a path is a page concern, and `pathSegment` is the page's helper.
+ *
+ * api lists only documents with a file attached, so every row is downloadable — there is no `hasFile` to test.
+ */
+function buildDocumentRow(document: JudicialDocument): JudicialDocumentRow {
+  return {
+    id: document.id,
+    name: orPlaceholder(document.name),
+    type: orPlaceholder(document.documentType),
+    uploadedOn: formatValue(UPLOADED_FIELD, document.uploadedOn),
+    size: formatSize(document.sizeBytes)
+  };
+}
+
+/** A file size in the units a person reads, or the placeholder when api published none. */
+function formatSize(sizeBytes: number | null | undefined): string {
+  if (sizeBytes === null || sizeBytes === undefined) return NOT_PROVIDED;
+  if (sizeBytes < KILOBYTE) return `${sizeBytes} bytes`;
+  if (sizeBytes < MEGABYTE) return `${Math.round(sizeBytes / KILOBYTE)} KB`;
+
+  return `${(sizeBytes / MEGABYTE).toFixed(1)} MB`;
 }
 
 /**
@@ -256,16 +362,6 @@ function isMyListState(state: JudicialReferralSummary["state"]): state is "Claim
   return state === "Claimed" || state === "Decided";
 }
 
-/** The name components as a name, or the placeholder when api holds none of them. */
-function fullName(...parts: (string | null | undefined)[]): string {
-  const name = parts
-    .map((part) => (typeof part === "string" ? part.trim() : ""))
-    .filter((part) => part.length > 0)
-    .join(" ");
-
-  return name.length > 0 ? name : NOT_PROVIDED;
-}
-
 /**
  * A stored free-text value, or the placeholder for one that was never filled in — trimmed first, so a value
  * that is only whitespace reads as absent rather than as a blank cell.
@@ -312,12 +408,38 @@ export interface MyReferralRow {
   raisedOn: string;
 }
 
-/** The narrow application projection, formatted. Exactly what `JudicialCaseView` carries and nothing else. */
+/** The application, formatted. Built from `JudicialApplicationView` alone — see `buildApplicationView`. */
 export interface ApplicationView {
+  /** For the page's caption, and the direction pages'. */
   reference: string;
+  sections: ApplicationSection[];
+  witnesses: JudicialWitnessRow[];
+  documents: JudicialDocumentRow[];
+  /** The previous system's referral record, or `null` when it holds nothing. */
+  previousReferral: LegacyReferralView | null;
+}
+
+/** One group of case fields, under the caseworker detail page's section name. */
+export interface ApplicationSection {
+  label: string;
+  rows: { key: string; value: string }[];
+}
+
+/** One witness. `declarant` stays a boolean so the page's own `en`/`cy` owns "Yes" and "No". */
+export interface JudicialWitnessRow {
+  name: string;
+  address: string;
+  occupation: string;
+  declarant: boolean;
+}
+
+/** One document. `id` is for the download link the page builds. */
+export interface JudicialDocumentRow {
+  id: string;
+  name: string;
   type: string;
-  oldName: string;
-  newName: string;
+  uploadedOn: string;
+  size: string;
 }
 
 /** One note from the application's timeline, as a judge reads it: no id, no amend link. */
@@ -365,3 +487,6 @@ export interface JudicialReferralView {
   /** The direction already recorded, or `null` for a referral still awaiting one. */
   direction: DirectionView | null;
 }
+
+/** A case field `JudicialApplicationView` carries — every property but the two collections. */
+type ApplicationField = Exclude<keyof JudicialApplicationView, "witnesses" | "documents">;

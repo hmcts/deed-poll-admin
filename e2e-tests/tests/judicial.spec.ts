@@ -156,12 +156,11 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   await expect(page).toHaveURL(`${POOL_PATH}/${mine.referralId}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to the judiciary");
 
-  // The narrow application view — `JudicialCaseView`, and exactly that. Both names in full, because a deed poll
-  // is about the whole name and showing the parts separately hides which one moved.
-  await expect(summaryRow(page, "Reference")).toContainText(mine.reference);
-  await expect(summaryRow(page, "Application type")).toContainText("Adult");
-  await expect(summaryRow(page, "Current name")).toContainText("Ines Kowalski");
-  await expect(summaryRow(page, "New name")).toContainText("Ines Nakamura");
+  // The application — `JudicialApplicationView`, grouped and labelled as the caseworker detail page is.
+  await expect(summaryRow(page, "Display reference")).toContainText(mine.reference);
+  await expect(summaryRow(page, "Type")).toContainText("Adult");
+  await expect(summaryRow(page, "Old surname")).toContainText("Kowalski");
+  await expect(summaryRow(page, "New surname")).toContainText("Nakamura");
 
   // **The disclosure check, from outside the view model.** The case carries a fee reference; the judicial screen
   // must not. api's DTO is what keeps it off — not a filter here (decision 4) — so this asserts the boundary

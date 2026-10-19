@@ -37,7 +37,9 @@ const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferr
       oldSurname: "Smith",
       newForename: "John",
       newMiddleName: null,
-      newSurname: "Smyth"
+      newSurname: "Smyth",
+      witnesses: [],
+      documents: []
     },
     caseNotes: [],
     ...overrides

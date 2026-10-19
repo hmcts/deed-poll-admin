@@ -8,10 +8,10 @@
  * read one with: api keys the whole judicial surface on the referral (`referrals-api-3` decision 2), so this
  * page cannot fetch the case even if a future field made it look worth doing.
  *
- * **It renders exactly what api sent.** The application is `JudicialCaseView` — a reference, a type and both
- * names — and the disclosure boundary that keeps a fee or an audit trail off this screen is api's own, not a
- * filter here (`referrals-admin-3` decision 4, and api-3 flag 1 as Steve confirmed it on 2026-09-17). Nothing
- * is added, nothing is enriched, and the notes are read-only: a judge's writes are exactly claim and direct.
+ * **It renders exactly what api sent.** The application is `JudicialApplicationView` — the case's details,
+ * witnesses and documents — and the disclosure boundary that keeps payment and refund data off this screen is
+ * api's own, not a filter here (api#118, decisions of 2026-10-19). Nothing is added, nothing is enriched, and the
+ * application and its notes are read-only.
  *
  * **A 404 is "no longer available" and never "somebody else has it."** api's visibility answers 404
  * identically for a referral that was withdrawn, closed, claimed by another judge, or never existed
@@ -31,6 +31,7 @@ import { buildJudicialReferral, getReferral, NotFoundError } from "@hmcts/deed-p
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../auth/current-user.js";
 import { referralPath } from "../../../judicial-referral-path.js";
+import { pathSegment } from "../../../path-segment.js";
 
 const POOL_PATH = "/judicial/referrals";
 
@@ -54,14 +55,25 @@ const en = {
   title: "Referral to the judiciary",
   heading: "Referral to the judiciary",
   applicationHeading: "Application",
-  referenceLabel: "Reference",
-  typeLabel: "Application type",
-  oldNameLabel: "Current name",
-  newNameLabel: "New name",
   // Shown when api sent no application on the referral. A shape its DTO permits rather than a state anyone
-  // expects, so it says what is true — the details were not sent — instead of showing four placeholders,
-  // which would read as an application whose applicant has no name.
+  // expects, so it says what is true — the details were not sent — instead of showing a column of
+  // placeholders, which would read as an application whose applicant has no name.
   applicationMissing: "The application details were not returned with this referral.",
+  witnessesHeading: "Witnesses",
+  witnessNameLabel: "Name",
+  witnessAddressLabel: "Address",
+  witnessOccupationLabel: "Occupation",
+  witnessDeclarantLabel: "Declarant",
+  witnessesEmpty: "No witnesses have been added to this application.",
+  documentsHeading: "Supporting documents",
+  documentNameColumn: "Document",
+  documentTypeColumn: "Type",
+  documentUploadedColumn: "Uploaded",
+  documentSizeColumn: "Size",
+  // Said rather than an empty table: a table with a header row and no body reads as documents that failed to load.
+  documentsEmpty: "No documents have been added to this application.",
+  // The caseworker Referrals panel's heading for the same populated-only snapshot.
+  previousReferralHeading: "Previous system referral information",
   referralHeading: "Referral",
   stateLabel: "Status",
   reasonsLabel: "Reasons for referral",
@@ -171,6 +183,11 @@ export const GET = async (req: Request, res: Response) => {
     // Both built here rather than in the template, so the one path shape lives in one place — and so the
     // direction page's URL is stated by the page that offers it rather than assembled from fragments.
     claimHref: `${href}/claim`,
+    // Each document's download route, built from api's id with the path helper rather than in the template.
+    documents: (view.application?.documents ?? []).map((document) => ({
+      ...document,
+      href: `${href}/documents/${pathSegment(document.id, "Document id")}/file`
+    })),
     directionHref: `${href}/direction`,
     // The list this referral is on, and its name — both from the state api has just published. A claim or a
     // direction changes which list that is, so the link is resolved on every render rather than carried forward

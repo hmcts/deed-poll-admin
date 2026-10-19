@@ -30,12 +30,21 @@ const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferr
     application: {
       displayReference: "KBDP2026-00001",
       type: "Minor",
+      privacy: "Private",
       oldForename: "John",
       oldMiddleName: "Peter",
       oldSurname: "Smith",
       newForename: "John",
       newMiddleName: "Peter",
-      newSurname: "Smyth"
+      newSurname: "Smyth",
+      applicantTownCity: "Leeds",
+      representativeCompany: "Solicitors LLP",
+      nationality: "BritishCitizen",
+      dateOfDeclaration: new Date("2026-08-20T00:00:00Z"),
+      witnesses: [{ witnessName: "Mary Jones", witnessAddress: "1 High Street, Leeds", witnessOccupation: "Solicitor", declarant: true }],
+      documents: [
+        { id: "doc-1", name: "birth-certificate.pdf", documentType: "Birth certificate", sizeBytes: 245_760, uploadedOn: new Date("2026-09-02T10:15:00Z") }
+      ]
     },
     caseNotes: [{ note: "Chased the declarant", createdBy: "A Caseworker", createdOn: new Date("2026-09-02T14:30:00Z") }],
     ...overrides
@@ -82,17 +91,38 @@ describe("the judicial referral page", () => {
     expect(getReferral).toHaveBeenCalledTimes(1);
   });
 
-  it("should render the narrow application view and nothing beside it", async () => {
+  it("should render the application view built from the judicial DTO", async () => {
     const res = pageResponse();
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].referral.application).toEqual({
-      reference: "KBDP2026-00001",
-      type: "Minor",
-      oldName: "John Peter Smith",
-      newName: "John Peter Smyth"
-    });
+    const application = res.render.mock.calls[0][1].referral.application;
+    expect(application.reference).toBe("KBDP2026-00001");
+    expect(application.sections.map((section: { label: string }) => section.label)).toContain("Names");
+    expect(application.witnesses).toEqual([{ name: "Mary Jones", address: "1 High Street, Leeds", occupation: "Solicitor", declarant: true }]);
+  });
+
+  // Built here with the path helpers rather than in the template (CLAUDE.md "Redirect paths").
+  it("should build each document's download link under the referral, encoding the document id", async () => {
+    vi.mocked(getReferral).mockResolvedValue(
+      detail({ application: { ...detail().application, documents: [{ id: "doc/1", name: "a.pdf" }] } as JudicialReferralDetail["application"] }) as never
+    );
+    const res = pageResponse();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].documents).toEqual([
+      expect.objectContaining({ name: "a.pdf", href: "/judicial/referrals/ref-1/documents/doc%2F1/file" })
+    ]);
+  });
+
+  it("should offer no document links when api sent no application", async () => {
+    vi.mocked(getReferral).mockResolvedValue(detail({ application: null }) as never);
+    const res = pageResponse();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].documents).toEqual([]);
   });
 
   it("should render the referral's own fields as the judge reads them", async () => {

@@ -1,5 +1,6 @@
 {% extends "layouts/app.njk" %}
 {% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/table/macro.njk" import govukTable %}
 {% from "govuk/components/tag/macro.njk" import govukTag %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
@@ -10,8 +11,8 @@
 
   Three things this template deliberately does not have. No link to the case: api's judicial surface takes no
   case id, so there is nowhere to link to. No "add note" control: a judge's writes are exactly claim and direct.
-  And no field that is not on the view model — the application panel is `JudicialCaseView` and nothing else,
-  which is the disclosure boundary made visual (decision 4).
+  And no field that is not on the view model — the application panel is `JudicialApplicationView` and nothing
+  else, which is the disclosure boundary made visual.
 
   The claim control is a form because it changes something; "Record a direction" is a link because it opens a
   page. Each appears only in the state it belongs to, and api re-checks both regardless.
@@ -38,15 +39,66 @@
     <h1 class="govuk-heading-xl govuk-!-margin-bottom-6">{{ heading }}</h1>
 
     <h2 class="govuk-heading-m">{{ applicationHeading }}</h2>
+    {#
+      Read-only, and built from the judicial view model alone: the sections are the caseworker page's groups and
+      labels, but no edit, upload, delete or email control is offered. Each document's href is the handler's.
+    #}
     {% if referral.application %}
-      {{ govukSummaryList({
-        rows: [
-          { key: { text: referenceLabel }, value: { text: referral.application.reference } },
-          { key: { text: typeLabel }, value: { text: referral.application.type } },
-          { key: { text: oldNameLabel }, value: { text: referral.application.oldName } },
-          { key: { text: newNameLabel }, value: { text: referral.application.newName } }
-        ]
-      }) }}
+      {% for section in referral.application.sections %}
+        {% if section.rows.length %}
+          {% set sectionRows = [] %}
+          {% for row in section.rows %}
+            {% set sectionRows = (sectionRows.push({ key: { text: row.key }, value: { text: row.value } }), sectionRows) %}
+          {% endfor %}
+          <h3 class="govuk-heading-s">{{ section.label }}</h3>
+          {{ govukSummaryList({ rows: sectionRows }) }}
+        {% endif %}
+      {% endfor %}
+
+      {% if referral.application.previousReferral %}
+        {% set previousRows = [] %}
+        {% for row in referral.application.previousReferral.rows %}
+          {% set previousRows = (previousRows.push({ key: { text: row.key }, value: { text: row.value } }), previousRows) %}
+        {% endfor %}
+        <h3 class="govuk-heading-s">{{ previousReferralHeading }}</h3>
+        {{ govukSummaryList({ rows: previousRows }) }}
+      {% endif %}
+
+      <h3 class="govuk-heading-s">{{ witnessesHeading }}</h3>
+      {% if referral.application.witnesses.length %}
+        {% for witness in referral.application.witnesses %}
+          {{ govukSummaryList({
+            rows: [
+              { key: { text: witnessNameLabel }, value: { text: witness.name } },
+              { key: { text: witnessAddressLabel }, value: { text: witness.address } },
+              { key: { text: witnessOccupationLabel }, value: { text: witness.occupation } },
+              { key: { text: witnessDeclarantLabel }, value: { text: yes if witness.declarant else no } }
+            ]
+          }) }}
+        {% endfor %}
+      {% else %}
+        <p class="govuk-body">{{ witnessesEmpty }}</p>
+      {% endif %}
+
+      <h3 class="govuk-heading-s">{{ documentsHeading }}</h3>
+      {% if documents.length %}
+        {% set documentRows = [] %}
+        {% for document in documents %}
+          {% set nameCell %}<a class="govuk-link" href="{{ document.href }}">{{ document.name }}</a>{% endset %}
+          {% set documentRows = (documentRows.push([
+            { html: nameCell },
+            { text: document.type },
+            { text: document.uploadedOn },
+            { text: document.size }
+          ]), documentRows) %}
+        {% endfor %}
+        {{ govukTable({
+          head: [{ text: documentNameColumn }, { text: documentTypeColumn }, { text: documentUploadedColumn }, { text: documentSizeColumn }],
+          rows: documentRows
+        }) }}
+      {% else %}
+        <p class="govuk-body">{{ documentsEmpty }}</p>
+      {% endif %}
     {% else %}
       <p class="govuk-body">{{ applicationMissing }}</p>
     {% endif %}

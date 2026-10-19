@@ -165,13 +165,22 @@ stale `.claude/worktrees/`, not this change. Record test files and test counts a
   11/770, all others unchanged.)
 
 ### Task 2: The Application section
-- [ ] View model and template tests (red first):
+- [x] View model and template tests (red first):
   - every field group renders, for a private case too;
   - no payment, refund, fee or case-id label appears;
   - witnesses render;
   - documents link to the judicial route;
   - the empty-documents sentence shows with no documents;
   - there are no edit controls.
+  (Red first: 12 view tests, then 10 page/template tests against the HEAD handler, template and view. The two
+  negative checks, no payment label and no edit control, pass on both versions by construction. The case fields
+  are listed in `APPLICATION_SECTIONS`, typed on `JudicialApplicationView`, and labelled and formatted through
+  `FIELD_BY_NAME`/`formatValue`, with `getFieldRules` per-type visibility. The previous-system fields use
+  `buildLegacyReferralView`. Document hrefs are built in the handler with `referralPath` + `pathSegment`. The
+  joined old and new names gave way to the caseworker's part-by-part "Names" section, and
+  `e2e-tests/tests/judicial.spec.ts`'s four application assertions were updated to match (not run here: it needs
+  IDAM and a browser). Validation: `yarn lint` clean apart from the schema-version info. Turbo 8/8: 213 files,
+  4496 tests; app 104/2178, deed-poll 66/1193, all others unchanged.)
 
 ### Task 3: Document download
 - [ ] Route tests:
