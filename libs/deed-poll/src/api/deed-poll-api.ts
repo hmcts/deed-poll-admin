@@ -19,13 +19,22 @@
  * vault secrets have been mounted into the environment. Reading the environment lazily, per call, is
  * correct at any point in the startup sequence.
  */
-import { type ApiConfig, type ApiError, type ApiResult, checkApiReachable, type GazetteApiResult } from "@hmcts/deed-poll-api-client";
+import { type ApiConfig, type ApiError, type ApiResult, assertApiBaseUrl, checkApiReachable, type GazetteApiResult } from "@hmcts/deed-poll-api-client";
 import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "../errors.js";
 
 import { GazetteOutcomeUnknownError, GazetteRefusalError } from "../gazette/errors.js";
 
 /** The mock api's port. `yarn mock:api` starts it there; nothing deployed relies on this default. */
 const DEFAULT_BASE_URL = "http://localhost:3200";
+
+/** Fail startup on invalid configuration, before Redis connects or any request is served. */
+export function assertDeedPollApiSettings(): void {
+  try {
+    assertApiBaseUrl(apiConfig({}).baseUrl);
+  } catch {
+    throw new Error("DEED_POLL_API_URL must be an absolute HTTP(S) URL without credentials, query or fragment");
+  }
+}
 
 /**
  * How long a readiness probe waits for api's `/health/liveness` before calling it down.

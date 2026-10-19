@@ -87,7 +87,7 @@ async function main(): Promise<void> {
   const lock = await open(`${filename}.lock`, "wx", 0o600);
   try {
     if (values["create-test-users"]) {
-      const reachable = await checkApiReachable({ baseUrl: target.baseUrl, refuseRedirects: true });
+      const reachable = await checkApiReachable({ baseUrl: target.baseUrl });
       if (!reachable.ok) throw new Error(`API is unreachable (${reachable.error.kind}); no IDAM users were created. Check DNS and VPN.`);
       const vault = values.vault ?? `deed-poll-${target.environment}`;
       if (!vault.endsWith(`-${target.environment}`) || /(^|-)(prod|production|live)(-|$)/i.test(vault))

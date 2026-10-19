@@ -7,8 +7,8 @@
  *
  * NOTHING HERE THROWS ON A FAILED CALL. Every function returns `ApiResult`, a discriminated union the
  * caller branches on, because this app is a caseworker's whole working day: an unreachable api has to be
- * a page that keeps their form, not a 500 that loses it. Only a programming error — a base URL that is
- * not a URL — throws, and that is what the error middleware is for.
+ * a page that keeps their form, not a 500 that loses it. Invalid base URL configuration is a
+ * programming error: it throws before a request can send the caller's token or case data.
  *
  * No request or response logging, deliberately: a case body is an applicant's name, address, date of
  * birth and the reason they are changing their name. The no-PII-in-logs rule has no debugging exception.
@@ -16,6 +16,7 @@
 import { Readable } from "node:stream";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import type { z } from "zod";
+import { assertApiBaseUrl } from "./transport.js";
 import type {
   WireGazetteError,
   WireGazetteMembers,
@@ -925,15 +926,7 @@ async function gazetteRequest<S extends z.ZodType>(
   body: unknown,
   key?: string
 ): Promise<GazetteApiResult<z.infer<S>>> {
-  const result = await exchange(
-    { ...config, refuseRedirects: true },
-    "POST",
-    path,
-    body,
-    "application/json",
-    false,
-    key === undefined ? undefined : { "idempotency-key": key }
-  );
+  const result = await exchange(config, "POST", path, body, "application/json", false, key === undefined ? undefined : { "idempotency-key": key });
   if (!result.ok) return result;
   const response = result.response;
   if (response.ok) return parseResponse(response, schema, "POST", path);
@@ -957,6 +950,8 @@ async function exchange(
   streaming = false,
   headers?: Record<string, string>
 ): Promise<SendResult> {
+  // Startup validates the app's URL; direct adapter consumers must receive the same protection.
+  assertApiBaseUrl(config.baseUrl);
   const url = `${config.baseUrl.replace(/\/+$/, "")}${path}`;
   const isForm = body instanceof FormData;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -983,7 +978,8 @@ async function exchange(
         },
         body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
         signal: controller?.signal ?? AbortSignal.timeout(timeoutMs),
-        ...(config.refuseRedirects ? { redirect: "error" as const } : {})
+        // Never forward a token or request body to a redirect target, including an HTTP downgrade.
+        redirect: "error"
       });
     } catch (error) {
       return { ok: false, error: transportError(error) };
@@ -1095,8 +1091,6 @@ function mapResult<W, T>(result: ApiResult<W>, map: (value: W) => T): ApiResult<
 export interface ApiConfig {
   baseUrl: string;
   timeoutMs?: number;
-  /** Explicit-target tools must not follow an API redirect into another environment. */
-  refuseRedirects?: boolean;
   /**
    * The caller's IDAM access token. api authenticates every caseworker route and derives the audit name
    * and admin status from the token, so a call without one is a 401 — which is why this is not optional

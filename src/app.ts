@@ -1,7 +1,7 @@
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { ACCESS_GAZETTE, deedPollApiStatus, plainHttpPermitted } from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, assertDeedPollApiSettings, deedPollApiStatus, plainHttpPermitted } from "@hmcts/deed-poll";
 import { type HealthStatus, healthcheck, monitoringMiddleware } from "@hmcts-cft/cloud-native-platform";
 import { configureCookieManager, configureGovuk, configureHelmet, configureNonce, errorHandler, notFoundHandler } from "@hmcts-cft/express-govuk-starter";
 import { expressSessionRedis } from "@hmcts-cft/express-session-redis";
@@ -50,6 +50,7 @@ export async function createApp(): Promise<Express> {
   // `server.ts` has already loaded the key vault secrets into the environment by the time this runs, and
   // it has to be that way round rather than a call from here: see ./secrets.ts.
   const { default: config } = await import("config");
+  assertDeedPollApiSettings();
   const redisUrl = config.get<string>("redis.url");
   assertRedisUrl(redisUrl, config.get<boolean>("redis.plaintextPermitted") === true);
   const redisConnection = await getRedisClient(redisUrl);

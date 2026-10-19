@@ -213,6 +213,22 @@ database to connect to: that is api's, along with the schema and the Flyway migr
 | `DEED_POLL_API_TIMEOUT_MS` | Optional. An unset or unparseable value falls back to the adapter's own default rather than becoming `NaN`. The readiness probe does **not** use it: `HEALTH_PROBE_TIMEOUT_MS` is fixed at 2s, because a probe must answer on its own terms |
 | **An S2S credential** | **Nothing to add, and adding one would be wrong.** api authenticates a *forwarded IDAM access token* and nothing else — see its `SecurityConfiguration`, an OAuth2 resource server with no `ServiceAuthorization` filter, and `openapi.json`, whose only security scheme is `bearerAuth`. The caseworker's own token, held in this app's session, is the whole credential. If api ever adds S2S, the answer is a token provider minting one per call against `service-auth-provider-api`, plus an S2S microservice name registered for **this app**; it is not a static secret in the vault. `deed-poll-web/docs/external-dependencies.md` tracks the same requirement for the other frontend |
 
+### API URL validation and transport follow-up
+
+Startup validates `DEED_POLL_API_URL` before connecting to Redis or serving requests. It must be an
+absolute HTTP(S) URL without credentials, query or fragment. A failure names the setting without
+logging its value. Direct adapter callers receive the same validation. Every API redirect is refused,
+so a proxy redirect cannot forward a token or request body to a different destination.
+
+The existing private HTTP endpoint remains supported. This does **not** establish encrypted transport.
+Fortify finding `3B96C2B66F875E1E836CEAB415F8EA96` remains open pending Platform Ops confirmation of the
+actual route and network controls, or provision of a working TLS route. AAT's private hostname presented
+a mismatched `*.aat.platform.hmcts.net` certificate on 19 October 2026, and the API Service targets HTTP
+port 4550. The companion API OpenAPI change (#117) uses a relative `/` server and changes no runtime transport.
+HTTPS enforcement is deferred; verify the certificate, Node trust and each backend hop before changing
+the runtime URL. These checks cover the
+shared deed-poll API client; they are not a policy for separate IDAM/test-user HTTP clients.
+
 ### There is no rollback of data from here
 
 An api change that needs reverting is reverted in api. This app holds no schema, so a rollback here is a
