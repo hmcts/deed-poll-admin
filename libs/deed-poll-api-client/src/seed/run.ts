@@ -31,7 +31,7 @@ export async function seedCases(
   if (journal.pending) throw new Error(`Uncertain write ${journal.pending}: reconcile it with the API before resuming; it will not be sent twice.`);
   if (!credentials.caseworkerToken) throw new Error("A caseworker/admin access token is required.");
   if (!options.deferJudicial && !credentials.judgeToken) throw new Error("A judicial access token is required unless judicial actions are deferred.");
-  const config: ApiConfig = { baseUrl: target.baseUrl, accessToken: credentials.caseworkerToken, refuseRedirects: true };
+  const config: ApiConfig = { baseUrl: target.baseUrl, accessToken: credentials.caseworkerToken };
   const judge: ApiConfig = { ...config, accessToken: credentials.judgeToken };
   const dataset = seedDataset(journal.batch, journal.asOf);
   const deferredJudicial: string[] = [];

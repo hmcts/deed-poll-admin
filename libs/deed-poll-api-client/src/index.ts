@@ -12,3 +12,4 @@
  * path, and `yarn mock:api` runs it directly, so nothing needs it here.
  */
 export * from "./api/client.js";
+export { assertApiBaseUrl } from "./api/transport.js";

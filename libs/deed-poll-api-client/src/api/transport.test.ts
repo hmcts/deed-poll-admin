@@ -1,36 +1,37 @@
 import { createServer, type Server } from "node:http";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { getCallerAccess } from "./client.js";
-import { apiTransportPermitted } from "./transport.js";
+import { assertApiBaseUrl } from "./transport.js";
 
-afterEach(() => vi.unstubAllEnvs());
-
-describe("API transport policy", () => {
-  it.each(["production", "development", "test", "aat", "", undefined])("should allow HTTPS in %s", (environment) => {
-    expect(apiTransportPermitted("https://api.example.test/me", environment)).toBe(true);
+describe("API URL configuration", () => {
+  it.each([
+    "https://api.example.test",
+    "http://deed-poll-api-aat.service.core-compute-aat.internal",
+    "http://localhost:3200",
+    "http://[::1]:3200",
+    "https://api.example.test/prefix"
+  ])("should retain support for %s", (address) => {
+    expect(() => assertApiBaseUrl(address)).not.toThrow();
   });
 
-  it.each(["production", "aat", "preview", "", undefined])("should refuse even loopback HTTP in %s", (environment) => {
-    expect(apiTransportPermitted("http://127.0.0.1:3200/me", environment)).toBe(false);
+  it.each([
+    "not a url",
+    "//api.example.test",
+    "https:api.example.test",
+    "ftp://localhost",
+    "https://user:secret@api.example.test",
+    "https://api.example.test/#secret",
+    "https://api.example.test/?secret",
+    "https://api.example.test/#",
+    "https://api.example.test/?",
+    " https://api.example.test",
+    "https://api.example.test\\path"
+  ])("should reject ambiguous configuration without exposing it: %s", (address) => {
+    expect(() => assertApiBaseUrl(address)).toThrow("API base URL must be an absolute HTTP(S) URL without credentials, query or fragment");
+    expect(() => assertApiBaseUrl(address)).not.toThrow(/secret/);
   });
 
-  it.each(["development", "test"])("should allow only loopback HTTP in %s", (environment) => {
-    for (const host of ["localhost", "127.0.0.1", "[::1]"]) {
-      expect(apiTransportPermitted(`http://${host}:3200/me`, environment)).toBe(true);
-    }
-    for (const host of ["api.example.test", "10.0.0.1", "localhost.example.test"]) {
-      expect(apiTransportPermitted(`http://${host}/me`, environment)).toBe(false);
-    }
-  });
-
-  it.each(["not a url", "//api.example.test", "ftp://localhost/me", "https://user:password@api.example.test/me", "https://api.example.test/#fragment"])(
-    "should refuse malformed or ambiguous target %s",
-    (address) => {
-      expect(apiTransportPermitted(address, "test")).toBe(false);
-    }
-  );
-
-  it("should withhold the token and make no HTTP request in production, while allowing the local test mock", async () => {
+  it("should reject an unsafe base URL before any request, while retaining direct HTTP calls", async () => {
     const received: string[] = [];
     const server = createServer((request, response) => {
       received.push(request.headers.authorization ?? "");
@@ -38,16 +39,13 @@ describe("API transport policy", () => {
       response.end(JSON.stringify({ staff: true, judicial: false, capabilities: [] }));
     });
     const baseUrl = await listen(server);
-    const config = { baseUrl, accessToken: "synthetic-transport-test-token" };
     try {
-      vi.stubEnv("NODE_ENV", "production");
-      const refused = await getCallerAccess(config);
-      expect(refused).toMatchObject({ ok: false, error: { kind: "unavailable" } });
+      for (const unsafe of [`${baseUrl}#fragment`, `${baseUrl}?query`, baseUrl.replace("http://", "http://user:secret@")]) {
+        await expect(getCallerAccess({ baseUrl: unsafe, accessToken: "synthetic-token" })).rejects.toThrow("API base URL");
+      }
       expect(received).toEqual([]);
-
-      vi.stubEnv("NODE_ENV", "test");
-      expect((await getCallerAccess(config)).ok).toBe(true);
-      expect(received).toEqual(["Bearer synthetic-transport-test-token"]);
+      expect((await getCallerAccess({ baseUrl, accessToken: "synthetic-token" })).ok).toBe(true);
+      expect(received).toEqual(["Bearer synthetic-token"]);
     } finally {
       await close(server);
     }
@@ -62,8 +60,7 @@ describe("API transport policy", () => {
     });
     const baseUrl = await listen(server);
     try {
-      // Even a legacy caller explicitly setting false cannot weaken the transport policy.
-      const result = await getCallerAccess({ baseUrl, accessToken: "synthetic-token", refuseRedirects: false });
+      const result = await getCallerAccess({ baseUrl, accessToken: "synthetic-token" });
       expect(result).toMatchObject({ ok: false, error: { kind: "unavailable" } });
       expect(paths).toEqual(["/me"]);
     } finally {
@@ -73,7 +70,10 @@ describe("API transport policy", () => {
 });
 
 async function listen(server: Server): Promise<string> {
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Expected a TCP listener");
   return `http://127.0.0.1:${address.port}`;

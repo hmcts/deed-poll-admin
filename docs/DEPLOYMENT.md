@@ -208,39 +208,25 @@ database to connect to: that is api's, along with the schema and the Flyway migr
 
 | Item | State |
 |---|---|
-| **api reachable over trusted TLS** | Provision and verify the private HTTPS endpoint before deploying this client. Readiness fails if TLS fails; an HTTP fallback is refused. See the transport rollout below |
-| `DEED_POLL_API_URL` | Set in `charts/deed-poll-admin/values.yaml` to `https://deed-poll-api-{env}.service.core-compute-{env}.internal`. Preview overrides it to AAT's, because api's preview deploys are per-PR hosts with no stable name |
+| **api deployed to the target environment** | **Outstanding.** api's own `docs/plans/jenkins-pipeline-cutover.md` is what makes this true; until it lands, a deployed pod's readiness probe reports DOWN and Kubernetes keeps it out of the Service. That is the intended behaviour — a pod that cannot reach api cannot serve a single case page |
+| `DEED_POLL_API_URL` | Set in `charts/deed-poll-admin/values.yaml` to `http://deed-poll-api-{env}.service.core-compute-{env}.internal` — the CNP internal host of api's `charts/deed-poll-api`, cluster-internal and cleartext, not an ingress. Preview overrides it to AAT's, because api's preview deploys are per-PR hosts with no stable name |
 | `DEED_POLL_API_TIMEOUT_MS` | Optional. An unset or unparseable value falls back to the adapter's own default rather than becoming `NaN`. The readiness probe does **not** use it: `HEALTH_PROBE_TIMEOUT_MS` is fixed at 2s, because a probe must answer on its own terms |
 | **An S2S credential** | **Nothing to add, and adding one would be wrong.** api authenticates a *forwarded IDAM access token* and nothing else — see its `SecurityConfiguration`, an OAuth2 resource server with no `ServiceAuthorization` filter, and `openapi.json`, whose only security scheme is `bearerAuth`. The caseworker's own token, held in this app's session, is the whole credential. If api ever adds S2S, the answer is a token provider minting one per call against `service-auth-provider-api`, plus an S2S microservice name registered for **this app**; it is not a static secret in the vault. `deed-poll-web/docs/external-dependencies.md` tracks the same requirement for the other frontend |
 
-### API transport rollout
+### API URL validation and transport follow-up
 
-The shared API client requires HTTPS for every call, including readiness, and refuses redirects.
-Only `NODE_ENV=development` or `test` permits HTTP, and only to `localhost`, `127.0.0.1` or `[::1]`.
-An unset environment fails closed. Node's certificate and hostname verification remain enabled.
-The OpenAPI `servers` declaration documents the HTTPS contract; it does not configure TLS on API.
+Startup validates `DEED_POLL_API_URL` before connecting to Redis or serving requests. It must be an
+absolute HTTP(S) URL without credentials, query or fragment. A failure names the setting without
+logging its value. Direct adapter callers receive the same validation. Every API redirect is refused,
+so a proxy redirect cannot forward a token or request body to a different destination.
 
-**Deployment prerequisite, verified 19 October 2026:** AAT's private hostname currently presents a
-certificate for `*.aat.platform.hmcts.net`, so a normal Node HTTPS request fails with
-`ERR_TLS_CERT_ALTNAME_INVALID`. The conventional public API hostname has no DNS record. Neither is a
-working TLS target for this client today. Do not deploy these chart values until the private endpoint
-has a certificate whose SAN matches its hostname and whose issuing CA Node trusts.
-
-1. Platform Ops must identify the private route and provision TLS for the existing internal name.
-   Keep API private. If a private CA is needed, supply its approved CA chain to Node's trust store;
-   do not disable certificate verification.
-2. Verify encryption on each network hop through to API. The current API Service targets plain HTTP
-   port 4550, so TLS at an ingress alone does not establish encryption to the API pod. Confirm an
-   approved encrypted backend route or network transport with Platform Ops.
-3. From the admin pod, request the HTTPS `/health/liveness` endpoint using normal certificate
-   verification, without credentials. Require HTTP 200 with no redirect. Check environment overrides
-   in Flux as well as these chart defaults.
-4. Deploy API's OpenAPI change, then this client/configuration once the TLS route is ready. Confirm
-   readiness, sign-in (`GET /me`), a case read and a controlled write with a test account in AAT.
-   Re-run Fortify against a newly generated source archive; retain the route and TLS evidence with
-   finding `3B96C2B66F875E1E836CEAB415F8EA96`.
-
-The 19 October checks covered AAT only. Validate each environment before its rollout.
+The existing private HTTP endpoint remains supported. This does **not** establish encrypted transport.
+Fortify finding `3B96C2B66F875E1E836CEAB415F8EA96` remains open pending Platform Ops confirmation of the
+actual route and network controls, or provision of a working TLS route. AAT's private hostname presented
+a mismatched `*.aat.platform.hmcts.net` certificate on 19 October 2026, and the API Service targets HTTP
+port 4550. HTTPS enforcement and the companion API OpenAPI change (#117) are deferred; verify the
+certificate, Node trust and each backend hop before changing the runtime URL. These checks cover the
+shared deed-poll API client; they are not a policy for separate IDAM/test-user HTTP clients.
 
 ### There is no rollback of data from here
 

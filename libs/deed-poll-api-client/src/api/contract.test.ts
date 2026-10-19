@@ -19,26 +19,6 @@ import { CAPABILITY, GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES
 const SPEC_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../openapi.json");
 const spec = JSON.parse(readFileSync(SPEC_PATH, "utf8")) as OpenApiSpec;
 
-it("should publish only HTTPS servers, including any path or operation overrides", () => {
-  const document = JSON.parse(readFileSync(SPEC_PATH, "utf8"));
-  expect(document.servers?.length).toBeGreaterThan(0);
-  function checkServers(value: unknown): void {
-    if (!value || typeof value !== "object") return;
-    for (const [key, child] of Object.entries(value)) {
-      if (key === "servers") {
-        expect(Array.isArray(child)).toBe(true);
-        expect(child).not.toHaveLength(0);
-        for (const server of child as { url: string }[]) expect(server.url).toMatch(/^https:\/\//);
-      } else {
-        checkServers(child);
-      }
-    }
-  }
-  checkServers(document);
-  expect(document.security).toEqual([{ bearerAuth: [] }]);
-  expect(document.components.securitySchemes.bearerAuth).toMatchObject({ type: "http", scheme: "bearer" });
-});
-
 /**
  * Operations the adapter implements, as `METHOD path`.
  *

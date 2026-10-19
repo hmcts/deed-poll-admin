@@ -12,7 +12,7 @@
 // api through it would bypass the domain layer and its error mapping. `Caller` is public because
 // the app's `callerFromRequest` returns one, and `deedPollApiStatus` because `app.ts` mounts it as a
 // readiness check.
-export { type Caller, deedPollApiStatus } from "./api/deed-poll-api.js";
+export { assertDeedPollApiSettings, type Caller, deedPollApiStatus } from "./api/deed-poll-api.js";
 export * from "./auth/caller-access.js";
 export * from "./auth/capabilities.js";
 export * from "./auth/current-user.js";

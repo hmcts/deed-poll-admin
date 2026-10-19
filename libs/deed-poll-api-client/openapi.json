@@ -15,14 +15,8 @@
   },
   "servers": [
     {
-      "url": "https://deed-poll-api-{environment}.service.core-compute-{environment}.internal",
-      "description": "Private API TLS endpoint; requires a trusted certificate for the selected host",
-      "variables": {
-        "environment": {
-          "description": "Target deployment environment",
-          "default": "aat"
-        }
-      }
+      "url": "http://localhost",
+      "description": "Generated server url"
     }
   ],
   "security": [

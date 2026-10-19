@@ -1,6 +1,5 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { apiTransportPermitted } from "../api/transport.js";
 
 // The repository's gitignored `data/`, fixed from this file rather than the working directory: Yarn runs the
 // script from the workspace, so a relative default used to land in `libs/deed-poll-api-client/data/` instead.
@@ -21,7 +20,7 @@ export function seedJournalPath(environment: string, batch: string, journal?: st
   return filename;
 }
 
-/** Explicit target selection; never inherit the app's URL. The shared transport policy also applies. */
+/** Explicit target selection; never inherit the app's URL or NODE_ENV. */
 export function seedTarget(environment: string, address: string): { environment: string; baseUrl: string } {
   const name = environment.trim().toLowerCase();
   if (!/^[a-z][a-z0-9-]*$/.test(name) || /(^|-)(prod|production|live)(-|$)/.test(name)) {
@@ -35,8 +34,8 @@ export function seedTarget(environment: string, address: string): { environment:
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(host);
   const environmentInHost = host.split(/[.-]/).includes(name) || host.includes(`.${name}.`) || host.includes(`-${name}.`);
   if (!loopback && !environmentInHost) throw new Error("API hostname must identify the selected non-production environment.");
-  if (!apiTransportPermitted(address, process.env.NODE_ENV)) {
-    throw new Error("Use HTTPS; loopback HTTP requires NODE_ENV=development or test.");
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && (loopback || host.endsWith(".internal")))) {
+    throw new Error("Use HTTPS, or HTTP only for loopback and internal service hosts.");
   }
   if (url.username || url.password || url.search || url.hash || url.pathname !== "/")
     throw new Error("API URL must be an origin without credentials, path or query.");

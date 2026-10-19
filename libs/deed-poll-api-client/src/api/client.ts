@@ -7,8 +7,8 @@
  *
  * NOTHING HERE THROWS ON A FAILED CALL. Every function returns `ApiResult`, a discriminated union the
  * caller branches on, because this app is a caseworker's whole working day: an unreachable api has to be
- * a page that keeps their form, not a 500 that loses it. Unsafe transport configuration also fails
- * before a request can send the caller's token or case data.
+ * a page that keeps their form, not a 500 that loses it. Invalid base URL configuration is a
+ * programming error: it throws before a request can send the caller's token or case data.
  *
  * No request or response logging, deliberately: a case body is an applicant's name, address, date of
  * birth and the reason they are changing their name. The no-PII-in-logs rule has no debugging exception.
@@ -16,7 +16,7 @@
 import { Readable } from "node:stream";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import type { z } from "zod";
-import { apiTransportPermitted } from "./transport.js";
+import { assertApiBaseUrl } from "./transport.js";
 import type {
   WireGazetteError,
   WireGazetteMembers,
@@ -926,15 +926,7 @@ async function gazetteRequest<S extends z.ZodType>(
   body: unknown,
   key?: string
 ): Promise<GazetteApiResult<z.infer<S>>> {
-  const result = await exchange(
-    { ...config, refuseRedirects: true },
-    "POST",
-    path,
-    body,
-    "application/json",
-    false,
-    key === undefined ? undefined : { "idempotency-key": key }
-  );
+  const result = await exchange(config, "POST", path, body, "application/json", false, key === undefined ? undefined : { "idempotency-key": key });
   if (!result.ok) return result;
   const response = result.response;
   if (response.ok) return parseResponse(response, schema, "POST", path);
@@ -958,10 +950,9 @@ async function exchange(
   streaming = false,
   headers?: Record<string, string>
 ): Promise<SendResult> {
+  // Startup validates the app's URL; direct adapter consumers must receive the same protection.
+  assertApiBaseUrl(config.baseUrl);
   const url = `${config.baseUrl.replace(/\/+$/, "")}${path}`;
-  if (!apiTransportPermitted(url, process.env.NODE_ENV)) {
-    return { ok: false, error: { kind: "unavailable", message: "deed-poll-api requires HTTPS outside local development and tests" } };
-  }
   const isForm = body instanceof FormData;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   // A cancellable timer for the streaming case; `AbortSignal.timeout` cannot be called off once armed.
@@ -1100,8 +1091,6 @@ function mapResult<W, T>(result: ApiResult<W>, map: (value: W) => T): ApiResult<
 export interface ApiConfig {
   baseUrl: string;
   timeoutMs?: number;
-  /** @deprecated Redirects are now always refused, including when this is false. */
-  refuseRedirects?: boolean;
   /**
    * The caller's IDAM access token. api authenticates every caseworker route and derives the audit name
    * and admin status from the token, so a call without one is a 401 — which is why this is not optional

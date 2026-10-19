@@ -111,6 +111,22 @@ function sessionRedisOptions(): SessionRedisOptions {
   return mocks.expressSessionRedis.mock.calls[0][0] as unknown as SessionRedisOptions;
 }
 
+describe("createApp API configuration", () => {
+  it.each(["not-a-url", "https://user:secret@api.example.test", "https://api.example.test/#secret", "https://api.example.test/?secret"])(
+    "should refuse invalid API configuration before connecting to Redis: %s",
+    async (address) => {
+      vi.clearAllMocks();
+      vi.stubEnv("DEED_POLL_API_URL", address);
+      try {
+        await expect(createApp()).rejects.toThrow("DEED_POLL_API_URL must be an absolute HTTP(S) URL without credentials, query or fragment");
+        expect(mocks.createClient).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }
+  );
+});
+
 describe("createApp", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
