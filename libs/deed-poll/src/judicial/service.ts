@@ -1,5 +1,6 @@
 /**
- * The judicial surface — the two lists a judge works from, and the two writes they make on a referral.
+ * The judicial surface — the two lists a judge works from, the writes they make on a referral (claim, direct, change, withdraw), and
+ * the download of its documents.
  *
  * Thin functions over `/judicial/**`, and they are a **sibling** of `../referrals/service.ts` rather than
  * a section of it. Three things follow from that, and all three are api's decisions rather than this file's:
@@ -20,7 +21,7 @@
  * "somebody else has it" — saying so would enumerate for a judge exactly what the shared 404 exists to hide.
  * `claimedBy` and `decidedBy` on a response can therefore only ever name this caller or nobody.
  *
- * **The 409s and the 404 divide by visibility, not by the action.** Visibility is checked first, so a `409` only
+ * **The 409s and the 404 divide by visibility, not by the action.** (A change or withdraw 409 means "not a `Decided` referral you directed", a state and never a holder.) Visibility is checked first, so a `409` only
  * ever describes a referral the caller can still see. For a claim that leaves exactly one case — they already
  * hold it, or they have already directed it — because a referral in *another* judge's hands is invisible and so a
  * 404. For a direction it is the referral they can see but do not hold (it went back to the pool, or they have

@@ -96,6 +96,11 @@ describe("withdrawing a judicial direction", () => {
       await expect(GET(request(), pageResponse())).rejects.toThrow("unavailable");
     });
 
+    it("should refuse a dot-only referral id before reading the referral", async () => {
+      await expect(GET(request(".."), pageResponse())).rejects.toBeInstanceOf(NotFoundError);
+      expect(getReferral).not.toHaveBeenCalled();
+    });
+
     it("should escape the referral id in the paths it renders", async () => {
       const res = pageResponse();
 

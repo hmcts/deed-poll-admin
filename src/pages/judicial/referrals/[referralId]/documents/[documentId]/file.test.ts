@@ -129,4 +129,9 @@ describe("judicial document download route", () => {
     await expect(GET(pageRequest({ params: { ...PARAMS, documentId: ".." }, judicial: true }), pageResponse(), vi.fn())).rejects.toBeInstanceOf(NotFoundError);
     expect(downloadReferralDocument).not.toHaveBeenCalled();
   });
+
+  it("should refuse a dot-only referral id before asking api", async () => {
+    await expect(GET(pageRequest({ params: { ...PARAMS, referralId: ".." }, judicial: true }), pageResponse(), vi.fn())).rejects.toBeInstanceOf(NotFoundError);
+    expect(downloadReferralDocument).not.toHaveBeenCalled();
+  });
 });
