@@ -41,7 +41,7 @@ nodejs:
     # Pointing a preview at AAT's api is the usual CFT arrangement and has the usual consequence: **preview
     # writes land in AAT's data.** Fine for a caseworker service with no live data yet; revisit before this
     # app carries any.
-    DEED_POLL_API_URL: "http://deed-poll-api-aat.service.core-compute-aat.internal"
+    DEED_POLL_API_URL: "https://deed-poll-api-aat.service.core-compute-aat.internal"
     # No `PERSONA_SWITCHER_ENABLED` here, deliberately, so preview inherits `values.yaml`'s off. Every PR's
     # unreviewed code would otherwise run a privilege switcher that writes to AAT's data as admin or judge,
     # through the api above (OWASP M1, 2026-10-13). This flag is the control that counts, not the allowlist in
