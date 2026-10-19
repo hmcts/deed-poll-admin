@@ -188,22 +188,22 @@ the router does not discover it); modify `src/pages/judicial/referrals/[referral
 `src/pages/judicial/referrals/[referralId]/claim.ts`, and their colocated `direction.test.ts` and `claim.test.ts`.
 Read `src/case-path.ts` and its test first, and mirror that contract rather than inventing a second one.
 
-- [ ] Write failing tests first for a `referralPath(referralId: string): string` helper returning
+- [x] Write failing tests first for a `referralPath(referralId: string): string` helper returning
       `/judicial/referrals/` plus `encodeURIComponent(referralId)`: literal expected strings for ordinary/UUID IDs
       and delimiter payloads (slash, `?`, `#`, `%`, literal `%2F`), and `NotFoundError` with a fixed message for
       empty, `.` and `..`. Implement it, then replace both private helpers with it. Encode exactly once; do not
       decode again, encode the whole URL, or mutate `req.params`.
-- [ ] Refuse an unusable referral ID before any API read or write: build the referral path at the top of
+- [x] Refuse an unusable referral ID before any API read or write: build the referral path at the top of
       `claim.ts`'s POST and of `direction.ts`'s GET and POST (including the `held()` read), before `getReferral`,
       `claimReferral` or `recordDirection` is called. Keep passing the original, decoded ID to domain functions.
-- [ ] Test, in `direction.test.ts`: the GET guard redirect in `held()` (`?direction=notheld` when the referral is
+- [x] Test, in `direction.test.ts`: the GET guard redirect in `held()` (`?direction=notheld` when the referral is
       not directable, baseline line 236), the POST success (`?direction=recorded`) and conflict
       (`?direction=notheld`) branches, each with a delimiter-bearing ID asserting the literal encoded `Location`.
       In `claim.test.ts`: success and conflict (`?claim=held`); the not-found branch's pool redirect is unchanged.
       Keep the rendered `referralHref`/`directionHref` links coherent with the same helper.
-- [ ] Assert that `.`, `..` and empty IDs produce `NotFoundError` with no API call (read or write) and no redirect,
+- [x] Assert that `.`, `..` and empty IDs produce `NotFoundError` with no API call (read or write) and no redirect,
       and that normal-ID destinations, query markers and API call counts are unchanged.
-- [ ] Run focused tests and all Validation Commands; record results before proceeding.
+- [x] Run focused tests and all Validation Commands; record results before proceeding.
 
 ### Task 6: HTTP regression evidence and handoff
 
@@ -315,6 +315,18 @@ decision 6, as recorded in Task 1).
 Red: all 7 new tests failed on assertions against the raw interpolation. Green: focused run 2 files / 155
 tests. Full validation: lint clean (same Biome migrate info), build passed, app 101 files / 2003 tests,
 session-store 7 tests ran, libraries unchanged and passing, no skips.
+
+Task 5 result: added `src/judicial-referral-path.ts` (`referralPath`, `casePath`'s contract under
+`/judicial/referrals`, refusing `""`, `.`, `..` with the fixed-message `NotFoundError` "Referral id is not a usable
+path segment") and replaced both private helpers with it. `claim.ts` builds the path at the top of POST, before
+`claimReferral`; `direction.ts` builds it at the top of POST, before validation, `held()` and `recordDirection`, and
+`held()` builds it before `getReferral`, so GET (which starts with `held()`) refuses before its read. The rendered
+`referralHref`/`directionHref` links use the same helper. The pool redirect for a claim 404 is unchanged.
+Red: the helper suite failed to load without the module, and all 18 new dot-only page tests (3 in claim, 15 in
+direction across form/invalid/change/check/confirm) failed. The new delimiter tests (`a/b?c#d`, literal `%2F`) passed
+on the baseline as well, as expected: both files already encoded once, and those tests pin that they still do via
+the helper. Green: focused run 3 files / 92 tests. Full validation: lint clean (same Biome migrate info), build
+passed, app 102 files / 2050 tests, session-store 7 tests ran, libraries unchanged and passing, no skips.
 
 ## Post-Completion
 

@@ -50,6 +50,7 @@ import {
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
 import { forLog } from "../../../../for-log.js";
+import { referralPath } from "../../../../judicial-referral-path.js";
 
 const POOL_PATH = "/judicial/referrals";
 
@@ -131,6 +132,8 @@ export const GET = async (req: Request, res: Response) => {
 };
 
 export const POST = async (req: Request, res: Response) => {
+  // Before any read or write, so refusing an unusable id cannot follow either.
+  const referralHref = referralPath(req.params.referralId);
   const body = (req.body ?? {}) as Record<string, unknown>;
 
   // Back to the form with the answers still on it, and with no errors: a judge who pressed Change is going back
@@ -166,7 +169,7 @@ export const POST = async (req: Request, res: Response) => {
       },
       values: values(body),
       directionHref: directionHref(referral.id),
-      referralHref: referralHref(referral.id),
+      referralHref: referralPath(referral.id),
       // The check step's own `title`, because the layout puts `title` in the `<title>` element: one content pair
       // for both steps means the form's name would otherwise be announced over a page headed "Check your
       // direction", which is the accessibility rule this file could break with nothing to show it.
@@ -183,7 +186,7 @@ export const POST = async (req: Request, res: Response) => {
     // Visible but not in this judge's hands — it went back to the pool, or they have already directed it. Their
     // answers are gone with it, which is unavoidable: the referral is no longer theirs to direct.
     if (error instanceof ConflictError) {
-      return res.redirect(`${referralHref(req.params.referralId)}?direction=notheld`);
+      return res.redirect(`${referralHref}?direction=notheld`);
     }
     // Not visible at all, which api answers identically for withdrawn, closed, another judge's and never-there.
     if (error instanceof NotFoundError) return unavailable(res);
@@ -191,7 +194,7 @@ export const POST = async (req: Request, res: Response) => {
     throw error;
   }
 
-  res.redirect(`${referralHref(req.params.referralId)}?direction=recorded`);
+  res.redirect(`${referralHref}?direction=recorded`);
 };
 
 /**
@@ -218,6 +221,8 @@ function checkStep(content: typeof en): typeof en {
  */
 async function held(req: Request, res: Response): Promise<{ id: string; reference: string } | undefined> {
   const { referralId } = req.params;
+  // Before the read, so GET refuses an unusable id without asking api about it.
+  const referralHref = referralPath(referralId);
 
   let detail: Awaited<ReturnType<typeof getReferral>>;
   try {
@@ -233,7 +238,7 @@ async function held(req: Request, res: Response): Promise<{ id: string; referenc
   const view = buildJudicialReferral(detail);
 
   if (!view.directable) {
-    res.redirect(`${referralHref(referralId)}?direction=notheld`);
+    res.redirect(`${referralHref}?direction=notheld`);
     return undefined;
   }
 
@@ -347,7 +352,7 @@ function render(
     errors,
     errorList: summaryList(errors, formError),
     directionHref: directionHref(referral.id),
-    referralHref: referralHref(referral.id),
+    referralHref: referralPath(referral.id),
     en,
     cy
   });
@@ -371,9 +376,5 @@ function unavailable(res: Response) {
 }
 
 function directionHref(referralId: string): string {
-  return `${referralHref(referralId)}/direction`;
-}
-
-function referralHref(referralId: string): string {
-  return `${POOL_PATH}/${encodeURIComponent(referralId)}`;
+  return `${referralPath(referralId)}/direction`;
 }

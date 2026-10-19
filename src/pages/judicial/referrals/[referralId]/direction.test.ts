@@ -453,4 +453,78 @@ describe("recording a judicial direction", () => {
       await expect(POST(request({ ...posted(), action: "confirm" }), pageResponse())).rejects.toThrow("unavailable");
     });
   });
+
+  // Slash, query and fragment delimiters in one id, and a literal `%2F` encoded again rather than decoded. The
+  // helper's own tests carry the full matrix; these pin that every redirect and link here goes through it.
+  describe("referral ids that are not plain path segments", () => {
+    const ODD_IDS = [
+      ["a/b?c#d", "/judicial/referrals/a%2Fb%3Fc%23d"],
+      ["%2F", "/judicial/referrals/%252F"]
+    ];
+
+    it.each(ODD_IDS)("should keep %j as one segment on the guard's redirect for a referral not held", async (referralId, expected) => {
+      vi.mocked(getReferral).mockResolvedValue(detail({ state: "Open" }) as never);
+      const res = pageResponse();
+
+      await GET(request(undefined, referralId), res);
+
+      expect(res.redirect).toHaveBeenCalledWith(`${expected}?direction=notheld`);
+      expect(getReferral).toHaveBeenCalledWith(referralId, CALLER);
+    });
+
+    it.each(ODD_IDS)("should keep %j as one segment on the recorded redirect", async (referralId, expected) => {
+      const res = pageResponse();
+
+      await POST(request({ ...posted(), action: "confirm" }, referralId), res);
+
+      expect(res.redirect).toHaveBeenCalledWith(`${expected}?direction=recorded`);
+      expect(recordDirection).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(recordDirection).mock.calls[0][0]).toBe(referralId);
+    });
+
+    it.each(ODD_IDS)("should keep %j as one segment on the conflict redirect", async (referralId, expected) => {
+      vi.mocked(recordDirection).mockRejectedValue(new ConflictError("Referral is not Claimed by this judge"));
+      const res = pageResponse();
+
+      await POST(request({ ...posted(), action: "confirm" }, referralId), res);
+
+      expect(res.redirect).toHaveBeenCalledWith(`${expected}?direction=notheld`);
+    });
+
+    it.each(ODD_IDS)("should build the check step's links for %j from the same path", async (referralId, expected) => {
+      const res = pageResponse();
+
+      await POST(request(posted(), referralId), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.referralHref).toBe(expected);
+      expect(model.directionHref).toBe(`${expected}/direction`);
+    });
+  });
+
+  // A browser drops a `.` or `..` segment, so these could only redirect into the pool or above it. Refused before
+  // any read or write, on every step, so a refusal can never follow either.
+  describe("referral ids that are not usable path segments", () => {
+    const STEPS = {
+      form: (referralId: string, res: ReturnType<typeof pageResponse>) => GET(request(undefined, referralId), res),
+      invalid: (referralId: string, res: ReturnType<typeof pageResponse>) => POST(request(posted({ decision: undefined }), referralId), res),
+      change: (referralId: string, res: ReturnType<typeof pageResponse>) => POST(request({ ...posted(), action: "change" }, referralId), res),
+      check: (referralId: string, res: ReturnType<typeof pageResponse>) => POST(request(posted(), referralId), res),
+      confirm: (referralId: string, res: ReturnType<typeof pageResponse>) => POST(request({ ...posted(), action: "confirm" }, referralId), res)
+    };
+
+    it.each((Object.keys(STEPS) as (keyof typeof STEPS)[]).flatMap((step) => ["", ".", ".."].map((referralId) => [step, referralId] as const)))(
+      "should refuse on the %s step for %j as not found, reading and writing nothing",
+      async (step, referralId) => {
+        const res = pageResponse();
+
+        await expect(STEPS[step](referralId, res)).rejects.toBeInstanceOf(NotFoundError);
+
+        expect(getReferral).not.toHaveBeenCalled();
+        expect(recordDirection).not.toHaveBeenCalled();
+        expect(res.redirect).not.toHaveBeenCalled();
+        expect(res.render).not.toHaveBeenCalled();
+      }
+    );
+  });
 });
