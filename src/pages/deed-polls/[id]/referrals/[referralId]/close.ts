@@ -25,6 +25,7 @@
 import { buildReferralDetail, ConflictError, closeReferral, findDeedPoll, findReferral } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
+import { casePath } from "../../../../../case-path.js";
 
 const en = {
   title: "Confirm the direction has been actioned",
@@ -60,6 +61,7 @@ const en = {
 const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
+  const href = referralHref(req);
   const caller = callerFromRequest(req);
   // Both reads are load-bearing and neither degrades: the reference names what is being confirmed, and the
   // direction is the thing being confirmed. A page missing either would be asking the caseworker to attest to
@@ -70,7 +72,7 @@ export const GET = async (req: Request, res: Response) => {
 
   // `canClose` is exactly `Decided` (`referrals-view.ts`), so this covers a referral already actioned, one
   // withdrawn, one still with the judiciary and one in a state this app cannot read.
-  if (!view.canClose) return res.redirect(referralHref(req));
+  if (!view.canClose) return res.redirect(href);
 
   const content = res.locals.locale === "cy" ? cy : en;
 
@@ -80,14 +82,16 @@ export const GET = async (req: Request, res: Response) => {
     // The boolean in this page's words, for the reason `../[referralId].ts` gives: a template ternary over a
     // nullish value prints "No" for a direction that recorded no answer.
     gazetteAnswer: gazetteAnswer(view.direction?.publishToGazette, content),
-    closeHref: `${referralHref(req)}/close`,
-    referralHref: referralHref(req),
+    closeHref: `${href}/close`,
+    referralHref: href,
     en,
     cy
   });
 };
 
 export const POST = async (req: Request, res: Response) => {
+  // Before the write, so an id that cannot be redirected to is refused rather than closed and then refused.
+  const href = referralHref(req);
   try {
     // No body and no pre-read: api's sub-resource names the transition, stamps the actor from the token and
     // refuses anything but `Decided`. Ungated here for the same reason the withdrawal is — a second authority on
@@ -97,12 +101,12 @@ export const POST = async (req: Request, res: Response) => {
     // Another caseworker got there first, or the referral moved on while this page was open. An ordinary race,
     // so it goes back to the referral as a message rather than to the 500 page.
     if (error instanceof ConflictError) {
-      return res.redirect(`${referralHref(req)}?close=conflict`);
+      return res.redirect(`${href}?close=conflict`);
     }
     throw error;
   }
 
-  res.redirect(`${referralHref(req)}?close=actioned`);
+  res.redirect(`${href}?close=actioned`);
 };
 
 /**
@@ -120,5 +124,5 @@ function gazetteAnswer(publishToGazette: boolean | null | undefined, content: ty
 }
 
 function referralHref(req: Request): string {
-  return `/deed-polls/${req.params.id}/referrals/${encodeURIComponent(req.params.referralId)}`;
+  return `${casePath(req.params.id)}/referrals/${encodeURIComponent(req.params.referralId)}`;
 }

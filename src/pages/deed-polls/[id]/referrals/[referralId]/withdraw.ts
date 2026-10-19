@@ -27,8 +27,11 @@
 import { ConflictError, withdrawReferral } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
+import { casePath } from "../../../../../case-path.js";
 
 export const POST = async (req: Request, res: Response) => {
+  // Before the write, so an id that cannot be redirected to is refused rather than withdrawn and then refused.
+  const caseHref = casePath(req.params.id);
   try {
     // Ungated: api decides who may withdraw from the token, and a second refusal here would put the authority
     // in two places. Nothing is re-read first either — the referral's state is api's to check, and a check
@@ -36,14 +39,10 @@ export const POST = async (req: Request, res: Response) => {
     await withdrawReferral(req.params.id, req.params.referralId, callerFromRequest(req));
   } catch (error) {
     if (error instanceof ConflictError) {
-      return res.redirect(`${referralPath(req)}?withdraw=conflict`);
+      return res.redirect(`${caseHref}/referrals/${encodeURIComponent(req.params.referralId)}?withdraw=conflict`);
     }
     throw error;
   }
 
-  res.redirect(`/deed-polls/${req.params.id}#referrals`);
+  res.redirect(`${caseHref}#referrals`);
 };
-
-function referralPath(req: Request): string {
-  return `/deed-polls/${req.params.id}/referrals/${encodeURIComponent(req.params.referralId)}`;
-}

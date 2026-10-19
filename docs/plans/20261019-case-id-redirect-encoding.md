@@ -133,13 +133,13 @@ Read `src/errors.ts` and `src/express-doubles.ts` for existing conventions.
 `src/pages/deed-polls/[id]/referrals/[referralId]/withdraw.ts`, and their colocated tests.
 Read `src/case-path.ts` and Task 1's confirmation tests for the established contract.
 
-- [ ] Add failing assertions for encoded case IDs on each redirect branch, including close's GET guard and
+- [x] Add failing assertions for encoded case IDs on each redirect branch, including close's GET guard and
       conflict paths. Verify referral IDs remain encoded exactly once.
-- [ ] Use `casePath` in the existing referral destination helpers and direct case redirects; keep their
+- [x] Use `casePath` in the existing referral destination helpers and direct case redirects; keep their
       shared back/form links consistent. Construct request-derived paths before any write.
-- [ ] Assert domain calls still receive raw IDs and invalid dot-only IDs do not invoke mutations. Retain
+- [x] Assert domain calls still receive raw IDs and invalid dot-only IDs do not invoke mutations. Retain
       existing normal-ID behaviour and API call counts.
-- [ ] Run focused tests and all Validation Commands; record results before proceeding.
+- [x] Run focused tests and all Validation Commands; record results before proceeding.
 
 ### Task 3: Notes, witnesses, documents and email redirects
 
@@ -234,6 +234,18 @@ Task 1 result: added `src/case-path.ts` (`casePath`, refusing `""`, `.`, `..` wi
 Red: the helper suite failed to load without the module; all 20 new route tests failed against the raw
 interpolation. Green: focused run 3 files / 114 tests. Full validation: lint clean (same info), build passed,
 app 101 files / 1948 tests, session-store 7 tests ran, libraries unchanged and passing, no skips.
+
+Task 2 result: adopted `casePath` in `[id]/referrals/new.ts` (POST computes the case base before
+`createReferral`; `openReferralHref` takes it, so the 409 re-render's link and its referrals-tab fallback share
+it), `[referralId]/close.ts` (`referralHref` built on `casePath`; GET builds it before its reads so the
+not-`Decided` guard uses it, POST before `closeReferral`) and `[referralId]/withdraw.ts` (case base before
+`withdrawReferral`; its `referralPath` helper folded into the conflict redirect). One deliberate change beyond
+the case id: `openReferralHref` now encodes the API-returned live referral id, which was interpolated raw, so
+every referral id on these pages is encoded exactly once. `referral-form.njk`'s form action and cancel link
+still build from `case.id` in the template; that is a template sweep, out of scope by decision 6.
+Red: all 21 new tests failed against the raw interpolation. Green: focused run 3 files / 84 tests. Full
+validation: lint clean (same Biome migrate info), build passed, app 101 files / 1969 tests, session-store
+7 tests ran, libraries unchanged and passing, no skips.
 
 ## Post-Completion
 

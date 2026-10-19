@@ -40,6 +40,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
+import { casePath } from "../../../../case-path.js";
 import { forLog } from "../../../../for-log.js";
 
 // The order the controls appear in, so the error summary reads down the page rather than in whatever order
@@ -78,6 +79,8 @@ export const GET = async (req: Request, res: Response) => {
 };
 
 export const POST = async (req: Request, res: Response) => {
+  // Before the write, so an id that cannot be redirected to is refused rather than raised and then refused.
+  const caseHref = casePath(req.params.id);
   const parsed = createReferralSchema.safeParse(submitted(req));
 
   if (!parsed.success) {
@@ -90,7 +93,7 @@ export const POST = async (req: Request, res: Response) => {
     await createReferral(req.params.id, parsed.data, callerFromRequest(req));
   } catch (error) {
     if (error instanceof ConflictError) {
-      return rerender(req, res, 409, {}, undefined, await openReferralHref(req));
+      return rerender(req, res, 409, {}, undefined, await openReferralHref(req, caseHref));
     }
     if (error instanceof InvalidInputError) {
       // api's field names are the wire names, which are this form's control names, so they land in place —
@@ -115,7 +118,7 @@ export const POST = async (req: Request, res: Response) => {
     throw error;
   }
 
-  res.redirect(`/deed-polls/${req.params.id}#referrals`);
+  res.redirect(`${caseHref}#referrals`);
 };
 
 /**
@@ -179,14 +182,14 @@ function fieldMessages(errors: FieldError[]): Record<string, string> {
  * characters with it — the expensive failure the re-render exists to prevent. The tab link is worse than a
  * direct one and better than an error page.
  */
-async function openReferralHref(req: Request): Promise<string> {
-  const referralsTab = `/deed-polls/${req.params.id}#referrals`;
+async function openReferralHref(req: Request, caseHref: string): Promise<string> {
+  const referralsTab = `${caseHref}#referrals`;
 
   try {
     const referrals = await findReferrals(req.params.id, callerFromRequest(req));
     const live = buildReferralsView(referrals).liveReferral;
 
-    return live ? `/deed-polls/${req.params.id}/referrals/${live.id}` : referralsTab;
+    return live ? `${caseHref}/referrals/${encodeURIComponent(live.id)}` : referralsTab;
   } catch (error) {
     console.error(`could not resolve the open referral to link to: ${forLog(error instanceof Error ? error.message : String(error))}`);
     return referralsTab;

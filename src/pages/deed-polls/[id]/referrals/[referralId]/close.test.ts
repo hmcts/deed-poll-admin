@@ -224,4 +224,70 @@ describe("mark a direction as actioned", () => {
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1/referrals/ref%2F1?close=actioned");
     });
   });
+
+  // `../../../../../case-path.test.ts` holds the full payload matrix; this pins every branch that redirects or links.
+  describe("a case id carrying URL delimiters", () => {
+    const RAW = { id: "a/b?c#d", referralId: "ref/1" };
+    const ENCODED_PATH = "/deed-polls/a%2Fb%3Fc%23d/referrals/ref%2F1";
+
+    function delimited(params: Record<string, string> = RAW) {
+      return pageRequest({ params, body: {}, accessToken: "session-token" });
+    }
+
+    it("should offer encoded hrefs on the confirmation, encoding the referral id exactly once", async () => {
+      const res = response();
+
+      await GET(delimited(), res);
+
+      expect(findReferral).toHaveBeenCalledWith(RAW.id, RAW.referralId, CALLER);
+      expect(res.render.mock.calls[0][1].closeHref).toBe(`${ENCODED_PATH}/close`);
+      expect(res.render.mock.calls[0][1].referralHref).toBe(ENCODED_PATH);
+    });
+
+    it("should keep the id as one segment when the guard sends the caseworker back", async () => {
+      vi.mocked(findReferral).mockResolvedValue({ ...DECIDED, state: "Closed" } as never);
+      const res = response();
+
+      await GET(delimited(), res);
+
+      expect(res.redirect).toHaveBeenCalledWith(ENCODED_PATH);
+      expect(res.render).not.toHaveBeenCalled();
+    });
+
+    it("should close under the raw ids and redirect to the encoded referral", async () => {
+      const res = response();
+
+      await POST(delimited(), res);
+
+      expect(closeReferral).toHaveBeenCalledWith(RAW.id, RAW.referralId, CALLER);
+      expect(res.redirect).toHaveBeenCalledWith(`${ENCODED_PATH}?close=actioned`);
+    });
+
+    it("should redirect a conflict to the encoded referral", async () => {
+      vi.mocked(closeReferral).mockRejectedValue(new ConflictError("not Decided"));
+      const res = response();
+
+      await POST(delimited(), res);
+
+      expect(res.redirect).toHaveBeenCalledWith(`${ENCODED_PATH}?close=conflict`);
+    });
+
+    it.each(["", ".", ".."])("should 404 the confirmation under case %j without reading or redirecting", async (id) => {
+      const res = response();
+
+      await expect(GET(delimited({ id, referralId: "ref-1" }), res)).rejects.toThrow(NotFoundError);
+
+      expect(findReferral).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+
+    it.each(["", ".", ".."])("should 404 a closure under case %j before anything is written", async (id) => {
+      const res = response();
+
+      await expect(POST(delimited({ id, referralId: "ref-1" }), res)).rejects.toThrow(NotFoundError);
+
+      expect(closeReferral).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
 });

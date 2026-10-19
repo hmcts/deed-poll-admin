@@ -424,4 +424,53 @@ describe("raise a referral page", () => {
       await expect(POST(request(COMPLETE), response())).rejects.toThrow(/unavailable/);
     });
   });
+
+  // `../../../../case-path.test.ts` holds the full payload matrix; this pins every destination the page builds.
+  describe("a case id carrying URL delimiters", () => {
+    const RAW_ID = "a/b?c#d";
+    const ENCODED_CASE = "/deed-polls/a%2Fb%3Fc%23d";
+
+    function delimited(body: Record<string, unknown> = COMPLETE, params: Record<string, string> = { id: RAW_ID }) {
+      return pageRequest({ params, body, accessToken: "session-token" });
+    }
+
+    it("should raise the referral under the raw id and redirect to the encoded case's referrals tab", async () => {
+      const res = response();
+
+      await POST(delimited(), res);
+
+      expect(createReferral).toHaveBeenCalledWith(RAW_ID, COMPLETE, CALLER);
+      expect(res.redirect).toHaveBeenCalledWith(`${ENCODED_CASE}#referrals`);
+    });
+
+    it("should link a 409 to the open referral under the encoded case, encoding the referral id exactly once", async () => {
+      vi.mocked(createReferral).mockRejectedValue(new ConflictError("already has an open referral"));
+      vi.mocked(findReferrals).mockResolvedValue([{ ...OPEN_REFERRAL, id: "ref/9" }] as never);
+      const res = response();
+
+      await POST(delimited(), res);
+
+      expect(findReferrals).toHaveBeenCalledWith(RAW_ID, CALLER);
+      expect(res.render.mock.calls[0][1].conflictHref).toBe(`${ENCODED_CASE}/referrals/ref%2F9`);
+    });
+
+    it("should fall a 409 back to the encoded case's referrals tab when no referral is live", async () => {
+      vi.mocked(createReferral).mockRejectedValue(new ConflictError("already has an open referral"));
+      vi.mocked(findReferrals).mockResolvedValue([]);
+      const res = response();
+
+      await POST(delimited(), res);
+
+      expect(res.render.mock.calls[0][1].conflictHref).toBe(`${ENCODED_CASE}#referrals`);
+    });
+
+    it.each(["", ".", ".."])("should 404 a referral raised under case %j before anything is written", async (id) => {
+      const res = response();
+
+      await expect(POST(delimited(COMPLETE, { id }), res)).rejects.toThrow(NotFoundError);
+
+      expect(createReferral).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
 });
