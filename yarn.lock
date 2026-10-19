@@ -6102,7 +6102,22 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tsx@npm:*, tsx@npm:4.23.13":
+"tsx@npm:*":
+  version: 4.23.15
+  resolution: "tsx@npm:4.23.15"
+  dependencies:
+    esbuild: "npm:~0.28.0"
+    fsevents: "npm:~2.3.3"
+  dependenciesMeta:
+    fsevents:
+      optional: true
+  bin:
+    tsx: dist/cli.mjs
+  checksum: 10c0/3c5fc53e578da87d3a63565286b1ecbb0e01b9bb646daec1957294ef890d14f22cc67bb4b09b5daffab0e7ce0217b1e7645393feb0f524b1ddf26ae9595d7e75
+  languageName: node
+  linkType: hard
+
+"tsx@npm:4.23.13":
   version: 4.23.13
   resolution: "tsx@npm:4.23.13"
   dependencies:
