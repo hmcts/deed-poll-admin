@@ -3,7 +3,9 @@
 ## Overview
 
 Keep case IDs as one URL path segment when the admin application redirects a browser. Apply this consistently
-to case redirects throughout `src/pages/deed-polls`, including IDs returned by the API. Normal case IDs retain
+to case redirects throughout `src/pages/deed-polls`, including IDs returned by the API. Judicial referral
+redirects in `src/pages/judicial/referrals/[referralId]/` get the same dot-segment guard (Task 5, added
+2026-10-19 at the plan author's request after Fortify instance `2950F280FFBEA2323139B0FEC2DF034A`). Normal case IDs retain
 their existing destinations, status codes, query markers and tab fragments.
 
 This is defensive hardening following Fortify findings `14866335BEE273FA5B5E940E5044A8BA` and
@@ -78,6 +80,8 @@ Implement these decisions; keep the change small:
 6. Scope ends at case-ID construction for redirects and those shared helper consumers. Do not sweep all
    templates, rewrite OAuth/login/logout redirects, change already-encoded Gazette/query/judicial paths,
    alter API contracts, or change the API repository. This is not a general audit of every identifier.
+   **Exception, added 2026-10-19:** the judicial referral redirects in `direction.ts` and `claim.ts` are in
+   scope as Task 5. They already encode once; what they lack is the empty/`.`/`..` refusal.
 7. Use test-first changes. Complete and validate each task before the next. Use a feature branch or isolated
    worktree and preserve other agents' work. Record the starting commit as the review base so Ralphex reviews
    this change rather than an unrelated or empty diff. Local task commits are appropriate; publishing,
@@ -162,16 +166,46 @@ and each file's colocated tests. Read `src/case-path.ts`.
 **Files:** `src/pages/deed-polls/new.ts`, `src/pages/deed-polls/index.ts`, their colocated tests, and any
 additional case-ID redirect sites documented by Task 1. Read `src/case-path.ts`.
 
-- [ ] Add failing tests for `created.id` and `results.referenceMatch` containing URL delimiters. Apply the same
+- [x] Add failing tests for `created.id` and `results.referenceMatch` containing URL delimiters. Apply the same
       helper to both destinations; API-returned identifiers also require encoding at the browser boundary.
-- [ ] Cover invalid returned IDs and confirm no retry/second create occurs; normal create and reference-match
+- [x] Cover invalid returned IDs and confirm no retry/second create occurs; normal create and reference-match
       redirects retain their exact destinations. Keep list-filter/query-string redirects unchanged.
-- [ ] Repeat the source inventory, including helper-produced paths. Account for each case-ID redirect as
+- [x] Repeat the source inventory, including helper-produced paths. Account for each case-ID redirect as
       updated or already safe, recording concrete paths in execution notes rather than relying on a text
       search alone. Do not expand this into a template or authentication refactor.
+- [x] Run focused tests and all Validation Commands; record results before proceeding.
+
+### Task 5: Judicial referral redirects
+
+Added 2026-10-19 at the plan author's request. Defensive hardening: Fortify instance
+`2950F280FFBEA2323139B0FEC2DF034A` did not reproduce an external redirect (evidence in workspace
+`local-notes/fortify-2950F28-evidence.json`, historical only; do not import it). `referralHref()` in `direction.ts`
+and `referralPath()` in `claim.ts` already apply `encodeURIComponent` once, but that leaves `.` and `..` unchanged,
+and a browser resolves those to a parent path inside this application.
+
+**Files:** create `src/judicial-referral-path.ts` and `src/judicial-referral-path.test.ts` (outside `src/pages`, so
+the router does not discover it); modify `src/pages/judicial/referrals/[referralId]/direction.ts`,
+`src/pages/judicial/referrals/[referralId]/claim.ts`, and their colocated `direction.test.ts` and `claim.test.ts`.
+Read `src/case-path.ts` and its test first, and mirror that contract rather than inventing a second one.
+
+- [ ] Write failing tests first for a `referralPath(referralId: string): string` helper returning
+      `/judicial/referrals/` plus `encodeURIComponent(referralId)`: literal expected strings for ordinary/UUID IDs
+      and delimiter payloads (slash, `?`, `#`, `%`, literal `%2F`), and `NotFoundError` with a fixed message for
+      empty, `.` and `..`. Implement it, then replace both private helpers with it. Encode exactly once; do not
+      decode again, encode the whole URL, or mutate `req.params`.
+- [ ] Refuse an unusable referral ID before any API read or write: build the referral path at the top of
+      `claim.ts`'s POST and of `direction.ts`'s GET and POST (including the `held()` read), before `getReferral`,
+      `claimReferral` or `recordDirection` is called. Keep passing the original, decoded ID to domain functions.
+- [ ] Test, in `direction.test.ts`: the GET guard redirect in `held()` (`?direction=notheld` when the referral is
+      not directable, baseline line 236), the POST success (`?direction=recorded`) and conflict
+      (`?direction=notheld`) branches, each with a delimiter-bearing ID asserting the literal encoded `Location`.
+      In `claim.test.ts`: success and conflict (`?claim=held`); the not-found branch's pool redirect is unchanged.
+      Keep the rendered `referralHref`/`directionHref` links coherent with the same helper.
+- [ ] Assert that `.`, `..` and empty IDs produce `NotFoundError` with no API call (read or write) and no redirect,
+      and that normal-ID destinations, query markers and API call counts are unchanged.
 - [ ] Run focused tests and all Validation Commands; record results before proceeding.
 
-### Task 5: HTTP regression evidence and handoff
+### Task 6: HTTP regression evidence and handoff
 
 **Files:** add `src/case-redirects.test.ts`; update `CLAUDE.md` with a short construction rule and this plan's
 Execution notes. Read the two reported handlers and the existing page tests. The optional local reproduction
@@ -187,7 +221,8 @@ files in Context can inform the test but must not be imported or required by com
 - [ ] Test dot-only rejection directly at the handler/helper boundary as well: HTTP clients can normalise
       dot segments before the handler sees them. State this limitation rather than claiming a request
       reached a route it never exercised. Cover literal percent sequences without a second decode.
-- [ ] Document the `casePath` rule, raw-ID domain calls, dot-only rejection and single encoding in `CLAUDE.md`.
+- [ ] Document the `casePath` rule and the judicial `referralPath` helper (Task 5), raw-ID domain calls, dot-only
+      rejection and single encoding in `CLAUDE.md`.
       Record changed files, starting/final commits, red/green evidence, test counts, skips and limitations in
       Execution notes. Do not copy machine-specific evidence files into the repository.
 - [ ] Run all Validation Commands. Leave the implementation ready for the normal Ralphex review phases;
@@ -201,6 +236,8 @@ files in Context can inform the test but must not be imported or required by com
   produce a redirect. Original IDs, not URL-encoded strings, reach domain/API operations.
 - Valid-ID behaviour, intentional queries/fragments, status codes and write counts remain unchanged.
 - Both Fortify-reported paths have regression coverage proving the additional hardening.
+- Judicial referral redirects in `direction.ts` and `claim.ts` share one helper outside `src/pages`, which refuses
+  empty, `.` and `..` IDs before any API call and otherwise encodes once (Fortify `2950F280FFBEA2323139B0FEC2DF034A`).
 - Tests and review evidence describe this as internal URL-construction hardening, not proof that all
   redirects are safe or that Fortify will suppress the findings.
 
@@ -259,6 +296,25 @@ the domain exactly once, and assert `""`, `.` and `..` 404 with no write and no 
 Red: all 27 new tests failed against the raw interpolation, every one on an assertion. Green: focused run
 6 files / 155 tests. Full validation: lint clean (same Biome migrate info), build passed, app 101 files /
 1996 tests, session-store 7 tests ran, libraries unchanged and passing, no skips.
+
+Task 4 result: adopted `casePath` for both API-returned destinations — `new.ts` builds it from `created.id`
+after `createDeedPoll` answers, and `index.ts` from `results.referenceMatch` after `findDeedPolls` answers. An
+unusable returned id (`""`, `.`, `..` for create; `.`, `..` for the match, since an empty match is falsy and
+already renders the list) throws `NotFoundError` with exactly one create/read and no redirect or retry. The
+list's builder/filter redirect (`caseListSearch`) is unchanged.
+Final inventory (`rg -n 'redirect\(' src`, excluding tests, then tracing each `caseHref`/`href`): every case-ID
+redirect now goes through `casePath` — directly in `new.ts`, `index.ts` and `[id]/edit/[tab].ts`; via
+`caseHref = casePath(req.params.id)` in notes new/edit, witnesses new/edit, documents upload, emails send,
+referrals new, withdraw and edit POST; via `referralHref` built on `casePath` in confirmation and close.
+Already safe and unchanged: Gazette batch (encoded batch id), saved queries (encoded query id, fixed library
+path, `caseListSearch`), Gazette settings (fixed path), login/logout/oauth/session/refresh (fixed paths,
+`safeReturnTo`, encoded `returnTo`), switch-persona and `/` landing (fixed paths), judicial direction/claim
+(encoded once; dot-segment refusal is Task 5). Remaining raw case-id interpolations are rendered links, not
+redirects: `[id].ts` email-banner href and `[id]/referrals/[referralId].ts` `referralHref` (out of scope,
+decision 6, as recorded in Task 1).
+Red: all 7 new tests failed on assertions against the raw interpolation. Green: focused run 2 files / 155
+tests. Full validation: lint clean (same Biome migrate info), build passed, app 101 files / 2003 tests,
+session-store 7 tests ran, libraries unchanged and passing, no skips.
 
 ## Post-Completion
 

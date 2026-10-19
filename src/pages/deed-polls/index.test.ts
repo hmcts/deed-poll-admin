@@ -4,7 +4,8 @@ import {
   countReturnedForAction,
   findDeedPolls,
   findSavedQueries,
-  InvalidInputError
+  InvalidInputError,
+  NotFoundError
 } from "@hmcts/deed-poll";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
@@ -1073,6 +1074,26 @@ describe("deed-polls list page", () => {
 
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1");
       expect(res.render).not.toHaveBeenCalled();
+    });
+
+    it("should keep a matched id containing URL delimiters as one path segment", async () => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ ...page([record]), referenceMatch: "a/b?c#d" } as never);
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { q: "KBDP2026-00001" } }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/a%2Fb%3Fc%23d");
+      expect(findDeedPolls).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([".", ".."])("should 404 a matched id %j rather than redirect to the list or the site root", async (id) => {
+      vi.mocked(findDeedPolls).mockResolvedValue({ ...page([record]), referenceMatch: id } as never);
+      const res = pageResponse();
+
+      await expect(GET(pageRequest({ query: { q: "KBDP2026-00001" } }), res)).rejects.toThrow(NotFoundError);
+
+      expect(findDeedPolls).toHaveBeenCalledTimes(1);
+      expect(res.redirect).not.toHaveBeenCalled();
     });
 
     it("does not redirect for a single row api reported no reference match for, since one name match is a list", async () => {
