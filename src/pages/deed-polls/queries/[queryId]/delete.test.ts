@@ -180,4 +180,25 @@ describe("delete a saved query confirmation page", () => {
       expect(res.redirect).not.toHaveBeenCalled();
     });
   });
+
+  // `src/path-segment.ts`: the edit link and the cancel redirect name the query in a path, so its id is one segment.
+  describe("query ids that are not plain path segments", () => {
+    it("should encode a delimiter-bearing id once in the unshared redirect", async () => {
+      vi.mocked(findSavedQuery).mockResolvedValue(savedQuery({ id: "sq/1?x#y", shared: false }) as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/queries/sq%2F1%3Fx%23y/edit");
+    });
+
+    it.each(["", ".", ".."])("should 404 a cancel for query %j rather than redirecting to a parent path", async (queryId) => {
+      const res = response();
+
+      await expect(POST(pageRequest({ params: { queryId }, body: { action: "cancel" }, accessToken: "session-token" }), res)).rejects.toThrow(NotFoundError);
+
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(removeSavedQuery).not.toHaveBeenCalled();
+    });
+  });
 });

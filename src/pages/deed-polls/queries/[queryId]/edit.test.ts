@@ -347,4 +347,25 @@ describe("amend a saved query page", () => {
       expect(res.status).not.toHaveBeenCalledWith(403);
     });
   });
+
+  describe("query ids that are not plain path segments", () => {
+    it("should encode a delimiter-bearing id once in the redirect to the delete confirmation", async () => {
+      vi.mocked(findSavedQuery).mockResolvedValue(savedQuery({ id: "sq/1?x#y", shared: true }) as never);
+      const res = response();
+
+      await POST(request({ ...SUBMITTED, action: "delete" }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/queries/sq%2F1%3Fx%23y/delete");
+    });
+
+    it.each([".", ".."])("should 404 rather than redirect when api's shared query id is %j, deleting nothing", async (id) => {
+      vi.mocked(findSavedQuery).mockResolvedValue(savedQuery({ id, shared: true }) as never);
+      const res = response();
+
+      await expect(POST(request({ ...SUBMITTED, action: "delete" }), res)).rejects.toThrow(NotFoundError);
+
+      expect(removeSavedQuery).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
 });

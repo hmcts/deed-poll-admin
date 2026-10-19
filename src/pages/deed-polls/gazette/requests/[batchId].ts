@@ -10,6 +10,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
+import { pathSegment } from "../../../../path-segment.js";
 
 const en = {
   title: "Gazette request",
@@ -90,7 +91,8 @@ const cy = {
 export const GET = async (req: Request, res: Response) => {
   const content = res.locals.locale === "cy" ? cy : en;
   const batchId = String(req.params.batchId);
-  const path = `/deed-polls/gazette/requests/${encodeURIComponent(batchId)}`;
+  // Before either read: the paging links are built from it, and a dot-only id would name the request list instead.
+  const path = `/deed-polls/gazette/requests/${pathSegment(batchId, "Gazette batch id")}`;
   const caller = callerFromRequest(req);
   const [statusResult, membersResult] = await Promise.allSettled([
     findGazetteStatus(batchId, caller),
