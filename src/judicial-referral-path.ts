@@ -5,7 +5,7 @@
  * Fortify instance `2950F280FFBEA2323139B0FEC2DF034A` flagged the claim and direction redirects. They already
  * encoded the id once, which keeps `/`, `?` and `#` inside the segment, but encoding leaves dots alone and a
  * browser drops a `.` or `..` segment, so those would name the pool or the area's parent. See
- * `docs/plans/20261019-case-id-redirect-encoding.md`, Task 5.
+ * `docs/plans/completed/20261019-case-id-redirect-encoding.md`, Task 5.
  *
  * Pass the id as Express gave it — already decoded — and call this before any api read or write, so a refusal
  * cannot follow one. Domain calls keep the raw id.

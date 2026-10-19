@@ -14,7 +14,7 @@ a fixed `/deed-polls/` prefix. Unencoded IDs can nevertheless alter the internal
 Describe the change accurately; do not claim a confirmed external open redirect or a clean Fortify retest.
 
 Scope chosen for this handoff: the consistent admin case-redirect sweep (estimated 2–4 hours), rather than
-only the two reported files. This document is the deliverable of the planning session; implementation is pending.
+only the two reported files. This document began as the planning deliverable; the implementation is complete.
 
 ## Context
 

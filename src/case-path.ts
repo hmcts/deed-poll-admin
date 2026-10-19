@@ -3,7 +3,7 @@
  *
  * Fortify findings `14866335BEE273FA5B5E940E5044A8BA` and `250FCCE3CA8D832C8F3F69CF2AE609E4` flagged ids
  * interpolated raw into redirects. The fixed prefix kept the browser on this origin, but a raw `/`, `?` or `#`
- * still moved it to another path, query or fragment. See `docs/plans/20261019-case-id-redirect-encoding.md`.
+ * still moved it to another path, query or fragment. See `docs/plans/completed/20261019-case-id-redirect-encoding.md`.
  *
  * Pass the id as Express or api gave it: Express has already decoded route parameters, so encoding it once here
  * keeps a literal `%2F` literal. Domain calls keep the raw id; only the URL is encoded.

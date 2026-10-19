@@ -446,7 +446,7 @@ Search, email preview, email send and upload are limited per IDAM subject
 A redirect that names a case builds its path with `casePath(id)` (`src/case-path.ts`), and one that names a judicial
 referral with `referralPath(id)` (`src/judicial-referral-path.ts`). Never interpolate an id into a `res.redirect`
 target. This is internal URL-construction hardening (Fortify `14866335…`, `250FCCE3…`, `2950F280…`; plan
-`docs/plans/20261019-case-id-redirect-encoding.md`); it is not proof that every redirect is safe.
+`docs/plans/completed/20261019-case-id-redirect-encoding.md`); it is not proof that every redirect is safe.
 
 - **Encode once, from the value Express or api gave you.** Route parameters arrive decoded, so the helper's single
   `encodeURIComponent` keeps a literal `%2F` literal (`%252F`). Do not decode again, encode a whole URL, or mutate

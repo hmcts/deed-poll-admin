@@ -1,6 +1,6 @@
 /**
  * The two Fortify-reported case redirects, over HTTP — `14866335BEE273FA5B5E940E5044A8BA` (edit) and
- * `250FCCE3CA8D832C8F3F69CF2AE609E4` (confirmation). See `docs/plans/20261019-case-id-redirect-encoding.md`, Task 6.
+ * `250FCCE3CA8D832C8F3F69CF2AE609E4` (confirmation). See `docs/plans/completed/20261019-case-id-redirect-encoding.md`, Task 6.
  *
  * The page tests beside each handler pin the same behaviour against response doubles. This file sends
  * percent-encoded request paths through a real Express app, so Express's own decoding of the route parameter and
