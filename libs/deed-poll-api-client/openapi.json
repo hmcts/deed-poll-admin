@@ -15,8 +15,8 @@
   },
   "servers": [
     {
-      "url": "http://localhost",
-      "description": "Generated server url"
+      "url": "/",
+      "description": "Same origin as the served API document"
     }
   ],
   "security": [

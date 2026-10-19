@@ -224,8 +224,9 @@ The existing private HTTP endpoint remains supported. This does **not** establis
 Fortify finding `3B96C2B66F875E1E836CEAB415F8EA96` remains open pending Platform Ops confirmation of the
 actual route and network controls, or provision of a working TLS route. AAT's private hostname presented
 a mismatched `*.aat.platform.hmcts.net` certificate on 19 October 2026, and the API Service targets HTTP
-port 4550. HTTPS enforcement and the companion API OpenAPI change (#117) are deferred; verify the
-certificate, Node trust and each backend hop before changing the runtime URL. These checks cover the
+port 4550. The companion API OpenAPI change (#117) uses a relative `/` server and changes no runtime transport.
+HTTPS enforcement is deferred; verify the certificate, Node trust and each backend hop before changing
+the runtime URL. These checks cover the
 shared deed-poll API client; they are not a policy for separate IDAM/test-user HTTP clients.
 
 ### There is no rollback of data from here
