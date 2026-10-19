@@ -286,4 +286,44 @@ describe("amend a witness page", () => {
       expect(res.render.mock.calls[0][1].canDelete).toBe(true);
     });
   });
+
+  // `../../../../../case-path.test.ts` holds the full payload matrix; this pins both destinations.
+  describe("a case id carrying URL delimiters", () => {
+    const RAW_ID = "a/b?c#d";
+
+    function delimited(id: string, body: Record<string, unknown>) {
+      return pageRequest({ params: { id, witnessId: "witness-1" }, body, teamLeader: true, accessToken: "session-token" });
+    }
+
+    it("should save under the raw id and return to the encoded case's witnesses tab", async () => {
+      const res = response();
+
+      await POST(delimited(RAW_ID, SUBMITTED), res);
+
+      expect(updateWitness).toHaveBeenCalledTimes(1);
+      expect(updateWitness).toHaveBeenCalledWith(RAW_ID, "witness-1", expect.objectContaining({ witnessName: "Sam Doe-Smith" }), CALLER);
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/a%2Fb%3Fc%23d#witnesses");
+    });
+
+    it("should delete under the raw id and return to the encoded case's witnesses tab", async () => {
+      const res = response();
+
+      await POST(delimited(RAW_ID, { action: "delete" }), res);
+
+      expect(removeWitness).toHaveBeenCalledTimes(1);
+      expect(removeWitness).toHaveBeenCalledWith(RAW_ID, "witness-1", CALLER);
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/a%2Fb%3Fc%23d#witnesses");
+    });
+
+    it.each(["", ".", ".."])("should 404 a save or a deletion under case %j before anything is written", async (id) => {
+      const res = response();
+
+      await expect(POST(delimited(id, SUBMITTED), res)).rejects.toThrow(NotFoundError);
+      await expect(POST(delimited(id, { action: "delete" }), res)).rejects.toThrow(NotFoundError);
+
+      expect(updateWitness).not.toHaveBeenCalled();
+      expect(removeWitness).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
 });

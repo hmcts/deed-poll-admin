@@ -251,4 +251,33 @@ describe("document upload page", () => {
     expect(Array.isArray(POST)).toBe(true);
     expect(POST).toHaveLength(2);
   });
+
+  // `../../../../case-path.test.ts` holds the full payload matrix; this pins the destination.
+  describe("a case id carrying URL delimiters", () => {
+    const RAW_ID = "a/b?c#d";
+
+    function delimited(id: string) {
+      const body = { documentTypeId: TYPE_ID, direction: "Incoming" };
+      return Object.assign(pageRequest({ params: { id }, body, accessToken: "session-token" }), { file: aFile }) as unknown as Request;
+    }
+
+    it("should upload under the raw id and return to the encoded case's documents tab", async () => {
+      const res = response();
+
+      await handler(delimited(RAW_ID), res);
+
+      expect(uploadDocument).toHaveBeenCalledTimes(1);
+      expect(uploadDocument).toHaveBeenCalledWith(RAW_ID, TYPE_ID, aFile, expect.anything(), CALLER);
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/a%2Fb%3Fc%23d#documents");
+    });
+
+    it.each(["", ".", ".."])("should 404 an upload under case %j before anything is sent", async (id) => {
+      const res = response();
+
+      await expect(handler(delimited(id), res)).rejects.toThrow(NotFoundError);
+
+      expect(uploadDocument).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
 });

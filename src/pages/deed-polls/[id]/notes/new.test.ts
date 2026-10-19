@@ -153,4 +153,32 @@ describe("add a note page", () => {
       await expect(POST(request({ note: "Called" }), response())).rejects.toThrow(/unavailable/);
     });
   });
+
+  // `../../../../case-path.test.ts` holds the full payload matrix; this pins the destination.
+  describe("a case id carrying URL delimiters", () => {
+    const RAW_ID = "a/b?c#d";
+
+    function delimited(id: string, body: Record<string, unknown> = { note: "Called" }) {
+      return pageRequest({ params: { id }, body, accessToken: "session-token" });
+    }
+
+    it("should create under the raw id and return to the encoded case's notes tab", async () => {
+      const res = response();
+
+      await POST(delimited(RAW_ID), res);
+
+      expect(createNote).toHaveBeenCalledTimes(1);
+      expect(createNote).toHaveBeenCalledWith(RAW_ID, { note: "Called" }, CALLER);
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/a%2Fb%3Fc%23d#notes");
+    });
+
+    it.each(["", ".", ".."])("should 404 a note under case %j before anything is written", async (id) => {
+      const res = response();
+
+      await expect(POST(delimited(id), res)).rejects.toThrow(NotFoundError);
+
+      expect(createNote).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -148,14 +148,14 @@ Read `src/case-path.ts` and Task 1's confirmation tests for the established cont
 `[id]/emails/[template]/send.ts` (all paths after the first are relative to `src/pages/deed-polls/`),
 and each file's colocated tests. Read `src/case-path.ts`.
 
-- [ ] Add failing handler tests for IDs containing a slash, query delimiter and fragment delimiter on all
+- [x] Add failing handler tests for IDs containing a slash, query delimiter and fragment delimiter on all
       affected redirect branches, including cancel branches. Reuse the helper's exhaustive payload tests
       rather than duplicating that entire matrix in every page test.
-- [ ] Replace raw case-ID interpolation with `casePath`, computed before writes. Keep notes/witnesses/documents
+- [x] Replace raw case-ID interpolation with `casePath`, computed before writes. Keep notes/witnesses/documents
       fragments and email's sent/already-sent marker, encoded email ID and emails fragment unchanged.
-- [ ] Assert the original case ID reaches domain operations, writes are not duplicated, and invalid dot-only
+- [x] Assert the original case ID reaches domain operations, writes are not duplicated, and invalid dot-only
       IDs reach neither uploads/sends nor other mutations. Preserve existing validation/error behaviour.
-- [ ] Run focused tests and all Validation Commands; record results before proceeding.
+- [x] Run focused tests and all Validation Commands; record results before proceeding.
 
 ### Task 4: API-returned case destinations and sweep completion
 
@@ -246,6 +246,19 @@ still build from `case.id` in the template; that is a template sweep, out of sco
 Red: all 21 new tests failed against the raw interpolation. Green: focused run 3 files / 84 tests. Full
 validation: lint clean (same Biome migrate info), build passed, app 101 files / 1969 tests, session-store
 7 tests ran, libraries unchanged and passing, no skips.
+
+Task 3 result: adopted `casePath` in `[id]/notes/new.ts`, `[id]/notes/[noteId]/edit.ts`, `[id]/witnesses/new.ts`,
+`[id]/witnesses/[witnessId]/edit.ts`, `[id]/documents/upload.ts` and `[id]/emails/[template]/send.ts`. Each POST
+handler (the upload's post-parser handler) computes the case base first, before validation and before any write:
+the two edit pages' delete branch therefore uses it too, as does email's `loadEmailJourney` read. None of these
+handlers has a server-side cancel branch — cancel is a rendered link, out of scope by decision 6 — so the
+delete branches are the extra redirect branches covered. Fragments (`#notes`, `#witnesses`, `#documents`),
+email's `sent`/`already-sent` marker, its `encodeURIComponent(sent.id)` value and `#emails` are unchanged.
+Tests use `a/b?c#d` (slash, query and fragment delimiters) on every redirect branch, assert the raw id reaches
+the domain exactly once, and assert `""`, `.` and `..` 404 with no write and no redirect.
+Red: all 27 new tests failed against the raw interpolation, every one on an assertion. Green: focused run
+6 files / 155 tests. Full validation: lint clean (same Biome migrate info), build passed, app 101 files /
+1996 tests, session-store 7 tests ran, libraries unchanged and passing, no skips.
 
 ## Post-Completion
 

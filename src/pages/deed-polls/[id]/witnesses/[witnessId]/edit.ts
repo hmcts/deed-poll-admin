@@ -42,6 +42,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../../../../auth/current-user.js";
+import { casePath } from "../../../../../case-path.js";
 import { forLog } from "../../../../../for-log.js";
 
 const FIELD_ORDER = ["witnessName", "witnessAddress", "witnessOccupation", "declarant"];
@@ -100,10 +101,12 @@ export const GET = async (req: Request, res: Response) => {
 };
 
 export const POST = async (req: Request, res: Response) => {
+  // Before the write, so an id that cannot be redirected to is refused rather than saved or deleted and then refused.
+  const caseHref = casePath(req.params.id);
   // First, so a field that would fail validation cannot block a deletion.
   if ((req.body as { action?: unknown } | undefined)?.action === "delete") {
     await removeWitness(req.params.id, req.params.witnessId, callerFromRequest(req));
-    return res.redirect(`/deed-polls/${req.params.id}#witnesses`);
+    return res.redirect(`${caseHref}#witnesses`);
   }
 
   const parsed = createWitnessSchema.safeParse(submitted(req));
@@ -127,7 +130,7 @@ export const POST = async (req: Request, res: Response) => {
     throw error;
   }
 
-  res.redirect(`/deed-polls/${req.params.id}#witnesses`);
+  res.redirect(`${caseHref}#witnesses`);
 };
 
 function submitted(req: Request): Record<string, unknown> {

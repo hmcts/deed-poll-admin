@@ -39,6 +39,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../../../../auth/current-user.js";
+import { casePath } from "../../../../../case-path.js";
 import { forLog } from "../../../../../for-log.js";
 
 const en = {
@@ -75,13 +76,15 @@ export const GET = async (req: Request, res: Response) => {
 };
 
 export const POST = async (req: Request, res: Response) => {
+  // Before the write, so an id that cannot be redirected to is refused rather than saved or deleted and then refused.
+  const caseHref = casePath(req.params.id);
   const body = req.body as { note?: unknown; action?: unknown };
   const caller = callerFromRequest(req);
 
   // First, so a note whose text would fail validation can still be deleted.
   if (body.action === "delete") {
     await removeNote(req.params.id, req.params.noteId, caller);
-    return res.redirect(`/deed-polls/${req.params.id}#notes`);
+    return res.redirect(`${caseHref}#notes`);
   }
 
   const parsed = createNoteSchema.safeParse({ note: body.note });
@@ -111,7 +114,7 @@ export const POST = async (req: Request, res: Response) => {
     throw error;
   }
 
-  res.redirect(`/deed-polls/${req.params.id}#notes`);
+  res.redirect(`${caseHref}#notes`);
 };
 
 async function rerender(req: Request, res: Response, error: string | null) {
