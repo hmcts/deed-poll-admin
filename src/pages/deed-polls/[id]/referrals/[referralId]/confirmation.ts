@@ -43,7 +43,9 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
+import { casePath } from "../../../../../case-path.js";
 import { forLog } from "../../../../../for-log.js";
+import { pathSegment } from "../../../../../path-segment.js";
 
 // The order the controls appear in, so the error summary reads down the page rather than in whatever order the
 // issues arrived.
@@ -87,6 +89,8 @@ export const GET = async (req: Request, res: Response) => {
 };
 
 export const POST = async (req: Request, res: Response) => {
+  // Before the write, so an id that cannot be redirected to is refused rather than recorded and then refused.
+  const href = referralHref(req);
   const body = (req.body ?? {}) as Record<string, unknown>;
   const parsed = recordConfirmationSchema.safeParse(submitted(body));
 
@@ -104,13 +108,13 @@ export const POST = async (req: Request, res: Response) => {
     // Another caseworker recorded the answer first, or nobody asked the applicant at all. api's two 409s read
     // differently and are not parsed here — the referral page picks its sentence from the fresh read.
     if (error instanceof ConflictError) {
-      return res.redirect(`${referralHref(req)}?confirmation=conflict`);
+      return res.redirect(`${href}?confirmation=conflict`);
     }
     if (error instanceof InvalidInputError) return apiRefused(req, res, error);
     throw error;
   }
 
-  res.redirect(`${referralHref(req)}?confirmation=recorded`);
+  res.redirect(`${href}?confirmation=recorded`);
 };
 
 /**
@@ -125,6 +129,7 @@ export const POST = async (req: Request, res: Response) => {
  * puts both ids in the path, so scoping is answered by the read rather than by a check here.
  */
 async function awaiting(req: Request, res: Response): Promise<ConfirmationPage | undefined> {
+  const href = referralHref(req);
   const caller = callerFromRequest(req);
   const [found, referral] = await Promise.all([findDeedPoll(req.params.id, caller), findReferral(req.params.id, req.params.referralId, caller)]);
 
@@ -133,13 +138,13 @@ async function awaiting(req: Request, res: Response): Promise<ConfirmationPage |
   // Null for a referral never asked, and `awaiting` false for one already answered — the two states api refuses,
   // and neither is a form.
   if (!confirmation?.awaiting) {
-    res.redirect(referralHref(req));
+    res.redirect(href);
     return undefined;
   }
 
   // api allocates the reference, so an empty one is a case it has not published one for rather than a fault. The
   // template renders no caption then instead of an empty one, as `judicial/referrals/direction-form.njk` does.
-  return { reference: found.displayReference ?? "", confirmation, referralHref: referralHref(req) };
+  return { reference: found.displayReference ?? "", confirmation, referralHref: href };
 }
 
 /** api's 400: its own words where they name a control this form renders, this page's where they do not. */
@@ -229,7 +234,7 @@ function summaryList(errors: Record<string, string>, formError?: string): { text
 }
 
 function referralHref(req: Request): string {
-  return `/deed-polls/${req.params.id}/referrals/${encodeURIComponent(req.params.referralId)}`;
+  return `${casePath(req.params.id)}/referrals/${pathSegment(req.params.referralId, "Referral id")}`;
 }
 
 /** What the form needs about the referral it is answering for: the caption, the request, and where back is. */

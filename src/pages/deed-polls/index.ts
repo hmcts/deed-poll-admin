@@ -62,6 +62,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
+import { casePath } from "../../case-path.js";
 import { forLog } from "../../for-log.js";
 
 const LIST_PATH = "/deed-polls";
@@ -273,7 +274,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
     // Decision 2: api names the case whose reference the term matched exactly, and somebody who typed a
     // whole reference wants that case rather than a list of one row. **Never on `total === 1`** — a single
     // name match is a list that happens to be short, and the distinction is api's to draw, not this page's.
-    if (results.referenceMatch) return res.redirect(`${LIST_PATH}/${results.referenceMatch}`);
+    if (results.referenceMatch) return res.redirect(casePath(results.referenceMatch));
 
     // api's own counts, straight through: `total` and `totalPages` are across every page and cannot be
     // inferred from the rows this one holds — decision 9.

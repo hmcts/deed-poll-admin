@@ -22,6 +22,7 @@
 import { createWitness, createWitnessSchema, type FieldError, findDeedPoll, InvalidInputError, zodErrorToFieldErrors } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
+import { casePath } from "../../../../case-path.js";
 import { forLog } from "../../../../for-log.js";
 
 // Read off the schema rather than restated, so the message and the rule it explains cannot drift: the
@@ -64,6 +65,8 @@ export const GET = async (req: Request, res: Response) => {
 };
 
 export const POST = async (req: Request, res: Response) => {
+  // Before the write, so an id that cannot be redirected to is refused rather than stored and then refused.
+  const caseHref = casePath(req.params.id);
   const parsed = createWitnessSchema.safeParse(submitted(req));
 
   if (!parsed.success) {
@@ -93,7 +96,7 @@ export const POST = async (req: Request, res: Response) => {
     throw error;
   }
 
-  res.redirect(`/deed-polls/${req.params.id}#witnesses`);
+  res.redirect(`${caseHref}#witnesses`);
 };
 
 /**

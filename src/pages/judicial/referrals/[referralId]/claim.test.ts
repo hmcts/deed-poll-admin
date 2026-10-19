@@ -77,6 +77,36 @@ describe("claiming a judicial referral", () => {
     expect(res.redirect).toHaveBeenCalledWith("/judicial/referrals/ref%201%2F..%2Fevil?claim=held");
   });
 
+  // Slash, query and fragment delimiters, and a literal `%2F` that must be encoded again rather than decoded. The
+  // helper's own tests carry the full matrix; these pin that both redirects go through it.
+  it.each([
+    ["a/b?c#d", "/judicial/referrals/a%2Fb%3Fc%23d"],
+    ["%2F", "/judicial/referrals/%252F"]
+  ])("should keep the referral id %j as one segment on the success and conflict redirects", async (referralId, expected) => {
+    const success = pageResponse();
+    await POST(request(referralId), success);
+    vi.mocked(claimReferral).mockRejectedValueOnce(new ConflictError("Referral is Claimed"));
+    const conflict = pageResponse();
+
+    await POST(request(referralId), conflict);
+
+    expect(success.redirect).toHaveBeenCalledWith(expected);
+    expect(conflict.redirect).toHaveBeenCalledWith(`${expected}?claim=held`);
+    expect(vi.mocked(claimReferral).mock.calls.map(([id]) => id)).toEqual([referralId, referralId]);
+  });
+
+  // A browser drops a `.` or `..` segment, so these could only redirect into the pool or above it. Refused before
+  // the claim, so a refusal can never follow a write.
+  it.each(["", ".", ".."])("should refuse the referral id %j as not found without claiming or redirecting", async (referralId) => {
+    const res = pageResponse();
+
+    await expect(POST(request(referralId), res)).rejects.toBeInstanceOf(NotFoundError);
+
+    expect(claimReferral).not.toHaveBeenCalled();
+    expect(getReferral).not.toHaveBeenCalled();
+    expect(res.redirect).not.toHaveBeenCalled();
+  });
+
   // The pool is only for the refusal that means the referral has gone: api answers 404 for one another judge has
   // taken, so this is the branch a beaten judge takes — and it must read as "gone", never as "somebody's".
   it("should send the judge back to the pool with 'no longer available' when the referral is not visible", async () => {

@@ -258,4 +258,42 @@ describe("email send route", () => {
 
     expect(previewCaseEmail).not.toHaveBeenCalled();
   });
+
+  // `../../../../../case-path.test.ts` holds the full payload matrix; this pins the destination.
+  describe("a case id carrying URL delimiters", () => {
+    const RAW_ID = "a/b?c#d";
+
+    function delimited(id: string) {
+      return pageRequest({ params: { id, template: "application-rejected" }, body: body(), accessToken: "session-token" });
+    }
+
+    it("should send under the raw id and keep the marker, the encoded email id and the fragment on the encoded case", async () => {
+      vi.mocked(sendCaseEmail).mockResolvedValue({ id: "email/9?x#y", recipient: "applicant@example.com", enqueued: true } as never);
+      const res = response();
+
+      await POST(delimited(RAW_ID), res);
+
+      expect(sendCaseEmail).toHaveBeenCalledTimes(1);
+      expect(sendCaseEmail).toHaveBeenCalledWith(RAW_ID, "application-rejected", expect.anything(), KEY, expect.anything());
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/a%2Fb%3Fc%23d?email=sent&emailId=email%2F9%3Fx%23y#emails");
+    });
+
+    it("should name an already-sent email on the encoded case", async () => {
+      vi.mocked(sendCaseEmail).mockResolvedValue({ id: "email-9", recipient: "applicant@example.com", enqueued: false } as never);
+      const res = response();
+
+      await POST(delimited(RAW_ID), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/a%2Fb%3Fc%23d?email=already-sent&emailId=email-9#emails");
+    });
+
+    it.each(["", ".", ".."])("should 404 a send under case %j before anything is sent", async (id) => {
+      const res = response();
+
+      await expect(POST(delimited(id), res)).rejects.toThrow(NotFoundError);
+
+      expect(sendCaseEmail).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
 });

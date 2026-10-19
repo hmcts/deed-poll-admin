@@ -60,13 +60,16 @@ import {
   findDeedPoll,
   findReferrals,
   getCaseFieldRules,
+  NotFoundError,
   unavailableEmailsView,
   unavailableReferralsView,
   witnessCountText
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
+import { casePath } from "../../case-path.js";
 import { forLog } from "../../for-log.js";
+import { pathSegment } from "../../path-segment.js";
 
 const en = {
   title: "Case",
@@ -294,8 +297,21 @@ function emailBanner(req: Request, emails: Awaited<ReturnType<typeof findCaseEma
 
   return {
     text: outcome === "sent" ? en.emailSent : en.emailAlreadySent,
-    href: known ? `/deed-polls/${req.params.id}/emails/${encodeURIComponent(id)}` : null
+    href: known ? emailHref(req.params.id, id) : null
   };
+}
+
+/**
+ * The link to one sent email, or null when api's id for it cannot be a path segment. The banner is additive, so an
+ * unusable id loses the link and keeps the page and its confirmation, rather than 404ing a case that was found.
+ */
+function emailHref(caseId: string, emailId: string): string | null {
+  try {
+    return `${casePath(caseId)}/emails/${pathSegment(emailId, "Email id")}`;
+  } catch (error) {
+    if (error instanceof NotFoundError) return null;
+    throw error;
+  }
 }
 
 /** The success banner after a send: what happened, and where the email is if it can be linked to. */

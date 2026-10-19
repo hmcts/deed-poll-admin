@@ -21,6 +21,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../auth/current-user.js";
+import { casePath } from "../../case-path.js";
 import { forLog } from "../../for-log.js";
 
 const en = {
@@ -89,7 +90,8 @@ export const POST = async (req: Request, res: Response) => {
     // privacy default from it, so a page that sent a service credential would create every case as the
     // service account — which is what this page did until Phase 5 made identity real.
     const created = await createDeedPoll(parsed.data, callerFromRequest(req));
-    return res.redirect(`/deed-polls/${created.id}`);
+    // Built after the create, from api's id: a refused id 404s, and nothing here retries the create.
+    return res.redirect(casePath(created.id));
   } catch (error) {
     // A missing or unusable Date Received surfaces here rather than from the schema, because the
     // schema accepts a case with no dates at all — it is api's reference-number allocation that

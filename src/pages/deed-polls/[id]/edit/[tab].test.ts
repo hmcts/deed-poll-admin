@@ -381,6 +381,50 @@ describe("case edit tab page", () => {
       expect(en.witnessWarningLink).toBeTruthy();
     });
   });
+
+  // `../../../../case-path.test.ts` holds the full payload matrix; this pins that both redirects use it.
+  describe("a case id carrying URL delimiters", () => {
+    const RAW_ID = "a/b?c#d";
+    const CASE_PATH = "/deed-polls/a%2Fb%3Fc%23d";
+
+    function delimited(tab: string, id = RAW_ID, body: Record<string, unknown> = {}): Request {
+      return pageRequest({ params: { id, tab }, body, accessToken: "caseworker-token" });
+    }
+
+    it("should keep the id as one segment when sending a bookmarked referral tab to the referrals panel", async () => {
+      const res = response();
+
+      await GET(delimited("referral"), res);
+
+      expect(res.redirect).toHaveBeenCalledWith(`${CASE_PATH}#referrals`);
+    });
+
+    it("should save under the raw id and redirect to the encoded case, anchored at the tab", async () => {
+      const res = response();
+
+      await POST(delimited(APPLICATION, RAW_ID, bodyFor(APPLICATION)), res);
+
+      expect(updateDeedPoll).toHaveBeenCalledWith(RAW_ID, expect.anything(), { accessToken: "caseworker-token" });
+      expect(res.redirect).toHaveBeenCalledWith(`${CASE_PATH}#${APPLICATION}`);
+    });
+
+    it.each(["", ".", ".."])("should 404 a legacy referral tab under %j without redirecting", async (id) => {
+      const res = response();
+
+      await expect(GET(delimited("referral", id), res)).rejects.toThrow(NotFoundError);
+
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+
+    it.each(["", ".", ".."])("should 404 a save under %j before anything is written", async (id) => {
+      const res = response();
+
+      await expect(POST(delimited(APPLICATION, id, bodyFor(APPLICATION)), res)).rejects.toThrow(NotFoundError);
+
+      expect(updateDeedPoll).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
 });
 
 function privacyField(res: { render: ReturnType<typeof vi.fn> }) {

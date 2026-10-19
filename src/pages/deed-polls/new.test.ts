@@ -1,4 +1,4 @@
-import { createDeedPoll, InvalidInputError } from "@hmcts/deed-poll";
+import { createDeedPoll, InvalidInputError, NotFoundError } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
@@ -78,6 +78,27 @@ describe("new deed poll page", () => {
       await POST(request(validBody), res);
 
       expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1");
+    });
+
+    it("should keep an api-returned id containing URL delimiters as one path segment", async () => {
+      vi.mocked(createDeedPoll).mockResolvedValue({ id: "a/b?c#d" } as never);
+      const res = response();
+
+      await POST(request(validBody), res);
+
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/a%2Fb%3Fc%23d");
+      expect(createDeedPoll).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(["", ".", ".."])("should 404 an api-returned id %j without creating a second case", async (id) => {
+      vi.mocked(createDeedPoll).mockResolvedValue({ id } as never);
+      const res = response();
+
+      await expect(POST(request(validBody), res)).rejects.toThrow(NotFoundError);
+
+      expect(createDeedPoll).toHaveBeenCalledTimes(1);
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.render).not.toHaveBeenCalled();
     });
 
     it("reads only the four fields the form offers, so a crafted POST cannot set state", async () => {

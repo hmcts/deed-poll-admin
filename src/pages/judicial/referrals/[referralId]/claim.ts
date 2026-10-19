@@ -26,11 +26,14 @@
 import { ConflictError, claimReferral, NotFoundError } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
+import { referralPath } from "../../../../judicial-referral-path.js";
 
 const POOL_PATH = "/judicial/referrals";
 
 export const POST = async (req: Request, res: Response) => {
   const { referralId } = req.params;
+  // Before the claim, so refusing an unusable id cannot follow a write.
+  const referralHref = referralPath(referralId);
 
   try {
     // Ungated beyond the area's role gate: api decides who may claim from the token, and a second refusal here
@@ -40,7 +43,7 @@ export const POST = async (req: Request, res: Response) => {
     // Visible but not claimable, which api's visibility makes exactly one thing: this judge already holds it, or
     // has already directed it. The referral is where that is legible, and the state is on it.
     if (error instanceof ConflictError) {
-      return res.redirect(`${referralPath(referralId)}?claim=held`);
+      return res.redirect(`${referralHref}?claim=held`);
     }
     if (error instanceof NotFoundError) {
       return res.redirect(`${POOL_PATH}?claim=unavailable`);
@@ -48,9 +51,5 @@ export const POST = async (req: Request, res: Response) => {
     throw error;
   }
 
-  res.redirect(referralPath(referralId));
+  res.redirect(referralHref);
 };
-
-function referralPath(referralId: string): string {
-  return `${POOL_PATH}/${encodeURIComponent(referralId)}`;
-}

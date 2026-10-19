@@ -20,6 +20,7 @@
 import { findSavedQuery, removeSavedQuery, savedQueryHref } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
+import { pathSegment } from "../../../../path-segment.js";
 
 const LIST_PATH = "/deed-polls";
 
@@ -80,5 +81,5 @@ export const POST = async (req: Request, res: Response) => {
 };
 
 function editHref(queryId: string): string {
-  return `${LIBRARY_PATH}/${encodeURIComponent(queryId)}/edit`;
+  return `${LIBRARY_PATH}/${pathSegment(queryId, "Saved query id")}/edit`;
 }

@@ -259,4 +259,44 @@ describe("amend a note page", () => {
       expect(res.status).not.toHaveBeenCalledWith(403);
     });
   });
+
+  // `../../../../../case-path.test.ts` holds the full payload matrix; this pins both destinations.
+  describe("a case id carrying URL delimiters", () => {
+    const RAW_ID = "a/b?c#d";
+
+    function delimited(id: string, body: Record<string, unknown>) {
+      return pageRequest({ params: { id, noteId: note.id }, body, teamLeader: true, accessToken: "session-token" });
+    }
+
+    it("should save under the raw id and return to the encoded case's notes tab", async () => {
+      const res = response();
+
+      await POST(delimited(RAW_ID, { note: "Amended" }), res);
+
+      expect(updateNote).toHaveBeenCalledTimes(1);
+      expect(updateNote).toHaveBeenCalledWith(RAW_ID, note.id, { note: "Amended" }, CALLER);
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/a%2Fb%3Fc%23d#notes");
+    });
+
+    it("should delete under the raw id and return to the encoded case's notes tab", async () => {
+      const res = response();
+
+      await POST(delimited(RAW_ID, { action: "delete" }), res);
+
+      expect(removeNote).toHaveBeenCalledTimes(1);
+      expect(removeNote).toHaveBeenCalledWith(RAW_ID, note.id, CALLER);
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/a%2Fb%3Fc%23d#notes");
+    });
+
+    it.each(["", ".", ".."])("should 404 a save or a deletion under case %j before anything is written", async (id) => {
+      const res = response();
+
+      await expect(POST(delimited(id, { note: "Amended" }), res)).rejects.toThrow(NotFoundError);
+      await expect(POST(delimited(id, { action: "delete" }), res)).rejects.toThrow(NotFoundError);
+
+      expect(updateNote).not.toHaveBeenCalled();
+      expect(removeNote).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
 });

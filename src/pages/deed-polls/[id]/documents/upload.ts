@@ -28,6 +28,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
+import { casePath } from "../../../../case-path.js";
 import { uploadRejection, uploadSingleFile } from "../../../../documents/upload.js";
 import { forLog } from "../../../../for-log.js";
 
@@ -68,6 +69,8 @@ export const GET = async (req: Request, res: Response) => {
 };
 
 const handler = async (req: Request, res: Response) => {
+  // Before the upload, so an id that cannot be redirected to is refused rather than uploaded to and then refused.
+  const caseHref = casePath(req.params.id);
   // The parser records its own rejections rather than throwing them, because re-rendering this form
   // is this handler's job and an error handler could not know which form to re-render. See
   // ../../../../documents/upload.ts.
@@ -118,7 +121,7 @@ const handler = async (req: Request, res: Response) => {
     throw error;
   }
 
-  res.redirect(`/deed-polls/${req.params.id}#documents`);
+  res.redirect(`${caseHref}#documents`);
 };
 
 export const POST = [uploadSingleFile(), handler];

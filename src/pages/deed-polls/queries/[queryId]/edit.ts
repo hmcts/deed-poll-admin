@@ -51,6 +51,7 @@ import {
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../../../auth/current-user.js";
 import { forLog } from "../../../../for-log.js";
+import { pathSegment } from "../../../../path-segment.js";
 
 const LIST_PATH = "/deed-polls";
 
@@ -105,7 +106,7 @@ export const POST = async (req: Request, res: Response) => {
 
     // Decision 5: a published query may be in colleagues' filter bars and this app cannot know whose, so the
     // delete goes through a confirmation. An unshared one has nobody else to warn, so it goes now.
-    if (query.shared) return res.redirect(`${LIBRARY_PATH}/${encodeURIComponent(query.id)}/delete`);
+    if (query.shared) return res.redirect(`${LIBRARY_PATH}/${pathSegment(query.id, "Saved query id")}/delete`);
 
     await removeSavedQuery(req.params.queryId, caller);
 

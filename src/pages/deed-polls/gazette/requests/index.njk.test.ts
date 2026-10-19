@@ -143,3 +143,11 @@ it("should distinguish empty and out-of-range pages", async () => {
   expect(markup).toContain("There are no application references on this page.");
   expect(markup).toContain(`href="/deed-polls/gazette/requests/${ID}">Go to the first page`);
 });
+
+// `src/path-segment.ts`: the page's own paging links are built from the batch id, so a dot-only one is a 404 before
+// either read rather than a page linking to the request list as if it were this request.
+it.each(["", ".", ".."])("should 404 request %j without asking api for its status or members", async (batchId) => {
+  await expect(detail(pageRequest({ params: { batchId }, accessToken: "admin-token", teamLeader: true }), pageResponse())).rejects.toThrow(NotFoundError);
+  expect(findGazetteStatus).not.toHaveBeenCalled();
+  expect(findGazetteMembers).not.toHaveBeenCalled();
+});

@@ -61,4 +61,51 @@ describe("withdraw a referral", () => {
 
     await expect(POST(request(), response())).rejects.toThrow(/unavailable/);
   });
+
+  // `../../../../../case-path.test.ts` holds the full payload matrix; this pins both destinations.
+  describe("a case id carrying URL delimiters", () => {
+    const RAW = { id: "a/b?c#d", referralId: "ref/1" };
+    const ENCODED_CASE = "/deed-polls/a%2Fb%3Fc%23d";
+
+    function delimited(params: Record<string, string> = RAW) {
+      return pageRequest({ params, body: {}, accessToken: "session-token" });
+    }
+
+    it("should withdraw under the raw ids and return to the encoded case's referrals tab", async () => {
+      const res = response();
+
+      await POST(delimited(), res);
+
+      expect(withdrawReferral).toHaveBeenCalledWith(RAW.id, RAW.referralId, CALLER);
+      expect(res.redirect).toHaveBeenCalledWith(`${ENCODED_CASE}#referrals`);
+    });
+
+    it("should send a conflict to the encoded referral, encoding the referral id exactly once", async () => {
+      vi.mocked(withdrawReferral).mockRejectedValue(new ConflictError("already terminal"));
+      const res = response();
+
+      await POST(delimited(), res);
+
+      expect(res.redirect).toHaveBeenCalledWith(`${ENCODED_CASE}/referrals/ref%2F1?withdraw=conflict`);
+    });
+
+    it.each(["", ".", ".."])("should 404 a withdrawal under case %j before anything is written", async (id) => {
+      const res = response();
+
+      await expect(POST(delimited({ id, referralId: "ref-1" }), res)).rejects.toThrow(NotFoundError);
+
+      expect(withdrawReferral).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+
+    // The referral id is the conflict redirect's second segment, so a dot-only one is refused before the write too.
+    it.each(["", ".", ".."])("should 404 a withdrawal of referral %j before anything is written", async (referralId) => {
+      const res = response();
+
+      await expect(POST(delimited({ id: "case-1", referralId }), res)).rejects.toThrow(NotFoundError);
+
+      expect(withdrawReferral).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
 });

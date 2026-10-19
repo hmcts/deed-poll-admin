@@ -20,6 +20,7 @@
 import { createNote, createNoteSchema, findDeedPoll, InvalidInputError, MAX_NOTE_LENGTH, zodErrorToFieldErrors } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
+import { casePath } from "../../../../case-path.js";
 import { forLog } from "../../../../for-log.js";
 
 const en = {
@@ -44,6 +45,8 @@ export const GET = async (req: Request, res: Response) => {
 };
 
 export const POST = async (req: Request, res: Response) => {
+  // Before the write, so an id that cannot be redirected to is refused rather than stored and then refused.
+  const caseHref = casePath(req.params.id);
   // The schema, not `validateNoteText` directly: it trims first and the trimmed value is what gets
   // stored, so going through it keeps this form and the API accepting exactly the same input.
   const parsed = createNoteSchema.safeParse({ note: (req.body as { note?: unknown }).note });
@@ -79,7 +82,7 @@ export const POST = async (req: Request, res: Response) => {
     throw error;
   }
 
-  res.redirect(`/deed-polls/${req.params.id}#notes`);
+  res.redirect(`${caseHref}#notes`);
 };
 
 async function rerender(req: Request, res: Response, error: string | null) {

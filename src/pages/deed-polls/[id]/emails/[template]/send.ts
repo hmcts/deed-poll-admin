@@ -69,6 +69,7 @@
 import { ConflictError, InvalidInputError, sendCaseEmail, validateEmailSlots } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
+import { casePath } from "../../../../../case-path.js";
 import { loadEmailJourney, renderCompose, submittedSlots } from "./compose.js";
 import { renderContentRejection, renderRefusal } from "./preview.js";
 
@@ -82,6 +83,8 @@ import { renderContentRejection, renderRefusal } from "./preview.js";
 const IDEMPOTENCY_KEY_FIELD = "idempotency-key";
 
 export const POST = async (req: Request, res: Response) => {
+  // Before the send, so an id that cannot be redirected to is refused rather than emailed and then refused.
+  const caseHref = casePath(req.params.id);
   const journey = await loadEmailJourney(req);
 
   // Before the wording, because a form that reached here without one is broken in a way no correction to the
@@ -105,7 +108,7 @@ export const POST = async (req: Request, res: Response) => {
     // Back to the tab, which is where the email now appears, with the banner saying which of the two happened.
     // The row's id goes with it so the banner can link to what was sent — `../../../[id].ts` renders the link
     // only for an id that case's history actually carries.
-    return res.redirect(`/deed-polls/${req.params.id}?email=${sent.enqueued ? "sent" : "already-sent"}&emailId=${encodeURIComponent(sent.id)}#emails`);
+    return res.redirect(`${caseHref}?email=${sent.enqueued ? "sent" : "already-sent"}&emailId=${encodeURIComponent(sent.id)}#emails`);
   } catch (error) {
     if (error instanceof ConflictError) {
       res.status(409);

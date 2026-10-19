@@ -193,4 +193,32 @@ describe("add a witness page", () => {
       await expect(POST(request(COMPLETE), response())).rejects.toThrow(/unavailable/);
     });
   });
+
+  // `../../../../case-path.test.ts` holds the full payload matrix; this pins the destination.
+  describe("a case id carrying URL delimiters", () => {
+    const RAW_ID = "a/b?c#d";
+
+    function delimited(id: string) {
+      return pageRequest({ params: { id }, body: COMPLETE, accessToken: "session-token" });
+    }
+
+    it("should create under the raw id and return to the encoded case's witnesses tab", async () => {
+      const res = response();
+
+      await POST(delimited(RAW_ID), res);
+
+      expect(createWitness).toHaveBeenCalledTimes(1);
+      expect(createWitness).toHaveBeenCalledWith(RAW_ID, expect.objectContaining({ witnessName: "Sam Doe" }), CALLER);
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/a%2Fb%3Fc%23d#witnesses");
+    });
+
+    it.each(["", ".", ".."])("should 404 a witness under case %j before anything is written", async (id) => {
+      const res = response();
+
+      await expect(POST(delimited(id), res)).rejects.toThrow(NotFoundError);
+
+      expect(createWitness).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
 });
