@@ -358,6 +358,24 @@ after it. The branch changes 36 files plus this test: the two helpers and their 
 `CLAUDE.md` and this plan. Review outcomes: not run in this iteration. Ralphex's review phases follow
 the task loop, and their findings and any revalidation are recorded by that phase.
 
+### Follow-up sweep, 2026-10-19 (Fern, at Steve's request, after the direct review)
+
+The direct Copilot review of `f30a8c4...dbdc12c` found no issues. Steve then asked for the out-of-scope follow-ups,
+limited to paths built in TypeScript (templates stay a tracked follow-up). Done directly, test first, on this branch:
+
+- `e73623b`: `src/path-segment.ts` (`pathSegment(value, label)`), the shared empty/`.`/`..` refusal plus single
+  encoding; `casePath` and `referralPath` delegate to it.
+- `b19c823` + `6086c49` (import order): case-scoped paths. The referral detail page's close/confirmation links and the
+  case page's email banner link used the raw case id; referral ids in close, confirmation, withdraw and the detail
+  page had no dot guard; withdraw built its conflict path after the write; new.ts's 409 live-referral link.
+- `07f4e90`: the judicial referral page's claim/direction links use `referralPath`, built before its read.
+- `53cc0fe`: saved-query ids (delete.ts edit link and cancel, edit.ts redirect to delete) and the Gazette request
+  page's paging path, built before its reads.
+- Deliberately unchanged: `gazette/batch.ts`'s 303 after a send (see `CLAUDE.md`, "Redirect paths").
+
+Every new dot-only test failed before its change (26 in all); the delimiter tests on already-encoded sites passed before
+and stay as regression pins.
+
 ## Post-Completion
 
 Hand the reviewed branch and evidence to Steve. Publishing/merging and a new Fortify ZIP/retest are separate
