@@ -481,6 +481,7 @@ describe("record the applicant's response", () => {
       await expect(GET(delimited({}, { id: "case-1", referralId }), response())).rejects.toThrow(NotFoundError);
 
       expect(recordConfirmation).not.toHaveBeenCalled();
+      expect(findDeedPoll).not.toHaveBeenCalled();
       expect(findReferral).not.toHaveBeenCalled();
       expect(res.redirect).not.toHaveBeenCalled();
     });

@@ -297,6 +297,7 @@ describe("mark a direction as actioned", () => {
       await expect(GET(delimited({ id: "case-1", referralId }), response())).rejects.toThrow(NotFoundError);
 
       expect(closeReferral).not.toHaveBeenCalled();
+      expect(findDeedPoll).not.toHaveBeenCalled();
       expect(findReferral).not.toHaveBeenCalled();
       expect(res.redirect).not.toHaveBeenCalled();
     });
