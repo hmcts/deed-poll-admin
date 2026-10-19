@@ -134,9 +134,17 @@ stale `.claude/worktrees/`, not this change. Record test files and test counts a
 ## Implementation Steps
 
 ### Task 0: Prerequisite and baseline
-- [ ] `/tmp/openapi-specs-api.json` exists, and its paths include operationIds `reviseDirection`,
+- [x] `/tmp/openapi-specs-api.json` exists, and its paths include operationIds `reviseDirection`,
   `withdrawDirection` and `document` under `/judicial`. If not, stop: #118 isn't merged or the spec isn't staged.
-- [ ] Run the Validation Commands. Record test files, tests and the `yarn welsh:check` count.
+  (api commit `93c2dd370cb4d63f51375da155818ea452dcc9da`. Matches the contract table: `JudicialApplicationView`'s
+  46 properties are exactly the listed set, `JudicialWitness`/`JudicialDocument` as listed, `JudicialCaseView`
+  gone, `directionChangedAt` nullable date-time on `ReferralResponse` and `JudicialReferralDetail`; `PUT`
+  takes `JudicialDirectionRequest`; withdraw has no body and returns `JudicialReferralDetail`.)
+- [x] Run the Validation Commands. Record test files, tests and the `yarn welsh:check` count.
+  (Baseline: `yarn lint` clean, one schema-version info only. Turbo 8/8 tasks green: 213 test files, 4446 tests —
+  app 104/2168, deed-poll 66/1183, api-client 11/740, cloud-native-platform 13/157, express-govuk-starter 12/127,
+  simple-router 4/41, express-session-postgres 2/23, express-session-redis 1/7. `yarn welsh:check`: 691 strings,
+  474 still identical in cy (467 prose, 7 not prose).)
 
 ### Task 1: Spec refresh, wire schemas, adapter
 - [ ] Decision 1, in one commit. `contract.test.ts` passes, and `client.test.ts` covers the three new adapter
