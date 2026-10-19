@@ -10,15 +10,10 @@
  * Pass the id as Express gave it — already decoded — and call this before any api read or write, so a refusal
  * cannot follow one. Domain calls keep the raw id.
  */
-import { NotFoundError } from "@hmcts/deed-poll";
+import { pathSegment } from "./path-segment.js";
 
 const POOL_PATH = "/judicial/referrals";
-const UNUSABLE_SEGMENTS = new Set(["", ".", ".."]);
 
 export function referralPath(referralId: string): string {
-  if (UNUSABLE_SEGMENTS.has(referralId)) {
-    // Fixed, so a log of the refusal repeats nothing the request supplied.
-    throw new NotFoundError("Referral id is not a usable path segment");
-  }
-  return `${POOL_PATH}/${encodeURIComponent(referralId)}`;
+  return `${POOL_PATH}/${pathSegment(referralId, "Referral id")}`;
 }

@@ -11,15 +11,10 @@
  * Empty, `.` and `..` are refused because encoding leaves dots alone and a browser drops a dot segment, so they
  * would name the case list or the site root. Call this before any write, so a refusal cannot follow one.
  */
-import { NotFoundError } from "@hmcts/deed-poll";
+import { pathSegment } from "./path-segment.js";
 
 const CASES_PATH = "/deed-polls";
-const UNUSABLE_SEGMENTS = new Set(["", ".", ".."]);
 
 export function casePath(caseId: string): string {
-  if (UNUSABLE_SEGMENTS.has(caseId)) {
-    // Fixed, so a log of the refusal repeats nothing the request supplied.
-    throw new NotFoundError("Case id is not a usable path segment");
-  }
-  return `${CASES_PATH}/${encodeURIComponent(caseId)}`;
+  return `${CASES_PATH}/${pathSegment(caseId, "Case id")}`;
 }
