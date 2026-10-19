@@ -1,6 +1,7 @@
 import {
   claimJudicialReferral,
   directJudicialReferral,
+  downloadJudicialDocument,
   getCase,
   getJudicialMyReferrals,
   getJudicialPool,
@@ -9,7 +10,7 @@ import {
 } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConflictError, InvalidInputError, NotFoundError } from "../errors.js";
-import { claimReferral, getReferral, listMyReferrals, listPool, recordDirection } from "./service.js";
+import { claimReferral, downloadReferralDocument, getReferral, listMyReferrals, listPool, recordDirection } from "./service.js";
 
 // The adapter is mocked and nothing else. What is worth pinning at this seam is that each function reaches the
 // right judicial operation with no case id in sight, that the judge's token travels and no holder does, and that
@@ -22,6 +23,7 @@ vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
   getJudicialReferral: vi.fn(),
   claimJudicialReferral: vi.fn(),
   directJudicialReferral: vi.fn(),
+  downloadJudicialDocument: vi.fn(),
   listReferrals: vi.fn(),
   getCase: vi.fn()
 }));
@@ -213,6 +215,23 @@ describe("judicial/service", () => {
       vi.mocked(getJudicialReferral).mockResolvedValue(notFound as never);
 
       await expect(getReferral("ref-1", CALLER)).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
+  describe("downloadReferralDocument", () => {
+    it("should ask for the document under the referral alone, with the judge's token and no case id", async () => {
+      const download = { body: "stream", contentType: "application/pdf" };
+      vi.mocked(downloadJudicialDocument).mockResolvedValue(ok(download) as never);
+
+      expect(await downloadReferralDocument("ref-1", "doc-9", CALLER)).toEqual(download);
+      expect(downloadJudicialDocument).toHaveBeenCalledWith("ref-1", "doc-9", expect.objectContaining({ accessToken: "judge-token" }));
+      expect(getCase).not.toHaveBeenCalled();
+    });
+
+    it("should throw NotFoundError for a document on a referral this judge may not see, as for one never there", async () => {
+      vi.mocked(downloadJudicialDocument).mockResolvedValue(notFound as never);
+
+      await expect(downloadReferralDocument("ref-1", "doc-9", CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 

@@ -99,6 +99,9 @@ export function downloadDocument(deedPollId: string, id: string, caller: Caller)
   return callApi(caller, (config) => apiDownloadDocument(deedPollId, id, config));
 }
 
+// Both download routes relay this through one module, so the app names the type it is handed.
+export type { DocumentDownload };
+
 /**
  * The parts of an uploaded file this domain needs.
  *

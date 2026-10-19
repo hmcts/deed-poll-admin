@@ -36,7 +36,9 @@
  */
 import {
   claimJudicialReferral,
+  type DocumentDownload,
   directJudicialReferral,
+  downloadJudicialDocument,
   getJudicialMyReferrals,
   getJudicialPool,
   getJudicialReferral,
@@ -104,6 +106,17 @@ export function listMyReferrals(paging: JudicialPoolQuery, caller: Caller): Prom
  */
 export function getReferral(referralId: string, caller: Caller): Promise<JudicialReferralDetail> {
   return callApi(caller, (config) => getJudicialReferral(referralId, config));
+}
+
+/**
+ * One of the referral's supporting documents, still streaming, with the headers api put on it.
+ *
+ * Keyed on the referral and never the case, like every judicial read: api resolves the document against the
+ * application behind the referral and answers the same 404 for a document that is not on it as for a referral this
+ * judge may not see, so there is nothing to pre-check here either.
+ */
+export function downloadReferralDocument(referralId: string, documentId: string, caller: Caller): Promise<DocumentDownload> {
+  return callApi(caller, (config) => downloadJudicialDocument(referralId, documentId, config));
 }
 
 /**

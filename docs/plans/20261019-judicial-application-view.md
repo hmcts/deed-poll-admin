@@ -183,10 +183,16 @@ stale `.claude/worktrees/`, not this change. Record test files and test counts a
   4496 tests; app 104/2178, deed-poll 66/1193, all others unchanged.)
 
 ### Task 3: Document download
-- [ ] Route tests:
+- [x] Route tests:
   - streaming and headers match the caseworker route's, through the shared module;
   - a 404 renders the unavailable page;
   - the route is under the `/judicial` mount, so `src/app.test.ts` still passes.
+  (Red first: 2 service tests, and the route file with no module to load. The caseworker route's headers,
+  containment and `pipeline` moved to `src/document-response.ts`'s `sendDocument`. Its 15 tests are unchanged
+  and pass through it. `downloadReferralDocument` in `judicial/service.ts`; `DocumentDownload` is re-exported
+  from `documents/service.ts` for the shared module. The judicial route refuses dot-only ids before the read, as
+  the referral page does. Validation: `yarn lint` clean apart from the schema-version info. Turbo 8/8: 214 files,
+  4507 tests; app 105/2187, deed-poll 66/1195, all others unchanged.)
 
 ### Task 4: Change and withdraw
 - [ ] Tests:
