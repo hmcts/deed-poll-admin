@@ -97,5 +97,15 @@ describe("withdraw a referral", () => {
       expect(withdrawReferral).not.toHaveBeenCalled();
       expect(res.redirect).not.toHaveBeenCalled();
     });
+
+    // The referral id is the conflict redirect's second segment, so a dot-only one is refused before the write too.
+    it.each(["", ".", ".."])("should 404 a withdrawal of referral %j before anything is written", async (referralId) => {
+      const res = response();
+
+      await expect(POST(delimited({ id: "case-1", referralId }), res)).rejects.toThrow(NotFoundError);
+
+      expect(withdrawReferral).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
   });
 });

@@ -44,6 +44,7 @@ import {
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
 import { casePath } from "../../../../../case-path.js";
+import { pathSegment } from "../../../../../path-segment.js";
 import { forLog } from "../../../../../for-log.js";
 
 // The order the controls appear in, so the error summary reads down the page rather than in whatever order the
@@ -233,7 +234,7 @@ function summaryList(errors: Record<string, string>, formError?: string): { text
 }
 
 function referralHref(req: Request): string {
-  return `${casePath(req.params.id)}/referrals/${encodeURIComponent(req.params.referralId)}`;
+  return `${casePath(req.params.id)}/referrals/${pathSegment(req.params.referralId, "Referral id")}`;
 }
 
 /** What the form needs about the referral it is answering for: the caption, the request, and where back is. */

@@ -30,6 +30,8 @@
 import { buildReferralDetail, findDeedPoll, findReferral, type ReferralConfirmationView } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
+import { casePath } from "../../../../case-path.js";
+import { pathSegment } from "../../../../path-segment.js";
 
 /** What `withdraw.ts` redirects back with when api refused the withdrawal. */
 const WITHDRAW_CONFLICT = "conflict";
@@ -132,6 +134,8 @@ const en = {
 const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
+  // Before the reads, so an id that cannot be linked back to is the 404 a missing referral is, not a page of bad links.
+  const href = referralHref(req);
   const caller = callerFromRequest(req);
   const [found, referral] = await Promise.all([findDeedPoll(req.params.id, caller), findReferral(req.params.id, req.params.referralId, caller)]);
 
@@ -160,8 +164,8 @@ export const GET = async (req: Request, res: Response) => {
     confirmationRecorded: req.query.confirmation === CONFIRMATION_RECORDED ? content.confirmationRecorded : "",
     confirmationRefused: req.query.confirmation === CONFIRMATION_CONFLICT ? confirmationRefusal(view.confirmation, content) : "",
     // Stated by the page that offers the control, rather than assembled from fragments in the template.
-    closeHref: `${referralHref(req)}/close`,
-    confirmationHref: `${referralHref(req)}/confirmation`,
+    closeHref: `${href}/close`,
+    confirmationHref: `${href}/confirmation`,
     en,
     cy
   });
@@ -235,5 +239,5 @@ function confirmationRefusal(confirmation: ReferralConfirmationView | null, cont
 }
 
 function referralHref(req: Request): string {
-  return `/deed-polls/${req.params.id}/referrals/${encodeURIComponent(req.params.referralId)}`;
+  return `${casePath(req.params.id)}/referrals/${pathSegment(req.params.referralId, "Referral id")}`;
 }

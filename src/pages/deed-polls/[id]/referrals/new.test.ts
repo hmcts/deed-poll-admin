@@ -464,6 +464,19 @@ describe("raise a referral page", () => {
       expect(res.render.mock.calls[0][1].conflictHref).toBe(`${ENCODED_CASE}#referrals`);
     });
 
+    // The live referral's id is api's, and this runs inside the 409's catch, so an unusable one degrades to the tab
+    // link rather than losing the caseworker's typed answers to an error page.
+    it.each(["", ".", ".."])("should fall a 409 back to the referrals tab when api's live referral id is %j", async (liveId) => {
+      vi.mocked(createReferral).mockRejectedValue(new ConflictError("already has an open referral"));
+      vi.mocked(findReferrals).mockResolvedValue([{ ...OPEN_REFERRAL, id: liveId }] as never);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = response();
+
+      await POST(delimited(), res);
+
+      expect(res.render.mock.calls[0][1].conflictHref).toBe(`${ENCODED_CASE}#referrals`);
+    });
+
     it.each(["", ".", ".."])("should 404 a referral raised under case %j before anything is written", async (id) => {
       const res = response();
 

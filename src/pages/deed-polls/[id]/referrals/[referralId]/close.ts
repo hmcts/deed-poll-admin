@@ -26,6 +26,7 @@ import { buildReferralDetail, ConflictError, closeReferral, findDeedPoll, findRe
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../../auth/current-user.js";
 import { casePath } from "../../../../../case-path.js";
+import { pathSegment } from "../../../../../path-segment.js";
 
 const en = {
   title: "Confirm the direction has been actioned",
@@ -124,5 +125,5 @@ function gazetteAnswer(publishToGazette: boolean | null | undefined, content: ty
 }
 
 function referralHref(req: Request): string {
-  return `${casePath(req.params.id)}/referrals/${encodeURIComponent(req.params.referralId)}`;
+  return `${casePath(req.params.id)}/referrals/${pathSegment(req.params.referralId, "Referral id")}`;
 }

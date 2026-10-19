@@ -475,6 +475,15 @@ describe("case detail page", () => {
     });
   });
 
+  it("encodes the case id in the email link, as it does the email id", async () => {
+    vi.mocked(findCaseEmails).mockResolvedValue({ ...CASE_EMAILS, history: [{ ...SENT_EMAIL, id: "email/1" }] } as never);
+    const res = response();
+
+    await GET(pageRequest({ params: { id: "a/b?c#d" }, query: { email: "sent", emailId: "email/1" } }), res);
+
+    expect(res.render.mock.calls[0][1].emailBanner.href).toBe("/deed-polls/a%2Fb%3Fc%23d/emails/email%2F1");
+  });
+
   it("tells a caseworker a redundant send had already gone, rather than reporting a failure", async () => {
     // api's insert is `ON CONFLICT DO NOTHING`, so a double-click answers 200 with `enqueued: false` and the row
     // it wrote the first time. Reporting a failure would invite a third attempt.

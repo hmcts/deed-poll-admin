@@ -473,5 +473,16 @@ describe("record the applicant's response", () => {
       expect(recordConfirmation).not.toHaveBeenCalled();
       expect(res.redirect).not.toHaveBeenCalled();
     });
+
+    it.each(["", ".", ".."])("should 404 a recording for referral %j before anything is read or written", async (referralId) => {
+      const res = response();
+
+      await expect(POST(delimited({ outcome: "Confirmed" }, { id: "case-1", referralId }), res)).rejects.toThrow(NotFoundError);
+      await expect(GET(delimited({}, { id: "case-1", referralId }), response())).rejects.toThrow(NotFoundError);
+
+      expect(recordConfirmation).not.toHaveBeenCalled();
+      expect(findReferral).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
   });
 });

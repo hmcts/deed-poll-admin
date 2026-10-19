@@ -430,4 +430,33 @@ describe("referral view page", () => {
       expect(res.render.mock.calls[0][1].confirmationRefused).toBe("");
     });
   });
+
+  // The close and confirmation links are built from both route parameters, so both go through the shared path rules.
+  describe("ids that are not plain path segments", () => {
+    function delimited(params: Record<string, string>) {
+      return pageRequest({ params, accessToken: "session-token" });
+    }
+
+    it("should build the action links from the encoded case and referral ids", async () => {
+      vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED } as never);
+      const res = response();
+
+      await GET(delimited({ id: "a/b?c#d", referralId: "ref/1" }), res);
+
+      expect(res.render.mock.calls[0][1].closeHref).toBe("/deed-polls/a%2Fb%3Fc%23d/referrals/ref%2F1/close");
+      expect(res.render.mock.calls[0][1].confirmationHref).toBe("/deed-polls/a%2Fb%3Fc%23d/referrals/ref%2F1/confirmation");
+      expect(findReferral).toHaveBeenCalledWith("a/b?c#d", "ref/1", expect.anything());
+    });
+
+    it.each([
+      ["case", { id: "..", referralId: "ref-1" }],
+      ["referral", { id: "case-1", referralId: "." }],
+      ["referral", { id: "case-1", referralId: "" }]
+    ])("should 404 a dot-only or empty %s id without reading anything", async (_which, params) => {
+      await expect(GET(delimited(params), response())).rejects.toThrow(NotFoundError);
+
+      expect(findDeedPoll).not.toHaveBeenCalled();
+      expect(findReferral).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -66,7 +66,9 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
+import { casePath } from "../../case-path.js";
 import { forLog } from "../../for-log.js";
+import { pathSegment } from "../../path-segment.js";
 
 const en = {
   title: "Case",
@@ -294,7 +296,7 @@ function emailBanner(req: Request, emails: Awaited<ReturnType<typeof findCaseEma
 
   return {
     text: outcome === "sent" ? en.emailSent : en.emailAlreadySent,
-    href: known ? `/deed-polls/${req.params.id}/emails/${encodeURIComponent(id)}` : null
+    href: known ? `${casePath(req.params.id)}/emails/${pathSegment(id, "Email id")}` : null
   };
 }
 

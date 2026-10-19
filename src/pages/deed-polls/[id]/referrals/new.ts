@@ -41,6 +41,7 @@ import {
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
 import { casePath } from "../../../../case-path.js";
+import { pathSegment } from "../../../../path-segment.js";
 import { forLog } from "../../../../for-log.js";
 
 // The order the controls appear in, so the error summary reads down the page rather than in whatever order
@@ -189,7 +190,7 @@ async function openReferralHref(req: Request, caseHref: string): Promise<string>
     const referrals = await findReferrals(req.params.id, callerFromRequest(req));
     const live = buildReferralsView(referrals).liveReferral;
 
-    return live ? `${caseHref}/referrals/${encodeURIComponent(live.id)}` : referralsTab;
+    return live ? `${caseHref}/referrals/${pathSegment(live.id, "Referral id")}` : referralsTab;
   } catch (error) {
     console.error(`could not resolve the open referral to link to: ${forLog(error instanceof Error ? error.message : String(error))}`);
     return referralsTab;
