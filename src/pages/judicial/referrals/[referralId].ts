@@ -30,6 +30,7 @@
 import { buildJudicialReferral, getReferral, NotFoundError } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../auth/current-user.js";
+import { referralPath } from "../../../judicial-referral-path.js";
 
 const POOL_PATH = "/judicial/referrals";
 
@@ -141,6 +142,8 @@ const unavailableCy = { ...unavailableEn };
 
 export const GET = async (req: Request, res: Response) => {
   const { referralId } = req.params;
+  // Before the read, so a dot-only id is refused rather than looked up and then linked to as a parent path.
+  const href = referralPath(referralId);
 
   let referral: Awaited<ReturnType<typeof getReferral>>;
   try {
@@ -167,8 +170,8 @@ export const GET = async (req: Request, res: Response) => {
     gazetteAnswer: gazetteAnswer(view.direction?.publishToGazette, content),
     // Both built here rather than in the template, so the one path shape lives in one place — and so the
     // direction page's URL is stated by the page that offers it rather than assembled from fragments.
-    claimHref: `${POOL_PATH}/${encodeURIComponent(referralId)}/claim`,
-    directionHref: `${POOL_PATH}/${encodeURIComponent(referralId)}/direction`,
+    claimHref: `${href}/claim`,
+    directionHref: `${href}/direction`,
     // The list this referral is on, and its name — both from the state api has just published. A claim or a
     // direction changes which list that is, so the link is resolved on every render rather than carried forward
     // from the page the judge arrived on: after claiming, the pool is the one list the referral is not on.

@@ -155,6 +155,14 @@ describe("the judicial referral page", () => {
     });
   });
 
+  // `referralPath`'s rule (`src/judicial-referral-path.ts`): encoding leaves dots alone, so these would link to the pool
+  // or the area's parent. Refused before the read, as the claim and direction handlers refuse them.
+  it.each(["", ".", ".."])("should 404 referral %j without asking api for it", async (referralId) => {
+    await expect(GET(request(referralId), pageResponse())).rejects.toThrow(NotFoundError);
+
+    expect(getReferral).not.toHaveBeenCalled();
+  });
+
   // Decision 10, the client half of api's non-enumeration guarantee: a referral withdrawn, closed, claimed by
   // another judge or never created are one 404, so the page says one thing and never names a holder.
   it("should render a 404 reading 'no longer available' when api will not show the referral", async () => {
