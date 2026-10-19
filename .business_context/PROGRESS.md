@@ -2135,7 +2135,7 @@ AWS access key ids, Azure `AccountKey=`, GitHub tokens, Slack tokens and JWTs.
 | Finding | Where | Assessment |
 |---|---|---|
 | A real 1,679-byte **`BEGIN RSA PRIVATE KEY`** at `src/main/resources/localhost-ssl/localhost.key` | **15 of the 47 deleted orphan branches.** *Not* reachable from `master` or `feat/deed-poll-migration` | The key the deleted branch was named after. The `src/main/resources` path is a Java layout, so it predates the expressjs template entirely — inherited ancestry, never this service's. A localhost dev TLS key, so low value to an attacker, but it is a real private key and would become publicly retrievable |
-| `-----BEGIN RSA PRIVATE KEY-----` in `.yarn/unplugged/…/node-gyp/test/fixtures/certs.js` | Deleted orphan branches only | **Not a secret.** node-gyp's own published test fixture, shipped in the public npm package. Also not in current history |
+| An RSA private-key test fixture in `.yarn/unplugged/…/node-gyp/test/fixtures/certs.js` | Deleted orphan branches only | **Not a secret.** node-gyp's own published test fixture, shipped in the public npm package. Also not in current history |
 
 **No AWS keys, no Azure account keys, no GitHub or Slack tokens, no JWTs anywhere.**
 
