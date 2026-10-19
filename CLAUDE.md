@@ -241,6 +241,25 @@ single file:
   bounce to the list would tell a judge somebody else has work that is in fact theirs. The pool therefore carries
   one refusal, not two. A caseworker's 409s are a different thing entirely (two caseworkers racing), which is why
   `referrals/new.ts` re-renders at 409 instead.
+- **Judges see the full application and its documents (business decision, 2026-10-19).** This replaces the
+  eight-field view of 2026-09-17. `application` on `GET /judicial/referrals/{id}` is api's `JudicialApplicationView`:
+  the details, witnesses and attached documents, with no payment, refund or fee data, and private cases in full.
+  `libs/deed-poll/src/judicial/view.ts` builds the read-only "Application" section from that type alone, listing its
+  fields in `APPLICATION_SECTIONS` and borrowing only labels and formatting from the caseworker metadata. Do not
+  import the caseworker view model: the judge's page must not grow a field because the caseworker's did. Documents
+  download through `src/pages/judicial/referrals/[referralId]/documents/[documentId]/file.ts`, which shares
+  `src/document-response.ts` with the caseworker route. Who may open one is api's visibility: any judge on `Open`,
+  the holder on `Claimed`, the director on `Decided`, nobody once closed. The same 404 covers each refusal and
+  renders the unavailable page.
+- **The judge who gave a direction can change or withdraw it until the office closes the referral.** On a
+  `Decided` referral (api shows it only to its director) the page links to `direction?change=1`, which reuses the
+  direction form and check page, prefilled and worded as a change, and calls `reviseDirection` (`PUT`). It also
+  links to `withdraw`, a confirmation page that calls `withdrawDirection`. That leaves the referral `Claimed` by the
+  same judge with no direction, so the page offers the ordinary direction form again. A 409 on either redirects to
+  the freshly read referral with a state-only sentence, and a 404 is the unavailable page. api writes the
+  caseworker a case note, keeps the earlier direction on its audit trail and sets `directionChangedAt`. The
+  caseworker's referral page and the case page's referrals panel show "The judge changed this direction on {date}."
+  as inset text from that flag. It sits outside the direction section because a withdrawal leaves no direction.
 - **A user holding both roles still has no link to `/judicial/**`.** There is judicial navigation now, but it is
   the two judicial lists' own (`src/pages/judicial/referrals/list-navigation.njk`) and it renders only on pages
   inside the area; the shared chrome renders no service-navigation, so the caseworker-first landing in
@@ -268,7 +287,10 @@ single file:
   not reported as unparsed — it is simply absent, and a page whose other twenty keys are present looks complete. All
   three shapes `.claude/rules/frontend.md` documents are handled now (string, nested object, and a **function** that
   interpolates a runtime value), but a fourth would need adding: `const en = (m) => ({ … })`, the whole-object
-  function form, is not read, and a page written that way would contribute nothing. Function entries are reported
+  function form, is not read, and a page written that way would contribute nothing. A second pair mirrors the same
+  way the first does, `<name>Cy = { ...<name>En }`: until 2026-10-19 only a bare `{ ...en }` counted, so a page with
+  no plain pair (the judicial document route) reported its strings with no `cy`, and they were missing from
+  `yarn welsh:check`'s count. Function entries are reported
   one row per sentence (`returnedForActionFor.1`, `.2`) because English needs a singular and a plural where Welsh
   needs more, so which sentence covers which count is a translator briefing rather than a string.
 

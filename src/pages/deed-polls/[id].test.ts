@@ -255,6 +255,28 @@ describe("case detail page", () => {
     expect(referrals.rows[0]).toMatchObject({ id: "ref-1", state: "Awaiting a judge", reasons: ["Applicant is a minor"], urgency: "Standard" });
   });
 
+  it("resolves the change notice for each referral whose direction the judge changed, keyed by its id", async () => {
+    vi.mocked(findReferrals).mockResolvedValue([
+      { ...REFERRAL, id: "ref-2", state: "Decided", directionChangedAt: new Date("2026-10-19T09:30:00Z") },
+      { ...REFERRAL, id: "ref-1", state: "Closed", directionChangedAt: null }
+    ] as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].directionChangedNotices).toEqual({ "ref-2": "The judge changed this direction on 19 October 2026 at 10:30am." });
+  });
+
+  it("resolves no change notices when the referrals read failed", async () => {
+    vi.mocked(findReferrals).mockRejectedValue(new Error("deed-poll-api call failed (unavailable): nope"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].directionChangedNotices).toEqual({});
+  });
+
   it("populates the referrals tab from that call, not from the case record", async () => {
     // The merge in the handler is the whole mechanism: `buildDetailTabs` counts `record.referrals`, and the
     // case api returned carries no such property, so a tab that says "None recorded" on a referred case is

@@ -297,6 +297,28 @@ describe("referrals/referrals-view", () => {
       expect(view.direction).toMatchObject({ decision: "Approved" });
     });
 
+    it("should carry no direction-changed date on a direction that stands as first given", () => {
+      expect(buildReferralDetail(DECIDED).directionChangedOn).toBeNull();
+      expect(buildReferralDetail({ ...DECIDED, directionChangedAt: null }).directionChangedOn).toBeNull();
+    });
+
+    it("should format when the judge changed the direction, in GOV.UK style and London time", () => {
+      const view = buildReferralDetail({ ...DECIDED, directionChangedAt: new Date("2026-10-19T09:30:00Z") });
+
+      expect(view.directionChangedOn).toBe("19 October 2026 at 10:30am");
+    });
+
+    it("should keep the date once a withdrawn direction has left the referral with no direction on it", () => {
+      // Withdraw clears the direction and leaves the referral Claimed, and api keeps the flag set — the
+      // caseworker is still owed the notice that the direction they may have seen is no longer the judge's.
+      const withdrawn: Referral = { ...DECIDED, state: "Claimed", decision: null, directionsText: null, decisionDate: null, decidedBy: null };
+
+      const view = buildReferralDetail({ ...withdrawn, directionChangedAt: new Date("2026-10-19T09:30:00Z") });
+
+      expect(view.direction).toBeNull();
+      expect(view.directionChangedOn).toBe("19 October 2026 at 10:30am");
+    });
+
     it("should render the urgency as its label and say when none was published", () => {
       expect(buildReferralDetail(REFERRAL).urgency).toBe("Urgent");
       expect(buildReferralDetail({ ...REFERRAL, urgency: null }).urgency).toBe("Not provided");

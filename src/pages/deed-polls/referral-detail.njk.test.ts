@@ -198,6 +198,32 @@ describe("referral view template", () => {
     expect(rendered).toContain("15 May 2026 at 11:30am");
   });
 
+  it("should say as inset text when the judge changed the direction", async () => {
+    const rendered = await page({ ...REFERRAL, ...DIRECTED, directionChangedAt: new Date("2026-10-19T09:30:00Z") });
+
+    expect(rendered).toMatch(/<div class="govuk-inset-text">\s*The judge changed this direction on 19 October 2026 at 10:30am\.\s*<\/div>/);
+  });
+
+  it("should still say the direction changed once a withdrawal has left no direction on the referral", async () => {
+    const rendered = await page({
+      ...REFERRAL,
+      state: "Claimed",
+      claimedBy: "A Judge",
+      claimedAt: DIRECTED.claimedAt,
+      directionChangedAt: new Date("2026-10-19T09:30:00Z")
+    });
+
+    expect(rendered).not.toContain("Direction from the judiciary");
+    expect(rendered).toContain("The judge changed this direction on 19 October 2026 at 10:30am.");
+  });
+
+  it("should show no change notice on a direction that stands as first given", async () => {
+    const rendered = await page({ ...REFERRAL, ...DIRECTED });
+
+    expect(rendered).not.toContain("The judge changed this direction");
+    expect(rendered).not.toContain("govuk-inset-text");
+  });
+
   it("should show no direction section on a referral the judiciary has not answered", async () => {
     const rendered = await page(REFERRAL);
 

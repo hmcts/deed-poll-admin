@@ -106,6 +106,9 @@ const en = {
   // and "waiting for the applicant" are a pair that can both be true. It says nothing about what to do next,
   // for the reason the notice says nothing (decision 8).
   referralAwaitingConfirmation: "Awaiting the applicant's response",
+  // The row's own notice that the judge changed or withdrew their direction, from api's `directionChangedAt`. The
+  // same sentence as the referral page's, which is where the case note api wrote is one click nearer.
+  directionChangedFor: (changedOn: string) => `The judge changed this direction on ${changedOn}.`,
   raiseReferral: "Refer this case to the judiciary",
   viewReferralHint: "view this referral",
   // Decision 9: the previous system recorded no reasons, so a migrated referral has none and says which it is.
@@ -232,6 +235,7 @@ export const GET = async (req: Request, res: Response) => {
   // the sentence survives a failed referrals read and is never derived from the referrals or the email history
   // (decision 2). Empty rather than null, so the template asks "is there something to say".
   const requestedOn = awaitingConfirmationRequestedOn(found);
+  const referralsView = referrals ? buildReferralsView(referrals) : unavailableReferralsView();
 
   res.render("deed-polls/detail", {
     // The page title is the reference, so it is passed rather than sitting in `en`: it is data.
@@ -249,7 +253,12 @@ export const GET = async (req: Request, res: Response) => {
     header: buildCaseHeader(found),
     notes: buildNotesView(found.notes),
     documents: buildDocumentsView(found.documents),
-    referrals: referrals ? buildReferralsView(referrals) : unavailableReferralsView(),
+    referrals: referralsView,
+    // Per row, so keyed by referral id: the sentence interpolates each row's date, and the template looks its row
+    // up rather than calling content. A failed read has no rows and so no notices.
+    directionChangedNotices: Object.fromEntries(
+      referralsView.rows.flatMap((row) => (row.directionChangedOn === null ? [] : [[row.id, content.directionChangedFor(row.directionChangedOn)]]))
+    ),
     emails: emails ? buildEmailsView(emails) : unavailableEmailsView(),
     emailBanner: emailBanner(req, emails),
     // Off the case, so it is unaffected by the referrals read and renders on a degraded panel too: the two are

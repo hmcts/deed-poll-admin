@@ -7,8 +7,9 @@
  * **No case id, anywhere.** api keys the whole judicial surface on the referral so a judge cannot name an
  * application, and resolves the case at its own end. So none of these takes a `deedPollId`, there is no
  * judicial equivalent of `findDeedPoll`, and a page that wanted one has nothing to call: the application a judge
- * sees arrives inside `getReferral` as `application`, a **narrow** projection (`JudicialCaseView`) that is
- * deliberately not a subset of the caseworker case — api's own architecture test asserts the two records are
+ * sees arrives inside `getReferral` as `application`, a projection of its own (`JudicialApplicationView`: the
+ * details, witnesses and attached documents, no payment or refund data) that is deliberately not a subset of the
+ * caseworker case — api's own architecture test asserts the two records are
  * unrelated, because the failure it guards against is a field added to the caseworker response appearing on a
  * judge's screen. Enriching this data with any other call would be that failure, reintroduced here.
  *

@@ -75,12 +75,14 @@ for (const dir of INCLUDE) {
   for (const file of walk(dir)) collect(file);
 }
 
-for (const [group, { en, cy, cyMirrorsEn }] of groups) {
+for (const [group, { en, cy, mirrored }] of groups) {
   for (const [key, value] of Object.entries(en ?? {})) {
     // `const cy = { ...en }` is the shape most pages use: every key not explicitly overridden holds the
     // English string by construction. Reporting those as "no cy key" would hide the entire problem this
-    // script exists to measure.
-    const current = cy?.[key] ?? (cyMirrorsEn ? value : undefined);
+    // script exists to measure. A second pair mirrors the same way, `<name>Cy = { ...<name>En }`, and covers
+    // only its own prefix — a page with no plain pair at all otherwise left it reported with no cy.
+    const mirrors = mirrored.has("") || [...mirrored].some((prefix) => key.startsWith(`${prefix}.`));
+    const current = cy?.[key] ?? (mirrors ? value : undefined);
     rows.push({ file: group, key, en: value, cy: current });
   }
 }
@@ -177,7 +179,7 @@ function collect(file) {
   const isLocaleFile = relative.includes("src/locales/");
   // The two locale files are one translation unit, so they share a group and merge into one row set.
   const group = isLocaleFile ? path.dirname(relative) : relative;
-  const entry = groups.get(group) ?? { en: undefined, cy: undefined, cyMirrorsEn: false };
+  const entry = groups.get(group) ?? { en: undefined, cy: undefined, mirrored: new Set() };
 
   const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.ESNext, true);
 
@@ -190,7 +192,7 @@ function collect(file) {
       const pair = localeOf(name, relative);
       if (!pair) continue;
 
-      if (pair.which === "cy" && spreadsEn(decl.initializer)) entry.cyMirrorsEn = true;
+      if (pair.which === "cy" && spreadsEnCounterpart(decl.initializer, pair.prefix)) entry.mirrored.add(pair.prefix);
       entry[pair.which] = { ...(entry[pair.which] ?? {}), ...flatten(decl.initializer, pair.prefix, relative) };
     }
   });
@@ -221,9 +223,13 @@ function localeOf(name, relative) {
   return undefined;
 }
 
-/** True for `const cy = { ...en }`, with or without explicit overrides alongside the spread. */
-function spreadsEn(objectLiteral) {
-  return objectLiteral.properties.some((prop) => ts.isSpreadAssignment(prop) && ts.isIdentifier(prop.expression) && prop.expression.text === "en");
+/**
+ * True for `const cy = { ...en }`, or `const <name>Cy = { ...<name>En }` for a second pair, with or without
+ * explicit overrides alongside the spread.
+ */
+function spreadsEnCounterpart(objectLiteral, prefix) {
+  const counterpart = prefix ? `${prefix}En` : "en";
+  return objectLiteral.properties.some((prop) => ts.isSpreadAssignment(prop) && ts.isIdentifier(prop.expression) && prop.expression.text === counterpart);
 }
 
 function flatten(objectLiteral, prefix, relative) {

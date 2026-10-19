@@ -8,16 +8,19 @@
  * view are two renderings of the same referral, and the field a judge must not see is the field that gets
  * added to one of them and not noticed on the other.
  *
- * **Nothing here enriches, filters or re-orders.** api sends a deliberately narrow application projection
- * (`JudicialCaseView`) and a pool already ordered urgent-first then longest-waiting, so this file formats
- * exactly what arrived: no second call, no local sort, no field the DTO does not carry. `referrals-admin-3`
- * decisions 3 and 4, and the reason the disclosure boundary is api's rather than this app's — a client filter
- * would be a second opinion about a question api's own architecture test already answers.
+ * **Nothing here enriches, filters or re-orders.** api sends the judge's own application projection
+ * (`JudicialApplicationView`: the application's details, witnesses and attached documents, with no payment,
+ * refund or fee data — the 2026-10-19 decisions that replaced the eight-field view) and a pool already ordered
+ * urgent-first then longest-waiting. So this file formats exactly what arrived: no second call, no local sort,
+ * no field the DTO does not carry. Private cases arrive in full because api decided they should; the disclosure
+ * boundary is api's rather than this app's, and a client filter would be a second opinion about a question api's
+ * own architecture test already answers.
  *
- * **The labels are shared with the caseworker's side, the fields are not.** `referralReasonLabel` and
- * `REFERRAL_URGENCY_LABEL` are the business's wording for api's enum members, and a judge reading different
- * words for the reasons a caseworker picked is the drift those maps exist to prevent. That is the opposite of
- * sharing a *record*: `JudicialCaseView` stays its own type all the way to the template.
+ * **The labels and formatting are shared with the caseworker's side, the fields are not.** `referralReasonLabel`,
+ * `REFERRAL_URGENCY_LABEL`, `FIELD_BY_NAME` and `formatValue` are the business's wording and formatting, and a
+ * judge reading different words for the same value is the drift those exist to prevent. That is the opposite of
+ * sharing a *record*: `JudicialApplicationView` stays its own type all the way to the template, and
+ * `APPLICATION_SECTIONS` names its fields rather than borrowing the caseworker form's.
  */
 import {
   type JudicialApplicationView,

@@ -183,6 +183,9 @@ export function buildReferralDetail(referral: Referral): ReferralView {
     canClose: state === "Decided",
     claim: buildClaimView(referral),
     direction: buildDirectionView(referral),
+    // Beside the direction rather than inside it: a withdrawal clears the direction and api keeps the flag, so
+    // a referral back with its judge still owes the caseworker the notice.
+    directionChangedOn: referral.directionChangedAt ? formatTimestamp(referral.directionChangedAt) : null,
     confirmation: buildConfirmationView(referral)
   };
 }
@@ -415,6 +418,8 @@ export interface ReferralView {
   claim: ReferralClaimView | null;
   /** The returned direction, or null on a referral that has none. */
   direction: ReferralDirectionView | null;
+  /** When the judge last changed or withdrew their direction, or null while it stands as first given. */
+  directionChangedOn: string | null;
   /** The applicant's confirmation, or null on a referral never asked for one — see `buildConfirmationView`. */
   confirmation: ReferralConfirmationView | null;
 }

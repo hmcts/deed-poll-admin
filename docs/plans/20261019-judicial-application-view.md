@@ -216,9 +216,25 @@ stale `.claude/worktrees/`, not this change. Record test files and test counts a
   and a browser.)
 
 ### Task 5: Caseworker notice, Welsh, handoff
-- [ ] Decision 8, with view-model and template tests.
-- [ ] `yarn welsh:check`'s count moved by exactly this plan's new keys.
-- [ ] `CLAUDE.md` "Personas and role gating": judges now see the full application and documents (2026-10-19), and
+- [x] Decision 8, with view-model and template tests.
+  (Red first: 3 view tests, then 4 referral page/template and 4 case page/template tests. `directionChangedOn` on
+  `ReferralView`, beside the direction rather than inside it, because a withdrawal clears the direction and api
+  keeps the flag. The referral page resolves `directionChanged` in its handler. The case page resolves
+  `directionChangedNotices`, keyed by referral id, and the panel puts the inset in that row's status cell. Both
+  use a `directionChangedFor` function entry.)
+- [x] `yarn welsh:check`'s count moved by exactly this plan's new keys.
+  (Before the fix: 727 strings, 506 identical. The keys diffed against `f2ab9b2` were 41 added and 5 removed, all
+  this plan's: Task 2's four joined-name labels and Task 4's `irreversible`. Four of the added keys, the judicial
+  document route's `unavailable.*`, had no `cy`. The extractor recognised only a bare `{ ...en }` spread, and that
+  file has only an `unavailableEn`/`unavailableCy` pair. With `<name>Cy = { ...<name>En }` now recognised per
+  prefix, the baseline still reads 691/474 and now reads 727 strings, 510 identical (503 prose, 7 not prose):
+  474 − 5 + 41. The translation-request CSV was not regenerated.)
+- [x] `CLAUDE.md` "Personas and role gating": judges now see the full application and documents (2026-10-19), and
   how change and withdraw work. Update `libs/deed-poll/src/judicial/view.ts`'s header comment, which still
   describes the eight-field view.
-- [ ] Final Validation Commands with counts.
+  (Two new bullets, plus a sentence on the extractor fix in the content-shape bullet. The `judicial/service.ts`
+  header had the same stale `JudicialCaseView` reference and was updated too.)
+- [x] Final Validation Commands with counts.
+  (`yarn lint` clean apart from the schema-version info. Turbo 8/8: 216 files, 4568 tests. App 107/2239, deed-poll
+  66/1204, api-client 11/770, cloud-native-platform 13/157, express-govuk-starter 12/127, simple-router 4/41,
+  express-session-postgres 2/23, express-session-redis 1/7. Against the Task 0 baseline: +3 files, +122 tests.)
