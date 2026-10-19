@@ -560,8 +560,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, 405, { error: `no such route: ${method} ${pathname}` });
     }
 
-    const judicial = /^\/judicial\/referrals\/([^/]+)(?:\/(claim|direction))?$/.exec(pathname);
-    if (judicial) return judicialReferral(req, res, method, decodeURIComponent(judicial[1]), judicial[2]);
+    const judicial = /^\/judicial\/referrals\/([^/]+)(?:\/(claim|direction|direction\/withdraw|documents\/([^/]+)\/file))?$/.exec(pathname);
+    if (judicial) {
+      const documentId = judicial[3] === undefined ? undefined : decodeURIComponent(judicial[3]);
+      return judicialReferral(req, res, method, decodeURIComponent(judicial[1]), documentId === undefined ? judicial[2] : "file", documentId);
+    }
 
     // Before the `{id}` route, exactly as api relies on Spring ordering a literal pattern first: matched
     // the other way round, "field-rules" would be read as a case id and answer 404 for a route that exists.
@@ -902,19 +905,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       const document = record.documents.find((candidate) => candidate.id === id);
       if (!document) return send(res, 404, { error: `Document ${id} not found` });
 
-      res.writeHead(200, {
-        "content-type": document.mimeType,
-        // `inline` for the three types a browser renders natively, `attachment` otherwise — api's
-        // allowlist, mirrored so a caller cannot be written against a disposition the real service
-        // never sends. The two headers below travel with it: an inline PDF's viewer runs embedded
-        // script, and the policy is what makes rendering one in the caller's origin defensible.
-        "content-disposition": `${INLINE_MIME_TYPES.has(document.mimeType) ? "inline" : "attachment"}; filename="${document.originalName.replace(/[^A-Za-z0-9._ -]/g, "")}"`,
-        "content-security-policy": "default-src 'none'; sandbox",
-        "x-content-type-options": "nosniff",
-        "cache-control": "no-store"
-      });
-      res.end(document.bytes);
-      return;
+      return sendDocumentFile(res, document);
     }
 
     return send(res, 404, { error: `no such route: ${method} on documents` });
@@ -1085,6 +1076,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       decisionDate: null,
       decidedBy: null,
       decidedById: null,
+      directionChangedAt: null,
       // All four null on a raise: the wait starts when *Request confirmation to proceed* is sent, which is a
       // later event and another package's write at api's end.
       confirmationRequestedAt: null,
@@ -1358,7 +1350,14 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
    * Reading a referral this judge holds refreshes the claim at api's end; there is no clock here to refresh it
    * against, since the sweep that would read it is not modelled.
    */
-  async function judicialReferral(req: IncomingMessage, res: ServerResponse, method: string, referralId: string, action: string | undefined): Promise<void> {
+  async function judicialReferral(
+    req: IncomingMessage,
+    res: ServerResponse,
+    method: string,
+    referralId: string,
+    action: string | undefined,
+    documentId?: string
+  ): Promise<void> {
     // Two identities from one token, because api keeps two: the subject decides what this caller may see and
     // hold, and the name is what a caseworker reads afterwards. See `callerSubject`.
     const judge = auditName(req);
@@ -1369,6 +1368,15 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     const { record, referral } = located;
 
     if (method === "GET" && action === undefined) return send(res, 200, toWireJudicialDetail(record, referral));
+
+    // Visibility is the referral's, already checked above: a document is readable by exactly the judges who may
+    // read the referral. One 404 for a document not on this application and one with no file, as api answers.
+    if (method === "GET" && action === "file") {
+      const document = record.documents.find((candidate) => candidate.id === documentId && candidate.bytes.length > 0);
+      if (!document) return send(res, 404, { error: `Document ${documentId} not found` });
+
+      return sendDocumentFile(res, document);
+    }
 
     if (method === "POST" && action === "claim") {
       // State after visibility, which is what makes this 409 narrow: the caller has got past `visibleToJudge`, so
@@ -1412,6 +1420,50 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       // Composed after the transition, so the note reads the decision and the Gazette answer as they were
       // stored rather than as they arrived — api composes it from the saved referral for the same reason.
       appendNote(record, referralDirectedNote(referral), judge);
+
+      return send(res, 200, toWireJudicialDetail(record, referral));
+    }
+
+    if ((method === "PUT" && action === "direction") || (method === "POST" && action === "direction/withdraw")) {
+      const parsed = method === "PUT" ? WIRE_SCHEMAS.JudicialDirectionRequest.safeParse(await readJsonBody(req)) : null;
+      if (parsed && !parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+
+      // Visibility already admits a `Decided` referral only to the judge who directed it, so the state is the
+      // whole of the check: a 409 here is the pool or the caller's own undirected claim, never someone else's.
+      if (referral.state !== "Decided") {
+        return send(res, 409, { error: `Referral ${referralId} is ${referral.state} -- only a direction you gave can be changed or withdrawn` });
+      }
+
+      const now = new Date();
+      if (parsed) {
+        // `decidedBy` stays as first signed and `decisionDate` moves to now, as api's `reviseDirection` does.
+        transition(record, referral, judge, {
+          state: "Decided",
+          decision: parsed.data.decision,
+          directionsText: parsed.data.directionsText?.trim() || null,
+          publishToGazette: parsed.data.publishToGazette,
+          decisionDate: now,
+          directionChangedAt: now,
+          modifiedOn: now
+        });
+        appendNote(record, referralDirectionRevisedNote(referral), judge);
+      } else {
+        // Composed before the direction is cleared, because the note says which direction stopped being the answer.
+        const note = referralDirectionWithdrawnNote(referral);
+        // Still held by the same judge: the claim fields are untouched, so the referral is theirs to direct again.
+        transition(record, referral, judge, {
+          state: "Claimed",
+          decision: null,
+          directionsText: null,
+          publishToGazette: null,
+          decisionDate: null,
+          decidedBy: null,
+          decidedById: null,
+          directionChangedAt: now,
+          modifiedOn: now
+        });
+        appendNote(record, note, judge);
+      }
 
       return send(res, 200, toWireJudicialDetail(record, referral));
     }
@@ -2300,6 +2352,22 @@ function toDetail(record: MockCase): unknown {
   };
 }
 
+/** One document's bytes, with the headers api serves both the caseworker and the judicial download with. */
+function sendDocumentFile(res: ServerResponse, document: MockDocument): void {
+  res.writeHead(200, {
+    "content-type": document.mimeType,
+    // `inline` for the three types a browser renders natively, `attachment` otherwise — api's
+    // allowlist, mirrored so a caller cannot be written against a disposition the real service
+    // never sends. The two headers below travel with it: an inline PDF's viewer runs embedded
+    // script, and the policy is what makes rendering one in the caller's origin defensible.
+    "content-disposition": `${INLINE_MIME_TYPES.has(document.mimeType) ? "inline" : "attachment"}; filename="${document.originalName.replace(/[^A-Za-z0-9._ -]/g, "")}"`,
+    "content-security-policy": "default-src 'none'; sandbox",
+    "x-content-type-options": "nosniff",
+    "cache-control": "no-store"
+  });
+  res.end(document.bytes);
+}
+
 function toWireNote(note: MockNote): unknown {
   return isoDates(note);
 }
@@ -2449,6 +2517,29 @@ function referralDirectedNote(referral: MockReferral): string {
     ` Decision: ${referral.decision ?? "not recorded"}.` +
     ` Publish to the London Gazette: ${gazetteAnswer(referral.publishToGazette)}.` +
     " See the referral for the full direction."
+  );
+}
+
+/**
+ * The note for a judge changing the direction they gave. `referralDirectedNote`'s summary with one word changed,
+ * so a caseworker scanning the grid can tell a revision from a first direction.
+ */
+function referralDirectionRevisedNote(referral: MockReferral): string {
+  return (
+    `Judicial direction revised for referral ${identifiesReferral(referral)}.` +
+    ` Decision: ${referral.decision ?? "not recorded"}.` +
+    ` Publish to the London Gazette: ${gazetteAnswer(referral.publishToGazette)}.` +
+    " See the referral for the full direction."
+  );
+}
+
+/** The note for a judge withdrawing their direction to give a new one, composed before the direction is cleared. */
+function referralDirectionWithdrawnNote(referral: MockReferral): string {
+  return (
+    `Judicial direction withdrawn for referral ${identifiesReferral(referral)}.` +
+    ` The withdrawn decision was: ${referral.decision ?? "not recorded"}.` +
+    ` Publish to the London Gazette: ${gazetteAnswer(referral.publishToGazette)}.` +
+    " The referral is back with the judge to direct again."
   );
 }
 
@@ -2981,11 +3072,11 @@ function toWireJudicialSummary(referral: MockReferral): unknown {
 }
 
 /**
- * One referral as the judge who may see it reads it: the referral, the narrow application view and the
- * application's timeline.
+ * One referral as the judge who may see it reads it: the referral, the application with its witnesses and
+ * readable documents, and the application's timeline.
  *
- * `application` is the eight fields of api's `JudicialCaseView` written out, and deliberately not a projection
- * of the case: api's own `NamespaceSeparationSecurityTest` asserts the two records are unrelated, because the
+ * `application` is api's `JudicialApplicationView` written out field by field, and deliberately not a projection
+ * of the case — no payment, refund or fee field, and no case id: api's own `NamespaceSeparationSecurityTest` asserts the two records are unrelated, because the
  * failure it guards against is a field added to the caseworker response silently appearing on a judge's screen.
  * Spreading the case here would be exactly that failure.
  */
@@ -2999,20 +3090,79 @@ function toWireJudicialDetail(record: MockCase, referral: MockReferral): unknown
     publishToGazette: referral.publishToGazette ?? null,
     decisionDate: iso(referral.decisionDate),
     decidedBy: referral.decidedBy ?? null,
-    application: {
-      displayReference: record.displayReference ?? null,
-      type: record.type ?? null,
-      oldForename: record.oldForename ?? null,
-      oldMiddleName: record.oldMiddleName ?? null,
-      oldSurname: record.oldSurname ?? null,
-      newForename: record.newForename ?? null,
-      newMiddleName: record.newMiddleName ?? null,
-      newSurname: record.newSurname ?? null
-    },
+    directionChangedAt: iso(referral.directionChangedAt),
+    application: toWireJudicialApplication(record),
     // The same timeline the caseworker surface publishes, narrowed to the three fields a judge is shown: no
     // id, because no judicial route accepts one, and no amendment audit trail. Newest first, because api builds
     // it from `NoteService.findNotes` — the same read `GET …/notes` uses, not the case detail's association.
     caseNotes: newestFirst(record.notes).map((note) => ({ note: note.note, createdBy: note.createdBy ?? null, createdOn: iso(note.createdOn) }))
+  };
+}
+
+function toWireJudicialApplication(record: MockCase): unknown {
+  return {
+    displayReference: record.displayReference ?? null,
+    type: record.type ?? null,
+    state: record.state,
+    privacy: record.privacy ?? null,
+    urgency: record.urgency ?? null,
+    urgencyreason: record.urgencyreason ?? null,
+    inPerson: record.inPerson ?? null,
+    maritalStatus: record.maritalStatus ?? null,
+    oldForename: record.oldForename ?? null,
+    oldMiddleName: record.oldMiddleName ?? null,
+    oldSurname: record.oldSurname ?? null,
+    newForename: record.newForename ?? null,
+    newMiddleName: record.newMiddleName ?? null,
+    newSurname: record.newSurname ?? null,
+    applicantBuildingNoName: record.applicantBuildingNoName ?? null,
+    applicantEmail: record.applicantEmail ?? null,
+    applicantTelephone: record.applicantTelephone ?? null,
+    applicantTownCity: record.applicantTownCity ?? null,
+    applicantPostcode: record.applicantPostcode ?? null,
+    representativeName: record.representativeName ?? null,
+    representativeBuildingNoName: record.representativeBuildingNoName ?? null,
+    representativeCompany: record.representativeCompany ?? null,
+    representativeEmail: record.representativeEmail ?? null,
+    representativeTelephone: record.representativeTelephone ?? null,
+    representativeTownCity: record.representativeTownCity ?? null,
+    representativePostcode: record.representativePostcode ?? null,
+    ageOfMinor: record.ageOfMinor ?? null,
+    ageOfMinorMonths: record.ageOfMinorMonths ?? null,
+    minorDateOfBirth: iso(record.minorDateOfBirth),
+    parents: record.parents ?? null,
+    nationality: record.nationality ?? null,
+    nationalitySection: record.nationalitySection ?? null,
+    nationalitySectionOther: record.nationalitySectionOther ?? null,
+    dateOfDeclaration: iso(record.dateOfDeclaration),
+    dateOfApplication: iso(record.dateOfApplication),
+    dateReceived: iso(record.dateReceived),
+    awaitingFurtherDocsInfo: iso(record.awaitingFurtherDocsInfo),
+    referToMasterChoice: record.referToMasterChoice ?? null,
+    masterName: record.masterName ?? null,
+    masterDirections: record.masterDirections ?? null,
+    masterDecision: record.masterDecision ?? null,
+    masterDateOfDecision: iso(record.masterDateOfDecision),
+    dateDecisionDirectionsReceived: iso(record.dateDecisionDirectionsReceived),
+    referralNotes: record.referralNotes ?? null,
+    witnesses: record.witnesses.map((witness) => ({
+      witnessName: witness.witnessName ?? null,
+      witnessAddress: witness.witnessAddress ?? null,
+      witnessOccupation: witness.witnessOccupation ?? null,
+      declarant: witness.declarant
+    })),
+    // Only documents with a file, as api lists only readable ones: every row a judge sees can be opened.
+    documents: record.documents
+      .filter((document) => document.bytes.length > 0)
+      .map((document) => ({
+        id: document.id,
+        name: document.name,
+        documentType: document.documentType.name ?? null,
+        direction: document.direction,
+        mimeType: document.mimeType,
+        sizeBytes: document.sizeBytes ?? null,
+        uploadedOn: iso(document.createdOn)
+      }))
   };
 }
 
@@ -3187,11 +3337,13 @@ type CaseState = NonNullable<WireSavedCase["state"]>;
  */
 type MockReferral = Omit<
   WireReferral,
-  "state" | "claimedAt" | "decisionDate" | "confirmationRequestedAt" | "confirmationReceivedAt" | "createdOn" | "modifiedOn"
+  "state" | "claimedAt" | "decisionDate" | "directionChangedAt" | "confirmationRequestedAt" | "confirmationReceivedAt" | "createdOn" | "modifiedOn"
 > & {
   state: ReferralState;
   claimedAt: Date | null;
   decisionDate: Date | null;
+  /** Set by a change or a withdrawal of the direction and never cleared, as api's column is. */
+  directionChangedAt: Date | null;
   /**
    * The wait for the applicant's answer and the moment a caseworker recorded it — `Date | null` for the reason
    * every other stored date here is, and never `undefined`: `refreshAwaitingConfirmation` reads both to decide

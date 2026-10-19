@@ -147,14 +147,22 @@ stale `.claude/worktrees/`, not this change. Record test files and test counts a
   474 still identical in cy (467 prose, 7 not prose).)
 
 ### Task 1: Spec refresh, wire schemas, adapter
-- [ ] Decision 1, in one commit. `contract.test.ts` passes, and `client.test.ts` covers the three new adapter
+- [x] Decision 1, in one commit. `contract.test.ts` passes, and `client.test.ts` covers the three new adapter
   functions against the mock.
-- [ ] Mock (decision 2), with tests:
+  (Parsed delta is exactly the contract table, recorded in `SPEC-PROVENANCE.md`: 55 operations, 39 paths, 58
+  schemas. `JudicialApplicationView` strict on `witnesses`/`documents`, `JudicialWitness` on `declarant` (a
+  `boolean` on api's record, checked at the commit), `JudicialDocument` on `id`. A contract test pins no payment,
+  refund, fee or case-id property on the view. `view.ts` only re-points its import; Task 2 widens it.)
+- [x] Mock (decision 2), with tests:
   - visibility in all five states;
   - change and withdraw refusals (409 and 404);
   - `directionChangedAt` set by both;
   - the document download serving bytes with headers.
-- [ ] Record the api commit from `/tmp/openapi-specs-api.commit` in the commit message.
+  (Revise/withdraw case notes copy api's `ReferralNotes.directionRevised`/`directionWithdrawn` at `93c2dd3`. One
+  `sendDocumentFile` serves both downloads. 12 of the new mock tests were red against the old mock.)
+- [x] Record the api commit from `/tmp/openapi-specs-api.commit` in the commit message.
+  (Validation: `yarn lint` clean apart from the schema-version info. Turbo 8/8: 213 files, 4476 tests; api-client
+  11/770, all others unchanged.)
 
 ### Task 2: The Application section
 - [ ] View model and template tests (red first):

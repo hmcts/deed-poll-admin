@@ -1845,6 +1845,7 @@
     },
     "/judicial/referrals/{referralId}": {
       "get": {
+        "description": "Requires the judicial role. The referral, the whole application (details, witnesses and the documents a download would serve, but no case id and no payment or refund data), and its notes. Recorded as CASE_VIEWED. 404, in the words an unknown id gets, for a referral this judge may not see: one held or directed by another judge, and every referral once it is closed or withdrawn.",
         "operationId": "referral",
         "parameters": [
           {
@@ -1868,6 +1869,7 @@
             "description": "OK"
           }
         },
+        "summary": "Read a referral and the whole application behind it",
         "tags": ["judicial-referral-controller"]
       }
     },
@@ -1901,6 +1903,7 @@
     },
     "/judicial/referrals/{referralId}/direction": {
       "post": {
+        "description": "Requires the judicial role. The referral must be Claimed by this judge, else 409, and becomes Decided. 404 for a referral this judge may not see; 400 for a body the schema refuses, naming each field. Also how a judge directs again after withdrawing their direction.",
         "operationId": "direction",
         "parameters": [
           {
@@ -1934,6 +1937,114 @@
             "description": "OK"
           }
         },
+        "summary": "Record a direction on a referral this judge holds",
+        "tags": ["judicial-referral-controller"]
+      },
+      "put": {
+        "description": "Requires the judicial role. Permitted while the referral is Decided and this judge directed it, which is until the office closes it; a visible referral that is not their direction (the pool, or their own claim) is 409, and a closed one is 404. Takes the direction POST's body and refuses it in the same words (400). Replaces the decision, directionsText and publishToGazette, moves decisionDate to now, keeps decidedBy as first signed, and sets directionChangedAt. The original direction stays on the audit trail; the caseworker is told by a case note and directionChangedAt.",
+        "operationId": "reviseDirection",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JudicialDirectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudicialReferralDetail"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Revise the direction this judge gave",
+        "tags": ["judicial-referral-controller"]
+      }
+    },
+    "/judicial/referrals/{referralId}/direction/withdraw": {
+      "post": {
+        "description": "Requires the judicial role. No body. Permitted while the referral is Decided and this judge directed it; otherwise 409, or 404 once closed. The referral returns to Claimed, held by the same judge, with the decision, directionsText, publishToGazette, decisionDate and decidedBy cleared, and directionChangedAt set. The judge directs again with POST .../direction. A withdrawn direction is a live claim again: if the judge does not direct it within the claim's inactivity window, the inactivity sweep returns it to the shared pool, where any judge may claim it.",
+        "operationId": "withdrawDirection",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudicialReferralDetail"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Withdraw the direction this judge gave, to direct again",
+        "tags": ["judicial-referral-controller"]
+      }
+    },
+    "/judicial/referrals/{referralId}/documents/{documentId}/file": {
+      "get": {
+        "description": "Requires the judicial role. The documentId is one of the referral's application.documents. Any judge may open the documents of an Open referral, the holder those of a Claimed one and the directing judge those of a Decided one. Recorded as DOCUMENT_DOWNLOADED before the file is opened, and refused if that cannot be recorded. Served with the caseworker download's headers: the recorded MIME type, its disposition and Cache-Control: no-store. 404 for a referral this judge may not see, and for a document that is not this referral's case's or has no readable file.",
+        "operationId": "document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Download one of the application's supporting documents",
         "tags": ["judicial-referral-controller"]
       }
     },
@@ -3312,25 +3423,95 @@
           }
         }
       },
-      "JudicialCaseNote": {
+      "JudicialApplicationView": {
         "type": "object",
         "properties": {
-          "createdBy": {
+          "ageOfMinor": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ageOfMinorMonths": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "applicantBuildingNoName": {
             "type": "string"
           },
-          "createdOn": {
+          "applicantEmail": {
+            "type": "string"
+          },
+          "applicantPostcode": {
+            "type": "string"
+          },
+          "applicantTelephone": {
+            "type": "string"
+          },
+          "applicantTownCity": {
+            "type": "string"
+          },
+          "awaitingFurtherDocsInfo": {
             "type": "string",
             "format": "date-time"
           },
-          "note": {
-            "type": "string"
-          }
-        }
-      },
-      "JudicialCaseView": {
-        "type": "object",
-        "properties": {
+          "dateDecisionDirectionsReceived": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dateOfApplication": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dateOfDeclaration": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dateReceived": {
+            "type": "string",
+            "format": "date-time"
+          },
           "displayReference": {
+            "type": "string"
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudicialDocument"
+            }
+          },
+          "inPerson": {
+            "type": "boolean"
+          },
+          "maritalStatus": {
+            "type": "string",
+            "enum": ["Single", "MarriedCivilPartnership", "Widowed", "DivorcedDissolved"]
+          },
+          "masterDateOfDecision": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "masterDecision": {
+            "type": "string",
+            "enum": ["Approved", "Rejected"]
+          },
+          "masterDirections": {
+            "type": "string"
+          },
+          "masterName": {
+            "type": "string"
+          },
+          "minorDateOfBirth": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nationality": {
+            "type": "string",
+            "enum": ["BritishCitizen", "BritishDependantTerritoriesCitizen", "CommonwealthCitizen", "Unknown"]
+          },
+          "nationalitySection": {
+            "type": "string",
+            "enum": ["Section1", "Section11", "Section37", "Section6", "Unknown", "NoneOfTheAbove"]
+          },
+          "nationalitySectionOther": {
             "type": "string"
           },
           "newForename": {
@@ -3351,15 +3532,82 @@
           "oldSurname": {
             "type": "string"
           },
+          "parents": {
+            "type": "string"
+          },
+          "privacy": {
+            "type": "string",
+            "enum": ["Normal", "Private"]
+          },
+          "referToMasterChoice": {
+            "type": "string",
+            "enum": ["Yes", "No"]
+          },
+          "referralNotes": {
+            "type": "string"
+          },
+          "representativeBuildingNoName": {
+            "type": "string"
+          },
+          "representativeCompany": {
+            "type": "string"
+          },
+          "representativeEmail": {
+            "type": "string"
+          },
+          "representativeName": {
+            "type": "string"
+          },
+          "representativePostcode": {
+            "type": "string"
+          },
+          "representativeTelephone": {
+            "type": "string"
+          },
+          "representativeTownCity": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["Received", "ReadyForMaster", "ReferredToMaster", "Enroled", "Returned", "AwaitingFurtherDocs", "AwaitingSignature", "AwaitingEnrolment"]
+          },
           "type": {
             "type": "string",
             "enum": ["Adult", "AdultTransgender", "Minor", "MinorTransgender", "DeedOfRelinquishment", "Unknown"]
+          },
+          "urgency": {
+            "type": "string",
+            "enum": ["Normal", "Urgent"]
+          },
+          "urgencyreason": {
+            "type": "string"
+          },
+          "witnesses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudicialWitness"
+            }
+          }
+        }
+      },
+      "JudicialCaseNote": {
+        "type": "object",
+        "properties": {
+          "createdBy": {
+            "type": "string"
+          },
+          "createdOn": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "note": {
+            "type": "string"
           }
         }
       },
       "JudicialDirectionRequest": {
         "additionalProperties": true,
-        "description": "The holding judge's direction on a referral, recorded once and complete -- there is no draft and no patch, because the check-your-answers page and the attestation are the admin's. Permitted only on a referral this caller currently holds, so a referral withdrawn under them or taken back by the inactivity sweep is a 409 rather than a late direction on a referral that moved on. The referral comes from the path and the case is resolved from it -- a judicial URL carries no case id -- and the state, decidedBy and decisionDate come from the transition, the token and the clock, so all of them are ignored rather than refused, as any unknown key is.",
+        "description": "A judge's direction on a referral, always complete -- there is no draft and no patch, because the check-your-answers page and the attestation are the admin's. POST records it on a referral this caller currently holds, so a referral withdrawn under them or taken back by the inactivity sweep is a 409 rather than a late direction on a referral that moved on. PUT replaces the whole of a direction this caller gave, while the referral is Decided and not yet closed, and is validated identically. The referral comes from the path and the case is resolved from it -- a judicial URL carries no case id -- and the state, decidedBy and decisionDate come from the transition, the token and the clock, so all of them are ignored rather than refused, as any unknown key is.",
         "properties": {
           "decision": {
             "type": "string",
@@ -3377,6 +3625,35 @@
           }
         },
         "required": ["decision", "publishToGazette"]
+      },
+      "JudicialDocument": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": ["Incoming", "Outgoing"]
+          },
+          "documentType": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "uploadedOn": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       },
       "JudicialMyReferralsResponse": {
         "type": "object",
@@ -3436,7 +3713,8 @@
         "type": "object",
         "properties": {
           "application": {
-            "$ref": "#/components/schemas/JudicialCaseView"
+            "$ref": "#/components/schemas/JudicialApplicationView",
+            "description": "The application behind the referral, resolved from it: its details, witnesses and readable documents. Never a case id, and no payment or refund data."
           },
           "caseNotes": {
             "type": "array",
@@ -3465,6 +3743,11 @@
           "decisionDate": {
             "type": "string",
             "format": "date-time"
+          },
+          "directionChangedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the judge last revised or withdrew their direction, or null if it stands as first given. Set by both and never cleared: a fact about the referral's history, and the earlier direction is on the audit trail."
           },
           "directionsText": {
             "type": "string"
@@ -3525,6 +3808,23 @@
             "enum": ["Normal", "Urgent"]
           },
           "urgencyReason": {
+            "type": "string"
+          }
+        }
+      },
+      "JudicialWitness": {
+        "type": "object",
+        "properties": {
+          "declarant": {
+            "type": "boolean"
+          },
+          "witnessAddress": {
+            "type": "string"
+          },
+          "witnessName": {
+            "type": "string"
+          },
+          "witnessOccupation": {
             "type": "string"
           }
         }
@@ -3651,6 +3951,11 @@
           "decisionDate": {
             "type": "string",
             "format": "date-time"
+          },
+          "directionChangedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the judge last revised or withdrew their direction, or null if it stands as first given. Set by both and never cleared: a fact about the referral's history, and the earlier direction is on the audit trail."
           },
           "directionsText": {
             "type": "string"

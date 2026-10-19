@@ -20,8 +20,8 @@
  * sharing a *record*: `JudicialCaseView` stays its own type all the way to the template.
  */
 import {
+  type JudicialApplicationView,
   type JudicialCaseNote,
-  type JudicialCaseView,
   type JudicialReferralDetail,
   type JudicialReferralSummary,
   MASTER_DECISION
@@ -182,7 +182,7 @@ export function buildJudicialReferral(detail: JudicialReferralDetail): JudicialR
  * whole name, and "John Peter Smith" beside "John Peter Smyth" hides the only part that moved if the middle
  * name is dropped from either.
  */
-function buildApplicationView(application: JudicialCaseView | null | undefined): ApplicationView | null {
+function buildApplicationView(application: JudicialApplicationView | null | undefined): ApplicationView | null {
   if (application === null || application === undefined) return null;
 
   return {

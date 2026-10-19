@@ -26,6 +26,7 @@ import {
   deselectSavedQuery,
   directJudicialReferral,
   downloadDocument,
+  downloadJudicialDocument,
   getCase,
   getCaseEmails,
   getFieldRules,
@@ -50,10 +51,12 @@ import {
   previewGazetteNotice,
   type ReferralCreate,
   recordConfirmation,
+  reviseDirection,
   selectSavedQuery,
   sendEmail,
   updateWitness,
   uploadDocument,
+  withdrawDirection,
   withdrawReferral
 } from "./client.js";
 
@@ -1632,6 +1635,112 @@ describe("the judicial surface", () => {
     expect(result.error.status).toBe(503);
   });
 
+  it("should replace the direction this judge gave and say when it changed", async () => {
+    const referralId = await decidedBy(JUDGE);
+
+    const result = await reviseDirection(referralId, { decision: "Rejected", publishToGazette: false, directionsText: "On reflection, no" }, judge(JUDGE));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toMatchObject({
+      state: "Decided",
+      decision: "Rejected",
+      publishToGazette: false,
+      directionsText: "On reflection, no",
+      decidedBy: JUDGE
+    });
+    expect(result.data.directionChangedAt).toBeInstanceOf(Date);
+  });
+
+  it("should report conflict for changing a direction on a referral this judge holds but has not directed", async () => {
+    const referralId = await referralOn(await caseId());
+    await claimJudicialReferral(referralId, judge(JUDGE));
+
+    const result = await reviseDirection(referralId, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("conflict");
+  });
+
+  it("should report not-found for changing another judge's direction, not conflict", async () => {
+    const referralId = await decidedBy(ANOTHER_JUDGE);
+
+    const result = await reviseDirection(referralId, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("not-found");
+  });
+
+  it("should withdraw a direction back to this judge's claim, with the direction cleared", async () => {
+    const referralId = await decidedBy(JUDGE);
+
+    const result = await withdrawDirection(referralId, judge(JUDGE));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toMatchObject({ state: "Claimed", claimedBy: JUDGE, decision: null, directionsText: null, decidedBy: null });
+    expect(result.data.directionChangedAt).toBeInstanceOf(Date);
+  });
+
+  it("should report conflict for withdrawing a direction nobody has given, and not-found once the office closes it", async () => {
+    const open = await referralOn(await caseId());
+    const closedCase = await caseId();
+    const closed = await referralOn(closedCase);
+    await claimJudicialReferral(closed, judge(JUDGE));
+    await directJudicialReferral(closed, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+    await closeReferral(closedCase, closed, config);
+
+    const refusedOpen = await withdrawDirection(open, judge(JUDGE));
+    const refusedClosed = await withdrawDirection(closed, judge(JUDGE));
+
+    expect(!refusedOpen.ok && refusedOpen.error.kind).toBe("conflict");
+    expect(!refusedClosed.ok && refusedClosed.error.kind).toBe("not-found");
+  });
+
+  it("should list the application's witnesses and documents, and stream a document with api's headers", async () => {
+    const id = await caseId();
+    const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x00, 0xff]);
+    const uploaded = await uploadDocument(id, { documentTypeId: DOCUMENT_TYPE_ID, name: "birth.pdf", mimeType: "application/pdf", bytes }, config);
+    if (!uploaded.ok) throw new Error("document was not uploaded");
+    const referralId = await referralOn(id);
+
+    const detail = await getJudicialReferral(referralId, judge(JUDGE));
+    const result = await downloadJudicialDocument(referralId, uploaded.data.id, judge(JUDGE));
+
+    expect(detail.ok && detail.data.application?.documents.map((document) => [document.id, document.documentType, document.sizeBytes])).toEqual([
+      [uploaded.data.id, "Birth certificate", bytes.length]
+    ]);
+    expect(detail.ok && detail.data.application?.documents[0]?.uploadedOn).toBeInstanceOf(Date);
+    expect(detail.ok && detail.data.application?.witnesses).toEqual([]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.contentType).toBe("application/pdf");
+    expect(result.data.contentDisposition).toMatch(/^inline;.*birth\.pdf/);
+    expect(result.data.contentSecurityPolicy).toBe("default-src 'none'; sandbox");
+    expect(result.data.contentTypeOptions).toBe("nosniff");
+    expect(new Uint8Array(await new Response(result.data.body).arrayBuffer())).toEqual(bytes);
+  });
+
+  it("should report not-found for a document behind a referral this judge may not see", async () => {
+    const id = await caseId();
+    const uploaded = await uploadDocument(
+      id,
+      { documentTypeId: DOCUMENT_TYPE_ID, name: "birth.pdf", mimeType: "application/pdf", bytes: new Uint8Array([1]) },
+      config
+    );
+    if (!uploaded.ok) throw new Error("document was not uploaded");
+    const referralId = await referralOn(id);
+    await claimJudicialReferral(referralId, judge(ANOTHER_JUDGE));
+
+    const result = await downloadJudicialDocument(referralId, uploaded.data.id, judge(JUDGE));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("not-found");
+  });
+
   it("should parse the rows into the same summary the pool publishes, dates included", async () => {
     const referralId = await referralOn(await caseId(), { reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Risk to the applicant" });
     await claimJudicialReferral(referralId, judge(JUDGE));
@@ -1649,6 +1758,15 @@ describe("the judicial surface", () => {
     expect(row).not.toHaveProperty("claimedBy");
   });
 });
+
+/** A referral on a fresh case, claimed and directed by `judgeName` — the only state a direction can change from. */
+async function decidedBy(judgeName: string): Promise<string> {
+  const referralId = await referralOn(await caseId());
+  await claimJudicialReferral(referralId, judge(judgeName));
+  await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judge(judgeName));
+
+  return referralId;
+}
 
 describe("checkApiReachable", () => {
   it("should succeed while api answers", async () => {

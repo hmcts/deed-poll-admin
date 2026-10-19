@@ -8,7 +8,8 @@
  */
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { MOCK_EMAIL_HISTORY } from "./fixtures.js";
+import { WIRE_SCHEMAS } from "../api/wire.js";
+import { MOCK_DOCUMENT_TYPES, MOCK_EMAIL_HISTORY } from "./fixtures.js";
 import { type MockCase, type RunningMockApi, startMockApi } from "./server.js";
 
 /** `server.ts`'s `MOCK_USER_NAME` — who a write with no token forwarded is attributed to. */
@@ -1459,17 +1460,29 @@ describe("the judicial referral routes", () => {
     }
   });
 
-  it("should answer a referral with the narrow application view and the timeline, and no other case field", async () => {
-    const seeded = mock.seed({ displayReference: "KBDP2026-00001", type: "Adult", newForename: "Jo", newSurname: "Bloggs", privacy: "Sensitive" });
+  it("should answer a referral with the application view and the timeline, and no payment, refund or fee field", async () => {
+    const seeded = mock.seed({
+      displayReference: "KBDP2026-00001",
+      type: "Adult",
+      newForename: "Jo",
+      newSurname: "Bloggs",
+      privacy: "Private",
+      applicantEmail: "jo@example.com",
+      feeReference: "FEE-1",
+      refundAmount: 42,
+      refundReference: "REF-1",
+      onlineApplicationReference: "ONLINE-1"
+    });
     await post(`/caseworker/cases/${seeded.id}/notes`, { note: "Chased the declarant" });
     const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor"] })).json();
 
     const detail = await (await fetch(`${mock.url}/judicial/referrals/${created.id}`, { headers: as("judge@example.com") })).json();
 
-    expect(Object.keys(detail.application).sort()).toEqual(
-      ["displayReference", "newForename", "newMiddleName", "newSurname", "oldForename", "oldMiddleName", "oldSurname", "type"].sort()
-    );
-    expect(detail.application).toMatchObject({ displayReference: "KBDP2026-00001", newForename: "Jo" });
+    // Exactly api's `JudicialApplicationView`, so the wire schema parses it and nothing else rides along.
+    expect(Object.keys(detail.application).sort()).toEqual(Object.keys(WIRE_SCHEMAS.JudicialApplicationView.shape).sort());
+    expect(detail.application).toMatchObject({ displayReference: "KBDP2026-00001", newForename: "Jo", privacy: "Private", applicantEmail: "jo@example.com" });
+    expect(WIRE_SCHEMAS.JudicialReferralDetail.safeParse(detail).success).toBe(true);
+    for (const leaked of ["FEE-1", "REF-1", "ONLINE-1"]) expect(JSON.stringify(detail)).not.toContain(leaked);
     // Newest first, so the note the raise wrote leads and the caseworker's own follows — the timeline reaches a
     // judge unfiltered, which is asserted properly in "the case notes a referral writes as it moves".
     expect(detail.caseNotes).toEqual([
@@ -1598,6 +1611,163 @@ describe("the judicial referral routes", () => {
  * membership** rather than one referral's answer: every assertion here is about which rows are on the list and in
  * what order, and both are things a page is forbidden to compensate for.
  */
+describe("changing and withdrawing a direction", () => {
+  it.each([
+    ["changing", "PUT", "direction"],
+    ["withdrawing", "POST", "direction/withdraw"]
+  ])("should refuse %s a direction on a referral the judge can see but did not direct with 409", async (_, method, action) => {
+    const open = await referredCase();
+    const claimed = await claimedReferral(JUDGE);
+
+    for (const { referralId } of [open, claimed]) {
+      const response = await change(method, `/judicial/referrals/${referralId}/${action}`, JUDGE);
+
+      expect(response.status, referralId).toBe(409);
+    }
+  });
+
+  it.each([
+    ["changing", "PUT", "direction"],
+    ["withdrawing", "POST", "direction/withdraw"]
+  ])("should answer 404 for %s another judge's direction, or one the office has closed", async (_, method, action) => {
+    const theirs = await decidedReferral("another@example.com");
+    const closed = await decidedReferral(JUDGE);
+    await post(`/caseworker/cases/${closed.caseId}/referrals/${closed.referralId}/closure`);
+
+    for (const { referralId } of [theirs, closed]) {
+      const response = await change(method, `/judicial/referrals/${referralId}/${action}`, JUDGE);
+
+      expect(response.status, referralId).toBe(404);
+    }
+  });
+
+  it("should replace the direction, keep the first signer and set directionChangedAt on both surfaces", async () => {
+    const { caseId, referralId } = await decidedReferral(JUDGE);
+
+    const response = await change("PUT", `/judicial/referrals/${referralId}/direction`, JUDGE, {
+      decision: "Rejected",
+      publishToGazette: false,
+      directionsText: "  On reflection, no  "
+    });
+
+    expect(response.status).toBe(200);
+    const detail = await response.json();
+    expect(detail).toMatchObject({ state: "Decided", decision: "Rejected", publishToGazette: false, directionsText: "On reflection, no", decidedBy: JUDGE });
+    expect(detail.directionChangedAt).toEqual(expect.any(String));
+    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).directionChangedAt).toBe(detail.directionChangedAt);
+    expect((await notesOn(caseId))[0].note).toMatch(/^Judicial direction revised for referral .*\. Decision: Rejected\. Publish to the London Gazette: No\./);
+  });
+
+  it("should refuse a change the wire schema rejects, as the first direction is refused", async () => {
+    const { referralId } = await decidedReferral(JUDGE);
+
+    const response = await change("PUT", `/judicial/referrals/${referralId}/direction`, JUDGE, { decision: "Approved" });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].field).toBe("publishToGazette");
+  });
+
+  it("should withdraw a direction back to the same judge's claim, cleared, so they can direct again", async () => {
+    const { caseId, referralId } = await decidedReferral(JUDGE);
+
+    const withdrawn = await change("POST", `/judicial/referrals/${referralId}/direction/withdraw`, JUDGE);
+
+    expect(withdrawn.status).toBe(200);
+    const detail = await withdrawn.json();
+    expect(detail).toMatchObject({
+      state: "Claimed",
+      claimedBy: JUDGE,
+      decision: null,
+      directionsText: null,
+      publishToGazette: null,
+      decisionDate: null,
+      decidedBy: null
+    });
+    expect(detail.directionChangedAt).toEqual(expect.any(String));
+    // Composed before the clear, so it names the direction that stopped being the answer.
+    expect((await notesOn(caseId))[0].note).toMatch(/^Judicial direction withdrawn for referral .*\. The withdrawn decision was: Approved\./);
+    expect(await currentReferralState(caseId)).toBe("Claimed");
+
+    const again = await post(`/judicial/referrals/${referralId}/direction`, { decision: "Rejected", publishToGazette: false }, as(JUDGE));
+
+    expect(again.status).toBe(200);
+    // Never cleared by directing again: it is a fact about the referral's history.
+    expect((await again.json()).directionChangedAt).toBe(detail.directionChangedAt);
+  });
+
+  it("should leave directionChangedAt null on a direction that stands as first given", async () => {
+    const { caseId, referralId } = await decidedReferral(JUDGE);
+
+    expect((await get(`/judicial/referrals/${referralId}`, as(JUDGE))).directionChangedAt).toBeNull();
+    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).directionChangedAt).toBeNull();
+  });
+});
+
+describe("a judge's view of the application's witnesses and documents", () => {
+  it("should list the witnesses without ids, and only the documents that have a file", async () => {
+    const { referralId, readable } = judicialCaseWithDocuments();
+
+    const application = (await get(`/judicial/referrals/${referralId}`, as(JUDGE))).application;
+
+    expect(application.witnesses).toEqual([{ witnessName: "A Witness", witnessAddress: "1 Road", witnessOccupation: "Baker", declarant: true }]);
+    expect(application.documents).toEqual([
+      {
+        id: readable,
+        name: "Birth certificate",
+        documentType: MOCK_DOCUMENT_TYPES[0].name,
+        direction: "Incoming",
+        mimeType: "application/pdf",
+        sizeBytes: 4,
+        uploadedOn: expect.any(String)
+      }
+    ]);
+  });
+
+  it("should serve a document's bytes with the caseworker download's headers", async () => {
+    const { referralId, readable } = judicialCaseWithDocuments();
+
+    const response = await fetch(`${mock.url}/judicial/referrals/${referralId}/documents/${readable}/file`, { headers: as(JUDGE) });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(response.headers.get("content-disposition")).toBe('inline; filename="birth.pdf"');
+    expect(response.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(Buffer.from(await response.arrayBuffer()).toString("utf8")).toBe("%PDF");
+  });
+
+  it("should answer 404 for a document with no file, one on another case, and one behind an invisible referral", async () => {
+    const { referralId, unreadable } = judicialCaseWithDocuments();
+    const other = judicialCaseWithDocuments();
+    const theirs = judicialCaseWithDocuments({ state: "Claimed", claimedBy: "another@example.com", claimedById: "another@example.com" });
+
+    for (const path of [
+      `/judicial/referrals/${referralId}/documents/${unreadable}/file`,
+      `/judicial/referrals/${referralId}/documents/${other.readable}/file`,
+      `/judicial/referrals/${theirs.referralId}/documents/${theirs.readable}/file`
+    ]) {
+      expect((await fetch(`${mock.url}${path}`, { headers: as(JUDGE) })).status, path).toBe(404);
+    }
+  });
+
+  it.each([
+    ["Open", {}, 200],
+    ["Claimed by this judge", { state: "Claimed", claimedById: JUDGE }, 200],
+    ["Decided by this judge", { state: "Decided", decidedById: JUDGE }, 200],
+    ["Closed", { state: "Closed", decidedById: JUDGE }, 404],
+    ["Withdrawn", { state: "Withdrawn", claimedById: JUDGE }, 404]
+  ] as const)("should let a judge open the documents of a referral that is %s only as api's visibility allows", async (_, overrides, status) => {
+    const { referralId, readable } = judicialCaseWithDocuments(overrides);
+
+    const read = await fetch(`${mock.url}/judicial/referrals/${referralId}`, { headers: as(JUDGE) });
+    const file = await fetch(`${mock.url}/judicial/referrals/${referralId}/documents/${readable}/file`, { headers: as(JUDGE) });
+
+    expect(read.status).toBe(status);
+    expect(file.status).toBe(status);
+  });
+});
+
 describe("a judge's own referrals", () => {
   it("should list the referrals this judge holds and has directed, and nothing else", async () => {
     const claimed = await claimedReferral(JUDGE);
@@ -2389,6 +2559,44 @@ async function decidedReferral(judge: string): Promise<{ caseId: string; referra
   return claimed;
 }
 
+/** A judicial write by `judge`, with a JSON body only when there is one — withdraw takes none. */
+function change(method: string, path: string, judge: string, body: unknown = { decision: "Rejected", publishToGazette: false }): Promise<Response> {
+  return fetch(`${mock.url}${path}`, {
+    method,
+    headers: { "content-type": "application/json", ...as(judge) },
+    body: method === "PUT" ? JSON.stringify(body) : undefined
+  });
+}
+
+/**
+ * A seeded case with one referral, one witness, a document with a file and one without — the last being a row api
+ * keeps but never lists to a judge.
+ */
+function judicialCaseWithDocuments(overrides: Partial<MockCase["referrals"][number]> = {}): { referralId: string; readable: string; unreadable: string } {
+  const held = referral(overrides);
+  const document = (id: string, bytes: string) => ({
+    id,
+    name: "Birth certificate",
+    originalName: "birth.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: bytes.length,
+    documentType: MOCK_DOCUMENT_TYPES[0],
+    direction: "Incoming" as const,
+    bytes: Buffer.from(bytes, "utf8"),
+    createdOn: new Date("2026-03-01T09:00:00"),
+    modifiedOn: new Date("2026-03-01T09:00:00")
+  });
+  const readable = randomUUID();
+  const unreadable = randomUUID();
+  mock.seed({
+    referrals: [held],
+    witnesses: [{ id: randomUUID(), witnessName: "A Witness", witnessAddress: "1 Road", witnessOccupation: "Baker", declarant: true }],
+    documents: [document(readable, "%PDF"), document(unreadable, "")]
+  });
+
+  return { referralId: held.id, readable, unreadable };
+}
+
 async function currentReferralState(caseId: string): Promise<string | null> {
   return (await get(`/caseworker/cases/${caseId}`)).currentReferralState;
 }
@@ -2479,6 +2687,7 @@ function referral(overrides: Partial<MockCase["referrals"][number]> = {}): MockC
     decisionDate: null,
     decidedBy: null,
     decidedById: null,
+    directionChangedAt: null,
     confirmationRequestedAt: null,
     confirmationOutcome: null,
     confirmationReceivedAt: null,
