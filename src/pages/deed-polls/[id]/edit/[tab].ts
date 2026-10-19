@@ -37,6 +37,7 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../../../auth/current-user.js";
+import { casePath } from "../../../../case-path.js";
 import { forLog } from "../../../../for-log.js";
 
 const en = {
@@ -68,7 +69,7 @@ export const GET = async (req: Request, res: Response) => {
   // are read-only history on the Referrals panel now, so the bookmark is sent to where they are rather than
   // 404'd: the record it pointed at still exists, only the form for editing it does not.
   if (req.params.tab === LEGACY_REFERRAL_TAB.id) {
-    return res.redirect(`/deed-polls/${req.params.id}#referrals`);
+    return res.redirect(`${casePath(req.params.id)}#referrals`);
   }
 
   const found = await findDeedPoll(req.params.id, callerFromRequest(req));
@@ -94,6 +95,8 @@ export const POST = async (req: Request, res: Response) => {
   if (!tab) {
     throw new NotFoundError(`Unknown tab ${req.params.tab}`);
   }
+  // Before the write, so an id that cannot be redirected to is refused rather than saved and then refused.
+  const caseHref = casePath(req.params.id);
 
   const fields = tab.sections.flatMap((section) => section.fields);
 
@@ -125,7 +128,7 @@ export const POST = async (req: Request, res: Response) => {
   }
 
   // Back to the read-only detail, anchored at the tab just saved.
-  res.redirect(`/deed-polls/${req.params.id}#${tab.id}`);
+  res.redirect(`${caseHref}#${tab.id}`);
 };
 
 /**

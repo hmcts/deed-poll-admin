@@ -386,4 +386,92 @@ describe("record the applicant's response", () => {
       await expect(POST(request({ outcome: "Confirmed" }), response())).rejects.toThrow(NotFoundError);
     });
   });
+
+  // `../../../../../case-path.test.ts` holds the full payload matrix; this pins every branch that redirects, including
+  // the guard a re-render reaches when the fresh referral no longer needs an answer — the path Fortify reported.
+  describe("a case id carrying URL delimiters", () => {
+    const RAW = { id: "a/b?c#d", referralId: "ref/1" };
+    const ENCODED_PATH = "/deed-polls/a%2Fb%3Fc%23d/referrals/ref%2F1";
+
+    function delimited(body: Record<string, unknown> = {}, params: Record<string, string> = RAW) {
+      return pageRequest({ params, body, accessToken: "session-token" });
+    }
+
+    it("should offer encoded hrefs on the form, encoding the referral id exactly once", async () => {
+      const res = response();
+
+      await GET(delimited(), res);
+
+      expect(res.render.mock.calls[0][1].confirmationHref).toBe(`${ENCODED_PATH}/confirmation`);
+      expect(res.render.mock.calls[0][1].referralHref).toBe(ENCODED_PATH);
+    });
+
+    it("should keep the id as one segment when the form's guard sends the caseworker back", async () => {
+      vi.mocked(findReferral).mockResolvedValue(RECORDED as never);
+      const res = response();
+
+      await GET(delimited(), res);
+
+      expect(findReferral).toHaveBeenCalledWith(RAW.id, RAW.referralId, CALLER);
+      expect(res.redirect).toHaveBeenCalledWith(ENCODED_PATH);
+    });
+
+    it("should record under the raw ids and redirect to the encoded referral", async () => {
+      const res = response();
+
+      await POST(delimited({ outcome: "Confirmed" }), res);
+
+      expect(recordConfirmation).toHaveBeenCalledWith(RAW.id, RAW.referralId, { outcome: "Confirmed" }, CALLER);
+      expect(res.redirect).toHaveBeenCalledWith(`${ENCODED_PATH}?confirmation=recorded`);
+    });
+
+    it("should redirect a conflict to the encoded referral", async () => {
+      vi.mocked(recordConfirmation).mockRejectedValue(new ConflictError("already has a confirmation outcome"));
+      const res = response();
+
+      await POST(delimited({ outcome: "Confirmed" }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith(`${ENCODED_PATH}?confirmation=conflict`);
+    });
+
+    it("should keep the id as one segment when an invalid body's re-render finds the referral answered", async () => {
+      vi.mocked(findReferral).mockResolvedValue(RECORDED as never);
+      const res = response();
+
+      await POST(delimited({}), res);
+
+      expect(recordConfirmation).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith(ENCODED_PATH);
+      expect(res.render).not.toHaveBeenCalled();
+    });
+
+    it("should keep the id as one segment when api's rejection's re-render finds the referral answered", async () => {
+      vi.mocked(recordConfirmation).mockRejectedValue(new InvalidInputError("Validation failed", [{ field: "note", message: "The note is too long" }]));
+      vi.mocked(findReferral).mockResolvedValue(RECORDED as never);
+      const res = response();
+
+      await POST(delimited({ outcome: "Confirmed" }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith(ENCODED_PATH);
+      expect(res.render).not.toHaveBeenCalled();
+    });
+
+    it.each(["", ".", ".."])("should 404 the form under case %j without reading or redirecting", async (id) => {
+      const res = response();
+
+      await expect(GET(delimited({}, { id, referralId: "ref-1" }), res)).rejects.toThrow(NotFoundError);
+
+      expect(findReferral).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+
+    it.each(["", ".", ".."])("should 404 a recording under case %j before anything is written", async (id) => {
+      const res = response();
+
+      await expect(POST(delimited({ outcome: "Confirmed" }, { id, referralId: "ref-1" }), res)).rejects.toThrow(NotFoundError);
+
+      expect(recordConfirmation).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+  });
 });

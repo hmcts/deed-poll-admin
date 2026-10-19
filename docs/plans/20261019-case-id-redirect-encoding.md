@@ -113,17 +113,17 @@ shell-quote paths containing `[id]`, `[tab]` or `[referralId]`. The full command
 `src/pages/deed-polls/[id]/referrals/[referralId]/confirmation.ts`, and their colocated `.test.ts` files.
 Read `src/errors.ts` and `src/express-doubles.ts` for existing conventions.
 
-- [ ] Recheck the initial redirect inventory using `rg -n 'redirect\(' src` and trace helper-produced destinations;
+- [x] Recheck the initial redirect inventory using `rg -n 'redirect\(' src` and trace helper-produced destinations;
       record any additional case-ID redirect call sites in this plan's execution notes.
-- [ ] Write failing tests for the path contract, then implement `casePath` using decisions 1–4. Assert literal
+- [x] Write failing tests for the path contract, then implement `casePath` using decisions 1–4. Assert literal
       expected strings, not an expectation calculated using the same encoder as the implementation.
-- [ ] Cover ordinary/UUID IDs, slash, backslash, `?`, `#`, `%`, spaces, Unicode, CR/LF, absolute/protocol-relative
+- [x] Cover ordinary/UUID IDs, slash, backslash, `?`, `#`, `%`, spaces, Unicode, CR/LF, absolute/protocol-relative
       URL text, traversal containing slashes, and literal `%2F`/`%2e%2e`. Reject empty/dot-only IDs. For accepted
       IDs assert the resulting URL has the expected origin, no query or fragment, and one encoded ID segment.
-- [ ] Adopt the helper in both routes, constructing the case base before request-driven mutations. Keep
+- [x] Adopt the helper in both routes, constructing the case base before request-driven mutations. Keep
       domain calls supplied with the original ID. Test the edit POST and legacy GET redirect, confirmation
       success/conflict, GET guard, invalid-body re-render guard, and API-validation-error re-render guard.
-- [ ] Assert an invalid case ID produces no write and no redirect. Preserve unknown-tab rejection and existing
+- [x] Assert an invalid case ID produces no write and no redirect. Preserve unknown-tab rejection and existing
       normal-ID expectations. Run focused tests and all Validation Commands; record results.
 
 ### Task 2: Remaining referral actions
@@ -209,6 +209,31 @@ files in Context can inform the test but must not be imported or required by com
 Planning only, 2026-10-19. No implementation, new test execution or Ralphex run has been performed for this plan.
 The existing browser evidence described in Context predates the proposed change. The executing agent should
 append baseline, per-task validation and final review results here.
+
+Review base (starting commit): `0dd4b98b4e79a936e534eab671a118523db2d1dc` on branch `case-id-redirect-encoding`.
+
+Baseline, before any change (Redis on 6379 reachable): `yarn lint` clean apart from Biome's pre-existing
+"run biome migrate" info; `yarn build` passed; `yarn turbo test test:app --concurrency=1 --force` passed — app
+100 files / 1897 tests, `src/session-store.test.ts` ran 7 tests; libraries deed-poll 1183, deed-poll-api-client
+718, cloud-native-platform 157, express-govuk-starter 127, simple-router 41, express-session-postgres 23,
+express-session-redis 7. No baseline failures or skips.
+
+Task 1 inventory recheck (`rg -n 'redirect\(' src`, then helper tracing). The table in Context is complete for
+redirects. Additional case-ID **link** constructions found, none of them redirect destinations:
+- `[id]/referrals/new.ts` `openReferralHref` builds `/deed-polls/${id}#referrals` and
+  `/deed-polls/${id}/referrals/${live.id}` (live referral id unencoded) for the 409 re-render's link — a shared
+  helper consumer in a Task 2 file; adopt `casePath` there with the redirect.
+- `[id]/referrals/[referralId].ts` `referralHref` builds the referral page's own links; it is not a redirect.
+- `[id].ts` builds the email-banner link `/deed-polls/${id}/emails/…`; a rendered link, out of scope (decision 6).
+Judicial, Gazette, saved-query, login/logout and session redirects use no case id or already encode theirs.
+
+Task 1 result: added `src/case-path.ts` (`casePath`, refusing `""`, `.`, `..` with a fixed-message
+`NotFoundError`) and adopted it in `[id]/edit/[tab].ts` (legacy GET, POST computed before `updateDeedPoll`) and
+`[id]/referrals/[referralId]/confirmation.ts` (`referralHref` now built on `casePath`; POST computes it before
+`recordConfirmation`, `awaiting` before its reads, so the line-136 guard reached through `rerender` uses it).
+Red: the helper suite failed to load without the module; all 20 new route tests failed against the raw
+interpolation. Green: focused run 3 files / 114 tests. Full validation: lint clean (same info), build passed,
+app 101 files / 1948 tests, session-store 7 tests ran, libraries unchanged and passing, no skips.
 
 ## Post-Completion
 
