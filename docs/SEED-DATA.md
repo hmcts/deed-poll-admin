@@ -22,9 +22,9 @@ yarn seed:cases --environment demo \
   --batch manual-testing-01 --apply
 ```
 
-For a local Java API, use `--environment local --api-url http://127.0.0.1:4550` and tokens from its configured IDAM simulator. The in-memory mock can also be targeted on port 3200, using its test credentials. Alternatively, the `--create-test-users` option below provisions and authenticates two temporary IDAM fixtures.
+For a local Java API, prefix the command with `NODE_ENV=development` and use `--environment local --api-url http://127.0.0.1:4550` and tokens from its configured IDAM simulator. The in-memory mock can also be targeted on port 3200, using its test credentials. Alternatively, the `--create-test-users` option below provisions and authenticates two temporary IDAM fixtures.
 
-Use the environment that **owns the API's data**. A preview admin configured to call AAT's API still writes AAT data: select `--environment aat`, not preview. HTTPS is required for remote public hosts; HTTP is permitted for loopback and internal service hostnames.
+Use the environment that **owns the API's data**. A preview admin configured to call AAT's API still writes AAT data: select `--environment aat`, not preview. HTTPS is required for all remote hosts, including internal services. HTTP is permitted only for loopback with `NODE_ENV=development` or `test`. The private endpoint must first meet the TLS prerequisites in [DEPLOYMENT.md](DEPLOYMENT.md#api-transport-rollout).
 
 Production names and hostnames are refused, including `prod`, `production`, `live` and public `*.service.gov.uk` hosts. A remote hostname must contain the selected environment. There is no production override. A hostname check cannot identify the destination behind a local port-forward or a misleading DNS alias: only forward a verified non-production service.
 
@@ -36,7 +36,7 @@ For the verified AAT API ingress, run from the repository root:
 
 ```bash
 yarn seed:cases --environment aat \
-  --api-url http://deed-poll-api-aat.service.core-compute-aat.internal \
+  --api-url https://deed-poll-api-aat.service.core-compute-aat.internal \
   --batch manual-testing-20261002 \
   --journal "$PWD/data/seed-aat-manual-testing-20261002.json" \
   --create-test-users --apply

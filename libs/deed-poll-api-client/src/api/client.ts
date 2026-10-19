@@ -7,8 +7,8 @@
  *
  * NOTHING HERE THROWS ON A FAILED CALL. Every function returns `ApiResult`, a discriminated union the
  * caller branches on, because this app is a caseworker's whole working day: an unreachable api has to be
- * a page that keeps their form, not a 500 that loses it. Only a programming error — a base URL that is
- * not a URL — throws, and that is what the error middleware is for.
+ * a page that keeps their form, not a 500 that loses it. Unsafe transport configuration also fails
+ * before a request can send the caller's token or case data.
  *
  * No request or response logging, deliberately: a case body is an applicant's name, address, date of
  * birth and the reason they are changing their name. The no-PII-in-logs rule has no debugging exception.
@@ -16,6 +16,7 @@
 import { Readable } from "node:stream";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import type { z } from "zod";
+import { apiTransportPermitted } from "./transport.js";
 import type {
   WireGazetteError,
   WireGazetteMembers,
@@ -958,6 +959,9 @@ async function exchange(
   headers?: Record<string, string>
 ): Promise<SendResult> {
   const url = `${config.baseUrl.replace(/\/+$/, "")}${path}`;
+  if (!apiTransportPermitted(url, process.env.NODE_ENV)) {
+    return { ok: false, error: { kind: "unavailable", message: "deed-poll-api requires HTTPS outside local development and tests" } };
+  }
   const isForm = body instanceof FormData;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   // A cancellable timer for the streaming case; `AbortSignal.timeout` cannot be called off once armed.
@@ -983,7 +987,8 @@ async function exchange(
         },
         body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
         signal: controller?.signal ?? AbortSignal.timeout(timeoutMs),
-        ...(config.refuseRedirects ? { redirect: "error" as const } : {})
+        // Never forward a token or request body to a redirect target, including an HTTP downgrade.
+        redirect: "error"
       });
     } catch (error) {
       return { ok: false, error: transportError(error) };
@@ -1095,7 +1100,7 @@ function mapResult<W, T>(result: ApiResult<W>, map: (value: W) => T): ApiResult<
 export interface ApiConfig {
   baseUrl: string;
   timeoutMs?: number;
-  /** Explicit-target tools must not follow an API redirect into another environment. */
+  /** @deprecated Redirects are now always refused, including when this is false. */
   refuseRedirects?: boolean;
   /**
    * The caller's IDAM access token. api authenticates every caseworker route and derives the audit name

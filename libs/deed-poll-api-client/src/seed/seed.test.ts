@@ -34,6 +34,7 @@ describe("non-production seed target", () => {
     ["aat", "https://deed-poll-api.service.gov.uk"],
     ["aat", "https://deed-poll-api.demo.platform.hmcts.net"],
     ["aat", "http://deed-poll-api.aat.platform.hmcts.net"],
+    ["aat", "http://deed-poll-api-aat.service.core-compute-aat.internal"],
     ["aat", "https://user:secret@deed-poll-api.aat.platform.hmcts.net"],
     ["aat", "https://deed-poll-api.aat.platform.hmcts.net/?target=prod"],
     ["", "http://localhost:4550"]
@@ -42,7 +43,7 @@ describe("non-production seed target", () => {
   });
   it("should allow local APIs and internal non-production services", () => {
     expect(seedTarget("local", "http://127.0.0.1:4550").baseUrl).toBe("http://127.0.0.1:4550");
-    expect(seedTarget("aat", "http://deed-poll-api-aat.service.core-compute-aat.internal").environment).toBe("aat");
+    expect(seedTarget("aat", "https://deed-poll-api-aat.service.core-compute-aat.internal").environment).toBe("aat");
   });
 });
 

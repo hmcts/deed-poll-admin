@@ -185,10 +185,14 @@ describe("charts/deed-poll-admin", () => {
   it("should name deed-poll-api in every environment, since no page renders without it", () => {
     // The adapter falls back to `http://localhost:3200`, the in-repo mock — right for `yarn dev` and wrong
     // everywhere else, so an unset value is a pod whose every case page 500s.
-    expect(readValues("values.yaml").nodejs.environment?.DEED_POLL_API_URL).toContain("deed-poll-api-");
+    expect(readValues("values.yaml").nodejs.environment?.DEED_POLL_API_URL).toBe(
+      "https://deed-poll-api-{{ .Values.global.environment }}.service.core-compute-{{ .Values.global.environment }}.internal"
+    );
     // Preview names AAT's api explicitly. Jenkins deploys it with `global.environment=aat` (docs/PIPELINES.md), so
     // values.yaml would resolve to the same host, but there is no preview api to fall back to if that changes.
-    expect(readValues("values.preview.template.yaml").nodejs.environment?.DEED_POLL_API_URL).toBe("http://deed-poll-api-aat.service.core-compute-aat.internal");
+    expect(readValues("values.preview.template.yaml").nodejs.environment?.DEED_POLL_API_URL).toBe(
+      "https://deed-poll-api-aat.service.core-compute-aat.internal"
+    );
   });
 
   it("should depend on nodejs and redis, and on none of the deleted template applications", () => {

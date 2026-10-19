@@ -141,6 +141,8 @@ writing any query-shaped code:
 - **`DEED_POLL_API_URL`** is the base URL, defaulting to the mock at `http://localhost:3200`. Deployed
   environments set it in `charts/deed-poll-admin/values.yaml`, resolved per environment from
   `global.environment`; preview overrides it to AAT's api, so **preview writes land in AAT's data**.
+  The client requires HTTPS and refuses redirects. HTTP is limited to loopback in explicit
+  `NODE_ENV=development`/`test`; see `docs/DEPLOYMENT.md` for the private TLS rollout prerequisites.
 
 Three facts about the confirmation worklist that are not derivable from a single file:
 
