@@ -256,6 +256,8 @@ describe("buildUpdatePatch", () => {
       ["a repeated text field", { newForename: ["Ada", "Eve"] }],
       ["a bracketed text field", { newForename: { first: "Ada" } }],
       ["a repeated select", { maritalStatus: ["Single", "Married"] }],
+      ["a select value outside its option set", { maritalStatus: "NotAStatus" }],
+      ["a select value padded with whitespace", { maritalStatus: " Single " }],
       ["bracketed date parts", { dateReceived: { day: "1" }, "dateReceived-day": { 0: "1" } }],
       ["a checkbox of TRUE", { retainPermanently: "TRUE" }],
       ["a repeated checkbox", { retainPermanently: ["true"] }],

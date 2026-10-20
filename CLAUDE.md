@@ -614,11 +614,11 @@ no case first, so the body is the only evidence of what the page rendered. The r
 - **A value the rendered form could not have sent is a field error and no write** (review finding R08, same plan).
   `readFieldInput` (`libs/deed-poll/src/deed-poll/form-input.ts`) is the one parser per kind, shared by
   `collectFormErrors` and `buildUpdatePatch` as `readNumericInput` is for numbers, and reads each field as absent,
-  valid or invalid. What each kind may send: a text input, textarea or select one string (trimmed); each date part
+  valid or invalid. What each kind may send: a text input or textarea one string (trimmed); a select one string, exactly `""` or one of its `enumOptions` values (not trimmed); each date part
   one string; a checkbox `"true"` (or a browser's default `"on"`) when ticked and nothing when not; Yes / No radios
   `"true"`, `"false"` or nothing; a multiselect zero or more strings, each exactly equal to one of its `enumOptions`
   values, none repeated. Anything else (an array or object from a repeated or bracketed name, `"TRUE"`, a member such
-  as `"1e0"`, `"0x2"`, `" 3 "`, `""`, `"2.5"`, one outside the option set or one sent twice) is refused by `collectFormErrors` in field order
+  as `"1e0"`, `"0x2"`, `" 3 "`, `""`, `"2.5"`, one outside the option set or one sent twice, a select value such as `"NotAStatus"`) is refused by `collectFormErrors` in field order
   before any write, and `buildUpdatePatch` throws `InvalidInputError` on the same input. It used to be coerced into
   a clear, a first element or `false`. Nothing ticked still clears a multiselect. A refused field redraws from the
   stored record rather than as sent, except a mistyped number, which redraws as typed. The messages are

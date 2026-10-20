@@ -342,7 +342,8 @@ describe("a save refuses input the rendered form could not have sent (R08)", () 
   it.each([
     ["a repeated text field", "newForename", ["newForename=Ada", "newForename=Eve"], "Enter a single value for New forename"],
     ["a bracketed text field", "newForename", ["newForename%5Bfirst%5D=Ada"], "Enter a single value for New forename"],
-    ["a repeated select", "maritalStatus", ["maritalStatus=Single", "maritalStatus=Married"], "Enter a single value for Marital status"],
+    ["a repeated select", "maritalStatus", ["maritalStatus=Single", "maritalStatus=Married"], "Select an option from the list for Marital status"],
+    ["a select value outside its option set", "maritalStatus", ["maritalStatus=NotAStatus"], "Select an option from the list for Marital status"],
     ["a bracketed date part", "dateOfApplication-day", ["dateOfApplication-day%5Bx%5D=1"], "Enter a single value for Date of application"],
     ["a checkbox of TRUE", "retainPermanently", ["retainPermanently=TRUE"], "Select a valid answer for Retain permanently"],
     ["a repeated checkbox", "retainPermanently", ["retainPermanently=true", "retainPermanently=true"], "Select a valid answer for Retain permanently"],
@@ -388,6 +389,21 @@ describe("a save refuses input the rendered form could not have sent (R08)", () 
     // Assert
     expect(saved.status).toBe(302);
     expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toMatchObject(TICKED);
+  });
+
+  it("should redraw a select refused for an out-of-set value as stored, so the corrected resubmit keeps it", async () => {
+    // Arrange
+    const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+    shown.set("maritalStatus", "NotAStatus");
+
+    // Act
+    const refused = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
+    const saved = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(serialise(refused.text).toString());
+
+    // Assert
+    expect(refused.status).toBe(400);
+    expect(saved.status).toBe(302);
+    expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toMatchObject({ maritalStatus: "Single" });
   });
 
   it("should still clear a multiselect with nothing ticked", async () => {

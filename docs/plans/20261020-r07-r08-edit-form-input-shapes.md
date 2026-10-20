@@ -51,7 +51,9 @@ Read `CLAUDE.md` (especially "Numeric case-form input" and "Case edit form saves
   Stored values must keep being read as they are; only *submitted* values need the strict rule.
 - `readNumericInput` (`numeric-input.ts`) is the model: absent, blank, valid, invalid, with `invalid` refused before
   any write by `collectFormErrors` and again by `buildUpdatePatch`.
-- What the rendered form can send, per kind: a text, textarea or select sends one string; a date sends three
+- What the rendered form can send, per kind: a text or textarea sends one string; a select one string, blank or
+  one of its option values (added after external review: an out-of-set value reached api, and after api's refusal
+  the select could not redraw it, so a corrected resubmit cleared the field); a date sends three
   strings (`-day`, `-month`, `-year`); a boolean checkbox sends the string `"true"` when ticked and nothing when not
   (`"on"` is a browser's default for a checkbox without a value; keep accepting it); a multiselect sends zero or
   more strings, each an option value from the field's option set (`enumOptions`). Anything else did not come from

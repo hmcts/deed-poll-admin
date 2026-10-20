@@ -9,7 +9,7 @@ const DATE_PARTS = ["day", "month", "year"] as const;
  * `buildUpdatePatch` so what is refused and what is written cannot drift (review finding R08).
  *
  * The rule is the same for every kind: a value the rendered form could not have sent is `invalid`, never coerced.
- * A text, textarea or select sends one string; each date part one string; a checkbox `"true"` when ticked (or a
+ * A text or textarea sends one string; a select one string that is exactly `""` or one of its option values; each date part one string; a checkbox `"true"` when ticked (or a
  * browser's default `"on"`) and nothing when not; Yes / No radios `"true"` or `"false"` or nothing; a multiselect
  * zero or more strings, each exactly one of its option values and none twice. An array or object where one string belongs is a
  * repeated or bracketed name, which used to become a clear or its first element, and `Number()` read `"1e0"`,
@@ -35,6 +35,8 @@ export function readFieldInput(field: FieldDef, body: Record<string, unknown>): 
       return field.nullable ? readYesNo(raw) : readCheckbox(raw);
     case "multiselect":
       return readMultiselect(raw, field);
+    case "enum":
+      return readSelect(raw, field);
     default: {
       if (raw === undefined) return { kind: "absent" };
       if (typeof raw !== "string") return { kind: "invalid" };
@@ -65,6 +67,8 @@ export function fieldInputMessage(field: FieldDef): string {
       return `Select a valid answer for ${field.label}`;
     case "multiselect":
       return `Select only options from the list for ${field.label}`;
+    case "enum":
+      return `Select an option from the list for ${field.label}`;
     default:
       return `Enter a single value for ${field.label}`;
   }
@@ -83,13 +87,26 @@ function readCheckbox(raw: unknown): FieldInput {
   return { kind: "invalid" };
 }
 
+function readSelect(raw: unknown, field: FieldDef): FieldInput {
+  if (raw === undefined) return { kind: "absent" };
+  if (typeof raw !== "string") return { kind: "invalid" };
+  // A rendered select sends `""` or an option value exactly, so it is not trimmed. An out-of-set value would reach
+  // api, and after its refusal the select could not redraw it.
+  if (raw === "") return { kind: "valid", value: null };
+  return optionValues(field).has(raw) ? { kind: "valid", value: raw } : { kind: "invalid" };
+}
+
 function readMultiselect(raw: unknown, field: FieldDef): FieldInput {
   const members = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
-  const allowed = new Set(field.enumSet ? enumOptions(field.enumSet).map((option) => option.value) : []);
+  const allowed = optionValues(field);
   if (!members.every((member) => typeof member === "string" && allowed.has(member))) return { kind: "invalid" };
   // A rendered checkbox group sends each value at most once.
   if (new Set(members).size !== members.length) return { kind: "invalid" };
   return { kind: "valid", value: members.map(Number) };
+}
+
+function optionValues(field: FieldDef): Set<string> {
+  return new Set(field.enumSet ? enumOptions(field.enumSet).map((option) => option.value) : []);
 }
 
 export type FieldInput = { kind: "absent" } | { kind: "valid"; value: unknown } | { kind: "invalid" };

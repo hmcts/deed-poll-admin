@@ -144,7 +144,11 @@ describe("input the rendered form could not have sent (review finding R08)", () 
     ["an array in a text field", { newForename: ["Ada", "Eve"] }, "newForename", "Enter a single value for New forename"],
     ["an object in a text field", { newForename: { first: "Ada" } }, "newForename", "Enter a single value for New forename"],
     ["an array in a textarea", { returnReason: ["a", "b"] }, "returnReason", "Enter a single value for Return reason"],
-    ["an array in a select", { maritalStatus: ["Single", "Married"] }, "maritalStatus", "Enter a single value for Marital status"],
+    ["an array in a select", { maritalStatus: ["Single", "Married"] }, "maritalStatus", "Select an option from the list for Marital status"],
+    ["a select value outside its option set", { maritalStatus: "NotAStatus" }, "maritalStatus", "Select an option from the list for Marital status"],
+    ["a select value differing from an option only in case", { maritalStatus: "single" }, "maritalStatus", "Select an option from the list for Marital status"],
+    ["a select value padded with whitespace", { maritalStatus: " Single " }, "maritalStatus", "Select an option from the list for Marital status"],
+    ["a whitespace-only select value", { maritalStatus: "   " }, "maritalStatus", "Select an option from the list for Marital status"],
     [
       "an array in a date part",
       { "dateReceived-day": ["1", "2"], "dateReceived-month": "3", "dateReceived-year": "2026" },
@@ -197,7 +201,7 @@ describe("input the rendered form could not have sent (review finding R08)", () 
     };
 
     expect(collectFormErrors(body, SHAPED)).toEqual([]);
-    expect(collectFormErrors({ retainPermanently: "true", iShall: "4" }, SHAPED)).toEqual([]);
+    expect(collectFormErrors({ retainPermanently: "true", iShall: "4", maritalStatus: "" }, SHAPED)).toEqual([]);
     expect(collectFormErrors({}, SHAPED)).toEqual([]);
   });
 

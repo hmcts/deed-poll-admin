@@ -57,7 +57,7 @@ function bodyFor(tabId: string): Record<string, string> {
 function valueFor(field: FieldDef): string {
   if (field.kind === "number") return "1";
   if (field.kind === "boolean") return "true";
-  if (field.kind === "multiselect" && field.enumSet) return enumOptions(field.enumSet)[0].value;
+  if ((field.kind === "multiselect" || field.kind === "enum") && field.enumSet) return enumOptions(field.enumSet)[0].value;
   return "value";
 }
 
