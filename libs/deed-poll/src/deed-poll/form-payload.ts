@@ -1,10 +1,9 @@
 import { InvalidInputError } from "../errors.js";
+import { isTicked, tickedValues } from "./checkbox-input.js";
 import { composeDateParts } from "./date-parts.js";
 import { EDITABLE_FIELDS, type FieldDef } from "./form-fields.js";
 import { collectNumericErrors } from "./form-validation.js";
 import { readNumericInput } from "./numeric-input.js";
-
-const DATE_PARTS = ["day", "month", "year"] as const;
 
 /**
  * Turn a flat SSR form POST body into an update patch, driven by the field
@@ -61,14 +60,16 @@ function readField(field: FieldDef, body: Record<string, unknown>): unknown {
       if (input.kind === "absent") return undefined;
       return input.kind === "valid" ? input.value : null;
     }
-    case "date":
-      if (DATE_PARTS.every((part) => body[`${field.name}-${part}`] === undefined)) return undefined;
-      return composeDateParts(str(body[`${field.name}-day`]), str(body[`${field.name}-month`]), str(body[`${field.name}-year`]));
+    case "date": {
+      const [day, month, year] = [body[`${field.name}-day`], body[`${field.name}-month`], body[`${field.name}-year`]];
+      if (day === undefined && month === undefined && year === undefined) return undefined;
+      return composeDateParts(str(day), str(month), str(year));
+    }
     case "boolean":
       // Unchecked checkboxes are absent from the body; a present truthy value wins.
-      return body[field.name] === "true" || body[field.name] === "on";
+      return isTicked(body[field.name]);
     case "multiselect":
-      return toIntArray(body[field.name]);
+      return tickedValues(body[field.name]);
     // Everything else is read as a plain string: `enum`, `text` and `textarea`, plus any
     // kind added later. The prototype listed those three explicitly ahead of `default`;
     // they are named here instead, because the branch behaves identically for all of them
@@ -85,10 +86,4 @@ function readField(field: FieldDef, body: Record<string, unknown>): unknown {
 function str(v: unknown): string {
   if (Array.isArray(v)) v = v[0];
   return typeof v === "string" ? v.trim() : "";
-}
-
-/** Multi-checkbox → int[]. Body value is a string or array of strings. */
-function toIntArray(v: unknown): number[] {
-  const arr = Array.isArray(v) ? v : v == null ? [] : [v];
-  return arr.map((x) => Number(String(x))).filter((n) => Number.isInteger(n));
 }

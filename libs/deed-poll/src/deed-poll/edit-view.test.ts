@@ -151,12 +151,26 @@ describe("deed-poll/edit-view", () => {
         expect(field(view, readOnly.name)?.value).toBe("Stored");
       });
 
-      it("treats an empty body as a replay, not as absent", () => {
-        // An empty submitted object is a real rejected POST with everything blanked, so the form
-        // must come back blank rather than silently repopulated from storage.
-        const view = buildEditView({ newSurname: "Stored" }, applicationTab, ADMIN, {});
+      it("should redraw a field submitted empty as blank rather than repopulating it from storage", () => {
+        const view = buildEditView({ newSurname: "Stored" }, applicationTab, ADMIN, { newSurname: "" });
 
-        expect(field(view, "newSurname")?.value).toBeNull();
+        expect(field(view, "newSurname")?.value).toBe("");
+      });
+
+      it("should redraw a field the body does not carry from the stored record, since it was never rendered", () => {
+        // Its rule can change between render and redraw. Drawn empty, the corrected resubmit would clear it (R02).
+        const view = buildEditView(
+          { type: "Minor", parents: "Stored Parents", ageOfMinor: 9, minorDateOfBirth: "2017-01-01T00:00:00.000Z" },
+          applicationTab,
+          ADMIN,
+          {
+            newSurname: "Typed"
+          }
+        );
+
+        expect(field(view, "parents")?.value).toBe("Stored Parents");
+        expect(field(view, "ageOfMinor")?.value).toBe("9");
+        expect(field(view, "minorDateOfBirth")?.dateParts).toEqual({ day: "1", month: "1", year: "2017" });
       });
 
       it("should redraw a locked privacy select from the stored record, since a disabled control is never submitted", () => {

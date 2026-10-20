@@ -159,9 +159,9 @@ describe("case edit tab page", () => {
     });
 
     it("404s an unrecognised tab rather than falling back, which would blank the Application tab", async () => {
-      // tabFor falls back to the first tab, which has 46 editable fields, and buildUpdatePatch
-      // writes every field it is given — blanking absent ones. Falling back on a write would null
-      // all 46 from a body that never mentioned them. This is the guard against that.
+      // tabFor falls back to the first tab, which has 46 editable fields, and buildUpdatePatch reads
+      // an absent checkbox as unticked. Falling back on a write would untick every Application box
+      // and declaration from a body that never mentioned them. This is the guard against that.
       await expect(POST(request("nonsense", {}), response())).rejects.toThrow(NotFoundError);
 
       expect(updateDeedPoll).not.toHaveBeenCalled();
@@ -169,7 +169,7 @@ describe("case edit tab page", () => {
 
     it("refuses a post to the retired referral tab rather than writing its body onto the Application tab", async () => {
       // The other half of the retirement. GET redirects, but a form posted from a page loaded before the
-      // retirement must not be accepted: falling back would blank 46 Application fields, and nothing accepts
+      // retirement must not be accepted: falling back would untick every Application box, and nothing accepts
       // the retired fields any more — they are out of `FORM_TABS`, so out of `EDITABLE_FIELDS`.
       await expect(POST(request("referral", { masterName: "Master Smith" }), response())).rejects.toThrow(NotFoundError);
 

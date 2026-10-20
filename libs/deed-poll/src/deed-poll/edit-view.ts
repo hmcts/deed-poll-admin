@@ -7,6 +7,7 @@
  * because every decision it makes (is this field required, may this caller edit privacy, which
  * options does this enum have) is a business rule, and none of it is HTTP.
  */
+import { isTicked, tickedValues } from "./checkbox-input.js";
 import type { DateParts } from "./date-parts.js";
 import { splitDateParts, submittedDateParts } from "./date-parts.js";
 import { getFieldRules } from "./deed-poll-validation.js";
@@ -80,7 +81,9 @@ export function buildErrorSummary(errors: FormError[], tab: TabDef): { text: str
  * `submitted`, when present, is a rejected POST body replayed over the stored record, so a
  * re-rendered form shows what the caseworker typed rather than what is saved. Read-only and locked
  * fields are excluded from that replay — one is never editable and the other renders disabled, so
- * neither is ever in the body and the stored value is the truth.
+ * neither is ever in the body and the stored value is the truth. So is any other field the body does
+ * not carry, by the absence test `buildUpdatePatch` uses: it was not rendered, and redrawing it empty
+ * would have the corrected resubmit clear it if its rule has changed since.
  *
  * Checked state is computed here rather than in the template (review finding R01): a stored record
  * holds `true` and numbers, a replayed body `"true"`/`"on"` and strings, and a template comparing raw
@@ -113,7 +116,7 @@ function decorate(
 ): EditField {
   // Privacy editability is governed by the caller's role, separately from the per-type rules.
   const locked = field.name === "privacy" ? !canEditPrivacy : false;
-  const replaying = submitted !== undefined && !field.readOnly && !locked;
+  const replaying = submitted !== undefined && !field.readOnly && !locked && wasSubmitted(field, submitted);
   const raw = replaying ? (submitted[field.name] ?? null) : (record[field.name] ?? null);
   // Submitted text is replayed as typed; only a stored number needs rendering as something the parser accepts.
   const value = !replaying && field.kind === "number" && typeof raw === "number" && Number.isFinite(raw) ? formatNumericInput(raw) : raw;
@@ -129,16 +132,17 @@ function decorate(
   };
 }
 
+/** An unticked checkbox is absent too, so a checkbox field always counts as submitted. */
+function wasSubmitted(field: FieldDef, submitted: Record<string, unknown>): boolean {
+  if (field.kind === "boolean" || field.kind === "multiselect") return true;
+  if (field.kind === "date") return ["day", "month", "year"].some((part) => submitted[`${field.name}-${part}`] !== undefined);
+  return submitted[field.name] !== undefined;
+}
+
 function optionsFor(field: FieldDef, raw: unknown): EditField["options"] {
   if (!field.enumSet) return [];
   const options = enumOptions(field.enumSet);
   if (field.kind !== "multiselect") return options;
-  // Stored numbers and submitted strings, compared as numbers the way `buildUpdatePatch` reads them.
-  const ticked = (Array.isArray(raw) ? raw : raw == null ? [] : [raw]).map(Number);
+  const ticked = tickedValues(raw);
   return options.map((option) => ({ ...option, checked: ticked.includes(Number(option.value)) }));
-}
-
-/** Stored `true`, or submitted `"true"`/`"on"` — the same two strings `buildUpdatePatch` reads as ticked. */
-function isTicked(raw: unknown): boolean {
-  return raw === true || raw === "true" || raw === "on";
 }

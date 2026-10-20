@@ -6,8 +6,8 @@
  * handler (GET and POST) and the real `deed-polls/edit.njk`, with `findDeedPoll` and `updateDeedPoll` mocked.
  * "A browser resubmits the page" is `serialise()`, which reads the rendered form the way a browser builds a
  * submission: enabled controls only, ticked checkboxes only, each select's selected option. This proves the
- * outgoing patch, not a live save. The session carries no `/me` answer, so the caller is not an admin and
- * privacy renders locked.
+ * outgoing patch, not a live save. The session carries no `/me` answer unless a test gives it one, so the
+ * caller is not an admin and privacy renders locked.
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,11 +65,14 @@ const STORED = {
 };
 
 const TICKED = { inPerson: true, retainPermanently: true, iShall: [1, 4], iHaveSubscribed: [1, 3], andAlsoMyOld: [1, 2] };
+const TEAM_LEADER = { staff: true, judicial: false, capabilities: ["OVERRIDE_PRIVACY"], name: "A Team Leader" };
+
+let sessionUser: unknown;
 
 const app = express();
 app.use(express.urlencoded({ extended: true }));
 app.use((req: Request, res: Response, next: NextFunction) => {
-  (req as unknown as { session: unknown }).session = { deedPoll: CALLER };
+  (req as unknown as { session: unknown }).session = { deedPoll: { ...CALLER, user: sessionUser } };
   // `renderInterceptorMiddleware`'s order: the content pair first, the handler's own values over it.
   res.render = ((view: string, model: Record<string, unknown>) => {
     res.send(environment.render(`${view}.njk`, { ...(model.en as object), ...model }));
@@ -89,6 +92,7 @@ app.use((err: Error, _req: Request, res: Response, next: NextFunction) => {
 describe("case edit saves leave untouched fields alone", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionUser = undefined;
     vi.mocked(findDeedPoll).mockResolvedValue(STORED as never);
     vi.mocked(updateDeedPoll).mockResolvedValue(STORED as never);
   });
@@ -119,20 +123,18 @@ describe("case edit saves leave untouched fields alone", () => {
 
       // Act
       const refused = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
-      await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(serialise(refused.text).toString());
+      const saved = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(serialise(refused.text).toString());
 
       // Assert
       expect(refused.status).toBe(400);
+      expect(saved.status).toBe(302);
       expect(updateDeedPoll).toHaveBeenCalledTimes(2);
       expect(vi.mocked(updateDeedPoll).mock.calls[1][1]).toMatchObject(TICKED);
     });
 
-    it.each([
-      ["one tick", { iShall: [4] }, ["4"]],
-      ["no ticks", { iShall: [] }, []]
-    ])("should redraw a multiselect with %s as submitted", async (_name, stored, expected) => {
+    it("should redraw a multiselect with one tick as submitted", async () => {
       // Arrange
-      vi.mocked(findDeedPoll).mockResolvedValue({ ...STORED, ...stored } as never);
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...STORED, iShall: [4] } as never);
       const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
       shown.set("dateOfApplication-year", "20x6");
 
@@ -140,7 +142,41 @@ describe("case edit saves leave untouched fields alone", () => {
       const refused = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
 
       // Assert
-      expect(serialise(refused.text).getAll("iShall")).toEqual(expected);
+      expect(serialise(refused.text).getAll("iShall")).toEqual(["4"]);
+    });
+
+    it("should redraw a box the caseworker unticked before the refused save as unticked", async () => {
+      // Arrange
+      const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+      shown.delete("iShall");
+      shown.append("iShall", "4");
+      shown.set("dateOfApplication-year", "20x6");
+
+      // Act
+      const refused = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
+
+      // Assert
+      expect(serialise(refused.text).getAll("iShall")).toEqual(["4"]);
+    });
+
+    it("should keep an admin's changed privacy through a date error and the corrected resubmit", async () => {
+      // Arrange
+      sessionUser = TEAM_LEADER;
+      const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+      expect(shown.get("privacy")).toBe("Private");
+      shown.set("privacy", "Normal");
+      shown.set("dateOfApplication-year", "20x6");
+
+      // Act
+      const refused = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
+      const corrected = serialise(refused.text);
+      corrected.set("dateOfApplication-year", "2026");
+      const saved = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(corrected.toString());
+
+      // Assert
+      expect(selectedOption(refused.text, "privacy")).toBe("Normal");
+      expect(saved.status).toBe(302);
+      expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toMatchObject({ privacy: "Normal" });
     });
 
     it("should redraw a non-admin's locked privacy select with the stored value", async () => {

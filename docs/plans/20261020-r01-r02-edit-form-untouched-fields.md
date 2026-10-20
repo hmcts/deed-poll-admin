@@ -178,8 +178,6 @@ guard), and a handler-level test.
 
 ## Execution notes
 
-(Record baseline, red/green evidence, the api verification and final results here.)
-
 ### Baseline
 
 - Execution baseline `a15ae81` (plan commit on `cb91197`). `yarn lint` clean (1 info: biome config migrate
