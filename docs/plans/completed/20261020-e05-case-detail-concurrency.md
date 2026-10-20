@@ -229,6 +229,9 @@ new validation run or Ralphex execution has been performed for this plan. Append
   in `[id].test.ts` fail (both `read scheduling` tests and the rules-error-after-panel-logging test). All 72
   pass with this branch's handler.
 - Direct scoped Copilot review (gpt-6-astra, read-only, against `origin/master`): no issues found.
+- Ralphex external review rerun as `ralphex -e -b origin/master` (the repo's `copilot-review.sh`, gpt-5.6-sol), on the
+  correct 4-file diff: NO ISSUES FOUND. It made 20 tool calls: the diff, the handler in full, master's handler, the
+  domain functions and the focused tests. Nothing was committed and the tree stayed clean.
 
 ## Post-Completion
 
