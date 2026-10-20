@@ -10,7 +10,7 @@
 
 {#
   Error lookup. `errors` is a flat list of {field, message} from the handler; resolving it here
-  rather than decorating each field in the view model keeps the two error sources — date parts, and
+  rather than decorating each field in the view model keeps the error sources — date parts and numbers, and
   the domain's cross-field rules — rendering identically. Nunjucks has no `break`, so `errorFor`
   takes the LAST match rather than the first; a field with two messages is not a case this form
   produces.

@@ -14,6 +14,7 @@ import type { DeedPollType } from "./enums/option-sets.js";
 import { enumOptions, type FieldDef, FORM_TABS, type TabDef } from "./form-fields.js";
 import { privacyEditable } from "./form-presentation.js";
 import type { FormError } from "./form-validation.js";
+import { formatNumericInput } from "./numeric-input.js";
 
 /** A field, plus everything the template needs in order to render it without deciding anything. */
 export interface EditField extends FieldDef {
@@ -104,7 +105,9 @@ function decorate(
   submitted?: Record<string, unknown>
 ): EditField {
   const replaying = submitted !== undefined && !field.readOnly;
-  const value = replaying ? (submitted[field.name] ?? null) : (record[field.name] ?? null);
+  const raw = replaying ? (submitted[field.name] ?? null) : (record[field.name] ?? null);
+  // Submitted text is replayed as typed; only a stored number needs rendering as something the parser accepts.
+  const value = !replaying && field.kind === "number" && typeof raw === "number" && Number.isFinite(raw) ? formatNumericInput(raw) : raw;
 
   return {
     ...field,

@@ -295,9 +295,8 @@ async function render(req: Request, res: Response, journey: GazetteJourney | nul
     ? buildCaseList(page.cases).map((c) => ({ ...c, isReviewed: journey?.reviews.some((r) => r.id === c.id), isSelected: journey?.selected.includes(c.id) }))
     : [];
   const phase = journey?.phase;
-  const errorId = phase === "review" ? "checks" : phase === "confirm" ? "confirmed" : "selection";
-  const heading = phase === "review" ? content.reviewHeading : phase === "confirm" || phase === "recover" ? content.confirmHeading : content.heading;
-  res.status(error === "unknown" || error === "unavailable" ? 503 : error ? 400 : 200).render("deed-polls/gazette/batch", {
+  const { errorId, heading, status } = pagePresentation(phase, content, error);
+  res.status(status).render("deed-polls/gazette/batch", {
     en,
     cy,
     title: heading,
@@ -322,4 +321,11 @@ async function render(req: Request, res: Response, journey: GazetteJourney | nul
     errorId,
     errorText: error ? content[error] : null
   });
+}
+
+function pagePresentation(phase: GazetteJourney["phase"] | undefined, content: typeof en, error?: keyof typeof en) {
+  const errorId = phase === "review" ? "checks" : phase === "confirm" ? "confirmed" : "selection";
+  const heading = phase === "review" ? content.reviewHeading : phase === "confirm" || phase === "recover" ? content.confirmHeading : content.heading;
+  const status = error === "unknown" || error === "unavailable" ? 503 : error ? 400 : 200;
+  return { errorId, heading, status };
 }

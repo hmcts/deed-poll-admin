@@ -230,6 +230,56 @@ it("should render Welsh checklist and confirmation copy and escape names and pre
   expect(check.markup).not.toContain("<script>reference");
 });
 
+it.each([
+  {
+    locale: "en",
+    selection: "Review applications for the London Gazette",
+    review: "Complete the application checklist",
+    confirmation: "Check the Gazette email"
+  },
+  {
+    locale: "cy",
+    selection: "Adolygu ceisiadau ar gyfer y London Gazette",
+    review: "Cwblhau rhestr wirio’r cais",
+    confirmation: "Gwirio e-bost y Gazette"
+  }
+])("should preserve headings, error targets and status throughout the $locale journey", async ({ locale, selection, review, confirmation }) => {
+  const list = await render(undefined, locale);
+  const empty = await render({ journey: list.journey, action: "preview" }, locale);
+  const checklist = await render({ journey: list.journey, action: `review:${ID}` }, locale);
+  const incomplete = await render({ journey: checklist.journey, action: "save" }, locale);
+  const complete = await render({ journey: checklist.journey, action: "save", checks: [...GAZETTE_CHECKS] }, locale);
+  const check = await render({ journey: complete.journey, action: "preview", caseIds: ID }, locale);
+  const unconfirmed = await render({ journey: check.journey, action: "send" }, locale);
+  vi.mocked(sendGazetteSelection).mockRejectedValueOnce(new GazetteOutcomeUnknownError());
+  const recovery = await render({ journey: check.journey, action: "send", confirmed: "yes" }, locale);
+  vi.mocked(sendGazetteSelection).mockRejectedValueOnce(new GazetteRefusalError({ kind: "gazette-refusal", code: "CASE_NOT_READY", conflicts: [] }));
+  const refused = await render({ journey: recovery.journey, action: "check" }, locale);
+  const invalid = await render({ action: "send" }, locale);
+  vi.mocked(previewGazetteSelection).mockRejectedValueOnce(new Error("Unavailable"));
+  const unavailable = await render({ journey: complete.journey, action: "preview", caseIds: ID }, locale);
+
+  const pages = [
+    { result: list, phase: "select", heading: selection, errorId: "selection", status: 200 },
+    { result: empty, phase: "select", heading: selection, errorId: "selection", status: 400 },
+    { result: checklist, phase: "review", heading: review, errorId: "checks", status: 200 },
+    { result: incomplete, phase: "review", heading: review, errorId: "checks", status: 400 },
+    { result: check, phase: "confirm", heading: confirmation, errorId: "confirmed", status: 200 },
+    { result: unconfirmed, phase: "confirm", heading: confirmation, errorId: "confirmed", status: 400 },
+    { result: recovery, phase: "recover", heading: confirmation, errorId: "selection", status: 503 },
+    { result: refused, phase: "refused", heading: selection, errorId: "selection", status: 400 },
+    { result: invalid, phase: undefined, heading: selection, errorId: "selection", status: 400 },
+    { result: unavailable, phase: undefined, heading: selection, errorId: "selection", status: 503 }
+  ];
+  for (const { result, phase, heading, errorId, status } of pages) {
+    expect(result.model).toMatchObject({ phase, title: heading, heading, errorId });
+    expect(result.res.status).toHaveBeenCalledWith(status);
+    expect(result.markup).toContain(`<h1 class="govuk-heading-xl">${heading}</h1>`);
+    if (status === 200) expect(result.model?.errorList).toEqual([]);
+    else expect(result.model?.errorList).toEqual([{ text: expect.any(String), href: `#${errorId}` }]);
+  }
+});
+
 // Each extracted step must preserve the distinction between loss of access, a known refusal and an outage.
 it.each(
   (["review", "save", "preview", "send"] as const).flatMap((action) =>
