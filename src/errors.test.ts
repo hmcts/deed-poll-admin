@@ -14,7 +14,7 @@ import { ACCESS_GAZETTE, ConflictError, ForbiddenError, InvalidInputError, NotFo
 import { trackEvent } from "@hmcts-cft/cloud-native-platform";
 import express, { type NextFunction } from "express";
 import request from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { requireCapability, requireJudicial } from "./auth/require-role.js";
 import { requireSameOrigin } from "./auth/same-origin.js";
 import { domainErrorHandler } from "./errors.js";
@@ -170,6 +170,10 @@ describe("domainErrorHandler", () => {
     let logged: ReturnType<typeof vi.spyOn>;
     beforeEach(() => {
       logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      logged.mockRestore();
     });
 
     it.each([

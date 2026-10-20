@@ -14,7 +14,7 @@ import { trackEvent } from "@hmcts-cft/cloud-native-platform";
 import { errorHandler } from "@hmcts-cft/express-govuk-starter";
 import express, { type NextFunction, type Request, type Response } from "express";
 import request from "supertest";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { requireCapability, requireJudicial } from "./auth/require-role.js";
 import { requireSameOrigin } from "./auth/same-origin.js";
 import { domainErrorHandler } from "./errors.js";
@@ -70,7 +70,11 @@ describe("error diagnostics at the final logging boundary", () => {
   });
 
   afterAll(async () => {
-    process.env.DEED_POLL_API_URL = previousUrl;
+    if (previousUrl === undefined) {
+      delete process.env.DEED_POLL_API_URL;
+    } else {
+      process.env.DEED_POLL_API_URL = previousUrl;
+    }
     await new Promise((resolve) => api.close(resolve));
   });
 
@@ -79,6 +83,10 @@ describe("error diagnostics at the final logging boundary", () => {
     received = [];
     reached = [];
     logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    logged.mockRestore();
   });
 
   describe("when api answers a search with a body this app cannot use", () => {
