@@ -43,6 +43,9 @@ let discoveryAnswers: DiscoveryAnswer[] = [];
 /** When set, discovery requests wait on it, so a test can have callers arrive while one is in flight. */
 let discoveryHeld: Promise<void> | undefined;
 let discoveryArrived: () => void = () => {};
+/** `DISCOVERY_RETRY_COOLDOWN_MS` in `idam.ts`, restated rather than exported so the module keeps its own policy. */
+const COOLDOWN_MS = 5_000;
+const START = Date.UTC(2026, 9, 20, 9, 0, 0);
 
 beforeAll(async () => {
   server = createServer(async (req, res) => {
@@ -198,10 +201,21 @@ describe("beginLogin", () => {
 });
 
 describe("discovery recovery", () => {
+  // Only `Date` is faked: the cooldown reads the clock, and the loopback server still needs real sockets and timers.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(START);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("should recover on a later login when discovery answered 503, without a reset or restart", async () => {
     discoveryAnswers = ["unavailable"];
 
     await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+    vi.setSystemTime(START + COOLDOWN_MS);
     const { authorizationUrl } = await beginLogin(config, "/deed-polls");
     await beginLogin(config, "/deed-polls");
 
@@ -213,6 +227,7 @@ describe("discovery recovery", () => {
     discoveryAnswers = ["connection-reset"];
 
     await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+    vi.setSystemTime(START + COOLDOWN_MS);
     const { authorizationUrl } = await beginLogin(config, "/deed-polls");
 
     expect(new URL(authorizationUrl).searchParams.get("client_id")).toBe("deed-poll-admin");
@@ -227,6 +242,7 @@ describe("discovery recovery", () => {
     await arrived;
     release();
     const results = await logins;
+    vi.setSystemTime(START + 24 * 60 * 60 * 1000);
     await beginLogin(config, "/d");
 
     expect(results.map((result) => new URL(result.authorizationUrl).pathname)).toEqual(["/o/authorize", "/o/authorize", "/o/authorize"]);
@@ -242,10 +258,87 @@ describe("discovery recovery", () => {
     await arrived;
     release();
     const results = await logins;
+    vi.setSystemTime(START + COOLDOWN_MS);
     const { authorizationUrl } = await beginLogin(config, "/c");
 
     expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
     expect(new URL(authorizationUrl).pathname).toBe("/o/authorize");
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should refuse every login during the cooldown without another discovery request", async () => {
+    discoveryAnswers = ["unavailable"];
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+
+    vi.setSystemTime(START + COOLDOWN_MS - 1);
+    const results = await Promise.allSettled(Array.from({ length: 20 }, () => beginLogin(config, "/deed-polls")));
+
+    expect(results.every((result) => result.status === "rejected")).toBe(true);
+    expect(String((results[0] as PromiseRejectedResult).reason)).toMatch(/IDAM discovery failed recently/);
+    expect(discoveryCalls).toBe(1);
+  });
+
+  it("should let callers arriving together at the end of the cooldown share one discovery request", async () => {
+    discoveryAnswers = ["unavailable"];
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+
+    vi.setSystemTime(START + COOLDOWN_MS);
+    const results = await Promise.all([beginLogin(config, "/a"), beginLogin(config, "/b"), beginLogin(config, "/c")]);
+
+    expect(results.map((result) => new URL(result.authorizationUrl).pathname)).toEqual(["/o/authorize", "/o/authorize", "/o/authorize"]);
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should measure each cooldown from its own failure, so repeated failures make one request per interval", async () => {
+    discoveryAnswers = ["unavailable", "unavailable", "unavailable"];
+
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+    vi.setSystemTime(START + COOLDOWN_MS);
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+    vi.setSystemTime(START + 2 * COOLDOWN_MS - 1);
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow(/IDAM discovery failed recently/);
+    vi.setSystemTime(START + 2 * COOLDOWN_MS);
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+
+    expect(discoveryCalls).toBe(3);
+  });
+
+  it("should keep a recovered configuration with no cooldown left behind", async () => {
+    discoveryAnswers = ["unavailable"];
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+    vi.setSystemTime(START + COOLDOWN_MS);
+    await beginLogin(config, "/deed-polls");
+
+    vi.setSystemTime(START + COOLDOWN_MS + 1);
+    await beginLogin(config, "/deed-polls");
+
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should not let a stale attempt that fails after a reset clear or cool down the attempt that replaced it", async () => {
+    discoveryAnswers = ["unavailable"];
+    const releaseStale = holdDiscovery();
+    const staleArrived = nextDiscoveryRequest();
+    const stale = beginLogin(config, "/stale");
+    await staleArrived;
+
+    resetIdamDiscovery();
+    discoveryHeld = undefined;
+    await beginLogin(config, "/fresh");
+    releaseStale();
+    await expect(stale).rejects.toThrow();
+    await beginLogin(config, "/later");
+
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should clear the cooldown on reset, so the next login rediscovers at once", async () => {
+    discoveryAnswers = ["unavailable"];
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+
+    resetIdamDiscovery();
+    await beginLogin(config, "/deed-polls");
+
     expect(discoveryCalls).toBe(2);
   });
 });

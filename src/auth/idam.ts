@@ -20,6 +20,12 @@ import type { Request } from "express";
 import * as client from "openid-client";
 import { fetchCallerAccess } from "./caller-access.js";
 
+/**
+ * How long a failed discovery holds off the next one. Short enough that a login a few seconds after IDAM recovers
+ * succeeds, long enough that an outage under load is one request per interval rather than one per login.
+ */
+const DISCOVERY_RETRY_COOLDOWN_MS = 5_000;
+
 /** What the flow needs to remember between the redirect out and the callback back. */
 export interface AuthFlowState {
   /** PKCE verifier. Never leaves the session; only its S256 challenge goes to IDAM. */
@@ -49,11 +55,19 @@ export interface IdamConfig {
  * rejected one releases the cache, so the next login rediscovers once IDAM recovers rather than replaying the
  * first outage until the pod restarts. The release is made only by the attempt that owns the entry: one
  * replaced by `resetIdamDiscovery` must not clear the attempt that replaced it.
+ *
+ * **A failure holds off the next attempt for `DISCOVERY_RETRY_COOLDOWN_MS`**, so an outage costs IDAM at most one
+ * discovery request per interval however many logins arrive. Callers inside it are refused at once rather than
+ * queued, and the first after it starts one shared attempt. There is no background retry: recovery is driven by
+ * the next request, and a pod whose discovery keeps failing is a misconfigured issuer, not a transient outage.
  */
 let discovered: Promise<client.Configuration> | undefined;
+/** `Date.now()` before which no new discovery may start; set only by the failure of the attempt that owned the cache. */
+let retryNotBefore: number | undefined;
 
 export function resetIdamDiscovery(): void {
   discovered = undefined;
+  retryNotBefore = undefined;
 }
 
 /**
@@ -75,6 +89,10 @@ export function expiresAtFrom(tokens: client.TokenEndpointResponseHelpers): numb
 
 export async function idamConfiguration(config: IdamConfig): Promise<client.Configuration> {
   if (!discovered) {
+    if (retryNotBefore !== undefined && Date.now() < retryNotBefore) {
+      throw new Error("IDAM discovery failed recently; a new attempt is held off until the cooldown ends");
+    }
+    retryNotBefore = undefined;
     const attempt = client.discovery(new URL(config.issuerUrl), config.clientId, config.clientSecret, undefined, {
       // `openid-client` refuses a cleartext issuer by default, and is right to: the code exchange
       // sends the client secret over the same connection the tokens come back on. That default is why
@@ -86,7 +104,9 @@ export async function idamConfiguration(config: IdamConfig): Promise<client.Conf
     discovered = attempt;
     // Registered before any caller awaits, so the entry is released before a caller sees the rejection.
     attempt.catch(() => {
-      if (discovered === attempt) discovered = undefined;
+      if (discovered !== attempt) return;
+      discovered = undefined;
+      retryNotBefore = Date.now() + DISCOVERY_RETRY_COOLDOWN_MS;
     });
   }
   return discovered;

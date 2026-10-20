@@ -77,17 +77,17 @@ bind only to loopback and close their servers. They need no live IDAM credential
 
 **Files:** `src/auth/idam.ts` and `src/auth/idam.test.ts`.
 
-- [ ] Add failing tests for many requests during an outage, callers at the cooldown boundary and
+- [x] Add failing tests for many requests during an outage, callers at the cooldown boundary and
       repeated failed attempts. Use fake time or the repository's existing clock seam, not real sleeps.
-- [ ] Implement the bounded request-driven cooldown. Document the chosen interval in code and execution
+- [x] Implement the bounded request-driven cooldown. Document the chosen interval in code and execution
       notes; keep only the state needed for one shared attempt and the next permitted attempt.
-- [ ] Verify requests inside the cooldown fail promptly with no HTTP request; concurrent callers after
+- [x] Verify requests inside the cooldown fail promptly with no HTTP request; concurrent callers after
       it expires share exactly one attempt. Verify recovery resets failure/cooldown state.
-- [ ] Hold an old attempt, reset discovery and complete a newer successful attempt, then reject the old
+- [x] Hold an old attempt, reset discovery and complete a newer successful attempt, then reject the old
       one. Assert the new configuration remains cached and no stale cooldown is installed.
-- [ ] Verify the reset hook clears all state and restore fake timers/mocks in every test. Do not expand
+- [x] Verify the reset hook clears all state and restore fake timers/mocks in every test. Do not expand
       retries to token endpoints or alter existing transport and OIDC security checks.
-- [ ] Run focused tests and all Validation Commands; record results.
+- [x] Run focused tests and all Validation Commands; record results.
 
 ### Task 3: Verify authentication integration and document recovery
 
@@ -135,6 +135,29 @@ new validation run or Ralphex execution has been performed for this plan. Append
   one login = 2; three simultaneous logins plus a later one = 1; two simultaneous failed logins plus a recovery = 2.
 - Full validation after: lint and build clean; app 107 files / 2245 tests (+4); other packages unchanged; no
   skips; `src/session-store.test.ts` ran (7 tests).
+
+### Task 2 (20 October 2026)
+
+- Starting commit `d91d5d7`. Cooldown `DISCOVERY_RETRY_COOLDOWN_MS = 5_000` in `src/auth/idam.ts`: a failure of the
+  attempt that owns the cache sets `retryNotBefore = now + 5s`; a caller with no cached attempt before then is refused
+  at once ("IDAM discovery failed recently…") with no HTTP request; the first caller at or after the deadline clears it
+  and starts one shared attempt. Interval chosen so a login seconds after IDAM recovers succeeds while an outage under
+  load costs at most one discovery request per 5 seconds. No timers, retry library or configuration added; token
+  exchange, refresh and transport/issuer checks are untouched (only `idamConfiguration` changed).
+- State is just `discovered` and `retryNotBefore`; `resetIdamDiscovery` clears both.
+- Tests use `vi.useFakeTimers({ toFake: ["Date"] })` with `vi.setSystemTime`, restored in `afterEach`; no sleeps.
+  The four Task 1 recovery tests now advance the clock past the cooldown before recovering.
+- Red: six new tests; two failed before the change (20 logins inside the cooldown made 20 more requests; repeated
+  failures not spaced). The boundary, recovery, stale-attempt and reset tests passed already against Task 1's
+  identity check and pin it against the cooldown change.
+- Request counts asserted: failure + 20 logins at deadline−1ms = 1 request, all refused; failure + three callers at
+  the deadline = 2 (one shared); three failures at 0, 5s, (refused at 10s−1ms), 10s = 3; failure, recovery at 5s, login
+  at 5s+1ms = 2; stale held 503 after reset and a newer success, then a later login = 2 (no stale clear or cooldown);
+  failure then reset then login = 2.
+- Green: focused `idam`, `password-grant`, `client-credentials` 67/67. Full validation: lint clean (one pre-existing
+  biome schema-version info), build clean; app 107 files / 2251 tests (+6); deed-poll 1204, api-client 778,
+  cloud-native-platform 157, express-govuk-starter 127, simple-router 41, express-session-postgres 23,
+  express-session-redis 7; no skips; `src/session-store.test.ts` ran (7 tests).
 
 ## Post-Completion
 
