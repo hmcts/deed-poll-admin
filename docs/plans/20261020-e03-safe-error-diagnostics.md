@@ -110,18 +110,18 @@ security-event helper.
 **Files:** `src/errors.test.ts` and an app integration test outside `src/pages` if needed; client/domain
 tests and monitoring tests only where the traced boundaries require coverage.
 
-- [ ] Exercise an API parse failure through the actual domain conversion and configured generic error
+- [x] Exercise an API parse failure through the actual domain conversion and configured generic error
       logging path using local HTTP and synthetic data. Assert markers are absent from final console/
       logger arguments, error message, stack and any attached cause inspected by that sink.
-- [ ] Cover both malformed JSON and schema mismatch, plus CSRF and judicial refusals through their
+- [x] Cover both malformed JSON and schema mismatch, plus CSRF and judicial refusals through their
       actual final handler. Do not substitute a test logger that silently sanitizes otherwise unsafe data.
-- [ ] Verify logging retains enough fixed context to distinguish the operation and failure category;
+- [x] Verify logging retains enough fixed context to distinguish the operation and failure category;
       assertions must not merely disable logging or replace every error with an indistinguishable string.
-- [ ] Search adjacent diagnostic construction in the touched modules for raw URL/header/body values,
+- [x] Search adjacent diagnostic construction in the touched modules for raw URL/header/body values,
       trace the sinks and account for remaining occurrences. Keep unrelated log redesign out of scope.
-- [ ] Retain existing telemetry URL-redaction tests. Record that this proves the exercised application
+- [x] Retain existing telemetry URL-redaction tests. Record that this proves the exercised application
       diagnostics, not a comprehensive audit of every external telemetry processor.
-- [ ] Run focused tests and all Validation Commands; record results.
+- [x] Run focused tests and all Validation Commands; record results.
 
 ### Task 4: Document the diagnostic contract and handoff
 
@@ -177,6 +177,28 @@ marker/CR/LF/ANSI header values; unparseable and pathful origins) and 5 supertes
 `domainErrorHandler` with the gates mounted as `app.ts` mounts them, which capture the actual
 `console.error` arguments and `trackEvent` calls. Green: 57/57 middleware, errors suite 29/29.
 Validation: lint clean (one Biome schema-version info), build 8/8, tests app 2364, deed-poll 1204,
+api-client 784, cloud-native-platform 157, express-govuk-starter 127, simple-router 41,
+express-session-postgres 23, express-session-redis 7; no failures, no skips (`REDIS_URL` set).
+
+### Task 3 evidence (20 October 2026)
+
+Starting commit `7a5840a`. New `src/error-diagnostics.test.ts` mounts the chain `app.ts` mounts — `requireSameOrigin`,
+the `/judicial` and `/deed-polls/gazette` gates, a page calling the real `findDeedPolls`, `domainErrorHandler`, then
+the starter's real `errorHandler()` on the real `console` — against a local `node:http` api. A recording error
+middleware before the handlers captures the thrown error so its message, stack, `util.inspect` (own properties) and
+`cause` are checked alongside every `console.error` argument and `trackEvent` call. Malformed JSON and a
+wrong-shape body (itself carrying a marker) reach `errorHandler` as `Error:` with
+`deed-poll-api call failed (invalid-response): GET /caseworker/cases returned …`, distinguishing operation and
+category; CSRF (cross-site, unrecognised `Sec-Fetch-Site`), judicial and Gazette refusals end at the single
+`forbidden: <METHOD> <route> <reason>` line and never reach `errorHandler`. The api still receives the encoded `q`,
+the `where` condition and `filter`. Red: with `withoutQuery` disabled and the pre-fix `require-role.ts` restored,
+4 of 7 failed (both parse failures, judicial and Gazette); CSRF prose was already covered by Task 2. Sweep of the
+touched modules: `download`'s `GET ${path} returned no body` (download paths carry no query), transport errors
+(fixed text), the readiness line (`/health/liveness`), `failureFromResponse` (api's own prose — api's concern, out of
+scope), the 401 handler's `returnTo: req.originalUrl` (a render back to the user, not a log) and the schema issue
+paths (`z.record` keys are field-rule and template placeholder names, not applicant data). Monitoring URL-redaction
+tests are unchanged and pass. This proves the exercised application diagnostics, not every external telemetry
+processor. Validation: lint clean (one Biome schema-version info), build 8/8, tests app 2371, deed-poll 1204,
 api-client 784, cloud-native-platform 157, express-govuk-starter 127, simple-router 41,
 express-session-postgres 23, express-session-redis 7; no failures, no skips (`REDIS_URL` set).
 
