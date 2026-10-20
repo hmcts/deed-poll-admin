@@ -189,6 +189,9 @@ describe("openapi.json and the wire schemas", () => {
     });
 
     it("should keep GET / public and GET /me on the global bearer requirement", () => {
+      // The global requirement itself, or "no override" would also pass a document that had stopped requiring auth.
+      expect(spec.security).toEqual([{ bearerAuth: [] }]);
+      expect(spec.components.securitySchemes?.bearerAuth).toMatchObject({ type: "http", scheme: "bearer" });
       expect(spec.paths["/"].get.security).toEqual([]);
       expect(spec.paths["/me"].get.security).toBeUndefined();
     });
@@ -544,7 +547,10 @@ function enumMembers(schema: z.ZodType): string[] {
 
 interface OpenApiSpec {
   paths: Record<string, Record<string, OpenApiOperation>>;
+  /** The requirement every operation inherits unless it overrides it. */
+  security?: Record<string, string[]>[];
   components: {
+    securitySchemes?: Record<string, { type?: string; scheme?: string }>;
     schemas: Record<string, OpenApiSchema>;
     /** Shared responses: today only `Forbidden`, api's documented 403. */
     responses?: Record<string, { description?: string; content?: Record<string, { schema?: { $ref?: string } }> }>;
