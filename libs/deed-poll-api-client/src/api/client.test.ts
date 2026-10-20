@@ -2185,6 +2185,128 @@ describe("when api answers 2xx with a body that breaks the contract", () => {
   });
 });
 
+describe("the diagnostics of a response that breaks the contract", () => {
+  // Synthetic markers standing in for what a caseworker searches by: an applicant's name and a field condition.
+  const SEARCH = "Zq-search-marker O'Brien & Sons/ç";
+  const CONDITION = "currentForename:Zq-where-marker,with:colon";
+  const BODIES = [
+    ["malformed JSON", "not json"],
+    ["valid JSON of the wrong shape", JSON.stringify({ filter: "all", cases: "Zq-body-marker", page: 1, size: 25, total: 1, totalPages: 1 })]
+  ] as const;
+
+  it.each(BODIES)("should name the operation without its query when api answers %s", async (_label, body) => {
+    const answering = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(body);
+      })
+    );
+
+    try {
+      const result = await listCases(
+        { filter: "Zq-filter-marker", q: SEARCH, where: [CONDITION, "state:Zq-second-where"], sort: "Zq-sort-marker:asc", page: 2, size: 10 },
+        { baseUrl: answering.url, timeoutMs: 2000 }
+      );
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.kind).toBe("invalid-response");
+      expect(result.error.message).toMatch(/^GET \/caseworker\/cases /);
+      const diagnostics = JSON.stringify(result.error);
+      for (const marker of ["Zq-", "O'Brien", "%27", "currentForename", "page=", "?"]) expect(diagnostics).not.toContain(marker);
+    } finally {
+      await answering.close();
+    }
+  });
+
+  it("should still send every search value, encoded, exactly once", async () => {
+    const urls: string[] = [];
+    const answering = await listen(
+      createServer((req, res) => {
+        urls.push(req.url ?? "");
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("not json");
+      })
+    );
+
+    try {
+      await listCases({ q: SEARCH, where: [CONDITION] }, { baseUrl: answering.url, timeoutMs: 2000 });
+
+      expect(urls).toHaveLength(1);
+      const sent = new URL(urls[0] ?? "", answering.url);
+      expect(sent.pathname).toBe("/caseworker/cases");
+      expect(sent.searchParams.get("q")).toBe(SEARCH);
+      expect(sent.searchParams.getAll("where")).toEqual([CONDITION]);
+    } finally {
+      await answering.close();
+    }
+  });
+
+  it("should keep the schema's field paths, which name the contract and not the data", async () => {
+    const answering = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ filter: "all", cases: "Zq-body-marker", page: 1, size: 25, total: 1, totalPages: 1 }));
+      })
+    );
+
+    try {
+      const result = await listCases({ q: SEARCH }, { baseUrl: answering.url, timeoutMs: 2000 });
+
+      expect(result).toMatchObject({ ok: false, error: { kind: "invalid-response", status: 200, message: expect.stringContaining("(cases)") } });
+    } finally {
+      await answering.close();
+    }
+  });
+
+  it("should leave out the query of every other listing that carries one", async () => {
+    const answering = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("not json");
+      })
+    );
+    const config = { baseUrl: answering.url, timeoutMs: 2000 };
+
+    try {
+      const results = await Promise.all([
+        getGazetteNoticeHistory({ page: 7, size: 9 }, config),
+        getJudicialPool({ page: 7, size: 9 }, config),
+        getJudicialMyReferrals({ page: 7, size: 9 }, config)
+      ]);
+
+      for (const result of results) {
+        expect(result.ok).toBe(false);
+        if (result.ok) continue;
+        expect(result.error.kind).toBe("invalid-response");
+        expect(result.error.message).not.toContain("?");
+        expect(result.error.message).not.toContain("page=");
+      }
+    } finally {
+      await answering.close();
+    }
+  });
+
+  it("should keep an encoded path segment encoded, so a question mark in an id is not read as a query", async () => {
+    const answering = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("not json");
+      })
+    );
+
+    try {
+      const result = await getCase("abc?def#ghi", { baseUrl: answering.url, timeoutMs: 2000 });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.message).toBe("GET /caseworker/cases/abc%3Fdef%23ghi returned a body that is not JSON");
+    } finally {
+      await answering.close();
+    }
+  });
+});
+
 describe("the bearer token", () => {
   it("should be presented on every call, because api authenticates all of them", async () => {
     const headers: (string | undefined)[] = [];

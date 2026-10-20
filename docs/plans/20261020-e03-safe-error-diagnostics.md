@@ -73,18 +73,20 @@ necessary. Do not send synthetic payloads to a live API or inspect production lo
 diagnostic helper/test only if needed. Read the domain error conversion in
 `libs/deed-poll/src/api/deed-poll-api.ts`.
 
-- [ ] Trace malformed-JSON and schema-mismatch failures through `ApiResult` into the domain error.
+- [x] Trace malformed-JSON and schema-mismatch failures through `ApiResult` into the domain error.
       Inventory the diagnostics built from request paths within this client.
-- [ ] Add failing tests using a real local HTTP response and synthetic markers in `q`, structured
+- [x] Add failing tests using a real local HTTP response and synthetic markers in `q`, structured
       `where`, encoded characters and other query keys. Cover malformed JSON and valid JSON with the
       wrong schema. Assert markers are absent from error messages and nested diagnostic properties.
-- [ ] Replace unsafe context with fixed operation labels or sanitized paths before constructing errors.
+- [x] Replace unsafe context with fixed operation labels or sanitized paths before constructing errors.
       Preserve method/status/schema context without serializing payload values.
-- [ ] Assert the outgoing API request still contains the intended encoded search/filter values and
+- [x] Assert the outgoing API request still contains the intended encoded search/filter values and
       retains existing call counts, result types and status mapping.
-- [ ] Cover unusual/malformed diagnostic path input and fragments if the helper accepts them. Keep the
+- [x] Cover unusual/malformed diagnostic path input and fragments if the helper accepts them. Keep the
       fallback fixed and safe; a sanitization exception must not log the original input.
-- [ ] Run focused tests and all Validation Commands; record red/green evidence.
+      (The helper is a private `String.search`/`slice` over a `string` and cannot throw; fragments are
+      covered by cutting at `?` or `#`, and an encoded `?`/`#` inside an id stays in the path.)
+- [x] Run focused tests and all Validation Commands; record red/green evidence.
 
 ### Task 2: Remove request values from authentication refusals
 
@@ -146,6 +148,21 @@ tests and monitoring tests only where the traced boundaries require coverage.
 
 Planning only, 20 October 2026. Ellis authored this plan from review finding E03. No implementation,
 new validation run or Ralphex execution has been performed for this plan. Append execution evidence here.
+
+### Task 1 evidence (20 October 2026)
+
+Starting commit `c9d8da0` on `fix/e03-safe-error-diagnostics`. Inventory: in
+`libs/deed-poll-api-client/src/api/client.ts` a request path reached a diagnostic in `parseResponse`
+(malformed JSON and schema mismatch, reached from `request` and `gazetteRequest`) and in `download`'s
+no-body message (no query on any download path). `callApi` wraps each into
+`deed-poll-api call failed (invalid-response): <message>`. Non-2xx messages are api's own prose or a fixed
+`deed-poll-api answered <status>` and carry no request path. Fix: a private `withoutQuery` cuts the path at
+the first `?` or `#` before `parseResponse` composes either message; method, status and schema issue paths
+are kept. Red: 3 of 6 new tests failed with the full query (`q`, repeated `where`, `filter`, `sort`, paging,
+and Gazette/judicial paging) in the message; the encoded-id case already passed. Green: client suite
+158/158. Validation: lint clean (one Biome schema-version info), build 8/8, tests app 2351,
+deed-poll 1204, api-client 784, cloud-native-platform 157, express-govuk-starter 127, simple-router 41,
+express-session-postgres 23, express-session-redis 7; no failures, no skips (`REDIS_URL` set).
 
 ## Post-Completion
 
