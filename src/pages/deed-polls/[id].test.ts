@@ -1,4 +1,4 @@
-import { findCaseEmails, findDeedPoll, findReferrals, NotFoundError } from "@hmcts/deed-poll";
+import { findCaseEmails, findDeedPoll, findReferrals, getCaseFieldRules, NotFoundError } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
@@ -106,6 +106,20 @@ function keysOf(res: { render: ReturnType<typeof vi.fn> }): string[] {
 
 const response = pageResponse;
 
+/** A promise the test settles by hand, so ordering is asserted against explicit barriers rather than timings. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/** Lets every queued microtask run: a macrotask turn is reached only once the microtask queue is empty. */
+const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+
 describe("case detail page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -138,6 +152,94 @@ describe("case detail page", () => {
     expect(getCaseFieldRules).toHaveBeenCalledWith(expect.anything(), { accessToken: "caseworker-token" });
     expect(findReferrals).toHaveBeenCalledWith("case-1", { accessToken: "caseworker-token" });
     expect(findCaseEmails).toHaveBeenCalledWith("case-1", { accessToken: "caseworker-token" });
+  });
+
+  describe("read scheduling", () => {
+    // The rules depend on the case alone, so a slow referrals or emails read must not hold them back: the page
+    // costs max(case + rules, referrals, emails) rather than max(case, referrals, emails) + rules.
+    it("starts the field rules once the case resolves, while the referrals read is still pending", async () => {
+      const referrals = deferred<never[]>();
+      vi.mocked(findReferrals).mockReturnValue(referrals.promise);
+      const res = response();
+
+      const handled = GET(request(), res);
+      await settle();
+      const rulesBeforeReferrals = vi.mocked(getCaseFieldRules).mock.calls.length;
+      referrals.resolve([]);
+      await handled;
+
+      expect(rulesBeforeReferrals).toBe(1);
+      expect(res.render).toHaveBeenCalledTimes(1);
+    });
+
+    it("starts the field rules once the case resolves, while the emails read is still pending", async () => {
+      const emails = deferred<typeof CASE_EMAILS>();
+      vi.mocked(findCaseEmails).mockReturnValue(emails.promise as never);
+      const res = response();
+
+      const handled = GET(request(), res);
+      await settle();
+      const rulesBeforeEmails = vi.mocked(getCaseFieldRules).mock.calls.length;
+      emails.resolve(CASE_EMAILS);
+      await handled;
+
+      expect(rulesBeforeEmails).toBe(1);
+      expect(res.render).toHaveBeenCalledTimes(1);
+    });
+
+    it("starts every independent read at once, and the rules only after the case resolves", async () => {
+      const deedPoll = deferred<typeof found>();
+      vi.mocked(findDeedPoll).mockReturnValue(deedPoll.promise as never);
+      const res = response();
+
+      const handled = GET(request(), res);
+      await settle();
+      const startedBeforeCase = {
+        case: vi.mocked(findDeedPoll).mock.calls.length,
+        referrals: vi.mocked(findReferrals).mock.calls.length,
+        emails: vi.mocked(findCaseEmails).mock.calls.length,
+        rules: vi.mocked(getCaseFieldRules).mock.calls.length
+      };
+      deedPoll.resolve(found);
+      await handled;
+
+      expect(startedBeforeCase).toEqual({ case: 1, referrals: 1, emails: 1, rules: 0 });
+      expect(getCaseFieldRules).toHaveBeenCalledTimes(1);
+    });
+
+    it("reads the case and the rules once each, with the caller and the case's own rule inputs", async () => {
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...found, type: "Minor", migratedRecord: true, publishToLondonGazette: false } as never);
+      const referrals = deferred<never[]>();
+      vi.mocked(findReferrals).mockReturnValue(referrals.promise);
+
+      const handled = GET(pageRequest({ params: { id: "case-1" }, accessToken: "caseworker-token" }), response());
+      await settle();
+      referrals.resolve([]);
+      await handled;
+
+      expect(findDeedPoll).toHaveBeenCalledTimes(1);
+      expect(getCaseFieldRules).toHaveBeenCalledTimes(1);
+      expect(getCaseFieldRules).toHaveBeenCalledWith({ type: "Minor", migrated: true, publishToGazette: false }, { accessToken: "caseworker-token" });
+    });
+
+    it("renders the same model whichever optional read finishes last", async () => {
+      const inOrder = response();
+      await GET(request(), inOrder);
+
+      const referrals = deferred<never[]>();
+      const emails = deferred<typeof CASE_EMAILS>();
+      vi.mocked(findReferrals).mockReturnValue(referrals.promise);
+      vi.mocked(findCaseEmails).mockReturnValue(emails.promise as never);
+      const delayed = response();
+      const handled = GET(request(), delayed);
+      await settle();
+      emails.resolve(CASE_EMAILS);
+      await settle();
+      referrals.resolve([]);
+      await handled;
+
+      expect(delayed.render.mock.calls[0]).toEqual(inOrder.render.mock.calls[0]);
+    });
   });
 
   it("reads the emails once, since one payload answers the tab, the compose form and the per-email page", async () => {

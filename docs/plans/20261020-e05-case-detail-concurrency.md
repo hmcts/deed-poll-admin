@@ -82,15 +82,15 @@ ends the session and the next one builds over it, wiping the results.
 
 **Files:** `src/pages/deed-polls/[id].ts` and `src/pages/deed-polls/[id].test.ts`.
 
-- [ ] Trace the current reads, required error handling and optional-panel logging on the execution
+- [x] Trace the current reads, required error handling and optional-panel logging on the execution
       baseline. Confirm field rules require only the resolved case and existing caller context.
-- [ ] Add a failing deterministic test that starts the handler, resolves the case, leaves referrals
+- [x] Add a failing deterministic test that starts the handler, resolves the case, leaves referrals
       pending and observes the field-rules call before releasing referrals.
-- [ ] Add the equivalent delayed-email case and assert rules do not begin before the case resolves.
+- [x] Add the equivalent delayed-email case and assert rules do not begin before the case resolves.
       Assert all independent reads were started without waiting for one another.
-- [ ] Compose the required case-to-rules promise chain with the optional outcomes. Register rejection
+- [x] Compose the required case-to-rules promise chain with the optional outcomes. Register rejection
       handling immediately and keep rendering dependent on the data the page still needs.
-- [ ] Assert one case call and one rules call, with unchanged arguments/caller, and unchanged successful
+- [x] Assert one case call and one rules call, with unchanged arguments/caller, and unchanged successful
       view-model output. Run focused tests and all Validation Commands; record red/green evidence.
 
 ### Task 2: Preserve failures and independent degradation
@@ -134,6 +134,25 @@ and this plan's Execution notes.
 
 Planning only, 20 October 2026. Ellis authored this plan from review finding E05. No implementation,
 new validation run or Ralphex execution has been performed for this plan. Append execution evidence here.
+
+### Task 1 (20 October 2026)
+
+- Execution baseline `d9b3457` on `fix/e05-case-detail-concurrency` (branched from master after #211/#213).
+  The handler there matched the review: `Promise.allSettled([case, referrals, emails])`, then the case check,
+  then `getCaseFieldRules` built from `type`, `migratedRecord` and `publishToLondonGazette` with the same
+  `caller`. Rules need nothing but the resolved case and the caller.
+- Red: five new `read scheduling` tests in `src/pages/deed-polls/[id].test.ts`, using hand-settled deferred
+  promises and a `setImmediate` microtask drain (no timers). The pending-referrals and pending-emails tests
+  failed on the baseline (rules call count 0 before release, expected 1); 2 failed, 61 passed.
+- Green: `src/pages/deed-polls/[id].ts` chains `getCaseFieldRules` off `findDeedPoll(...).then(...)` and
+  aggregates that required chain with the two optional reads in one `Promise.allSettled`, so every started
+  promise is observed. A failed case read rejects the chain without a rules call. 63/63 focused tests pass,
+  including one case call, one rules call with unchanged arguments and caller, all three reads started
+  before the case resolves, and an identical render model whichever optional read settles last.
+- Validation: `yarn lint` clean (one pre-existing Biome config-migration info); `yarn build` 8/8 tasks;
+  `REDIS_URL=redis://127.0.0.1:6379 yarn turbo test test:app --concurrency=1 --force` exit 0 — app 111 files /
+  2424 tests, deed-poll 1291, api-client 804, cloud-native-platform 157, express-govuk-starter 127,
+  simple-router 41, express-session-postgres 23, express-session-redis 7; 0 failed, 0 skipped.
 
 ## Post-Completion
 

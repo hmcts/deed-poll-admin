@@ -184,19 +184,29 @@ const cy = { ...en };
 
 export const GET = async (req: Request, res: Response) => {
   const caller = callerFromRequest(req);
-  // Together, because no answer depends on another and the referrals and emails tabs are rendered on every
-  // case: the same shape `referrals/[referralId].ts` uses. `allSettled` rather than `all` so the failures can
-  // be told apart — under `all` any one of them rejects the handler, and only the case read is the page.
-  const [caseRead, referralsRead, emailsRead] = await Promise.allSettled([
-    findDeedPoll(req.params.id, caller),
+  // The rules hang off the case alone, so they start the moment it resolves rather than once the two panels'
+  // reads have settled too. A failed case read rejects this chain without asking for rules. The rules depend on
+  // the type, the migrated flag and the Gazette choice, and api answers that question rather than being asked
+  // for a case — hence a second call rather than a value carried on the case.
+  const required = findDeedPoll(req.params.id, caller).then(
+    async (found) =>
+      [
+        found,
+        await getCaseFieldRules({ type: found.type, migrated: found.migratedRecord === true, publishToGazette: found.publishToLondonGazette !== false }, caller)
+      ] as const
+  );
+  // `allSettled` rather than `all` so the failures can be told apart — under `all` any one of them rejects the
+  // handler, and only the case and its rules are the page. It also observes every promise started above.
+  const [requiredRead, referralsRead, emailsRead] = await Promise.allSettled([
+    required,
     findReferrals(req.params.id, caller),
     findCaseEmails(req.params.id, caller)
   ]);
 
   // The case is what the page is for, so its failure is still the page's: `NotFoundError` reaches the 404
   // page through `src/errors.ts` exactly as it did before.
-  if (caseRead.status === "rejected") throw caseRead.reason;
-  const found = caseRead.value;
+  if (requiredRead.status === "rejected") throw requiredRead.reason;
+  const [found, rules] = requiredRead.value;
 
   // Logged only now the case is known to exist. A mistyped id 404s *both* calls — `findReferrals` answers
   // api's 404 rather than an empty list — so logging any earlier would file a referrals fault for every
@@ -220,13 +230,6 @@ export const GET = async (req: Request, res: Response) => {
   // gone from `FORM_TABS` — see `form-presentation.ts`. The record's own values now decide whether the
   // read-only snapshot renders, which is the right test for history.
   const presentation = buildPresentation({ type: found.type, privacy: found.privacy, state: found.state }, { isAdmin, isNew: false });
-
-  // A second call rather than a value carried on the case: the rules depend on the type, the migrated
-  // flag and the Gazette choice, and api answers that question rather than being asked for a case.
-  const rules = await getCaseFieldRules(
-    { type: found.type, migrated: found.migratedRecord === true, publishToGazette: found.publishToLondonGazette !== false },
-    caller
-  );
 
   // Resolved here as well as by the render interceptor, because the waiting sentence interpolates a date the
   // template does not have — the pattern `.claude/rules/frontend.md` gives for an `en` entry that is a function.
