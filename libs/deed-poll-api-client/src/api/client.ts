@@ -891,6 +891,7 @@ async function request<S extends z.ZodType>(
 }
 
 async function parseResponse<S extends z.ZodType>(response: Response, schema: S, method: string, path: string): Promise<ApiResult<z.infer<S>>> {
+  const operation = `${method} ${withoutQuery(path)}`;
   let payload: unknown;
   try {
     payload = await response.json();
@@ -900,7 +901,7 @@ async function parseResponse<S extends z.ZodType>(response: Response, schema: S,
     // reporting a stall as one sends them hunting a defect when the answer is that api stopped talking.
     if (isAborted(error)) return { ok: false, error: transportError(error) };
 
-    return { ok: false, error: { kind: "invalid-response", status: response.status, message: `${method} ${path} returned a body that is not JSON` } };
+    return { ok: false, error: { kind: "invalid-response", status: response.status, message: `${operation} returned a body that is not JSON` } };
   }
 
   const parsed = schema.safeParse(payload);
@@ -909,11 +910,23 @@ async function parseResponse<S extends z.ZodType>(response: Response, schema: S,
     const fields = parsed.error.issues.map((issue) => issue.path.join(".")).join(", ");
     return {
       ok: false,
-      error: { kind: "invalid-response", status: response.status, message: `${method} ${path} returned an unexpected shape (${fields})` }
+      error: { kind: "invalid-response", status: response.status, message: `${operation} returned an unexpected shape (${fields})` }
     };
   }
 
   return { ok: true, data: parsed.data };
+}
+
+/**
+ * The path a diagnostic may name: everything before the query or fragment.
+ *
+ * A list's query carries the caseworker's search text and field conditions — applicant names — and this message
+ * reaches a log via `callApi`. Cut by position rather than by parameter name, so a parameter added later is left
+ * out too. Ids are already percent-encoded segments, so a `?` in one cannot end the path early.
+ */
+function withoutQuery(path: string): string {
+  const end = path.search(/[?#]/);
+  return end === -1 ? path : path.slice(0, end);
 }
 
 /** A call whose success carries nothing to parse — a 204, or a probe where only the status matters. */

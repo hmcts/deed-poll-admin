@@ -157,9 +157,31 @@ describe("requireSameOrigin", () => {
     requireSameOrigin()(requestDouble({ secFetchSite: "same-site", originalUrl: "/switch-persona" }), pageResponse(), next);
 
     const error = vi.mocked(next).mock.calls[0][0] as unknown as ForbiddenError;
-    expect(error.message).toContain("POST");
-    expect(error.message).toContain("/switch-persona");
-    expect(error.message).toContain("same-site");
+    expect(error.message).toBe("POST /switch-persona from a same-site initiator");
+  });
+
+  // A search's query string carries applicant names, and the headers are whatever the sender chose: neither may
+  // reach the message, which is logged. The bounded detail still says which kind of refusal it was.
+  describe("what it leaves out of the message", () => {
+    const QUERY = `?q=${encodeURIComponent("MARKER-Q Smith")}&where=${encodeURIComponent('surname = "MARKER-WHERE"')}&other=MARKER-OTHER#MARKER-FRAGMENT`;
+    const message = (headers: { secFetchSite?: string; origin?: string }) => {
+      const next = vi.fn();
+      requireSameOrigin()(requestDouble({ ...headers, originalUrl: `/deed-polls/new${QUERY}` }), pageResponse(), next);
+      return (next.mock.calls[0][0] as ForbiddenError).message;
+    };
+
+    it.each([
+      [{ secFetchSite: "same-site" }, "POST /deed-polls/new from a same-site initiator"],
+      [{ secFetchSite: "cross-site", origin: "https://MARKER-ORIGIN.example" }, "POST /deed-polls/new from a cross-site initiator"],
+      [{ secFetchSite: "MARKER-SITE\nINFO auth.login.succeeded\u001b[31m" }, "POST /deed-polls/new from an unrecognised Sec-Fetch-Site value"],
+      [{ origin: "https://MARKER-ORIGIN.example:8443/MARKER-PATH" }, "POST /deed-polls/new from a cross-origin Origin"],
+      [{ origin: "MARKER-ORIGIN not a url\r\n" }, "POST /deed-polls/new from a cross-origin Origin"]
+    ])("should name the refusal %j with fixed text and no query or header value", (headers, expected) => {
+      const text = message(headers);
+
+      expect(text).toBe(expected);
+      expect(text).not.toContain("MARKER");
+    });
   });
 
   describe("what it records for the security event", () => {
@@ -235,5 +257,8 @@ function requestDouble({
 }): Request {
   const headers: Record<string, string | undefined> = { "sec-fetch-site": secFetchSite, origin, host };
 
-  return { method, originalUrl, get: (name: string) => headers[name.toLowerCase()] } as unknown as Request;
+  // Mounted on the app, so `baseUrl` is empty and `path` is Express's: the URL without its query or fragment.
+  const path = originalUrl.split(/[?#]/, 1)[0];
+
+  return { method, originalUrl, baseUrl: "", path, get: (name: string) => headers[name.toLowerCase()] } as unknown as Request;
 }

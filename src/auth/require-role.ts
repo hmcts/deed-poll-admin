@@ -14,8 +14,9 @@ export function requireJudicial(): RequestHandler {
     }
 
     // The message is for the log, never for the user: `errors.ts` renders the shared "Page not found"
-    // view, so a caseworker who guesses a judicial URL learns nothing about what is behind it.
-    next(new ForbiddenError(`${req.originalUrl} requires judicial access`, { reason: "role" }));
+    // view, so a caseworker who guesses a judicial URL learns nothing about what is behind it. The route and
+    // not `originalUrl`, whose query string can carry a search.
+    next(new ForbiddenError(`${req.method} ${req.baseUrl}${req.path} requires judicial access`, { reason: "role" }));
   };
 }
 
@@ -23,6 +24,6 @@ export function requireJudicial(): RequestHandler {
 export function requireCapability(capability: Capability): RequestHandler {
   return (req, _res, next) => {
     if (can(userFromRequest(req), capability)) return next();
-    next(new ForbiddenError(`${req.path} requires ${capability}`, { reason: "role", requiredCapability: capability }));
+    next(new ForbiddenError(`${req.method} ${req.baseUrl}${req.path} requires ${capability}`, { reason: "role", requiredCapability: capability }));
   };
 }

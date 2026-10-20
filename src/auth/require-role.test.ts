@@ -61,11 +61,21 @@ describe("requireJudicial", () => {
   });
 
   it("names the access and the path in the error, for the log rather than the page", () => {
-    requireJudicial()(pageRequest({ originalUrl: "/judicial/referrals/abc" }), pageResponse(), next);
+    requireJudicial()(mounted("/judicial", "GET", "/judicial/referrals/abc"), pageResponse(), next);
 
     const error = vi.mocked(next).mock.calls[0][0] as unknown as ForbiddenError;
-    expect(error.message).toContain("judicial access");
-    expect(error.message).toContain("/judicial/referrals/abc");
+    expect(error.message).toBe("GET /judicial/referrals/abc requires judicial access");
+  });
+
+  // The query string is whatever the caller typed or followed — on a list, a search — and the message is logged.
+  it("leaves the query string and fragment out of the error", () => {
+    const url = `/judicial/referrals?q=${encodeURIComponent("MARKER-Q Smith")}&where=${encodeURIComponent('surname = "MARKER-WHERE"')}&page=MARKER-PAGE#MARKER-FRAGMENT`;
+
+    requireJudicial()(mounted("/judicial", "POST", url), pageResponse(), next);
+
+    const error = vi.mocked(next).mock.calls[0][0] as unknown as ForbiddenError;
+    expect(error.message).toBe("POST /judicial/referrals requires judicial access");
+    expect(error.message).not.toContain("MARKER");
   });
 
   it("marks its refusal as the role gate's, so the one error mapping records it as such", () => {
@@ -124,6 +134,16 @@ describe("Gazette area access", () => {
     requireCapability(ACCESS_GAZETTE)(pageRequest({ deliveryManager: true, judicial }), pageResponse(), next);
     expect(next).toHaveBeenCalledExactlyOnceWith();
   });
+  it("should name the method, the whole path and the capability, and leave the query out", () => {
+    const next = vi.fn();
+    const url = `/deed-polls/gazette/history?q=${encodeURIComponent("MARKER-Q Smith")}&sort=MARKER-SORT#MARKER-FRAGMENT`;
+
+    requireCapability(ACCESS_GAZETTE)(mounted("/deed-polls/gazette", "GET", url, "caseworker"), pageResponse(), next);
+
+    const error = next.mock.calls[0][0] as ForbiddenError;
+    expect(error.message).toBe(`GET /deed-polls/gazette/history requires ${ACCESS_GAZETTE}`);
+    expect(error.message).not.toContain("MARKER");
+  });
   it("should mark its refusal as the role gate's and name the capability it wanted", () => {
     const next = vi.fn();
     requireCapability(ACCESS_GAZETTE)(pageRequest({ persona: "caseworker" }), pageResponse(), next);
@@ -141,3 +161,9 @@ describe("Gazette area access", () => {
     expect(gate).not.toHaveBeenCalled();
   });
 });
+
+/** A refused request as Express hands it to a gate mounted at `baseUrl`: `path` is the rest, without query or fragment. */
+function mounted(baseUrl: string, method: string, originalUrl: string, persona?: "caseworker") {
+  const req = pageRequest({ persona, originalUrl });
+  return Object.assign(req, { method, baseUrl, path: originalUrl.split(/[?#]/, 1)[0].slice(baseUrl.length) });
+}
