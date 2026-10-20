@@ -188,25 +188,23 @@ export const GET = async (req: Request, res: Response) => {
   // reads have settled too. A failed case read rejects this chain without asking for rules. The rules depend on
   // the type, the migrated flag and the Gazette choice, and api answers that question rather than being asked
   // for a case — hence a second call rather than a value carried on the case.
-  const required = findDeedPoll(req.params.id, caller).then(
-    async (found) =>
-      [
-        found,
-        await getCaseFieldRules({ type: found.type, migrated: found.migratedRecord === true, publishToGazette: found.publishToLondonGazette !== false }, caller)
-      ] as const
+  const caseRead = findDeedPoll(req.params.id, caller);
+  const rulesRead = caseRead.then((found) =>
+    getCaseFieldRules({ type: found.type, migrated: found.migratedRecord === true, publishToGazette: found.publishToLondonGazette !== false }, caller)
   );
   // `allSettled` rather than `all` so the failures can be told apart — under `all` any one of them rejects the
   // handler, and only the case and its rules are the page. It also observes every promise started above.
-  const [requiredRead, referralsRead, emailsRead] = await Promise.allSettled([
-    required,
+  const [caseResult, rulesResult, referralsRead, emailsRead] = await Promise.allSettled([
+    caseRead,
+    rulesRead,
     findReferrals(req.params.id, caller),
     findCaseEmails(req.params.id, caller)
   ]);
 
   // The case is what the page is for, so its failure is still the page's: `NotFoundError` reaches the 404
   // page through `src/errors.ts` exactly as it did before.
-  if (requiredRead.status === "rejected") throw requiredRead.reason;
-  const [found, rules] = requiredRead.value;
+  if (caseResult.status === "rejected") throw caseResult.reason;
+  const found = caseResult.value;
 
   // Logged only now the case is known to exist. A mistyped id 404s *both* calls — `findReferrals` answers
   // api's 404 rather than an empty list — so logging any earlier would file a referrals fault for every
@@ -221,6 +219,10 @@ export const GET = async (req: Request, res: Response) => {
   if (emailsRead.status === "rejected") {
     console.error(`emails unavailable: ${forLog(emailsRead.reason instanceof Error ? emailsRead.reason.message : String(emailsRead.reason))}`);
   }
+  // Fatal like the case, but only after the panels are logged: the case exists, so their failures are real ones,
+  // and in an api outage they are what tells a rules-endpoint fault from everything failing at once.
+  if (rulesResult.status === "rejected") throw rulesResult.reason;
+  const rules = rulesResult.value;
 
   const referrals = referralsRead.status === "fulfilled" ? referralsRead.value : null;
   const emails = emailsRead.status === "fulfilled" ? emailsRead.value : null;

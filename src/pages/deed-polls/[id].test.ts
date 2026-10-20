@@ -253,6 +253,23 @@ describe("case detail page", () => {
 
       expect(delayed.render.mock.calls[0]).toEqual(inOrder.render.mock.calls[0]);
     });
+
+    it("renders the same model when the field rules finish after both optional reads", async () => {
+      const { getFieldRules } = await vi.importActual<typeof import("@hmcts/deed-poll")>("@hmcts/deed-poll");
+      const inOrder = response();
+      await GET(request(), inOrder);
+
+      const rules = deferred<Awaited<ReturnType<typeof getCaseFieldRules>>>();
+      vi.mocked(getCaseFieldRules).mockReturnValueOnce(rules.promise);
+      const delayed = response();
+      const handled = GET(request(), delayed);
+      await settle();
+      expect(delayed.render).not.toHaveBeenCalled();
+      rules.resolve(getFieldRules("Adult" as never, false, true));
+      await handled;
+
+      expect(delayed.render.mock.calls[0]).toEqual(inOrder.render.mock.calls[0]);
+    });
   });
 
   describe("read failures", () => {
@@ -271,6 +288,8 @@ describe("case detail page", () => {
     afterEach(() => {
       process.off("unhandledRejection", onUnhandled);
       logged.mockRestore();
+      // Drops a one-shot rules stub a regressed handler never consumed, so it cannot reach the next test.
+      vi.mocked(getCaseFieldRules).mockReset();
     });
 
     it("rejects with the case read's own error while the optional reads are pending, and reads no rules", async () => {
@@ -298,7 +317,7 @@ describe("case detail page", () => {
       expect(unhandled).toEqual([]);
     });
 
-    it("rejects with the rules read's own error once the optional reads later reject, logging nothing twice", async () => {
+    it("rejects with the rules read's own error once the optional reads later reject, logging each panel failure first", async () => {
       const failure = new Error("deed-poll-api call failed (unavailable): rules");
       const rules = deferred<never>();
       const referrals = deferred<never[]>();
@@ -320,8 +339,10 @@ describe("case detail page", () => {
       await settle();
       expect(getCaseFieldRules).toHaveBeenCalledTimes(1);
       expect(res.render).not.toHaveBeenCalled();
-      // The handler's boundary is `src/errors.ts`, which does the logging for a fatal read; the page adds none.
-      expect(logged).not.toHaveBeenCalled();
+      // `src/errors.ts` logs the fatal rules error; the page logs only the panels, which the case now exists for.
+      expect(logged).toHaveBeenCalledTimes(2);
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("referrals unavailable"));
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("emails unavailable"));
       expect(unhandled).toEqual([]);
     });
 

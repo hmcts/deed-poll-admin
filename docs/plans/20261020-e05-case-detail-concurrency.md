@@ -134,6 +134,7 @@ and this plan's Execution notes.
 
 Planning only, 20 October 2026. Ellis authored this plan from review finding E05. No implementation,
 new validation run or Ralphex execution has been performed for this plan. Append execution evidence here.
+(Superseded: implemented 20 October 2026, see the Task 1–3 and Review notes below.)
 
 ### Task 1 (20 October 2026)
 
@@ -205,6 +206,16 @@ new validation run or Ralphex execution has been performed for this plan. Append
   simple-router 41, express-session-postgres 23, express-session-redis 7. 0 failed, 0 skipped.
 - Review: the task work is finished. Ralphex's review phases run after the task loop. They had produced no
   findings when this note was written, so nothing has been fixed or revalidated yet.
+
+### Review (20 October 2026)
+
+- Ralphex review 0 found that a rules failure threw before the referrals and emails failures were logged, so a
+  request whose case existed lost those log lines — a change from the baseline, which logged the panels before
+  reading rules. The handler now settles the case and its rules as two promises in the one `allSettled`, throws
+  a case failure before logging, logs the panels, then throws a rules failure. The rules-failure test now expects
+  both panel log lines. Revalidated: lint clean (pre-existing Biome info), build 8/8, full suite with REDIS_URL exit 0 (app 2433 tests), 0 failed, 0 skipped. Also added: a test with the rules finishing after both optional reads, and a reset of the
+  rules mock after each `read failures` test so an unconsumed one-shot stub cannot leak. CLAUDE.md's Performance
+  Considerations now describe the chained rules read.
 
 ## Post-Completion
 
