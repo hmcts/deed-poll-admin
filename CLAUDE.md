@@ -412,6 +412,50 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
   HTTPS refusal, repeats once per interval indefinitely. That is fixed in `IDAM_ISSUER_URL` or the chart, not by
   waiting or cycling the pod.
 
+## Session writes
+
+A destroyed session must stay destroyed whatever request is still holding it (review finding E01; plan
+`docs/plans/20261020-e01-session-revocation.md`). `connect-redis`'s unconditional `SET` let a refresh waiting on IDAM,
+an activity save or `express-session`'s own autosave put a logged-out session back. The rules, which every future
+authenticated writer must follow:
+
+- **The store is `GuardedSessionStore` (`src/auth/guarded-session-store.ts`), passed through the unchanged
+  `expressSessionRedis` seam.** Each record is one Redis hash under `admin-sess-v2:<id>`: `inc` (a random incarnation
+  minted at creation), `rev` (a counter every write moves), `sess` (the JSON), and while a refresh runs `lease` and
+  `leaseUntil`. Every operation is one Lua script, so atomic. The version a request read travels in a `WeakMap` keyed
+  on the session object, never in the cookie or the session JSON, so autosaves carry it and the browser cannot.
+- **Only a never-stored, freshly generated id can create a key.** An update is refused `missing` if the key is gone,
+  `conflict` if `inc` or `rev` moved; `touch` checks `inc` and `EXPIRE` never creates; `destroy` is a plain `DEL` and
+  wins in either order. A refusal is `SessionWriteRefusedError` and changes nothing. **Never add a fallback to a plain
+  write, a retry of a timed-out write, or a write that bypasses the store** — each reopens E01.
+- **An authenticated write that is not a sign-in goes through `saveReconciled` in `src/auth/session.ts`.** It applies a
+  change, and on `conflict` reloads and re-derives the same change from what the store now holds, at most three
+  times. The change must be computed from the re-read session, never copied from the request's snapshot, or an older
+  snapshot rolls back newer tokens or access. `touchLastSeen`, `storeAccess` and `publishRefresh` are its callers.
+  Sign-in, persona switch and timeout restart regenerate instead: the old key is deleted, a new id created.
+- **A gone session is one outcome: `isSessionGone(error)`.** Its handler is `endedElsewhere`
+  (`src/auth/ended-elsewhere.ts`): destroy the request's copy and redirect to `/login`, emitting no event, because
+  whatever ended the session already did. The keep-alive endpoint answers 401. A request whose write was refused never
+  carries on authenticated on its discarded snapshot; any other refusal or store failure is a 500.
+- **One refresh per session across every pod.** `claimRefresh` takes a lease in the session's own hash against Redis's
+  clock (60 s, above the worst refresh; waiting at most 10 s), then reloads so the decision is made from stored state: a waiter normally finds the
+  winner's tokens and refreshes nothing. `publishRefresh` writes the tokens and the `/me` answer in one save that is
+  refused if the lease expired or passed on; a lost lease fails the request and is never retried, because IDAM may
+  already have rotated the refresh token. The lease is released in `finally`, only if still held, and dies with the
+  session's `DEL`.
+- **TTL is the session's own.** `sessionStoreTtl`: signed-in until 15 minutes after the absolute deadline, anonymous
+  10 minutes. Revision and lease share the key, so no coordination state can outlive or resurrect a session.
+- **Legacy and rollout.** Old `admin-sess:` string records are never read; they expire on their own TTL. Old pods can
+  neither read nor write a guarded record, so a mixed-version rollout signs people out, never in, and old pods keep
+  the E01 defect only for their own old-keyspace sessions until they are gone. A rollback returns everyone to the old
+  keyspace and the old defect. The procedure is in `docs/DEPLOYMENT.md#session-writes-and-rollout`.
+- **The Redis suites are a gate.** `src/auth/guarded-session-store.test.ts`, `refresh-coordination.test.ts`,
+  `session-lifecycle.test.ts` and `src/session-store.test.ts` run against real Redis with two app instances and a
+  per-run prefix. They skip only when `REDIS_URL` is unset and Redis is unreachable; set `REDIS_URL` to make them
+  mandatory. No pipeline stage provides Redis yet, so run them locally before changing any session writer.
+- This is a guarantee about this app's session store. It does not revoke tokens at IDAM: a token copied out of a
+  session before logout is IDAM's and api's concern.
+
 ## Security events
 
 Sign-ins, sign-outs, persona switches and refusals go to App Insights as `customEvents`

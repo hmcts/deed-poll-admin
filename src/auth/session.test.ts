@@ -2,11 +2,13 @@ import { ACCESS_GAZETTE, can, currentUser, DEEDPOLL_ADMIN, DEEDPOLL_DELIVERY_MAN
 import type { Request } from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, type RequestDouble } from "../express-doubles.js";
+import { SessionWriteRefusedError } from "./guarded-session-store.js";
 import type { AuthFlowState } from "./idam.js";
 import {
   assertRedisUrl,
   assertSessionSecret,
   assertSessionTimeouts,
+  isSessionGone,
   sessionCookieName,
   sessionHoldsAccess,
   sessionIdToken,
@@ -220,6 +222,104 @@ describe("session timestamps", () => {
     req.session.save.mockImplementation((callback: (error?: Error) => void) => callback(new Error("store down")));
 
     await expect(touchLastSeen(req)).rejects.toThrow("store down");
+  });
+
+  it("should read the session again after another request's write, and move only the clock on what it holds", async () => {
+    vi.useFakeTimers({ now: SIGNED_IN_AT, toFake: ["Date"] });
+    const req = request();
+    await signIn(req, user, "caseworker@example.com", tokens);
+    const later = new Date("2026-10-14T09:20:00Z");
+    vi.setSystemTime(later);
+    req.session.save.mockImplementationOnce((callback: (error?: Error) => void) => callback(new SessionWriteRefusedError("conflict")));
+    req.session.reload.mockImplementationOnce((callback: (error?: Error) => void) => {
+      req.session.deedPoll = { ...req.session.deedPoll, accessToken: "the-winner's-token" };
+      callback();
+    });
+
+    await touchLastSeen(req);
+
+    expect(req.session.save).toHaveBeenCalledTimes(2);
+    expect(req.session.deedPoll.accessToken).toBe("the-winner's-token");
+    expect(sessionTimestamps(req)).toEqual({ authenticatedAt: seconds(SIGNED_IN_AT), lastSeenAt: seconds(later) });
+  });
+
+  it("should never move the clock back to this request's time when the session it re-read is more recent", async () => {
+    vi.useFakeTimers({ now: SIGNED_IN_AT, toFake: ["Date"] });
+    const req = request({ signedIn: true });
+    req.session.deedPoll.lastSeenAt = seconds(SIGNED_IN_AT) - 300;
+    req.session.save.mockImplementationOnce((callback: (error?: Error) => void) => callback(new SessionWriteRefusedError("conflict")));
+    req.session.reload.mockImplementationOnce((callback: (error?: Error) => void) => {
+      req.session.deedPoll = { ...req.session.deedPoll, lastSeenAt: seconds(SIGNED_IN_AT) + 30 };
+      callback();
+    });
+
+    await touchLastSeen(req);
+
+    expect(req.session.deedPoll.lastSeenAt).toBe(seconds(SIGNED_IN_AT) + 30);
+  });
+
+  it("should write nothing more when the session it re-read already records activity at this second", async () => {
+    vi.useFakeTimers({ now: SIGNED_IN_AT, toFake: ["Date"] });
+    const req = request({ signedIn: true });
+    req.session.deedPoll.lastSeenAt = seconds(SIGNED_IN_AT) - 300;
+    req.session.save.mockImplementationOnce((callback: (error?: Error) => void) => callback(new SessionWriteRefusedError("conflict")));
+    req.session.reload.mockImplementationOnce((callback: (error?: Error) => void) => {
+      req.session.deedPoll = { ...req.session.deedPoll, lastSeenAt: seconds(SIGNED_IN_AT) };
+      callback();
+    });
+    req.session.save.mockClear();
+
+    await touchLastSeen(req);
+
+    expect(req.session.save).toHaveBeenCalledTimes(1);
+    expect(req.session.deedPoll.lastSeenAt).toBe(seconds(SIGNED_IN_AT));
+  });
+
+  it("should give up after three conflicting writes rather than retry without bound", async () => {
+    const req = request({ signedIn: true });
+    req.session.deedPoll.lastSeenAt = 0;
+    req.session.save.mockImplementation((callback: (error?: Error) => void) => callback(new SessionWriteRefusedError("conflict")));
+    req.session.reload.mockImplementation((callback: (error?: Error) => void) => {
+      req.session.deedPoll = { ...req.session.deedPoll, lastSeenAt: 0 };
+      callback();
+    });
+
+    await expect(touchLastSeen(req)).rejects.toMatchObject({ reason: "conflict" });
+    expect(req.session.save).toHaveBeenCalledTimes(3);
+    expect(req.session.reload).toHaveBeenCalledTimes(2);
+  });
+
+  it("should write nothing when the session it re-read is no longer signed in", async () => {
+    const req = request({ signedIn: true });
+    req.session.save.mockImplementationOnce((callback: (error?: Error) => void) => callback(new SessionWriteRefusedError("conflict")));
+    req.session.reload.mockImplementationOnce((callback: (error?: Error) => void) => {
+      req.session.deedPoll = {};
+      callback();
+    });
+
+    await touchLastSeen(req);
+
+    expect(req.session.save).toHaveBeenCalledTimes(1);
+    expect(req.session.deedPoll).toEqual({});
+  });
+
+  it("should report a session that has gone as gone, and not retry it", async () => {
+    const req = request({ signedIn: true });
+    req.session.save.mockImplementation((callback: (error?: Error) => void) => callback(new SessionWriteRefusedError("missing")));
+
+    const error = await touchLastSeen(req).catch((caught: unknown) => caught);
+
+    expect(isSessionGone(error)).toBe(true);
+    expect(req.session.save).toHaveBeenCalledTimes(1);
+    expect(req.session.reload).not.toHaveBeenCalled();
+  });
+
+  it("should report a session that went between the conflict and the re-read as gone too", async () => {
+    const req = request({ signedIn: true });
+    req.session.save.mockImplementationOnce((callback: (error?: Error) => void) => callback(new SessionWriteRefusedError("conflict")));
+    req.session.reload.mockImplementationOnce((callback: (error?: Error) => void) => callback(new Error("failed to load session")));
+
+    expect(isSessionGone(await touchLastSeen(req).catch((caught: unknown) => caught))).toBe(true);
   });
 
   // A session from before this change has neither. Reading it as "no timestamps" lets the lifetime check end it.
@@ -591,6 +691,32 @@ describe("the /me answer after sign-in", () => {
     req.session.reload.mockImplementation((callback: (error?: Error) => void) => callback(new Error("gone")));
 
     await expect(storeAccess(req, GAZETTE)).rejects.toThrow("gone");
+  });
+
+  it("should read again and store the answer on what another request wrote between the re-read and the save", async () => {
+    const req = request();
+    req.session.deedPoll.user = { roles: [DEEDPOLL_DELIVERY_MANAGER], isAdmin: true, name: "Same person" };
+    let reads = 0;
+    req.session.reload.mockImplementation((callback: (error?: Error) => void) => {
+      reads += 1;
+      req.session.deedPoll = { user: { roles: [DEEDPOLL_DELIVERY_MANAGER], isAdmin: true, name: "Same person" }, accessToken: `access-${reads}` };
+      callback();
+    });
+    req.session.save.mockImplementationOnce((callback: (error?: Error) => void) => callback(new SessionWriteRefusedError("conflict")));
+
+    await storeAccess(req, GAZETTE);
+
+    expect(reads).toBe(2);
+    expect(req.session.deedPoll.accessToken).toBe("access-2");
+    expect(sessionUser(req)).toMatchObject({ ...GAZETTE, name: "Same person" });
+  });
+
+  it("should report a session that has gone by the re-read as gone", async () => {
+    const req = request();
+    req.session.reload.mockImplementation((callback: (error?: Error) => void) => callback(new Error("failed to load session")));
+
+    expect(isSessionGone(await storeAccess(req, GAZETTE).catch((caught: unknown) => caught))).toBe(true);
+    expect(req.session.save).not.toHaveBeenCalled();
   });
 
   it("should reject when the backfill save fails", async () => {

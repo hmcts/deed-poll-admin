@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SessionWriteRefusedError } from "../../auth/guarded-session-store.js";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { POST } from "./keep-alive.js";
 
@@ -53,6 +54,24 @@ describe("POST /session/keep-alive", () => {
     expect(res.sendStatus).toHaveBeenCalledWith(401);
     expect(res.redirect).not.toHaveBeenCalled();
     expect(req.session.save).not.toHaveBeenCalled();
+  });
+
+  it("should answer 401, and keep nothing, when the session was ended elsewhere before the activity saved", async () => {
+    const req = pageRequest({ signedIn: true });
+    req.session.save.mockImplementation((callback: (error?: Error) => void) => callback(new SessionWriteRefusedError("missing")));
+    const res = response();
+
+    await POST(req, res);
+
+    expect(req.session.destroy).toHaveBeenCalled();
+    expect(res.sendStatus).toHaveBeenCalledWith(401);
+  });
+
+  it("should fail the request when the activity save fails for any other reason", async () => {
+    const req = pageRequest({ signedIn: true });
+    req.session.save.mockImplementation((callback: (error?: Error) => void) => callback(new Error("Socket closed unexpectedly")));
+
+    await expect(POST(req, response())).rejects.toThrow("Socket closed unexpectedly");
   });
 
   it("should never be cached", async () => {
