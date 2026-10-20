@@ -1,7 +1,8 @@
-import { type FieldError, InvalidInputError } from "../errors.js";
+import { InvalidInputError } from "../errors.js";
 import { composeDateParts } from "./date-parts.js";
 import { EDITABLE_FIELDS, type FieldDef } from "./form-fields.js";
-import { numericInputMessage, readNumericInput } from "./numeric-input.js";
+import { collectNumericErrors } from "./form-validation.js";
+import { readNumericInput } from "./numeric-input.js";
 
 /**
  * Turn a flat SSR form POST body into an update patch, driven by the field
@@ -30,14 +31,15 @@ import { numericInputMessage, readNumericInput } from "./numeric-input.js";
  * A typo used to become `null` — an instruction to clear the stored value.
  */
 export function buildUpdatePatch(body: Record<string, unknown>, fields: FieldDef[] = EDITABLE_FIELDS): Record<string, unknown> {
+  const errors = collectNumericErrors(body, fields);
+  if (errors.length > 0) {
+    throw new InvalidInputError("Numeric input is not a number", errors);
+  }
   const patch: Record<string, unknown> = {};
-  const errors: FieldError[] = [];
   for (const field of fields) {
     if (field.readOnly) continue;
     if (field.kind === "number") {
-      const format = field.numberFormat ?? "decimal";
-      const input = readNumericInput(body[field.name], format);
-      if (input.kind === "invalid") errors.push({ field: field.name, message: numericInputMessage(field.label, format) });
+      const input = readNumericInput(body[field.name], field.numberFormat ?? "decimal");
       if (input.kind === "invalid" || input.kind === "absent") continue;
       const value = input.kind === "valid" ? input.value : null;
       if (value === null && field.notNullable) continue;
@@ -47,9 +49,6 @@ export function buildUpdatePatch(body: Record<string, unknown>, fields: FieldDef
     const value = readField(field, body);
     if (value === null && field.notNullable) continue;
     patch[field.name] = value;
-  }
-  if (errors.length > 0) {
-    throw new InvalidInputError("Numeric input is not a number", errors);
   }
   return patch;
 }

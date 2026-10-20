@@ -1,4 +1,5 @@
 import type { FieldDef } from "./form-fields.js";
+import { numericInputMessage, readNumericInput } from "./numeric-input.js";
 
 /** One error, addressed to a field so the form can render it in place. */
 export interface FormError {
@@ -17,6 +18,19 @@ export interface FormError {
  * told about. Until 2026-08-10 both were silently stored as null, so a typo in a
  * year read back as "the date was never entered".
  */
+
+/**
+ * Every per-field input error on a tab save, dates and numbers together, in the order the fields render.
+ *
+ * One list so a caseworker who mistyped both a date and an amount is told about both at once, and in page
+ * order because the GOV.UK error summary is read top to bottom against the form.
+ */
+export function collectFormErrors(body: Record<string, unknown>, fields: FieldDef[]): FormError[] {
+  const position = new Map(fields.map((field, index) => [field.name, index]));
+  return [...collectDateErrors(body, fields), ...collectNumericErrors(body, fields)].sort(
+    (a, b) => (position.get(a.field) ?? 0) - (position.get(b.field) ?? 0)
+  );
+}
 
 /**
  * Errors for date fields whose parts are PARTIALLY or badly filled.
@@ -57,6 +71,22 @@ export function collectDateErrors(body: Record<string, unknown>, fields: FieldDe
     }
   }
   return errors;
+}
+
+/**
+ * Errors for number fields whose text is not a number of the field's format (review finding E04).
+ *
+ * `readNumericInput` is the one rule, shared with `buildUpdatePatch`, so what is refused here is exactly what
+ * that function would refuse to build a patch from. Blank and absent are not errors: a blank clears, and an
+ * absent field is left alone.
+ */
+export function collectNumericErrors(body: Record<string, unknown>, fields: FieldDef[]): FormError[] {
+  return fields
+    .filter((field) => field.kind === "number" && !field.readOnly)
+    .flatMap((field) => {
+      const format = field.numberFormat ?? "decimal";
+      return readNumericInput(body[field.name], format).kind === "invalid" ? [{ field: field.name, message: numericInputMessage(field.label, format) }] : [];
+    });
 }
 
 /**

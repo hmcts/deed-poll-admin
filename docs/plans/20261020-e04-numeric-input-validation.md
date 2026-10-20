@@ -116,17 +116,17 @@ the relevant schema definitions and a colocated numeric helper/test if extractio
 **Files:** `src/pages/deed-polls/[id]/edit/[tab].ts`, its colocated test,
 the existing form/error view-model helpers and locale entries needed by the new messages.
 
-- [ ] Add failing POST-handler tests for invalid refund and age inputs. Assert `updateDeedPoll` is
+- [x] Add failing POST-handler tests for invalid refund and age inputs. Assert `updateDeedPoll` is
       never called, the appropriate field/error-summary link appears and the original text survives.
-- [ ] Apply numeric validation before patch construction/mutation alongside the existing date checks.
+- [x] Apply numeric validation before patch construction/mutation alongside the existing date checks.
       Reuse the parsing result instead of converting strings a second time under different rules.
-- [ ] Combine date and numeric errors in one re-render. Preserve other submitted values, tab routing,
+- [x] Combine date and numeric errors in one re-render. Preserve other submitted values, tab routing,
       API field editability and existing API validation/conflict handling.
-- [ ] Provide concise field-specific messages following the repository's English/Welsh workflow.
+- [x] Provide concise field-specific messages following the repository's English/Welsh workflow.
       Do not display a currency-formatted substitute for the invalid raw value.
-- [ ] Test blank nullable clearing, zero, valid decimal amounts and valid integer ages; assert exact
+- [x] Test blank nullable clearing, zero, valid decimal amounts and valid integer ages; assert exact
       mutation payloads and one write for valid submissions. Missing/readonly fields remain omitted.
-- [ ] Run focused tests, translation checks and all Validation Commands; record results.
+- [x] Run focused tests, translation checks and all Validation Commands; record results.
 
 ### Task 3: Prove the HTTP-to-payload boundary
 
@@ -178,6 +178,20 @@ cases failed against the baseline `form-payload.ts`; green after the change. Val
 api-client 778, cloud-native-platform 157, express-govuk-starter 127, simple-router 41, session-postgres 23,
 session-redis 7. `yarn welsh:check` exits 1 at baseline and after (727 strings, 510 identical in cy);
 Task 1 changed only `libs/deed-poll`, outside the extractor's scope, so the delta is zero.
+
+**Task 2 (Ralphex iteration 2, 2026-10-20).** Start `eec06da`. `collectNumericErrors` (one pass of
+`readNumericInput`, the rule `buildUpdatePatch` now also refuses through) and `collectFormErrors` (dates and
+numbers in field render order) added to `form-validation.ts`; the edit handler calls `collectFormErrors` before
+building the patch, so `updateDeedPoll` is never reached on either error. `collectDateErrors` is unchanged for its
+other callers (`new.ts`, the query builder). Red: the five invalid-input handler cases already passed, because
+Task 1's throw inside the handler's `try` re-renders; the combined date-plus-number case failed (only the date error
+rendered) and passes now. Four valid-write cases first failed on the test's own expectation — the refund tab also
+carries `refundReference`, a text field whose absence still nulls, as before this plan — and were corrected to
+submit it. Messages ("… must be a number", "… must be a whole number") are domain field errors like the date
+messages, which are English-only domain strings outside the Welsh extractor's page scope; no page `en`/`cy` was
+added. The raw submitted text is replayed unformatted. Validation: `yarn lint` clean (same Biome schema info),
+`yarn build` 8/8, full suite 8/8 tasks, no skips — app 2342, deed-poll 1280, others unchanged. `yarn welsh:check`
+exits 1 with the unchanged baseline (727 strings, 510 identical in cy); delta zero.
 
 ## Post-Completion
 
