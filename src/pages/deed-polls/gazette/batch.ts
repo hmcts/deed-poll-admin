@@ -1,5 +1,6 @@
 import {
   buildCaseList,
+  type Caller,
   ForbiddenError,
   findDeedPoll,
   findGazetteReadyCases,
@@ -155,86 +156,116 @@ const cy = {
 export const GET = async (req: Request, res: Response) => render(req, res, newGazetteJourney());
 
 export const POST = async (req: Request, res: Response) => {
-  let journey = await openGazetteJourney(req);
+  const journey = await openGazetteJourney(req);
   if (!journey) return render(req, res, null, "invalid");
   const action: unknown = req.body?.action;
   // Recovery carries the original payload even after review/preview expiry. No readiness pre-read here.
   if (journey.phase === "recover" && action === "check") return submit(req, res, journey);
   if (journey.phase === "refused" && action === "again") {
-    journey = { ...journey, phase: "select", confirmation: undefined, reviewing: undefined };
-    return render(req, res, journey);
+    return render(req, res, { ...journey, phase: "select", confirmation: undefined, reviewing: undefined });
   }
   if (Date.now() - journey.createdAt > 2 * 60 * 60_000) return render(req, res, null, "expired");
   const caller = callerFromRequest(req);
+  if (journey.phase === "select") return selectCases(req, res, journey, action, caller);
+  if (journey.phase === "review") return reviewCase(req, res, journey, action, caller);
+  if (journey.phase === "confirm") return confirmSelection(req, res, journey, action, caller);
+  return render(req, res, null, "invalid");
+};
+
+async function selectCases(req: Request, res: Response, journey: GazetteJourney, action: unknown, caller: Caller) {
   try {
-    if (journey.phase === "select") {
-      const selected = selectedGazetteCases(journey, req.body?.caseIds);
-      if (!selected) return render(req, res, journey, "incomplete");
-      journey = { ...journey, selected };
-      if (typeof action === "string" && action.startsWith("review:")) {
-        const id = action.slice(7);
-        if (!id || id.length > 255 || (journey.reviews.length >= 100 && !journey.reviews.some((r) => r.id === id))) return render(req, res, journey, "invalid");
-        const record = await findDeedPoll(id, caller);
-        return render(req, res, { ...journey, phase: "review", reviewing: { id, version: gazetteReviewVersion(record) } }, undefined, record);
-      }
-      if (typeof action === "string" && /^page:[1-9]\d{0,5}$/.test(action)) return render(req, res, { ...journey, page: Number(action.slice(5)) });
-      if (action === "preview") {
-        if (!selected.length) return render(req, res, journey, "selectOne");
-        const reviews = journey.reviews.filter((r) => selected.includes(r.id));
-        if (!(await gazetteReviewsCurrent(reviews, caller))) return render(req, res, { ...journey, reviews: [], selected: [] }, "changed");
-        const preview = await previewGazetteSelection(selected, caller);
-        // Prevent a preview obtained after an intervening edit from blessing the old checklist.
-        if (!(await gazetteReviewsCurrent(reviews, caller))) return render(req, res, { ...journey, reviews: [], selected: [] }, "changed");
-        return render(req, res, {
-          ...journey,
-          phase: "confirm",
-          confirmation: {
-            key: await gazetteRequestKey(req, journey),
-            caseIds: [...selected],
-            recipientRevision: preview.recipientRevision,
-            selectionFingerprint: preview.selectionFingerprint,
-            recipientEmail: preview.recipientEmail,
-            expiresAt: preview.expiresAt.toISOString(),
-            adultCount: preview.adultCount,
-            minorCount: preview.minorCount,
-            references: preview.cases.map((c) => c.referenceNumber)
-          }
-        });
-      }
+    const selected = selectedGazetteCases(journey, req.body?.caseIds);
+    if (!selected) return render(req, res, journey, "incomplete");
+    journey = { ...journey, selected };
+    if (typeof action === "string" && action.startsWith("review:")) {
+      const id = action.slice(7);
+      if (!id || id.length > 255 || (journey.reviews.length >= 100 && !journey.reviews.some((r) => r.id === id))) return render(req, res, journey, "invalid");
+      const record = await findDeedPoll(id, caller);
+      return render(req, res, { ...journey, phase: "review", reviewing: { id, version: gazetteReviewVersion(record) } }, undefined, record);
     }
-    if (journey.phase === "review" && journey.reviewing) {
-      if (action === "back") return render(req, res, { ...journey, phase: "select", reviewing: undefined });
-      if (action === "save") {
-        const record = await findDeedPoll(journey.reviewing.id, caller);
-        if (gazetteReviewVersion(record) !== journey.reviewing.version) {
-          return render(req, res, { ...journey, reviewing: { id: record.id, version: gazetteReviewVersion(record) } }, "changed", record);
-        }
-        if (!gazetteChecklistComplete(req.body?.checks)) return render(req, res, journey, "checkAll", record);
-        const reviews = [...journey.reviews.filter((r) => r.id !== record.id), journey.reviewing];
-        return render(req, res, { ...journey, phase: "select", reviews, reviewing: undefined });
+    if (typeof action === "string" && /^page:[1-9]\d{0,5}$/.test(action)) return render(req, res, { ...journey, page: Number(action.slice(5)) });
+    if (action === "preview") return previewSelection(req, res, journey, caller);
+    return render(req, res, null, "invalid");
+  } catch (error) {
+    return reviewFailed(req, res, journey, error);
+  }
+}
+
+async function previewSelection(req: Request, res: Response, journey: GazetteJourney, caller: Caller) {
+  const { selected } = journey;
+  if (!selected.length) return render(req, res, journey, "selectOne");
+  try {
+    const reviews = journey.reviews.filter((r) => selected.includes(r.id));
+    if (!(await gazetteReviewsCurrent(reviews, caller))) return render(req, res, { ...journey, reviews: [], selected: [] }, "changed");
+    const preview = await previewGazetteSelection(selected, caller);
+    // Prevent a preview obtained after an intervening edit from blessing the old checklist.
+    if (!(await gazetteReviewsCurrent(reviews, caller))) return render(req, res, { ...journey, reviews: [], selected: [] }, "changed");
+    return render(req, res, {
+      ...journey,
+      phase: "confirm",
+      confirmation: {
+        key: await gazetteRequestKey(req, journey),
+        caseIds: [...selected],
+        recipientRevision: preview.recipientRevision,
+        selectionFingerprint: preview.selectionFingerprint,
+        recipientEmail: preview.recipientEmail,
+        expiresAt: preview.expiresAt.toISOString(),
+        adultCount: preview.adultCount,
+        minorCount: preview.minorCount,
+        references: preview.cases.map((c) => c.referenceNumber)
       }
-    }
-    if (journey.phase === "confirm" && journey.confirmation) {
-      if (action === "back") return render(req, res, { ...journey, phase: "select", confirmation: undefined });
-      if (action === "send") {
-        if (req.body?.confirmed !== "yes") return render(req, res, journey, "mustConfirm");
-        const confirmedIds = journey.confirmation.caseIds;
-        const reviews = journey.reviews.filter((r) => confirmedIds.includes(r.id));
-        if (reviews.length !== journey.confirmation.caseIds.length || !(await gazetteReviewsCurrent(reviews, caller))) {
-          // An old confirmation may already have been posted in another tab. Do not offer a new identity.
-          return render(req, res, null, "changed");
-        }
-        return submit(req, res, { ...journey, phase: "recover" });
+    });
+  } catch (error) {
+    return reviewFailed(req, res, journey, error);
+  }
+}
+
+async function reviewCase(req: Request, res: Response, journey: GazetteJourney, action: unknown, caller: Caller) {
+  if (!journey.reviewing) return render(req, res, null, "invalid");
+  try {
+    if (action === "back") return render(req, res, { ...journey, phase: "select", reviewing: undefined });
+    if (action === "save") {
+      const record = await findDeedPoll(journey.reviewing.id, caller);
+      if (gazetteReviewVersion(record) !== journey.reviewing.version) {
+        return render(req, res, { ...journey, reviewing: { id: record.id, version: gazetteReviewVersion(record) } }, "changed", record);
       }
+      if (!gazetteChecklistComplete(req.body?.checks)) return render(req, res, journey, "checkAll", record);
+      const reviews = [...journey.reviews.filter((r) => r.id !== record.id), journey.reviewing];
+      return render(req, res, { ...journey, phase: "select", reviews, reviewing: undefined });
     }
     return render(req, res, null, "invalid");
   } catch (error) {
-    if (error instanceof ForbiddenError || error instanceof UnauthorizedError) throw error;
-    if (error instanceof GazetteRefusalError) return render(req, res, { ...journey, phase: "refused" }, error.refusal.code);
-    console.error("Gazette review or preview unavailable");
-    return render(req, res, null, "unavailable");
+    return reviewFailed(req, res, journey, error);
   }
-};
+}
+
+async function confirmSelection(req: Request, res: Response, journey: GazetteJourney, action: unknown, caller: Caller) {
+  if (!journey.confirmation) return render(req, res, null, "invalid");
+  try {
+    if (action === "back") return render(req, res, { ...journey, phase: "select", confirmation: undefined });
+    if (action === "send") {
+      if (req.body?.confirmed !== "yes") return render(req, res, journey, "mustConfirm");
+      const confirmedIds = journey.confirmation.caseIds;
+      const reviews = journey.reviews.filter((r) => confirmedIds.includes(r.id));
+      if (reviews.length !== journey.confirmation.caseIds.length || !(await gazetteReviewsCurrent(reviews, caller))) {
+        // An old confirmation may already have been posted in another tab. Do not offer a new identity.
+        return render(req, res, null, "changed");
+      }
+      return submit(req, res, { ...journey, phase: "recover" });
+    }
+    return render(req, res, null, "invalid");
+  } catch (error) {
+    return reviewFailed(req, res, journey, error);
+  }
+}
+
+// Catch operation failures within each step, without reclassifying rejected render/submit promises.
+function reviewFailed(req: Request, res: Response, journey: GazetteJourney, error: unknown) {
+  if (error instanceof ForbiddenError || error instanceof UnauthorizedError) throw error;
+  if (error instanceof GazetteRefusalError) return render(req, res, { ...journey, phase: "refused" }, error.refusal.code);
+  console.error("Gazette review or preview unavailable");
+  return render(req, res, null, "unavailable");
+}
 
 async function submit(req: Request, res: Response, journey: GazetteJourney) {
   const confirmation = journey.confirmation;

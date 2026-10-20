@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  ForbiddenError,
   findDeedPoll,
   findGazetteReadyCases,
   GAZETTE_CHECKS,
@@ -8,7 +9,8 @@ import {
   GazetteRefusalError,
   gazetteReviewsCurrent,
   previewGazetteSelection,
-  sendGazetteSelection
+  sendGazetteSelection,
+  UnauthorizedError
 } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, expect, it, vi } from "vitest";
@@ -227,3 +229,91 @@ it("should render Welsh checklist and confirmation copy and escape names and pre
   expect(check.markup).toContain("&lt;script&gt;reference&lt;/script&gt;");
   expect(check.markup).not.toContain("<script>reference");
 });
+
+// Each extracted step must preserve the distinction between loss of access, a known refusal and an outage.
+it.each(
+  (["review", "save", "preview", "send"] as const).flatMap((action) =>
+    (["forbidden", "unauthorized", "refused", "unavailable"] as const).map((failure) => ({ action, failure }))
+  )
+)("should preserve a $failure failure during $action", async ({ action, failure }) => {
+  const body = await actionBody(action);
+  const error =
+    failure === "forbidden"
+      ? new ForbiddenError("Forbidden")
+      : failure === "unauthorized"
+        ? new UnauthorizedError("Unauthorized")
+        : failure === "refused"
+          ? new GazetteRefusalError({ kind: "gazette-refusal", code: "CASE_NOT_READY", conflicts: [] })
+          : new Error("Unavailable");
+  vi.mocked(findDeedPoll).mockRejectedValue(error);
+  vi.mocked(gazetteReviewsCurrent).mockRejectedValue(error);
+
+  if (failure === "forbidden" || failure === "unauthorized") {
+    await expect(render(body)).rejects.toBe(error);
+  } else {
+    const result = await render(body);
+    expect(result.res.status).toHaveBeenCalledWith(failure === "refused" ? 400 : 503);
+    expect(result.model?.phase).toBe(failure === "refused" ? "refused" : undefined);
+    expect(result.markup).toContain(failure === "refused" ? "An application is no longer ready" : "The applications could not be checked");
+  }
+  expect(sendGazetteSelection).not.toHaveBeenCalled();
+});
+
+it("should retain the posted selection when preview is refused and selection is reopened", async () => {
+  const list = await reviewed();
+  vi.mocked(previewGazetteSelection).mockRejectedValue(new GazetteRefusalError({ kind: "gazette-refusal", code: "RECIPIENT_NOT_CONFIGURED", conflicts: [] }));
+
+  const refused = await render({ journey: list.journey, action: "preview", caseIds: ID });
+  const reopened = await render({ journey: refused.journey, action: "again" });
+
+  expect(refused.model?.phase).toBe("refused");
+  expect(reopened.model?.selectedCount).toBe("1 applications selected");
+  expect(reopened.model?.cases[0].isSelected).toBe(true);
+  expect(previewGazetteSelection).toHaveBeenCalledTimes(1);
+  expect(sendGazetteSelection).not.toHaveBeenCalled();
+});
+
+it("should discard reviews if the application changes while preview is being obtained", async () => {
+  const list = await reviewed();
+  vi.mocked(gazetteReviewsCurrent).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+  const result = await render({ journey: list.journey, action: "preview", caseIds: ID });
+
+  expect(gazetteReviewsCurrent).toHaveBeenCalledTimes(2);
+  expect(previewGazetteSelection).toHaveBeenCalledTimes(1);
+  expect(result.model?.phase).toBe("select");
+  expect(result.model?.selectedCount).toBe("0 applications selected");
+  expect(result.model?.cases[0].isReviewed).toBe(false);
+  expect(result.model?.confirmation).toBeUndefined();
+  expect(result.markup).toContain("has changed since it was reviewed");
+  expect(sendGazetteSelection).not.toHaveBeenCalled();
+});
+
+it("should propagate a selection-render failure without classifying it as a review refusal", async () => {
+  const body = await actionBody("save");
+  const error = new GazetteRefusalError({ kind: "gazette-refusal", code: "CASE_NOT_READY", conflicts: [] });
+  vi.mocked(findGazetteReadyCases).mockRejectedValue(error);
+
+  await expect(render(body)).rejects.toBe(error);
+
+  expect(console.error).not.toHaveBeenCalled();
+  expect(sendGazetteSelection).not.toHaveBeenCalled();
+});
+
+async function actionBody(action: "review" | "save" | "preview" | "send"): Promise<Record<string, unknown>> {
+  if (action === "review") {
+    const list = await render();
+    return { journey: list.journey, action: `review:${ID}` };
+  }
+  if (action === "save") {
+    const list = await render();
+    const review = await render({ journey: list.journey, action: `review:${ID}` });
+    return { journey: review.journey, action, checks: [...GAZETTE_CHECKS] };
+  }
+  if (action === "preview") {
+    const list = await reviewed();
+    return { journey: list.journey, action, caseIds: ID };
+  }
+  const check = await confirmation();
+  return { journey: check.journey, action, confirmed: "yes" };
+}
