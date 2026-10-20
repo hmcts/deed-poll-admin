@@ -94,16 +94,16 @@ diagnostic helper/test only if needed. Read the domain error conversion in
 `src/errors.test.ts`; inspect `requireCapability` in `src/auth/require-role.ts` and the existing
 security-event helper.
 
-- [ ] Add failing tests for CSRF and judicial refusals carrying synthetic sensitive query values.
+- [x] Add failing tests for CSRF and judicial refusals carrying synthetic sensitive query values.
       Exercise both middleware and `domainErrorHandler`, capturing actual logged arguments.
-- [ ] Replace `originalUrl` interpolation with safe route/operation context. Replace raw origin and
+- [x] Replace `originalUrl` interpolation with safe route/operation context. Replace raw origin and
       fetch-metadata values in refusal prose with bounded reasons; ensure the error object is safe
       before it reaches any sink.
-- [ ] Cover cross-origin, same-site and malformed-header refusal paths already supported by the code.
+- [x] Cover cross-origin, same-site and malformed-header refusal paths already supported by the code.
       Assert origin/header markers and control characters do not reappear in logs or exception text.
-- [ ] Retain response status, render target, allow/refuse decisions, authenticated-area boundaries and
+- [x] Retain response status, render target, allow/refuse decisions, authenticated-area boundaries and
       existing security event names/counts. Keep useful method and refusal reason information.
-- [ ] Run focused tests and all Validation Commands; record results.
+- [x] Run focused tests and all Validation Commands; record results.
 
 ### Task 3: Verify final exception and logging boundaries
 
@@ -162,6 +162,22 @@ are kept. Red: 3 of 6 new tests failed with the full query (`q`, repeated `where
 and Gazette/judicial paging) in the message; the encoded-id case already passed. Green: client suite
 158/158. Validation: lint clean (one Biome schema-version info), build 8/8, tests app 2351,
 deed-poll 1204, api-client 784, cloud-native-platform 157, express-govuk-starter 127, simple-router 41,
+express-session-postgres 23, express-session-redis 7; no failures, no skips (`REDIS_URL` set).
+
+### Task 2 evidence (20 October 2026)
+
+Starting commit `29167e1`. `requireSameOrigin` built `${method} ${originalUrl}` plus the raw `Sec-Fetch-Site`
+or `Origin` text; `requireJudicial` built `${originalUrl}`; `requireCapability` built `${req.path}`, which under
+its `/deed-polls/gazette` mount lost the area prefix (`/history requires ACCESS_GAZETTE`). All three now use
+`${method} ${baseUrl}${path}`, the route the security event already records, and the CSRF prose is fixed:
+`from a same-site|cross-site initiator`, `from an unrecognised Sec-Fetch-Site value`, `from a cross-origin
+Origin`. Bounded `fetchSite`/`originHost` details, reasons, statuses, the 404 view and event names are
+unchanged. Red: 8 middleware tests (query markers in `q`, structured `where`, other keys and a fragment;
+marker/CR/LF/ANSI header values; unparseable and pathful origins) and 5 supertest journeys through
+`domainErrorHandler` with the gates mounted as `app.ts` mounts them, which capture the actual
+`console.error` arguments and `trackEvent` calls. Green: 57/57 middleware, errors suite 29/29.
+Validation: lint clean (one Biome schema-version info), build 8/8, tests app 2364, deed-poll 1204,
+api-client 784, cloud-native-platform 157, express-govuk-starter 127, simple-router 41,
 express-session-postgres 23, express-session-redis 7; no failures, no skips (`REDIS_URL` set).
 
 ## Post-Completion

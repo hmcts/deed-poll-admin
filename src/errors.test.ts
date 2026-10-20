@@ -10,10 +10,13 @@
  * "corrects".
  */
 import { createHash } from "node:crypto";
-import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "@hmcts/deed-poll";
 import { trackEvent } from "@hmcts-cft/cloud-native-platform";
-import type { NextFunction } from "express";
+import express, { type NextFunction } from "express";
+import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { requireCapability, requireJudicial } from "./auth/require-role.js";
+import { requireSameOrigin } from "./auth/same-origin.js";
 import { domainErrorHandler } from "./errors.js";
 import { pageResponse } from "./express-doubles.js";
 
@@ -145,6 +148,77 @@ describe("domainErrorHandler", () => {
       expect(serialised).not.toContain("Smith");
       expect(serialised).not.toContain("a-refused-session-id");
       expect(serialised).not.toContain("Gazette access refused");
+    });
+  });
+
+  // The gates' messages are this handler's log line, so the one place to prove a refusal logs no request value is
+  // over real HTTP with the gates mounted as `app.ts` mounts them, capturing what is actually written.
+  describe("what a gate's refusal writes to the log", () => {
+    const QUERY = `?q=${encodeURIComponent("MARKER-Q Smith")}&where=${encodeURIComponent('surname = "MARKER-WHERE"')}&other=MARKER-OTHER`;
+    const app = express()
+      .use((req, res, next) => {
+        Object.assign(req, { session: {} });
+        Object.assign(res, { render: (view: string) => res.send(view) });
+        next();
+      })
+      .use(requireSameOrigin())
+      .use("/judicial", requireJudicial())
+      .use("/deed-polls/gazette", requireCapability(ACCESS_GAZETTE))
+      .use((_req, res) => res.send("reached"))
+      .use(domainErrorHandler());
+
+    let logged: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    it.each([
+      [
+        "a same-site write",
+        () => request(app).post(`/deed-polls/new${QUERY}`).set("Sec-Fetch-Site", "same-site"),
+        "POST /deed-polls/new from a same-site initiator",
+        "csrf.refused"
+      ],
+      [
+        "a write with an unrecognised Sec-Fetch-Site",
+        () => request(app).post(`/deed-polls/new${QUERY}`).set("Sec-Fetch-Site", "MARKER-SITE"),
+        "POST /deed-polls/new from an unrecognised Sec-Fetch-Site value",
+        "csrf.refused"
+      ],
+      [
+        "a cross-origin write without fetch metadata",
+        () => request(app).post(`/deed-polls/new${QUERY}`).set("Origin", "https://MARKER-ORIGIN.example"),
+        "POST /deed-polls/new from a cross-origin Origin",
+        "csrf.refused"
+      ],
+      [
+        "a non-judge on the judicial area",
+        () => request(app).get(`/judicial/referrals${QUERY}`),
+        "GET /judicial/referrals requires judicial access",
+        "authz.denied"
+      ],
+      [
+        "a caller without Gazette access",
+        () => request(app).get(`/deed-polls/gazette/history${QUERY}`),
+        `GET /deed-polls/gazette/history requires ${ACCESS_GAZETTE}`,
+        "authz.denied"
+      ]
+    ])("should log %s with its route and reason and no query or header value", async (_case, send, line, event) => {
+      const response = await send();
+
+      expect(response.status).toBe(403);
+      expect(response.text).toBe("errors/404");
+      expect(logged.mock.calls).toEqual([[`forbidden: ${line}`]]);
+      expect(vi.mocked(trackEvent).mock.calls.map(([name]) => name)).toEqual([event]);
+      expect(JSON.stringify([logged.mock.calls, vi.mocked(trackEvent).mock.calls])).not.toContain("MARKER");
+    });
+
+    it("should still admit a same-origin write and a read outside the gated areas", async () => {
+      const write = await request(app).post(`/deed-polls/new${QUERY}`).set("Sec-Fetch-Site", "same-origin");
+      const read = await request(app).get(`/deed-polls${QUERY}`);
+
+      expect([write.text, read.text]).toEqual(["reached", "reached"]);
+      expect(logged).not.toHaveBeenCalled();
     });
   });
 
