@@ -147,8 +147,9 @@ tests and monitoring tests only where the traced boundaries require coverage.
 
 ## Execution notes
 
-Planning only, 20 October 2026. Ellis authored this plan from review finding E03. No implementation,
-new validation run or Ralphex execution has been performed for this plan. Append execution evidence here.
+Ellis authored this plan from review finding E03 on 20 October 2026. Status: implemented on
+`fix/e03-safe-error-diagnostics` (Tasks 1-4 complete, evidence below); Ralphex review and Steve's review are
+pending, so the plan stays in `docs/plans/` until then.
 
 ### Task 1 evidence (20 October 2026)
 
