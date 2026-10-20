@@ -51,132 +51,154 @@ export function seedDataset(batch: string, asOf: string): SeedCase[] {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf) || !Number.isFinite(anchor.getTime()) || anchor.toISOString().slice(0, 10) !== asOf) {
     throw new Error("--as-of must be a real date in YYYY-MM-DD form.");
   }
-  return ROWS.map(([state, type, forename, surname, age, referralState], i) => {
-    const number = String(i + 1).padStart(2, "0");
-    const marker = `SEED-${batch}-${number}`;
-    const minor = type === "Minor" || type === "MinorTransgender";
-    const urgent = [3, 8, 14, 19, 22].includes(i);
-    const received = daysBefore(anchor, age);
-    const progressed = daysBefore(anchor, Math.max(1, Math.floor(age / 3)));
-    const signatureRequested = daysBefore(anchor, Math.max(3, Math.floor(age / 2)));
-    const signatureReceived = daysBefore(anchor, Math.max(2, Math.floor(age / 4)));
-    const typeIsPrivate = type === "AdultTransgender" || type === "MinorTransgender";
-    const create: CaseWrite = {
-      type,
-      newForename: forename,
-      newSurname: `${surname}-Test`,
-      oldForename: forename,
-      oldSurname: `${surname}-Sample`,
-      newMiddleName: i % 4 === 0 ? "Louise" : null,
-      dateReceived: received,
-      dateOfApplication: daysBefore(anchor, age + 3),
-      // Kept on every row as a searchable seed marker, including synthetic post/counter scenarios.
-      onlineApplicationReference: marker,
-      applicantBuildingNoName: `${10 + i} Example House`,
-      applicantAddress1: "Test Data Street",
-      applicantAddress2: "Synthetic address — not for correspondence",
-      applicantTownCity: TOWNS[i % TOWNS.length],
-      applicantPostcode: POSTCODES[i % POSTCODES.length],
-      applicantEmail: `${marker.toLowerCase()}@example.invalid`,
-      postCounter: ["Online", "Post", "Counter"][i % 3] as "Online" | "Post" | "Counter",
-      inPerson: i % 3 === 2,
-      nationality: "BritishCitizen",
-      nationalitySection: "Section1",
-      maritalStatus: minor ? "Single" : i % 3 === 0 ? "MarriedCivilPartnership" : "Single",
-      privacy: typeIsPrivate ? "Private" : "Normal",
-      publishToLondonGazette: !typeIsPrivate && type !== "DeedOfRelinquishment",
+  return ROWS.map((row, i) => seedCase(row, i, batch, anchor));
+}
+
+function seedCase([state, type, forename, surname, age, referralState]: (typeof ROWS)[number], i: number, batch: string, anchor: Date): SeedCase {
+  const number = String(i + 1).padStart(2, "0");
+  const marker = `SEED-${batch}-${number}`;
+  const minor = type === "Minor" || type === "MinorTransgender";
+  const urgent = [3, 8, 14, 19, 22].includes(i);
+  const received = daysBefore(anchor, age);
+  const typeIsPrivate = type === "AdultTransgender" || type === "MinorTransgender";
+  const create: CaseWrite = {
+    type,
+    newForename: forename,
+    newSurname: `${surname}-Test`,
+    oldForename: forename,
+    oldSurname: `${surname}-Sample`,
+    newMiddleName: i % 4 === 0 ? "Louise" : null,
+    dateReceived: received,
+    dateOfApplication: daysBefore(anchor, age + 3),
+    // Kept on every row as a searchable seed marker, including synthetic post/counter scenarios.
+    onlineApplicationReference: marker,
+    applicantBuildingNoName: `${10 + i} Example House`,
+    applicantAddress1: "Test Data Street",
+    applicantAddress2: "Synthetic address — not for correspondence",
+    applicantTownCity: TOWNS[i % TOWNS.length],
+    applicantPostcode: POSTCODES[i % POSTCODES.length],
+    applicantEmail: `${marker.toLowerCase()}@example.invalid`,
+    postCounter: ["Online", "Post", "Counter"][i % 3] as "Online" | "Post" | "Counter",
+    inPerson: i % 3 === 2,
+    nationality: "BritishCitizen",
+    nationalitySection: "Section1",
+    maritalStatus: minor ? "Single" : i % 3 === 0 ? "MarriedCivilPartnership" : "Single",
+    privacy: typeIsPrivate ? "Private" : "Normal",
+    publishToLondonGazette: !typeIsPrivate && type !== "DeedOfRelinquishment",
+    urgency: urgent ? "Urgent" : "Normal",
+    urgencyreason: urgent ? "Synthetic scenario: travel document needed for an imminent journey." : null,
+    migratedRecord: false,
+    retainPermanently: false,
+    ...(minor
+      ? {
+          minorDateOfBirth: daysBefore(anchor, (8 + (i % 8)) * 365 + 90),
+          ageOfMinor: 8 + (i % 8),
+          ageOfMinorMonths: 3,
+          parents: `Jordan and Casey ${surname}-Sample`
+        }
+      : {}),
+    ...(i % 5 === 2
+      ? {
+          representativeName: "Taylor Example",
+          representativeCompany: "Example Test Solicitors",
+          representativeEmail: `representative-${number}@example.invalid`,
+          representativeBuildingNoName: "2",
+          representativeAddress1: "Synthetic Court",
+          representativeTownCity: TOWNS[i % TOWNS.length],
+          representativePostcode: POSTCODES[i % POSTCODES.length]
+        }
+      : {})
+  };
+  const progress = seedProgress(state, anchor, age, i, minor);
+  const witnesses = seedWitnesses(state, i, number, minor);
+  const rejected = i === 16;
+  return {
+    marker,
+    state,
+    create,
+    progress,
+    witnesses,
+    notes: [
+      `[${marker}] SYNTHETIC TEST DATA. ${SCENARIOS[state]} No real applicant, payment or correspondence.`,
+      `Scenario history: application received ${received.toISOString().slice(0, 10)}. ${minor ? "Minor application; parental details supplied for testing." : "Identity and name details are fictional."} Milestone dates are simulated; audit timestamps reflect the actual seed run.`
+    ],
+    ...(referralState
+      ? {
+          referral: seedReferral(referralState, marker, minor, urgent, typeIsPrivate, rejected)
+        }
+      : {})
+  };
+}
+
+function seedProgress(state: CaseState, anchor: Date, age: number, i: number, minor: boolean): CaseWrite {
+  const progressed = daysBefore(anchor, Math.max(1, Math.floor(age / 3)));
+  const signatureRequested = daysBefore(anchor, Math.max(3, Math.floor(age / 2)));
+  const signatureReceived = daysBefore(anchor, Math.max(2, Math.floor(age / 4)));
+  const progress: CaseWrite = {};
+  switch (state) {
+    case "AwaitingFurtherDocs":
+      progress.awaitingFurtherDocsInfo = progressed;
+      break;
+    case "ReadyForMaster":
+      progress.dateReadyForMaster = progressed;
+      break;
+    case "ReferredToMaster":
+      progress.dateReadyForMaster = daysBefore(anchor, Math.floor(age / 2));
+      progress.dateReferred = progressed;
+      break;
+    case "AwaitingSignature":
+      progress.signatureRequestedDate = signatureRequested;
+      break;
+    case "AwaitingEnrolment":
+    case "Enroled":
+      progress.signatureRequestedDate = signatureRequested;
+      progress.signatureReceivedDate = signatureReceived;
+      if (state === "Enroled") progress.dateEnroled = daysBefore(anchor, 1 + (i % 4));
+      break;
+    case "Returned":
+      progress.dateReturned = progressed;
+      progress.returnReason = minor
+        ? "Required parental consent was not supplied; application returned with guidance."
+        : "Applicant withdrew the application before enrolment.";
+      break;
+  }
+  return progress;
+}
+
+function seedWitnesses(state: CaseState, i: number, number: string, minor: boolean): WitnessCreate[] {
+  const witnessCount = state === "Received" ? i % 3 : state === "AwaitingFurtherDocs" ? 1 : 2;
+  return Array.from({ length: witnessCount }, (_, w) => ({
+    witnessName: `${w === 0 ? "Morgan" : "Casey"} Witness-${number}`,
+    witnessAddress: `${w + 1} Synthetic Witness Road, ${TOWNS[i % TOWNS.length]}, ${POSTCODES[i % POSTCODES.length]}`,
+    witnessOccupation: w === 0 ? "Teacher" : "Engineer",
+    declarant: minor && w === 0
+  }));
+}
+
+function seedReferral(
+  state: ReferralState,
+  marker: string,
+  minor: boolean,
+  urgent: boolean,
+  typeIsPrivate: boolean,
+  rejected: boolean
+): NonNullable<SeedCase["referral"]> {
+  return {
+    state,
+    create: {
+      reasons: minor ? ["Minor"] : ["NonPublication"],
+      notes: `[${marker}] Synthetic ${minor ? "minor application for judicial consideration" : "request to consider non-publication"}.`,
       urgency: urgent ? "Urgent" : "Normal",
-      urgencyreason: urgent ? "Synthetic scenario: travel document needed for an imminent journey." : null,
-      migratedRecord: false,
-      retainPermanently: false,
-      ...(minor
-        ? {
-            minorDateOfBirth: daysBefore(anchor, (8 + (i % 8)) * 365 + 90),
-            ageOfMinor: 8 + (i % 8),
-            ageOfMinorMonths: 3,
-            parents: `Jordan and Casey ${surname}-Sample`
-          }
-        : {}),
-      ...(i % 5 === 2
-        ? {
-            representativeName: "Taylor Example",
-            representativeCompany: "Example Test Solicitors",
-            representativeEmail: `representative-${number}@example.invalid`,
-            representativeBuildingNoName: "2",
-            representativeAddress1: "Synthetic Court",
-            representativeTownCity: TOWNS[i % TOWNS.length],
-            representativePostcode: POSTCODES[i % POSTCODES.length]
-          }
-        : {})
-    };
-    const progress: CaseWrite = {};
-    switch (state) {
-      case "AwaitingFurtherDocs":
-        progress.awaitingFurtherDocsInfo = progressed;
-        break;
-      case "ReadyForMaster":
-        progress.dateReadyForMaster = progressed;
-        break;
-      case "ReferredToMaster":
-        progress.dateReadyForMaster = daysBefore(anchor, Math.floor(age / 2));
-        progress.dateReferred = progressed;
-        break;
-      case "AwaitingSignature":
-        progress.signatureRequestedDate = signatureRequested;
-        break;
-      case "AwaitingEnrolment":
-      case "Enroled":
-        progress.signatureRequestedDate = signatureRequested;
-        progress.signatureReceivedDate = signatureReceived;
-        if (state === "Enroled") progress.dateEnroled = daysBefore(anchor, 1 + (i % 4));
-        break;
-      case "Returned":
-        progress.dateReturned = progressed;
-        progress.returnReason = minor
-          ? "Required parental consent was not supplied; application returned with guidance."
-          : "Applicant withdrew the application before enrolment.";
-        break;
+      ...(urgent ? { urgencyReason: "Synthetic urgent travel scenario." } : {})
+    },
+    direction: {
+      decision: rejected ? "Rejected" : "Approved",
+      publishToGazette: !typeIsPrivate,
+      directionsText: rejected
+        ? "Non-publication request refused in this synthetic scenario; ask whether the applicant wishes to proceed."
+        : "Synthetic direction: the application may proceed subject to the usual signed evidence."
     }
-    const witnessCount = state === "Received" ? i % 3 : state === "AwaitingFurtherDocs" ? 1 : 2;
-    const witnesses = Array.from({ length: witnessCount }, (_, w) => ({
-      witnessName: `${w === 0 ? "Morgan" : "Casey"} Witness-${number}`,
-      witnessAddress: `${w + 1} Synthetic Witness Road, ${TOWNS[i % TOWNS.length]}, ${POSTCODES[i % POSTCODES.length]}`,
-      witnessOccupation: w === 0 ? "Teacher" : "Engineer",
-      declarant: minor && w === 0
-    }));
-    const rejected = i === 16;
-    return {
-      marker,
-      state,
-      create,
-      progress,
-      witnesses,
-      notes: [
-        `[${marker}] SYNTHETIC TEST DATA. ${SCENARIOS[state]} No real applicant, payment or correspondence.`,
-        `Scenario history: application received ${received.toISOString().slice(0, 10)}. ${minor ? "Minor application; parental details supplied for testing." : "Identity and name details are fictional."} Milestone dates are simulated; audit timestamps reflect the actual seed run.`
-      ],
-      ...(referralState
-        ? {
-            referral: {
-              state: referralState,
-              create: {
-                reasons: minor ? ["Minor"] : ["NonPublication"],
-                notes: `[${marker}] Synthetic ${minor ? "minor application for judicial consideration" : "request to consider non-publication"}.`,
-                urgency: urgent ? "Urgent" : "Normal",
-                ...(urgent ? { urgencyReason: "Synthetic urgent travel scenario." } : {})
-              },
-              direction: {
-                decision: rejected ? "Rejected" : "Approved",
-                publishToGazette: !typeIsPrivate,
-                directionsText: rejected
-                  ? "Non-publication request refused in this synthetic scenario; ask whether the applicant wishes to proceed."
-                  : "Synthetic direction: the application may proceed subject to the usual signed evidence."
-              }
-            }
-          }
-        : {})
-    };
-  });
+  };
 }
 
 function daysBefore(anchor: Date, days: number): Date {
