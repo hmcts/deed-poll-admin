@@ -40,7 +40,8 @@ export function buildUpdatePatch(body: Record<string, unknown>, fields: FieldDef
     if (field.readOnly) continue;
     if (field.kind === "number") {
       const input = readNumericInput(body[field.name], field.numberFormat ?? "decimal");
-      if (input.kind === "invalid" || input.kind === "absent") continue;
+      // `invalid` cannot reach here: the pre-pass above has already thrown on it.
+      if (input.kind === "absent") continue;
       const value = input.kind === "valid" ? input.value : null;
       if (value === null && field.notNullable) continue;
       patch[field.name] = value;

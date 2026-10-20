@@ -166,8 +166,8 @@ the existing form/error view-model helpers and locale entries needed by the new 
 
 ## Execution notes
 
-Planning only, 20 October 2026. Ellis authored this plan from review finding E04. No implementation,
-new validation run or Ralphex execution has been performed for this plan. Append execution evidence here.
+Authored 20 October 2026 by Ellis from review finding E04. Executed 20 October 2026 via Ralphex;
+evidence per task follows.
 
 **Task 1 (Ralphex iteration 1, 2026-10-20).** Execution baseline `d99babb` on
 `fix/e04-numeric-input-validation` (master `5b94315` plus this plan). Finding rechecked at baseline: `Number`

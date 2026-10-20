@@ -31,6 +31,7 @@ describe("deed-poll/numeric-input", () => {
       ["0", 0],
       [" 11 ", 11],
       ["7.0", 7],
+      ["7.0000", 7],
       ["-1", -1],
       ["2147483647", 2147483647],
       ["-2147483648", -2147483648]
@@ -71,7 +72,7 @@ describe("deed-poll/numeric-input", () => {
       expect(readNumericInput(overflow, "decimal")).toEqual({ kind: "invalid" });
     });
 
-    it.each(["7.5", "0.1", "2147483648", "-2147483649", "9007199254740993"])(
+    it.each(["7.5", "7.10", "0.1", "2147483648", "-2147483649", "9007199254740993"])(
       "should read %j as invalid for an integer field rather than rounding or overflowing int32",
       (raw) => {
         expect(readNumericInput(raw, "integer")).toEqual({ kind: "invalid" });

@@ -50,7 +50,7 @@ export function numericInputMessage(label: string, format: NumberFormat): string
 }
 
 function isInt32(value: number): boolean {
-  return Number.isInteger(value) && value >= INT32_MIN && value <= INT32_MAX;
+  return value >= INT32_MIN && value <= INT32_MAX;
 }
 
 /** `integer` for api's `int32` fields, `decimal` for its plain `number` ones. */

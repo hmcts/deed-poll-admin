@@ -559,6 +559,8 @@ E04; plan `docs/plans/20261020-e04-numeric-input-validation.md`). The rules for 
   authoritative for permissions and business rules, and its 400s still come back through the handler's existing
   `InvalidInputError` path. `src/case-edit-numeric.test.ts` drives real URL-encoded posts through the handler with
   persistence mocked; it proves the outgoing patch, not a live save.
+- **The field-error messages are English-only domain strings** in `form-validation.ts`, like the date-part messages, so
+  they sit outside the Welsh extractor's page scope and add nothing to `yarn welsh:check`. Do not add `cy` strings.
 
 # Agent instructions
 
