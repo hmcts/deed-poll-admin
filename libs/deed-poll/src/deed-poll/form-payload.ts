@@ -38,17 +38,8 @@ export function buildUpdatePatch(body: Record<string, unknown>, fields: FieldDef
   const patch: Record<string, unknown> = {};
   for (const field of fields) {
     if (field.readOnly) continue;
-    if (field.kind === "number") {
-      const input = readNumericInput(body[field.name], field.numberFormat ?? "decimal");
-      // `invalid` cannot reach here: the pre-pass above has already thrown on it.
-      if (input.kind === "absent") continue;
-      const value = input.kind === "valid" ? input.value : null;
-      if (value === null && field.notNullable) continue;
-      patch[field.name] = value;
-      continue;
-    }
     const value = readField(field, body);
-    if (value === null && field.notNullable) continue;
+    if (value === undefined || (value === null && field.notNullable)) continue;
     patch[field.name] = value;
   }
   return patch;
@@ -56,6 +47,12 @@ export function buildUpdatePatch(body: Record<string, unknown>, fields: FieldDef
 
 function readField(field: FieldDef, body: Record<string, unknown>): unknown {
   switch (field.kind) {
+    case "number": {
+      const input = readNumericInput(body[field.name], field.numberFormat ?? "decimal");
+      // `invalid` cannot reach here: buildUpdatePatch's pre-pass has already thrown on it.
+      if (input.kind === "absent") return undefined;
+      return input.kind === "valid" ? input.value : null;
+    }
     case "date":
       return composeDateParts(str(body[`${field.name}-day`]), str(body[`${field.name}-month`]), str(body[`${field.name}-year`]));
     case "boolean":
