@@ -1,5 +1,7 @@
+import { type FieldError, InvalidInputError } from "../errors.js";
 import { composeDateParts } from "./date-parts.js";
 import { EDITABLE_FIELDS, type FieldDef } from "./form-fields.js";
+import { numericInputMessage, readNumericInput } from "./numeric-input.js";
 
 /**
  * Turn a flat SSR form POST body into an update patch, driven by the field
@@ -22,14 +24,32 @@ import { EDITABLE_FIELDS, type FieldDef } from "./form-fields.js";
  * must mean "leave alone" rather than "clear". Nulling one is a 500, which is exactly
  * what a non-admin saving the Application tab used to get — `privacy` renders disabled
  * for them and a disabled control is not submitted.
+ *
+ * Number fields follow `readNumericInput` instead (review finding E04): absent is omitted, blank clears, and
+ * text that is not a number throws `InvalidInputError` naming each such field, so no patch exists to send.
+ * A typo used to become `null` — an instruction to clear the stored value.
  */
 export function buildUpdatePatch(body: Record<string, unknown>, fields: FieldDef[] = EDITABLE_FIELDS): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
+  const errors: FieldError[] = [];
   for (const field of fields) {
     if (field.readOnly) continue;
+    if (field.kind === "number") {
+      const format = field.numberFormat ?? "decimal";
+      const input = readNumericInput(body[field.name], format);
+      if (input.kind === "invalid") errors.push({ field: field.name, message: numericInputMessage(field.label, format) });
+      if (input.kind === "invalid" || input.kind === "absent") continue;
+      const value = input.kind === "valid" ? input.value : null;
+      if (value === null && field.notNullable) continue;
+      patch[field.name] = value;
+      continue;
+    }
     const value = readField(field, body);
     if (value === null && field.notNullable) continue;
     patch[field.name] = value;
+  }
+  if (errors.length > 0) {
+    throw new InvalidInputError("Numeric input is not a number", errors);
   }
   return patch;
 }
@@ -41,12 +61,6 @@ function readField(field: FieldDef, body: Record<string, unknown>): unknown {
     case "boolean":
       // Unchecked checkboxes are absent from the body; a present truthy value wins.
       return body[field.name] === "true" || body[field.name] === "on";
-    case "number": {
-      const v = str(body[field.name]);
-      if (v === "") return null;
-      const n = Number(v);
-      return Number.isNaN(n) ? null : n;
-    }
     case "multiselect":
       return toIntArray(body[field.name]);
     // Everything else is read as a plain string: `enum`, `text` and `textarea`, plus any

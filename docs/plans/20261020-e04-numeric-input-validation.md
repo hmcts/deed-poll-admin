@@ -77,18 +77,39 @@ do not describe an unrelated nonzero baseline as a clean pass.
 **Files:** `libs/deed-poll/src/deed-poll/form-payload.ts`, `form-payload.test.ts`, `form-fields.ts`,
 the relevant schema definitions and a colocated numeric helper/test if extraction improves clarity.
 
-- [ ] Inventory numeric editable fields, their nullability/integer semantics and all patch-builder
+- [x] Inventory numeric editable fields, their nullability/integer semantics and all patch-builder
       callers. Check current schema/API constraints and document the supported input syntax here.
-- [ ] Add failing tests for `12x`, `£25.00`, `1e999`, `NaN`, `Infinity` and non-scalar submitted values.
+- [x] Add failing tests for `12x`, `£25.00`, `1e999`, `NaN`, `Infinity` and non-scalar submitted values.
       Assert invalid input is distinct from blank and cannot yield a `null` numeric patch.
-- [ ] Implement the shared typed parser/result with finite-number checks and integer validation.
+- [x] Implement the shared typed parser/result with finite-number checks and integer validation.
       Cover decimal refund amounts, integer ages, zero, whitespace-only blanks, absent values,
       readonly fields, fractions in integer fields and unsafe integer values.
-- [ ] Pin exponent, sign and non-decimal-prefix behaviour explicitly according to the documented
+- [x] Pin exponent, sign and non-decimal-prefix behaviour explicitly according to the documented
       syntax decision. Preserve existing legitimate values; do not silently round or strip characters.
-- [ ] Ensure callers cannot accidentally bypass invalid results and build an update. Keep package
+- [x] Ensure callers cannot accidentally bypass invalid results and build an update. Keep package
       exports narrow and adapt existing callers as needed to maintain a coherent build.
-- [ ] Run focused tests and all Validation Commands; record red/green evidence.
+- [x] Run focused tests and all Validation Commands; record red/green evidence.
+
+**Task 1 inventory and syntax decision (recorded 2026-10-20).**
+
+- Editable number fields (`EDITABLE_FIELDS`, kind `number`): `ageOfMinor` and `ageOfMinorMonths`
+  (`UpdateCaseRequest`: `["integer","null"]`, `int32`) and `refundAmount` (`["number","null"]`). No
+  minimum, maximum or precision is published; `UpdateCaseRequest` sets `additionalProperties: false`.
+  Read-only numbers (`referencenumber`, `daysReceivedToEnroled`, `daysReceivedToReturned`) are never patched.
+  Local zod (`schemas.ts`) agrees: `z.int().nullish()` / `z.number().nullish()`.
+- The one `buildUpdatePatch` caller is `src/pages/deed-polls/[id]/edit/[tab].ts`; it calls it inside the
+  `try` that already re-renders `InvalidInputError`, so invalid numbers re-render instead of writing.
+- Parser: `libs/deed-poll/src/deed-poll/numeric-input.ts` (`readNumericInput`, not exported from the
+  package index). Outcomes `absent | blank | valid | invalid`. Accepted syntax after trimming surrounding
+  whitespace is plain decimal `^[+-]?(\d+(\.\d*)?|\.\d+)$`: signs allowed (contract has no minimum),
+  exponent (`1e3`), `0x`/`0b`/`0o` prefixes, `NaN`/`Infinity`, currency symbols, separators and
+  non-ASCII digits refused, never stripped. Non-finite results are invalid. Integer fields (`numberFormat:
+  "integer"` on `FieldDef`, pinned to the contract by `form-fields.test.ts`) must be an integer in int32
+  range; `7.0` reads as 7, `7.5` is refused, not rounded. A non-string body value (duplicate field array,
+  bracketed object) is invalid.
+- `buildUpdatePatch`: number absent → omitted (previously nulled), blank → `null` unless `notNullable`,
+  valid → the number, invalid → collected and thrown as one `InvalidInputError` naming each field, so no
+  patch is returned. Other kinds unchanged.
 
 ### Task 2: Render numeric field errors without a write
 
@@ -147,6 +168,16 @@ the existing form/error view-model helpers and locale entries needed by the new 
 
 Planning only, 20 October 2026. Ellis authored this plan from review finding E04. No implementation,
 new validation run or Ralphex execution has been performed for this plan. Append execution evidence here.
+
+**Task 1 (Ralphex iteration 1, 2026-10-20).** Execution baseline `d99babb` on
+`fix/e04-numeric-input-validation` (master `5b94315` plus this plan). Finding rechecked at baseline: `Number`
+fallback mapped `12x`/`NaN` to `null` and `1e999` to `Infinity`. Red: 13 of the new `form-payload.test.ts`
+cases failed against the baseline `form-payload.ts`; green after the change. Validation with
+`REDIS_URL=redis://127.0.0.1:6379`: `yarn lint` clean (one pre-existing Biome schema-version info), `yarn build`
+8/8, `yarn turbo test test:app --concurrency=1 --force` 8/8 tasks, no skips — app 2328, deed-poll 1275,
+api-client 778, cloud-native-platform 157, express-govuk-starter 127, simple-router 41, session-postgres 23,
+session-redis 7. `yarn welsh:check` exits 1 at baseline and after (727 strings, 510 identical in cy);
+Task 1 changed only `libs/deed-poll`, outside the extractor's scope, so the delta is zero.
 
 ## Post-Completion
 

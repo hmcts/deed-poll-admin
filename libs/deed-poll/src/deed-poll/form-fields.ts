@@ -1,5 +1,6 @@
 import type { CardColumn } from "./card-layout.js";
 import { LABELS } from "./enums/dynamics-values.js";
+import type { NumberFormat } from "./numeric-input.js";
 
 /**
  * Form-field metadata — the single source of truth for the editable case form.
@@ -25,6 +26,11 @@ export interface FieldDef {
   kind: FieldKind;
   /** For kind 'enum'/'multiselect': the LABELS set key (e.g. 'type'). */
   enumSet?: keyof typeof LABELS;
+  /**
+   * For kind 'number': `integer` where `UpdateCaseRequest` publishes the field as `integer`/`int32`, otherwise
+   * `decimal`, which is what absent means. `form-fields.test.ts` pins each editable number field to the contract.
+   */
+  numberFormat?: NumberFormat;
   /** Read-only on the form (disabled input); never written on save. */
   readOnly?: boolean;
   /**
@@ -125,9 +131,9 @@ const APPLICATION_TAB: TabDef = {
         // separate card: all four are hidden by getFieldRules for a non-minor type,
         // so on an Adult case the left column simply ends at Marital status.
         { name: "minorDateOfBirth", label: "Minor's date of birth", kind: "date", column: 1 },
-        { name: "ageOfMinor", label: "Age of minor years", kind: "number", column: 1 },
+        { name: "ageOfMinor", label: "Age of minor years", kind: "number", numberFormat: "integer", column: 1 },
         // duplicates ageOfMinor at finer grain
-        { name: "ageOfMinorMonths", label: "Age of minor months", kind: "number", queryable: false, column: 1 },
+        { name: "ageOfMinorMonths", label: "Age of minor months", kind: "number", numberFormat: "integer", queryable: false, column: 1 },
         { name: "parents", label: "Parents", kind: "text", column: 1 },
 
         { name: "privacy", label: "Privacy", kind: "enum", enumSet: "privacy", notNullable: true, column: 2 },
