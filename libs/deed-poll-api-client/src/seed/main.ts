@@ -42,24 +42,7 @@ async function main(): Promise<void> {
   if (!values.environment || !values["api-url"] || !values.batch) throw new Error("Supply --environment, --api-url and --batch. Use --help for usage.");
   const target = seedTarget(values.environment, values["api-url"]);
   const filename = seedJournalPath(target.environment, values.batch, values.journal);
-  let journal: SeedJournal;
-  try {
-    journal = JSON.parse(await readFile(filename, "utf8")) as SeedJournal;
-    if (
-      journal.version !== 1 ||
-      journal.baseUrl !== target.baseUrl ||
-      journal.environment !== target.environment ||
-      journal.batch !== values.batch ||
-      (values["as-of"] && journal.asOf !== values["as-of"]) ||
-      !journal.steps ||
-      !journal.cases
-    ) {
-      throw new Error("Journal does not match this target, dataset version, batch or date.");
-    }
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-    journal = { version: 1, ...target, batch: values.batch, asOf: values["as-of"] ?? new Date().toISOString().slice(0, 10), steps: {}, cases: {} };
-  }
+  const journal = await loadJournal(filename, target, values.batch, values["as-of"]);
   const dataset = seedDataset(journal.batch, journal.asOf);
   const options = { deferJudicial: values["defer-judicial"] };
   // The host alone: `seedTarget` has already refused credentials, but nothing on a command line belongs in a log whole.
@@ -87,38 +70,12 @@ async function main(): Promise<void> {
   const lock = await open(`${filename}.lock`, "wx", 0o600);
   try {
     if (values["create-test-users"]) {
-      const reachable = await checkApiReachable({ baseUrl: target.baseUrl });
-      if (!reachable.ok) throw new Error(`API is unreachable (${reachable.error.kind}); no IDAM users were created. Check DNS and VPN.`);
-      const vault = values.vault ?? `deed-poll-${target.environment}`;
-      if (!vault.endsWith(`-${target.environment}`) || /(^|-)(prod|production|live)(-|$)/i.test(vault))
-        throw new Error("Vault must belong to the selected non-production environment.");
-      let clientSecret: string;
-      try {
-        const result = await promisify(execFile)(
-          "az",
-          ["keyvault", "secret", "show", "--vault-name", vault, "--name", values["secret-name"], "--query", "value", "--output", "tsv"],
-          { timeout: 30_000 }
-        );
-        clientSecret = result.stdout.trim();
-        if (!clientSecret) throw new Error("Empty client secret");
-      } catch {
-        throw new Error("Could not read the IDAM client secret using Azure CLI. Check az login and vault access.");
-      }
-      credentials = await seedTestAccounts({
-        environment: target.environment,
+      credentials = await createTestCredentials(target, filename, {
+        vault: values.vault,
+        secretName: values["secret-name"],
         clientId: values["client-id"],
-        clientSecret,
-        issuerUrl: `https://hmcts-access.${target.environment}.platform.hmcts.net/o`,
-        supportUrl: `https://idam-testing-support-api.${target.environment}.platform.hmcts.net`,
-        filename: `${filename}.accounts.json`,
         ...options
       });
-      console.log(
-        options.deferJudicial
-          ? "Temporary admin test account authenticated; judge account untouched."
-          : "Temporary admin and judicial test accounts authenticated."
-      );
-      console.log("Credentials are retained privately beside the journal for resuming.");
     }
     await seedCases(
       journal,
@@ -135,4 +92,66 @@ async function main(): Promise<void> {
     await lock.close();
     await unlink(`${filename}.lock`);
   }
+}
+
+async function loadJournal(filename: string, target: ReturnType<typeof seedTarget>, batch: string, asOf?: string): Promise<SeedJournal> {
+  try {
+    const journal = JSON.parse(await readFile(filename, "utf8")) as SeedJournal;
+    if (
+      journal.version !== 1 ||
+      journal.baseUrl !== target.baseUrl ||
+      journal.environment !== target.environment ||
+      journal.batch !== batch ||
+      (asOf && journal.asOf !== asOf) ||
+      !journal.steps ||
+      !journal.cases
+    ) {
+      throw new Error("Journal does not match this target, dataset version, batch or date.");
+    }
+    return journal;
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    return { version: 1, ...target, batch, asOf: asOf ?? new Date().toISOString().slice(0, 10), steps: {}, cases: {} };
+  }
+}
+
+async function createTestCredentials(target: ReturnType<typeof seedTarget>, filename: string, options: TestAccountOptions): Promise<SeedCredentials> {
+  const reachable = await checkApiReachable({ baseUrl: target.baseUrl });
+  if (!reachable.ok) throw new Error(`API is unreachable (${reachable.error.kind}); no IDAM users were created. Check DNS and VPN.`);
+  const vault = options.vault ?? `deed-poll-${target.environment}`;
+  if (!vault.endsWith(`-${target.environment}`) || /(^|-)(prod|production|live)(-|$)/i.test(vault))
+    throw new Error("Vault must belong to the selected non-production environment.");
+  let clientSecret: string;
+  try {
+    const result = await promisify(execFile)(
+      "az",
+      ["keyvault", "secret", "show", "--vault-name", vault, "--name", options.secretName, "--query", "value", "--output", "tsv"],
+      { timeout: 30_000 }
+    );
+    clientSecret = result.stdout.trim();
+    if (!clientSecret) throw new Error("Empty client secret");
+  } catch {
+    throw new Error("Could not read the IDAM client secret using Azure CLI. Check az login and vault access.");
+  }
+  const credentials = await seedTestAccounts({
+    environment: target.environment,
+    clientId: options.clientId,
+    clientSecret,
+    issuerUrl: `https://hmcts-access.${target.environment}.platform.hmcts.net/o`,
+    supportUrl: `https://idam-testing-support-api.${target.environment}.platform.hmcts.net`,
+    filename: `${filename}.accounts.json`,
+    deferJudicial: options.deferJudicial
+  });
+  console.log(
+    options.deferJudicial ? "Temporary admin test account authenticated; judge account untouched." : "Temporary admin and judicial test accounts authenticated."
+  );
+  console.log("Credentials are retained privately beside the journal for resuming.");
+  return credentials;
+}
+
+interface TestAccountOptions {
+  vault?: string;
+  secretName: string;
+  clientId: string;
+  deferJudicial: boolean;
 }
