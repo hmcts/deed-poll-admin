@@ -7,8 +7,13 @@
  * and picking the wrong one fails silently in production — a retired field back on the edit form, or a migrated
  * value that renders as a raw date and drops out of the query chooser. Hence the assertions here.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CASE_FIELD_TABS, EDITABLE_FIELDS, FIELD_BY_NAME, FORM_TABS, LEGACY_REFERRAL_TAB } from "./form-fields.js";
+
+const OPENAPI = JSON.parse(readFileSync(new URL("../../../deed-poll-api-client/openapi.json", import.meta.url), "utf8")) as {
+  components: { schemas: { UpdateCaseRequest: { properties: Record<string, { type: string | string[] }> } } };
+};
 
 const LEGACY_FIELD_NAMES = LEGACY_REFERRAL_TAB.sections.flatMap((section) => section.fields).map((field) => field.name);
 
@@ -52,6 +57,24 @@ describe("deed-poll/form-fields", () => {
 
       expect(editable).not.toContain("referencenumber");
       expect(editable).toContain("newSurname");
+    });
+  });
+
+  describe("editable number fields", () => {
+    it("should be the three numeric fields api accepts on an update, each with the contract's integer or decimal format", () => {
+      // `numberFormat` decides whether a fraction is refused, so it must be api's answer, not a guess: an integer
+      // field marked decimal would send `7.5` for api to refuse, and a decimal one marked integer would refuse a
+      // legitimate amount. Absent means decimal, which is why a new integer field has to fail here.
+      const properties = OPENAPI.components.schemas.UpdateCaseRequest.properties;
+      const contractFormat = (name: string) => {
+        const types = [properties[name]?.type].flat();
+        return types.includes("integer") ? "integer" : types.includes("number") ? "decimal" : undefined;
+      };
+
+      const numbers = EDITABLE_FIELDS.filter((field) => field.kind === "number");
+
+      expect(numbers.map((field) => field.name)).toEqual(["ageOfMinor", "ageOfMinorMonths", "refundAmount"]);
+      for (const field of numbers) expect(field.numberFormat ?? "decimal", field.name).toBe(contractFormat(field.name));
     });
   });
 

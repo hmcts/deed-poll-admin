@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FieldDef } from "./form-fields.js";
-import { collectDateErrors } from "./form-validation.js";
+import { collectDateErrors, collectFormErrors, collectNumericErrors } from "./form-validation.js";
 
 const DATES: FieldDef[] = [
   { name: "signatureRequestedDate", label: "Signature requested date", kind: "date" },
@@ -87,5 +87,52 @@ describe("collectDateErrors", () => {
     ];
     const errors = collectDateErrors({ returnReason: "x", ...parts("dateOfApplication", "99", "99", "x") }, fields);
     expect(errors).toEqual([]);
+  });
+});
+
+const NUMBERS: FieldDef[] = [
+  { name: "ageOfMinor", label: "Age of minor years", kind: "number", numberFormat: "integer" },
+  { name: "refundAmount", label: "Refund amount", kind: "number" }
+];
+
+describe("collectNumericErrors", () => {
+  it("should name each field whose text is not a number of its format", () => {
+    const errors = collectNumericErrors({ ageOfMinor: "7.5", refundAmount: "£25.00" }, NUMBERS);
+
+    expect(errors).toEqual([
+      { field: "ageOfMinor", message: "Age of minor years must be a whole number" },
+      { field: "refundAmount", message: "Refund amount must be a number" }
+    ]);
+  });
+
+  it("should accept blank, absent and valid values, zero included", () => {
+    expect(collectNumericErrors({ ageOfMinor: "0", refundAmount: "  " }, NUMBERS)).toEqual([]);
+    expect(collectNumericErrors({}, NUMBERS)).toEqual([]);
+  });
+
+  it("should ignore read-only and non-number fields, which are never patched", () => {
+    const fields: FieldDef[] = [
+      { name: "referencenumber", label: "Reference", kind: "number", readOnly: true },
+      { name: "newSurname", label: "New surname", kind: "text" }
+    ];
+
+    expect(collectNumericErrors({ referencenumber: "x", newSurname: "12x" }, fields)).toEqual([]);
+  });
+});
+
+describe("collectFormErrors", () => {
+  it("should report date and number errors together in the order the fields render", () => {
+    const fields: FieldDef[] = [DATES[0], NUMBERS[1], DATES[1]];
+
+    const errors = collectFormErrors(
+      { ...parts("signatureRequestedDate", "3", "", ""), refundAmount: "12x", ...parts("signatureReceivedDate", "31", "2", "2026") },
+      fields
+    );
+
+    expect(errors.map((error) => error.field)).toEqual(["signatureRequestedDate", "refundAmount", "signatureReceivedDate"]);
+  });
+
+  it("should be empty for a clean body", () => {
+    expect(collectFormErrors({ refundAmount: "10", ...parts("signatureRequestedDate", "", "", "") }, [...DATES, ...NUMBERS])).toEqual([]);
   });
 });
