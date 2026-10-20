@@ -219,6 +219,16 @@ Biome schema-version info), build 8/8, tests app 2371, deed-poll 1204, api-clien
 express-govuk-starter 127, simple-router 41, express-session-postgres 23, express-session-redis 7; no failures, no
 skips (`REDIS_URL` set).
 
+### Verification before PR (20 October 2026, Arbor)
+
+- Merged admin `origin/master` `f4340f1` (E02 #205, E04 #208) into the branch, cleanly.
+- On the merged tree: `yarn lint` exit 0; `yarn turbo build build:app --force` exit 0;
+  `yarn turbo test test:app --concurrency=1 --force` exit 0: 222 files, 4,875 tests, none failed or skipped.
+- Direct scoped Copilot review (gpt-6-astra, read-only; 45 tool calls across `client.ts`, `deed-poll-api.ts`,
+  `same-origin.ts`, `require-role.ts`, `errors.ts` and the diagnostics tests): no issues found.
+- Checked separately: every path segment `client.ts` builds is an id, a Gazette batch id or an email template name,
+  so cutting the query and fragment leaves no search text in a diagnostic.
+
 ## Post-Completion
 
 Hand the reviewed branch and evidence to Steve. Any production telemetry investigation or historical
