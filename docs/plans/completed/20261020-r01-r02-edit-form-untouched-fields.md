@@ -236,6 +236,24 @@ guard), and a handler-level test.
   express-session-postgres 23, express-session-redis 7. Against the baseline: app +9, deed-poll +15, no new
   failures or skips. Ready for the Ralphex review phases.
 
+### Verification before PR (20 October 2026, Arbor)
+
+- Plain `ralphex` run in the devcontainer (18m11s), with the repo's signal-rule prompts and `default_branch =
+  origin/master`. The external review got the correct 14-file diff. The tree was clean afterwards and every signal
+  was genuine.
+- Against `origin/master` `cb91197`: `yarn lint` exit 0; `yarn turbo build build:app --force` exit 0;
+  `yarn turbo test test:app --concurrency=1 --force` exit 0: 225 files, 4,958 tests, none failed or skipped
+  (baseline before the run: 224 files, 4,929).
+- Red against the old code: with `origin/master`'s `form-payload.ts`, `edit-view.ts`, `edit.njk` and mock
+  `server.ts` restored, 18 of the new tests fail: 6 of 67 in the app (`case-edit-untouched-fields`, `[tab]`), 10 of
+  95 in the library (`edit-view`, `form-payload`, `deed-poll-validation`) and 2 of 243 in the mock. All pass with
+  this branch's code.
+- api's clears confirmed independently on api `origin/master` `554fe49`: `DeedPollService.java:410` applies
+  `applyGazetteGate` and `:415` `applyMinorGate` to the merged record on update; `DeedPollValidation.java:218`
+  clears the four minor-only fields for Adult and Relinquishment types, as the mock's `writeGates` now does.
+- Direct scoped Copilot review (gpt-6-astra, read-only, against `origin/master`; 54 tool calls over the plan, the
+  changed source and tests, and the mock): no issues found.
+
 ## Post-Completion
 
 Publishing, merging and deployment are separate from this plan.
