@@ -604,7 +604,7 @@ no case first, so the body is the only evidence of what the page rendered. The r
   or not, published or not. A rule that needs to hide one first needs a different way to tell "unticked" from "not
   rendered".
 - **A nullable boolean is Yes / No radios, not a checkbox** (review finding R07; plan
-  `docs/plans/20261020-r07-r08-edit-form-input-shapes.md`). A checkbox has two states and `inPerson` has three:
+  `docs/plans/completed/20261020-r07-r08-edit-form-input-shapes.md`). A checkbox has two states and `inPerson` has three:
   api types it `["boolean", "null"]`, and as a checkbox an unanswered question read as unticked, so every save of the
   Application tab turned "not answered" into "No". `nullable: true` on the `FieldDef` renders it as radios with
   neither selected for `null`; nothing selected is absent and leaves the stored value alone, Yes sends `"true"` and
