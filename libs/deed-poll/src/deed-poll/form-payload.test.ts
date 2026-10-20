@@ -61,6 +61,39 @@ describe("buildUpdatePatch", () => {
       expect(patch).toEqual({ refundAmount: 10 });
     });
 
+    it.each([undefined, "", "   "])("should omit an absent or blank non-nullable number (%j)", (raw) => {
+      const patch = buildUpdatePatch({ refundAmount: raw }, [{ ...FIELD_BY_NAME.refundAmount, notNullable: true }]);
+
+      expect(patch).toEqual({});
+    });
+
+    it.each([
+      ["0", 0],
+      [" 25.50 ", 25.5]
+    ])("should retain a valid non-nullable number (%s)", (raw, expected) => {
+      const patch = buildUpdatePatch({ refundAmount: raw }, [{ ...FIELD_BY_NAME.refundAmount, notNullable: true }]);
+
+      expect(patch).toEqual({ refundAmount: expected });
+    });
+
+    it("should ignore malformed read-only numbers and numeric fields outside the submitted tab", () => {
+      const patch = buildUpdatePatch({ daysReceivedToEnroled: "invalid", ageOfMinor: "invalid", refundAmount: " 2.50 " }, [
+        FIELD_BY_NAME.daysReceivedToEnroled,
+        FIELD_BY_NAME.refundAmount
+      ]);
+
+      expect(patch).toEqual({ refundAmount: 2.5 });
+    });
+
+    it("should preserve the distinct blank and absent behaviour in a mixed-field patch", () => {
+      const patch = buildUpdatePatch(
+        { newForename: "  Ada  ", newSurname: "", ageOfMinor: "", inPerson: "on" },
+        ["newForename", "newSurname", "ageOfMinor", "refundAmount", "privacy", "inPerson", "iShall"].map((name) => FIELD_BY_NAME[name])
+      );
+
+      expect(patch).toEqual({ newForename: "Ada", newSurname: null, ageOfMinor: null, inPerson: true, iShall: [] });
+    });
+
     it("should leave a read-only number out even when the body carries one", () => {
       const patch = buildUpdatePatch({ referencenumber: "9", daysReceivedToEnroled: "4", refundAmount: "1" }, [
         FIELD_BY_NAME.referencenumber,
