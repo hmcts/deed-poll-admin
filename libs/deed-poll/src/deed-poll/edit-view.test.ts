@@ -158,6 +158,79 @@ describe("deed-poll/edit-view", () => {
 
         expect(field(view, "newSurname")?.value).toBeNull();
       });
+
+      it("should redraw a locked privacy select from the stored record, since a disabled control is never submitted", () => {
+        const view = buildEditView({ type: "Adult", privacy: "Private" }, applicationTab, CASEWORKER, { newSurname: "Typed" });
+
+        expect(field(view, "privacy")?.locked).toBe(true);
+        expect(field(view, "privacy")?.value).toBe("Private");
+      });
+
+      it("should still replay privacy for a caller who may edit it", () => {
+        const view = buildEditView({ type: "Adult", privacy: "Private" }, applicationTab, ADMIN, { privacy: "Normal" });
+
+        expect(field(view, "privacy")?.value).toBe("Normal");
+      });
+    });
+
+    describe("checked state (review finding R01)", () => {
+      const STORED = { type: "Minor", inPerson: true, retainPermanently: true, iShall: [1, 4], iHaveSubscribed: [1, 3], andAlsoMyOld: [1, 2] };
+
+      function ticked(view: ReturnType<typeof buildEditView>, name: string): string[] {
+        return (field(view, name)?.options ?? []).filter((option) => option.checked).map((option) => option.value);
+      }
+
+      it("should tick stored true booleans and stored multiselect numbers on a normal render", () => {
+        const view = buildEditView(STORED, applicationTab, ADMIN);
+
+        expect(field(view, "inPerson")?.checked).toBe(true);
+        expect(field(view, "retainPermanently")?.checked).toBe(true);
+        expect(ticked(view, "iShall")).toEqual(["1", "4"]);
+        expect(ticked(view, "iHaveSubscribed")).toEqual(["1", "3"]);
+        expect(ticked(view, "andAlsoMyOld")).toEqual(["1", "2"]);
+      });
+
+      it("should leave stored false booleans and empty multiselects unticked on a normal render", () => {
+        const view = buildEditView({ type: "Minor", inPerson: false, iShall: [] }, applicationTab, ADMIN);
+
+        expect(field(view, "inPerson")?.checked).toBe(false);
+        expect(field(view, "retainPermanently")?.checked).toBe(false);
+        expect(ticked(view, "iShall")).toEqual([]);
+        expect(ticked(view, "andAlsoMyOld")).toEqual([]);
+      });
+
+      it.each(["true", "on"])("should tick a boolean replayed as %s", (submittedValue) => {
+        const view = buildEditView({ type: "Minor" }, applicationTab, ADMIN, { inPerson: submittedValue, retainPermanently: submittedValue });
+
+        expect(field(view, "inPerson")?.checked).toBe(true);
+        expect(field(view, "retainPermanently")?.checked).toBe(true);
+      });
+
+      it("should tick every replayed multiselect value when two or more were submitted", () => {
+        const view = buildEditView({ type: "Minor" }, applicationTab, ADMIN, {
+          iShall: ["1", "4"],
+          iHaveSubscribed: ["1", "3"],
+          andAlsoMyOld: ["1", "2"]
+        });
+
+        expect(ticked(view, "iShall")).toEqual(["1", "4"]);
+        expect(ticked(view, "iHaveSubscribed")).toEqual(["1", "3"]);
+        expect(ticked(view, "andAlsoMyOld")).toEqual(["1", "2"]);
+      });
+
+      it("should tick a single replayed multiselect value, which arrives as a string rather than an array", () => {
+        const view = buildEditView({ type: "Minor" }, applicationTab, ADMIN, { iShall: "4" });
+
+        expect(ticked(view, "iShall")).toEqual(["4"]);
+      });
+
+      it("should untick what the stored record held when the replayed body has no ticks, since an unticked box is absent", () => {
+        const view = buildEditView(STORED, applicationTab, ADMIN, {});
+
+        expect(field(view, "inPerson")?.checked).toBe(false);
+        expect(field(view, "retainPermanently")?.checked).toBe(false);
+        expect(ticked(view, "iShall")).toEqual([]);
+      });
     });
   });
 

@@ -1,0 +1,199 @@
+/**
+ * A case edit save must not clear fields the caseworker did not touch — review findings R01 and R02,
+ * `docs/plans/20261020-r01-r02-edit-form-untouched-fields.md`.
+ *
+ * Same harness as `case-edit-numeric.test.ts`: real `express.urlencoded({ extended: true })`, the real edit
+ * handler (GET and POST) and the real `deed-polls/edit.njk`, with `findDeedPoll` and `updateDeedPoll` mocked.
+ * "A browser resubmits the page" is `serialise()`, which reads the rendered form the way a browser builds a
+ * submission: enabled controls only, ticked checkboxes only, each select's selected option. This proves the
+ * outgoing patch, not a live save. The session carries no `/me` answer, so the caller is not an admin and
+ * privacy renders locked.
+ */
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { findDeedPoll, InvalidInputError, NotFoundError, updateDeedPoll } from "@hmcts/deed-poll";
+import express, { type NextFunction, type Request, type Response } from "express";
+import nunjucks from "nunjucks";
+import supertest from "supertest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { GET, POST } from "./pages/deed-polls/[id]/edit/[tab].js";
+
+vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  findDeedPoll: vi.fn(),
+  updateDeedPoll: vi.fn()
+}));
+
+const CALLER = { accessToken: "session-token" };
+const STARTER_VIEWS = path.join(fileURLToPath(import.meta.url), "../../libs/express-govuk-starter/src");
+const environment = nunjucks.configure(
+  [
+    path.join(fileURLToPath(import.meta.resolve("govuk-frontend")), "..", ".."),
+    path.join(STARTER_VIEWS, "govuk-frontend/views"),
+    path.join(STARTER_VIEWS, "cookies/views"),
+    path.join(fileURLToPath(import.meta.url), "..", "pages")
+  ],
+  { autoescape: true }
+);
+
+// A Minor case, so every Application field renders, with both Application booleans and three declarations set.
+const STORED = {
+  id: "case-1",
+  displayReference: "KBDP2026-00001",
+  type: "Minor",
+  privacy: "Private",
+  urgency: "Normal",
+  state: "Received",
+  migratedRecord: false,
+  publishToLondonGazette: true,
+  dateReceived: "2026-03-01T00:00:00.000Z",
+  dateOfApplication: "2026-02-20T00:00:00.000Z",
+  newForename: "Synthetic",
+  newSurname: "Applicant",
+  maritalStatus: "Single",
+  ageOfMinor: 9,
+  ageOfMinorMonths: 4,
+  parents: "Synthetic Parents",
+  inPerson: true,
+  retainPermanently: true,
+  iShall: [1, 4],
+  iHaveSubscribed: [1, 3],
+  andAlsoMyOld: [1, 2],
+  notes: [],
+  witnesses: [],
+  documents: []
+};
+
+const TICKED = { inPerson: true, retainPermanently: true, iShall: [1, 4], iHaveSubscribed: [1, 3], andAlsoMyOld: [1, 2] };
+
+const app = express();
+app.use(express.urlencoded({ extended: true }));
+app.use((req: Request, res: Response, next: NextFunction) => {
+  (req as unknown as { session: unknown }).session = { deedPoll: CALLER };
+  // `renderInterceptorMiddleware`'s order: the content pair first, the handler's own values over it.
+  res.render = ((view: string, model: Record<string, unknown>) => {
+    res.send(environment.render(`${view}.njk`, { ...(model.en as object), ...model }));
+  }) as Response["render"];
+  next();
+});
+app.get("/deed-polls/:id/edit/:tab", GET);
+app.post("/deed-polls/:id/edit/:tab", POST);
+app.use((err: Error, _req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof NotFoundError) {
+    res.status(404).send("Page not found");
+    return;
+  }
+  next(err);
+});
+
+describe("case edit saves leave untouched fields alone", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(findDeedPoll).mockResolvedValue(STORED as never);
+    vi.mocked(updateDeedPoll).mockResolvedValue(STORED as never);
+  });
+
+  describe("a refused save redraws what was submitted (R01)", () => {
+    it("should keep every boolean and multiselect value through a date error and the corrected resubmit", async () => {
+      // Arrange
+      const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+      shown.set("dateOfApplication-year", "20x6");
+
+      // Act
+      const refused = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
+      const corrected = serialise(refused.text);
+      corrected.set("dateOfApplication-year", "2026");
+      const saved = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(corrected.toString());
+
+      // Assert
+      expect(refused.status).toBe(400);
+      expect(saved.status).toBe(302);
+      expect(updateDeedPoll).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toMatchObject(TICKED);
+    });
+
+    it("should keep them through api's own 400 and the resubmit", async () => {
+      // Arrange
+      vi.mocked(updateDeedPoll).mockRejectedValueOnce(new InvalidInputError("refused", [{ field: "newSurname", message: "Enter a new surname" }]));
+      const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+
+      // Act
+      const refused = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
+      await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(serialise(refused.text).toString());
+
+      // Assert
+      expect(refused.status).toBe(400);
+      expect(updateDeedPoll).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(updateDeedPoll).mock.calls[1][1]).toMatchObject(TICKED);
+    });
+
+    it.each([
+      ["one tick", { iShall: [4] }, ["4"]],
+      ["no ticks", { iShall: [] }, []]
+    ])("should redraw a multiselect with %s as submitted", async (_name, stored, expected) => {
+      // Arrange
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...STORED, ...stored } as never);
+      const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+      shown.set("dateOfApplication-year", "20x6");
+
+      // Act
+      const refused = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
+
+      // Assert
+      expect(serialise(refused.text).getAll("iShall")).toEqual(expected);
+    });
+
+    it("should redraw a non-admin's locked privacy select with the stored value", async () => {
+      // Arrange
+      const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+      shown.set("dateOfApplication-year", "20x6");
+
+      // Act
+      const refused = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
+
+      // Assert
+      expect(selectedOption(refused.text, "privacy")).toBe("Private");
+    });
+  });
+});
+
+function serialise(html: string): URLSearchParams {
+  const start = html.indexOf('<form method="post"');
+  const form = html.slice(start, html.indexOf("</form>", start));
+  const body = new URLSearchParams();
+  const controls = /<input\b([^>]*)>|<select\b([^>]*)>([\s\S]*?)<\/select>|<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/g;
+  for (const [, inputAttrs, selectAttrs, options, textareaAttrs, text] of form.matchAll(controls)) {
+    const attrs = attributes(inputAttrs ?? selectAttrs ?? textareaAttrs ?? "");
+    if (!attrs.name || "disabled" in attrs) continue;
+    if (inputAttrs !== undefined) {
+      if (attrs.type === "checkbox" && !("checked" in attrs)) continue;
+      body.append(attrs.name, attrs.value ?? "");
+    } else if (selectAttrs !== undefined) {
+      body.append(attrs.name, chosenOption(options ?? "") ?? "");
+    } else {
+      body.append(attrs.name, decodeEntities((text ?? "").replace(/^\n/, "")));
+    }
+  }
+  return body;
+}
+
+function attributes(source: string): Record<string, string> {
+  const found: Record<string, string> = {};
+  for (const [, name, value] of source.matchAll(/([a-zA-Z-]+)(?:="([^"]*)")?/g)) found[name] = decodeEntities(value ?? "");
+  return found;
+}
+
+function decodeEntities(text: string): string {
+  return text.replaceAll("&quot;", '"').replaceAll("&#39;", "'").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+}
+
+/** The selected option's value, or the first option's, which is what a browser submits and shows. */
+function chosenOption(options: string): string | undefined {
+  const all = [...options.matchAll(/<option\b([^>]*)>/g)].map((option) => attributes(option[1]));
+  return (all.find((option) => "selected" in option) ?? all[0])?.value;
+}
+
+function selectedOption(html: string, name: string): string | undefined {
+  const select = new RegExp(`<select\\b[^>]*name="${name}"[^>]*>([\\s\\S]*?)</select>`).exec(html);
+  return chosenOption(select?.[1] ?? "");
+}

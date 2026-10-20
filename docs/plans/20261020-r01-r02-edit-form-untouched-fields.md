@@ -128,14 +128,14 @@ yarn vitest run 'src/pages/deed-polls/[id]/edit/[tab].test.ts'
 handler-level test beside `src/pages/deed-polls/[id]/edit/[tab].test.ts` (or an `edit.njk` template test following
 `.claude/rules/testing.md`'s template test pattern).
 
-- [ ] Record the execution baseline (commit, validation results) in the execution notes.
-- [ ] Add failing tests: a replayed body with `inPerson=true`, `retainPermanently=true` and two or more ticks in
+- [x] Record the execution baseline (commit, validation results) in the execution notes.
+- [x] Add failing tests: a replayed body with `inPerson=true`, `retainPermanently=true` and two or more ticks in
       each multiselect renders them all checked; one tick and no ticks also render correctly; the stored
       (non-replay) render is unchanged; a non-admin's locked privacy select redraws the stored value on a replay.
-- [ ] Add a failing end-to-end test through the real handler and real `edit.njk`: load an Application tab with both
+- [x] Add a failing end-to-end test through the real handler and real `edit.njk`: load an Application tab with both
       booleans true and multi-ticked declarations, submit it with one bad date, read the 400 page back as the form a
       browser would submit, fix the date, resubmit, and assert the patch keeps every boolean and multiselect value.
-- [ ] Implement the view-model flags and switch the template to them. Run focused tests, then all Validation
+- [x] Implement the view-model flags and switch the template to them. Run focused tests, then all Validation
       Commands, and record the results.
 
 ### Task 2: Leave fields the form never rendered out of the patch (R02)
@@ -179,6 +179,28 @@ guard), and a handler-level test.
 ## Execution notes
 
 (Record baseline, red/green evidence, the api verification and final results here.)
+
+### Baseline
+
+- Execution baseline `a15ae81` (plan commit on `cb91197`). `yarn lint` clean (1 info: biome config migrate
+  hint), `yarn build` 8/8 tasks, `yarn turbo test test:app --concurrency=1 --force` with local Redis: all pass,
+  no skips — app 2453, deed-poll 1298, api-client 823, cloud-native-platform 157, express-govuk-starter 127,
+  simple-router 41, express-session-postgres 23, express-session-redis 7.
+- Rechecked the field list in `form-fields.ts`: booleans `inPerson`, `retainPermanently`,
+  `publishToLondonGazette`; multiselects `iShall`, `iHaveSubscribed`, `andAlsoMyOld`. Unchanged from Context.
+
+### Task 1 (R01)
+
+- Red: 8 new `edit-view.test.ts` tests failed (no `checked` flags; locked privacy replayed as `undefined` → null).
+  New `src/case-edit-untouched-fields.test.ts`: the date-error round trip and api-400 round trip both sent
+  `inPerson: false`, `retainPermanently: false` and empty declarations; locked privacy redrew `""`. The one-tick
+  and no-tick cases already passed (the finding's coercion accident).
+- Fix: `decorate()` sets `checked` on a boolean field and on each multiselect option, from stored or replayed
+  values (strings `"true"`/`"on"` and number-compared option values, as `buildUpdatePatch` reads them); a locked
+  field is excluded from the replay. `edit.njk` reads the flags and passes `f.options` straight to
+  `govukCheckboxes`.
+- Green: focused suites pass; full validation: lint clean, build 8/8, all pass with no skips — app 2458 (+5),
+  deed-poll 1307 (+9), others unchanged.
 
 ## Post-Completion
 
