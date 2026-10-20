@@ -180,6 +180,19 @@ Authored 20 October 2026 by Ellis from review finding E02, and implemented on
   express-session-postgres 23, express-session-redis 7; no skips; `src/session-store.test.ts` ran (7 tests).
 - Ralphex review phases follow this task. Review fixes and revalidation are recorded below when they happen.
 
+### Final verification (Arbor, 20 October 2026)
+
+- The worktree was clean after the run. The one review fix (`ea06e98`) changed only this plan's notes.
+- **Validation at `73fd5b8`, with `REDIS_URL=redis://127.0.0.1:6379`:**
+  - `yarn lint`: clean.
+  - `yarn build`: passes, with no `libs/*/dist` present.
+  - `yarn turbo test test:app --concurrency=1 --force`: **216 files, 4,593 tests**, 0 failures, 0 skips. The baseline
+    was 4,578. `src/auth/idam.test.ts` ran 58 tests.
+- **Ellis's original probe still passes,** by design. It retries immediately, inside the 5-second cooldown, so the
+  retry still fails fast. Recovery *after* the cooldown, without a reset or restart, is covered by
+  `idam.test.ts` "discovery recovery".
+- **Direct Copilot (gpt-6-astra) review of `origin/master..73fd5b8`: NO ISSUES FOUND.**
+
 ## Post-Completion
 
 Hand the reviewed branch and evidence to Steve. Publishing, merging and deployment are separate actions.
