@@ -226,6 +226,24 @@ and a handler-level test through the real edit handler.
   strings / 512 identical (505 prose, 7 not prose): +2 over baseline, the radios' `yes` and `no`.
 - Handed off to the Ralphex review phases.
 
+### Verification before PR (20 October 2026, Arbor)
+
+- Plain `ralphex` run in the devcontainer (28m32s) on top of admin#220's branch (`ddd1a79`), after a green
+  baseline (226 files, 4,979 tests). The external review raised findings on two passes, the evaluator fixed and
+  committed them (`4a08a8a`), and the third pass found none: the first run where the signal rule (admin#211) was
+  needed. Tree clean afterwards; every signal alone on its line.
+- `CLAUDE.md` named this plan at `docs/plans/`; corrected to `completed/` in `2abd570`.
+- `yarn lint` exit 0; `yarn turbo build build:app --force` exit 0; `yarn turbo test test:app --concurrency=1 --force`
+  exit 0: 226 files, 5,067 tests, none failed or skipped. `yarn welsh:check`: 729 strings, 512 identical (from 727 /
+  510 on #220's branch: the new "Yes" and "No").
+- Red against the old code: with #220's `form-payload.ts`, `form-validation.ts`, `checkbox-input.ts`,
+  `edit-view.ts`, `form-fields.ts`, `edit.njk` and `[tab].ts` restored, 75 of the new and changed tests fail (22 of
+  94 in the app, 53 of 159 in the library). All pass with this branch's code.
+- Direct scoped Copilot review (gpt-6-astra, read-only, against #220's branch; 65 tool calls, including the new-case
+  form, the query builder and the GOV.UK select, radios, checkboxes and date templates): no issues found.
+- PR waits on admin#220 (and admin#223, which unblocks every build's security stage). Then merge `origin/master`
+  in and re-validate.
+
 ## Post-Completion
 
 Do not open a PR until admin#220 has merged; then merge `origin/master` into this branch and re-validate.
