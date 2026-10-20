@@ -155,6 +155,74 @@ describe("case edit saves leave untouched fields alone", () => {
       expect(selectedOption(refused.text, "privacy")).toBe("Private");
     });
   });
+
+  describe("a save writes nothing for a field its rules hid (R02)", () => {
+    const MINOR_ONLY = ["minorDateOfBirth", "ageOfMinor", "ageOfMinorMonths", "parents"];
+    const RELINQUISHMENT_HIDDEN = [
+      "oldForename",
+      "oldMiddleName",
+      "oldSurname",
+      "maritalStatus",
+      "nationality",
+      "nationalitySection",
+      "nationalitySectionOther"
+    ];
+    const STORED_HIDDEN = {
+      oldForename: "Former",
+      oldMiddleName: "Middle",
+      oldSurname: "Name",
+      maritalStatus: "Widowed",
+      nationality: "BritishCitizen",
+      nationalitySection: "Section1",
+      nationalitySectionOther: "Other",
+      minorDateOfBirth: "2017-01-01T00:00:00.000Z",
+      dateNoticeSentToLondonGazette: "2026-03-10T00:00:00.000Z"
+    };
+
+    it.each([
+      ["a Deed of Relinquishment", "DeedOfRelinquishment", [...RELINQUISHMENT_HIDDEN, ...MINOR_ONLY]],
+      ["an Adult case", "Adult", MINOR_ONLY]
+    ])("should send no key for a hidden Application field on an unchanged save of %s", async (_name, type, hidden) => {
+      // Arrange
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...STORED, ...STORED_HIDDEN, type } as never);
+      const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+
+      // Act
+      const saved = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
+
+      // Assert
+      expect(saved.status).toBe(302);
+      const patch = vi.mocked(updateDeedPoll).mock.calls[0][1] as Record<string, unknown>;
+      expect(hidden.filter((name) => name in patch)).toEqual([]);
+      expect(patch).toMatchObject({ newForename: "Synthetic", inPerson: true, iShall: [1, 4] });
+    });
+
+    it("should send no Gazette notice date on an unchanged Enrolment save when the case is not published", async () => {
+      // Arrange
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...STORED, ...STORED_HIDDEN, publishToLondonGazette: false } as never);
+      const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/enrolment")).text);
+
+      // Act
+      const saved = await supertest(app).post("/deed-polls/case-1/edit/enrolment").type("form").send(shown.toString());
+
+      // Assert
+      expect(saved.status).toBe(302);
+      expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).not.toHaveProperty("dateNoticeSentToLondonGazette");
+    });
+
+    it("should still send a shown field the caseworker cleared", async () => {
+      // Arrange
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...STORED, ...STORED_HIDDEN, type: "Adult" } as never);
+      const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+      shown.set("oldForename", "");
+
+      // Act
+      await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
+
+      // Assert
+      expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toMatchObject({ oldForename: null, maritalStatus: "Widowed" });
+    });
+  });
 });
 
 function serialise(html: string): URLSearchParams {

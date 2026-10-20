@@ -143,15 +143,15 @@ handler-level test beside `src/pages/deed-polls/[id]/edit/[tab].test.ts` (or an 
 **Files:** `libs/deed-poll/src/deed-poll/form-payload.ts` and its test, `deed-poll-validation.ts`'s test (for the
 guard), and a handler-level test.
 
-- [ ] Verify api's minor and Gazette clears on write in the api clone's `origin/master` (read only), and record
+- [x] Verify api's minor and Gazette clears on write in the api clone's `origin/master` (read only), and record
       the file, line and behaviour in the execution notes. Check whether admin calls `applyGazetteGate` or
       `applyMinorGate` anywhere on the edit write path.
-- [ ] Add failing tests: an absent text, textarea, enum or date field is omitted from the patch; a present empty
+- [x] Add failing tests: an absent text, textarea, enum or date field is omitted from the patch; a present empty
       value still clears (or is refused for `notNullable`); booleans and multiselects are unchanged.
-- [ ] Add a failing handler-level test: an unchanged save of a Deed of Relinquishment's Application tab, as
+- [x] Add a failing handler-level test: an unchanged save of a Deed of Relinquishment's Application tab, as
       rendered, produces no key for any of the seven hidden fields; the same for an Adult case's minor-only fields.
-- [ ] Add the guard test that no boolean or multiselect field is hidden by `getFieldRules` in any combination.
-- [ ] Implement. If Task 2's first step found a clear api does not perform, keep it explicitly and test it.
+- [x] Add the guard test that no boolean or multiselect field is hidden by `getFieldRules` in any combination.
+- [x] Implement. If Task 2's first step found a clear api does not perform, keep it explicitly and test it.
       Run focused tests, then all Validation Commands, and record the results.
 
 ### Task 3: Record the rule and hand off
@@ -201,6 +201,29 @@ guard), and a handler-level test.
   `govukCheckboxes`.
 - Green: focused suites pass; full validation: lint clean, build 8/8, all pass with no skips — app 2458 (+5),
   deed-poll 1307 (+9), others unchanged.
+
+### Task 2 (R02)
+
+- api verification (read only, `deed-poll-api` `origin/master` `554fe49`): `DeedPollService.java:410` merges
+  `DeedPollValidation.applyGazetteGate(merged)` and `:415` `applyMinorGate(merged)` on update, both from the
+  existing record overlaid with the patch (create does the same at `:142`/`:146`). `DeedPollValidation.java:188`
+  nulls `dateNoticeSentToLondonGazette` when publish is false; `:218` nulls `minorDateOfBirth`, `ageOfMinor`,
+  `ageOfMinorMonths` and `parents` for Adult, Adult Transgender and Relinquishment. So api clears everything admin
+  was clearing by accident, and no explicit admin clear is needed. Admin calls neither `applyGazetteGate` nor
+  `applyMinorGate` anywhere outside `conditional-gates.conformance.test.ts`. api clears nothing for the
+  relinquishment-hidden old-name, marital and nationality fields, and no rule says it should, so those are now
+  left alone.
+- Red: `form-payload.test.ts` "should omit an absent text, textarea, enum or date field" failed. In
+  `case-edit-untouched-fields.test.ts`, the relinquishment save sent nine hidden keys (the seven plus
+  `minorDateOfBirth` and `parents`), the Adult save sent `minorDateOfBirth` and `parents`, and an unpublished
+  Enrolment save sent `dateNoticeSentToLondonGazette`. The guard test (no boolean/multiselect hidden, every type x
+  migrated x publish) passes, as it should, because it is a pin.
+- Fix: `readField` returns `undefined` (omit) for an absent text/textarea/enum and for a date with all three parts
+  absent. Booleans and multiselects are unchanged. Five existing `[tab].test.ts` tests had bodies with no date
+  parts, which no browser submits; their bodies now carry empty parts and their expectations are unchanged. The
+  handler's strict-on-write comment was updated to the new reason.
+- Green: lint clean (1 info), build 8/8, all pass with no skips — app 2462 (+4), deed-poll 1313 (+6), others
+  unchanged.
 
 ## Post-Completion
 
