@@ -114,12 +114,12 @@ ends the session and the next one builds over it, wiping the results.
 **Files:** `src/pages/deed-polls/[id].ts` only if a short dependency comment aids maintenance,
 and this plan's Execution notes.
 
-- [ ] Remove obsolete sequencing comments and document the dependency only where it is not obvious
+- [x] Remove obsolete sequencing comments and document the dependency only where it is not obvious
       from the final code. Avoid introducing a new abstraction for three reads and one dependent read.
-- [ ] Record starting/final commits, changed files, deterministic ordering evidence, failure coverage,
+- [x] Record starting/final commits, changed files, deterministic ordering evidence, failure coverage,
       test counts and skips. Describe the benefit as overlapping independent work; do not invent a
       production latency saving.
-- [ ] Run all Validation Commands and hand off to Ralphex review phases. Record review findings and
+- [x] Run all Validation Commands and hand off to Ralphex review phases. Record review findings and
       revalidation for any fixes.
 
 ## Acceptance Criteria
@@ -174,6 +174,37 @@ new validation run or Ralphex execution has been performed for this plan. Append
   exit 0. App 111 files / 2432 tests, deed-poll 1291, api-client 804, cloud-native-platform 157,
   express-govuk-starter 127, simple-router 41, express-session-postgres 23, express-session-redis 7. 0 failed,
   0 skipped.
+
+### Task 3 (20 October 2026)
+
+- Comments: the baseline's "Together, because no answer depends on another" sequencing comment and the separate
+  comment above the trailing `getCaseFieldRules` call were replaced in Task 1 by one comment on the
+  `required` chain, which says that rules hang off the case alone and that a failed case read makes no rules
+  call, and one on the `allSettled` aggregate, which says it observes every started promise. No helper or
+  scheduler was introduced. The module docblock ("two of the four calls are fatal") still holds and was left as
+  it is. Task 3 makes no handler change.
+- Commits: started at `d9b3457` (plan only). Task 1 is `38c6b2c`, Task 2 is `b89112e`, and this note is the
+  Task 3 commit. Changed files across the branch: `src/pages/deed-polls/[id].ts`,
+  `src/pages/deed-polls/[id].test.ts` and this plan.
+- Ordering evidence: five `read scheduling` tests use hand-settled deferred promises and a `setImmediate`
+  drain, with no timers or sleeps. Rules are called while referrals, and separately emails, are still pending.
+  Rules are not called before the case resolves. All three reads start before any settles. There is one case
+  call and one rules call, with unchanged arguments and caller. The render model is identical whichever read
+  settles last. On the baseline, the pending-referrals and pending-emails tests failed (rules call count 0,
+  expected 1).
+- Failure coverage: eight `read failures` tests (Task 2). Case or rules rejection is fatal and keeps the original
+  error, with no rules call after a failed case read. Each optional panel degrades alone, with one log line per
+  failure and only once the case exists. No rejection goes unhandled: they use non-Promise thenables so that
+  vitest's own handlers cannot mask one. Mutation check: awaiting the required chain before the optional reads
+  fails 4 of the 8.
+- Benefit: field rules now overlap with the referrals and emails reads instead of following them, so the
+  dependency is `max(case + rules, referrals, emails)`. The latency saving was not measured; none is claimed.
+- Validation: `yarn lint` clean (pre-existing Biome config-migration info only). `yarn build` 8/8.
+  `REDIS_URL=redis://127.0.0.1:6379 yarn turbo test test:app --concurrency=1 --force` exit 0. App 111 files /
+  2432 tests, deed-poll 1291, api-client 804, cloud-native-platform 157, express-govuk-starter 127,
+  simple-router 41, express-session-postgres 23, express-session-redis 7. 0 failed, 0 skipped.
+- Review: the task work is finished. Ralphex's review phases run after the task loop. They had produced no
+  findings when this note was written, so nothing has been fixed or revalidated yet.
 
 ## Post-Completion
 
