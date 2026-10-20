@@ -173,6 +173,120 @@ describe.skipIf(!redisReachable)("the guarded session store", () => {
     });
   });
 
+  describe("its refresh lease", () => {
+    const leased = (options: { refreshLeaseMs?: number; refreshWaitMs?: number }) =>
+      new GuardedSessionStore({ client: clients[1], prefix: PREFIX, ttl: sessionStoreTtl(LIMITS), ...options });
+
+    it("should grant one claim and make a second, from another instance, wait and then report it busy", async () => {
+      const sid = await stored("first");
+      const other = leased({ refreshWaitMs: 150 });
+
+      const first = await stores[0].claimRefresh(sid, (await get(stores[0], sid)) as SessionData);
+      const started = Date.now();
+      const second = await other.claimRefresh(sid, (await get(other, sid)) as SessionData);
+
+      expect(first.outcome).toBe("acquired");
+      expect(second).toEqual({ outcome: "busy" });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(150);
+    });
+
+    it("should let another instance claim a lease that has expired, and refuse the first holder's publish", async () => {
+      const sid = await stored("first");
+      const short = leased({ refreshLeaseMs: 100 });
+      const stale = (await get(short, sid)) as SessionData & { marker: string };
+      const claim = await short.claimRefresh(sid, stale);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      const takeover = await stores[0].claimRefresh(sid, (await get(stores[0], sid)) as SessionData);
+      short.attachRefreshLease(stale, (claim as { lease: string }).lease);
+      stale.marker = "from-the-expired-holder";
+
+      expect(takeover.outcome).toBe("acquired");
+      await expect(set(short, sid, stale)).rejects.toMatchObject({ reason: "lease" });
+      expect(await get(stores[0], sid)).toMatchObject({ marker: "first" });
+    });
+
+    it("should refuse a publish whose lease expired even when nobody has taken it over", async () => {
+      const sid = await stored("first");
+      const short = leased({ refreshLeaseMs: 50 });
+      const loaded = (await get(short, sid)) as SessionData & { marker: string };
+      const claim = await short.claimRefresh(sid, loaded);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      short.attachRefreshLease(loaded, (claim as { lease: string }).lease);
+      loaded.marker = "late";
+
+      await expect(set(short, sid, loaded)).rejects.toMatchObject({ reason: "lease" });
+    });
+
+    it("should publish under a held lease, give it up in the same write, and let the next claim through at once", async () => {
+      const sid = await stored("first");
+      const loaded = (await get(stores[0], sid)) as SessionData & { marker: string };
+      const claim = await stores[0].claimRefresh(sid, loaded);
+
+      stores[0].attachRefreshLease(loaded, (claim as { lease: string }).lease);
+      loaded.marker = "published";
+      await set(stores[0], sid, loaded);
+
+      expect(await clients[0].hGet(PREFIX + sid, "lease")).toBeNull();
+      expect(await get(stores[1], sid)).toMatchObject({ marker: "published" });
+      const next = leased({ refreshWaitMs: 0 });
+      expect((await next.claimRefresh(sid, (await get(next, sid)) as SessionData)).outcome).toBe("acquired");
+    });
+
+    it("should release only the lease it was given, never one another request now holds", async () => {
+      const sid = await stored("first");
+      const claim = await stores[0].claimRefresh(sid, (await get(stores[0], sid)) as SessionData);
+
+      await stores[1].releaseRefresh(sid, "somebody-elses-lease");
+      expect(await clients[0].hGet(PREFIX + sid, "lease")).toBe((claim as { lease: string }).lease);
+
+      await stores[0].releaseRefresh(sid, (claim as { lease: string }).lease);
+      expect(await clients[0].hGet(PREFIX + sid, "lease")).toBeNull();
+    });
+
+    it("should take the lease with the session on destroy, so a later claim finds nothing to refresh", async () => {
+      const sid = await stored("first");
+      const loaded = (await get(stores[0], sid)) as SessionData;
+      await stores[0].claimRefresh(sid, loaded);
+
+      await destroy(stores[1], sid);
+
+      expect(await clients[0].exists(PREFIX + sid)).toBe(0);
+      expect(await stores[0].claimRefresh(sid, loaded)).toEqual({ outcome: "missing" });
+    });
+
+    it("should report another incarnation of the id as a conflict, not grant it a lease", async () => {
+      const sid = await stored("first");
+      const earlier = (await get(stores[0], sid)) as SessionData;
+      await destroy(stores[1], sid);
+      await set(stores[1], sid, session("later"));
+
+      expect(await stores[0].claimRefresh(sid, earlier)).toEqual({ outcome: "conflict" });
+    });
+  });
+
+  describe("an unchanged save", () => {
+    it("should move no revision when nothing but the cookie changed", async () => {
+      const sid = await stored("first");
+      const loaded = (await get(stores[0], sid)) as SessionData;
+
+      loaded.cookie = { ...loaded.cookie, expires: new Date(Date.now() + 120_000) } as SessionData["cookie"];
+      await set(stores[0], sid, loaded);
+
+      expect(await clients[0].hGet(PREFIX + sid, "rev")).toBe("1");
+    });
+
+    it("should still refuse a session that has gone", async () => {
+      const sid = await stored("first");
+      const loaded = (await get(stores[0], sid)) as SessionData;
+      await destroy(stores[1], sid);
+
+      await expect(set(stores[0], sid, loaded)).rejects.toMatchObject({ reason: "missing" });
+      expect(await clients[0].exists(PREFIX + sid)).toBe(0);
+    });
+  });
+
   describe("two app instances sharing it", () => {
     it("should leave the cookie signed out when a refresh held before logout saves afterwards", async () => {
       const gate = barrier();

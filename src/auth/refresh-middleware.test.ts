@@ -16,8 +16,9 @@ import { createHash } from "node:crypto";
 import { trackEvent } from "@hmcts-cft/cloud-native-platform";
 import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { pageResponse, type RequestDouble, type ResponseDouble, sessionDouble } from "../express-doubles.js";
+import { pageResponse, type RequestDouble, type ResponseDouble, refreshCoordinatorDouble, sessionDouble } from "../express-doubles.js";
 import { fetchCallerAccess } from "./caller-access.js";
+import { SessionWriteRefusedError } from "./guarded-session-store.js";
 import { refreshTokens } from "./idam.js";
 import { refreshMiddleware } from "./refresh-middleware.js";
 
@@ -101,6 +102,7 @@ function request(without: (keyof SessionState)[] = [], overrides: SessionState =
     path: "/deed-polls",
     originalUrl: "/deed-polls",
     sessionID: SESSION_ID,
+    sessionStore: refreshCoordinatorDouble(),
     session: sessionDouble(deedPoll as Record<string, unknown>)
   } as unknown as RequestDouble;
   // express-session drops the id along with the session, so an event emitted afterwards would carry no sid.
@@ -415,5 +417,149 @@ describe("refreshMiddleware and the caller's access", () => {
 
     expect(fetchCallerAccess).toHaveBeenCalledWith("the-session-token", "backfill");
     expect(stored(req).user).toMatchObject(TEAM_LEADER);
+  });
+});
+
+describe("refreshMiddleware and the refresh lease", () => {
+  const withClaim = (claim: Parameters<typeof refreshCoordinatorDouble>[0], overrides: SessionState = {}) => {
+    const req = request([], overrides);
+    (req as unknown as { sessionStore: unknown }).sessionStore = refreshCoordinatorDouble(claim);
+    return req;
+  };
+  const store = (req: RequestDouble) => (req as unknown as { sessionStore: ReturnType<typeof refreshCoordinatorDouble> }).sessionStore;
+
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  });
+
+  it("should refresh only after taking the lease, publish under it and then give it up", async () => {
+    const req = request();
+
+    await refreshMiddleware(req, res, next);
+
+    expect(store(req).claimRefresh).toHaveBeenCalledWith(SESSION_ID, req.session);
+    expect(store(req).attachRefreshLease).toHaveBeenCalledWith(req.session, "a-lease");
+    expect(store(req).releaseRefresh).toHaveBeenCalledWith(SESSION_ID, "a-lease");
+    expect(vi.mocked(refreshTokens).mock.invocationCallOrder[0]).toBeGreaterThan(store(req).claimRefresh.mock.invocationCallOrder[0]);
+  });
+
+  it("should decide from the session as read again under the lease, and not refresh what another request already has", async () => {
+    const req = request();
+    // The reload brings in the tokens the request this one waited on has just stored.
+    req.session.reload.mockImplementation((done: () => void) => {
+      Object.assign(req.session.deedPoll, { accessToken: "the-winners-token", tokenExpiresAt: expiringIn(3600) });
+      done();
+    });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect((req.session.deedPoll as SessionState).accessToken).toBe("the-winners-token");
+    expect(store(req).releaseRefresh).toHaveBeenCalledWith(SESSION_ID, "a-lease");
+    expect(next).toHaveBeenCalled();
+  });
+
+  it("should refresh with the refresh token read again under the lease, not the one the request started with", async () => {
+    const req = request();
+    req.session.reload.mockImplementation((done: () => void) => {
+      Object.assign(req.session.deedPoll, { refreshToken: "a-rotated-refresh-token" });
+      done();
+    });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(refreshTokens).toHaveBeenCalledWith(expect.anything(), "a-rotated-refresh-token", SUBJECT);
+  });
+
+  it("should sign this request out, without an event of its own, when the session ended before the lease", async () => {
+    const req = withClaim({ outcome: "missing" });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(req.session.destroy).toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2Fdeed-polls");
+    expect(next).not.toHaveBeenCalled();
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it("should sign this request out when the session ended while IDAM was answering", async () => {
+    const req = request();
+    req.session.save.mockImplementation((done: (error?: Error) => void) => done(new SessionWriteRefusedError("missing")));
+
+    await refreshMiddleware(req, res, next);
+
+    expect(req.session.destroy).toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2Fdeed-polls");
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("should fail the request, and not ask IDAM again, when the lease was lost before the publish", async () => {
+    const req = request();
+    req.session.save.mockImplementation((done: (error?: Error) => void) => done(new SessionWriteRefusedError("lease")));
+
+    await expect(refreshMiddleware(req, res, next)).rejects.toMatchObject({ reason: "lease" });
+
+    expect(refreshTokens).toHaveBeenCalledTimes(1);
+    expect(req.session.destroy).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+    expect(store(req).releaseRefresh).toHaveBeenCalled();
+  });
+
+  it("should re-read and re-apply the same tokens when another write moved the revision, without asking IDAM again", async () => {
+    const req = request();
+    req.session.save.mockImplementationOnce((done: (error?: Error) => void) => done(new SessionWriteRefusedError("conflict")));
+    req.session.reload.mockImplementation((done: () => void) => {
+      Object.assign(req.session.deedPoll, { lastSeenAt: 1_800_000_000 });
+      done();
+    });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(refreshTokens).toHaveBeenCalledTimes(1);
+    expect(req.session.save).toHaveBeenCalledTimes(2);
+    expect(req.session.deedPoll).toMatchObject({ accessToken: "a-new-access-token", lastSeenAt: 1_800_000_000 });
+    expect(next).toHaveBeenCalled();
+  });
+
+  it("should go on with a working token when another request still holds the lease after the wait", async () => {
+    const req = withClaim({ outcome: "busy" }, { accessToken: "the-current-token" });
+
+    await refreshMiddleware(req, res, next);
+
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(req.session.destroy).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalled();
+  });
+
+  it("should fail, and not sign out, when the wait runs out on an expired token", async () => {
+    const req = withClaim({ outcome: "busy" }, { tokenExpiresAt: expiringIn(-30) });
+
+    await expect(refreshMiddleware(req, res, next)).rejects.toThrow("still in progress");
+
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(req.session.destroy).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("should fail closed, and not ask IDAM, when the store cannot coordinate refreshes", async () => {
+    const req = request();
+    (req as unknown as { sessionStore: unknown }).sessionStore = {};
+
+    await expect(refreshMiddleware(req, res, next)).rejects.toThrow("cannot coordinate");
+
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("should give the lease up when IDAM fails, so the next request need not wait for it to expire", async () => {
+    vi.mocked(refreshTokens).mockRejectedValue(new Error("getaddrinfo EAI_AGAIN"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const req = request();
+
+    await refreshMiddleware(req, res, next);
+
+    expect(store(req).releaseRefresh).toHaveBeenCalledWith(SESSION_ID, "a-lease");
+    expect(next).toHaveBeenCalled();
   });
 });

@@ -8,7 +8,7 @@
  */
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { pageResponse, type RequestDouble, sessionDouble } from "../express-doubles.js";
+import { pageResponse, type RequestDouble, refreshCoordinatorDouble, sessionDouble } from "../express-doubles.js";
 import { endSessionUrl, refreshTokens } from "./idam.js";
 import { refreshMiddleware } from "./refresh-middleware.js";
 import { sessionLifetime } from "./session-lifetime.js";
@@ -36,7 +36,7 @@ function request(signedInSecondsAgo: number): RequestDouble {
     authenticatedAt: now - signedInSecondsAgo,
     lastSeenAt: now - 10
   });
-  return { method: "GET", path: "/deed-polls", originalUrl: "/deed-polls", session } as unknown as RequestDouble;
+  return { method: "GET", path: "/deed-polls", originalUrl: "/deed-polls", session, sessionStore: refreshCoordinatorDouble() } as unknown as RequestDouble;
 }
 
 /** Runs the handlers in order, as Express would, stopping where one does not call `next`. */

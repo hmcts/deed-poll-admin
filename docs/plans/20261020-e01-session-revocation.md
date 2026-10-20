@@ -118,17 +118,17 @@ cannot support the guard. Record the resulting design in this plan's Execution n
 **Files:** `src/auth/refresh-middleware.ts`, `src/auth/session.ts`, their colocated tests,
 `src/auth/session-lifetime-refresh.test.ts` and the persistence module from Task 1.
 
-- [ ] Add failing tests for simultaneous refreshes from two app instances, a delayed refresh after logout,
+- [x] Add failing tests for simultaneous refreshes from two app instances, a delayed refresh after logout,
       and a refresh whose coordination lease expires before it publishes.
-- [ ] Obtain bounded per-session refresh ownership, re-read current session state, and skip redundant
+- [x] Obtain bounded per-session refresh ownership, re-read current session state, and skip redundant
       refresh when another request has already installed suitable tokens and access.
-- [ ] Publish tokens and the associated `/me` answer together under the persistence guard. Waiting
+- [x] Publish tokens and the associated `/me` answer together under the persistence guard. Waiting
       requests must observe that state without reusing their stale token/access snapshot.
-- [ ] Ensure losing/revoked requests cannot proceed down the authenticated middleware chain. Preserve
+- [x] Ensure losing/revoked requests cannot proceed down the authenticated middleware chain. Preserve
       the existing distinction between authentication failure and dependency failure where safe.
-- [ ] Cover IDAM failure, `/me` failure, Redis failure, lost ownership and aborted requests. Release only
+- [x] Cover IDAM failure, `/me` failure, Redis failure, lost ownership and aborted requests. Release only
       an owned lease, bound waits, and never blindly replay a refresh with an uncertain rotation outcome.
-- [ ] Run focused tests and all Validation Commands; the original logout regression must now be green.
+- [x] Run focused tests and all Validation Commands; the original logout regression must now be green.
 
 ### Task 3: Close other writers and verify application lifecycle
 
@@ -247,6 +247,57 @@ never flushed). `src/session-store.test.ts` now drives the guarded store under t
 it wrote. Both suites skip only when `REDIS_URL` is unset and Redis is unreachable; with `REDIS_URL` set an
 unreachable Redis fails them. Validation Commands after Task 1: lint and build green, 4,595 tests passed across
 eight tasks (app 2,266), none skipped. `yarn test:session` not run in this task (planned for Task 3).
+
+### Task 2 — refresh coordination (20 October 2026)
+
+Starting commit `56124ad` (Task 1). **Design.** The refresh lease lives in the session's own hash (`lease`, `leaseUntil`),
+so `DEL` on logout removes it with the session and no coordination key can outlive, or resurrect, a session. Its
+deadline is Redis's `TIME`, not a pod clock. Three new Lua scripts in `src/auth/guarded-session-store.ts`:
+
+- `CLAIM`: `missing` if the key is gone, `conflict` for another incarnation, `busy` while an unexpired lease is held,
+  otherwise writes a fresh UUID lease for `refreshLeaseMs` (default 45 s, above IDAM's and `/me`'s own timeouts).
+  `claimRefresh` polls every 100 ms up to `refreshWaitMs` (default 10 s). Taking a lease moves no revision.
+- `PUBLISH`: the update script plus a lease check, made **before** the revision check so a lost lease (`lease`) is never
+  mistaken for a retryable `conflict`; on success it writes the session and deletes the lease in one step.
+- `RELEASE`: deletes the lease only if it is still the caller's.
+
+`attachRefreshLease` marks the session object (beside its version in the `WeakMap`) so its next save is a `PUBLISH`.
+`src/auth/session.ts` adds `claimRefresh` (claim, then `req.session.reload` so the decision is made from the stored
+state), `publishRefresh` (tokens and `/me` answer in one save under the lease; on `conflict` it reloads and re-applies
+the **same** tokens, up to three attempts, so a concurrent activity write is kept and IDAM is never asked again) and
+`releaseRefresh` (errors logged by name only and swallowed; the lease expires anyway). A store without these methods
+makes the refresh throw rather than refresh unguarded. `refreshMiddleware` now: snapshot checks as before (no refresh
+token, no subject); claim; `missing` → signed out with a redirect to `/login`, no event (the logout already emitted
+one); `busy` → continue on a still-valid token, else fail the request without signing out; `acquired` → re-check
+the reloaded session (a waiter normally finds the winner's tokens and continues refreshing nothing), then the existing
+IDAM/`/me` branches, then publish; `missing` on publish → signed out; `lease` or any other refusal → the request
+fails (500), never retried. The lease is released in `finally` on every path.
+
+The store also stopped writing saves that change nothing but the cookie: express-session moves `cookie.expires` on
+every response but excludes the cookie from its own change hash, so a waiter's reload otherwise made its autosave a
+write that bumped `rev` and could refuse a concurrent writer. Such a save now only renews the TTL (`KEEP`, which still
+refuses a gone key or another incarnation).
+
+**Red evidence.** `src/auth/refresh-coordination.test.ts` (11 tests: two app instances, real Redis, real
+`refreshMiddleware`, IDAM held at a barrier) against the Task 1 sources: 8 failed — double IDAM call and an extra
+revision on concurrent refresh, a 500 rather than a clean signed-out redirect after logout, no bounded wait, a
+concurrent write losing the refresh, no single `/me`+tokens write, a 500 after an IDAM failure, and Redis failure on
+claim not failing closed. The 3 that passed already held for other reasons (lease takeover ended in a conflict 500,
+IDAM refusal signs out, an abandoned browser's refresh still saved).
+
+**Green evidence.** Coordination suite 11/11; store contract suite now 33 (lease grant/busy/expiry/takeover,
+publish refusal after expiry with and without takeover, release of only one's own lease, destroy removes the lease,
+another incarnation is a conflict, cookie-only save moves no revision); `refresh-middleware.test.ts` gains 11 unit
+tests for the claim outcomes, the reload-before-decide rule, the publish retry and fail-closed paths. Both Redis
+suites were run five times consecutively without a failure. Validation Commands with `REDIS_URL=redis://127.0.0.1:6379`
+(Redis 8.10.1): lint green (one pre-existing Biome schema-version info), build green, 4,626 tests passed across eight
+tasks (app 2,297), none skipped. Aborted requests: Node keeps running the middleware after the client goes, so the
+refresh still publishes and frees the lease (tested). `yarn test:session` is still scheduled for Task 3.
+
+**Limits.** Reload-then-save in `storeAccess` and `touchLastSeen` conflicts still reject rather than reconcile (Task 3).
+A lost lease or a lease expiring mid-refresh can leave the session holding a refresh token IDAM may already have
+rotated; the next refresh is then refused and signs the user out, which is the intended fail-closed outcome. Both
+lease scripts touch one key, so they work on a clustered Redis as well, though the deployed cache is not clustered.
 
 ## Post-Completion
 

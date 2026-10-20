@@ -14,12 +14,26 @@
  * new token, so a changed AM assignment takes effect within one token lifetime; a failed `/me` keeps the previous
  * answer. A session holding no answer at all — one saved before this app read `/me` — is asked once on the next
  * request that does not refresh, and asked again on the one after if that fails, so nobody has to sign in again.
+ *
+ * **One refresh per session at a time, across every instance (review finding E01).** A refresh token may be single-use,
+ * so two requests refreshing with it at once would each be answered with different tokens, and the later save would
+ * replace the newer pair. So a refresh first takes the session's lease in the store (`claimRefresh`), waiting a bounded
+ * time for any other holder, and then decides from the session as the store holds it **now**: a request that waited
+ * usually finds the winner's tokens already installed and goes on with them, refreshing nothing. The tokens and their
+ * `/me` answer are published in one save that the store refuses unless the lease is still this request's. A refusal
+ * is never retried with IDAM — the refresh token may already be spent — so a lost lease fails the request instead, and
+ * a session that ended meanwhile (logout elsewhere) leaves this request signed out rather than continuing on the
+ * snapshot it started with.
  */
 import type { NextFunction, Request, Response } from "express";
 import { fetchCallerAccess } from "./caller-access.js";
-import { describeIdamError, refreshTokens } from "./idam.js";
+import { SessionWriteRefusedError } from "./guarded-session-store.js";
+import { describeIdamError, type IdamTokens, refreshTokens } from "./idam.js";
 import { securityEvent } from "./security-events.js";
 import {
+  claimRefresh,
+  publishRefresh,
+  releaseRefresh,
   sessionAccessToken,
   sessionHoldsAccess,
   sessionRefreshToken,
@@ -27,8 +41,7 @@ import {
   sessionTokenExpiry,
   sessionUser,
   signOut,
-  storeAccess,
-  updateTokens
+  storeAccess
 } from "./session.js";
 import { idamSettings } from "./settings.js";
 
@@ -83,7 +96,38 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
     return res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
   }
 
-  // Token is close to expiry or already expired — attempt refresh.
+  // Token is close to expiry or already expired. Only the lease holder may refresh, and only from what the store holds.
+  const claim = await claimRefresh(req);
+  if (claim.outcome === "missing") return endedElsewhere(req, res);
+  if (claim.outcome === "conflict") throw new Error("Session key holds another incarnation of this session — not refreshing");
+  if (claim.outcome === "busy") {
+    // Another request is still refreshing. Its result is not known, so this one goes on with what it has, which is
+    // what an unreachable IDAM would leave it with — but not on a token that no longer works.
+    console.warn("Token refresh is still in progress elsewhere for this session");
+    if (timeUntilExpiry > 0) return continueWithAccess(req, next);
+    throw new Error("Token refresh is still in progress elsewhere and the access token has expired");
+  }
+
+  try {
+    await refreshAsOwner(req, res, next, claim.lease);
+  } finally {
+    // Published, signed out or failed, the lease is no longer needed. A no-op once the publish has given it up.
+    await releaseRefresh(req, claim.lease);
+  }
+}
+
+/** The refresh itself, by the lease holder, from the session as just read again from the store. */
+async function refreshAsOwner(req: Request, res: Response, next: NextFunction, lease: string): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = sessionTokenExpiry(req);
+  const refreshToken = sessionRefreshToken(req);
+  const subject = sessionSubject(req);
+  // The request this one waited on has already renewed the session, or changed it so it is no longer renewable here.
+  if (!expiresAt || !refreshToken || !subject || expiresAt - now > REFRESH_WINDOW_SECONDS) {
+    return continueWithAccess(req, next);
+  }
+  const timeUntilExpiry = expiresAt - now;
+
   const settings = idamSettings();
   let refreshed: Awaited<ReturnType<typeof refreshTokens>>;
 
@@ -124,10 +168,36 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
     return res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
   }
 
-  // Refresh succeeded — update session with new tokens, and the answer for them if api gave one, and continue.
+  // Refresh succeeded — publish the new tokens, and the answer for them if api gave one, and continue.
   const access = await fetchCallerAccess(refreshed.tokens.accessToken, "refresh");
-  await updateTokens(req, refreshed.tokens, access);
+  if (!(await published(req, lease, refreshed.tokens, access))) return endedElsewhere(req, res);
   next();
+}
+
+/**
+ * Whether the refresh was stored. False only when the session ended while IDAM was answering; a lost lease or a
+ * store failure rejects, because then this request cannot say which tokens the session now holds.
+ */
+async function published(req: Request, lease: string, tokens: IdamTokens, access: Awaited<ReturnType<typeof fetchCallerAccess>>): Promise<boolean> {
+  try {
+    await publishRefresh(req, lease, tokens, access);
+    return true;
+  } catch (error) {
+    if (error instanceof SessionWriteRefusedError && error.reason === "missing") return false;
+    if (error instanceof SessionWriteRefusedError) console.warn(`Refreshed tokens were not stored: ${error.reason}`);
+    throw error;
+  }
+}
+
+/**
+ * The session was ended by another request (a logout, or a sign-in that replaced it) while this one held it. Nothing
+ * is emitted, because whatever ended it already did; this request is simply signed out with it, so it cannot go on
+ * as the user it was loaded as. The destroy deletes nothing that still exists, and stops any end-of-response save.
+ */
+async function endedElsewhere(req: Request, res: Response): Promise<void> {
+  console.warn("Session ended elsewhere while this request was refreshing it — continuing signed out");
+  await signOut(req);
+  res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
 }
 
 /** Ask `/me` for a session that holds no answer, with the token it already has, before the request goes on. */
