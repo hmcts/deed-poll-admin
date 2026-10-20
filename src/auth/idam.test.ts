@@ -66,7 +66,7 @@ beforeAll(async () => {
       }
       res.writeHead(200, { "content-type": "application/json" }).end(
         JSON.stringify({
-          issuer: `${base}/o`,
+          issuer: answer === "wrong-issuer" ? "https://another-issuer.example/o" : `${base}/o`,
           authorization_endpoint: `${base}/o/authorize`,
           token_endpoint: `${base}/o/token`,
           userinfo_endpoint: `${base}/o/userinfo`,
@@ -340,6 +340,88 @@ describe("discovery recovery", () => {
     await beginLogin(config, "/deed-polls");
 
     expect(discoveryCalls).toBe(2);
+  });
+
+  describe("through the rest of the flow", () => {
+    const flow = { codeVerifier: "a-verifier", state: "a-state", returnTo: "/deed-polls" };
+    const callback = new URL("http://localhost:3000/oauth2/callback?code=abc&state=a-state");
+    const SUBJECT = "team-leader@example.com";
+
+    beforeEach(() => {
+      vi.mocked(client.authorizationCodeGrant).mockResolvedValue({
+        access_token: "an-access-token",
+        id_token: "an-id-token",
+        claims: () => ({ sub: SUBJECT }),
+        expiresIn: () => 900
+      } as never);
+      vi.mocked(client.refreshTokenGrant).mockResolvedValue({ access_token: "a-new-access-token", claims: () => undefined, expiresIn: () => 900 } as never);
+      vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: SUBJECT, name: "A Team leader" } as never);
+      vi.mocked(findCallerAccess).mockResolvedValue({ staff: true, judicial: false, capabilities: [] });
+    });
+
+    it("should not attempt the code exchange while discovery is failing, and make it exactly once after recovery", async () => {
+      discoveryAnswers = ["unavailable"];
+
+      await expect(completeLogin(config, flow, callback)).rejects.toThrow();
+      await expect(completeLogin(config, flow, callback)).rejects.toThrow(/IDAM discovery failed recently/);
+      vi.setSystemTime(START + COOLDOWN_MS);
+      const result = await completeLogin(config, flow, callback);
+
+      expect(result.subject).toBe(SUBJECT);
+      expect(client.authorizationCodeGrant).toHaveBeenCalledTimes(1);
+      expect(discoveryCalls).toBe(2);
+    });
+
+    it("should throw rather than refuse a refresh while discovery is failing, so the session is kept, and refresh once after recovery", async () => {
+      discoveryAnswers = ["unavailable"];
+
+      await expect(refreshTokens(config, "a-refresh-token", SUBJECT)).rejects.toThrow();
+      await expect(refreshTokens(config, "a-refresh-token", SUBJECT)).rejects.toThrow(/IDAM discovery failed recently/);
+      vi.setSystemTime(START + COOLDOWN_MS);
+      const result = await refreshTokens(config, "a-refresh-token", SUBJECT);
+
+      expect(result.ok).toBe(true);
+      expect(client.refreshTokenGrant).toHaveBeenCalledTimes(1);
+      expect(discoveryCalls).toBe(2);
+    });
+
+    it("should serve login, callback, refresh and logout from one recovered discovery", async () => {
+      discoveryAnswers = ["unavailable"];
+      await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+      vi.setSystemTime(START + COOLDOWN_MS);
+
+      await beginLogin(config, "/deed-polls");
+      await completeLogin(config, flow, callback);
+      await refreshTokens(config, "a-refresh-token", SUBJECT);
+      await endSessionUrl(config, "an-id-token");
+
+      expect(discoveryCalls).toBe(2);
+    });
+  });
+
+  it("should never cache a misconfigured issuer, and retry it no more than once per interval", async () => {
+    // The same document every time: unlike an outage, waiting does not fix this, which is what tells the two apart.
+    discoveryAnswers = ["wrong-issuer", "wrong-issuer"];
+
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow(/discovered metadata issuer does not match the expected issuer/);
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow(/IDAM discovery failed recently/);
+    vi.setSystemTime(START + COOLDOWN_MS);
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow(/discovered metadata issuer does not match the expected issuer/);
+
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should report a discovery failure and the cooldown refusal without the client secret or any token", async () => {
+    discoveryAnswers = ["unavailable"];
+    const failure = await beginLogin(config, "/deed-polls").catch((error: unknown) => error);
+    const refusal = await refreshTokens(config, "a-refresh-token", "a-subject").catch((error: unknown) => error);
+
+    const logged = JSON.stringify([describeIdamError(failure), describeIdamError(refusal)]);
+
+    expect(logged).toMatch(/IDAM discovery failed recently/);
+    expect(logged).not.toContain(config.clientSecret);
+    expect(logged).not.toContain("a-refresh-token");
+    expect(client.refreshTokenGrant).not.toHaveBeenCalled();
   });
 });
 
@@ -705,4 +787,4 @@ function nextDiscoveryRequest(): Promise<void> {
   });
 }
 
-type DiscoveryAnswer = "document" | "unavailable" | "connection-reset";
+type DiscoveryAnswer = "document" | "unavailable" | "connection-reset" | "wrong-issuer";

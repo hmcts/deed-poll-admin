@@ -94,13 +94,13 @@ bind only to loopback and close their servers. They need no live IDAM credential
 **Files:** `src/auth/idam.test.ts`, existing authentication integration tests where needed,
 `CLAUDE.md` or the existing authentication documentation, and this plan's Execution notes.
 
-- [ ] Exercise the public authentication entry point through outage and recovery with a valid local
+- [x] Exercise the public authentication entry point through outage and recovery with a valid local
       discovery document. Retain tests for issuer/transport rejection, PKCE/state and subject checks.
-- [ ] Confirm token exchange/refresh is not replayed by the discovery retry policy, successful discovery
+- [x] Confirm token exchange/refresh is not replayed by the discovery retry policy, successful discovery
       remains cached, and failure diagnostics do not expose tokens or credentials.
-- [ ] Document recovery timing and the distinction between a transient discovery failure and a
+- [x] Document recovery timing and the distinction between a transient discovery failure and a
       misconfigured issuer. Do not require a restart as the recovery path for transient failure.
-- [ ] Record starting/final commits, changed files, actual request-count evidence, test counts and skips.
+- [x] Record starting/final commits, changed files, actual request-count evidence, test counts and skips.
       Run all Validation Commands and hand off to the normal Ralphex review phases; record any review
       fixes and revalidation.
 
@@ -158,6 +158,27 @@ new validation run or Ralphex execution has been performed for this plan. Append
   biome schema-version info), build clean; app 107 files / 2251 tests (+6); deed-poll 1204, api-client 778,
   cloud-native-platform 157, express-govuk-starter 127, simple-router 41, express-session-postgres 23,
   express-session-redis 7; no skips; `src/session-store.test.ts` ran (7 tests).
+
+### Task 3 (20 October 2026)
+
+- Starting commit `3fd6538`. Changed files: `src/auth/idam.test.ts`, `CLAUDE.md` ("Deployment and sessions"), this
+  plan. No production code changed in this task; `src/auth/idam.ts` is as Task 2 left it.
+- Five new tests in "discovery recovery", using the loopback discovery server and fake `Date`. Their request counts:
+  `completeLogin` failing, refused inside the cooldown, then succeeding = 2 discovery requests and exactly one
+  `authorizationCodeGrant`. `refreshTokens` doing the same = 2 requests and exactly one `refreshTokenGrant`; it throws
+  (kept as transient by `refresh-middleware.ts`) rather than returning a refusal. Login, callback, refresh and
+  end-session after one recovery = 2 requests in total, so the recovered configuration is cached. A wrong-issuer
+  document is never cached: "discovered metadata issuer does not match the expected issuer", retried once per
+  interval = 2 requests. `describeIdamError` of a discovery failure and of the cooldown refusal contains neither the
+  client secret nor the refresh token, and no token grant was sent.
+- These tests pass against Task 2's code without change: they pin integration rather than drive new behaviour. The
+  existing tests for cleartext-issuer refusal, PKCE/state and subject mismatch all still pass, unchanged.
+- Documented in `CLAUDE.md`: recovery within about 5 s of IDAM recovering, no restart needed, and how a misconfigured
+  issuer differs (it repeats once per interval forever and is fixed in `IDAM_ISSUER_URL` or the chart).
+- Full validation: lint clean (the one pre-existing Biome schema-version info), build clean; app 107 files / 2256
+  tests (+5); deed-poll 1204, api-client 778, cloud-native-platform 157, express-govuk-starter 127, simple-router 41,
+  express-session-postgres 23, express-session-redis 7; no skips; `src/session-store.test.ts` ran (7 tests).
+- Ralphex review phases follow this task. Review fixes and revalidation are recorded below when they happen.
 
 ## Post-Completion
 

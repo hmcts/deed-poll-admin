@@ -400,6 +400,17 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
 - **The readiness probe names Redis and api, and no database.** `deedPollApiStatus()` in
   `libs/deed-poll/src/api/deed-poll-api.ts` is what replaced the Postgres table check: a probe that went
   green while api was unreachable would have Kubernetes send traffic to a pod that 500s every case page.
+- **A failed IDAM discovery recovers on its own, and a restart is not the fix.** `idamConfiguration`
+  (`src/auth/idam.ts`) caches only a successful discovery. A failed one (a 503, a reset connection, the client's
+  own timeout) holds off the next attempt for `DISCOVERY_RETRY_COOLDOWN_MS` (5 s). Logins, callbacks and refreshes
+  inside that window fail at once with "IDAM discovery failed recently" and make no request, and the first request
+  after it starts one shared attempt. So a pod is back within about 5 s of IDAM recovering, at a cost of at most one
+  discovery request per 5 s during an outage, with no background retry. Only discovery is retried: a refused
+  discovery means the code exchange and refresh grant are never sent, and a refresh that cannot discover throws,
+  which keeps the session as transient instead of ending it. **A misconfigured issuer looks the same in the logs
+  but never recovers**: `openid-client`'s "discovered metadata issuer does not match the expected issuer", or an
+  HTTPS refusal, repeats once per interval indefinitely. That is fixed in `IDAM_ISSUER_URL` or the chart, not by
+  waiting or cycling the pod.
 
 ## Security events
 
