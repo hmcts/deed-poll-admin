@@ -11,6 +11,7 @@ import { trackEvent } from "@hmcts-cft/cloud-native-platform";
 import type { NextFunction } from "express";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageResponse, type RequestDouble, type ResponseDouble, sessionDouble } from "../express-doubles.js";
+import { SessionWriteRefusedError } from "./guarded-session-store.js";
 import { endSessionUrl } from "./idam.js";
 import { sessionLifetime } from "./session-lifetime.js";
 
@@ -117,6 +118,27 @@ describe("sessionLifetime", () => {
 
       expect(req.session.deedPoll.lastSeenAt).toBe(NOW_SECONDS);
       expect(order).toEqual(["save", "next"]);
+    });
+
+    it("should go on signed out, with no event, when the session was ended elsewhere before its activity saved", async () => {
+      const req = request({ lastSeenAt: NOW_SECONDS - 600 });
+      req.session.save.mockImplementation((callback: (error?: Error) => void) => callback(new SessionWriteRefusedError("missing")));
+
+      const { res, next } = await run(req);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(req.session.destroy).toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2Fdeed-polls%2Fcase-1");
+      expect(trackEvent).not.toHaveBeenCalled();
+      expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toMatch(/a-timed-session-id|a-secret-access-token|idam-subject-1/);
+    });
+
+    it("should still fail the request when the activity save fails for any other reason", async () => {
+      const req = request({ lastSeenAt: NOW_SECONDS - 600 });
+      req.session.save.mockImplementation((callback: (error?: Error) => void) => callback(new Error("Socket closed unexpectedly")));
+
+      await expect(run(req)).rejects.toThrow("Socket closed unexpectedly");
+      expect(req.session.destroy).not.toHaveBeenCalled();
     });
 
     it("should not count a public page as activity", async () => {

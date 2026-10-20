@@ -299,6 +299,33 @@ The cookie expiry and any client-side warning are conveniences; neither decides 
 - **Rollback:** raise `SESSION_IDLE_TIMEOUT_SECONDS` in the chart, or revert the release. Older code ignores the new
   session fields.
 
+### Session writes and rollout
+
+Since the E01 fix (`docs/plans/20261020-e01-session-revocation.md`) the session store is `GuardedSessionStore`, which
+refuses any write that could recreate a logged-out or expired session or overwrite a newer one, and coordinates token
+refreshes across pods with a lease. The contract is in `CLAUDE.md` under "Session writes". What it means for a deploy:
+
+- **The keyspace changed, from `admin-sess:` to `admin-sess-v2:`.** Nothing is migrated: the first deploy signs every
+  caseworker and judge out once. Old string records are never read by the new store and expire on their own TTL, at
+  most the absolute limit plus 15 minutes after their last write. Do not delete them by hand — the Redis is shared with
+  `deed-poll-web`, and a pattern delete there is a production change in its own right.
+- **Mixed versions are safe in one direction only.** An old pod reads and writes only `admin-sess:`, so it cannot read,
+  rewrite or resurrect a guarded record, and a new pod never reads an old one. Being balanced between versions mid-rollout
+  signs a user out, never in. Old pods still have the E01 defect for their own old-keyspace sessions, so the guarantee
+  holds only once no old pod is serving.
+- **Procedure.** Deploy with the ordinary rolling update; announce the one-off sign-out beforehand. Confirm the rollout
+  has finished and no pod of the previous ReplicaSet remains (`kubectl get pods -n {namespace}`, every
+  `deed-poll-admin` pod on the new image). Only then treat E01 as closed in that environment. No session invalidation step is
+  needed or wanted; the old keys age out.
+- **Rollback** to an image before the fix returns everyone to `admin-sess:` (another sign-in) and to the old defect.
+  The `admin-sess-v2:` keys are ignored and expire on their TTL. Rolling forward again signs everyone out once more.
+- **Failure modes are closed.** A Redis error or timeout (2 s per command) fails the request; a refused write after
+  logout or expiry signs the request out with a redirect to `/login`; a refresh that lost its lease fails rather than
+  asking IDAM again, and the next refresh with a rotated-away token signs the user out. None of this logs a session id,
+  subject or token.
+- **What it does not do.** It guarantees this app's stored session. It does not revoke the IDAM tokens a session held;
+  that remains IDAM's end-session on logout and api's token validation.
+
 ## Security events
 
 Sign-ins, sign-outs, persona switches and refusals go to App Insights as `customEvents`, through
@@ -353,7 +380,7 @@ them.
 | Secret | Alias | Description |
 |--------|-------|-------------|
 | `app-insights-connection-string` | `APPLICATION_INSIGHTS_CONNECTION_STRING` | Application Insights telemetry. Shared — `deed-poll-api` is Spring Boot and reads the same entry |
-| `redis-url` | `REDIS_URL` | Session store. One instance per environment shared with `deed-poll-web`, so this app prefixes its keys `admin-sess:` rather than the library default `sess:`. Written as `rediss://` against the TLS port, and `assertRedisUrl` refuses to start on a cleartext or loopback URL outside development |
+| `redis-url` | `REDIS_URL` | Session store. One instance per environment shared with `deed-poll-web`, so this app prefixes its keys `admin-sess-v2:` (formerly `admin-sess:`, see [Session writes and rollout](#session-writes-and-rollout)) rather than the library default `sess:`. Written as `rediss://` against the TLS port, and `assertRedisUrl` refuses to start on a cleartext or loopback URL outside development |
 | `admin-session-secret` | `SESSION_SECRET` | Session cookie signing key |
 | `admin-idam-client-secret` | `IDAM_CLIENT_SECRET` | IDAM OIDC client secret. **Does not exist yet** — it comes from IDAM by hand once the client registration lands |
 

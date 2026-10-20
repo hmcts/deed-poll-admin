@@ -24,6 +24,8 @@ import {
 } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { vi } from "vitest";
+import type { RefreshClaim } from "./auth/guarded-session-store.js";
+import type { RefreshCoordinator } from "./auth/session.js";
 
 const CASEWORK = [OVERRIDE_PRIVACY, DELETE_NOTE, DELETE_WITNESS, MANAGE_SHARED_QUERIES, REPAIR_CCD];
 
@@ -120,6 +122,7 @@ export function pageRequest({
     query: query ?? {},
     body,
     originalUrl: originalUrl ?? "/",
+    sessionStore: refreshCoordinatorDouble(),
     session: sessionDouble({
       ...(user ? { user } : {}),
       ...(flow ? { flow } : {}),
@@ -171,7 +174,26 @@ export function sessionDouble(deedPoll: Record<string, unknown> = {}): SessionDo
   return session;
 }
 
+/**
+ * The session store as the refresh sees it, always granting the lease. A real store's lease, waits and refusals are
+ * tested against Redis in `src/auth/refresh-coordination.test.ts`; this lets a unit test reach the refresh at all,
+ * since without a coordinating store it fails closed.
+ */
+export function refreshCoordinatorDouble(claim: RefreshClaim = { outcome: "acquired", lease: "a-lease" }): RefreshCoordinatorDouble {
+  return {
+    claimRefresh: vi.fn(async () => claim),
+    attachRefreshLease: vi.fn(),
+    releaseRefresh: vi.fn(async () => undefined)
+  } as unknown as RefreshCoordinatorDouble;
+}
+
 export type Persona = keyof typeof PERSONA_ACCESS;
+
+export type RefreshCoordinatorDouble = RefreshCoordinator & {
+  claimRefresh: ReturnType<typeof vi.fn>;
+  attachRefreshLease: ReturnType<typeof vi.fn>;
+  releaseRefresh: ReturnType<typeof vi.fn>;
+};
 
 export type SessionDouble = Request["session"] & {
   deedPoll: Record<string, unknown>;

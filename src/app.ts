@@ -10,6 +10,7 @@ import cookieParser from "cookie-parser";
 import type { Express } from "express";
 import express from "express";
 import { createClient } from "redis";
+import { GuardedSessionStore } from "./auth/guarded-session-store.js";
 import { noStore } from "./auth/no-store.js";
 import { personaSwitcherLocals } from "./auth/persona-switcher.js";
 import { refreshMiddleware } from "./auth/refresh-middleware.js";
@@ -43,8 +44,19 @@ const REDIS_PING_TIMEOUT_MS = 1_000;
  * service and this caseworker service would share one namespace — and this app's sessions hold IDAM
  * access and refresh tokens. Distinct signing secrets already stop a cookie being portable between the
  * two; this is the keyspace half of the same argument.
+ *
+ * `-v2` since the guarded store (`./auth/guarded-session-store.ts`): its records are hashes where connect-redis wrote
+ * strings, and a separate keyspace is what keeps an instance still running the old store from reading, or
+ * unconditionally rewriting, a guarded record during a rolling deploy. Old `admin-sess:` keys are never read again and
+ * expire on their own TTL; the cost is one sign-in for everyone, and again for anyone moved between versions mid-rollout.
  */
-const SESSION_KEY_PREFIX = "admin-sess:";
+const SESSION_KEY_PREFIX = "admin-sess-v2:";
+/**
+ * The most any one session store command may take. A command that times out fails its request rather than hanging it;
+ * a write whose reply was lost is never retried, and the session object it came from can no longer satisfy the store's
+ * revision check, so nothing is written blind.
+ */
+const SESSION_COMMAND_TIMEOUT_MS = 2_000;
 
 export async function createApp(): Promise<Express> {
   // `server.ts` has already loaded the key vault secrets into the environment by the time this runs, and
@@ -92,10 +104,19 @@ export async function createApp(): Promise<Express> {
   // `expressSessionRedis` spreads `sessionOptions` **over** its defaults, so a partial `cookie` replaces
   // the whole default object — passing only `maxAge` would silently drop `secure` and `httpOnly`. Stating
   // all four means no future edit to one of them can quietly remove the others.
+  //
+  // The store is passed in rather than left to the library, whose connect-redis store writes unconditionally and so
+  // let a request still running after logout put the session back (review finding E01). The same spread is what lets
+  // `store` replace the library's, so the library itself is unchanged; the store it still constructs is never called. See ./auth/guarded-session-store.ts.
   app.use(
     expressSessionRedis({
       redisConnection,
       sessionOptions: {
+        store: new GuardedSessionStore({
+          client: redisConnection.withCommandOptions({ timeout: SESSION_COMMAND_TIMEOUT_MS }),
+          prefix: SESSION_KEY_PREFIX,
+          ttl: sessionStoreTtl(sessionTimeouts)
+        }),
         secret: sessionSecret,
         name: sessionCookieName(),
         cookie: {
@@ -114,8 +135,7 @@ export async function createApp(): Promise<Express> {
           // withhold the cookie carrying the in-flight `flow`, failing every login at the callback.
           sameSite: "lax"
         }
-      },
-      storeOptions: { prefix: SESSION_KEY_PREFIX, ttl: sessionStoreTtl(sessionTimeouts) }
+      }
     })
   );
   // Every state-changing request must come from this app's own pages. `SameSite=Lax` above stops

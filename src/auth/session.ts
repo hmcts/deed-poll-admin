@@ -8,10 +8,15 @@
  *
  * Namespaced under `deedPoll` per `.claude/rules/frontend.md`, so a second journey added later cannot
  * collide with it in the same store.
+ *
+ * Every save below goes through `./guarded-session-store.ts`, which refuses one based on a session that has since been
+ * destroyed, expired or written by another request, and the refusal rejects the save's promise. So none of these can
+ * put a logged-out session back, and none can replace newer tokens with the snapshot its request started from.
  */
 import { type CallerAccess, type CurrentUser, currentUser, holdsCallerAccess, plainHttpPermitted } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import type { SessionData } from "express-session";
+import { type RefreshClaim, SessionWriteRefusedError } from "./guarded-session-store.js";
 import type { AuthFlowState, IdamTokens } from "./idam.js";
 
 /** The service name the chart's per-PR Redis subchart gets: `{{ .Release.Name }}-redis-master`. */
@@ -28,6 +33,15 @@ const MAX_ABSOLUTE_TIMEOUT_SECONDS = 86_400;
 const ANONYMOUS_STORE_TTL_SECONDS = 600;
 /** How long past the absolute deadline the store keeps a signed-in session, so `sessionLifetime` always ends it first. */
 const SIGNED_IN_STORE_GRACE_SECONDS = 900;
+
+/**
+ * How many times a write re-reads the session and re-applies its own change after another request's write moved the
+ * revision. A refresh's attempts reuse the tokens IDAM already issued, so none of them spends the refresh token again.
+ */
+const RECONCILE_ATTEMPTS = 3;
+
+/** How `express-session` 1.19's `reload` reports a session the store no longer holds: this message, and no code. */
+const RELOAD_FOUND_NOTHING = "failed to load session";
 
 interface DeedPollSession {
   user?: CurrentUser;
@@ -249,20 +263,27 @@ export function sessionHoldsAccess(req: Request): boolean {
  * tokens a concurrent request had just refreshed. Touches no token and neither clock.
  *
  * Reloaded first, because this runs after an await on api: the snapshot this request started with can predate a
- * refresh another request has since saved, and saving it would put the old tokens back, spending a rotated refresh
- * token. Only the user is written onto what the store holds now, and nothing is written if that already holds an
- * answer.
+ * refresh another request has since saved. Only the user is written onto what the store holds now, and nothing is
+ * written if that already holds an answer. Reload-then-save is not atomic, so a write landing between the two is a
+ * `conflict`, answered by reading again (`saveReconciled`). A session that has gone rejects with `isSessionGone`.
  */
-export function storeAccess(req: Request, access: CallerAccess): Promise<void> {
-  return new Promise((resolve, reject) => {
-    req.session.reload((reloadError) => {
-      if (reloadError) return reject(reloadError);
-      if (holdsCallerAccess(namespace(req)?.user)) return resolve();
-      const session = writableNamespace(req);
-      session.user = currentUser(access, session.user?.name);
-      req.session.save((error) => (error ? reject(error) : resolve()));
-    });
+export async function storeAccess(req: Request, access: CallerAccess): Promise<void> {
+  await reload(req);
+  await saveReconciled(req, (session) => {
+    if (holdsCallerAccess(session?.user)) return false;
+    const writable = writableNamespace(req);
+    writable.user = currentUser(access, writable.user?.name);
+    return true;
   });
+}
+
+/**
+ * Whether a session write or re-read failed because the session itself has gone: logged out, replaced by a sign-in,
+ * or expired, by another request while this one held it. Such a request must go on signed out, not as the user its
+ * snapshot describes.
+ */
+export function isSessionGone(error: unknown): boolean {
+  return error instanceof SessionWriteRefusedError && error.reason === "missing";
 }
 
 export function startFlow(req: Request, flow: AuthFlowState): void {
@@ -356,11 +377,21 @@ export function sessionTimestamps(req: Request): SessionTimestamps | undefined {
  * Saved explicitly, at the start of a request, rather than left to `express-session`'s end-of-request write: that
  * write is of the whole session, so a slow upload finishing late could overwrite tokens a concurrent request had
  * just refreshed, and spend a rotated refresh token. OWASP plan 03, decision 3.
+ *
+ * When another request wrote first (a refresh, say) the session is read again and only the clock is moved on what it
+ * now holds, never back, so this request goes on with the winner's tokens rather than writing its own over them. A
+ * session that has gone rejects with `isSessionGone`.
  */
 export function touchLastSeen(req: Request): Promise<void> {
-  return new Promise((resolve, reject) => {
-    writableNamespace(req).lastSeenAt = nowSeconds();
-    req.session.save((error) => (error ? reject(error) : resolve()));
+  const now = nowSeconds();
+  return saveReconciled(req, (session, isRetry) => {
+    if (!session?.user) return false;
+    // After a conflict, a winner at or past this second already holds the change; writing again would only move the
+    // revision and make the other concurrent requests conflict once more. The first attempt always writes, because
+    // the write is also what finds out the session has gone.
+    if (isRetry && (session.lastSeenAt ?? 0) >= now) return false;
+    writableNamespace(req).lastSeenAt = Math.max(session.lastSeenAt ?? 0, now);
+    return true;
   });
 }
 
@@ -392,23 +423,60 @@ export function sessionTimedOutReturnTo(req: Request): string | undefined {
  * Does NOT regenerate the session — the user was already authenticated, this just extends it. Without an answer
  * the previous one is kept, so a failed `/me` costs no access the caller already had. Written with the tokens in
  * one save rather than a second one.
+ *
+ * Holds no refresh lease, so the store guards it only by revision. The refresh itself publishes through
+ * `publishRefresh`, which also requires the lease; this is the same write without one.
  */
 export function updateTokens(req: Request, tokens: IdamTokens, access?: CallerAccess): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const session = writableNamespace(req);
-    if (access && session.user) session.user = currentUser(access, session.user.name);
-    session.accessToken = tokens.accessToken;
-    session.refreshToken = tokens.refreshToken;
-    session.tokenExpiresAt = tokens.expiresAt;
-    // `authenticatedAt` and `lastSeenAt` are not touched either: a refresh moving them would make the session endless.
-    // `subject` is deliberately not touched: it records who this session was established for, and a
-    // refresh that describes someone else is refused by `refreshTokens` rather than adopted here.
-    //
-    // The id token is optional in a refresh response (OIDC Core §12.2), so the old one is kept when
-    // none arrives — it is only needed as the `id_token_hint` at logout, where a stale one still names
-    // the right session.
-    if (tokens.idToken) session.idToken = tokens.idToken;
-    req.session.save((error) => (error ? reject(error) : resolve()));
+  applyTokens(writableNamespace(req), tokens, access);
+  return save(req);
+}
+
+/**
+ * Take this session's refresh lease, waiting a bounded time if another request (on any instance) holds it.
+ *
+ * On `acquired` the session has been read again from the store, so the caller decides from what the store holds now,
+ * not from the snapshot its request started with: the request it waited on may already have installed new tokens.
+ * Fails closed when the store cannot coordinate, rather than refreshing unguarded.
+ */
+export async function claimRefresh(req: Request): Promise<RefreshClaim> {
+  const store = coordinator(req);
+  const claim = await store.claimRefresh(req.sessionID, req.session as unknown as SessionData);
+  if (claim.outcome !== "acquired") return claim;
+  try {
+    await reload(req);
+  } catch (error) {
+    await releaseRefresh(req, claim.lease);
+    throw error;
+  }
+  return claim;
+}
+
+/** Give up a refresh lease. A failure is logged and swallowed: the lease expires by itself, and nothing was written. */
+export async function releaseRefresh(req: Request, lease: string): Promise<void> {
+  // A destroyed session took its lease with it.
+  if (!req.session) return;
+  try {
+    await coordinator(req).releaseRefresh(req.sessionID, lease);
+  } catch (error) {
+    console.warn("session refresh lease could not be released; it will expire:", error instanceof Error ? error.name : "unknown");
+  }
+}
+
+/**
+ * Store refreshed tokens and the `/me` answer for them in one save, under the refresh lease.
+ *
+ * Refused outright if the lease has expired or passed to another request (`SessionWriteRefusedError` `lease`), and if
+ * the session has gone (`missing`), and never retried with IDAM for either. Another request's write in the meantime
+ * (`conflict`) is answered by reading the session again and applying the same tokens to what it now holds, so an
+ * activity save or a backfilled answer is kept rather than overwritten with this request's snapshot.
+ */
+export function publishRefresh(req: Request, lease: string, tokens: IdamTokens, access?: CallerAccess): Promise<void> {
+  const store = coordinator(req);
+  return saveReconciled(req, () => {
+    applyTokens(writableNamespace(req), tokens, access);
+    store.attachRefreshLease(req.session as unknown as SessionData, lease);
+    return true;
   });
 }
 
@@ -423,10 +491,74 @@ function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+function applyTokens(session: DeedPollSession, tokens: IdamTokens, access: CallerAccess | undefined): void {
+  if (access && session.user) session.user = currentUser(access, session.user.name);
+  session.accessToken = tokens.accessToken;
+  session.refreshToken = tokens.refreshToken;
+  session.tokenExpiresAt = tokens.expiresAt;
+  // `authenticatedAt` and `lastSeenAt` are not touched either: a refresh moving them would make the session endless.
+  // `subject` is deliberately not touched: it records who this session was established for, and a
+  // refresh that describes someone else is refused by `refreshTokens` rather than adopted here.
+  //
+  // The id token is optional in a refresh response (OIDC Core §12.2), so the old one is kept when
+  // none arrives — it is only needed as the `id_token_hint` at logout, where a stale one still names
+  // the right session.
+  if (tokens.idToken) session.idToken = tokens.idToken;
+}
+
+/**
+ * Apply `change` to the session and save it; if another request's write moved the revision first, read the session
+ * again and apply the same change to what it now holds, a bounded number of times. `change` sees the namespace as it
+ * stands and answers whether there is anything to write, so a re-read that already holds the change writes nothing.
+ * Only a `conflict` is retried: a session that has gone, a lost lease or a store failure rejects at once.
+ */
+async function saveReconciled(req: Request, change: (session: DeedPollSession | undefined, isRetry: boolean) => boolean): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    if (!change(namespace(req), attempt > 1)) return;
+    try {
+      await save(req);
+      return;
+    } catch (error) {
+      if (!(error instanceof SessionWriteRefusedError) || error.reason !== "conflict" || attempt >= RECONCILE_ATTEMPTS) throw error;
+    }
+    await reload(req);
+  }
+}
+
+function save(req: Request): Promise<void> {
+  return new Promise((resolve, reject) => req.session.save((error) => (error ? reject(error) : resolve())));
+}
+
+/** Read the session again from the store. One that has gone is reported as the refusal a write to it would get. */
+function reload(req: Request): Promise<void> {
+  return new Promise((resolve, reject) =>
+    req.session.reload((error) => {
+      if (!error) return resolve();
+      reject(error instanceof Error && error.message === RELOAD_FOUND_NOTHING ? new SessionWriteRefusedError("missing") : error);
+    })
+  );
+}
+
+/** The store, if it is one that can coordinate refreshes. Anything else is refused rather than refreshed unguarded. */
+function coordinator(req: Request): RefreshCoordinator {
+  const store = req.sessionStore as Partial<RefreshCoordinator> | undefined;
+  if (typeof store?.claimRefresh !== "function" || typeof store.attachRefreshLease !== "function" || typeof store.releaseRefresh !== "function") {
+    throw new Error("the session store cannot coordinate token refreshes");
+  }
+  return store as RefreshCoordinator;
+}
+
 /** Session lifetime limits in seconds, as checked by `assertSessionTimeouts`. */
 export interface SessionTimeouts {
   idleSeconds: number;
   absoluteSeconds: number;
+}
+
+/** What the refresh needs of the store: `GuardedSessionStore`, or a double of it. */
+export interface RefreshCoordinator {
+  claimRefresh(sid: string, sess: SessionData): Promise<RefreshClaim>;
+  attachRefreshLease(sess: SessionData, lease: string): void;
+  releaseRefresh(sid: string, lease: string): Promise<void>;
 }
 
 /** When a session was signed in and last active, in Unix seconds. */

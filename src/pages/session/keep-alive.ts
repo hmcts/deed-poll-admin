@@ -7,11 +7,18 @@
  * `requireSameOrigin` refuses it from any other site, like every other write.
  */
 import type { Request, Response } from "express";
-import { sessionUser, touchLastSeen } from "../../auth/session.js";
+import { isSessionGone, sessionUser, signOut, touchLastSeen } from "../../auth/session.js";
 
 export const POST = async (req: Request, res: Response) => {
   res.setHeader("Cache-Control", "no-store");
   if (!sessionUser(req)) return res.sendStatus(401);
-  await touchLastSeen(req);
+  try {
+    await touchLastSeen(req);
+  } catch (error) {
+    // Ended by another request since this one was loaded: answered as any signed-out request is.
+    if (!isSessionGone(error)) throw error;
+    await signOut(req);
+    return res.sendStatus(401);
+  }
   res.sendStatus(204);
 };
