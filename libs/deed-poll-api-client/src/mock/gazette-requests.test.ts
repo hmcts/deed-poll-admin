@@ -2,7 +2,15 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
-import { getGazetteMembers, getGazetteRequests, getGazetteStatus, previewGazetteNotice, submitGazetteNotice, updateGazetteSettings } from "../api/client.js";
+import {
+  getGazetteMembers,
+  getGazetteNoticeHistory,
+  getGazetteRequests,
+  getGazetteStatus,
+  previewGazetteNotice,
+  submitGazetteNotice,
+  updateGazetteSettings
+} from "../api/client.js";
 import { GAZETTE_REFUSAL_CODE, GAZETTE_REQUEST_STATE } from "../api/wire.js";
 import { type RunningMockApi, startMockApi } from "./server.js";
 
@@ -59,6 +67,8 @@ it.each(GAZETTE_REQUEST_STATE)("should return %s as an outcome, replay the same 
   const sent = await submitGazetteNotice(input, key, config());
   expect(sent).toMatchObject({ ok: true, data: { state, caseCount: 2 } });
   if (!sent.ok) throw new Error("Expected status");
+  expect(older.dateNoticeSentToLondonGazette).toEqual(state === "Sent" ? sent.data.sentAt : null);
+  expect(await getGazetteNoticeHistory({}, config())).toMatchObject({ ok: true, data: { total: state === "Sent" ? 1 : 0 } });
   older.displayReference = "edited";
   await updateGazetteSettings({ recipientEmail: "changed@example.com", revision: 1 }, config());
   expect(await submitGazetteNotice(input, key, config())).toEqual(sent);
@@ -72,6 +82,104 @@ it.each(GAZETTE_REQUEST_STATE)("should return %s as an outcome, replay the same 
     ok: false,
     error: { kind: "gazette-refusal", code: "REQUEST_KEY_REUSED" }
   });
+});
+
+it("should replay reordered case IDs before readiness and expiry checks, but reject a different subject", async () => {
+  const { older, input } = await selection();
+  const key = randomUUID();
+  const admitted = await submitGazetteNotice(input, key, config());
+  expect(admitted.ok).toBe(true);
+  older.state = "Returned";
+  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31 * 60_000);
+  try {
+    expect(await submitGazetteNotice({ ...input, caseIds: [...input.caseIds].reverse() }, key, config())).toEqual(admitted);
+    const otherSubject = `x.${Buffer.from(JSON.stringify({ sub: "other-manager", roles: ["caseworker-deedpoll-delivery-manager"] })).toString("base64url")}.signature`;
+    expect(await submitGazetteNotice(input, key, { ...config(), accessToken: otherSubject })).toMatchObject({
+      ok: false,
+      error: { kind: "gazette-refusal", code: "REQUEST_KEY_REUSED" }
+    });
+    expect(await getGazetteRequests({}, config())).toMatchObject({ ok: true, data: { total: 1 } });
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+it("should use reconfigured outcomes for new requests while retaining the original lost-response outcome", async () => {
+  const { input } = await selection();
+  await fixture("gazette-outcome", { state: "NotSent", loseResponse: true });
+  const originalKey = randomUUID();
+  expect(await submitGazetteNotice(input, originalKey, config())).toMatchObject({ ok: false, error: { kind: "unavailable" } });
+
+  await fixture("gazette-outcome", { state: "Preparing" });
+  expect(await submitGazetteNotice(input, originalKey, config())).toMatchObject({ ok: true, data: { state: "NotSent", failureCode: "PROVIDER_REFUSED" } });
+  const response = await fetch(`${mock.url}/caseworker/gazette-notices`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${DELIVERY_MANAGER}`, "content-type": "application/json", "idempotency-key": randomUUID() },
+    body: JSON.stringify(input)
+  });
+  expect(response.status).toBe(202);
+  expect(await response.json()).toMatchObject({ state: "Preparing", sentAt: null, failureCode: null });
+  expect(await getGazetteRequests({}, config())).toMatchObject({ ok: true, data: { total: 2 } });
+});
+
+it("should clear previews and configured outcomes on reset, then admit a fresh preview as Sent", async () => {
+  const { older, newer, input } = await selection();
+  await fixture("gazette-outcome", { state: "Uncertain", loseResponse: true });
+  mock.reset();
+  mock.seed({ ...older });
+  mock.seed({ ...newer });
+  await updateGazetteSettings({ recipientEmail: "gazette@example.com", revision: 0 }, config());
+
+  expect(await submitGazetteNotice(input, randomUUID(), config())).toMatchObject({ ok: false, error: { kind: "validation", status: 400 } });
+  expect(await getGazetteRequests({}, config())).toMatchObject({ ok: true, data: { total: 0 } });
+  const preview = await previewGazetteNotice({ caseIds: input.caseIds }, config());
+  if (!preview.ok) throw new Error("Expected fresh preview");
+  expect(await submitGazetteNotice({ ...input, selectionFingerprint: preview.data.selectionFingerprint }, randomUUID(), config())).toMatchObject({
+    ok: true,
+    data: { state: "Sent" }
+  });
+});
+
+it("should sort seeded requests by newest submission then descending ID, filter before paging, and retain null dates", async () => {
+  const low = "00000000-0000-4000-8000-000000000001";
+  const high = "00000000-0000-4000-8000-000000000002";
+  const undated = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+  for (const [batchId, state, submittedAt] of [
+    [low, "Sending", "2026-01-01T00:00:00"],
+    [high, "Sending", "2026-01-01T00:00:00"],
+    [undated, "NotSent", null]
+  ]) {
+    await fixture("gazette-requests", { status: { batchId, state, submittedAt, caseCount: 0 }, cases: [] });
+  }
+  expect(await getGazetteRequests({ state: "Sending", page: 2, size: 1 }, config())).toMatchObject({
+    ok: true,
+    data: { total: 2, totalPages: 2, requests: [{ batchId: low }] }
+  });
+  expect(await getGazetteRequests({}, config())).toMatchObject({
+    ok: true,
+    data: { total: 3, requests: [{ batchId: high }, { batchId: low }, { batchId: undated, submittedAt: null }] }
+  });
+});
+
+it.each([
+  ["GET", "gazette-notice-previews", undefined, 405],
+  ["POST", "gazette-notice-requests", {}, 405],
+  ["GET", "gazette-notices/not-a-uuid", undefined, 400],
+  ["GET", "gazette-notices/not-a-uuid/cases", undefined, 400],
+  ["GET", "gazette-notices/not-a-uuid/unsupported", undefined, 405],
+  ["GET", "gazette-notice-requests?state=unknown", undefined, 400],
+  ["GET", "gazette-notice-requests?page=0", undefined, 400],
+  ["GET", "gazette-notice-requests?size=1.5", undefined, 400],
+  ["POST", "gazette-notice-previews", {}, 400],
+  ["POST", "gazette-notices", {}, 400]
+] as const)("should preserve malformed-input and unsupported-route responses for %s %s", async (method, path, body, expected) => {
+  const response = await fetch(`${mock.url}/caseworker/${path}`, {
+    method,
+    headers: { authorization: `Bearer ${DELIVERY_MANAGER}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  });
+  expect(response.status).toBe(expected);
+  expect(await response.json()).toEqual({ error: expected === 405 ? "Method not allowed" : "Invalid Gazette request" });
 });
 
 it("should preserve the admitted request after a lost response and resolve with the original key only", async () => {

@@ -47,114 +47,162 @@ export function createGazetteRequests() {
       batches: Map<string, LegacyBatch>
     ): Reply {
       if (path === "/caseworker/gazette-notice-previews" && method === "POST") {
-        const parsed = WIRE_SCHEMAS.PreviewGazetteRequest.safeParse(body);
-        if (!parsed.success) return invalid();
-        const members = select(parsed.data.caseIds, cases, settings, requests, batches);
-        if (!Array.isArray(members)) return members;
-        const fingerprint = randomUUID();
-        const expires = Date.now() + 30 * 60_000;
-        previews.set(fingerprint, { ids: [...parsed.data.caseIds].sort(compare), snapshot: snapshot(members), expires });
-        return {
-          status: 200,
-          body: {
-            recipientEmail: settings.recipientEmail,
-            recipientRevision: settings.revision,
-            ...counts(members),
-            cases: membership(members),
-            selectionFingerprint: fingerprint,
-            expiresAt: new Date(expires)
-          }
-        };
+        return previewRequest(body, cases, settings, batches);
       }
       if (path === "/caseworker/gazette-notices" && method === "POST") {
-        const parsed = WIRE_SCHEMAS.SubmitGazetteRequest.safeParse(body);
-        if (!parsed.success || !z.uuid().safeParse(key).success) return invalid();
-        const input = parsed.data;
-        const identity = JSON.stringify({ ...input, caseIds: [...input.caseIds].sort(compare) });
-        const existing = [...requests.values()].find((request) => request.key === key);
-        if (existing) {
-          return existing.identity === identity && existing.subject === subject ? statusReply(existing.status) : refused("REQUEST_KEY_REUSED");
-        }
-        if (input.recipientRevision !== settings.revision) return refused("RECIPIENT_CHANGED");
-        const members = select(input.caseIds, cases, settings, requests, batches);
-        if (!Array.isArray(members)) return members;
-        const preview = previews.get(input.selectionFingerprint);
-        if (!preview) return invalid();
-        if (preview.expires <= Date.now()) return refused("CONFIRMATION_EXPIRED");
-        if (preview.snapshot !== snapshot(members) || JSON.stringify(preview.ids) !== JSON.stringify([...input.caseIds].sort(compare))) {
-          return refused("SELECTION_CHANGED");
-        }
-        const now = new Date();
-        const batchId = randomUUID();
-        const status: WireGazetteStatus = {
-          batchId,
-          state: outcome,
-          submittedAt: now,
-          submittedBy: name,
-          recipientEmail: settings.recipientEmail,
-          recipientRevision: settings.revision,
-          ...counts(members),
-          sentAt: outcome === "Sent" ? now : null,
-          failureCode: outcome === "NotSent" ? "PROVIDER_REFUSED" : outcome === "Uncertain" ? "SEND_OUTCOME_UNKNOWN" : null
-        };
-        requests.set(batchId, { status, cases: membership(members), key: String(key), subject, identity });
-        if (outcome === "Sent") {
-          for (const member of members) member.dateNoticeSentToLondonGazette = now;
-          batches.set(batchId, { id: batchId, sentAt: now, sentBy: name, referenceNumbers: membership(members).map((m) => m.referenceNumber) });
-        }
-        return { ...statusReply(status), loseResponse };
+        return submitRequest(body, key, subject, name, cases, settings, batches);
       }
       if (path === "/caseworker/gazette-notice-requests" && method === "GET") {
-        const state = query.get("state");
-        if (state !== null && !WIRE_SCHEMAS.GazetteStatusResponse.shape.state.safeParse(state).success) return invalid();
-        const values = [...requests.values()]
-          .map((request) => request.status)
-          .filter((row) => state === null || row.state === state)
-          .sort((a, b) => (b.submittedAt?.getTime() ?? 0) - (a.submittedAt?.getTime() ?? 0) || compare(b.batchId, a.batchId));
-        return page(values, query, "requests");
+        return listRequests(query);
       }
       const match = /^\/caseworker\/gazette-notices\/([^/]+)(\/cases)?$/.exec(path);
       if (match && method === "GET") {
-        const id = decodeURIComponent(match[1]);
-        if (!z.uuid().safeParse(id).success) return invalid();
-        const request = requests.get(id);
-        const legacy = batches.get(id);
-        if (!request && !legacy) return { status: 404, body: { error: "Gazette request not found" } };
-        if (match[2]) {
-          const members =
-            request?.cases ??
-            legacy?.referenceNumbers.map((referenceNumber, index) => ({
-              // Legacy seed fixtures predate member IDs. These synthetic IDs belong to the fixture only.
-              caseId: `legacy-${id}-${index}`,
-              referenceNumber
-            })) ??
-            [];
-          return page(
-            [...members].sort((a, b) => compare(a.referenceNumber, b.referenceNumber) || compare(a.caseId, b.caseId)),
-            query,
-            "cases"
-          );
-        }
-        return {
-          status: 200,
-          body: request?.status ?? {
-            batchId: id,
-            state: "Sent",
-            caseCount: legacy?.referenceNumbers.length,
-            sentAt: legacy?.sentAt,
-            submittedAt: null,
-            submittedBy: null,
-            recipientEmail: null,
-            recipientRevision: null,
-            adultCount: null,
-            minorCount: null,
-            failureCode: null
-          }
-        };
+        return readRequest(match, query, batches);
       }
       return { status: 405, body: { error: "Method not allowed" } };
     }
   };
+
+  function previewRequest(body: unknown, cases: Map<string, MockCase>, settings: Settings, batches: Map<string, LegacyBatch>): Reply {
+    const parsed = WIRE_SCHEMAS.PreviewGazetteRequest.safeParse(body);
+    if (!parsed.success) return invalid();
+    const members = select(parsed.data.caseIds, cases, settings, requests, batches);
+    if (!Array.isArray(members)) return members;
+    const fingerprint = randomUUID();
+    const expires = Date.now() + 30 * 60_000;
+    previews.set(fingerprint, { ids: [...parsed.data.caseIds].sort(compare), snapshot: snapshot(members), expires });
+    return {
+      status: 200,
+      body: {
+        recipientEmail: settings.recipientEmail,
+        recipientRevision: settings.revision,
+        ...counts(members),
+        cases: membership(members),
+        selectionFingerprint: fingerprint,
+        expiresAt: new Date(expires)
+      }
+    };
+  }
+
+  function submitRequest(
+    body: unknown,
+    key: unknown,
+    subject: string,
+    name: string,
+    cases: Map<string, MockCase>,
+    settings: Settings,
+    batches: Map<string, LegacyBatch>
+  ): Reply {
+    const parsed = WIRE_SCHEMAS.SubmitGazetteRequest.safeParse(body);
+    if (!parsed.success || !z.uuid().safeParse(key).success) return invalid();
+    const input = parsed.data;
+    const identity = JSON.stringify({ ...input, caseIds: [...input.caseIds].sort(compare) });
+    const existing = [...requests.values()].find((request) => request.key === key);
+    // An admitted key is resolved before today's settings, readiness and confirmation checks.
+    if (existing) {
+      return existing.identity === identity && existing.subject === subject ? statusReply(existing.status) : refused("REQUEST_KEY_REUSED");
+    }
+    const members = confirmSelection(input, cases, settings, batches);
+    if (!Array.isArray(members)) return members;
+    return admit(members, key, subject, name, identity, settings, batches);
+  }
+
+  function confirmSelection(
+    input: z.infer<typeof WIRE_SCHEMAS.SubmitGazetteRequest>,
+    cases: Map<string, MockCase>,
+    settings: Settings,
+    batches: Map<string, LegacyBatch>
+  ): MockCase[] | Reply {
+    if (input.recipientRevision !== settings.revision) return refused("RECIPIENT_CHANGED");
+    const members = select(input.caseIds, cases, settings, requests, batches);
+    if (!Array.isArray(members)) return members;
+    const preview = previews.get(input.selectionFingerprint);
+    if (!preview) return invalid();
+    if (preview.expires <= Date.now()) return refused("CONFIRMATION_EXPIRED");
+    if (preview.snapshot !== snapshot(members) || JSON.stringify(preview.ids) !== JSON.stringify([...input.caseIds].sort(compare))) {
+      return refused("SELECTION_CHANGED");
+    }
+    return members;
+  }
+
+  function admit(
+    members: MockCase[],
+    key: unknown,
+    subject: string,
+    name: string,
+    identity: string,
+    settings: Settings,
+    batches: Map<string, LegacyBatch>
+  ): Reply {
+    const now = new Date();
+    const batchId = randomUUID();
+    const status: WireGazetteStatus = {
+      batchId,
+      state: outcome,
+      submittedAt: now,
+      submittedBy: name,
+      recipientEmail: settings.recipientEmail,
+      recipientRevision: settings.revision,
+      ...counts(members),
+      sentAt: outcome === "Sent" ? now : null,
+      failureCode: outcome === "NotSent" ? "PROVIDER_REFUSED" : outcome === "Uncertain" ? "SEND_OUTCOME_UNKNOWN" : null
+    };
+    requests.set(batchId, { status, cases: membership(members), key: String(key), subject, identity });
+    if (outcome === "Sent") {
+      for (const member of members) member.dateNoticeSentToLondonGazette = now;
+      batches.set(batchId, { id: batchId, sentAt: now, sentBy: name, referenceNumbers: membership(members).map((m) => m.referenceNumber) });
+    }
+    return { ...statusReply(status), loseResponse };
+  }
+
+  function listRequests(query: URLSearchParams): Reply {
+    const state = query.get("state");
+    if (state !== null && !WIRE_SCHEMAS.GazetteStatusResponse.shape.state.safeParse(state).success) return invalid();
+    const values = [...requests.values()]
+      .map((request) => request.status)
+      .filter((row) => state === null || row.state === state)
+      .sort((a, b) => (b.submittedAt?.getTime() ?? 0) - (a.submittedAt?.getTime() ?? 0) || compare(b.batchId, a.batchId));
+    return page(values, query, "requests");
+  }
+
+  function readRequest(match: RegExpExecArray, query: URLSearchParams, batches: Map<string, LegacyBatch>): Reply {
+    const id = decodeURIComponent(match[1]);
+    if (!z.uuid().safeParse(id).success) return invalid();
+    const request = requests.get(id);
+    const legacy = batches.get(id);
+    if (!request && !legacy) return { status: 404, body: { error: "Gazette request not found" } };
+    if (match[2]) {
+      const members =
+        request?.cases ??
+        legacy?.referenceNumbers.map((referenceNumber, index) => ({
+          // Legacy seed fixtures predate member IDs. These synthetic IDs belong to the fixture only.
+          caseId: `legacy-${id}-${index}`,
+          referenceNumber
+        })) ??
+        [];
+      return page(
+        [...members].sort((a, b) => compare(a.referenceNumber, b.referenceNumber) || compare(a.caseId, b.caseId)),
+        query,
+        "cases"
+      );
+    }
+    return {
+      status: 200,
+      body: request?.status ?? {
+        batchId: id,
+        state: "Sent",
+        caseCount: legacy?.referenceNumbers.length,
+        sentAt: legacy?.sentAt,
+        submittedAt: null,
+        submittedBy: null,
+        recipientEmail: null,
+        recipientRevision: null,
+        adultCount: null,
+        minorCount: null,
+        failureCode: null
+      }
+    };
+  }
 }
 
 function select(
