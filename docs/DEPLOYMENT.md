@@ -179,6 +179,47 @@ Roll out in `observe`, compare the `rate_limit …` log lines with api's, then m
 `off` is the rollback. `Chart.yaml` was bumped to 0.0.4 with the value because Flux reconciles on chart version.
 See `docs/plans/completed/20261016-abuse-limits-admin.md`.
 
+### Checking the abuse limits in observe
+
+This is OWASP plan 06, Task 6. Run it in AAT after either app's limits or mode change. It proves that both apps
+count a real subject and log what `enforce` would refuse, while refusing nothing.
+
+**Use email preview, not search.** Every case-list read in AAT also runs the CCD linking sweep, so a search
+loop would link records into CCD. A preview only renders the email. Nothing is sent, stored or created. The
+budget is 30 previews per 10 minutes per subject, in both apps.
+
+1. **Do one real preview.** Sign in to AAT admin as a caseworker. On a test case, open an email, fill it in, and
+   choose to preview it.
+2. **Copy that request.** In the browser's developer tools, open Network, find the `POST …/emails/<template>/preview`
+   request, and choose **Copy as cURL (bash)**. Save it to a file outside the repository. **It contains your
+   session cookie**: don't commit or share it, and delete it afterwards.
+3. **Run the check:** `scripts/rate-limit-observe-check.sh <that file>`.
+   - It refuses anything but a preview POST to AAT's admin.
+   - It waits for a fresh 10-minute window if the current one is nearly over.
+   - It sends 35 previews a second apart and prints a count of each response status.
+   - Expect all `200`. A `429` means something is enforcing.
+4. **Query App Insights** (`deed-poll-aat`), with the start and end times the script printed:
+
+   ```kusto
+   traces
+   | where timestamp between (datetime(<start>) .. (datetime(<end>) + 2m))
+   | where message startswith "rate_limit bucket=email-preview"
+   | parse message with "rate_limit bucket=" bucket " mode=" mode " subject=" subject " count=" count:long " limit=" limit:long
+   | summarize lines = count(), modes = make_set(mode), maxCount = max(count) by cloud_RoleName
+   ```
+
+   Expect two rows, `deed-poll-admin-web` and `deed-poll-api`. Each should have `lines` of 5 (the requests over
+   30), `modes` of `["observe"]` only, and `maxCount` of 35. Previews you did by hand in the same window count
+   too, so add one to each for every one of those. The two apps should always agree. Then check that nothing was refused:
+   `requests | where timestamp between (datetime(<start>) .. datetime(<end>)) | where resultCode == "429" | count`
+   should be 0.
+
+What a failed check means:
+- **No api rows, but admin rows present:** the previews didn't reach api. The copied form failed validation,
+  which admin counts before validating; check the page shows the email.
+- **No rows at all:** check the time range and that sampling is 100% (`itemCount == 1`).
+- **A `mode=enforce` line:** check `RATE_LIMIT_MODE` in the chart and in Flux.
+
 ### The persona switcher's two environment variables
 
 The persona switcher (`src/auth/persona-switcher.ts`) signs a tester in as another persona's real IDAM user,
