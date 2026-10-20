@@ -151,13 +151,13 @@ cannot support the guard. Record the resulting design in this plan's Execution n
 **Files:** `CLAUDE.md`, the existing session/deployment documentation appropriate to the final design,
 and this plan's Execution notes.
 
-- [ ] Document the atomic session-write contract, refresh ownership, stale-write handling and the rule
+- [x] Document the atomic session-write contract, refresh ownership, stale-write handling and the rule
       every future authenticated writer must follow. Include TTL, legacy-record and rollback behaviour.
-- [ ] Record the required rollout procedure for eliminating unguarded old writers. Do not deploy or
+- [x] Record the required rollout procedure for eliminating unguarded old writers. Do not deploy or
       invalidate live sessions while executing this plan.
-- [ ] Record starting/final commits, changed files, red/green evidence, real Redis topology, browser
+- [x] Record starting/final commits, changed files, red/green evidence, real Redis topology, browser
       results, counts and skips. Distinguish local persistence guarantees from IDAM token revocation.
-- [ ] Run all Validation Commands and leave the change ready for Ralphex review phases. Record review
+- [x] Run all Validation Commands and leave the change ready for Ralphex review phases. Record review
       findings and revalidate any code fixes before declaring implementation complete.
 
 ## Acceptance Criteria
@@ -255,7 +255,7 @@ so `DEL` on logout removes it with the session and no coordination key can outli
 deadline is Redis's `TIME`, not a pod clock. Three new Lua scripts in `src/auth/guarded-session-store.ts`:
 
 - `CLAIM`: `missing` if the key is gone, `conflict` for another incarnation, `busy` while an unexpired lease is held,
-  otherwise writes a fresh UUID lease for `refreshLeaseMs` (default 45 s, above IDAM's and `/me`'s own timeouts).
+  otherwise writes a fresh UUID lease for `refreshLeaseMs` (default 45 s, raised to 60 s in Task 4).
   `claimRefresh` polls every 100 ms up to `refreshWaitMs` (default 10 s). Taking a lease moves no revision.
 - `PUBLISH`: the update script plus a lease check, made **before** the revision check so a lost lease (`lease`) is never
   mistaken for a retryable `conflict`; on success it writes the session and deletes the lease in one step.
@@ -353,6 +353,46 @@ the server-side timeout without it.
 **Limits.** An autosave refused after logout reaches Express's error handling once headers are written, so that
 response may be cut short; the request was already rendering for a session that has since ended, and nothing is
 stored. Three consecutive conflicts still fail the request (500) rather than retry without bound.
+
+### Task 4 — documentation and review (20 October 2026)
+
+Starting commit `2d13bcc` (Task 3); the final commit is the Task 4 commit directly on top of it, which also records
+this note. Branch `fix/e01-session-revocation`, from master `6c5f92b` (after #198), plan commit `f61aa0b`.
+
+**Documentation.** `CLAUDE.md` gains "Session writes": the record shape and atomic scripts, create-only creation,
+`saveReconciled` as the one write path for every future authenticated writer and the rule that its change is
+re-derived from the re-read session, `isSessionGone`/`endedElsewhere`, refresh lease ownership and fencing, TTL,
+legacy keyspace, rollback, the Redis suites as a gate, and the limit that this is not IDAM token revocation.
+`docs/DEPLOYMENT.md` gains "Session writes and rollout" (the one-off sign-out, mixed-version direction, the procedure:
+ordinary rolling deploy, confirm no previous-ReplicaSet pod serves before treating E01 as closed, no manual key
+deletion on the Redis shared with `deed-poll-web`, rollback, failure modes) and the `redis-url` row names
+`admin-sess-v2:`. `docs/ARCHITECTURE.md`'s session store section was stale on both the prefix and the cookie lifetime
+(it said 24 hours; it is the absolute limit) and is corrected. Nothing was deployed and no live session was touched.
+
+**Review.** A read-only code review of `6c5f92b..2d13bcc -- src` found no defect in the guarantee (scripts,
+version tracking through `createSession`/`regenerate`, `saveReconciled`, the middleware's paths, logging) and two
+low-severity availability findings, both fixed:
+
+1. The 45 s lease was shorter than the worst refresh it covers — openid-client's default 30 s token call, api's 10 s
+   `/me` and up to six 2 s Redis commands, about 52 s — so a slow refresh could lose its lease and a second request
+   could refresh the same token concurrently. Default raised to 60 s, with the budget stated at the constant.
+2. A claim whose reply was lost to the command timeout after Redis had granted it left a lease nobody could release,
+   making every request on the session wait 10 s and report `busy` until it expired. `claimRefresh` now releases the
+   lease id it generated (owner-checked, errors swallowed) before rethrowing. New store test: red without the release
+   (the lease survived), green with it.
+
+**Validation.** Before the fixes, and again after them, with `REDIS_URL=redis://127.0.0.1:6379` (local Redis 8,
+database 0, one per-run prefix per suite, never flushed): lint green (the pre-existing Biome schema-version info),
+build green; tests 4,651 before the fixes and 4,652 after across eight tasks (app 2,322, then 2,323), no failures, none
+skipped. The six session suites (196 tests) passed after the fixes. `yarn test:session` was run in Task 3 (2 passed);
+the Task 4 fixes change only the lease length and a failure path its browser journeys do not reach, so it was not
+re-run.
+
+**What is guaranteed, and what is not.** Locally guaranteed and tested on real Redis across two app instances: once a
+session key is deleted (logout, timeout, regeneration) or expired, no delayed writer recreates it; no older snapshot
+overwrites newer tokens or access; one refresh per session at a time, fenced. Not guaranteed by this change: IDAM-side
+revocation of tokens already issued, sessions on pods still running the old image (old keyspace) during a rollout, and
+Jenkins coverage — no pipeline stage provides Redis, so the Redis suites run where `REDIS_URL` is set.
 
 ## Post-Completion
 

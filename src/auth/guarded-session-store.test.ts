@@ -234,6 +234,28 @@ describe.skipIf(!redisReachable)("the guarded session store", () => {
       expect((await next.claimRefresh(sid, (await get(next, sid)) as SessionData)).outcome).toBe("acquired");
     });
 
+    it("should give up a lease whose claim reply was lost, so the session is not blocked until it expires", async () => {
+      const sid = await stored("first");
+      let replies = 0;
+      const lossy = new GuardedSessionStore({
+        client: {
+          eval: async (script, options) => {
+            const reply = await clients[1].eval(script, options);
+            if (script.includes("'TIME'") && replies++ === 0) throw new Error("Command timeout");
+            return reply;
+          }
+        },
+        prefix: PREFIX,
+        ttl: sessionStoreTtl(LIMITS)
+      });
+
+      await expect(lossy.claimRefresh(sid, (await get(lossy, sid)) as SessionData)).rejects.toThrow("Command timeout");
+
+      expect(await clients[0].hGet(PREFIX + sid, "lease")).toBeNull();
+      const next = leased({ refreshWaitMs: 0 });
+      expect((await next.claimRefresh(sid, (await get(next, sid)) as SessionData)).outcome).toBe("acquired");
+    });
+
     it("should release only the lease it was given, never one another request now holds", async () => {
       const sid = await stored("first");
       const claim = await stores[0].claimRefresh(sid, (await get(stores[0], sid)) as SessionData);

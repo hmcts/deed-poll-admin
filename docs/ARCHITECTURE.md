@@ -189,16 +189,22 @@ yet and nothing here waits for it.
 
 ### 4. Session Store (Redis)
 
-**Purpose**: Session storage in Redis, via `@hmcts-cft/express-session-redis`
+**Purpose**: Session storage in Redis, via `@hmcts-cft/express-session-redis` with the app's own
+`GuardedSessionStore` (`src/auth/guarded-session-store.ts`) in place of `connect-redis`
 
 **Features**:
 - Express session integration
-- Distributed session support
-- TTL-based expiration
-- Keyed `admin-sess:<id>`, with no schema and no migration. Per component rather than the library's default
-  `sess:`, because the shared root provisions one Redis for the product and `deed-poll-web` reads the same
-  `redis-url` — a caseworker service's IDAM tokens and a public service's sessions should not share a keyspace
-- Cookie: 24 hours, `httpOnly`, `sameSite=lax`, and `Secure` outside development and test. All four stated at
+- Distributed session support, with one token refresh per session across pods (a lease in the session's hash)
+- TTL-based expiration, derived from the idle/absolute session limits
+- Guarded writes: every write is an atomic Lua script checked against the incarnation and revision the request
+  read, so a logged-out or expired session is never recreated and an older snapshot never overwrites a newer one
+  (review finding E01; contract in `CLAUDE.md` under "Session writes")
+- Keyed `admin-sess-v2:<id>`, one hash per session, with no schema and no migration. Per component rather than the
+  library's default `sess:`, because the shared root provisions one Redis for the product and `deed-poll-web` reads
+  the same `redis-url` — a caseworker service's IDAM tokens and a public service's sessions should not share a
+  keyspace. `-v2` because the guarded records are not `connect-redis`'s; see
+  [`DEPLOYMENT.md`](DEPLOYMENT.md#session-writes-and-rollout)
+- Cookie: the absolute session limit, `httpOnly`, `sameSite=lax`, and `Secure` outside development and test. All four stated at
   the call site in `src/app.ts`, not inherited — the library spreads caller options over its
   defaults, so a partial `cookie` silently replaces the whole default object
 - Fails fast during an outage rather than queueing: the client sets `disableOfflineQueue`, so a store read

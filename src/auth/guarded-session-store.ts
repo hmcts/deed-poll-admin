@@ -84,8 +84,11 @@ const RELEASE = `
 if redis.call('HGET', KEYS[1], 'lease') ~= ARGV[1] then return 0 end
 return redis.call('HDEL', KEYS[1], 'lease', 'leaseUntil')`;
 
-/** Long enough for IDAM's token call and api's `/me` to finish, each of which has its own timeout below this. */
-const DEFAULT_REFRESH_LEASE_MS = 45_000;
+/**
+ * Longer than the worst refresh the lease must cover: IDAM's token call (openid-client's default 30 s), api's `/me`
+ * (10 s) and the reload and up to five reads and writes around them at 2 s each, about 52 s in all.
+ */
+const DEFAULT_REFRESH_LEASE_MS = 60_000;
 /** How long a request waits for another's refresh before deciding without it. */
 const DEFAULT_REFRESH_WAIT_MS = 10_000;
 const REFRESH_POLL_MS = 100;
@@ -182,7 +185,11 @@ export class GuardedSessionStore extends Store {
     const lease = randomUUID();
     const deadline = Date.now() + this.#refreshWaitMs;
     for (;;) {
-      const claimed = await this.#run(CLAIM, sid, [version.inc, lease, String(this.#refreshLeaseMs)]);
+      const claimed = await this.#run(CLAIM, sid, [version.inc, lease, String(this.#refreshLeaseMs)]).catch(async (error: unknown) => {
+        // A timed-out claim may still have been granted, and nobody else knows its lease, so give it up if it was.
+        await this.releaseRefresh(sid, lease).catch(() => {});
+        throw error;
+      });
       if (claimed === 1) return { outcome: "acquired", lease };
       if (claimed === -1) return { outcome: "missing" };
       if (claimed !== 0) return { outcome: "conflict" };
