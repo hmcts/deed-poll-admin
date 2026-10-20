@@ -378,6 +378,30 @@ describe("refreshMiddleware and the caller's access", () => {
     expect(next).toHaveBeenCalled();
   });
 
+  it("should sign the request out, without emitting, when its session was logged out while api answered the backfill", async () => {
+    vi.mocked(fetchCallerAccess).mockResolvedValue(TEAM_LEADER as never);
+    const req = request([], { user: ROLES_ERA_USER, accessToken: "the-session-token", tokenExpiresAt: expiringIn(3600) });
+    req.session.reload.mockImplementation((done: (error?: Error) => void) => done(new Error("failed to load session")));
+
+    await refreshMiddleware(req, res, next);
+
+    expect(req.session.destroy).toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2Fdeed-polls");
+    expect(next).not.toHaveBeenCalled();
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it("should sign the request out when its session has gone by the time the lease is granted", async () => {
+    const req = request([], { tokenExpiresAt: expiringIn(60) });
+    req.session.reload.mockImplementation((done: (error?: Error) => void) => done(new Error("failed to load session")));
+
+    await refreshMiddleware(req, res, next);
+
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2Fdeed-polls");
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it("should leave a failed backfill with no access and ask again on the next request", async () => {
     const req = request([], { user: ROLES_ERA_USER, accessToken: "the-session-token", tokenExpiresAt: expiringIn(3600) });
 

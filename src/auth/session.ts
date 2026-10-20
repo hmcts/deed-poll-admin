@@ -35,10 +35,13 @@ const ANONYMOUS_STORE_TTL_SECONDS = 600;
 const SIGNED_IN_STORE_GRACE_SECONDS = 900;
 
 /**
- * How many times a refresh's publish re-reads and re-applies its tokens after another request's write moved the
- * revision. Each attempt reuses the tokens IDAM already issued, so none of them spends the refresh token again.
+ * How many times a write re-reads the session and re-applies its own change after another request's write moved the
+ * revision. A refresh's attempts reuse the tokens IDAM already issued, so none of them spends the refresh token again.
  */
-const PUBLISH_ATTEMPTS = 3;
+const RECONCILE_ATTEMPTS = 3;
+
+/** How `express-session` 1.19's `reload` reports a session the store no longer holds: this message, and no code. */
+const RELOAD_FOUND_NOTHING = "failed to load session";
 
 interface DeedPollSession {
   user?: CurrentUser;
@@ -260,20 +263,27 @@ export function sessionHoldsAccess(req: Request): boolean {
  * tokens a concurrent request had just refreshed. Touches no token and neither clock.
  *
  * Reloaded first, because this runs after an await on api: the snapshot this request started with can predate a
- * refresh another request has since saved, and saving it would put the old tokens back, spending a rotated refresh
- * token. Only the user is written onto what the store holds now, and nothing is written if that already holds an
- * answer.
+ * refresh another request has since saved. Only the user is written onto what the store holds now, and nothing is
+ * written if that already holds an answer. Reload-then-save is not atomic, so a write landing between the two is a
+ * `conflict`, answered by reading again (`saveReconciled`). A session that has gone rejects with `isSessionGone`.
  */
-export function storeAccess(req: Request, access: CallerAccess): Promise<void> {
-  return new Promise((resolve, reject) => {
-    req.session.reload((reloadError) => {
-      if (reloadError) return reject(reloadError);
-      if (holdsCallerAccess(namespace(req)?.user)) return resolve();
-      const session = writableNamespace(req);
-      session.user = currentUser(access, session.user?.name);
-      req.session.save((error) => (error ? reject(error) : resolve()));
-    });
+export async function storeAccess(req: Request, access: CallerAccess): Promise<void> {
+  await reload(req);
+  await saveReconciled(req, (session) => {
+    if (holdsCallerAccess(session?.user)) return false;
+    const writable = writableNamespace(req);
+    writable.user = currentUser(access, writable.user?.name);
+    return true;
   });
+}
+
+/**
+ * Whether a session write or re-read failed because the session itself has gone: logged out, replaced by a sign-in,
+ * or expired, by another request while this one held it. Such a request must go on signed out, not as the user its
+ * snapshot describes.
+ */
+export function isSessionGone(error: unknown): boolean {
+  return error instanceof SessionWriteRefusedError && error.reason === "missing";
 }
 
 export function startFlow(req: Request, flow: AuthFlowState): void {
@@ -367,11 +377,17 @@ export function sessionTimestamps(req: Request): SessionTimestamps | undefined {
  * Saved explicitly, at the start of a request, rather than left to `express-session`'s end-of-request write: that
  * write is of the whole session, so a slow upload finishing late could overwrite tokens a concurrent request had
  * just refreshed, and spend a rotated refresh token. OWASP plan 03, decision 3.
+ *
+ * When another request wrote first (a refresh, say) the session is read again and only the clock is moved on what it
+ * now holds, never back, so this request goes on with the winner's tokens rather than writing its own over them. A
+ * session that has gone rejects with `isSessionGone`.
  */
 export function touchLastSeen(req: Request): Promise<void> {
-  return new Promise((resolve, reject) => {
-    writableNamespace(req).lastSeenAt = nowSeconds();
-    req.session.save((error) => (error ? reject(error) : resolve()));
+  const now = nowSeconds();
+  return saveReconciled(req, (session) => {
+    if (!session?.user) return false;
+    writableNamespace(req).lastSeenAt = Math.max(session.lastSeenAt ?? 0, now);
+    return true;
   });
 }
 
@@ -451,19 +467,13 @@ export async function releaseRefresh(req: Request, lease: string): Promise<void>
  * (`conflict`) is answered by reading the session again and applying the same tokens to what it now holds, so an
  * activity save or a backfilled answer is kept rather than overwritten with this request's snapshot.
  */
-export async function publishRefresh(req: Request, lease: string, tokens: IdamTokens, access?: CallerAccess): Promise<void> {
+export function publishRefresh(req: Request, lease: string, tokens: IdamTokens, access?: CallerAccess): Promise<void> {
   const store = coordinator(req);
-  for (let attempt = 1; ; attempt++) {
+  return saveReconciled(req, () => {
     applyTokens(writableNamespace(req), tokens, access);
     store.attachRefreshLease(req.session as unknown as SessionData, lease);
-    try {
-      await save(req);
-      return;
-    } catch (error) {
-      if (!(error instanceof SessionWriteRefusedError) || error.reason !== "conflict" || attempt >= PUBLISH_ATTEMPTS) throw error;
-    }
-    await reload(req);
-  }
+    return true;
+  });
 }
 
 /** Destroy the whole session, not just the namespace — logout should leave nothing behind. */
@@ -492,12 +502,37 @@ function applyTokens(session: DeedPollSession, tokens: IdamTokens, access: Calle
   if (tokens.idToken) session.idToken = tokens.idToken;
 }
 
+/**
+ * Apply `change` to the session and save it; if another request's write moved the revision first, read the session
+ * again and apply the same change to what it now holds, a bounded number of times. `change` sees the namespace as it
+ * stands and answers whether there is anything to write, so a re-read that already holds the change writes nothing.
+ * Only a `conflict` is retried: a session that has gone, a lost lease or a store failure rejects at once.
+ */
+async function saveReconciled(req: Request, change: (session: DeedPollSession | undefined) => boolean): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    if (!change(namespace(req))) return;
+    try {
+      await save(req);
+      return;
+    } catch (error) {
+      if (!(error instanceof SessionWriteRefusedError) || error.reason !== "conflict" || attempt >= RECONCILE_ATTEMPTS) throw error;
+    }
+    await reload(req);
+  }
+}
+
 function save(req: Request): Promise<void> {
   return new Promise((resolve, reject) => req.session.save((error) => (error ? reject(error) : resolve())));
 }
 
+/** Read the session again from the store. One that has gone is reported as the refusal a write to it would get. */
 function reload(req: Request): Promise<void> {
-  return new Promise((resolve, reject) => req.session.reload((error) => (error ? reject(error) : resolve())));
+  return new Promise((resolve, reject) =>
+    req.session.reload((error) => {
+      if (!error) return resolve();
+      reject(error instanceof Error && error.message === RELOAD_FOUND_NOTHING ? new SessionWriteRefusedError("missing") : error);
+    })
+  );
 }
 
 /** The store, if it is one that can coordinate refreshes. Anything else is refused rather than refreshed unguarded. */

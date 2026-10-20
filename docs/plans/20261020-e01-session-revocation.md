@@ -135,16 +135,16 @@ cannot support the guard. Record the resulting design in this plan's Execution n
 **Files:** `src/auth/session.ts`, `src/auth/session-lifetime.ts`, their tests, `src/session-store.test.ts`,
 `src/app.test.ts` and existing login/logout/persona tests where the lifecycle is exercised.
 
-- [ ] Reconcile activity and access updates with revision conflicts without copying stale authentication
+- [x] Reconcile activity and access updates with revision conflicts without copying stale authentication
       fields back over the winner. Verify timeout restart, sign-in regeneration and persona changes.
-- [ ] Test logout racing with activity saves, access updates and Express's automatic response save.
+- [x] Test logout racing with activity saves, access updates and Express's automatic response save.
       Include a non-refresh request loaded before logout and completed afterward.
-- [ ] Run the complete race suite with real Redis and two app instances sharing the store namespace.
+- [x] Run the complete race suite with real Redis and two app instances sharing the store namespace.
       Assert no old-session resurrection, no stale token overwrite, no post-expiry revival and successful
       fresh login with a new session ID.
-- [ ] Verify idle and absolute deadlines, cookie flags and existing security event names remain correct.
+- [x] Verify idle and absolute deadlines, cookie flags and existing security event names remain correct.
       Check failures emit useful bounded diagnostics without session IDs or token contents.
-- [ ] Run all Validation Commands and the local session browser suite; record actual results and limits.
+- [x] Run all Validation Commands and the local session browser suite; record actual results and limits.
 
 ### Task 4: Document and review the guarantee
 
@@ -298,6 +298,61 @@ refresh still publishes and frees the lease (tested). `yarn test:session` is sti
 A lost lease or a lease expiring mid-refresh can leave the session holding a refresh token IDAM may already have
 rotated; the next refresh is then refused and signs the user out, which is the intended fail-closed outcome. Both
 lease scripts touch one key, so they work on a clustered Redis as well, though the deployed cache is not clustered.
+
+### Task 3 — the other writers and the lifecycle (20 October 2026)
+
+Starting commit `5af6118` (Task 2). **Design.** `src/auth/session.ts` gains one write path for every authenticated
+writer that is not a sign-in: `saveReconciled(req, change)` applies a change, saves, and on `conflict` reloads and
+applies the same change to what the store now holds, at most three attempts (`RECONCILE_ATTEMPTS`, formerly the
+publish's own `PUBLISH_ATTEMPTS`). The change is re-derived from the re-read session each time, so nothing from the
+request's snapshot is copied back:
+
+- `touchLastSeen` moves only `lastSeenAt`, to `max(stored, now)` so a re-read can never move the clock back, and
+  writes nothing if the re-read session is no longer signed in. The request then goes on with the winner's tokens.
+- `storeAccess` reloads first (as before), writes the user only if the re-read holds no `/me` answer, and on a
+  conflict reads again rather than failing: reload-then-save is not atomic, the store's revision check is what
+  catches the gap.
+- `publishRefresh` now uses the same loop, re-attaching the lease on each attempt.
+
+A session that has gone is now one typed outcome everywhere. `express-session` 1.19's `reload` reports a session the
+store no longer holds only as `Error("failed to load session")`; the private `reload` maps exactly that message to
+`SessionWriteRefusedError("missing")`, and `isSessionGone(error)` is the test callers use. `src/auth/ended-elsewhere.ts`
+(moved out of `refresh-middleware.ts`) destroys the request's session — a no-op `DEL` that also leaves
+`express-session` nothing to autosave or touch — and redirects to `/login?returnTo=…`, emitting no event because
+whatever ended the session already did. It is used by `sessionLifetime` (activity save), the `/me` backfill in
+`refreshMiddleware`, and the refresh claim's reload; the keep-alive page answers 401 instead, as for any signed-out
+request. Any other refusal or store failure still fails the request: nothing falls back to an unguarded write.
+
+Unchanged and re-verified: `signIn` and `restartAfterTimeout` regenerate (destroy the old key, create a fresh id
+through the store's create-only path), so sign-in, persona switch and timeout restart all leave the old id dead;
+`authenticatedAt` is written only by `signIn`; the cookie flags in `src/app.ts` (`app.test.ts` still pins them);
+security event names (`auth.session.ended` with `idle` on a timeout; nothing on an ended-elsewhere path). The new log
+line names no session id, subject or token, which the lifecycle suite asserts over everything logged in its races.
+Express's autosave of a changed session after logout is refused by the store and goes to Express's error handling;
+its touch of an unchanged one is refused by the incarnation check. `updateTokens` (revision-guarded, no lease) now has
+no production caller and is kept for the store suite's stale-snapshot races.
+
+**Red evidence.** New `src/auth/session-lifecycle.test.ts` (11 tests: two app instances, own clients and stores, one
+per-run prefix, real `sessionLifetime` → `requireAuth` → `refreshMiddleware`, holds after session load, inside a page
+and inside the `/me` call) against the Task 2 sources: 6 failed — an activity save after logout, after expiry and
+after a sign-in replaced the id each gave a 500 rather than a signed-out redirect, keep-alive after logout a 500
+rather than 401, a backfill after logout a 500, and an activity save conflicting with another instance's refresh a
+500 rather than reconciling. The 5 that passed were already held by the store (autosave and touch after logout, the
+backfill's reload keeping newer tokens, timeout restart, fresh login after logout) — none resurrected a session.
+
+**Green evidence.** Lifecycle suite 11/11; 25 new unit tests in `session.test.ts` (reconcile, clock never backwards,
+bounded attempts, no write for a signed-out re-read, gone before and after the conflict, backfill retry),
+`session-lifetime.test.ts`, `keep-alive.test.ts` and `refresh-middleware.test.ts`. The four Redis suites (lifecycle,
+coordination, store contract, `session-store.test.ts`: 62 tests) passed five consecutive runs. Validation Commands
+with `REDIS_URL=redis://127.0.0.1:6379` (local Redis 8, database 0): lint green (the pre-existing Biome schema info),
+build green, 4,651 tests passed across eight tasks (app 2,322), none skipped. `yarn test:session` (Redis database 2,
+local IDAM simulator on 5556 started from the existing `deed-poll-idam` container and seeded with `yarn idam:users`,
+stopped again afterwards): 2 passed in 9.5 minutes — warning, keep-alive extension and timeout with JavaScript, and
+the server-side timeout without it.
+
+**Limits.** An autosave refused after logout reaches Express's error handling once headers are written, so that
+response may be cut short; the request was already rendering for a session that has since ended, and nothing is
+stored. Three consecutive conflicts still fail the request (500) rather than retry without bound.
 
 ## Post-Completion
 

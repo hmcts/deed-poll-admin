@@ -15,11 +15,12 @@
  */
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { renderTimedOut } from "../pages/session-timed-out/index.js";
+import { endedElsewhere } from "./ended-elsewhere.js";
 import { endSessionUrl } from "./idam.js";
 import { isProbeOrAssetPath, isPublicPath } from "./require-auth.js";
 import { safeReturnTo } from "./return-to.js";
 import { securityEvent } from "./security-events.js";
-import { restartAfterTimeout, sessionIdToken, sessionTimestamps, sessionUser, touchLastSeen } from "./session.js";
+import { isSessionGone, restartAfterTimeout, sessionIdToken, sessionTimestamps, sessionUser, touchLastSeen } from "./session.js";
 import { idamSettings } from "./settings.js";
 
 export const TIMED_OUT_PATH = "/session-timed-out";
@@ -50,7 +51,12 @@ export function sessionLifetime(limits: SessionLifetimeLimits): RequestHandler {
 
     // Public pages are not activity: `/` and the footer pages can be reached by a browser left open, without a user.
     if (timestamps && !isPublicPath(req.path) && now - timestamps.lastSeenAt >= LAST_SEEN_RESOLUTION_SECONDS) {
-      await touchLastSeen(req);
+      try {
+        await touchLastSeen(req);
+      } catch (error) {
+        if (isSessionGone(error)) return endedElsewhere(req, res);
+        throw error;
+      }
     }
     // For the layout's timeout warning. A convenience only: this middleware, not the browser, ends the session.
     res.locals.sessionClock = timeLeft(sessionTimestamps(req), now, limits);
