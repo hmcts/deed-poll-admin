@@ -209,7 +209,8 @@ budget is 30 previews per 10 minutes per subject, in both apps.
    ```
 
    Expect two rows, `deed-poll-admin-web` and `deed-poll-api`. Each should have `lines` of 5 (the requests over
-   30), `modes` of `["observe"]` only, and `maxCount` of 35. Then check that nothing was refused:
+   30), `modes` of `["observe"]` only, and `maxCount` of 35. Previews you did by hand in the same window count
+   too, so add one to each for every one of those. The two apps should always agree. Then check that nothing was refused:
    `requests | where timestamp between (datetime(<start>) .. datetime(<end>)) | where resultCode == "429" | count`
    should be 0.
 
