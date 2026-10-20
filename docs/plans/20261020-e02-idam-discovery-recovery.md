@@ -114,8 +114,8 @@ bind only to loopback and close their servers. They need no live IDAM credential
 
 ## Execution notes
 
-Planning only, 20 October 2026. Ellis authored this plan from review finding E02. No implementation,
-new validation run or Ralphex execution has been performed for this plan. Append execution evidence here.
+Authored 20 October 2026 by Ellis from review finding E02, and implemented on
+`fix/e02-idam-discovery-recovery` (Tasks 1–3 below). Execution evidence is appended here.
 
 ### Task 1 (20 October 2026)
 
