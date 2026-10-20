@@ -217,6 +217,19 @@ new validation run or Ralphex execution has been performed for this plan. Append
   rules mock after each `read failures` test so an unconsumed one-shot stub cannot leak. CLAUDE.md's Performance
   Considerations now describe the chained rules read.
 
+### Verification before PR (20 October 2026, Arbor)
+
+- Plain `ralphex` run in the devcontainer, with the repo's `.ralphex/prompts` (admin#211). It took 12m03s and
+  left a clean tree with genuine signals only. Its external review was given a diff against the stale local
+  `master` (148 files), so its NO ISSUES carries no weight; the checks below replace it.
+- Against `origin/master` `0c8e93f`: 4 files changed, +571/−20. `yarn lint` exit 0;
+  `yarn turbo build build:app --force` exit 0; `yarn turbo test test:app --concurrency=1 --force` exit 0:
+  222 files, 4,883 tests, none failed or skipped (baseline before the run: 4,869).
+- Red against the old handler: with `origin/master`'s `src/pages/deed-polls/[id].ts` restored, 3 of the 72 tests
+  in `[id].test.ts` fail (both `read scheduling` tests and the rules-error-after-panel-logging test). All 72
+  pass with this branch's handler.
+- Direct scoped Copilot review (gpt-6-astra, read-only, against `origin/master`): no issues found.
+
 ## Post-Completion
 
 Hand the reviewed branch and evidence to Steve. Publishing, merging and deployment are separate actions.
