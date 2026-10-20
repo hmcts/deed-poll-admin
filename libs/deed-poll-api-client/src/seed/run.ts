@@ -16,7 +16,7 @@ import {
   type ReferralState,
   withdrawReferral
 } from "../api/client.js";
-import { seedDataset } from "./dataset.js";
+import { type SeedCase, seedDataset } from "./dataset.js";
 import { seedTarget } from "./target.js";
 
 export async function seedCases(
@@ -38,7 +38,27 @@ export async function seedCases(
   // Authorisation failures must happen before any case is created, including the separate judicial credential.
   read(await listCases({ size: 1 }, config), "caseworker preflight");
   if (!options.deferJudicial) read(await getJudicialMyReferrals({ size: 1 }, judge), "judicial preflight");
-  for (const item of dataset) {
+  for (const item of dataset) await seedCase(item);
+  journal.caseworkerComplete = true;
+  journal.deferredJudicial = deferredJudicial;
+  journal.complete = deferredJudicial.length === 0;
+  await persist();
+  report(`Verified ${dataset.length} cases across all 8 application states. No email-send or mock-control endpoints were called.`);
+  if (deferredJudicial.length) report(`Caseworker seeding is complete; judicial actions remain deferred on ${deferredJudicial.length} referrals.`);
+
+  async function seedCase(item: SeedCase): Promise<void> {
+    const key = item.marker;
+    const id = await createSeedCase(item);
+    for (const [index, witness] of item.witnesses.entries()) {
+      await step(`${key}/witness/${index}`, () => createWitness(id, witness, config));
+    }
+    for (const [index, note] of item.notes.entries()) await step(`${key}/note/${index}`, () => createNote(id, note, config));
+    if (item.referral) await seedReferral(item.referral, key, id);
+    if (Object.keys(item.progress).length) await step(`${key}/progress`, () => patchCase(id, item.progress, config));
+    await verifyCase(item, id);
+  }
+
+  async function createSeedCase(item: SeedCase): Promise<string> {
     const key = item.marker;
     if (!Object.hasOwn(journal.steps, `${key}/create`)) {
       const found = read(await listCases({ where: [`onlineApplicationReference:is:${key}`], size: 1 }, config), "duplicate check");
@@ -49,27 +69,27 @@ export async function seedCases(
     if (!id) throw new Error(`${key}: create returned no case ID.`);
     journal.cases[key] = { id, reference: created.displayReference ?? "", expectedState: item.state };
     await persist();
-    for (const [index, witness] of item.witnesses.entries()) {
-      await step(`${key}/witness/${index}`, () => createWitness(id, witness, config));
+    return id;
+  }
+
+  async function seedReferral(plan: NonNullable<SeedCase["referral"]>, key: string, id: string): Promise<void> {
+    const referral = await step(`${key}/referral`, () => createReferral(id, plan.create, config));
+    if (!options.deferJudicial && ["Claimed", "Decided", "Closed"].includes(plan.state)) {
+      await step(`${key}/claim`, () => claimJudicialReferral(referral.id, judge));
     }
-    for (const [index, note] of item.notes.entries()) await step(`${key}/note/${index}`, () => createNote(id, note, config));
-    if (item.referral) {
-      const plan = item.referral;
-      const referral = await step(`${key}/referral`, () => createReferral(id, plan.create, config));
-      if (!options.deferJudicial && ["Claimed", "Decided", "Closed"].includes(plan.state)) {
-        await step(`${key}/claim`, () => claimJudicialReferral(referral.id, judge));
-      }
-      if (!options.deferJudicial && ["Decided", "Closed"].includes(plan.state)) {
-        await step(`${key}/direction`, () => directJudicialReferral(referral.id, plan.direction, judge));
-      }
-      if (!options.deferJudicial && plan.state === "Closed") await step(`${key}/close`, () => closeReferral(id, referral.id, config));
-      if (plan.state === "Withdrawn") await step(`${key}/withdraw`, () => withdrawReferral(id, referral.id, config));
+    if (!options.deferJudicial && ["Decided", "Closed"].includes(plan.state)) {
+      await step(`${key}/direction`, () => directJudicialReferral(referral.id, plan.direction, judge));
     }
-    if (Object.keys(item.progress).length) await step(`${key}/progress`, () => patchCase(id, item.progress, config));
+    if (!options.deferJudicial && plan.state === "Closed") await step(`${key}/close`, () => closeReferral(id, referral.id, config));
+    if (plan.state === "Withdrawn") await step(`${key}/withdraw`, () => withdrawReferral(id, referral.id, config));
+  }
+
+  async function verifyCase(item: SeedCase, id: string): Promise<void> {
+    const key = item.marker;
     // Re-read even completed entries: a failed/misclassified seed must not report success based on writes alone.
     const actual = read(await getCase(id, config), `${key} verification`);
     const referrals = read(await listReferrals(id, config), `${key} referral verification`);
-    const expectedReferral = item.referral ? (options.deferJudicial ? completedReferralState(journal, key) : item.referral.state) : undefined;
+    const expectedReferral = expectedReferralState(item, journal, options.deferJudicial);
     if (
       actual.privacy !== item.create.privacy ||
       actual.urgency !== item.create.urgency ||
@@ -85,12 +105,6 @@ export async function seedCases(
     if (expectedReferral !== item.referral?.state) deferredJudicial.push(key);
     report(`${key}  ${actual.displayReference}  ${actual.type}  ${actual.state}${expectedReferral ? ` / referral ${expectedReferral}` : ""}`);
   }
-  journal.caseworkerComplete = true;
-  journal.deferredJudicial = deferredJudicial;
-  journal.complete = deferredJudicial.length === 0;
-  await persist();
-  report(`Verified ${dataset.length} cases across all 8 application states. No email-send or mock-control endpoints were called.`);
-  if (deferredJudicial.length) report(`Caseworker seeding is complete; judicial actions remain deferred on ${deferredJudicial.length} referrals.`);
 
   async function step<T>(name: string, write: () => Promise<ApiResult<T>>): Promise<T> {
     if (Object.hasOwn(journal.steps, name)) return journal.steps[name] as T;
@@ -110,6 +124,11 @@ export async function seedCases(
     await persist();
     return result.data;
   }
+}
+
+function expectedReferralState(item: SeedCase, journal: SeedJournal, deferJudicial: boolean | undefined): ReferralState | undefined {
+  if (!item.referral) return undefined;
+  return deferJudicial ? completedReferralState(journal, item.marker) : item.referral.state;
 }
 
 function completedReferralState(journal: SeedJournal, key: string): ReferralState {
