@@ -97,17 +97,17 @@ ends the session and the next one builds over it, wiping the results.
 
 **Files:** `src/pages/deed-polls/[id].test.ts`; adjust the handler only as required by these tests.
 
-- [ ] Cover required case failure while optional reads are pending, then let both optional reads settle
+- [x] Cover required case failure while optional reads are pending, then let both optional reads settle
       or reject. Assert the original required error reaches the handler boundary and rules are not read.
-- [ ] Cover field-rules failure while optional reads are pending and later reject. Assert the existing
+- [x] Cover field-rules failure while optional reads are pending and later reject. Assert the existing
       fatal behaviour and no unhandled rejection or duplicate error logging.
-- [ ] Cover referral-only failure, email-only failure and both failures. Preserve each panel's fallback,
+- [x] Cover referral-only failure, email-only failure and both failures. Preserve each panel's fallback,
       logging count and the other panel's usable data.
-- [ ] Cover fast optional failures before the case resolves. Keep existing rules about logging only once
+- [x] Cover fast optional failures before the case resolves. Keep existing rules about logging only once
       the case is known to exist, and ensure all promises are observed.
-- [ ] Verify existing permission-derived controls, banners and page output remain unchanged. Use
+- [x] Verify existing permission-derived controls, banners and page output remain unchanged. Use
       deterministic promise settlement and clean up any process-level listeners used by tests.
-- [ ] Run focused tests and all Validation Commands; record results.
+- [x] Run focused tests and all Validation Commands; record results.
 
 ### Task 3: Record the scheduling guarantee and review
 
@@ -153,6 +153,27 @@ new validation run or Ralphex execution has been performed for this plan. Append
   `REDIS_URL=redis://127.0.0.1:6379 yarn turbo test test:app --concurrency=1 --force` exit 0 — app 111 files /
   2424 tests, deed-poll 1291, api-client 804, cloud-native-platform 157, express-govuk-starter 127,
   simple-router 41, express-session-postgres 23, express-session-redis 7; 0 failed, 0 skipped.
+
+### Task 2 (20 October 2026)
+
+- Eight `read failures` tests in `src/pages/deed-polls/[id].test.ts`; no handler change was needed. They cover a
+  case-read rejection with both optional reads pending (one later resolves, one rejects): the original error object
+  reaches the boundary, no rules call, no render, no log. They cover a rules rejection with both optional reads
+  later rejecting: the original error, one rules call, nothing logged by the page. They cover referral-only,
+  email-only and both failing, each panel degrading alone with one log line per failure. They cover optional
+  failures landing before the case resolves (no log until it does, then two) and before a case read that then 404s
+  (no log, no rules). The last test covers a Team leader with a send banner and late optional reads: the render
+  model is identical to the prompt one, privacy stays editable and the banner link is unchanged.
+- Unhandled-rejection checks use a per-test `process.on("unhandledRejection")` listener removed in `afterEach`. A
+  first version could not fail: vitest's spy attaches handlers to any `Promise` a mock returns (`settledResults`),
+  which hides a promise the handler never observes. Mocks in this block therefore return a non-Promise thenable
+  (`unwatched`, `failingRead`). Mutation check: replacing the aggregate with `await required` before settling the
+  optional reads made 4 of the 8 fail; restored, 71/71 pass.
+- Validation: `yarn lint` clean (same pre-existing Biome info; one justified `noThenProperty` suppression on the
+  helper); `yarn build` 8/8; `REDIS_URL=redis://127.0.0.1:6379 yarn turbo test test:app --concurrency=1 --force`
+  exit 0. App 111 files / 2432 tests, deed-poll 1291, api-client 804, cloud-native-platform 157,
+  express-govuk-starter 127, simple-router 41, express-session-postgres 23, express-session-redis 7. 0 failed,
+  0 skipped.
 
 ## Post-Completion
 

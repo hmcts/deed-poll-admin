@@ -1,6 +1,6 @@
 import { findCaseEmails, findDeedPoll, findReferrals, getCaseFieldRules, NotFoundError } from "@hmcts/deed-poll";
 import type { Request } from "express";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET } from "./[id].js";
 
@@ -116,6 +116,19 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+
+/**
+ * The same promise as a bare thenable, so a mock can return it without being the thing that observes it: vitest's
+ * spy attaches its own handlers to any returned `Promise` instance to record `settledResults`, which would hide a
+ * rejection the handler never handles. `await` and `Promise.allSettled` consume a thenable exactly as a promise.
+ */
+function unwatched<T>(promise: Promise<T>): Promise<T> {
+  // biome-ignore lint/suspicious/noThenProperty: a thenable that is not a Promise is the point — see above.
+  return { then: promise.then.bind(promise) } as unknown as Promise<T>;
+}
+
+/** A read that fails at call time, returned without the spy observing it — see `unwatched`. */
+const failingRead = (error: Error) => () => unwatched(Promise.reject(error));
 
 /** Lets every queued microtask run: a macrotask turn is reached only once the microtask queue is empty. */
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
@@ -239,6 +252,189 @@ describe("case detail page", () => {
       await handled;
 
       expect(delayed.render.mock.calls[0]).toEqual(inOrder.render.mock.calls[0]);
+    });
+  });
+
+  describe("read failures", () => {
+    // Every started read is observed even when the page fails, so a process-level listener is the only thing
+    // that would see a stray rejection. Collected per test and removed after, so no listener outlives one.
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    let logged: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      unhandled.length = 0;
+      process.on("unhandledRejection", onUnhandled);
+      logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      process.off("unhandledRejection", onUnhandled);
+      logged.mockRestore();
+    });
+
+    it("rejects with the case read's own error while the optional reads are pending, and reads no rules", async () => {
+      const failure = new NotFoundError("DeedPoll nope not found");
+      const deedPoll = deferred<typeof found>();
+      const referrals = deferred<never[]>();
+      const emails = deferred<typeof CASE_EMAILS>();
+      vi.mocked(findDeedPoll).mockReturnValue(unwatched(deedPoll.promise) as never);
+      vi.mocked(findReferrals).mockReturnValue(unwatched(referrals.promise));
+      vi.mocked(findCaseEmails).mockReturnValue(unwatched(emails.promise) as never);
+      const res = response();
+
+      const handled = GET(request(), res);
+      const outcome = handled.catch((error: unknown) => error);
+      deedPoll.reject(failure);
+      await settle();
+      referrals.resolve([]);
+      emails.reject(new Error("deed-poll-api call failed (unavailable): nope"));
+
+      expect(await outcome).toBe(failure);
+      await settle();
+      expect(getCaseFieldRules).not.toHaveBeenCalled();
+      expect(res.render).not.toHaveBeenCalled();
+      expect(logged).not.toHaveBeenCalled();
+      expect(unhandled).toEqual([]);
+    });
+
+    it("rejects with the rules read's own error once the optional reads later reject, logging nothing twice", async () => {
+      const failure = new Error("deed-poll-api call failed (unavailable): rules");
+      const rules = deferred<never>();
+      const referrals = deferred<never[]>();
+      const emails = deferred<typeof CASE_EMAILS>();
+      vi.mocked(getCaseFieldRules).mockReturnValueOnce(unwatched(rules.promise));
+      vi.mocked(findReferrals).mockReturnValue(unwatched(referrals.promise));
+      vi.mocked(findCaseEmails).mockReturnValue(unwatched(emails.promise) as never);
+      const res = response();
+
+      const handled = GET(request(), res);
+      const outcome = handled.catch((error: unknown) => error);
+      await settle();
+      rules.reject(failure);
+      await settle();
+      referrals.reject(new Error("deed-poll-api call failed (timeout): referrals"));
+      emails.reject(new Error("deed-poll-api call failed (timeout): emails"));
+
+      expect(await outcome).toBe(failure);
+      await settle();
+      expect(getCaseFieldRules).toHaveBeenCalledTimes(1);
+      expect(res.render).not.toHaveBeenCalled();
+      // The handler's boundary is `src/errors.ts`, which does the logging for a fatal read; the page adds none.
+      expect(logged).not.toHaveBeenCalled();
+      expect(unhandled).toEqual([]);
+    });
+
+    it("degrades only the referrals panel when only the referrals read fails, logging it once", async () => {
+      vi.mocked(findReferrals).mockImplementation(failingRead(new Error("deed-poll-api call failed (timeout): nope")));
+      const res = response();
+
+      await GET(request(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.referrals.unavailable).toBe(true);
+      expect(model.emails.unavailable).toBe(false);
+      expect(model.emails.sendable).toHaveLength(1);
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("referrals unavailable"));
+      expect(unhandled).toEqual([]);
+    });
+
+    it("degrades only the emails panel when only the emails read fails, logging it once", async () => {
+      vi.mocked(findReferrals).mockResolvedValue([REFERRAL] as never);
+      vi.mocked(findCaseEmails).mockImplementation(failingRead(new Error("deed-poll-api call failed (timeout): nope")));
+      const res = response();
+
+      await GET(request(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.emails.unavailable).toBe(true);
+      expect(model.referrals.unavailable).toBe(false);
+      expect(model.referrals.count).toBe(1);
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("emails unavailable"));
+      expect(unhandled).toEqual([]);
+    });
+
+    it("degrades both panels and still renders the case when both optional reads fail, logging each once", async () => {
+      vi.mocked(findReferrals).mockImplementation(failingRead(new Error("deed-poll-api call failed (timeout): referrals")));
+      vi.mocked(findCaseEmails).mockImplementation(failingRead(new Error("deed-poll-api call failed (timeout): emails")));
+      const res = response();
+
+      await GET(request(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.pageHeading).toBe("KBDP2026-00001");
+      expect(model.referrals.unavailable).toBe(true);
+      expect(model.emails.unavailable).toBe(true);
+      expect(logged).toHaveBeenCalledTimes(2);
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("referrals unavailable"));
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("emails unavailable"));
+      expect(unhandled).toEqual([]);
+    });
+
+    it("logs optional failures that land before the case resolves only once the case is known to exist", async () => {
+      const deedPoll = deferred<typeof found>();
+      vi.mocked(findDeedPoll).mockReturnValue(unwatched(deedPoll.promise) as never);
+      vi.mocked(findReferrals).mockImplementation(failingRead(new Error("deed-poll-api call failed (timeout): referrals")));
+      vi.mocked(findCaseEmails).mockImplementation(failingRead(new Error("deed-poll-api call failed (timeout): emails")));
+      const res = response();
+
+      const handled = GET(request(), res);
+      await settle();
+      const loggedBeforeCase = logged.mock.calls.length;
+      deedPoll.resolve(found);
+      await handled;
+
+      expect(loggedBeforeCase).toBe(0);
+      expect(logged).toHaveBeenCalledTimes(2);
+      expect(res.render.mock.calls[0][1].referrals.unavailable).toBe(true);
+      expect(res.render.mock.calls[0][1].emails.unavailable).toBe(true);
+      expect(unhandled).toEqual([]);
+    });
+
+    it("logs nothing for optional failures that land before a case read that then fails", async () => {
+      const failure = new NotFoundError("DeedPoll nope not found");
+      const deedPoll = deferred<typeof found>();
+      vi.mocked(findDeedPoll).mockReturnValue(unwatched(deedPoll.promise) as never);
+      vi.mocked(findReferrals).mockImplementation(failingRead(new NotFoundError("DeedPoll nope not found")));
+      vi.mocked(findCaseEmails).mockImplementation(failingRead(new NotFoundError("DeedPoll nope not found")));
+
+      const handled = GET(request(), response());
+      const outcome = handled.catch((error: unknown) => error);
+      await settle();
+      deedPoll.reject(failure);
+
+      expect(await outcome).toBe(failure);
+      await settle();
+      expect(getCaseFieldRules).not.toHaveBeenCalled();
+      expect(logged).not.toHaveBeenCalled();
+      expect(unhandled).toEqual([]);
+    });
+
+    it("keeps the permission-derived controls and the send banner when the optional reads settle late", async () => {
+      vi.mocked(findCaseEmails).mockResolvedValue({ ...CASE_EMAILS, history: [SENT_EMAIL] } as never);
+      const sendRequest = (): Request => pageRequest({ params: { id: "case-1" }, query: { email: "sent", emailId: "email-1" }, teamLeader: true });
+      const prompt = response();
+      await GET(sendRequest(), prompt);
+
+      const referrals = deferred<never[]>();
+      const emails = deferred<typeof CASE_EMAILS>();
+      vi.mocked(findReferrals).mockReturnValue(unwatched(referrals.promise));
+      vi.mocked(findCaseEmails).mockReturnValue(unwatched(emails.promise) as never);
+      const late = response();
+      const handled = GET(sendRequest(), late);
+      await settle();
+      referrals.resolve([]);
+      await settle();
+      emails.resolve({ ...CASE_EMAILS, history: [SENT_EMAIL] } as never);
+      await handled;
+
+      const model = late.render.mock.calls[0][1];
+      expect(model).toEqual(prompt.render.mock.calls[0][1]);
+      expect(model.presentation.privacy.editable).toBe(true);
+      expect(model.emailBanner).toEqual({ text: expect.any(String), href: "/deed-polls/case-1/emails/email-1" });
+      expect(unhandled).toEqual([]);
     });
   });
 
