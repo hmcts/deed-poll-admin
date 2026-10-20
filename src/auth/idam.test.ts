@@ -38,13 +38,29 @@ let config: IdamConfig;
 /** Omitted from discovery in the tests that need an issuer without one. */
 let endSessionEndpoint: string | undefined;
 let discoveryCalls = 0;
+/** One answer per discovery request, in order; an empty queue answers with the document. */
+let discoveryAnswers: DiscoveryAnswer[] = [];
+/** When set, discovery requests wait on it, so a test can have callers arrive while one is in flight. */
+let discoveryHeld: Promise<void> | undefined;
+let discoveryArrived: () => void = () => {};
 
 beforeAll(async () => {
-  server = createServer((req, res) => {
+  server = createServer(async (req, res) => {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
 
     if (path === "/o/.well-known/openid-configuration") {
       discoveryCalls += 1;
+      const answer = discoveryAnswers.shift() ?? "document";
+      discoveryArrived();
+      await discoveryHeld;
+      if (answer === "unavailable") {
+        res.writeHead(503).end();
+        return;
+      }
+      if (answer === "connection-reset") {
+        req.socket.destroy();
+        return;
+      }
       res.writeHead(200, { "content-type": "application/json" }).end(
         JSON.stringify({
           issuer: `${base}/o`,
@@ -74,12 +90,15 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
+  server.closeAllConnections();
   server.close();
 });
 
 beforeEach(() => {
   resetIdamDiscovery();
   discoveryCalls = 0;
+  discoveryAnswers = [];
+  discoveryHeld = undefined;
   endSessionEndpoint = `${base}/o/endSession`;
   vi.clearAllMocks();
 });
@@ -175,6 +194,59 @@ describe("beginLogin", () => {
     // The other side of the same allowlist. Both directions are asserted because a check that only
     // ever refuses would pass if it refused everything.
     await expect(beginLogin(config, "/deed-polls")).resolves.toBeTruthy();
+  });
+});
+
+describe("discovery recovery", () => {
+  it("should recover on a later login when discovery answered 503, without a reset or restart", async () => {
+    discoveryAnswers = ["unavailable"];
+
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+    const { authorizationUrl } = await beginLogin(config, "/deed-polls");
+    await beginLogin(config, "/deed-polls");
+
+    expect(new URL(authorizationUrl).origin + new URL(authorizationUrl).pathname).toBe(`${base}/o/authorize`);
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should recover on a later login when the discovery connection failed", async () => {
+    discoveryAnswers = ["connection-reset"];
+
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+    const { authorizationUrl } = await beginLogin(config, "/deed-polls");
+
+    expect(new URL(authorizationUrl).searchParams.get("client_id")).toBe("deed-poll-admin");
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should serve simultaneous first logins from one discovery request, and keep it", async () => {
+    const release = holdDiscovery();
+    const arrived = nextDiscoveryRequest();
+
+    const logins = Promise.all([beginLogin(config, "/a"), beginLogin(config, "/b"), beginLogin(config, "/c")]);
+    await arrived;
+    release();
+    const results = await logins;
+    await beginLogin(config, "/d");
+
+    expect(results.map((result) => new URL(result.authorizationUrl).pathname)).toEqual(["/o/authorize", "/o/authorize", "/o/authorize"]);
+    expect(discoveryCalls).toBe(1);
+  });
+
+  it("should fail simultaneous logins together on one failed request, then let a later one rediscover", async () => {
+    discoveryAnswers = ["unavailable"];
+    const release = holdDiscovery();
+    const arrived = nextDiscoveryRequest();
+
+    const logins = Promise.allSettled([beginLogin(config, "/a"), beginLogin(config, "/b")]);
+    await arrived;
+    release();
+    const results = await logins;
+    const { authorizationUrl } = await beginLogin(config, "/c");
+
+    expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    expect(new URL(authorizationUrl).pathname).toBe("/o/authorize");
+    expect(discoveryCalls).toBe(2);
   });
 });
 
@@ -525,3 +597,19 @@ describe("describeIdamError", () => {
     expect(describeIdamError("refused")).toBe("refused");
   });
 });
+
+function holdDiscovery(): () => void {
+  let release: () => void = () => {};
+  discoveryHeld = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return release;
+}
+
+function nextDiscoveryRequest(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    discoveryArrived = resolve;
+  });
+}
+
+type DiscoveryAnswer = "document" | "unavailable" | "connection-reset";

@@ -44,6 +44,11 @@ export interface IdamConfig {
  * Cached because discovery is a network call and doing it per request would put IDAM's availability
  * in the path of every login. Not cached across restarts, so a pod picks up endpoint changes when it
  * cycles. `openid-client` handles JWKS fetching and key rotation inside the returned configuration.
+ *
+ * **Only a success is kept.** A pending attempt is shared by every caller that arrives while it runs, but a
+ * rejected one releases the cache, so the next login rediscovers once IDAM recovers rather than replaying the
+ * first outage until the pod restarts. The release is made only by the attempt that owns the entry: one
+ * replaced by `resetIdamDiscovery` must not clear the attempt that replaced it.
  */
 let discovered: Promise<client.Configuration> | undefined;
 
@@ -70,13 +75,18 @@ export function expiresAtFrom(tokens: client.TokenEndpointResponseHelpers): numb
 
 export async function idamConfiguration(config: IdamConfig): Promise<client.Configuration> {
   if (!discovered) {
-    discovered = client.discovery(new URL(config.issuerUrl), config.clientId, config.clientSecret, undefined, {
+    const attempt = client.discovery(new URL(config.issuerUrl), config.clientId, config.clientSecret, undefined, {
       // `openid-client` refuses a cleartext issuer by default, and is right to: the code exchange
       // sends the client secret over the same connection the tokens come back on. That default is why
       // `/login` 500s against the local simulator until this is granted. The allowlist behind
       // `plainHttpPermitted` lives in the domain library rather than here because the same decision used
       // to be read the opposite way — reject rather than permit — by the deleted `apps/api`.
       ...(plainHttpPermitted() ? { execute: [client.allowInsecureRequests] } : {})
+    });
+    discovered = attempt;
+    // Registered before any caller awaits, so the entry is released before a caller sees the rejection.
+    attempt.catch(() => {
+      if (discovered === attempt) discovered = undefined;
     });
   }
   return discovered;

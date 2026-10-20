@@ -62,16 +62,16 @@ bind only to loopback and close their servers. They need no live IDAM credential
 
 **Files:** `src/auth/idam.ts` and `src/auth/idam.test.ts`.
 
-- [ ] Trace the discovery callers and existing reset hook on the execution baseline. Add a failing
+- [x] Trace the discovery callers and existing reset hook on the execution baseline. Add a failing
       local-HTTP test: first discovery returns 503, the endpoint becomes healthy, a later eligible
       `beginLogin` succeeds without resetting the module or restarting the process.
-- [ ] Add coverage for a connection failure followed by recovery. Assert actual HTTP attempt counts
+- [x] Add coverage for a connection failure followed by recovery. Assert actual HTTP attempt counts
       and successful login URL construction rather than only mocked discovery invocation counts.
-- [ ] Clear a rejected cache entry with an identity/generation check so only its owning attempt can
+- [x] Clear a rejected cache entry with an identity/generation check so only its owning attempt can
       change cache state. Preserve sharing while discovery is pending and caching after success.
-- [ ] Cover multiple simultaneous initial callers and repeated successful calls: exactly one discovery
+- [x] Cover multiple simultaneous initial callers and repeated successful calls: exactly one discovery
       operation serves each shared attempt; successful configuration does not trigger rediscovery.
-- [ ] Run focused tests and all Validation Commands; record red/green evidence and results.
+- [x] Run focused tests and all Validation Commands; record red/green evidence and results.
 
 ### Task 2: Bound retry pressure and protect cache replacement
 
@@ -116,6 +116,25 @@ bind only to loopback and close their servers. They need no live IDAM credential
 
 Planning only, 20 October 2026. Ellis authored this plan from review finding E02. No implementation,
 new validation run or Ralphex execution has been performed for this plan. Append execution evidence here.
+
+### Task 1 (20 October 2026)
+
+- Execution branch `fix/e02-idam-discovery-recovery`, starting commit `2555fa382f00582b2f86dbc041f596c9819f94e2`.
+  The finding reproduced there: `idamConfiguration` kept the first rejected `client.discovery` promise.
+- Discovery callers: `beginLogin`, `completeLogin`, `refreshTokens`, `endSessionUrl` (all `src/auth/idam.ts`),
+  `password-grant.ts` and `client-credentials.ts`. `resetIdamDiscovery` is test-only (`idam.test.ts`,
+  `password-grant.test.ts`).
+- Baseline (before changes): lint and build clean; app 107 files / 2241 tests; deed-poll 1204,
+  api-client 778, cloud-native-platform 157, express-govuk-starter 127, simple-router 41,
+  express-session-postgres 23, express-session-redis 7; no skips; `src/session-store.test.ts` ran (7 tests).
+- Red: four new local-HTTP tests in `src/auth/idam.test.ts` ("discovery recovery"); three failed against the
+  baseline (503 then recovery, connection reset then recovery, simultaneous failure then recovery). The
+  simultaneous-success test passed already, as expected.
+- Green: the attempt's own `.catch` clears `discovered` only when it still holds that attempt. Focused file
+  47/47. Request counts asserted on the loopback server: 503 then two logins = 2 requests; connection reset then
+  one login = 2; three simultaneous logins plus a later one = 1; two simultaneous failed logins plus a recovery = 2.
+- Full validation after: lint and build clean; app 107 files / 2245 tests (+4); other packages unchanged; no
+  skips; `src/session-store.test.ts` ran (7 tests).
 
 ## Post-Completion
 
