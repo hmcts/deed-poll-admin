@@ -173,21 +173,22 @@ export const POST = async (req: Request, res: Response) => {
 };
 
 async function selectCases(req: Request, res: Response, journey: GazetteJourney, action: unknown, caller: Caller) {
+  const selected = selectedGazetteCases(journey, req.body?.caseIds);
+  if (!selected) return render(req, res, journey, "incomplete");
+  const withSelection = { ...journey, selected };
   try {
-    const selected = selectedGazetteCases(journey, req.body?.caseIds);
-    if (!selected) return render(req, res, journey, "incomplete");
-    journey = { ...journey, selected };
     if (typeof action === "string" && action.startsWith("review:")) {
       const id = action.slice(7);
-      if (!id || id.length > 255 || (journey.reviews.length >= 100 && !journey.reviews.some((r) => r.id === id))) return render(req, res, journey, "invalid");
+      if (!id || id.length > 255 || (journey.reviews.length >= 100 && !journey.reviews.some((r) => r.id === id)))
+        return render(req, res, withSelection, "invalid");
       const record = await findDeedPoll(id, caller);
-      return render(req, res, { ...journey, phase: "review", reviewing: { id, version: gazetteReviewVersion(record) } }, undefined, record);
+      return render(req, res, { ...withSelection, phase: "review", reviewing: { id, version: gazetteReviewVersion(record) } }, undefined, record);
     }
-    if (typeof action === "string" && /^page:[1-9]\d{0,5}$/.test(action)) return render(req, res, { ...journey, page: Number(action.slice(5)) });
-    if (action === "preview") return previewSelection(req, res, journey, caller);
+    if (typeof action === "string" && /^page:[1-9]\d{0,5}$/.test(action)) return render(req, res, { ...withSelection, page: Number(action.slice(5)) });
+    if (action === "preview") return previewSelection(req, res, withSelection, caller);
     return render(req, res, null, "invalid");
   } catch (error) {
-    return reviewFailed(req, res, journey, error);
+    return operationFailed(req, res, withSelection, error);
   }
 }
 
@@ -216,7 +217,7 @@ async function previewSelection(req: Request, res: Response, journey: GazetteJou
       }
     });
   } catch (error) {
-    return reviewFailed(req, res, journey, error);
+    return operationFailed(req, res, journey, error);
   }
 }
 
@@ -235,7 +236,7 @@ async function reviewCase(req: Request, res: Response, journey: GazetteJourney, 
     }
     return render(req, res, null, "invalid");
   } catch (error) {
-    return reviewFailed(req, res, journey, error);
+    return operationFailed(req, res, journey, error);
   }
 }
 
@@ -255,12 +256,12 @@ async function confirmSelection(req: Request, res: Response, journey: GazetteJou
     }
     return render(req, res, null, "invalid");
   } catch (error) {
-    return reviewFailed(req, res, journey, error);
+    return operationFailed(req, res, journey, error);
   }
 }
 
 // Catch operation failures within each step, without reclassifying rejected render/submit promises.
-function reviewFailed(req: Request, res: Response, journey: GazetteJourney, error: unknown) {
+function operationFailed(req: Request, res: Response, journey: GazetteJourney, error: unknown) {
   if (error instanceof ForbiddenError || error instanceof UnauthorizedError) throw error;
   if (error instanceof GazetteRefusalError) return render(req, res, { ...journey, phase: "refused" }, error.refusal.code);
   console.error("Gazette review or preview unavailable");

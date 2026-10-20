@@ -300,6 +300,28 @@ it("should propagate a selection-render failure without classifying it as a revi
   expect(sendGazetteSelection).not.toHaveBeenCalled();
 });
 
+it.each([
+  { action: "page:2", setup: "preview" },
+  { action: "preview", setup: "preview" },
+  { action: "back", setup: "send" },
+  { action: "save", setup: "save" }
+] as const)("should propagate a rendering failure during $action without handling it twice", async ({ action, setup }) => {
+  const body = { ...(await actionBody(setup)), action };
+  const req = Object.assign(pageRequest({ body, teamLeader: true, accessToken: "token" }), { sessionID: "admin-session" });
+  const res = pageResponse();
+  const error = new GazetteRefusalError({ kind: "gazette-refusal", code: "CASE_NOT_READY", conflicts: [] });
+  res.render.mockImplementationOnce(() => {
+    throw error;
+  });
+  vi.mocked(console.error).mockClear();
+
+  await expect(POST(req, res)).rejects.toBe(error);
+
+  expect(res.render).toHaveBeenCalledTimes(1);
+  expect(console.error).not.toHaveBeenCalled();
+  expect(sendGazetteSelection).not.toHaveBeenCalled();
+});
+
 async function actionBody(action: "review" | "save" | "preview" | "send"): Promise<Record<string, unknown>> {
   if (action === "review") {
     const list = await render();
