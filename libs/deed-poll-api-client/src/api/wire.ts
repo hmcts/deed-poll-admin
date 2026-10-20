@@ -1147,10 +1147,18 @@ const callerAccessSchema = z.object({
   capabilities: z.array(z.string()).transform((names) => CAPABILITY.filter((capability) => names.includes(capability)))
 });
 
-/** api's failure body. `errors` is omitted rather than empty when there are none (`@JsonInclude`). */
+/** One field's validation message inside api's failure body. Published as `FieldError` since api's 403 contract. */
+const fieldErrorSchema = z.object({ field: z.string(), message: z.string() });
+
+/**
+ * api's failure body. `errors` is omitted rather than empty when there are none (`@JsonInclude`).
+ *
+ * Published as `ApiError` since api documented its 403 response on every staff operation (`OpenAPIForbiddenResponses`),
+ * so it is compared with the document like every other schema rather than listed as unspecified.
+ */
 const apiErrorSchema = z.object({
   error: z.string(),
-  errors: z.array(z.object({ field: z.string(), message: z.string() })).optional()
+  errors: z.array(fieldErrorSchema).optional()
 });
 
 /**
@@ -1163,6 +1171,8 @@ const apiErrorSchema = z.object({
  * it separately, so the day api's two bodies diverge, one of the two comparisons fails.
  */
 export const WIRE_SCHEMAS = {
+  ApiError: apiErrorSchema,
+  FieldError: fieldErrorSchema,
   CallerAccessResponse: callerAccessSchema,
   GazetteMemberResponse: gazetteMemberSchema,
   GazetteStatusResponse: gazetteStatusSchema,
@@ -1223,16 +1233,6 @@ export const WIRE_SCHEMAS = {
 } as const;
 
 /**
- * Schemas this module defines that the spec does not describe.
- *
- * `ApiError` is api's error body, produced by a `@RestControllerAdvice`. springdoc only publishes a
- * schema some declared response references, and no handler declares this one, so it is absent from the
- * document. Listed explicitly so the drift test accounts for the difference rather than being loosened
- * to ignore whatever it cannot find on one side.
- */
-export const UNSPECIFIED_SCHEMAS = { ApiError: apiErrorSchema } as const;
-
-/**
  * The response properties that reject null, and the only ones.
  *
  * Pinned by `contract.test.ts` against api's Java types, because the document cannot answer the question:
@@ -1248,6 +1248,10 @@ export const UNSPECIFIED_SCHEMAS = { ApiError: apiErrorSchema } as const;
  * Everything else is nullable, and a schema insisting otherwise would reject an ordinary half-logged case.
  */
 export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string[]>> = {
+  // api's `ApiError` and `FieldError` records: `error`, `field` and `message` are always set, and `errors` is omitted
+  // rather than null when empty (`@JsonInclude(NON_EMPTY)`), so none of the four arrives null.
+  ApiError: ["error", "errors"],
+  FieldError: ["field", "message"],
   CallerAccessResponse: ["staff", "judicial", "capabilities"],
   GazetteMemberResponse: ["caseId", "referenceNumber"],
   GazetteStatusResponse: ["batchId", "state", "caseCount"],

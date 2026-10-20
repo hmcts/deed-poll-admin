@@ -45,6 +45,7 @@ import {
   ConflictError,
   changeDirection,
   DIRECTION_DECISION_CHOICES,
+  type DirectionInput,
   directionSchema,
   type FieldError,
   getReferral,
@@ -206,11 +207,15 @@ export const POST = async (req: Request, res: Response) => {
     });
   }
 
+  return commitDirection(req, res, parsed.data, referralHref, isChange);
+};
+
+async function commitDirection(req: Request, res: Response, direction: DirectionInput, referralHref: string, isChange: boolean) {
   try {
     // One call, complete. Nothing is read first: api re-checks the hold, and a pre-read's answer would be stale by
     // the time it was acted on.
     const commit = isChange ? changeDirection : recordDirection;
-    await commit(req.params.referralId, parsed.data, callerFromRequest(req));
+    await commit(req.params.referralId, direction, callerFromRequest(req));
   } catch (error) {
     // Visible but not in this judge's hands — it went back to the pool, or they have already directed it; for a
     // change, there is no direction of theirs to replace. Their answers are gone with it, which is unavoidable:
@@ -225,7 +230,7 @@ export const POST = async (req: Request, res: Response) => {
   }
 
   res.redirect(`${referralHref}?direction=${isChange ? "changed" : "recorded"}`);
-};
+}
 
 /** Whether this request is the change journey. Only the one literal value counts, so a stray flag records anew. */
 function isChangeJourney(req: Request): boolean {
