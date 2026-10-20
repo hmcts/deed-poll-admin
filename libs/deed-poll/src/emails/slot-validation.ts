@@ -61,7 +61,7 @@ export function validateEmailSlots(slots: readonly EmailSlot[], values: Record<s
 
   for (const slot of slots) {
     const name = slot.name;
-    if (name === null || name === undefined || name === "") continue;
+    if (!name) continue;
 
     const submitted = values[name];
     if (submitted !== undefined && submitted !== null && typeof submitted !== "string") {
@@ -69,7 +69,7 @@ export function validateEmailSlots(slots: readonly EmailSlot[], values: Record<s
       continue;
     }
 
-    const value = typeof submitted === "string" ? submitted.trim() : "";
+    const value = submitted?.trim() ?? "";
     if (value === "") {
       // Required-and-blank only. A blank optional slot is omitted from the body rather than sent as `""`, and
       // **the two are the same thing to api, which is why this is not a choice we are making.**
