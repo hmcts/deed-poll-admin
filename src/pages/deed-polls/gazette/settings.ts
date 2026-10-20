@@ -84,7 +84,9 @@ export const POST = async (req: Request, res: Response) => {
   try {
     await saveGazetteSettings(parsed.data, callerFromRequest(req));
   } catch (error) {
-    const { status, ...view } = saveErrorView(error, content);
+    const failure = saveErrorView(error, content);
+    if (!failure) throw error;
+    const { status, ...view } = failure;
     return render(res.status(status), values, view);
   }
   res.redirect(`${PATH}?saved=true`);
@@ -111,5 +113,5 @@ function saveErrorView(error: unknown, content: typeof en) {
       errorList: [{ text: emailError ?? content.refused, href: emailError ? "#recipientEmail" : "#reload-settings" }]
     };
   }
-  throw error;
+  return null;
 }
