@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../express-doubles.js";
 import { GET, POST } from "./[tab].js";
 
-// Only persistence is replaced. buildEditView, buildUpdatePatch and collectDateErrors are the
+// Only persistence is replaced. buildEditView, buildUpdatePatch and collectFormErrors are the
 // domain's and tested there, so this runs the page against the real ones — which matters here more
 // than anywhere, because the destructive case is a real patch built from a real field list.
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -263,6 +263,93 @@ describe("case edit tab page", () => {
     });
   });
 
+  describe("numeric input (review finding E04)", () => {
+    it.each([
+      ["refund", "refundAmount", "12x", "Refund amount must be a number"],
+      ["refund", "refundAmount", "£25.00", "Refund amount must be a number"],
+      ["refund", "refundAmount", "1e999", "Refund amount must be a number"],
+      [APPLICATION, "ageOfMinor", "7.5", "Age of minor years must be a whole number"],
+      [APPLICATION, "ageOfMinorMonths", "NaN", "Age of minor months must be a whole number"]
+    ])("should re-render %s with a field error and write nothing when %s is %s", async (tabId, name, typed, message) => {
+      const res = response();
+
+      await POST(request(tabId, { ...bodyFor(tabId), [name]: typed }), res);
+
+      expect(updateDeedPoll).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      const model = res.render.mock.calls[0][1];
+      expect(model.errors).toEqual([{ field: name, message }]);
+      expect(model.errorSummary).toEqual([{ text: message, href: `#${name}` }]);
+      expect(renderedField(res, name).value).toBe(typed);
+    });
+
+    it("should show the raw invalid amount back rather than a formatted substitute", async () => {
+      const res = response();
+
+      await POST(request("refund", { refundAmount: "£25.00" }), res);
+
+      expect(renderedField(res, "refundAmount").value).toBe("£25.00");
+    });
+
+    it("should report date and numeric errors together in one re-render, writing nothing", async () => {
+      const res = response();
+
+      await POST(request("refund", { refundAmount: "12x", "dateOfRefund-day": "31", "dateOfRefund-month": "2", "dateOfRefund-year": "2026" }), res);
+
+      expect(updateDeedPoll).not.toHaveBeenCalled();
+      expect(res.render.mock.calls[0][1].errors).toEqual([
+        { field: "refundAmount", message: "Refund amount must be a number" },
+        { field: "dateOfRefund", message: "Date of refund must be a real date" }
+      ]);
+    });
+
+    it("should keep the other submitted values when a number is refused", async () => {
+      const res = response();
+
+      await POST(request(APPLICATION, { ...bodyFor(APPLICATION), newSurname: "Typed", ageOfMinor: "seven" }), res);
+
+      expect(renderedField(res, "newSurname").value).toBe("Typed");
+      expect(res.render.mock.calls[0][1].tab.id).toBe(APPLICATION);
+    });
+
+    it.each([
+      ["a deliberate blank, which clears", "", null],
+      ["zero", "0", 0],
+      ["a decimal amount", "25.50", 25.5],
+      ["a padded amount", " 10 ", 10]
+    ])("should write the refund amount once for %s", async (_label, typed, expected) => {
+      const res = response();
+
+      await POST(request("refund", { refundAmount: typed, refundReference: "Ref-1" }), res);
+
+      expect(updateDeedPoll).toHaveBeenCalledTimes(1);
+      expect(updateDeedPoll).toHaveBeenCalledWith(
+        "case-1",
+        { refundAmount: expected, refundReference: "Ref-1", dateOfRefund: null },
+        { accessToken: "caseworker-token" }
+      );
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1#refund");
+    });
+
+    it("should write valid integer ages, zero included, as numbers", async () => {
+      await POST(request(APPLICATION, { ...bodyFor(APPLICATION), ageOfMinor: "12", ageOfMinorMonths: "0" }), response());
+
+      expect(updateDeedPoll).toHaveBeenCalledTimes(1);
+      const patch = vi.mocked(updateDeedPoll).mock.calls[0][1];
+      expect(patch.ageOfMinor).toBe(12);
+      expect(patch.ageOfMinorMonths).toBe(0);
+    });
+
+    it("should omit a numeric field the body does not carry rather than clearing it", async () => {
+      const body = bodyFor(APPLICATION);
+      delete body.ageOfMinorMonths;
+
+      await POST(request(APPLICATION, body), response());
+
+      expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).not.toHaveProperty("ageOfMinorMonths");
+    });
+  });
+
   describe("witness shortfall banner", () => {
     it("warns on the signature tab when the case is short of witnesses", async () => {
       vi.mocked(findDeedPoll).mockResolvedValue({ ...found, witnesses: [{ id: "witness-1" }] } as never);
@@ -426,6 +513,12 @@ describe("case edit tab page", () => {
     });
   });
 });
+
+function renderedField(res: { render: ReturnType<typeof vi.fn> }, name: string) {
+  return res.render.mock.calls[0][1].sections
+    .flatMap((s: { fields: { name: string; value: unknown }[] }) => s.fields)
+    .find((f: { name: string }) => f.name === name);
+}
 
 function privacyField(res: { render: ReturnType<typeof vi.fn> }) {
   return res.render.mock.calls[0][1].sections
