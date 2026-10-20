@@ -47,9 +47,13 @@ export function readNumericInput(raw: unknown, format: NumberFormat): NumericInp
 /**
  * A stored number as the plain decimal `readNumericInput` accepts. `String()` switches to exponent notation
  * below 1e-6 and from 1e21, which the form would then refuse on an unchanged save.
+ *
+ * Plain decimal stops at 100 fractional digits, so a value smaller than that would come back as a different
+ * number. That one is rendered as stored instead: an unchanged save is refused, never quietly rewritten.
  */
 export function formatNumericInput(value: number): string {
-  return value.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 100 });
+  const plain = value.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 100 });
+  return Number(plain) === value ? plain : String(value);
 }
 
 /** The field error for an `invalid` reading, worded by the field's format. */

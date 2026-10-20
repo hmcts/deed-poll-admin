@@ -39,6 +39,17 @@ describe("deed-poll/edit-view", () => {
       expect(readNumericInput(rendered, "decimal")).toEqual({ kind: "valid", value: stored });
     });
 
+    it.each([1e-101, 1.2345678901234566e-90])("should never render stored %s as a different number an unchanged save would write", (stored) => {
+      const refundTab = FORM_TABS.find((tab) => tab.sections.some((section) => section.fields.some((f) => f.name === "refundAmount")));
+      if (!refundTab) throw new Error("no tab carries refundAmount");
+
+      const rendered = field(buildEditView({ refundAmount: stored }, refundTab, ADMIN), "refundAmount")?.value;
+      const reread = readNumericInput(rendered, "decimal");
+
+      // Refusing an unchanged save is acceptable; silently saving an altered value is not.
+      expect(reread.kind === "valid" ? reread.value : "refused").toEqual(reread.kind === "valid" ? stored : "refused");
+    });
+
     it("decorates every field with a value taken from the record", () => {
       const view = buildEditView({ type: "Adult", newSurname: "Lovelace" }, applicationTab, ADMIN);
 
