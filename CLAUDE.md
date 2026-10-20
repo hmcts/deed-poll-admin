@@ -586,7 +586,7 @@ E04; plan `docs/plans/completed/20261020-e04-numeric-input-validation.md`). The 
 ## Case edit form saves
 
 An unchanged save must write back exactly what is stored, and a refused save must redraw exactly what was submitted
-(review findings R01 and R02; plan `docs/plans/20261020-r01-r02-edit-form-untouched-fields.md`). The POST handler reads
+(review findings R01 and R02; plan `docs/plans/completed/20261020-r01-r02-edit-form-untouched-fields.md`). The POST handler reads
 no case first, so the body is the only evidence of what the page rendered. The rules:
 
 - **"Absent" means something different for each field kind.** A rendered text input, textarea or select always
@@ -601,6 +601,26 @@ no case first, so the body is the only evidence of what the page rendered. The r
   none, and `deed-poll-validation.test.ts` fails if a rule ever hides a boolean or multiselect for any type, migrated
   or not, published or not. A rule that needs to hide one first needs a different way to tell "unticked" from "not
   rendered".
+- **A nullable boolean is Yes / No radios, not a checkbox** (review finding R07; plan
+  `docs/plans/20261020-r07-r08-edit-form-input-shapes.md`). A checkbox has two states and `inPerson` has three:
+  api types it `["boolean", "null"]`, and as a checkbox an unanswered question read as unticked, so every save of the
+  Application tab turned "not answered" into "No". `nullable: true` on the `FieldDef` renders it as radios with
+  neither selected for `null`; nothing selected is absent and leaves the stored value alone, Yes sends `"true"` and
+  No `"false"`. `form-fields.test.ts` pins which booleans are nullable to `openapi.json`, so a contract change
+  fails there. `retainPermanently` is a plain `boolean` and stays a checkbox. This is not required-field
+  enforcement: an unanswered question may stay unanswered, and "required" is api's rule.
+- **A value the rendered form could not have sent is a field error and no write** (review finding R08, same plan).
+  `readFieldInput` (`libs/deed-poll/src/deed-poll/form-input.ts`) is the one parser per kind, shared by
+  `collectFormErrors` and `buildUpdatePatch` as `readNumericInput` is for numbers, and reads each field as absent,
+  valid or invalid. What each kind may send: a text input, textarea or select one string (trimmed); each date part
+  one string; a checkbox `"true"` (or a browser's default `"on"`) when ticked and nothing when not; Yes / No radios
+  `"true"`, `"false"` or nothing; a multiselect zero or more strings, each exactly equal to one of its `enumOptions`
+  values. Anything else (an array or object from a repeated or bracketed name, `"TRUE"`, a member such as `"1e0"`,
+  `"0x2"`, `" 3 "`, `""`, `"2.5"` or one outside the option set) is refused by `collectFormErrors` in field order
+  before any write, and `buildUpdatePatch` throws `InvalidInputError` on the same input. It used to be coerced into
+  a clear, a first element or `false`. Nothing ticked still clears a multiselect. A refused field redraws from the
+  stored record rather than as sent, except a mistyped number, which redraws as typed. The messages are
+  English-only domain strings like the numeric ones and add nothing to `yarn welsh:check`.
 - **The minor-only fields and the Gazette notice date are cleared by api, not here.** The old behaviour cleared them
   only by accident. api's update applies `applyGazetteGate` and `applyMinorGate` to the merged record
   (`DeedPollService.java` around lines 410-415 on api `origin/master` `554fe49`), and the mock's `patchCase` applies
@@ -609,8 +629,9 @@ no case first, so the body is the only evidence of what the page rendered. The r
   needed here, call the gate function explicitly, never through absent-means-null.
 - **Checked state is computed in the view model, never in the template.** `decorate()` in
   `libs/deed-poll/src/deed-poll/edit-view.ts` sets `checked` on a boolean field and on each multiselect option. It
-  reads stored values (`true`, numbers) and replayed ones (`"true"`/`"on"`, strings) the same way `buildUpdatePatch`
-  does, through the shared `checkbox-input.ts`. `edit.njk` reads only those flags. A template that compares raw values redraws every ticked box unticked on
+  reads stored values (`true`, numbers) and replayed ones (`"true"`/`"on"`, strings) through `checkbox-input.ts`, and
+  sets `answer` (`true`, `false` or `null`) on a nullable boolean. A replayed value reaches it only once
+  `readFieldInput` has accepted it, so it reads a box the way the patch does. `edit.njk` reads only those flags. A template that compares raw values redraws every ticked box unticked on
   a replay, and the corrected resubmit then clears them.
 - **A locked field redraws from the stored record.** A non-admin's privacy select is rendered disabled, so it is
   never in the body; replaying it would redraw it blank. Read-only fields are excluded from the replay for the same

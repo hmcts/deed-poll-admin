@@ -144,13 +144,13 @@ and a handler-level test through the real edit handler.
 
 **Files:** `CLAUDE.md`, this plan.
 
-- [ ] Extend the "Case edit form saves" section in `CLAUDE.md`: nullable booleans as radios and why, and the one
+- [x] Extend the "Case edit form saves" section in `CLAUDE.md`: nullable booleans as radios and why, and the one
       input rule per kind (what each kind may send, and that anything else is refused before any write). Reference
       this plan and findings R07/R08.
-- [ ] In the same section, correct the R01/R02 plan reference to `docs/plans/completed/20261020-r01-r02-edit-form-untouched-fields.md`
+- [x] In the same section, correct the R01/R02 plan reference to `docs/plans/completed/20261020-r01-r02-edit-form-untouched-fields.md`
       (it still names `docs/plans/`, where the plan no longer is).
-- [ ] Record final commits, changed files, test counts and `welsh:check` counts in the execution notes.
-- [ ] Run all Validation Commands and hand off to the Ralphex review phases.
+- [x] Record final commits, changed files, test counts and `welsh:check` counts in the execution notes.
+- [x] Run all Validation Commands and hand off to the Ralphex review phases.
 
 ## Acceptance Criteria
 
@@ -207,6 +207,22 @@ and a handler-level test through the real edit handler.
   links land. `[tab].test.ts`'s `bodyFor` now posts what each control sends rather than `"value"` everywhere.
 - Validation: lint clean (the same Biome info), build 8/8, 5055 tests passed (app 2488, deed-poll 1365, others
   unchanged), 0 failures, 0 skips. `welsh:check` unchanged at 729 / 512: the new messages are domain strings.
+
+### Task 3 (rules and hand-off)
+
+- `CLAUDE.md` "Case edit form saves": two new rules (nullable booleans as Yes / No radios, R07; one input rule per
+  kind via `readFieldInput`, R08), the checked-state rule updated for `answer` and for `readFieldInput` gating the
+  replay, and the R01/R02 plan reference corrected to `docs/plans/completed/`.
+- Commits: `1c4d7c2` (R07), `6cb3f7b` (R08), and this task's docs commit. Changed since baseline `eec41ea`:
+  `CLAUDE.md`, this plan, `libs/deed-poll/src/deed-poll/` `checkbox-input.ts`, `edit-view.ts` (+test),
+  `form-fields.ts` (+test), `form-input.ts` (new), `form-payload.ts` (+test), `form-validation.ts` (+test),
+  `src/case-edit-untouched-fields.test.ts`, `src/pages/deed-polls/[id]/edit/[tab].ts` (+test) and
+  `src/pages/deed-polls/edit.njk`.
+- Final validation: lint clean (the same Biome config-migration info), build 8/8, 8/8 test tasks, 5055 tests
+  passed (app 2488, deed-poll 1365, api-client 847, cloud-native-platform 157, express-govuk-starter 127,
+  simple-router 41, express-session-postgres 23, express-session-redis 7), 0 failures, 0 skips. `welsh:check` 729
+  strings / 512 identical (505 prose, 7 not prose): +2 over baseline, the radios' `yes` and `no`.
+- Handed off to the Ralphex review phases.
 
 ## Post-Completion
 
