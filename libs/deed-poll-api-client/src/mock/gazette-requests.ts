@@ -46,24 +46,25 @@ export function createGazetteRequests() {
       settings: Settings,
       batches: Map<string, LegacyBatch>
     ): Reply {
+      const context: GazetteContext = { cases, settings, batches };
       if (path === "/caseworker/gazette-notice-previews" && method === "POST") {
-        return previewRequest(body, cases, settings, batches);
+        return previewRequest(body, context);
       }
       if (path === "/caseworker/gazette-notices" && method === "POST") {
-        return submitRequest(body, key, subject, name, cases, settings, batches);
+        return submitRequest(body, key, subject, name, context);
       }
       if (path === "/caseworker/gazette-notice-requests" && method === "GET") {
         return listRequests(query);
       }
       const match = /^\/caseworker\/gazette-notices\/([^/]+)(\/cases)?$/.exec(path);
       if (match && method === "GET") {
-        return readRequest(match, query, batches);
+        return readRequest(decodeURIComponent(match[1]), Boolean(match[2]), query, batches);
       }
       return { status: 405, body: { error: "Method not allowed" } };
     }
   };
 
-  function previewRequest(body: unknown, cases: Map<string, MockCase>, settings: Settings, batches: Map<string, LegacyBatch>): Reply {
+  function previewRequest(body: unknown, { cases, settings, batches }: GazetteContext): Reply {
     const parsed = WIRE_SCHEMAS.PreviewGazetteRequest.safeParse(body);
     if (!parsed.success) return invalid();
     const members = select(parsed.data.caseIds, cases, settings, requests, batches);
@@ -84,15 +85,7 @@ export function createGazetteRequests() {
     };
   }
 
-  function submitRequest(
-    body: unknown,
-    key: unknown,
-    subject: string,
-    name: string,
-    cases: Map<string, MockCase>,
-    settings: Settings,
-    batches: Map<string, LegacyBatch>
-  ): Reply {
+  function submitRequest(body: unknown, key: unknown, subject: string, name: string, context: GazetteContext): Reply {
     const parsed = WIRE_SCHEMAS.SubmitGazetteRequest.safeParse(body);
     if (!parsed.success || !z.uuid().safeParse(key).success) return invalid();
     const input = parsed.data;
@@ -102,17 +95,12 @@ export function createGazetteRequests() {
     if (existing) {
       return existing.identity === identity && existing.subject === subject ? statusReply(existing.status) : refused("REQUEST_KEY_REUSED");
     }
-    const members = confirmSelection(input, cases, settings, batches);
+    const members = confirmSelection(input, context);
     if (!Array.isArray(members)) return members;
-    return admit(members, key, subject, name, identity, settings, batches);
+    return admit(members, key, subject, name, identity, context);
   }
 
-  function confirmSelection(
-    input: z.infer<typeof WIRE_SCHEMAS.SubmitGazetteRequest>,
-    cases: Map<string, MockCase>,
-    settings: Settings,
-    batches: Map<string, LegacyBatch>
-  ): MockCase[] | Reply {
+  function confirmSelection(input: z.infer<typeof WIRE_SCHEMAS.SubmitGazetteRequest>, { cases, settings, batches }: GazetteContext): MockCase[] | Reply {
     if (input.recipientRevision !== settings.revision) return refused("RECIPIENT_CHANGED");
     const members = select(input.caseIds, cases, settings, requests, batches);
     if (!Array.isArray(members)) return members;
@@ -125,15 +113,7 @@ export function createGazetteRequests() {
     return members;
   }
 
-  function admit(
-    members: MockCase[],
-    key: unknown,
-    subject: string,
-    name: string,
-    identity: string,
-    settings: Settings,
-    batches: Map<string, LegacyBatch>
-  ): Reply {
+  function admit(members: MockCase[], key: unknown, subject: string, name: string, identity: string, { settings, batches }: GazetteContext): Reply {
     const now = new Date();
     const batchId = randomUUID();
     const status: WireGazetteStatus = {
@@ -165,13 +145,12 @@ export function createGazetteRequests() {
     return page(values, query, "requests");
   }
 
-  function readRequest(match: RegExpExecArray, query: URLSearchParams, batches: Map<string, LegacyBatch>): Reply {
-    const id = decodeURIComponent(match[1]);
+  function readRequest(id: string, wantsCases: boolean, query: URLSearchParams, batches: Map<string, LegacyBatch>): Reply {
     if (!z.uuid().safeParse(id).success) return invalid();
     const request = requests.get(id);
     const legacy = batches.get(id);
     if (!request && !legacy) return { status: 404, body: { error: "Gazette request not found" } };
-    if (match[2]) {
+    if (wantsCases) {
       const members =
         request?.cases ??
         legacy?.referenceNumbers.map((referenceNumber, index) => ({
@@ -274,6 +253,11 @@ function page<T>(rows: T[], query: URLSearchParams, key: string): Reply {
   };
 }
 
+interface GazetteContext {
+  cases: Map<string, MockCase>;
+  settings: Settings;
+  batches: Map<string, LegacyBatch>;
+}
 interface Reply {
   status: number;
   body: unknown;
