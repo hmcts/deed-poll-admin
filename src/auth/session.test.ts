@@ -238,7 +238,7 @@ describe("session timestamps", () => {
 
     await touchLastSeen(req);
 
-    expect(req.session.save).toHaveBeenCalledTimes(3);
+    expect(req.session.save).toHaveBeenCalledTimes(2);
     expect(req.session.deedPoll.accessToken).toBe("the-winner's-token");
     expect(sessionTimestamps(req)).toEqual({ authenticatedAt: seconds(SIGNED_IN_AT), lastSeenAt: seconds(later) });
   });
@@ -258,9 +258,31 @@ describe("session timestamps", () => {
     expect(req.session.deedPoll.lastSeenAt).toBe(seconds(SIGNED_IN_AT) + 30);
   });
 
+  it("should write nothing more when the session it re-read already records activity at this second", async () => {
+    vi.useFakeTimers({ now: SIGNED_IN_AT, toFake: ["Date"] });
+    const req = request({ signedIn: true });
+    req.session.deedPoll.lastSeenAt = seconds(SIGNED_IN_AT) - 300;
+    req.session.save.mockImplementationOnce((callback: (error?: Error) => void) => callback(new SessionWriteRefusedError("conflict")));
+    req.session.reload.mockImplementationOnce((callback: (error?: Error) => void) => {
+      req.session.deedPoll = { ...req.session.deedPoll, lastSeenAt: seconds(SIGNED_IN_AT) };
+      callback();
+    });
+    req.session.save.mockClear();
+
+    await touchLastSeen(req);
+
+    expect(req.session.save).toHaveBeenCalledTimes(1);
+    expect(req.session.deedPoll.lastSeenAt).toBe(seconds(SIGNED_IN_AT));
+  });
+
   it("should give up after three conflicting writes rather than retry without bound", async () => {
     const req = request({ signedIn: true });
+    req.session.deedPoll.lastSeenAt = 0;
     req.session.save.mockImplementation((callback: (error?: Error) => void) => callback(new SessionWriteRefusedError("conflict")));
+    req.session.reload.mockImplementation((callback: (error?: Error) => void) => {
+      req.session.deedPoll = { ...req.session.deedPoll, lastSeenAt: 0 };
+      callback();
+    });
 
     await expect(touchLastSeen(req)).rejects.toMatchObject({ reason: "conflict" });
     expect(req.session.save).toHaveBeenCalledTimes(3);

@@ -384,8 +384,12 @@ export function sessionTimestamps(req: Request): SessionTimestamps | undefined {
  */
 export function touchLastSeen(req: Request): Promise<void> {
   const now = nowSeconds();
-  return saveReconciled(req, (session) => {
+  return saveReconciled(req, (session, isRetry) => {
     if (!session?.user) return false;
+    // After a conflict, a winner at or past this second already holds the change; writing again would only move the
+    // revision and make the other concurrent requests conflict once more. The first attempt always writes, because
+    // the write is also what finds out the session has gone.
+    if (isRetry && (session.lastSeenAt ?? 0) >= now) return false;
     writableNamespace(req).lastSeenAt = Math.max(session.lastSeenAt ?? 0, now);
     return true;
   });
@@ -508,9 +512,9 @@ function applyTokens(session: DeedPollSession, tokens: IdamTokens, access: Calle
  * stands and answers whether there is anything to write, so a re-read that already holds the change writes nothing.
  * Only a `conflict` is retried: a session that has gone, a lost lease or a store failure rejects at once.
  */
-async function saveReconciled(req: Request, change: (session: DeedPollSession | undefined) => boolean): Promise<void> {
+async function saveReconciled(req: Request, change: (session: DeedPollSession | undefined, isRetry: boolean) => boolean): Promise<void> {
   for (let attempt = 1; ; attempt++) {
-    if (!change(namespace(req))) return;
+    if (!change(namespace(req), attempt > 1)) return;
     try {
       await save(req);
       return;
