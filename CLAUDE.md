@@ -480,6 +480,16 @@ only — api keeps the audit trail of writes and reads, and this app must not du
 - **An api error message reaches a log only through `forLog`** (`src/for-log.ts`), which strips CR, LF, ANSI escapes
   and other control characters and caps the text at 500 characters. `src/for-log.test.ts` scans `src/pages` and fails
   a `console.*` call that interpolates `.message` without it.
+- **`forLog` bounds text; it is not a privacy filter.** What goes *into* an error message is the control (review
+  finding E03, `docs/plans/20261020-e03-safe-error-diagnostics.md`). A request's query values and raw headers never
+  belong in one: a search's `q` and `where` are applicant names, and an `Origin` or `Sec-Fetch-Site` is whatever the
+  browser sent. Safe inputs are the method, a route built from `req.baseUrl + req.path` (never `originalUrl`), a
+  fixed operation or reason phrase, an HTTP status and schema field paths. The api client cuts a request path at its
+  first `?` or `#` before `parseResponse` composes a diagnostic (`withoutQuery` in `client.ts`); the CSRF gate names
+  the initiator with fixed prose and keeps the bounded `fetchSite`/`originHost` for the event only. Removal happens
+  where the message is built, by position rather than by parameter name, because telemetry URL redaction cannot
+  repair an exception that already embeds the value. `src/error-diagnostics.test.ts` drives both parse failures and
+  the refusals through the real final handlers with synthetic markers.
 
 ## Abuse limits
 

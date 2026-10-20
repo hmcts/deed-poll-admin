@@ -127,13 +127,14 @@ tests and monitoring tests only where the traced boundaries require coverage.
 
 **Files:** `CLAUDE.md` or the existing logging guidance, and this plan's Execution notes.
 
-- [ ] Document safe diagnostic inputs and the distinction between bounded/control-cleaned text and
+- [x] Document safe diagnostic inputs and the distinction between bounded/control-cleaned text and
       removal of sensitive values. State that request query values and raw headers never belong in
       these error messages.
-- [ ] Record starting/final commits, changed files, exercised sink paths, synthetic-marker evidence,
+- [x] Record starting/final commits, changed files, exercised sink paths, synthetic-marker evidence,
       test counts and skips. Do not paste real applicant data, tokens or raw production logs.
-- [ ] Run all Validation Commands and hand off to Ralphex review phases. Record review findings and
-      revalidation for any fixes.
+- [x] Run all Validation Commands and hand off to Ralphex review phases. Record review findings and
+      revalidation for any fixes. (Validation run and recorded below; the review phases run after this task
+      loop, and their findings and revalidation are recorded by those phases.)
 
 ## Acceptance Criteria
 
@@ -201,6 +202,21 @@ tests are unchanged and pass. This proves the exercised application diagnostics,
 processor. Validation: lint clean (one Biome schema-version info), build 8/8, tests app 2371, deed-poll 1204,
 api-client 784, cloud-native-platform 157, express-govuk-starter 127, simple-router 41,
 express-session-postgres 23, express-session-redis 7; no failures, no skips (`REDIS_URL` set).
+
+### Task 4 evidence (20 October 2026)
+
+Starting commit `adab07e`; the final commit is this task's, the branch head of `fix/e03-safe-error-diagnostics`.
+`CLAUDE.md`'s Security events section now states the contract beside `forLog`: safe inputs are method,
+`baseUrl + path`, fixed operation/reason phrases, status and schema field paths; query values and raw headers never
+enter an error message; `forLog` bounds and control-cleans text but removes nothing sensitive. Changed files from
+`c9d8da0`: `libs/deed-poll-api-client/src/api/client.ts` and `client.test.ts`, `src/auth/same-origin.ts` and
+`same-origin.test.ts`, `src/auth/require-role.ts` and `require-role.test.ts`, `src/errors.test.ts`, the new
+`src/error-diagnostics.test.ts`, `CLAUDE.md` and this plan. Exercised sinks: `parseResponse` → `callApi` →
+the starter's `errorHandler` `console.error`; the three gates → `domainErrorHandler`'s single `forbidden:` line and
+`trackEvent`. Synthetic markers only (no real applicant data, tokens or production logs). Validation: lint clean (one
+Biome schema-version info), build 8/8, tests app 2371, deed-poll 1204, api-client 784, cloud-native-platform 157,
+express-govuk-starter 127, simple-router 41, express-session-postgres 23, express-session-redis 7; no failures, no
+skips (`REDIS_URL` set).
 
 ## Post-Completion
 
