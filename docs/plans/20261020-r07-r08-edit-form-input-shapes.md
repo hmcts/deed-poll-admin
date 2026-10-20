@@ -132,12 +132,12 @@ yarn vitest run 'src/pages/deed-polls/[id]/edit/[tab].test.ts' src/case-edit-unt
 **Files:** `libs/deed-poll/src/deed-poll/form-payload.ts`, `form-validation.ts`, `checkbox-input.ts`, their tests,
 and a handler-level test through the real edit handler.
 
-- [ ] Add failing tests, through `collectFormErrors`, `buildUpdatePatch` and the real handler: an array or object
+- [x] Add failing tests, through `collectFormErrors`, `buildUpdatePatch` and the real handler: an array or object
       in a text, select, date part or boolean control is a field error with no write; a boolean of `"TRUE"` or
       `["true"]` is an error; multiselect members `"1e0"`, `"0x2"`, `" 3 "`, `""`, `"2.5"`, `"abc"` and an
       out-of-set value are errors; an empty selection still clears; every valid value the rendered form sends still
       saves exactly as today.
-- [ ] Implement with one parser per kind shared by validation and patch construction. Stored values keep being read
+- [x] Implement with one parser per kind shared by validation and patch construction. Stored values keep being read
       as before. Run focused tests and all Validation Commands, and record the results.
 
 ### Task 3: Record the rules and hand off
@@ -191,6 +191,22 @@ and a handler-level test through the real edit handler.
   now use `retainPermanently`; the harness's `serialise()` skips unselected radios.
 - Validation: lint clean, build 8/8, 4999 tests passed (app 2472, deed-poll 1325, others unchanged), 0 failures, 0
   skips. `welsh:check` 729 / 512 identical: the two new strings `yes` and `no` (the page's `cy` spreads `en`).
+
+### Task 2 (R08)
+
+- Red: 32 lib tests (shape refusals through `collectFormErrors` and `buildUpdatePatch`, every listed multiselect
+  member, one error per malformed date) failed on the old code; the edit-view redraw tests failed without the new
+  replay guard; the handler suite in `src/case-edit-untouched-fields.test.ts` drives each refusal over HTTP.
+- Green: `libs/deed-poll/src/deed-poll/form-input.ts` holds `readFieldInput` (absent / valid / invalid for every
+  kind, numbers delegating to `readNumericInput`), `readDateInput` and `fieldInputMessage`. `buildUpdatePatch`
+  refuses on any invalid reading and builds the patch from the same readings; `collectFormErrors` reports them in
+  field order beside the date errors; `collectDateErrors` (also used by the new-case form and the query builder)
+  reports a malformed part as one error instead of a clear. Multiselect members must equal an `enumOptions`
+  value. The edit view redraws a field the form could not have sent from the stored record (a mistyped number
+  still redraws as typed); `edit.njk` gives radios and checkboxes an `idPrefix` and error message so the summary
+  links land. `[tab].test.ts`'s `bodyFor` now posts what each control sends rather than `"value"` everywhere.
+- Validation: lint clean (the same Biome info), build 8/8, 5055 tests passed (app 2488, deed-poll 1365, others
+  unchanged), 0 failures, 0 skips. `welsh:check` unchanged at 729 / 512: the new messages are domain strings.
 
 ## Post-Completion
 

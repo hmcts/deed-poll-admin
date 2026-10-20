@@ -1,6 +1,7 @@
 /**
  * A case edit save must not clear fields the caseworker did not touch — review findings R01 and R02,
- * `docs/plans/20261020-r01-r02-edit-form-untouched-fields.md`.
+ * `docs/plans/completed/20261020-r01-r02-edit-form-untouched-fields.md` — and must refuse input the rendered form
+ * could not have sent rather than coerce it — R07 and R08, `docs/plans/20261020-r07-r08-edit-form-input-shapes.md`.
  *
  * Same harness as `case-edit-numeric.test.ts`: real `express.urlencoded({ extended: true })`, the real edit
  * handler (GET and POST) and the real `deed-polls/edit.njk`, with `findDeedPoll` and `updateDeedPoll` mocked.
@@ -327,6 +328,77 @@ describe("case edit saves leave untouched fields alone", () => {
       expect(refused.status).toBe(400);
       expect(serialise(refused.text).get("inPerson")).toBe(submitted);
     });
+  });
+});
+
+describe("a save refuses input the rendered form could not have sent (R08)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionUser = undefined;
+    vi.mocked(findDeedPoll).mockResolvedValue(STORED as never);
+    vi.mocked(updateDeedPoll).mockResolvedValue(STORED as never);
+  });
+
+  it.each([
+    ["a repeated text field", "newForename", ["newForename=Ada", "newForename=Eve"], "Enter a single value for New forename"],
+    ["a bracketed text field", "newForename", ["newForename%5Bfirst%5D=Ada"], "Enter a single value for New forename"],
+    ["a repeated select", "maritalStatus", ["maritalStatus=Single", "maritalStatus=Married"], "Enter a single value for Marital status"],
+    ["a bracketed date part", "dateOfApplication-day", ["dateOfApplication-day%5Bx%5D=1"], "Enter a single value for Date of application"],
+    ["a checkbox of TRUE", "retainPermanently", ["retainPermanently=TRUE"], "Select a valid answer for Retain permanently"],
+    ["a repeated checkbox", "retainPermanently", ["retainPermanently=true", "retainPermanently=true"], "Select a valid answer for Retain permanently"],
+    ["a Yes / No answer of yes", "inPerson", ["inPerson=yes"], "Select a valid answer for In person"],
+    ...["1e0", "0x2", "%203%20", "", "2.5", "abc", "99"].map(
+      (member) =>
+        [
+          `a multiselect member of "${decodeURIComponent(member)}"`,
+          "iShall",
+          ["iShall=1", `iShall=${member}`],
+          "Select only options from the list for I shall"
+        ] as const
+    )
+  ])("should refuse %s with a field error and no write", async (_name, control, replacement, message) => {
+    // Arrange
+    const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+    shown.delete(control);
+    const body = [shown.toString(), ...replacement].join("&");
+
+    // Act
+    const refused = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(body);
+
+    // Assert
+    expect(refused.status).toBe(400);
+    expect(updateDeedPoll).not.toHaveBeenCalled();
+    const field = control.replace(/-day$/, "");
+    expect(refused.text).toContain(`<a href="#${field}">${message}</a>`);
+    expect(refused.text).toMatch(new RegExp(`id="${field}"`));
+  });
+
+  it("should redraw a refused field from the stored record, so the corrected resubmit leaves it as it was", async () => {
+    // Arrange
+    const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+    shown.delete("iShall");
+    const body = [shown.toString(), "iShall=1e0", "iShall=0x2"].join("&");
+
+    // Act
+    const refused = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(body);
+    const saved = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(serialise(refused.text).toString());
+
+    // Assert
+    expect(saved.status).toBe(302);
+    expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toMatchObject(TICKED);
+  });
+
+  it("should still clear a multiselect with nothing ticked", async () => {
+    // Arrange
+    const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+    shown.delete("iShall");
+
+    // Act
+    const saved = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
+
+    // Assert
+    expect(saved.status).toBe(302);
+    expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toMatchObject({ iShall: [], iHaveSubscribed: [1, 3] });
   });
 });
 

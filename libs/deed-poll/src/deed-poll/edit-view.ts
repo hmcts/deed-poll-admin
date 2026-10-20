@@ -13,6 +13,7 @@ import { splitDateParts, submittedDateParts } from "./date-parts.js";
 import { getFieldRules } from "./deed-poll-validation.js";
 import type { DeedPollType } from "./enums/option-sets.js";
 import { enumOptions, type FieldDef, FORM_TABS, type TabDef } from "./form-fields.js";
+import { readFieldInput } from "./form-input.js";
 import { privacyEditable } from "./form-presentation.js";
 import type { FormError } from "./form-validation.js";
 import { formatNumericInput } from "./numeric-input.js";
@@ -89,7 +90,8 @@ export function buildErrorSummary(errors: FormError[], tab: TabDef): { text: str
  *
  * Checked state is computed here rather than in the template (review finding R01): a stored record
  * holds `true` and numbers, a replayed body `"true"`/`"on"` and strings, and a template comparing raw
- * values redrew every ticked box unticked on a replay, so the corrected resubmit cleared them.
+ * values redrew every ticked box unticked on a replay, so the corrected resubmit cleared them. A
+ * field whose submitted value the form could not have sent is redrawn from the record too; see `couldBeRendered`.
  */
 export function buildEditView(record: Record<string, unknown>, tab: TabDef, ctx: EditContext, submitted?: Record<string, unknown>): EditView {
   const type = (record.type ?? null) as DeedPollType | null;
@@ -118,7 +120,7 @@ function decorate(
 ): EditField {
   // Privacy editability is governed by the caller's role, separately from the per-type rules.
   const locked = field.name === "privacy" ? !canEditPrivacy : false;
-  const replaying = submitted !== undefined && !field.readOnly && !locked && wasSubmitted(field, submitted);
+  const replaying = submitted !== undefined && !field.readOnly && !locked && wasSubmitted(field, submitted) && couldBeRendered(field, submitted);
   const raw = replaying ? (submitted[field.name] ?? null) : (record[field.name] ?? null);
   // Submitted text is replayed as typed; only a stored number needs rendering as something the parser accepts.
   const value = !replaying && field.kind === "number" && typeof raw === "number" && Number.isFinite(raw) ? formatNumericInput(raw) : raw;
@@ -144,6 +146,16 @@ function wasSubmitted(field: FieldDef, submitted: Record<string, unknown>): bool
   if ((field.kind === "boolean" && !field.nullable) || field.kind === "multiselect") return true;
   if (field.kind === "date") return ["day", "month", "year"].some((part) => submitted[`${field.name}-${part}`] !== undefined);
   return submitted[field.name] !== undefined;
+}
+
+/**
+ * A value the rendered form could not have sent (review finding R08) has no control to redraw it in — an array is
+ * not one text box — so its field redraws from the stored record, and a corrected resubmit leaves it as it was. A
+ * number is the exception: `12x` is one string the caseworker typed and must see again beside its error.
+ */
+function couldBeRendered(field: FieldDef, submitted: Record<string, unknown>): boolean {
+  if (field.kind === "number") return typeof submitted[field.name] === "string";
+  return readFieldInput(field, submitted).kind !== "invalid";
 }
 
 function optionsFor(field: FieldDef, raw: unknown): EditField["options"] {

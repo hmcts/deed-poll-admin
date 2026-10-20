@@ -1,5 +1,5 @@
 import type { FieldDef } from "./form-fields.js";
-import { numericInputMessage, readNumericInput } from "./numeric-input.js";
+import { fieldInputMessage, readDateInput, readFieldInput } from "./form-input.js";
 
 /** One error, addressed to a field so the form can render it in place. */
 export interface FormError {
@@ -21,16 +21,17 @@ export interface FormError {
  */
 
 /**
- * Every per-field input error on a tab save, dates and numbers together, in the order the fields render.
+ * Every per-field input error on a tab save, dates, numbers and input the form could not have sent together, in
+ * the order the fields render.
  *
  * One list so a caseworker who mistyped both a date and an amount is told about both at once, and in page
- * order because the GOV.UK error summary is read top to bottom against the form.
+ * order because the GOV.UK error summary is read top to bottom against the form. The non-date errors are
+ * `readFieldInput`'s, the rule `buildUpdatePatch` also refuses by (review finding R08).
  */
 export function collectFormErrors(body: Record<string, unknown>, fields: FieldDef[]): FormError[] {
   const position = new Map(fields.map((field, index) => [field.name, index]));
-  return [...collectDateErrors(body, fields), ...collectNumericErrors(body, fields)].sort(
-    (a, b) => (position.get(a.field) ?? 0) - (position.get(b.field) ?? 0)
-  );
+  const inputErrors = fields.filter((field) => field.kind !== "date" && !field.readOnly).flatMap((field) => invalidInput(field, body));
+  return [...collectDateErrors(body, fields), ...inputErrors].sort((a, b) => (position.get(a.field) ?? 0) - (position.get(b.field) ?? 0));
 }
 
 /**
@@ -49,9 +50,15 @@ export function collectDateErrors(body: Record<string, unknown>, fields: FieldDe
   const errors: FormError[] = [];
   for (const field of fields) {
     if (field.kind !== "date" || field.readOnly) continue;
-    const day = str(body[`${field.name}-day`]);
-    const month = str(body[`${field.name}-month`]);
-    const year = str(body[`${field.name}-year`]);
+    const input = readDateInput(field.name, body);
+    if (input.kind === "absent") continue;
+    // A repeated or bracketed part is not a date the caseworker typed (review finding R08), and reading it as
+    // blank would clear the field.
+    if (input.kind === "invalid") {
+      errors.push({ field: field.name, message: fieldInputMessage(field) });
+      continue;
+    }
+    const { day, month, year } = input;
 
     // All blank: the caseworker is clearing the field, which is legitimate.
     if (!day && !month && !year) continue;
@@ -77,17 +84,16 @@ export function collectDateErrors(body: Record<string, unknown>, fields: FieldDe
 /**
  * Errors for number fields whose text is not a number of the field's format (review finding E04).
  *
- * `readNumericInput` is the one rule, shared with `buildUpdatePatch`, so what is refused here is exactly what
- * that function would refuse to build a patch from. Blank and absent are not errors: a blank clears, and an
- * absent field is left alone.
+ * `readNumericInput`, through `readFieldInput`, is the one rule, shared with `buildUpdatePatch`, so what is refused
+ * here is exactly what that function would refuse to build a patch from. Blank and absent are not errors: a blank
+ * clears, and an absent field is left alone.
  */
 export function collectNumericErrors(body: Record<string, unknown>, fields: FieldDef[]): FormError[] {
-  return fields
-    .filter((field) => field.kind === "number" && !field.readOnly)
-    .flatMap((field) => {
-      const format = field.numberFormat ?? "decimal";
-      return readNumericInput(body[field.name], format).kind === "invalid" ? [{ field: field.name, message: numericInputMessage(field.label, format) }] : [];
-    });
+  return fields.filter((field) => field.kind === "number" && !field.readOnly).flatMap((field) => invalidInput(field, body));
+}
+
+function invalidInput(field: FieldDef, body: Record<string, unknown>): FormError[] {
+  return readFieldInput(field, body).kind === "invalid" ? [{ field: field.name, message: fieldInputMessage(field) }] : [];
 }
 
 /**
@@ -108,10 +114,4 @@ function isRealDate(day: string, month: string, year: string): boolean {
   const composed = new Date(Date.UTC(y, m - 1, d));
   if (Number.isNaN(composed.getTime())) return false;
   return composed.getUTCFullYear() === y && composed.getUTCMonth() === m - 1 && composed.getUTCDate() === d;
-}
-
-/** Coerce a possibly-array/undefined body value to a trimmed string. */
-function str(v: unknown): string {
-  if (Array.isArray(v)) v = v[0];
-  return typeof v === "string" ? v.trim() : "";
 }

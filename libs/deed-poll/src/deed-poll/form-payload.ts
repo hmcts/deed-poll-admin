@@ -1,9 +1,6 @@
 import { InvalidInputError } from "../errors.js";
-import { isTicked, tickedValues, yesNoAnswer } from "./checkbox-input.js";
-import { composeDateParts } from "./date-parts.js";
 import { EDITABLE_FIELDS, type FieldDef } from "./form-fields.js";
-import { collectNumericErrors } from "./form-validation.js";
-import { readNumericInput } from "./numeric-input.js";
+import { fieldInputMessage, readFieldInput } from "./form-input.js";
 
 /**
  * Turn a flat SSR form POST body into an update patch, driven by the field
@@ -38,56 +35,19 @@ import { readNumericInput } from "./numeric-input.js";
  *
  * Number fields follow `readNumericInput` instead (review finding E04): absent is omitted, blank clears, and
  * text that is not a number throws `InvalidInputError` naming each such field, so no patch exists to send.
- * A typo used to become `null` — an instruction to clear the stored value.
+ * A typo used to become `null` — an instruction to clear the stored value. Every other kind refuses the same way
+ * a value the rendered form could not have sent (review finding R08); `readFieldInput` is the rule for each.
  */
 export function buildUpdatePatch(body: Record<string, unknown>, fields: FieldDef[] = EDITABLE_FIELDS): Record<string, unknown> {
-  const errors = collectNumericErrors(body, fields);
+  const readings = fields.filter((field) => !field.readOnly).map((field) => ({ field, input: readFieldInput(field, body) }));
+  const errors = readings.filter(({ input }) => input.kind === "invalid").map(({ field }) => ({ field: field.name, message: fieldInputMessage(field) }));
   if (errors.length > 0) {
-    throw new InvalidInputError("Numeric input is not a number", errors);
+    throw new InvalidInputError("Form input could not have been sent by the form", errors);
   }
   const patch: Record<string, unknown> = {};
-  for (const field of fields) {
-    if (field.readOnly) continue;
-    const value = readField(field, body);
-    if (value === undefined || (value === null && field.notNullable)) continue;
-    patch[field.name] = value;
+  for (const { field, input } of readings) {
+    if (input.kind !== "valid" || (input.value === null && field.notNullable)) continue;
+    patch[field.name] = input.value;
   }
   return patch;
-}
-
-function readField(field: FieldDef, body: Record<string, unknown>): unknown {
-  switch (field.kind) {
-    case "number": {
-      const input = readNumericInput(body[field.name], field.numberFormat ?? "decimal");
-      // `invalid` cannot reach here: buildUpdatePatch's pre-pass has already thrown on it.
-      if (input.kind === "absent") return undefined;
-      return input.kind === "valid" ? input.value : null;
-    }
-    case "date": {
-      const [day, month, year] = [body[`${field.name}-day`], body[`${field.name}-month`], body[`${field.name}-year`]];
-      if (day === undefined && month === undefined && year === undefined) return undefined;
-      return composeDateParts(str(day), str(month), str(year));
-    }
-    case "boolean":
-      if (field.nullable) return yesNoAnswer(body[field.name]) ?? undefined;
-      // Unchecked checkboxes are absent from the body; a present truthy value wins.
-      return isTicked(body[field.name]);
-    case "multiselect":
-      return tickedValues(body[field.name]);
-    // Everything else is read as a plain string: `enum`, `text` and `textarea`, plus any
-    // kind added later. The prototype listed those three explicitly ahead of `default`;
-    // they are named here instead, because the branch behaves identically for all of them
-    // and an empty value always becomes null rather than "".
-    default: {
-      if (body[field.name] === undefined) return undefined;
-      const v = str(body[field.name]);
-      return v === "" ? null : v;
-    }
-  }
-}
-
-/** Coerce a possibly-array/undefined body value to a trimmed string. */
-function str(v: unknown): string {
-  if (Array.isArray(v)) v = v[0];
-  return typeof v === "string" ? v.trim() : "";
 }

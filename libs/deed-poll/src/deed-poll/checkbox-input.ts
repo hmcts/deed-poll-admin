@@ -17,7 +17,10 @@ export function yesNoAnswer(raw: unknown): boolean | null {
   return null;
 }
 
-/** A multiselect's ticked option values: one value or many, stored or submitted. */
+/**
+ * A multiselect's ticked option values: one value or many, stored or submitted. Lenient on purpose, because it reads
+ * stored numbers too: a submitted value reaches it only once `readFieldInput` has accepted it (review finding R08).
+ */
 export function tickedValues(raw: unknown): number[] {
   const values = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
   return values.map((value) => Number(String(value))).filter((n) => Number.isInteger(n));

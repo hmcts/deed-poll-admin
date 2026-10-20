@@ -243,6 +243,46 @@ describe("deed-poll/edit-view", () => {
       });
     });
 
+    describe("a replayed value the form could not have sent (review finding R08)", () => {
+      const STORED = { type: "Minor", newForename: "Stored", inPerson: true, retainPermanently: true, iShall: [1, 4], ageOfMinor: 9 };
+
+      function ticked(view: ReturnType<typeof buildEditView>, name: string): string[] {
+        return (field(view, name)?.options ?? []).filter((option) => option.checked).map((option) => option.value);
+      }
+
+      it("should redraw each such field from the stored record, so a corrected resubmit leaves it as it was", () => {
+        const view = buildEditView(STORED, applicationTab, ADMIN, {
+          newForename: ["Ada", "Eve"],
+          inPerson: "yes",
+          retainPermanently: "TRUE",
+          iShall: ["1e0", "0x2"],
+          ageOfMinor: ["1", "2"]
+        });
+
+        expect(field(view, "newForename")?.value).toBe("Stored");
+        expect(field(view, "inPerson")?.answer).toBe(true);
+        expect(field(view, "retainPermanently")?.checked).toBe(true);
+        expect(ticked(view, "iShall")).toEqual(["1", "4"]);
+        expect(field(view, "ageOfMinor")?.value).toBe("9");
+      });
+
+      it("should redraw a date with a malformed part from the stored record", () => {
+        const view = buildEditView({ ...STORED, dateReceived: "2026-03-01T00:00:00.000Z" }, applicationTab, ADMIN, {
+          "dateReceived-day": ["1", "2"],
+          "dateReceived-month": "3",
+          "dateReceived-year": "2026"
+        });
+
+        expect(field(view, "dateReceived")?.dateParts).toEqual({ day: "1", month: "3", year: "2026" });
+      });
+
+      it("should still redraw a mistyped number as typed, since it is one string the caseworker can correct", () => {
+        const view = buildEditView(STORED, applicationTab, ADMIN, { ageOfMinor: "12x" });
+
+        expect(field(view, "ageOfMinor")?.value).toBe("12x");
+      });
+    });
+
     describe("a nullable boolean's answer (review finding R07)", () => {
       it.each([true, false, null])("should carry a stored %s as the answer, ticking no checkbox", (stored) => {
         const view = buildEditView({ type: "Minor", inPerson: stored }, applicationTab, ADMIN);

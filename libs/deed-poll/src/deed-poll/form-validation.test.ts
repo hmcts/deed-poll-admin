@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { FieldDef } from "./form-fields.js";
+import { FIELD_BY_NAME, type FieldDef } from "./form-fields.js";
 import { collectDateErrors, collectFormErrors, collectNumericErrors } from "./form-validation.js";
 
 const DATES: FieldDef[] = [
@@ -134,5 +134,78 @@ describe("collectFormErrors", () => {
 
   it("should be empty for a clean body", () => {
     expect(collectFormErrors({ refundAmount: "10", ...parts("signatureRequestedDate", "", "", "") }, [...DATES, ...NUMBERS])).toEqual([]);
+  });
+});
+
+describe("input the rendered form could not have sent (review finding R08)", () => {
+  const SHAPED = ["newForename", "returnReason", "maritalStatus", "dateReceived", "inPerson", "retainPermanently", "iShall"].map((name) => FIELD_BY_NAME[name]);
+
+  it.each([
+    ["an array in a text field", { newForename: ["Ada", "Eve"] }, "newForename", "Enter a single value for New forename"],
+    ["an object in a text field", { newForename: { first: "Ada" } }, "newForename", "Enter a single value for New forename"],
+    ["an array in a textarea", { returnReason: ["a", "b"] }, "returnReason", "Enter a single value for Return reason"],
+    ["an array in a select", { maritalStatus: ["Single", "Married"] }, "maritalStatus", "Enter a single value for Marital status"],
+    [
+      "an array in a date part",
+      { "dateReceived-day": ["1", "2"], "dateReceived-month": "3", "dateReceived-year": "2026" },
+      "dateReceived",
+      "Enter a single value for Date received"
+    ],
+    ["an object in a date part", { "dateReceived-day": { a: "1" } }, "dateReceived", "Enter a single value for Date received"],
+    ["an array in a checkbox", { retainPermanently: ["true"] }, "retainPermanently", "Select a valid answer for Retain permanently"],
+    ["a checkbox value the form never renders", { retainPermanently: "TRUE" }, "retainPermanently", "Select a valid answer for Retain permanently"],
+    ["a Yes / No answer the form never renders", { inPerson: "yes" }, "inPerson", "Select a valid answer for In person"],
+    ["an array in a Yes / No answer", { inPerson: ["true", "false"] }, "inPerson", "Select a valid answer for In person"]
+  ])("should refuse %s", (_name, body, field, message) => {
+    const errors = collectFormErrors(body, SHAPED);
+
+    expect(errors).toEqual([{ field, message }]);
+  });
+
+  it.each([["1e0"], ["0x2"], [" 3 "], [""], ["2.5"], ["abc"], ["99"], ["0"]])("should refuse a multiselect member of %j", (member) => {
+    const errors = collectFormErrors({ iShall: ["1", member] }, SHAPED);
+
+    expect(errors).toEqual([{ field: "iShall", message: "Select only options from the list for I shall" }]);
+  });
+
+  it("should refuse a multiselect member that is not a string", () => {
+    expect(collectFormErrors({ iShall: { 0: "1" } }, SHAPED)).toHaveLength(1);
+    expect(collectFormErrors({ iShall: [["1"]] }, SHAPED)).toHaveLength(1);
+  });
+
+  it("should report one error for a date whose part is malformed, not a shape error and a missing-part error", () => {
+    const errors = collectDateErrors({ "dateReceived-day": ["1"] }, [FIELD_BY_NAME.dateReceived]);
+
+    expect(errors).toEqual([{ field: "dateReceived", message: "Enter a single value for Date received" }]);
+  });
+
+  it("should accept every value the rendered form sends", () => {
+    const body = {
+      newForename: "  Ada  ",
+      returnReason: "",
+      maritalStatus: "Single",
+      "dateReceived-day": "1",
+      "dateReceived-month": "3",
+      "dateReceived-year": "2026",
+      inPerson: "false",
+      retainPermanently: "on",
+      iShall: ["1", "5"]
+    };
+
+    expect(collectFormErrors(body, SHAPED)).toEqual([]);
+    expect(collectFormErrors({ retainPermanently: "true", iShall: "4" }, SHAPED)).toEqual([]);
+    expect(collectFormErrors({}, SHAPED)).toEqual([]);
+  });
+
+  it("should report shape errors in field order beside date and number errors", () => {
+    const errors = collectFormErrors({ newForename: ["a"], "dateReceived-day": "3", iShall: "9", ageOfMinor: "x" }, [...SHAPED, FIELD_BY_NAME.ageOfMinor]);
+
+    expect(errors.map((error) => error.field)).toEqual(["newForename", "dateReceived", "iShall", "ageOfMinor"]);
+  });
+
+  it("should ignore read-only fields whatever they carry", () => {
+    const fields: FieldDef[] = [{ name: "displayReference", label: "Display reference", kind: "text", readOnly: true }];
+
+    expect(collectFormErrors({ displayReference: ["a", "b"] }, fields)).toEqual([]);
   });
 });

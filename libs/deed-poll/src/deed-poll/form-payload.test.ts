@@ -249,6 +249,67 @@ describe("buildUpdatePatch", () => {
     });
   });
 
+  describe("input the rendered form could not have sent (review finding R08)", () => {
+    const SHAPED = ["newForename", "maritalStatus", "dateReceived", "inPerson", "retainPermanently", "iShall"].map((name) => FIELD_BY_NAME[name]);
+
+    it.each([
+      ["a repeated text field", { newForename: ["Ada", "Eve"] }],
+      ["a bracketed text field", { newForename: { first: "Ada" } }],
+      ["a repeated select", { maritalStatus: ["Single", "Married"] }],
+      ["bracketed date parts", { dateReceived: { day: "1" }, "dateReceived-day": { 0: "1" } }],
+      ["a checkbox of TRUE", { retainPermanently: "TRUE" }],
+      ["a repeated checkbox", { retainPermanently: ["true"] }],
+      ["a Yes / No answer of yes", { inPerson: "yes" }],
+      ["multiselect members that only Number() reads", { iShall: ["1e0", "0x2", " 3 ", "", "99"] }],
+      ["a multiselect member that is not a number", { iShall: "abc" }],
+      ["a multiselect member with a fraction", { iShall: ["1", "2.5"] }]
+    ])("should build no patch from %s", (_name, body) => {
+      expect(() => buildUpdatePatch(body, SHAPED)).toThrow(InvalidInputError);
+    });
+
+    it("should name every malformed field in one refusal", () => {
+      try {
+        buildUpdatePatch({ newForename: ["a"], iShall: "9", ageOfMinor: "x" }, [...SHAPED, FIELD_BY_NAME.ageOfMinor]);
+        expect.unreachable();
+      } catch (error) {
+        expect((error as InvalidInputError).errors.map((e) => e.field)).toEqual(["newForename", "iShall", "ageOfMinor"]);
+      }
+    });
+
+    it("should still save every value the rendered form sends exactly as before", () => {
+      const patch = buildUpdatePatch(
+        {
+          newForename: "  Ada  ",
+          maritalStatus: "",
+          "dateReceived-day": "1",
+          "dateReceived-month": "3",
+          "dateReceived-year": "2026",
+          inPerson: "true",
+          retainPermanently: "on",
+          iShall: ["1", "5"]
+        },
+        SHAPED
+      );
+
+      expect(patch).toEqual({
+        newForename: "Ada",
+        maritalStatus: null,
+        dateReceived: "2026-03-01T00:00:00.000Z",
+        inPerson: true,
+        retainPermanently: true,
+        iShall: [1, 5]
+      });
+    });
+
+    it("should read one ticked multiselect option sent as a plain string", () => {
+      expect(buildUpdatePatch({ iShall: "4" }, SHAPED).iShall).toEqual([4]);
+    });
+
+    it("should still clear a multiselect with nothing ticked", () => {
+      expect(buildUpdatePatch({}, SHAPED).iShall).toEqual([]);
+    });
+  });
+
   it("ignores read-only/derived fields (state, referencenumber)", () => {
     const patch = buildUpdatePatch({ state: "Enroled", referencenumber: "9" });
     expect(patch).not.toHaveProperty("state");
