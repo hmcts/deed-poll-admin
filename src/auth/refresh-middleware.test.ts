@@ -566,6 +566,28 @@ describe("refreshMiddleware and the refresh lease", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  it("should fail, not carry on, when the token expires during the wait", async () => {
+    // One second left when the request arrived, none by the time the wait ended.
+    const req = withClaim({ outcome: "busy" }, { tokenExpiresAt: expiringIn(1) });
+    const clock = vi.spyOn(Date, "now");
+    const arrived = Date.now();
+    clock.mockReturnValueOnce(arrived).mockReturnValue(arrived + 10_000);
+
+    await expect(refreshMiddleware(req, res, next)).rejects.toThrow("still in progress");
+
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("should not coordinate a refresh before logout, so sign-out never waits on a lease", async () => {
+    const req = withClaim({ outcome: "busy" }, { tokenExpiresAt: expiringIn(-30) });
+    (req as unknown as { path: string }).path = "/logout";
+
+    await refreshMiddleware(req, res, next);
+
+    expect(store(req).claimRefresh).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalled();
+  });
+
   it("should fail closed, and not ask IDAM, when the store cannot coordinate refreshes", async () => {
     const req = request();
     (req as unknown as { sessionStore: unknown }).sessionStore = {};

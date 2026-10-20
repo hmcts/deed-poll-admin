@@ -74,6 +74,17 @@ describe.skipIf(!redisReachable)("the guarded session store", () => {
       expect(await get(stores[0], sid)).toMatchObject({ marker: "first" });
     });
 
+    it("should not create a session a second time after a create whose outcome was lost", async () => {
+      const sid = randomUUID();
+      const fresh = session("lost");
+      vi.spyOn(clients[0], "eval").mockRejectedValueOnce(new Error("response lost"));
+
+      await expect(set(stores[0], sid, fresh)).rejects.toThrow("response lost");
+      await expect(set(stores[0], sid, fresh)).rejects.toMatchObject({ reason: "exists" });
+
+      expect(await get(stores[1], sid)).toBeNull();
+    });
+
     it("should refuse to save a session that has been destroyed, and leave it destroyed", async () => {
       const sid = await stored("first");
       const loaded = (await get(stores[0], sid)) as SessionData;

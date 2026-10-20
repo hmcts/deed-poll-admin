@@ -48,10 +48,12 @@ import {
 import { idamSettings } from "./settings.js";
 
 const REFRESH_WINDOW_SECONDS = 5 * 60; // Refresh 5 minutes before expiry
+// Revocation must never wait on renewal: a request holding the lease would otherwise delay or fail a sign-out.
+const LOGOUT_PATH = "/logout";
 
 export async function refreshMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   const user = sessionUser(req);
-  if (!user) {
+  if (!user || req.path === LOGOUT_PATH) {
     // Not signed in — nothing to refresh. `requireAuth` would have already redirected.
     return next();
   }
@@ -109,7 +111,8 @@ export async function refreshMiddleware(req: Request, res: Response, next: NextF
     // Another request is still refreshing. Its result is not known, so this one goes on with what it has, which is
     // what an unreachable IDAM would leave it with — but not on a token that no longer works.
     console.warn("Token refresh is still in progress elsewhere for this session");
-    if (timeUntilExpiry > 0) return continueWithAccess(req, res, next);
+    // Judged after the wait, which can be ten seconds: a token that had a second left when the wait began has none now.
+    if (expiresAt - Math.floor(Date.now() / 1000) > 0) return continueWithAccess(req, res, next);
     throw new Error("Token refresh is still in progress elsewhere and the access token has expired");
   }
 

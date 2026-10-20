@@ -103,6 +103,8 @@ export class GuardedSessionStore extends Store {
   readonly #refreshWaitMs: number;
   /** Read results awaiting `createSession`, and the sessions it built from them, each with the version it was read at. */
   readonly #versions = new WeakMap<object, RecordVersion>();
+  /** Sessions a create has been sent for, whatever came back; none may be created a second time. */
+  readonly #createAttempted = new WeakSet<object>();
 
   constructor(options: GuardedSessionStoreOptions) {
     super();
@@ -213,6 +215,10 @@ export class GuardedSessionStore extends Store {
   }
 
   async #create(sid: string, sess: SessionData, body: string, ttl: number): Promise<void> {
+    // Recorded before awaiting: a lost response leaves the outcome unknown, and a later automatic save of this object
+    // must not create again, or it could restore a session another instance has since destroyed.
+    if (this.#createAttempted.has(sess)) throw new SessionWriteRefusedError("exists");
+    this.#createAttempted.add(sess);
     const inc = randomUUID();
     const created = await this.#run(CREATE, sid, [inc, body, String(ttl)]);
     if (created !== 1) throw new SessionWriteRefusedError("exists");

@@ -110,6 +110,24 @@ describe.skipIf(!redisReachable)("token refresh across two app instances", () =>
     expect(await who(b, cookie)).toMatchObject({ signedIn: false });
   });
 
+  it("should sign out at once, behind refresh coordination as in the app, while another instance holds the lease", async () => {
+    const a = appInstance(clients[0], {});
+    // The default ten-second lease wait, deliberately: a logout that queued behind the lease would wait it out and 500.
+    const b = appInstance(clients[1], {}, true);
+    const cookie = await signedInCookie(a, -30);
+
+    const owner = who(a, cookie);
+    await idam.entered;
+    const started = Date.now();
+    await request(b).get("/logout").set("Cookie", cookie).expect(204);
+
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(await clients[0].exists(PREFIX + sidOf(cookie))).toBe(0);
+    idam.release();
+    expect(await owner).toMatchObject({ status: 302, location: "/login?returnTo=%2Fwho" });
+    expect(await who(b, cookie)).toMatchObject({ signedIn: false });
+  });
+
   it("should refuse to publish once its lease has expired, keeping the tokens of the request that took over", async () => {
     const [a, b] = instances({ refreshLeaseMs: 300 });
     const cookie = await signedInCookie(a, 60);
@@ -246,7 +264,8 @@ describe.skipIf(!redisReachable)("token refresh across two app instances", () =>
   }
 });
 
-function appInstance(client: RedisClient, { client: storeClient, ...options }: Partial<StoreOptions>) {
+// `logoutLast` mounts logout after refresh coordination, the order `createApp` uses; the other tests mount it first.
+function appInstance(client: RedisClient, { client: storeClient, ...options }: Partial<StoreOptions>, logoutLast = false) {
   const store = new GuardedSessionStore({ client: storeClient ?? client, prefix: PREFIX, ttl: sessionStoreTtl(LIMITS), ...options });
   const app = express();
   app.use(expressSessionRedis({ redisConnection: client, sessionOptions: { store, secret: "a-test-secret", cookie: COOKIE } }));
@@ -257,10 +276,11 @@ function appInstance(client: RedisClient, { client: storeClient, ...options }: P
     });
     res.sendStatus(204);
   });
-  app.get("/logout", async (req, res) => {
+  const logout = async (req: Request, res: Response) => {
     await signOut(req);
     res.sendStatus(204);
-  });
+  };
+  if (!logoutLast) app.get("/logout", logout);
   // Another writer of the same session: saves a field the refresh knows nothing about.
   app.get("/mark", async (req, res) => {
     (req.session as unknown as { marker?: string }).marker = "from-b";
@@ -268,6 +288,7 @@ function appInstance(client: RedisClient, { client: storeClient, ...options }: P
     res.sendStatus(204);
   });
   app.use(refreshMiddleware);
+  if (logoutLast) app.get("/logout", logout);
   app.get("/who", (req, res) => {
     const user = sessionUser(req);
     res.json({ signedIn: user !== undefined, accessToken: sessionAccessToken(req), capabilities: user?.capabilities });
