@@ -679,9 +679,12 @@ Follow these strict naming conventions throughout the project:
   check the payload before assuming one carried it.** A case's *referrals* are not on it, so the referrals tab
   is a justified second call, made alongside the case (`src/pages/deed-polls/[id].ts`). The rule forbids
   re-reading what the first call already answered, not calling for something it never held
-- **A second call for one panel must not be able to lose the page.** `[id].ts` reads the case and its
-  referrals with `Promise.allSettled`, not `Promise.all`: the case read stays fatal, the referrals read
-  degrades to `unavailableReferralsView()` and a log line. `client.ts` classifies by status, so under
+- **A second call for one panel must not be able to lose the page.** `[id].ts` reads the case, its
+  referrals and its emails with `Promise.allSettled`, not `Promise.all`: the case read stays fatal, the referrals
+  read degrades to `unavailableReferralsView()` and a log line. The field rules need only the case, so they are
+  chained off the case promise inside the same `allSettled` rather than awaited after it, which would make them
+  wait for the panels too (review finding E05, `docs/plans/20261020-e05-case-detail-concurrency.md`; the
+  `read scheduling` tests in `[id].test.ts` pin the order). `client.ts` classifies by status, so under
   `Promise.all` a referrals 404 rendered "Page not found" for a case that exists, a 5xx the 500 page, and a 403
   the 404 template — three disguises for a failure the adapter itself calls "try again shortly". The test for
   which way a given call goes is **load-bearing versus additive**: `findDeedPoll` is the case and
@@ -693,7 +696,7 @@ Follow these strict naming conventions throughout the project:
 - **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its additive calls — the saved-query nav, the returned-for-action and awaiting-confirmation
   counts, and the Delivery Manager-only Gazette count — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
   (`[]`, `null`); only the list read is fatal. Reach for that shape on a page with one load-bearing call rather
-  than `Promise.allSettled`, which is `[id].ts`'s answer to two. `worklistCount(name, read)` is the generalised
+  than `Promise.allSettled`, which is `[id].ts`'s answer to two load-bearing reads beside two additive ones. `worklistCount(name, read)` is the generalised
   degrade-and-log helper, and the counts are separate reads on purpose: a caseworker whose confirmation count
   failed must still be told about a returned direction
 - **A log is not a way of telling the caseworker.** Every degraded state must be distinguishable from an empty
