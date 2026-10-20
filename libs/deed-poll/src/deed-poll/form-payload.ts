@@ -1,5 +1,5 @@
 import { InvalidInputError } from "../errors.js";
-import { isTicked, tickedValues } from "./checkbox-input.js";
+import { isTicked, tickedValues, yesNoAnswer } from "./checkbox-input.js";
 import { composeDateParts } from "./date-parts.js";
 import { EDITABLE_FIELDS, type FieldDef } from "./form-fields.js";
 import { collectNumericErrors } from "./form-validation.js";
@@ -26,7 +26,10 @@ import { readNumericInput } from "./numeric-input.js";
  * finding R02): a rendered one is always submitted, even empty, so absent means it was
  * not rendered — hidden by its type's rules, or disabled. Checkboxes are the exception,
  * because an unticked one is absent too, so an absent boolean is `false` and an absent
- * multiselect `[]`; `deed-poll-validation.test.ts` fails if a rule ever hides one. The
+ * multiselect `[]`; `deed-poll-validation.test.ts` fails if a rule ever hides one. A
+ * `nullable` boolean is not a checkbox but Yes / No radios (review finding R07), so it
+ * follows the text rule: nothing selected is absent and omitted, leaving an unanswered
+ * question unanswered. The
  * minor-only fields and the Gazette notice date a type hides are cleared by api's own
  * write-path gates, not here.
  *
@@ -66,6 +69,7 @@ function readField(field: FieldDef, body: Record<string, unknown>): unknown {
       return composeDateParts(str(day), str(month), str(year));
     }
     case "boolean":
+      if (field.nullable) return yesNoAnswer(body[field.name]) ?? undefined;
       // Unchecked checkboxes are absent from the body; a present truthy value wins.
       return isTicked(body[field.name]);
     case "multiselect":

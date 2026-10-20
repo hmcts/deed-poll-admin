@@ -197,7 +197,6 @@ describe("deed-poll/edit-view", () => {
       it("should tick stored true booleans and stored multiselect numbers on a normal render", () => {
         const view = buildEditView(STORED, applicationTab, ADMIN);
 
-        expect(field(view, "inPerson")?.checked).toBe(true);
         expect(field(view, "retainPermanently")?.checked).toBe(true);
         expect(ticked(view, "iShall")).toEqual(["1", "4"]);
         expect(ticked(view, "iHaveSubscribed")).toEqual(["1", "3"]);
@@ -205,18 +204,16 @@ describe("deed-poll/edit-view", () => {
       });
 
       it("should leave stored false booleans and empty multiselects unticked on a normal render", () => {
-        const view = buildEditView({ type: "Minor", inPerson: false, iShall: [] }, applicationTab, ADMIN);
+        const view = buildEditView({ type: "Minor", retainPermanently: false, iShall: [] }, applicationTab, ADMIN);
 
-        expect(field(view, "inPerson")?.checked).toBe(false);
         expect(field(view, "retainPermanently")?.checked).toBe(false);
         expect(ticked(view, "iShall")).toEqual([]);
         expect(ticked(view, "andAlsoMyOld")).toEqual([]);
       });
 
       it.each(["true", "on"])("should tick a boolean replayed as %s", (submittedValue) => {
-        const view = buildEditView({ type: "Minor" }, applicationTab, ADMIN, { inPerson: submittedValue, retainPermanently: submittedValue });
+        const view = buildEditView({ type: "Minor" }, applicationTab, ADMIN, { retainPermanently: submittedValue });
 
-        expect(field(view, "inPerson")?.checked).toBe(true);
         expect(field(view, "retainPermanently")?.checked).toBe(true);
       });
 
@@ -241,9 +238,38 @@ describe("deed-poll/edit-view", () => {
       it("should untick what the stored record held when the replayed body has no ticks, since an unticked box is absent", () => {
         const view = buildEditView(STORED, applicationTab, ADMIN, {});
 
-        expect(field(view, "inPerson")?.checked).toBe(false);
         expect(field(view, "retainPermanently")?.checked).toBe(false);
         expect(ticked(view, "iShall")).toEqual([]);
+      });
+    });
+
+    describe("a nullable boolean's answer (review finding R07)", () => {
+      it.each([true, false, null])("should carry a stored %s as the answer, ticking no checkbox", (stored) => {
+        const view = buildEditView({ type: "Minor", inPerson: stored }, applicationTab, ADMIN);
+
+        expect(field(view, "inPerson")?.answer).toBe(stored);
+        expect(field(view, "inPerson")?.checked).toBe(false);
+      });
+
+      it.each([
+        ["true", true],
+        ["false", false]
+      ])("should carry a replayed %s as the answer over the stored one", (submitted, expected) => {
+        const view = buildEditView({ type: "Minor", inPerson: !expected }, applicationTab, ADMIN, { inPerson: submitted });
+
+        expect(field(view, "inPerson")?.answer).toBe(expected);
+      });
+
+      it("should keep the stored answer when the replayed body selected nothing, which only an unanswered question sends", () => {
+        const view = buildEditView({ type: "Minor", inPerson: null }, applicationTab, ADMIN, {});
+
+        expect(field(view, "inPerson")?.answer).toBeNull();
+      });
+
+      it("should give every other field no answer", () => {
+        const view = buildEditView({ type: "Minor", retainPermanently: true }, applicationTab, ADMIN);
+
+        expect(field(view, "retainPermanently")?.answer).toBeNull();
       });
     });
   });

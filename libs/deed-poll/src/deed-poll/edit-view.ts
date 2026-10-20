@@ -7,7 +7,7 @@
  * because every decision it makes (is this field required, may this caller edit privacy, which
  * options does this enum have) is a business rule, and none of it is HTTP.
  */
-import { isTicked, tickedValues } from "./checkbox-input.js";
+import { isTicked, tickedValues, yesNoAnswer } from "./checkbox-input.js";
 import type { DateParts } from "./date-parts.js";
 import { splitDateParts, submittedDateParts } from "./date-parts.js";
 import { getFieldRules } from "./deed-poll-validation.js";
@@ -24,8 +24,10 @@ export interface EditField extends FieldDef {
   rule: { visible: boolean; required: boolean };
   /** For a multiselect each option carries its own `checked`; see `isTicked`. */
   options: { value: string; text: string; checked?: boolean }[];
-  /** For a boolean, whether its box is ticked; false for every other kind. See `isTicked`. */
+  /** For a checkbox boolean, whether its box is ticked; false for every other kind. See `isTicked`. */
   checked: boolean;
+  /** For a `nullable` boolean, which radio is selected — `null` for neither; null for every other kind. */
+  answer: boolean | null;
   /** Editable in principle but not by this caller — currently only `privacy`. */
   locked: boolean;
 }
@@ -127,14 +129,19 @@ function decorate(
     dateParts: field.kind !== "date" ? null : replaying ? submittedDateParts(field.name, submitted) : splitDateParts(record[field.name] ?? null),
     rule: rules[field.name] ?? { visible: true, required: false },
     options: optionsFor(field, raw),
-    checked: field.kind === "boolean" && isTicked(raw),
+    checked: field.kind === "boolean" && !field.nullable && isTicked(raw),
+    answer: field.kind === "boolean" && field.nullable ? yesNoAnswer(raw) : null,
     locked
   };
 }
 
-/** An unticked checkbox is absent too, so a checkbox field always counts as submitted. */
+/**
+ * An unticked checkbox is absent too, so a checkbox field always counts as submitted. Yes / No radios with
+ * neither selected are absent as well, but only an unanswered question renders that way, so its stored `null`
+ * is what to redraw.
+ */
 function wasSubmitted(field: FieldDef, submitted: Record<string, unknown>): boolean {
-  if (field.kind === "boolean" || field.kind === "multiselect") return true;
+  if ((field.kind === "boolean" && !field.nullable) || field.kind === "multiselect") return true;
   if (field.kind === "date") return ["day", "month", "year"].some((part) => submitted[`${field.name}-${part}`] !== undefined);
   return submitted[field.name] !== undefined;
 }

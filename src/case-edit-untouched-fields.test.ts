@@ -5,7 +5,7 @@
  * Same harness as `case-edit-numeric.test.ts`: real `express.urlencoded({ extended: true })`, the real edit
  * handler (GET and POST) and the real `deed-polls/edit.njk`, with `findDeedPoll` and `updateDeedPoll` mocked.
  * "A browser resubmits the page" is `serialise()`, which reads the rendered form the way a browser builds a
- * submission: enabled controls only, ticked checkboxes only, each select's selected option. This proves the
+ * submission: enabled controls only, ticked checkboxes and selected radios only, each select's selected option. This proves the
  * outgoing patch, not a live save. The session carries no `/me` answer unless a test gives it one, so the
  * caller is not an admin and privacy renders locked.
  */
@@ -259,7 +259,83 @@ describe("case edit saves leave untouched fields alone", () => {
       expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toMatchObject({ oldForename: null, maritalStatus: "Widowed" });
     });
   });
+  describe("an unanswered In person survives a save (R07)", () => {
+    it("should send no inPerson key when only the fee reference changed on a case with no answer", async () => {
+      // Arrange
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...STORED, inPerson: null } as never);
+      const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+      shown.set("feeReference", "FEE-123");
+
+      // Act
+      const saved = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
+
+      // Assert
+      expect(saved.status).toBe(302);
+      const patch = vi.mocked(updateDeedPoll).mock.calls[0][1] as Record<string, unknown>;
+      expect(patch).toMatchObject({ feeReference: "FEE-123", retainPermanently: true });
+      expect(patch).not.toHaveProperty("inPerson");
+    });
+
+    it.each([
+      ["true", true],
+      ["false", false]
+    ])("should send the chosen answer when the caseworker picks %s", async (choice, expected) => {
+      // Arrange
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...STORED, inPerson: null } as never);
+      const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+      shown.set("inPerson", choice);
+
+      // Act
+      await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
+
+      // Assert
+      expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toMatchObject({ inPerson: expected });
+    });
+
+    it.each([
+      [true, "true"],
+      [false, "false"],
+      [null, null]
+    ])("should render a stored %s with its radio selected", async (stored, selected) => {
+      // Arrange
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...STORED, inPerson: stored } as never);
+
+      // Act
+      const shown = await supertest(app).get("/deed-polls/case-1/edit/application");
+
+      // Assert
+      expect(radioValues(shown.text, "inPerson")).toEqual(["true", "false"]);
+      expect(serialise(shown.text).get("inPerson")).toBe(selected);
+    });
+
+    it.each([
+      ["a submitted Yes", true, "true"],
+      ["a submitted No", true, "false"],
+      ["no choice", null, null]
+    ])("should redraw %s after a refused save", async (_name, stored, submitted) => {
+      // Arrange
+      vi.mocked(findDeedPoll).mockResolvedValue({ ...STORED, inPerson: stored } as never);
+      const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/application")).text);
+      if (submitted === null) shown.delete("inPerson");
+      else shown.set("inPerson", submitted);
+      shown.set("dateOfApplication-year", "20x6");
+
+      // Act
+      const refused = await supertest(app).post("/deed-polls/case-1/edit/application").type("form").send(shown.toString());
+
+      // Assert
+      expect(refused.status).toBe(400);
+      expect(serialise(refused.text).get("inPerson")).toBe(submitted);
+    });
+  });
 });
+
+function radioValues(html: string, name: string): string[] {
+  return [...html.matchAll(/<input\b([^>]*)>/g)]
+    .map((input) => attributes(input[1]))
+    .filter((attrs) => attrs.type === "radio" && attrs.name === name)
+    .map((attrs) => attrs.value);
+}
 
 function serialise(html: string): URLSearchParams {
   const start = html.indexOf('<form method="post"');
@@ -270,7 +346,7 @@ function serialise(html: string): URLSearchParams {
     const attrs = attributes(inputAttrs ?? selectAttrs ?? textareaAttrs ?? "");
     if (!attrs.name || "disabled" in attrs) continue;
     if (inputAttrs !== undefined) {
-      if (attrs.type === "checkbox" && !("checked" in attrs)) continue;
+      if ((attrs.type === "checkbox" || attrs.type === "radio") && !("checked" in attrs)) continue;
       body.append(attrs.name, attrs.value ?? "");
     } else if (selectAttrs !== undefined) {
       body.append(attrs.name, chosenOption(options ?? "") ?? "");

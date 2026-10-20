@@ -4,6 +4,7 @@
 {% from "govuk/components/select/macro.njk" import govukSelect %}
 {% from "govuk/components/date-input/macro.njk" import govukDateInput %}
 {% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
+{% from "govuk/components/radios/macro.njk" import govukRadios %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
 {% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
@@ -69,6 +70,20 @@
         items: [{ value: "", text: "" }].concat(f.options),
         value: f.value,
         errorMessage: { text: err } if err | length else undefined
+      }) }}
+    {% elif f.kind == "boolean" and f.nullable %}
+      {#
+        Radios, not a checkbox: the contract allows "not answered", which a lone checkbox cannot show or keep —
+        see `nullable` on FieldDef. Neither is selected when `answer` is null, and the view model decides which.
+      #}
+      {{ govukRadios({
+        name: f.name,
+        classes: "govuk-radios--inline",
+        fieldset: { legend: { text: f.label } },
+        items: [
+          { value: "true", text: yes, checked: f.answer === true },
+          { value: "false", text: no, checked: f.answer === false }
+        ]
       }) }}
     {% elif f.kind == "boolean" %}
       {{ govukCheckboxes({

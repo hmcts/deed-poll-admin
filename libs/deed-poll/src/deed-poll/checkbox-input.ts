@@ -7,6 +7,16 @@ export function isTicked(raw: unknown): boolean {
   return raw === true || raw === "true" || raw === "on";
 }
 
+/**
+ * A nullable boolean's Yes / No answer (review finding R07), shared the same way: stored `true`/`false` or a
+ * submitted radio's `"true"`/`"false"`, and `null` for no answer.
+ */
+export function yesNoAnswer(raw: unknown): boolean | null {
+  if (raw === true || raw === "true") return true;
+  if (raw === false || raw === "false") return false;
+  return null;
+}
+
 /** A multiselect's ticked option values: one value or many, stored or submitted. */
 export function tickedValues(raw: unknown): number[] {
   const values = Array.isArray(raw) ? raw : raw == null ? [] : [raw];

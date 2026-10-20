@@ -120,12 +120,12 @@ yarn vitest run 'src/pages/deed-polls/[id]/edit/[tab].test.ts' src/case-edit-unt
 **Files:** `libs/deed-poll/src/deed-poll/form-fields.ts` and its test, `form-payload.ts`, `edit-view.ts`,
 `src/pages/deed-polls/edit.njk`, their tests, and the new-case form if it renders `inPerson`.
 
-- [ ] Record the execution baseline (commit, validation results, `welsh:check` counts) in the execution notes.
-- [ ] Add failing tests: with `inPerson: null` stored, an Application save that changes only `feeReference` sends no
+- [x] Record the execution baseline (commit, validation results, `welsh:check` counts) in the execution notes.
+- [x] Add failing tests: with `inPerson: null` stored, an Application save that changes only `feeReference` sends no
       `inPerson` key; choosing Yes sends `true` and No sends `false`; a stored `true` or `false` renders with that
       radio selected; after a refused save the submitted choice (or no choice) is redrawn; `form-fields.test.ts`
       pins which booleans are nullable to `openapi.json`.
-- [ ] Implement, then run focused tests and all Validation Commands, and record the results.
+- [x] Implement, then run focused tests and all Validation Commands, and record the results.
 
 ### Task 2: Refuse input the form could not have sent (R08)
 
@@ -165,6 +165,32 @@ and a handler-level test through the real edit handler.
 ## Execution notes
 
 (Record baseline, red/green evidence and final results here.)
+
+### Baseline (Task 1, 2026-10-20)
+
+- Commit `eec41ea` on `fix/r07-r08-edit-form-input-shapes`. `yarn lint` clean (one Biome config-migration info,
+  pre-existing); `yarn build` 8/8; `yarn turbo test test:app --concurrency=1 --force` 8/8 tasks, 4979 tests, 0
+  failures, 0 skips (app 2463, deed-poll 1314, api-client 847, cloud-native-platform 157, express-govuk-starter 127,
+  simple-router 41, express-session-postgres 23, express-session-redis 7). `yarn welsh:check`: 727 strings, 510
+  identical in cy (503 prose, 7 not prose).
+- Rechecked R07: `openapi.json` types `inPerson` as `["boolean", "null"]` on both `UpdateCaseRequest` and
+  `CreateCaseRequest`; `retainPermanently`, `publishToLondonGazette` and `migratedRecord` are plain `boolean`.
+  `publishToLondonGazette` sits on the retired referral tab, so it is not in `EDITABLE_FIELDS`; the only editable
+  booleans are `inPerson` and `retainPermanently`. The new-case form asks only type, names and date received, so it
+  does not render `inPerson`. `formatValue` already shows `null` as not provided and `true`/`false` as Yes/No, and
+  the query builder's boolean radios are unaffected.
+
+### Task 1 (R07)
+
+- Red: 9 lib tests (contract pin, omitted absent answer, view-model `answer`) and 5 handler tests in
+  `src/case-edit-untouched-fields.test.ts` (no `inPerson` key on a fee-reference-only save, radios rendered and
+  selected per stored value, a submitted No redrawn) failed on the old code.
+- Green: `nullable: true` on `inPerson` (pinned to the contract in `form-fields.test.ts`), `yesNoAnswer` in
+  `checkbox-input.ts` shared by `buildUpdatePatch` and `buildEditView` (`answer` on `EditField`), inline Yes / No
+  radios in `edit.njk`, and `yes`/`no` on the edit page's `en`. Tests that used `inPerson` as the checkbox example
+  now use `retainPermanently`; the harness's `serialise()` skips unselected radios.
+- Validation: lint clean, build 8/8, 4999 tests passed (app 2472, deed-poll 1325, others unchanged), 0 failures, 0
+  skips. `welsh:check` 729 / 512 identical: the two new strings `yes` and `no` (the page's `cy` spreads `en`).
 
 ## Post-Completion
 

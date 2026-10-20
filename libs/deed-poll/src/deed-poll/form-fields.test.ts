@@ -78,6 +78,21 @@ describe("deed-poll/form-fields", () => {
     });
   });
 
+  describe("editable boolean fields", () => {
+    it("should mark exactly the booleans api publishes as nullable, so only those render a third, unanswered state", () => {
+      // A nullable boolean renders as Yes / No radios, because a lone checkbox cannot say "not answered": its
+      // absence reads as `false`, and every save turned a stored `null` into "No" (review finding R07). A
+      // non-nullable one marked nullable would offer an answer api cannot store; the reverse reopens R07.
+      const properties = OPENAPI.components.schemas.UpdateCaseRequest.properties;
+      const booleans = EDITABLE_FIELDS.filter((field) => field.kind === "boolean");
+
+      expect(booleans.map((field) => field.name)).toEqual(["inPerson", "retainPermanently"]);
+      for (const field of booleans) {
+        expect(field.nullable === true, field.name).toBe([properties[field.name]?.type].flat().includes("null"));
+      }
+    });
+  });
+
   describe("FIELD_BY_NAME", () => {
     it("should resolve a retired referral field, so a populated value is formatted by its own label and kind", () => {
       // The formatting half of the split: `../referrals/legacy-referral-view.ts` renders the snapshot from these

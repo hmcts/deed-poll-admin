@@ -31,9 +31,27 @@ describe("buildUpdatePatch", () => {
   });
 
   it("treats a present checkbox as true and an absent one as false", () => {
-    const patch = buildUpdatePatch({ inPerson: "true" });
-    expect(patch.inPerson).toBe(true);
-    expect(patch.retainPermanently).toBe(false);
+    expect(buildUpdatePatch({ retainPermanently: "true" }).retainPermanently).toBe(true);
+    expect(buildUpdatePatch({}).retainPermanently).toBe(false);
+  });
+
+  describe("a nullable boolean, rendered as Yes / No radios (review finding R07)", () => {
+    const IN_PERSON = [FIELD_BY_NAME.inPerson];
+
+    it.each([
+      ["true", true],
+      ["false", false]
+    ])("should send the answer a radio of %s gives", (submitted, expected) => {
+      const patch = buildUpdatePatch({ inPerson: submitted }, IN_PERSON);
+
+      expect(patch).toEqual({ inPerson: expected });
+    });
+
+    it("should omit it when no radio was selected, so an unanswered question stays unanswered", () => {
+      const patch = buildUpdatePatch({}, IN_PERSON);
+
+      expect(patch).not.toHaveProperty("inPerson");
+    });
   });
 
   it("parses number fields and nulls blanks", () => {
@@ -87,11 +105,11 @@ describe("buildUpdatePatch", () => {
 
     it("should preserve the distinct blank and absent behaviour in a mixed-field patch", () => {
       const patch = buildUpdatePatch(
-        { newForename: "  Ada  ", newSurname: "", ageOfMinor: "", inPerson: "on" },
-        ["newForename", "newSurname", "ageOfMinor", "refundAmount", "privacy", "inPerson", "iShall"].map((name) => FIELD_BY_NAME[name])
+        { newForename: "  Ada  ", newSurname: "", ageOfMinor: "", retainPermanently: "on" },
+        ["newForename", "newSurname", "ageOfMinor", "refundAmount", "privacy", "retainPermanently", "iShall"].map((name) => FIELD_BY_NAME[name])
       );
 
-      expect(patch).toEqual({ newForename: "Ada", newSurname: null, ageOfMinor: null, inPerson: true, iShall: [] });
+      expect(patch).toEqual({ newForename: "Ada", newSurname: null, ageOfMinor: null, retainPermanently: true, iShall: [] });
     });
 
     it("should leave a read-only number out even when the body carries one", () => {
@@ -183,7 +201,9 @@ describe("buildUpdatePatch", () => {
   });
 
   describe("fields absent from the body (review finding R02)", () => {
-    const FIELDS = ["newForename", "returnReason", "maritalStatus", "dateNoticeSentToLondonGazette", "inPerson", "iShall"].map((name) => FIELD_BY_NAME[name]);
+    const FIELDS = ["newForename", "returnReason", "maritalStatus", "dateNoticeSentToLondonGazette", "retainPermanently", "iShall"].map(
+      (name) => FIELD_BY_NAME[name]
+    );
 
     it("should omit an absent text, textarea, enum or date field, because a rendered one is always submitted", () => {
       const patch = buildUpdatePatch({}, FIELDS);
@@ -218,7 +238,7 @@ describe("buildUpdatePatch", () => {
     it("should still read an absent checkbox as unticked, because an unticked one is never submitted", () => {
       const patch = buildUpdatePatch({}, FIELDS);
 
-      expect(patch.inPerson).toBe(false);
+      expect(patch.retainPermanently).toBe(false);
       expect(patch.iShall).toEqual([]);
     });
 
