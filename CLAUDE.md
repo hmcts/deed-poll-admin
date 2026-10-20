@@ -583,6 +583,38 @@ E04; plan `docs/plans/20261020-e04-numeric-input-validation.md`). The rules for 
 - **The field-error messages are English-only domain strings** in `form-validation.ts`, like the date-part messages, so
   they sit outside the Welsh extractor's page scope and add nothing to `yarn welsh:check`. Do not add `cy` strings.
 
+## Case edit form saves
+
+An unchanged save must write back exactly what is stored, and a refused save must redraw exactly what was submitted
+(review findings R01 and R02; plan `docs/plans/20261020-r01-r02-edit-form-untouched-fields.md`). The POST handler reads
+no case first, so the body is the only evidence of what the page rendered. The rules:
+
+- **"Absent" means something different for each field kind.** A rendered text input, textarea or select always
+  submits its value, even an empty one, and a rendered date always submits its three parts. So when one of these is
+  missing from the body, it was never rendered: hidden by its rule, locked, or not on this tab. `buildUpdatePatch`
+  (`libs/deed-poll/src/deed-poll/form-payload.ts`) leaves it out of the patch. A date counts as absent only when all
+  three parts are missing. A *present* empty value still clears, or is refused for a `notNullable` field. Numbers
+  follow `readNumericInput` (above), which has the same rule.
+- **Checkboxes are the exception, because an unticked box is absent too.** An absent boolean is `false` and an
+  absent multiselect is `[]`, so a hidden checkbox field would be cleared on every save. Today `getFieldRules` hides
+  none, and `deed-poll-validation.test.ts` fails if a rule ever hides a boolean or multiselect for any type, migrated
+  or not, published or not. A rule that needs to hide one first needs a different way to tell "unticked" from "not
+  rendered".
+- **The minor-only fields and the Gazette notice date are cleared by api, not here.** The old behaviour cleared them
+  only by accident. api's update applies `applyGazetteGate` and `applyMinorGate` to the merged record
+  (`DeedPollService.java` around lines 410-415 on api `origin/master` `554fe49`). The fields a Deed of Relinquishment
+  hides (old names, marital status, nationality) are cleared by nobody, and no rule says they should be. If a
+  clear is ever needed here, call the gate function explicitly, never through absent-means-null.
+- **Checked state is computed in the view model, never in the template.** `decorate()` in
+  `libs/deed-poll/src/deed-poll/edit-view.ts` sets `checked` on a boolean field and on each multiselect option. It
+  reads stored values (`true`, numbers) and replayed ones (`"true"`/`"on"`, strings) the same way `buildUpdatePatch`
+  does. `edit.njk` reads only those flags. A template that compares raw values redraws every ticked box unticked on
+  a replay, and the corrected resubmit then clears them.
+- **A locked field redraws from the stored record.** A non-admin's privacy select is rendered disabled, so it is
+  never in the body; replaying it would redraw it blank. Read-only fields are excluded from the replay for the same
+  reason. `src/case-edit-untouched-fields.test.ts` drives the real handler and the real `edit.njk`, reads the
+  rendered page back as the form a browser would submit, and pins both round trips.
+
 # Agent instructions
 
 Claude must follow these instructions strictly when contributing code. Rules and conventions are mandatory and must be adhered to without exception. After implementing code, Claude must review it to ensure full compliance with these guidelines.

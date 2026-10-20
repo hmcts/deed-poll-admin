@@ -158,12 +158,12 @@ guard), and a handler-level test.
 
 **Files:** `CLAUDE.md`, this plan.
 
-- [ ] Add a short "Case edit form saves" section to `CLAUDE.md`, next to "Numeric case-form input": what "absent"
+- [x] Add a short "Case edit form saves" section to `CLAUDE.md`, next to "Numeric case-form input": what "absent"
       means for each field kind, why absent text/enum/date is omitted and absent checkboxes are not, the guard test,
       where checked state is computed, and that a locked field redraws from the stored record. Reference this plan
       and findings R01/R02.
-- [ ] Record final commits, changed files, test counts and the api verification in the execution notes.
-- [ ] Run all Validation Commands and hand off to the Ralphex review phases.
+- [x] Record final commits, changed files, test counts and the api verification in the execution notes.
+- [x] Run all Validation Commands and hand off to the Ralphex review phases.
 
 ## Acceptance Criteria
 
@@ -224,6 +224,19 @@ guard), and a handler-level test.
   handler's strict-on-write comment was updated to the new reason.
 - Green: lint clean (1 info), build 8/8, all pass with no skips — app 2462 (+4), deed-poll 1313 (+6), others
   unchanged.
+
+### Task 3 (handoff)
+
+- Commits: `7b845e1` (R01), `fbdc905` (R02), and this one (CLAUDE.md "Case edit form saves" section, notes).
+- Changed files: `libs/deed-poll/src/deed-poll/edit-view.ts` and test, `form-payload.ts` and test,
+  `deed-poll-validation.test.ts` (guard), `src/pages/deed-polls/edit.njk`, `src/pages/deed-polls/[id]/edit/[tab].ts`
+  and test, new `src/case-edit-untouched-fields.test.ts`, `CLAUDE.md`, this plan.
+- api verification as recorded under Task 2: api `origin/master` `554fe49` clears the minor-only fields and the
+  Gazette notice date on update (`DeedPollService.java:410`/`:415`), so admin adds no explicit clear.
+- Final validation: lint clean (1 info), build 8/8, all suites pass with no skips: app 2462, deed-poll 1313,
+  api-client 823, cloud-native-platform 157, express-govuk-starter 127, simple-router 41,
+  express-session-postgres 23, express-session-redis 7. Against the baseline: app +9, deed-poll +15, no new
+  failures or skips. Ready for the Ralphex review phases.
 
 ## Post-Completion
 
