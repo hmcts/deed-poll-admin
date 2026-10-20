@@ -87,7 +87,8 @@ export const POST = async (req: Request, res: Response) => {
 
   // **Strict on write, deliberately unlike GET.** `tabFor` falls back to the first tab, which is
   // Application — 46 editable fields. `buildUpdatePatch` writes every field it is given, blanking
-  // absent ones, so falling back here would null all 46 from a body that never mentioned them.
+  // absent ones other than numbers, so falling back here would null most of the 46 from a body that
+  // never mentioned them.
   // A mistyped tab in a POST target is not something to guess at.
   //
   // This is also what refuses the retired `referral` slug, which GET redirects: a form posted from a stale page

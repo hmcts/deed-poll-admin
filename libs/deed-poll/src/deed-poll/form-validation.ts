@@ -12,11 +12,12 @@ export interface FormError {
  * Validation for a tab save, run BEFORE the patch reaches the service.
  *
  * Split from `buildUpdatePatch()` on purpose: that function's job is to shape a
- * payload, and it signals "no usable value" as `null`, which is also how it
- * signals a deliberate clear. Those two cases must be told apart here — a blank
- * date clears the field, whereas `99/99/abcd` is a mistake the caseworker needs
- * told about. Until 2026-08-10 both were silently stored as null, so a typo in a
- * year read back as "the date was never entered".
+ * payload, and for a date it signals "no usable value" as `null`, which is also
+ * how it signals a deliberate clear. Those two cases must be told apart here — a
+ * blank date clears the field, whereas `99/99/abcd` is a mistake the caseworker
+ * needs told about. Until 2026-08-10 both were silently stored as null, so a typo
+ * in a year read back as "the date was never entered". Numbers no longer reach
+ * that ambiguity: `buildUpdatePatch` throws on an invalid one (review finding E04).
  */
 
 /**

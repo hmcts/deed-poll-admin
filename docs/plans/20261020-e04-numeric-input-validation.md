@@ -148,11 +148,11 @@ the existing form/error view-model helpers and locale entries needed by the new 
 
 **Files:** `CLAUDE.md` or existing form-validation guidance, and this plan's Execution notes.
 
-- [ ] Document absent/blank/valid/invalid semantics, accepted numeric syntax, integer/decimal rules and
+- [x] Document absent/blank/valid/invalid semantics, accepted numeric syntax, integer/decimal rules and
       the requirement to validate before mutation. State that API business validation still applies.
-- [ ] Record starting/final commits, changed files, regression evidence, counts, skips and translation
+- [x] Record starting/final commits, changed files, regression evidence, counts, skips and translation
       baseline/delta. Distinguish mocked persistence tests from a live database update.
-- [ ] Run all Validation Commands and hand off to Ralphex review phases. Record review findings and
+- [x] Run all Validation Commands and hand off to Ralphex review phases. Record review findings and
       revalidation for any fixes.
 
 ## Acceptance Criteria
@@ -212,6 +212,31 @@ precision beyond a double (e.g. 16+ significant digits) is `Number()`'s and not 
 ask for. Validation: `yarn lint` clean (same Biome schema info), `yarn build` 8/8, full suite 8/8 tasks, no skips —
 app 2371 (+29), others unchanged. `yarn welsh:check` exits 1 with the unchanged baseline (727 strings, 510
 identical in cy); delta zero.
+
+**Task 4 (Ralphex iteration 4, 2026-10-20).** Start `dac7746`. Documented the contract in `CLAUDE.md` ("Numeric
+case-form input"): the four outcomes, the accepted decimal syntax, integer/decimal from the contract, validation
+before mutation with `buildUpdatePatch`'s own throw as a backstop, and that api's business validation still applies.
+Overall: starting commit `d99babb` (master `5b94315` plus this plan); task commits `eec06da`, `2a29e50`, `dac7746`
+and this one. Changed files: `form-fields.ts`/`.test.ts`, `form-payload.ts`/`.test.ts`, `form-validation.ts`/`.test.ts`,
+`numeric-input.ts`/`.test.ts` (new), `src/case-edit-numeric.test.ts` (new), the edit handler and its test,
+`edit.njk` (comment), `CLAUDE.md` and this plan.
+Review (code-reviewer agent over `d99babb..HEAD`) found no path from invalid or non-finite input to a `null`,
+`NaN` or infinite patch value or a write. Findings and outcomes:
+1. Absent number fields are now omitted rather than nulled, so the minor ages, which the rules hide on Adult and
+   Relinquishment cases, are no longer sent as `null` on an Application save, while `minorDateOfBirth` and `parents`
+   still are. No change: the plan requires absent fields to be omitted, and api's minor write gate (`applyMinorGate`,
+   listed in the mock's docblock as api's) clears all four minor-only fields on those types. `refundAmount` is never
+   hidden.
+2. Integer text beyond double precision (`7.00000000000000001`) rounded to a whole number and was accepted. Fixed:
+   integer fields now refuse any non-zero fractional digit, checked on the text. The test failed red first (1 of 56),
+   then passed. Docblock and `CLAUDE.md` now state that `Number()` rounds an over-long decimal.
+3. Two stale comments (`form-validation.ts` split docblock, edit handler's "blanking absent ones"). Fixed.
+Revalidation with `REDIS_URL=redis://127.0.0.1:6379`: `yarn lint` clean (pre-existing Biome schema-version info),
+`yarn build` 8/8, full suite 8/8 tasks, no skips. App 2371, deed-poll 1282 (+2 over Task 3), api-client 778,
+cloud-native-platform 157, express-govuk-starter 127, simple-router 41, session-postgres 23, session-redis 7.
+Across the plan: app +43 (2328 → 2371), deed-poll +7 (1275 → 1282). `yarn welsh:check` still exits 1 at the
+unchanged baseline (727 strings, 510 identical in cy), so the plan's translation delta is zero. Every test here mocks
+persistence (`findDeedPoll`/`updateDeedPoll`, or the adapter). No live api or database update was performed.
 
 ## Post-Completion
 

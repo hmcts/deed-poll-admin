@@ -5,10 +5,17 @@
  * all-whitespace string. Nobody typing an age or a refund means any of those, and each is a value the
  * caseworker did not see on the form. Signs stay because `UpdateCaseRequest` sets no minimum on any numeric
  * field; a range is api's rule, not this parser's. Currency symbols and thousands separators are refused
- * rather than stripped, so what is saved is exactly what was typed. Surrounding whitespace is trimmed, as
- * for every other field on the form.
+ * rather than stripped, so no character the caseworker typed is discarded. Surrounding whitespace is trimmed,
+ * as for every other field on the form. A decimal with more significant digits than a double holds is rounded
+ * by `Number()`; api publishes no precision, so that is not refused here.
  */
 const DECIMAL_SYNTAX = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+/**
+ * A fraction with any non-zero digit. Checked on the text, not the number, because `Number()` rounds
+ * `7.00000000000000001` to a whole 7, which `Number.isInteger` would then accept.
+ */
+const NON_ZERO_FRACTION = /\.\d*[1-9]/;
 
 /** `UpdateCaseRequest` publishes every integer case field as `format: int32`. */
 const INT32_MIN = -(2 ** 31);
@@ -33,7 +40,7 @@ export function readNumericInput(raw: unknown, format: NumberFormat): NumericInp
   if (!DECIMAL_SYNTAX.test(text)) return { kind: "invalid" };
   const value = Number(text);
   if (!Number.isFinite(value)) return { kind: "invalid" };
-  if (format === "integer" && !isInt32(value)) return { kind: "invalid" };
+  if (format === "integer" && (NON_ZERO_FRACTION.test(text) || !isInt32(value))) return { kind: "invalid" };
   return { kind: "valid", value };
 }
 

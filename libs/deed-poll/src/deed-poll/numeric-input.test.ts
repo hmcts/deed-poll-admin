@@ -78,6 +78,13 @@ describe("deed-poll/numeric-input", () => {
       }
     );
 
+    it.each(["7.00000000000000001", "0.0000000000000000001"])(
+      "should read %j as invalid for an integer field even though Number() rounds it to a whole number",
+      (raw) => {
+        expect(readNumericInput(raw, "integer")).toEqual({ kind: "invalid" });
+      }
+    );
+
     it.each([
       ["a duplicated field", ["1", "2"]],
       ["a single-element array", ["1"]],

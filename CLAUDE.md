@@ -531,6 +531,35 @@ referral under a case, a saved query, a Gazette request, an email — goes throu
 - `src/case-redirects.test.ts` drives the two reported handlers over HTTP. A URL-parsing client resolves `.`, `..`
   and `%2E` as dot segments before sending, so the dot-only refusal is tested at the handler boundary instead.
 
+## Numeric case-form input
+
+A typo in a number field used to reach the patch as `null`, an instruction to clear the stored value (review finding
+E04; plan `docs/plans/20261020-e04-numeric-input-validation.md`). The rules for every `kind: "number"` field:
+
+- **One parser, four outcomes.** `readNumericInput` (`libs/deed-poll/src/deed-poll/numeric-input.ts`) reads a
+  submitted control as `absent` (not in the body: omitted from the patch, never nulled), `blank` (empty or
+  whitespace-only: `null`, unless the field is `notNullable`), `valid` (the number) or `invalid`. Only `blank` clears.
+  `collectNumericErrors` and `buildUpdatePatch` both call it, so validation and patch construction cannot drift; do
+  not convert a numeric string anywhere else, and never with a bare `Number()`.
+- **Accepted syntax is plain decimal after trimming: `^[+-]?(\d+(\.\d*)?|\.\d+)$`.** Signs are kept because
+  `UpdateCaseRequest` sets no minimum. Exponents, `0x`/`0b`/`0o` prefixes, `NaN`, `Infinity`, currency symbols,
+  thousands separators and non-ASCII digits are refused, never stripped, and a non-finite result is invalid. A value
+  that is not one string (a repeated field arriving as an array, a bracketed name parsed into an object) is invalid.
+- **Integer versus decimal comes from the contract.** `numberFormat: "integer"` on the `FieldDef` marks api's
+  `int32` fields (`ageOfMinor`, `ageOfMinorMonths`), and `form-fields.test.ts` pins every editable number field to
+  `openapi.json`. An integer must be whole and within int32: `7.0` reads as 7, while `7.5` and
+  `7.00000000000000001` are refused rather than rounded (the fraction is checked on the text, since `Number()`
+  rounds the second to 7). Absent means `decimal` (`refundAmount`), and a decimal longer than a double holds is
+  rounded by `Number()`. Add no range, precision or positivity rule here; those belong to api.
+- **Validate before mutation.** The edit handler runs `collectFormErrors` (dates and numbers together, in field
+  order) before building the patch, and re-renders the exact submitted text with GOV.UK field errors and no write.
+  `buildUpdatePatch` also throws `InvalidInputError` on an invalid number, so a future caller that skips validation
+  still gets no patch. Read-only numbers are never patched, whatever is posted.
+- **api's validation still applies.** This guard only stops unreadable text becoming a clearing patch. api remains
+  authoritative for permissions and business rules, and its 400s still come back through the handler's existing
+  `InvalidInputError` path. `src/case-edit-numeric.test.ts` drives real URL-encoded posts through the handler with
+  persistence mocked; it proves the outgoing patch, not a live save.
+
 # Agent instructions
 
 Claude must follow these instructions strictly when contributing code. Rules and conventions are mandatory and must be adhered to without exception. After implementing code, Claude must review it to ensure full compliance with these guidelines.
