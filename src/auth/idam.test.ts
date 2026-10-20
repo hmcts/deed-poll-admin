@@ -38,16 +38,35 @@ let config: IdamConfig;
 /** Omitted from discovery in the tests that need an issuer without one. */
 let endSessionEndpoint: string | undefined;
 let discoveryCalls = 0;
+/** One answer per discovery request, in order; an empty queue answers with the document. */
+let discoveryAnswers: DiscoveryAnswer[] = [];
+/** When set, discovery requests wait on it, so a test can have callers arrive while one is in flight. */
+let discoveryHeld: Promise<void> | undefined;
+let discoveryArrived: () => void = () => {};
+/** `DISCOVERY_RETRY_COOLDOWN_MS` in `idam.ts`, restated rather than exported so the module keeps its own policy. */
+const COOLDOWN_MS = 5_000;
+const START = Date.UTC(2026, 9, 20, 9, 0, 0);
 
 beforeAll(async () => {
-  server = createServer((req, res) => {
+  server = createServer(async (req, res) => {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
 
     if (path === "/o/.well-known/openid-configuration") {
       discoveryCalls += 1;
+      const answer = discoveryAnswers.shift() ?? "document";
+      discoveryArrived();
+      await discoveryHeld;
+      if (answer === "unavailable") {
+        res.writeHead(503).end();
+        return;
+      }
+      if (answer === "connection-reset") {
+        req.socket.destroy();
+        return;
+      }
       res.writeHead(200, { "content-type": "application/json" }).end(
         JSON.stringify({
-          issuer: `${base}/o`,
+          issuer: answer === "wrong-issuer" ? "https://another-issuer.example/o" : `${base}/o`,
           authorization_endpoint: `${base}/o/authorize`,
           token_endpoint: `${base}/o/token`,
           userinfo_endpoint: `${base}/o/userinfo`,
@@ -74,12 +93,15 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
+  server.closeAllConnections();
   server.close();
 });
 
 beforeEach(() => {
   resetIdamDiscovery();
   discoveryCalls = 0;
+  discoveryAnswers = [];
+  discoveryHeld = undefined;
   endSessionEndpoint = `${base}/o/endSession`;
   vi.clearAllMocks();
 });
@@ -175,6 +197,231 @@ describe("beginLogin", () => {
     // The other side of the same allowlist. Both directions are asserted because a check that only
     // ever refuses would pass if it refused everything.
     await expect(beginLogin(config, "/deed-polls")).resolves.toBeTruthy();
+  });
+});
+
+describe("discovery recovery", () => {
+  // Only `Date` is faked: the cooldown reads the clock, and the loopback server still needs real sockets and timers.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(START);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("should recover on a later login when discovery answered 503, without a reset or restart", async () => {
+    discoveryAnswers = ["unavailable"];
+
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+    vi.setSystemTime(START + COOLDOWN_MS);
+    const { authorizationUrl } = await beginLogin(config, "/deed-polls");
+    await beginLogin(config, "/deed-polls");
+
+    expect(new URL(authorizationUrl).origin + new URL(authorizationUrl).pathname).toBe(`${base}/o/authorize`);
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should recover on a later login when the discovery connection failed", async () => {
+    discoveryAnswers = ["connection-reset"];
+
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+    vi.setSystemTime(START + COOLDOWN_MS);
+    const { authorizationUrl } = await beginLogin(config, "/deed-polls");
+
+    expect(new URL(authorizationUrl).searchParams.get("client_id")).toBe("deed-poll-admin");
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should serve simultaneous first logins from one discovery request, and keep it", async () => {
+    const release = holdDiscovery();
+    const arrived = nextDiscoveryRequest();
+
+    const logins = Promise.all([beginLogin(config, "/a"), beginLogin(config, "/b"), beginLogin(config, "/c")]);
+    await arrived;
+    release();
+    const results = await logins;
+    vi.setSystemTime(START + 24 * 60 * 60 * 1000);
+    await beginLogin(config, "/d");
+
+    expect(results.map((result) => new URL(result.authorizationUrl).pathname)).toEqual(["/o/authorize", "/o/authorize", "/o/authorize"]);
+    expect(discoveryCalls).toBe(1);
+  });
+
+  it("should fail simultaneous logins together on one failed request, then let a later one rediscover", async () => {
+    discoveryAnswers = ["unavailable"];
+    const release = holdDiscovery();
+    const arrived = nextDiscoveryRequest();
+
+    const logins = Promise.allSettled([beginLogin(config, "/a"), beginLogin(config, "/b")]);
+    await arrived;
+    release();
+    const results = await logins;
+    vi.setSystemTime(START + COOLDOWN_MS);
+    const { authorizationUrl } = await beginLogin(config, "/c");
+
+    expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    expect(new URL(authorizationUrl).pathname).toBe("/o/authorize");
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should refuse every login during the cooldown without another discovery request", async () => {
+    discoveryAnswers = ["unavailable"];
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+
+    vi.setSystemTime(START + COOLDOWN_MS - 1);
+    const results = await Promise.allSettled(Array.from({ length: 20 }, () => beginLogin(config, "/deed-polls")));
+
+    expect(results.every((result) => result.status === "rejected")).toBe(true);
+    expect(String((results[0] as PromiseRejectedResult).reason)).toMatch(/IDAM discovery failed recently/);
+    expect(discoveryCalls).toBe(1);
+  });
+
+  it("should let callers arriving together at the end of the cooldown share one discovery request", async () => {
+    discoveryAnswers = ["unavailable"];
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+
+    vi.setSystemTime(START + COOLDOWN_MS);
+    const results = await Promise.all([beginLogin(config, "/a"), beginLogin(config, "/b"), beginLogin(config, "/c")]);
+
+    expect(results.map((result) => new URL(result.authorizationUrl).pathname)).toEqual(["/o/authorize", "/o/authorize", "/o/authorize"]);
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should measure each cooldown from its own failure, so repeated failures make one request per interval", async () => {
+    discoveryAnswers = ["unavailable", "unavailable", "unavailable"];
+
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+    vi.setSystemTime(START + COOLDOWN_MS);
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+    vi.setSystemTime(START + 2 * COOLDOWN_MS - 1);
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow(/IDAM discovery failed recently/);
+    vi.setSystemTime(START + 2 * COOLDOWN_MS);
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+
+    expect(discoveryCalls).toBe(3);
+  });
+
+  it("should keep a recovered configuration with no cooldown left behind", async () => {
+    discoveryAnswers = ["unavailable"];
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+    vi.setSystemTime(START + COOLDOWN_MS);
+    await beginLogin(config, "/deed-polls");
+
+    vi.setSystemTime(START + COOLDOWN_MS + 1);
+    await beginLogin(config, "/deed-polls");
+
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should not let a stale attempt that fails after a reset clear or cool down the attempt that replaced it", async () => {
+    discoveryAnswers = ["unavailable"];
+    const releaseStale = holdDiscovery();
+    const staleArrived = nextDiscoveryRequest();
+    const stale = beginLogin(config, "/stale");
+    await staleArrived;
+
+    resetIdamDiscovery();
+    discoveryHeld = undefined;
+    await beginLogin(config, "/fresh");
+    releaseStale();
+    await expect(stale).rejects.toThrow();
+    await beginLogin(config, "/later");
+
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should clear the cooldown on reset, so the next login rediscovers at once", async () => {
+    discoveryAnswers = ["unavailable"];
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+
+    resetIdamDiscovery();
+    await beginLogin(config, "/deed-polls");
+
+    expect(discoveryCalls).toBe(2);
+  });
+
+  describe("through the rest of the flow", () => {
+    const flow = { codeVerifier: "a-verifier", state: "a-state", returnTo: "/deed-polls" };
+    const callback = new URL("http://localhost:3000/oauth2/callback?code=abc&state=a-state");
+    const SUBJECT = "team-leader@example.com";
+
+    beforeEach(() => {
+      vi.mocked(client.authorizationCodeGrant).mockResolvedValue({
+        access_token: "an-access-token",
+        id_token: "an-id-token",
+        claims: () => ({ sub: SUBJECT }),
+        expiresIn: () => 900
+      } as never);
+      vi.mocked(client.refreshTokenGrant).mockResolvedValue({ access_token: "a-new-access-token", claims: () => undefined, expiresIn: () => 900 } as never);
+      vi.mocked(client.fetchUserInfo).mockResolvedValue({ sub: SUBJECT, name: "A Team leader" } as never);
+      vi.mocked(findCallerAccess).mockResolvedValue({ staff: true, judicial: false, capabilities: [] });
+    });
+
+    it("should not attempt the code exchange while discovery is failing, and make it exactly once after recovery", async () => {
+      discoveryAnswers = ["unavailable"];
+
+      await expect(completeLogin(config, flow, callback)).rejects.toThrow();
+      await expect(completeLogin(config, flow, callback)).rejects.toThrow(/IDAM discovery failed recently/);
+      vi.setSystemTime(START + COOLDOWN_MS);
+      const result = await completeLogin(config, flow, callback);
+
+      expect(result.subject).toBe(SUBJECT);
+      expect(client.authorizationCodeGrant).toHaveBeenCalledTimes(1);
+      expect(discoveryCalls).toBe(2);
+    });
+
+    it("should throw rather than refuse a refresh while discovery is failing, so the session is kept, and refresh once after recovery", async () => {
+      discoveryAnswers = ["unavailable"];
+
+      await expect(refreshTokens(config, "a-refresh-token", SUBJECT)).rejects.toThrow();
+      await expect(refreshTokens(config, "a-refresh-token", SUBJECT)).rejects.toThrow(/IDAM discovery failed recently/);
+      vi.setSystemTime(START + COOLDOWN_MS);
+      const result = await refreshTokens(config, "a-refresh-token", SUBJECT);
+
+      expect(result.ok).toBe(true);
+      expect(client.refreshTokenGrant).toHaveBeenCalledTimes(1);
+      expect(discoveryCalls).toBe(2);
+    });
+
+    it("should serve login, callback, refresh and logout from one recovered discovery", async () => {
+      discoveryAnswers = ["unavailable"];
+      await expect(beginLogin(config, "/deed-polls")).rejects.toThrow();
+      vi.setSystemTime(START + COOLDOWN_MS);
+
+      await beginLogin(config, "/deed-polls");
+      await completeLogin(config, flow, callback);
+      await refreshTokens(config, "a-refresh-token", SUBJECT);
+      await endSessionUrl(config, "an-id-token");
+
+      expect(discoveryCalls).toBe(2);
+    });
+  });
+
+  it("should never cache a misconfigured issuer, and retry it no more than once per interval", async () => {
+    // The same document every time: unlike an outage, waiting does not fix this, which is what tells the two apart.
+    discoveryAnswers = ["wrong-issuer", "wrong-issuer"];
+
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow(/discovered metadata issuer does not match the expected issuer/);
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow(/IDAM discovery failed recently/);
+    vi.setSystemTime(START + COOLDOWN_MS);
+    await expect(beginLogin(config, "/deed-polls")).rejects.toThrow(/discovered metadata issuer does not match the expected issuer/);
+
+    expect(discoveryCalls).toBe(2);
+  });
+
+  it("should report a discovery failure and the cooldown refusal without the client secret or any token", async () => {
+    discoveryAnswers = ["unavailable"];
+    const failure = await beginLogin(config, "/deed-polls").catch((error: unknown) => error);
+    const refusal = await refreshTokens(config, "a-refresh-token", "a-subject").catch((error: unknown) => error);
+
+    const logged = JSON.stringify([describeIdamError(failure), describeIdamError(refusal)]);
+
+    expect(logged).toMatch(/IDAM discovery failed recently/);
+    expect(logged).not.toContain(config.clientSecret);
+    expect(logged).not.toContain("a-refresh-token");
+    expect(client.refreshTokenGrant).not.toHaveBeenCalled();
   });
 });
 
@@ -525,3 +772,19 @@ describe("describeIdamError", () => {
     expect(describeIdamError("refused")).toBe("refused");
   });
 });
+
+function holdDiscovery(): () => void {
+  let release: () => void = () => {};
+  discoveryHeld = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return release;
+}
+
+function nextDiscoveryRequest(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    discoveryArrived = resolve;
+  });
+}
+
+type DiscoveryAnswer = "document" | "unavailable" | "connection-reset" | "wrong-issuer";
