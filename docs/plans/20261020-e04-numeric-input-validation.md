@@ -133,16 +133,16 @@ the existing form/error view-model helpers and locale entries needed by the new 
 **Files:** the edit handler's colocated tests or a focused integration test outside `src/pages`;
 `libs/deed-poll/src/deed-poll/form-payload.test.ts` and relevant domain tests.
 
-- [ ] Submit URL-encoded forms through real Express body parsing and the actual edit handler with
+- [x] Submit URL-encoded forms through real Express body parsing and the actual edit handler with
       domain persistence mocked. Include typo, currency-symbol, overflow, fractional-age and duplicate/
       non-scalar field inputs. Browser controls cannot be relied on for server validation.
-- [ ] Assert invalid submissions render errors, preserve input and make zero domain writes. For valid
+- [x] Assert invalid submissions render errors, preserve input and make zero domain writes. For valid
       and deliberate-clear submissions, assert the exact outgoing payload and normal redirect.
-- [ ] Prove no accepted numeric payload contains `NaN` or infinity before JSON serialization, and
+- [x] Prove no accepted numeric payload contains `NaN` or infinity before JSON serialization, and
       serialization preserves every accepted numeric value. An invalid value must not become `null`.
-- [ ] Check other patch-builder callers remain safe, date behaviour is unchanged and readonly numeric
+- [x] Check other patch-builder callers remain safe, date behaviour is unchanged and readonly numeric
       data cannot be injected by posting an extra field.
-- [ ] Run focused tests, translation checks and all Validation Commands; record results and limits.
+- [x] Run focused tests, translation checks and all Validation Commands; record results and limits.
 
 ### Task 4: Document the form contract and review
 
@@ -192,6 +192,26 @@ messages, which are English-only domain strings outside the Welsh extractor's pa
 added. The raw submitted text is replayed unformatted. Validation: `yarn lint` clean (same Biome schema info),
 `yarn build` 8/8, full suite 8/8 tasks, no skips — app 2342, deed-poll 1280, others unchanged. `yarn welsh:check`
 exits 1 with the unchanged baseline (727 strings, 510 identical in cy); delta zero.
+
+**Task 3 (Ralphex iteration 3, 2026-10-20).** Start `2a29e50`. Added `src/case-edit-numeric.test.ts` (29 cases):
+URL-encoded posts through `express.urlencoded({ extended: true })` (the parser `app.ts` mounts) into the real edit
+handler, rendering the real `deed-polls/edit.njk` through Nunjucks, with only `findDeedPoll`/`updateDeedPoll`
+mocked. Covers typo, currency symbol, separator, overflow, exponent, hex/binary prefixes, `NaN`, `Infinity`,
+fractional and beyond-int32 ages, and repeated/bracketed (array, object) field names; each is a 400 with the
+summary link, the message and the exact typed text in the input, and no write. Valid decimal, zero, signed,
+leading-dot, whitespace-padded and blank/whitespace-only (clearing) submissions assert the exact patch and the
+302 to `#refund`; ages pin `7.0` → 7, zero, and an unsubmitted age omitted. Every accepted number in the outgoing
+patches is finite and survives `JSON.stringify` unchanged. Read-only `referencenumber`, `daysReceivedToEnroled`
+and `daysReceivedToReturned` posted as extra fields (valid or not) never reach the patch, and another tab's
+numeric field does not ride along. Date behaviour: combined date+number errors re-render together with both texts
+kept, valid date parts compose as before. `buildUpdatePatch` still has one caller (the edit handler); the create
+page builds no numeric patch, and `updateDeedPoll` forwards the patch unchanged to `patchCase`. Red: with
+`libs/deed-poll/src` and the handler checked out at baseline `d99babb`, 16 of the 29 failed (every invalid input,
+and the absent-age omission); green at HEAD. Limit: persistence mocked, no live api or database update; decimal
+precision beyond a double (e.g. 16+ significant digits) is `Number()`'s and not refused, which the plan does not
+ask for. Validation: `yarn lint` clean (same Biome schema info), `yarn build` 8/8, full suite 8/8 tasks, no skips —
+app 2371 (+29), others unchanged. `yarn welsh:check` exits 1 with the unchanged baseline (727 strings, 510
+identical in cy); delta zero.
 
 ## Post-Completion
 
