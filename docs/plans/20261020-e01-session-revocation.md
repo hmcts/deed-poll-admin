@@ -171,8 +171,8 @@ and this plan's Execution notes.
 
 ## Execution notes
 
-Planning only, 20 October 2026. Ellis authored this plan from review finding E01. No implementation,
-new validation run or Ralphex execution has been performed for this plan. Append execution evidence here.
+Planned 20 October 2026 by Ellis from review finding E01, and implemented the same day in the four tasks below,
+starting from commit `f61aa0b`. Per-task evidence follows.
 
 ### Task 1 — guarded session persistence (20 October 2026)
 

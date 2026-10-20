@@ -41,7 +41,7 @@ makes a future template re-scaffold tractable.
 │  deed-poll-api (another repo)  │  │  Redis                       │
 │  - Spring Boot                 │  │  - Port: 6379                │
 │  - Owns the case data          │  │  - Session store only        │
-│  - Owns the database           │  │  - admin-sess: keyspace      │
+│  - Owns the database           │  │  - admin-sess-v2: keyspace   │
 └────────────────────────────────┘  └──────────────────────────────┘
 ```
 
