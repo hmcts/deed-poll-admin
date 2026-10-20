@@ -394,6 +394,36 @@ overwrites newer tokens or access; one refresh per session at a time, fenced. No
 revocation of tokens already issued, sessions on pods still running the old image (old keyspace) during a rollout, and
 Jenkins coverage — no pipeline stage provides Redis, so the Redis suites run where `REDIS_URL` is set.
 
+### External review fixes and final verification (Arbor, 20 October 2026)
+
+The Copilot external review found three defects, each reproduced against Redis. ralphex's evaluation step wrote fixes
+but left them **uncommitted and unverified**, then logged "no more findings". They were reviewed and committed in
+`1c656df`:
+
+1. A create whose reply was lost let express-session's automatic save create again, restoring a session another
+   instance had logged out. The store now refuses a second create for the same session.
+2. Logout queued behind the refresh lease (ten seconds, then 500, never signing out). Logout now skips refresh
+   coordination. The existing real-Redis tests mounted logout *before* the middleware, which is why they missed it.
+   A new test in `src/auth/refresh-coordination.test.ts` mounts it after, as `createApp` does. That test failed
+   without the fix (logout hung) and passes with it.
+3. Expiry was judged before the lease wait. It's now judged after.
+
+**Final validation at `1c656df`, with `REDIS_URL=redis://127.0.0.1:6379`:**
+- `yarn lint`: clean.
+- `yarn build`: passes, including with no `libs/*/dist` present.
+- `yarn turbo test test:app --concurrency=1 --force`: **219 files, 4,657 tests**, 0 failures, 0 skips. The baseline
+  was 216 files and 4,570 tests.
+- The real-Redis suites ran rather than skipping: `session-store` (7 tests), `guarded-session-store` (35),
+  `refresh-coordination` (12) and `session-lifecycle` (11).
+
+**Direct Copilot (gpt-6-astra) review of `origin/master..1c656df`: NO ISSUES FOUND.**
+- It ran 279 focused tests and the four Redis suites (65 of 65) against Redis 8.10.1.
+- It probed CREATE, UPDATE and PUBLISH calls whose replies were lost.
+- Removing safeguards in memory produced eight expected regression failures.
+
+**Outstanding:** `yarn test:session`, the Playwright journeys, was not run. It needs the IDAM simulator and a browser,
+and neither was available here (local IDAM on 5556 refused connections). It's left to the PR pipeline.
+
 ## Post-Completion
 
 Hand the reviewed branch and evidence to Steve. Deployment and any live session migration/invalidation
