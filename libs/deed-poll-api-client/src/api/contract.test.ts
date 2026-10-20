@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import deferredContract from "./deferred-contract.json";
-import { CAPABILITY, GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, UNSPECIFIED_SCHEMAS, WIRE_SCHEMAS } from "./wire.js";
+import { CAPABILITY, GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, WIRE_SCHEMAS } from "./wire.js";
 
 const SPEC_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../openapi.json");
 const spec = JSON.parse(readFileSync(SPEC_PATH, "utf8")) as OpenApiSpec;
@@ -151,12 +151,47 @@ describe("openapi.json and the wire schemas", () => {
     expect(inCode).toEqual(inSpec);
   });
 
-  it("should not describe the schemas listed as unspecified", () => {
-    // If api starts publishing one of these, it should be compared like everything else rather than
-    // staying on an exemption list nobody revisits.
-    for (const name of Object.keys(UNSPECIFIED_SCHEMAS)) {
-      expect(Object.keys(spec.components.schemas), name).not.toContain(name);
-    }
+  /**
+   * api's 403 contract (`OpenAPIForbiddenResponses`): every staff operation documents the refusal, through one shared
+   * response whose body is the `ApiError` this adapter already parses. `GET /` is public and `GET /me` admits any
+   * signed-in caller, so neither may gain one. Checked on the copy rather than trusted from api, because a refresh that
+   * dropped the 403 from some operations would otherwise pass every other test here.
+   */
+  describe("the documented 403", () => {
+    const FORBIDDEN = { $ref: "#/components/responses/Forbidden" };
+    const UNREFUSABLE = ["GET /", "GET /me"];
+    const operations = Object.entries(spec.paths).flatMap(([route, methods]) =>
+      Object.entries(methods).map(([method, operation]) => ({ key: `${method.toUpperCase()} ${route}`, operation }))
+    );
+
+    it("should reference the shared Forbidden response on every operation but the two that cannot refuse", () => {
+      const refusable = operations.filter(({ key }) => !UNREFUSABLE.includes(key));
+
+      expect(refusable.length).toBeGreaterThan(0);
+      for (const { key, operation } of refusable) {
+        expect(operation.responses?.["403"], key).toEqual(FORBIDDEN);
+      }
+      for (const key of UNREFUSABLE) {
+        const operation = operations.find((each) => each.key === key)?.operation;
+        expect(operation, key).toBeDefined();
+        expect(operation?.responses?.["403"], key).toBeUndefined();
+      }
+    });
+
+    it("should describe the refusal as an application/json ApiError whose references all resolve", () => {
+      const forbidden = spec.components.responses?.Forbidden;
+
+      expect(forbidden?.description?.trim()).toBeTruthy();
+      expect(Object.keys(forbidden?.content ?? {})).toEqual(["application/json"]);
+      expect(forbidden?.content?.["application/json"]?.schema).toEqual({ $ref: "#/components/schemas/ApiError" });
+      expect(spec.components.schemas.ApiError.properties?.errors?.items?.$ref).toBe("#/components/schemas/FieldError");
+      expect(spec.components.schemas.FieldError).toBeDefined();
+    });
+
+    it("should keep GET / public and GET /me on the global bearer requirement", () => {
+      expect(spec.paths["/"].get.security).toEqual([]);
+      expect(spec.paths["/me"].get.security).toBeUndefined();
+    });
   });
 
   it("should describe exactly the registered and explicitly deferred operations", () => {
@@ -210,7 +245,8 @@ describe("openapi.json and the wire schemas", () => {
       { name: "size", in: "query", required: false, schema: { type: "string" }, description: "Rows per page; defaults to 25 and is capped at 100." }
     ]);
     expect(operation.responses).toEqual({
-      "200": { description: "OK", content: { "*/*": { schema: { $ref: "#/components/schemas/GazetteNoticeHistoryResponse" } } } }
+      "200": { description: "OK", content: { "*/*": { schema: { $ref: "#/components/schemas/GazetteNoticeHistoryResponse" } } } },
+      "403": { $ref: "#/components/responses/Forbidden" }
     });
     expect(operation.description).toContain("Requires caseworker-deedpoll-delivery-manager");
     expect(operation.description).toContain("At most 100 references per batch");
@@ -510,6 +546,8 @@ interface OpenApiSpec {
   paths: Record<string, Record<string, OpenApiOperation>>;
   components: {
     schemas: Record<string, OpenApiSchema>;
+    /** Shared responses: today only `Forbidden`, api's documented 403. */
+    responses?: Record<string, { description?: string; content?: Record<string, { schema?: { $ref?: string } }> }>;
   };
 }
 
@@ -523,6 +561,8 @@ interface OpenApiSpec {
 interface OpenApiOperation {
   description?: string;
   responses?: Record<string, unknown>;
+  /** Present only where an operation overrides the global requirement, as `GET /` does with `[]`. */
+  security?: Record<string, string[]>[];
   parameters?: { name: string; in?: string; required?: boolean; description?: string; schema?: Record<string, unknown> }[];
 }
 

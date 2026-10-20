@@ -27,7 +27,6 @@ import type {
   WireSubmitGazette
 } from "./wire.js";
 import {
-  UNSPECIFIED_SCHEMAS,
   WIRE_SCHEMAS,
   type WireCallerAccess,
   type WireCaseDetail,
@@ -1073,7 +1072,7 @@ async function failureFromResponse(response: Response): Promise<ApiError> {
 
 function classifyFailure(response: Response, payload: unknown): ApiError {
   const status = response.status;
-  const parsed = UNSPECIFIED_SCHEMAS.ApiError.safeParse(payload);
+  const parsed = WIRE_SCHEMAS.ApiError.safeParse(payload);
   const message = parsed.success ? parsed.data.error : `deed-poll-api answered ${status}`;
   const fieldErrors = parsed.success ? (parsed.data.errors ?? []) : [];
 

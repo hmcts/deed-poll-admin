@@ -39,6 +39,9 @@
               }
             },
             "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "tags": ["caseworker-ccd-attempt-controller"]
@@ -67,6 +70,9 @@
               }
             },
             "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "tags": ["caseworker-ccd-attempt-controller"]
@@ -95,6 +101,9 @@
               }
             },
             "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "tags": ["caseworker-ccd-attempt-controller"]
