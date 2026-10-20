@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ConflictError, findGazetteSettings, InvalidInputError, saveGazetteSettings } from "@hmcts/deed-poll";
+import { ConflictError, ForbiddenError, findGazetteSettings, InvalidInputError, saveGazetteSettings, UnauthorizedError } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
@@ -73,30 +73,88 @@ describe("Gazette recipient page", () => {
     expect(findGazetteSettings).not.toHaveBeenCalled();
     expect(saveGazetteSettings).not.toHaveBeenCalled();
   });
-  it("should preserve typed data on conflict and require a reload before saving again", async () => {
+  it.each([
+    ["en", "The recipient has changed since you opened this page"],
+    ["cy", "Mae’r derbynnydd wedi newid ers i chi agor y dudalen hon"]
+  ])("should preserve typed data on conflict and require a reload in %s", async (locale, message) => {
     vi.mocked(saveGazetteSettings).mockRejectedValue(new ConflictError("private internal prose"));
-    const { res, markup } = await render({ recipientEmail: "draft@example.com", revision: "2" });
+    const values = { recipientEmail: "  draft@example.com  ", revision: "2" };
+    const { res, markup, model } = await render(values, locale);
     expect(res.status).toHaveBeenCalledWith(409);
-    expect(markup).toContain('value="draft@example.com"');
-    expect(markup).toContain("The recipient has changed since you opened this page");
+    expect(model.values).toEqual(values);
+    expect(model.errorList).toEqual([{ text: expect.stringContaining(message), href: "#reload-settings" }]);
+    expect(markup).toContain(message);
     expect(markup).not.toContain("private internal prose");
     expect(markup).not.toContain('type="submit"');
+    expect(saveGazetteSettings).toHaveBeenCalledTimes(1);
+    expect(findGazetteSettings).not.toHaveBeenCalled();
+    expect(res.redirect).not.toHaveBeenCalled();
   });
-  it("should translate local and API field errors into Welsh", async () => {
-    const local = await render({ recipientEmail: "bad", revision: "2" }, "cy");
-    expect(local.markup).toContain("Rhowch gyfeiriad e-bost dilys");
+  it.each([
+    ["en", "Enter a valid email address, like name@example.com"],
+    ["cy", "Rhowch gyfeiriad e-bost dilys, fel enw@enghraifft.com"]
+  ])("should translate local and API field errors into %s and allow correction", async (locale, message) => {
+    const local = await render({ recipientEmail: "bad", revision: "2" }, locale);
+    expect(local.markup).toContain(message);
     vi.mocked(saveGazetteSettings).mockRejectedValue(new InvalidInputError("internal", [{ field: "recipientEmail", message: "internal" }]));
-    const api = await render({ recipientEmail: "lg@example.com", revision: "2" }, "cy");
-    expect(api.markup).toContain("Derbynnydd y London Gazette");
-    expect(api.markup).toContain("Rhowch gyfeiriad e-bost dilys");
+    const values = { recipientEmail: "  lg@example.com  ", revision: "2" };
+    const api = await render(values, locale);
+    expect(api.res.status).toHaveBeenCalledWith(400);
+    expect(api.model).toMatchObject({
+      values,
+      emailError: message,
+      reloadRequired: false,
+      errorList: [{ text: message, href: "#recipientEmail" }]
+    });
+    expect(api.markup).toContain('type="submit"');
+    expect(api.markup).not.toContain("internal");
+    expect(saveGazetteSettings).toHaveBeenCalledTimes(1);
+    expect(findGazetteSettings).not.toHaveBeenCalled();
+    expect(api.res.redirect).not.toHaveBeenCalled();
+  });
+  it.each([
+    { locale: "en", errors: [] },
+    { locale: "cy", errors: [] },
+    { locale: "en", errors: [{ field: "revision", message: "private internal prose" }] },
+    { locale: "cy", errors: [{ field: "revision", message: "private internal prose" }] }
+  ])("should require a reload for an API rejection without an email field error ($locale, $errors)", async ({ locale, errors }) => {
+    vi.mocked(saveGazetteSettings).mockRejectedValue(new InvalidInputError("private internal prose", errors));
+    const values = { recipientEmail: "  draft@example.com  ", revision: "2" };
+
+    const { res, model, markup } = await render(values, locale);
+
+    const message =
+      locale === "cy"
+        ? "Ni ellid cadw’r derbynnydd. Ail-lwythwch y gosodiadau a rhowch gynnig arall arni."
+        : "The recipient could not be saved. Reload the settings and try again.";
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(model).toMatchObject({ values, reloadRequired: true, errorList: [{ text: message, href: "#reload-settings" }] });
+    expect(model.emailError).toBeUndefined();
+    expect(markup).toContain(message);
+    expect(markup).not.toContain("private internal prose");
+    expect(markup).not.toContain('type="submit"');
+    expect(saveGazetteSettings).toHaveBeenCalledTimes(1);
+    expect(findGazetteSettings).not.toHaveBeenCalled();
+    expect(res.redirect).not.toHaveBeenCalled();
   });
   it("should translate the saved notification title and content into Welsh", async () => {
     const { markup } = await render(undefined, "cy", { saved: "true" });
     expect(markup).toContain("Llwyddiant");
     expect(markup).toContain("Mae cyfeiriad e-bost y derbynnydd wedi’i gadw.");
   });
-  it("should let an outage reach the service error page, without reporting success", async () => {
-    vi.mocked(saveGazetteSettings).mockRejectedValue(new Error("unavailable"));
-    await expect(render({ recipientEmail: "lg@example.com", revision: "2" })).rejects.toThrow("unavailable");
-  });
+  it.each([new Error("unavailable"), new ForbiddenError("forbidden"), new UnauthorizedError("unauthorized")])(
+    "should propagate $name unchanged without rendering or reporting success",
+    async (error) => {
+      vi.mocked(saveGazetteSettings).mockRejectedValue(error);
+      const req = pageRequest({ accessToken: "admin-token", body: { recipientEmail: "lg@example.com", revision: "2" } });
+      const res = pageResponse();
+
+      await expect(POST(req, res)).rejects.toBe(error);
+
+      expect(res.render).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(saveGazetteSettings).toHaveBeenCalledTimes(1);
+      expect(findGazetteSettings).not.toHaveBeenCalled();
+    }
+  );
 });

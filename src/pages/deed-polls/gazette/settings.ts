@@ -84,25 +84,32 @@ export const POST = async (req: Request, res: Response) => {
   try {
     await saveGazetteSettings(parsed.data, callerFromRequest(req));
   } catch (error) {
-    if (error instanceof ConflictError) {
-      return render(res.status(409), values, {
-        reloadRequired: true,
-        errorList: [{ text: content.conflict, href: "#reload-settings" }]
-      });
-    }
-    if (error instanceof InvalidInputError) {
-      const emailError = error.errors.some((field) => field.field === "recipientEmail") ? content.invalid : undefined;
-      return render(res.status(400), values, {
-        emailError,
-        reloadRequired: !emailError,
-        errorList: [{ text: emailError ?? content.refused, href: emailError ? "#recipientEmail" : "#reload-settings" }]
-      });
-    }
-    throw error;
+    const { status, ...view } = saveErrorView(error, content);
+    return render(res.status(status), values, view);
   }
   res.redirect(`${PATH}?saved=true`);
 };
 
 function render(res: Response, values: { recipientEmail: string; revision: string }, extra: Record<string, unknown> = {}) {
   res.render("deed-polls/gazette/settings", { en, cy, values, ...extra });
+}
+
+function saveErrorView(error: unknown, content: typeof en) {
+  if (error instanceof ConflictError) {
+    return {
+      status: 409,
+      reloadRequired: true,
+      errorList: [{ text: content.conflict, href: "#reload-settings" }]
+    };
+  }
+  if (error instanceof InvalidInputError) {
+    const emailError = error.errors.some((field) => field.field === "recipientEmail") ? content.invalid : undefined;
+    return {
+      status: 400,
+      emailError,
+      reloadRequired: !emailError,
+      errorList: [{ text: emailError ?? content.refused, href: emailError ? "#recipientEmail" : "#reload-settings" }]
+    };
+  }
+  throw error;
 }
