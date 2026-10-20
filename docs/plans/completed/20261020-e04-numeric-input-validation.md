@@ -238,6 +238,31 @@ Across the plan: app +43 (2328 → 2371), deed-poll +7 (1275 → 1282). `yarn we
 unchanged baseline (727 strings, 510 identical in cy), so the plan's translation delta is zero. Every test here mocks
 persistence (`findDeedPoll`/`updateDeedPoll`, or the adapter). No live api or database update was performed.
 
+### Review fixes and final verification (Arbor, 20 October 2026)
+
+**The Copilot external review found a render-side defect.**
+- **The defect:** stored numbers were rendered with `String()`, so values below 1e-6 or from 1e21 reopened in
+  exponent notation, which the parser refuses on purpose. An unchanged save therefore returned 400.
+- **What ralphex did:** its evaluation step wrote the fix but left it **uncommitted**, ran only the library's tests,
+  and logged "no more findings".
+- **Fix:** reviewed and committed in `fa08e82`. Stored numbers now render as plain decimals, and submitted text is
+  still replayed as typed. Its render-then-resubmit tests failed without the fix.
+
+**The direct Copilot review then found two more issues.**
+1. **Fixed in `d782c86`.** Plain decimal stops at 100 fractional digits, so a stored `1e-101` rendered as `0`, and an
+   unchanged save would have overwritten the stored value. Such a value now renders as stored, so the save is
+   refused, never rewritten. The tests failed first.
+2. **Accepted as the existing convention.** The new field-error messages are English-only. Like the date-part
+   messages, they're domain strings outside the Welsh extractor's scope, as the "Numeric case-form input" section of
+   CLAUDE.md records. Translating field errors would be a separate, form-wide change.
+
+**Final validation at `d782c86`, with `REDIS_URL=redis://127.0.0.1:6379`:**
+- `yarn lint`: clean.
+- `yarn turbo build build:app --force`: passes, including from a fresh `git worktree add` checkout.
+- `yarn turbo test test:app --concurrency=1 --force`: **221 files, 4,795 tests**, 0 failures, 0 skips. The baseline
+  was 219 / 4,665.
+- `yarn welsh:check`: 727 strings, 510 identical, unchanged from the baseline (delta zero, as above).
+
 ## Post-Completion
 
 Hand the reviewed branch and evidence to Steve. Publishing, merging and deployment are separate actions.
