@@ -47,13 +47,15 @@ import {
   type WireGazetteNoticeBatch,
   type WireGazetteNoticeHistory,
   type WireGazetteSettings,
+  type WireJudicialApplicationView,
   type WireJudicialCaseNote,
-  type WireJudicialCaseView,
   type WireJudicialDirection,
+  type WireJudicialDocument,
   type WireJudicialMyReferrals,
   type WireJudicialPool,
   type WireJudicialReferralDetail,
   type WireJudicialReferralSummary,
+  type WireJudicialWitness,
   type WireNote,
   type WireRecordConfirmation,
   type WireReferral,
@@ -390,8 +392,22 @@ export function uploadDocument(caseId: string, upload: DocumentUpload, config: A
  * after the headers are sent does not fail the download — it truncates it, which no error page can undo.
  * What replaces the whole-exchange bound is a per-read one: see `bounded`.
  */
-export async function downloadDocument(caseId: string, documentId: string, config: ApiConfig): Promise<ApiResult<DocumentDownload>> {
-  const path = `/caseworker/cases/${encodeURIComponent(caseId)}/documents/${encodeURIComponent(documentId)}/file`;
+export function downloadDocument(caseId: string, documentId: string, config: ApiConfig): Promise<ApiResult<DocumentDownload>> {
+  return download(config, `/caseworker/cases/${encodeURIComponent(caseId)}/documents/${encodeURIComponent(documentId)}/file`);
+}
+
+/**
+ * Fetch one of a referral's supporting documents for the judge who may see it, streamed exactly as
+ * {@link downloadDocument} is and with the same four headers, because api serves both with the same policy.
+ *
+ * `not-found` for a referral this judge may not see and for a document that is not on its application, and the
+ * two are indistinguishable on purpose: see {@link getJudicialReferral}.
+ */
+export function downloadJudicialDocument(referralId: string, documentId: string, config: ApiConfig): Promise<ApiResult<DocumentDownload>> {
+  return download(config, `${judicialReferralPath(referralId)}/documents/${encodeURIComponent(documentId)}/file`);
+}
+
+async function download(config: ApiConfig, path: string): Promise<ApiResult<DocumentDownload>> {
   const sent = await send(config, "GET", path, undefined, "*/*", true);
   if (!sent.ok) return sent;
 
@@ -689,8 +705,8 @@ export function getJudicialMyReferrals(query: JudicialPoolQuery, config: ApiConf
 }
 
 /**
- * One referral as the judge who may see it reads it: the referral, the narrow application view and the
- * application's timeline, in one call because they are one screen.
+ * One referral as the judge who may see it reads it: the referral, the application with its witnesses and
+ * documents, and the application's timeline, in one call because they are one screen.
  *
  * `not-found` for a referral this judge may not see — an `Open` one is visible to any of them, a claimed or
  * decided one only to its holder — and indistinguishable from an id that never existed, so no referral is
@@ -721,6 +737,29 @@ export function claimJudicialReferral(referralId: string, config: ApiConfig): Pr
  */
 export function directJudicialReferral(referralId: string, direction: JudicialDirection, config: ApiConfig): Promise<ApiResult<JudicialReferralDetail>> {
   return request(config, "POST", `${judicialReferralPath(referralId)}/direction`, WIRE_SCHEMAS.JudicialReferralDetail, direction);
+}
+
+/**
+ * Replace the direction this judge gave, while the referral is `Decided` and before the office closes it. The
+ * body is {@link directJudicialReferral}'s, refused in the same words.
+ *
+ * `conflict` for a visible referral that is not this judge's direction — one in the pool, or their own claim not
+ * yet directed — and `not-found` once it is closed, so neither refusal can say anyone else directed it. api keeps
+ * the earlier direction on its audit trail, writes the caseworker a case note and sets `directionChangedAt`.
+ */
+export function reviseDirection(referralId: string, direction: JudicialDirection, config: ApiConfig): Promise<ApiResult<JudicialReferralDetail>> {
+  return request(config, "PUT", `${judicialReferralPath(referralId)}/direction`, WIRE_SCHEMAS.JudicialReferralDetail, direction);
+}
+
+/**
+ * Take back the direction this judge gave so they can direct again. No body. The referral returns to `Claimed`,
+ * held by the same judge with the direction cleared, and is directed again with {@link directJudicialReferral}.
+ *
+ * The refusals are {@link reviseDirection}'s. A withdrawn direction is a live claim again, so api's inactivity
+ * sweep may return it to the pool if it is not directed.
+ */
+export function withdrawDirection(referralId: string, config: ApiConfig): Promise<ApiResult<JudicialReferralDetail>> {
+  return request(config, "POST", `${judicialReferralPath(referralId)}/direction/withdraw`, WIRE_SCHEMAS.JudicialReferralDetail);
 }
 
 /**
@@ -1179,7 +1218,7 @@ export type ReferralCreate = WireReferralCreate;
 export type RecordConfirmation = WireRecordConfirmation;
 /**
  * The judicial read types, which are a separate vocabulary from the caseworker ones rather than narrower
- * versions of them — api publishes different records, and `JudicialCaseView` is deliberately not a subset of a
+ * versions of them — api publishes different records, and `JudicialApplicationView` is deliberately not a subset of a
  * case (see `wire.ts`).
  */
 export type JudicialPool = WireJudicialPool;
@@ -1190,7 +1229,9 @@ export type JudicialPool = WireJudicialPool;
 export type JudicialMyReferrals = WireJudicialMyReferrals;
 export type JudicialReferralSummary = WireJudicialReferralSummary;
 export type JudicialReferralDetail = WireJudicialReferralDetail;
-export type JudicialCaseView = WireJudicialCaseView;
+export type JudicialApplicationView = WireJudicialApplicationView;
+export type JudicialWitness = WireJudicialWitness;
+export type JudicialDocument = WireJudicialDocument;
 export type JudicialCaseNote = WireJudicialCaseNote;
 export type JudicialDirection = WireJudicialDirection;
 /**

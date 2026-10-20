@@ -1,33 +1,36 @@
 {% extends "layouts/app.njk" %}
 {% from "govuk/components/summary-list/macro.njk" import govukSummaryList %}
+{% from "govuk/components/table/macro.njk" import govukTable %}
 {% from "govuk/components/tag/macro.njk" import govukTag %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
 {% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
 
 {#
-  One referral, its application and its timeline — read-only apart from the two controls a judge has.
+  One referral, its application and its timeline — read-only apart from the controls a judge has.
 
   Three things this template deliberately does not have. No link to the case: api's judicial surface takes no
   case id, so there is nowhere to link to. No "add note" control: a judge's writes are exactly claim and direct.
-  And no field that is not on the view model — the application panel is `JudicialCaseView` and nothing else,
-  which is the disclosure boundary made visual (decision 4).
+  And no field that is not on the view model — the application panel is `JudicialApplicationView` and nothing
+  else, which is the disclosure boundary made visual.
 
   The claim control is a form because it changes something; "Record a direction" is a link because it opens a
-  page. Each appears only in the state it belongs to, and api re-checks both regardless.
+  page, as are change and withdraw on a decided one. Each appears only in the state it belongs to, and api
+  re-checks every one regardless.
 #}
 {% block content %}
 <div class="govuk-grid-row">
   <div class="govuk-grid-column-two-thirds">
 
     {#
-      What a redirect sent the judge back with. A success banner for a recorded direction — it is not a correction
+      What a redirect sent the judge back with. A success banner for a recorded, changed or withdrawn direction — not a correction
       to anything on the page, which is what a banner is for — and an error summary for a write api refused
-      because of the state below: a direction on a referral no longer theirs, or a claim on one already theirs.
+      because of the state below: a direction on a referral no longer theirs, a claim on one already theirs, or a
+      change to a direction they have not given.
       Both refusals are one `refused` key, since a judge arrives through one door or the other and never both.
     #}
-    {% if directionRecorded %}
-      {% set recordedHtml %}<p class="govuk-notification-banner__heading">{{ directionRecorded }}</p>{% endset %}
+    {% if directionBanner %}
+      {% set recordedHtml %}<p class="govuk-notification-banner__heading">{{ directionBanner }}</p>{% endset %}
       {{ govukNotificationBanner({ type: "success", titleText: successTitle, html: recordedHtml }) }}
     {% endif %}
     {% if refused %}
@@ -38,15 +41,66 @@
     <h1 class="govuk-heading-xl govuk-!-margin-bottom-6">{{ heading }}</h1>
 
     <h2 class="govuk-heading-m">{{ applicationHeading }}</h2>
+    {#
+      Read-only, and built from the judicial view model alone: the sections are the caseworker page's groups and
+      labels, but no edit, upload, delete or email control is offered. Each document's href is the handler's.
+    #}
     {% if referral.application %}
-      {{ govukSummaryList({
-        rows: [
-          { key: { text: referenceLabel }, value: { text: referral.application.reference } },
-          { key: { text: typeLabel }, value: { text: referral.application.type } },
-          { key: { text: oldNameLabel }, value: { text: referral.application.oldName } },
-          { key: { text: newNameLabel }, value: { text: referral.application.newName } }
-        ]
-      }) }}
+      {% for section in referral.application.sections %}
+        {% if section.rows.length %}
+          {% set sectionRows = [] %}
+          {% for row in section.rows %}
+            {% set sectionRows = (sectionRows.push({ key: { text: row.key }, value: { text: row.value } }), sectionRows) %}
+          {% endfor %}
+          <h3 class="govuk-heading-s">{{ section.label }}</h3>
+          {{ govukSummaryList({ rows: sectionRows }) }}
+        {% endif %}
+      {% endfor %}
+
+      {% if referral.application.previousReferral %}
+        {% set previousRows = [] %}
+        {% for row in referral.application.previousReferral.rows %}
+          {% set previousRows = (previousRows.push({ key: { text: row.key }, value: { text: row.value } }), previousRows) %}
+        {% endfor %}
+        <h3 class="govuk-heading-s">{{ previousReferralHeading }}</h3>
+        {{ govukSummaryList({ rows: previousRows }) }}
+      {% endif %}
+
+      <h3 class="govuk-heading-s">{{ witnessesHeading }}</h3>
+      {% if referral.application.witnesses.length %}
+        {% for witness in referral.application.witnesses %}
+          {{ govukSummaryList({
+            rows: [
+              { key: { text: witnessNameLabel }, value: { text: witness.name } },
+              { key: { text: witnessAddressLabel }, value: { text: witness.address } },
+              { key: { text: witnessOccupationLabel }, value: { text: witness.occupation } },
+              { key: { text: witnessDeclarantLabel }, value: { text: yes if witness.declarant else no } }
+            ]
+          }) }}
+        {% endfor %}
+      {% else %}
+        <p class="govuk-body">{{ witnessesEmpty }}</p>
+      {% endif %}
+
+      <h3 class="govuk-heading-s">{{ documentsHeading }}</h3>
+      {% if documents.length %}
+        {% set documentRows = [] %}
+        {% for document in documents %}
+          {% set nameCell %}<a class="govuk-link" href="{{ document.href }}">{{ document.name }}</a>{% endset %}
+          {% set documentRows = (documentRows.push([
+            { html: nameCell },
+            { text: document.type },
+            { text: document.uploadedOn },
+            { text: document.size }
+          ]), documentRows) %}
+        {% endfor %}
+        {{ govukTable({
+          head: [{ text: documentNameColumn }, { text: documentTypeColumn }, { text: documentUploadedColumn }, { text: documentSizeColumn }],
+          rows: documentRows
+        }) }}
+      {% else %}
+        <p class="govuk-body">{{ documentsEmpty }}</p>
+      {% endif %}
     {% else %}
       <p class="govuk-body">{{ applicationMissing }}</p>
     {% endif %}
@@ -138,6 +192,11 @@
       </form>
     {% elif referral.directable %}
       {{ govukButton({ text: direct, href: directionHref }) }}
+    {% elif referral.changeable %}
+      <ul class="govuk-list">
+        <li><a class="govuk-link" href="{{ changeHref }}">{{ changeDirection }}</a></li>
+        <li><a class="govuk-link" href="{{ withdrawHref }}">{{ withdrawDirection }}</a></li>
+      </ul>
     {% endif %}
 
     {#

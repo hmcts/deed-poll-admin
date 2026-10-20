@@ -330,6 +330,9 @@ const referralSchema = z.object({
   publishToGazette: z.boolean().nullish(),
   decisionDate: wireDateTime.nullish(),
   decidedBy: z.string().nullish(),
+  // Set when the judge changes or withdraws their direction, and never cleared: the caseworker's cue that the
+  // direction they may already have acted on is not the one first given.
+  directionChangedAt: wireDateTime.nullish(),
   confirmationRequestedAt: wireDateTime.nullish(),
   confirmationOutcome: z.enum(CONFIRMATION_OUTCOME).nullish(),
   confirmationReceivedAt: wireDateTime.nullish(),
@@ -634,30 +637,104 @@ const updateSavedQuerySchema = z.object({
 });
 
 /**
- * The application behind a referral, as api's `/judicial/**` surface publishes it: eight fields, and
- * deliberately not a case.
+ * One witness to the application, as a judge reads it. No id, because no judicial route accepts one, and no
+ * audit columns.
+ */
+const judicialWitnessSchema = z.object({
+  witnessName: z.string().nullish(),
+  witnessAddress: z.string().nullish(),
+  witnessOccupation: z.string().nullish(),
+  declarant: z.boolean()
+});
+
+/**
+ * One supporting document a judge may open. api lists only documents with a readable file, so there is no
+ * `hasFile`: every row is downloadable through `GET /judicial/referrals/{referralId}/documents/{id}/file`.
+ *
+ * `documentType` is the type's name, flattened, where the caseworker document nests the whole type record —
+ * the judicial surface has no use for its applicability lists. `id` is strict for `documentSchema`'s reason: a
+ * row with no id is not one a page can link to.
+ */
+const judicialDocumentSchema = z.object({
+  id: z.string(),
+  name: z.string().nullish(),
+  documentType: z.string().nullish(),
+  direction: z.enum(DOCUMENT_DIRECTION).nullish(),
+  mimeType: z.string().nullish(),
+  sizeBytes: z.int().nullish(),
+  uploadedOn: wireDateTime.nullish()
+});
+
+/**
+ * The application behind a referral, as api's `/judicial/**` surface publishes it: its details, witnesses and
+ * readable documents (api#118, superseding the eight-field `JudicialCaseView`), and deliberately not a case.
  *
  * **Never modelled as a subset of the case schemas**, which is api's own rule — its
  * `NamespaceSeparationSecurityTest` asserts the two records are unrelated in bytecode, because the failure it
  * guards against is a field added to the caseworker response for a caseworker reason silently appearing here.
  * A separate schema means the same is true of this adapter: widening the judicial view is an edit to this
- * object, not a side effect of one to `savedCaseSchema`.
+ * object, not a side effect of one to `savedCaseSchema`. That is why the fields are restated rather than
+ * picked from `savedCaseSchema`, and why no payment, refund or fee field is here: api publishes none.
  *
  * There is no case id, and that is api's decision 2 rather than an omission: the judicial surface is keyed on
  * the referral so a judge cannot name an application. `displayReference` is what a direction quotes and is not
- * an id api accepts anywhere. All six name components travel together because a deed poll is about the whole
- * name — showing the first and last parts of "John Peter Smith" to "John Peter Smyth" would hide the only part
- * that moved.
+ * an id api accepts anywhere.
  */
-const judicialCaseViewSchema = z.object({
+const judicialApplicationViewSchema = z.object({
   displayReference: z.string().nullish(),
   type: z.enum(DEED_POLL_TYPE).nullish(),
+  state: z.enum(DEED_POLL_STATE).nullish(),
+  privacy: z.enum(PRIVACY).nullish(),
+  urgency: z.enum(URGENCY).nullish(),
+  urgencyreason: z.string().nullish(),
+  inPerson: z.boolean().nullish(),
+  maritalStatus: z.enum(MARITAL_STATUS).nullish(),
+
   oldForename: z.string().nullish(),
   oldMiddleName: z.string().nullish(),
   oldSurname: z.string().nullish(),
   newForename: z.string().nullish(),
   newMiddleName: z.string().nullish(),
-  newSurname: z.string().nullish()
+  newSurname: z.string().nullish(),
+
+  applicantBuildingNoName: z.string().nullish(),
+  applicantEmail: z.string().nullish(),
+  applicantTelephone: z.string().nullish(),
+  applicantTownCity: z.string().nullish(),
+  applicantPostcode: z.string().nullish(),
+
+  representativeName: z.string().nullish(),
+  representativeBuildingNoName: z.string().nullish(),
+  representativeCompany: z.string().nullish(),
+  representativeEmail: z.string().nullish(),
+  representativeTelephone: z.string().nullish(),
+  representativeTownCity: z.string().nullish(),
+  representativePostcode: z.string().nullish(),
+
+  ageOfMinor: z.int().nullish(),
+  ageOfMinorMonths: z.int().nullish(),
+  minorDateOfBirth: wireDateTime.nullish(),
+  parents: z.string().nullish(),
+
+  nationality: z.enum(NATIONALITY).nullish(),
+  nationalitySection: z.enum(NATIONALITY_SECTION).nullish(),
+  nationalitySectionOther: z.string().nullish(),
+
+  dateOfDeclaration: wireDateTime.nullish(),
+  dateOfApplication: wireDateTime.nullish(),
+  dateReceived: wireDateTime.nullish(),
+  awaitingFurtherDocsInfo: wireDateTime.nullish(),
+
+  referToMasterChoice: z.enum(REFER_TO_MASTER).nullish(),
+  masterName: z.string().nullish(),
+  masterDirections: z.string().nullish(),
+  masterDecision: z.enum(MASTER_DECISION).nullish(),
+  masterDateOfDecision: wireDateTime.nullish(),
+  dateDecisionDirectionsReceived: wireDateTime.nullish(),
+  referralNotes: z.string().nullish(),
+
+  witnesses: z.array(judicialWitnessSchema),
+  documents: z.array(judicialDocumentSchema)
 });
 
 /**
@@ -717,7 +794,10 @@ const judicialReferralDetailSchema = judicialReferralSummarySchema.extend({
   publishToGazette: z.boolean().nullish(),
   decisionDate: wireDateTime.nullish(),
   decidedBy: z.string().nullish(),
-  application: judicialCaseViewSchema.nullish(),
+  // When the judge last changed or withdrew their direction; null while it stands as first given. Never
+  // cleared, because it is a fact about the referral's history.
+  directionChangedAt: wireDateTime.nullish(),
+  application: judicialApplicationViewSchema.nullish(),
   caseNotes: z.array(judicialCaseNoteSchema)
 });
 
@@ -1124,7 +1204,9 @@ export const WIRE_SCHEMAS = {
   JudicialMyReferralsResponse: judicialMyReferralsSchema,
   JudicialReferralSummary: judicialReferralSummarySchema,
   JudicialReferralDetail: judicialReferralDetailSchema,
-  JudicialCaseView: judicialCaseViewSchema,
+  JudicialApplicationView: judicialApplicationViewSchema,
+  JudicialWitness: judicialWitnessSchema,
+  JudicialDocument: judicialDocumentSchema,
   JudicialCaseNote: judicialCaseNoteSchema,
   CaseEmailsResponse: caseEmailsSchema,
   EmailTypeResponse: emailTypeSchema,
@@ -1219,9 +1301,13 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   // `note` for the reason `NoteResponse.note` is pinned: the column is NOT NULL. No id, because no judicial
   // route accepts one.
   JudicialCaseNote: ["note"],
-  // Empty, and correctly so: no id, no primitive and no collection. Every one of the eight fields is a
-  // nullable column of the application.
-  JudicialCaseView: [],
+  // The two lists and nothing else: api builds both with `toList()`, so an application with no witnesses or no
+  // readable documents arrives with `[]`. Every other field is a nullable column of the application.
+  JudicialApplicationView: ["witnesses", "documents"],
+  // `declarant` is a `boolean` primitive on api's record, as it is on `WitnessResponse`. No id to pin.
+  JudicialWitness: ["declarant"],
+  // `id` by choice, as `DocumentResponse.id` is: a row with no id is not one a page can link to.
+  JudicialDocument: ["id"],
   // All three are `stream().toList()` at the source, so an empty one arrives as `[]`.
   CaseEmailsResponse: ["availability", "history", "slotDefaults"],
   // `applicable` and `provisioned` are `boolean` primitives and `slots` a `toList()`. `template` is NOT here,
@@ -1270,7 +1356,9 @@ export type WireJudicialPool = z.infer<typeof judicialPoolSchema>;
 export type WireJudicialMyReferrals = z.infer<typeof judicialMyReferralsSchema>;
 export type WireJudicialReferralSummary = z.infer<typeof judicialReferralSummarySchema>;
 export type WireJudicialReferralDetail = z.infer<typeof judicialReferralDetailSchema>;
-export type WireJudicialCaseView = z.infer<typeof judicialCaseViewSchema>;
+export type WireJudicialApplicationView = z.infer<typeof judicialApplicationViewSchema>;
+export type WireJudicialWitness = z.infer<typeof judicialWitnessSchema>;
+export type WireJudicialDocument = z.infer<typeof judicialDocumentSchema>;
 export type WireJudicialCaseNote = z.infer<typeof judicialCaseNoteSchema>;
 export type WireJudicialDirection = z.input<typeof judicialDirectionSchema>;
 export type WireCaseEmails = z.infer<typeof caseEmailsSchema>;

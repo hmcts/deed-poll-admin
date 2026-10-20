@@ -80,6 +80,9 @@ const en = {
   // The third state of api's nullish `publishToGazette`, said rather than collapsed into "No": a direction it
   // recorded no answer for must not read as one directed against publication.
   gazetteNotRecorded: "Not recorded",
+  // api sets `directionChangedAt` when the judge changes or withdraws their direction, and writes the case note
+  // that says which. This says only that it happened and when: the earlier direction is on api's audit trail.
+  directionChangedFor: (changedOn: string) => `The judge changed this direction on ${changedOn}.`,
   withdraw: "Withdraw this referral",
   withdrawHint: "Withdrawing takes the case back from the judiciary. You can refer it again afterwards.",
   markActioned: "Mark direction as actioned",
@@ -149,6 +152,9 @@ export const GET = async (req: Request, res: Response) => {
     // boolean for the page's own `en`/`cy` to name — and because the three states are one decision worth
     // making somewhere testable rather than in a template ternary. Same shape as the judicial referral page.
     gazetteAnswer: gazetteAnswer(view.direction?.publishToGazette, content),
+    // Resolved here because the sentence interpolates the date. Empty rather than null, so the template asks "is
+    // there something to say".
+    directionChanged: view.directionChangedOn === null ? "" : content.directionChangedFor(view.directionChangedOn),
     // A refused withdrawal, rendered as a message on the referral it was refused for. Which message depends on
     // the state api has just published, so the sentence and the page agree — and so a `Decided` referral is not
     // described as one the caseworker has already withdrawn.

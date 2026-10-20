@@ -4,6 +4,7 @@
 {% from "govuk/components/button/macro.njk" import govukButton %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
 {% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
+{% from "govuk/components/inset-text/macro.njk" import govukInsetText %}
 
 {#
   One referral, read-only apart from the one control its state allows. The rows are the referral's own fields and
@@ -113,7 +114,13 @@
 
       "Decided by" is the judicial author and stays that way after closure, which changes only the modifier
       above.
+
+      The change notice sits outside that condition: a withdrawn direction leaves no section, and the caseworker
+      is still owed the notice that the judge took it back.
     #}
+    {% if directionChanged %}
+      {{ govukInsetText({ text: directionChanged }) }}
+    {% endif %}
     {% if referral.direction %}
       <h2 class="govuk-heading-m">{{ directionHeading }}</h2>
       {{ govukSummaryList({

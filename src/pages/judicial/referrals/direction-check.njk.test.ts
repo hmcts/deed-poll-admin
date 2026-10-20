@@ -56,15 +56,17 @@ const detail = (): JudicialReferralDetail =>
       oldSurname: "Smith",
       newForename: "John",
       newMiddleName: null,
-      newSurname: "Smyth"
+      newSurname: "Smyth",
+      witnesses: [],
+      documents: []
     },
     caseNotes: []
   }) as JudicialReferralDetail;
 
 /** The check step for a direction the judge has just filled in. */
-const renderCheck = async (body: Record<string, unknown>): Promise<string> => {
+const renderCheck = async (body: Record<string, unknown>, query: Record<string, unknown> = {}): Promise<string> => {
   const res = pageResponse();
-  await POST(pageRequest({ params: { referralId: "ref-1" }, body, judicial: true, accessToken: "judge-token" }), res);
+  await POST(pageRequest({ params: { referralId: "ref-1" }, query, body, judicial: true, accessToken: "judge-token" }), res);
   const model = res.render.mock.calls[0][1];
 
   return environment.render("judicial/referrals/direction-check.njk", { ...model.en, ...model });
@@ -139,7 +141,7 @@ describe("direction check-your-answers template", () => {
     const html = await renderCheck(DIRECTION);
 
     expect(html).toContain("By recording this direction you confirm it is your direction on this application.");
-    expect(html).toContain("You cannot change a direction once it is recorded.");
+    expect(html).toContain("You can change or withdraw your direction until the office closes the referral.");
     expect(html).not.toContain('type="checkbox"');
   });
 
@@ -157,5 +159,27 @@ describe("direction check-your-answers template", () => {
     const html = await renderCheck({ ...DIRECTION, directionsText: '"><script>alert(1)</script>' });
 
     expect(html).not.toContain("<script>alert(1)</script>");
+  });
+
+  describe("when changing a direction", () => {
+    beforeEach(() => {
+      vi.mocked(getReferral).mockResolvedValue({ ...detail(), state: "Decided", decision: "Approved", publishToGazette: false } as never);
+    });
+
+    it("should say change in the heading, the declaration and the confirm, and that the earlier direction is kept", async () => {
+      const html = await renderCheck(DIRECTION, { change: "1" });
+
+      expect(html).toMatch(/<h1[^>]*>Check your changed direction<\/h1>/);
+      expect(html).toContain("By changing this direction you confirm it is your direction on this application.");
+      expect(html).toContain("Your earlier direction stays on record, and the office is told you changed it.");
+      expect(html).toContain("Confirm and change the direction");
+      expect(html).not.toContain("Confirm and record the direction");
+    });
+
+    it("should post both the confirm and the way back to the change route", async () => {
+      const html = await renderCheck(DIRECTION, { change: "1" });
+
+      expect(html).toContain('action="/judicial/referrals/ref-1/direction?change=1"');
+    });
   });
 });

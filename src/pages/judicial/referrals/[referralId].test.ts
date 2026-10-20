@@ -30,12 +30,21 @@ const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferr
     application: {
       displayReference: "KBDP2026-00001",
       type: "Minor",
+      privacy: "Private",
       oldForename: "John",
       oldMiddleName: "Peter",
       oldSurname: "Smith",
       newForename: "John",
       newMiddleName: "Peter",
-      newSurname: "Smyth"
+      newSurname: "Smyth",
+      applicantTownCity: "Leeds",
+      representativeCompany: "Solicitors LLP",
+      nationality: "BritishCitizen",
+      dateOfDeclaration: new Date("2026-08-20T00:00:00Z"),
+      witnesses: [{ witnessName: "Mary Jones", witnessAddress: "1 High Street, Leeds", witnessOccupation: "Solicitor", declarant: true }],
+      documents: [
+        { id: "doc-1", name: "birth-certificate.pdf", documentType: "Birth certificate", sizeBytes: 245_760, uploadedOn: new Date("2026-09-02T10:15:00Z") }
+      ]
     },
     caseNotes: [{ note: "Chased the declarant", createdBy: "A Caseworker", createdOn: new Date("2026-09-02T14:30:00Z") }],
     ...overrides
@@ -82,17 +91,38 @@ describe("the judicial referral page", () => {
     expect(getReferral).toHaveBeenCalledTimes(1);
   });
 
-  it("should render the narrow application view and nothing beside it", async () => {
+  it("should render the application view built from the judicial DTO", async () => {
     const res = pageResponse();
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].referral.application).toEqual({
-      reference: "KBDP2026-00001",
-      type: "Minor",
-      oldName: "John Peter Smith",
-      newName: "John Peter Smyth"
-    });
+    const application = res.render.mock.calls[0][1].referral.application;
+    expect(application.reference).toBe("KBDP2026-00001");
+    expect(application.sections.map((section: { label: string }) => section.label)).toContain("Names");
+    expect(application.witnesses).toEqual([{ name: "Mary Jones", address: "1 High Street, Leeds", occupation: "Solicitor", declarant: true }]);
+  });
+
+  // Built here with the path helpers rather than in the template (CLAUDE.md "Redirect paths").
+  it("should build each document's download link under the referral, encoding the document id", async () => {
+    vi.mocked(getReferral).mockResolvedValue(
+      detail({ application: { ...detail().application, documents: [{ id: "doc/1", name: "a.pdf" }] } as JudicialReferralDetail["application"] }) as never
+    );
+    const res = pageResponse();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].documents).toEqual([
+      expect.objectContaining({ name: "a.pdf", href: "/judicial/referrals/ref-1/documents/doc%2F1/file" })
+    ]);
+  });
+
+  it("should offer no document links when api sent no application", async () => {
+    vi.mocked(getReferral).mockResolvedValue(detail({ application: null }) as never);
+    const res = pageResponse();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].documents).toEqual([]);
   });
 
   it("should render the referral's own fields as the judge reads them", async () => {
@@ -144,6 +174,20 @@ describe("the judicial referral page", () => {
     });
   });
 
+  // Decision 5 and 6: api shows a Decided referral only to the judge who directed it, so the state is the answer.
+  it("should offer change and withdraw on a referral this judge has directed", async () => {
+    vi.mocked(getReferral).mockResolvedValue(decided() as never);
+    const res = pageResponse();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1]).toMatchObject({
+      referral: expect.objectContaining({ claimable: false, directable: false, changeable: true }),
+      changeHref: "/judicial/referrals/ref-1/direction?change=1",
+      withdrawHref: "/judicial/referrals/ref-1/withdraw"
+    });
+  });
+
   it("should escape a referral id in the URLs it builds, because both are paths api gave it", async () => {
     const res = pageResponse();
 
@@ -151,7 +195,9 @@ describe("the judicial referral page", () => {
 
     expect(res.render.mock.calls[0][1]).toMatchObject({
       claimHref: "/judicial/referrals/ref%201%2F..%2Fevil/claim",
-      directionHref: "/judicial/referrals/ref%201%2F..%2Fevil/direction"
+      directionHref: "/judicial/referrals/ref%201%2F..%2Fevil/direction",
+      changeHref: "/judicial/referrals/ref%201%2F..%2Fevil/direction?change=1",
+      withdrawHref: "/judicial/referrals/ref%201%2F..%2Fevil/withdraw"
     });
   });
 
@@ -280,7 +326,7 @@ describe("the judicial referral page", () => {
 
       await GET(request("ref-1", { direction: "recorded" }), res);
 
-      expect(res.render.mock.calls[0][1].directionRecorded).toBe("Your direction has been recorded.");
+      expect(res.render.mock.calls[0][1].directionBanner).toBe("Your direction has been recorded.");
       expect(res.render.mock.calls[0][1].refused).toBe("");
     });
 
@@ -291,7 +337,7 @@ describe("the judicial referral page", () => {
 
       await GET(request("ref-1", { direction: "recorded" }), res);
 
-      expect(res.render.mock.calls[0][1].directionRecorded).toBe("");
+      expect(res.render.mock.calls[0][1].directionBanner).toBe("");
     });
 
     // api's 409: visible, but not in this judge's hands — it went back to the pool, or they have already directed
@@ -302,7 +348,7 @@ describe("the judicial referral page", () => {
       await GET(request("ref-1", { direction: "notheld" }), res);
 
       expect(res.render.mock.calls[0][1].refused).toBe("This referral is not waiting for a direction from you. Check its status below.");
-      expect(res.render.mock.calls[0][1].directionRecorded).toBe("");
+      expect(res.render.mock.calls[0][1].directionBanner).toBe("");
     });
 
     // api's 409 on a *claim*, which its visibility narrows to a referral this judge already holds or has already
@@ -314,16 +360,55 @@ describe("the judicial referral page", () => {
       await GET(request("ref-1", { claim: "held" }), res);
 
       expect(res.render.mock.calls[0][1].refused).toBe("This referral is not waiting to be claimed. Check its status below.");
-      expect(res.render.mock.calls[0][1].directionRecorded).toBe("");
+      expect(res.render.mock.calls[0][1].directionBanner).toBe("");
     });
 
-    it("should name no other judge in either refusal, because api does not say who holds it", async () => {
-      for (const query of [{ direction: "notheld" }, { claim: "held" }]) {
+    it("should say the direction was changed when it has just been", async () => {
+      vi.mocked(getReferral).mockResolvedValue(decided() as never);
+      const res = pageResponse();
+
+      await GET(request("ref-1", { direction: "changed" }), res);
+
+      expect(res.render.mock.calls[0][1].directionBanner).toBe("Your direction has been changed.");
+    });
+
+    // Withdrawn leaves the referral Claimed by this judge, so the banner points at the direction form below it.
+    it("should say the direction was withdrawn when the referral is waiting for a new one", async () => {
+      vi.mocked(getReferral).mockResolvedValue(detail({ state: "Claimed", claimedAt: new Date("2026-09-04T10:00:00Z") }) as never);
+      const res = pageResponse();
+
+      await GET(request("ref-1", { direction: "withdrawn" }), res);
+
+      expect(res.render.mock.calls[0][1].directionBanner).toBe("Your direction has been withdrawn. Record a new direction.");
+    });
+
+    // Each banner asserts a write, so the state api sent must agree with it, as for a recorded direction.
+    it("should say nothing when the query claims a change or withdrawal the state does not bear out", async () => {
+      for (const query of [{ direction: "changed" }, { direction: "withdrawn" }]) {
         const res = pageResponse();
 
         await GET(request("ref-1", query), res);
 
-        expect(res.render.mock.calls[0][1].refused).not.toMatch(/claimed by|belongs to|held by|another judge|already been claimed/i);
+        expect(res.render.mock.calls[0][1].directionBanner).toBe("");
+      }
+    });
+
+    // Decision 7: api's 409 on change or withdraw is a visible referral that is not this judge's direction.
+    it("should say there is no direction from this judge to change when api refused a change or withdrawal", async () => {
+      const res = pageResponse();
+
+      await GET(request("ref-1", { direction: "notchangeable" }), res);
+
+      expect(res.render.mock.calls[0][1].refused).toBe("This referral does not have a direction from you to change or withdraw. Check its status below.");
+    });
+
+    it("should name no other judge in any refusal, because api does not say who holds it", async () => {
+      for (const query of [{ direction: "notheld" }, { claim: "held" }, { direction: "notchangeable" }]) {
+        const res = pageResponse();
+
+        await GET(request("ref-1", query), res);
+
+        expect(res.render.mock.calls[0][1].refused).not.toMatch(/claimed by|belongs to|held by|another judge|already been claimed|directed by/i);
       }
     });
 
@@ -332,7 +417,7 @@ describe("the judicial referral page", () => {
 
       await GET(request("ref-1", { direction: "whatever", claim: "whatever" }), res);
 
-      expect(res.render.mock.calls[0][1].directionRecorded).toBe("");
+      expect(res.render.mock.calls[0][1].directionBanner).toBe("");
       expect(res.render.mock.calls[0][1].refused).toBe("");
     });
   });

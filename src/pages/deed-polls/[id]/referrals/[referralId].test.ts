@@ -199,6 +199,24 @@ describe("referral view page", () => {
     expect(res.render.mock.calls[0][1].referral.modifiedBy).toBe("A Caseworker");
   });
 
+  it("should tell the caseworker when the judge changed the direction, dated from api's flag", async () => {
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED, directionChangedAt: new Date("2026-10-19T09:30:00Z") } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].directionChanged).toBe("The judge changed this direction on 19 October 2026 at 10:30am.");
+  });
+
+  it("should say nothing about a change on a direction that stands as first given", async () => {
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED, directionChangedAt: null } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].directionChanged).toBe("");
+  });
+
   it("should show no direction section on a referral the judiciary has not answered", async () => {
     const res = response();
 

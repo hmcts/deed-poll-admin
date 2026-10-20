@@ -22,9 +22,16 @@
  *
  * **Reading the referral before rendering is the guard and the caption, not a scoping pre-read.** Both are
  * load-bearing: a judge must see *which* application they are directing before they attest to it — the
- * reference is on `JudicialCaseView`, so it is theirs to see — and a referral that is not in their hands has no
+ * reference is on the application view, so it is theirs to see — and a referral that is not in their hands has no
  * direction to take, so they are sent back to the referral rather than shown a form whose submit can only be
  * refused. The confirm step reads nothing: it is one atomic call, and api re-checks the hold itself.
+ *
+ * **`?change=1` is the same journey for a direction this judge has already given** (plan decision 5). The referral
+ * must be `Decided` rather than `Claimed` — api shows a decided referral only to the judge who directed it — the
+ * form arrives prefilled from that direction, the words say "change", and the confirm calls `changeDirection`
+ * (api's `PUT`) instead of `recordDirection`. Every href this page renders carries the flag, so each step of the
+ * journey arrives in the same mode, and its 409 has its own sentence on the referral: there is no direction from
+ * this judge to change, which is a state and names no one. Any other value of the flag is a new direction.
  *
  * **The two refusals divide by visibility, exactly as claiming does.** api checks visibility before the hold,
  * so a referral taken out from under this judge — withdrawn, closed, or claimed by someone else — is a **404**
@@ -36,6 +43,7 @@
 import {
   buildJudicialReferral,
   ConflictError,
+  changeDirection,
   DIRECTION_DECISION_CHOICES,
   directionSchema,
   type FieldError,
@@ -64,6 +72,9 @@ const CONFIRM = "confirm";
 
 /** The submit on the check step that goes back to the form, carrying the answers with it. */
 const CHANGE = "change";
+
+/** The query flag, and its one value, that makes this the journey for changing a direction already given. */
+const CHANGE_FLAG = "1";
 
 // The order the controls appear in, so the error summary reads down the page rather than in whatever order the
 // issues arrived. `directionsText` sits between the two required questions because that is where it is asked.
@@ -102,8 +113,9 @@ const en = {
   // Decision 6's attestation, as a declaration above the submit. Working text — a judicial-facing wording and
   // Welsh pass can revise it.
   declaration: "By recording this direction you confirm it is your direction on this application.",
-  // States what cannot be undone, because api models a direction as one transition with no amend behind it.
-  irreversible: "You cannot change a direction once it is recorded.",
+  // What happens afterwards, because a judge attesting to a direction should know it is not final until the office
+  // closes the referral.
+  afterwards: "You can change or withdraw your direction until the office closes the referral.",
   confirm: "Confirm and record the direction",
   change: "Change your answers",
   directionsTextMax: MAX_DIRECTIONS_TEXT
@@ -111,6 +123,21 @@ const en = {
 
 // English content in the cy shape — see the note in ../../../deed-polls/index.ts.
 const cy = { ...en };
+
+/** The same pages when the judge is changing a direction already given: every word that says "record" says "change". */
+const changeEn = {
+  ...en,
+  title: "Change your direction",
+  heading: "Change your direction",
+  checkTitle: "Check your changed direction",
+  checkHeading: "Check your changed direction",
+  declaration: "By changing this direction you confirm it is your direction on this application.",
+  // api keeps the earlier direction on its audit trail and writes the caseworker a case note, so both are said.
+  afterwards: "Your earlier direction stays on record, and the office is told you changed it.",
+  confirm: "Confirm and change the direction"
+};
+
+const changeCy = { ...changeEn };
 
 /** The "no longer available" page's words, as `../[referralId].ts` renders them. See decision 10. */
 const unavailableEn = {
@@ -128,13 +155,14 @@ export const GET = async (req: Request, res: Response) => {
   const referral = await held(req, res);
   if (!referral) return;
 
-  render(res, referral, {}, {});
+  render(res, referral, referral.current, {});
 };
 
 export const POST = async (req: Request, res: Response) => {
   // Before any read or write, so refusing an unusable id cannot follow either.
   const referralHref = referralPath(req.params.referralId);
   const body = (req.body ?? {}) as Record<string, unknown>;
+  const isChange = isChangeJourney(req);
 
   // Back to the form with the answers still on it, and with no errors: a judge who pressed Change is going back
   // to edit an answer, not submitting one, so validating it here would show them problems with a direction they
@@ -168,25 +196,27 @@ export const POST = async (req: Request, res: Response) => {
         publishToGazette: parsed.data.publishToGazette
       },
       values: values(body),
-      directionHref: directionHref(referral.id),
+      directionHref: directionHref(referral.id, isChange),
       referralHref: referralPath(referral.id),
       // The check step's own `title`, because the layout puts `title` in the `<title>` element: one content pair
       // for both steps means the form's name would otherwise be announced over a page headed "Check your
       // direction", which is the accessibility rule this file could break with nothing to show it.
-      en: checkStep(en),
-      cy: checkStep(cy)
+      en: checkStep(words(isChange).en),
+      cy: checkStep(words(isChange).cy)
     });
   }
 
   try {
-    // One call, complete and final. Nothing is read first: api re-checks the hold, and a pre-read's answer would
-    // be stale by the time it was acted on.
-    await recordDirection(req.params.referralId, parsed.data, callerFromRequest(req));
+    // One call, complete. Nothing is read first: api re-checks the hold, and a pre-read's answer would be stale by
+    // the time it was acted on.
+    const commit = isChange ? changeDirection : recordDirection;
+    await commit(req.params.referralId, parsed.data, callerFromRequest(req));
   } catch (error) {
-    // Visible but not in this judge's hands — it went back to the pool, or they have already directed it. Their
-    // answers are gone with it, which is unavoidable: the referral is no longer theirs to direct.
+    // Visible but not in this judge's hands — it went back to the pool, or they have already directed it; for a
+    // change, there is no direction of theirs to replace. Their answers are gone with it, which is unavoidable:
+    // the referral's state is what the page they land on shows.
     if (error instanceof ConflictError) {
-      return res.redirect(`${referralHref}?direction=notheld`);
+      return res.redirect(`${referralHref}?direction=${refusal(isChange)}`);
     }
     // Not visible at all, which api answers identically for withdrawn, closed, another judge's and never-there.
     if (error instanceof NotFoundError) return unavailable(res);
@@ -194,8 +224,23 @@ export const POST = async (req: Request, res: Response) => {
     throw error;
   }
 
-  res.redirect(`${referralHref}?direction=recorded`);
+  res.redirect(`${referralHref}?direction=${isChange ? "changed" : "recorded"}`);
 };
+
+/** Whether this request is the change journey. Only the one literal value counts, so a stray flag records anew. */
+function isChangeJourney(req: Request): boolean {
+  return req.query.change === CHANGE_FLAG;
+}
+
+/** The content pair for this journey. */
+function words(isChange: boolean): { en: typeof en; cy: typeof en } {
+  return isChange ? { en: changeEn, cy: changeCy } : { en, cy };
+}
+
+/** What the referral page is told when the referral is not in the state this journey needs. */
+function refusal(isChange: boolean): string {
+  return isChange ? "notchangeable" : "notheld";
+}
 
 /**
  * The words for this request's language.
@@ -203,8 +248,10 @@ export const POST = async (req: Request, res: Response) => {
  * Needed only for the strings this handler resolves itself — the two Gazette labels and api's stand-in refusal.
  * Everything else reaches the template as the `en`/`cy` pair it picks from.
  */
-function content(res: Response): typeof en {
-  return res.locals.locale === "cy" ? cy : en;
+function content(res: Response, isChange: boolean): typeof en {
+  const pair = words(isChange);
+
+  return res.locals.locale === "cy" ? pair.cy : pair.en;
 }
 
 /** One content pair as the check step's, so the `title` the layout renders matches the heading on the page. */
@@ -217,9 +264,11 @@ function checkStep(content: typeof en): typeof en {
  *
  * Three outcomes, and the caller returns on two of them: the referral is theirs to direct, it is not visible
  * (the "no longer available" page, 404), or it is visible but not in their hands (back to the referral, where
- * the control that *does* apply is offered — claim it, or read the direction already recorded).
+ * the control that *does* apply is offered — claim it, or read the direction already recorded). On the change
+ * journey "theirs to direct" is `Decided` rather than `Claimed`, and `current` is the direction given, as the
+ * form's raw values, to prefill it with.
  */
-async function held(req: Request, res: Response): Promise<{ id: string; reference: string } | undefined> {
+async function held(req: Request, res: Response): Promise<HeldReferral | undefined> {
   const { referralId } = req.params;
   // Before the read, so GET refuses an unusable id without asking api about it.
   const referralHref = referralPath(referralId);
@@ -236,15 +285,28 @@ async function held(req: Request, res: Response): Promise<{ id: string; referenc
   }
 
   const view = buildJudicialReferral(detail);
+  const isChange = isChangeJourney(req);
 
-  if (!view.directable) {
-    res.redirect(`${referralHref}?direction=notheld`);
+  if (!(isChange ? view.changeable : view.directable)) {
+    res.redirect(`${referralHref}?direction=${refusal(isChange)}`);
     return undefined;
   }
 
-  // The reference is `JudicialCaseView`'s, so a referral api sent no application with has no caption — and the
+  // The reference is the application view's, so a referral api sent no application with has no caption — and the
   // page renders none rather than inventing one.
-  return { id: referralId, reference: view.application?.reference ?? "" };
+  return { id: referralId, reference: view.application?.reference ?? "", isChange, current: isChange ? currentValues(detail) : {} };
+}
+
+/**
+ * The direction already given, as the form posts it — strings, so the radios re-check — with an unrecorded Gazette
+ * answer left unanswered rather than read as "No".
+ */
+function currentValues(detail: Awaited<ReturnType<typeof getReferral>>): Record<string, unknown> {
+  return {
+    decision: detail.decision ?? undefined,
+    directionsText: detail.directionsText ?? "",
+    publishToGazette: typeof detail.publishToGazette === "boolean" ? String(detail.publishToGazette) : undefined
+  };
 }
 
 /** api's 400: its own words where they name a control this form renders, this page's where they do not. */
@@ -256,7 +318,14 @@ function apiRefused(req: Request, res: Response, error: InvalidInputError) {
 
   if (unplaceable.length > 0 || placed.length === 0) {
     console.error(`direction refused with rejections this form cannot place (${unplaceable.join(", ") || "no field named"}): ${forLog(error.message)}`);
-    return rerender(req, res, 400, values(body), Object.fromEntries(placed.map((field) => [field, messages[field]])), content(res).directionRefused);
+    return rerender(
+      req,
+      res,
+      400,
+      values(body),
+      Object.fromEntries(placed.map((field) => [field, messages[field]])),
+      content(res, isChangeJourney(req)).directionRefused
+    );
   }
 
   return rerender(req, res, 400, values(body), messages);
@@ -327,14 +396,9 @@ async function rerender(
   render(res, referral, submittedValues, errors, formError);
 }
 
-function render(
-  res: Response,
-  referral: { id: string; reference: string },
-  submittedValues: Record<string, unknown>,
-  errors: Record<string, string>,
-  formError?: string
-) {
-  const words = content(res);
+function render(res: Response, referral: HeldReferral, submittedValues: Record<string, unknown>, errors: Record<string, string>, formError?: string) {
+  const text = content(res, referral.isChange);
+  const pair = words(referral.isChange);
 
   res.render("judicial/referrals/direction-form", {
     reference: referral.reference,
@@ -345,16 +409,16 @@ function render(
     // template, so unlike every other string on this page they do not reach the template as an `en`/`cy` pair
     // for it to pick from — and these two label the one answer that cannot be taken back.
     gazetteItems: [
-      { value: "true", text: words.yes, checked: submittedValues.publishToGazette === "true" },
-      { value: "false", text: words.no, checked: submittedValues.publishToGazette === "false" }
+      { value: "true", text: text.yes, checked: submittedValues.publishToGazette === "true" },
+      { value: "false", text: text.no, checked: submittedValues.publishToGazette === "false" }
     ],
     values: submittedValues,
     errors,
     errorList: summaryList(errors, formError),
-    directionHref: directionHref(referral.id),
+    directionHref: directionHref(referral.id, referral.isChange),
     referralHref: referralPath(referral.id),
-    en,
-    cy
+    en: pair.en,
+    cy: pair.cy
   });
 }
 
@@ -375,6 +439,14 @@ function unavailable(res: Response) {
   res.status(404).render("judicial/referrals/unavailable", { poolPath: POOL_PATH, en: unavailableEn, cy: unavailableCy });
 }
 
-function directionHref(referralId: string): string {
-  return `${referralPath(referralId)}/direction`;
+function directionHref(referralId: string, isChange: boolean): string {
+  return `${referralPath(referralId)}/direction${isChange ? `?change=${CHANGE_FLAG}` : ""}`;
+}
+
+/** A referral this judge may direct on this journey, and the values its form starts with. */
+interface HeldReferral {
+  id: string;
+  reference: string;
+  isChange: boolean;
+  current: Record<string, unknown>;
 }

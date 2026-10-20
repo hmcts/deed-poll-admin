@@ -1,14 +1,16 @@
 /**
- * The judicial surface — the two lists a judge works from, and the two writes they make on a referral.
+ * The judicial surface — the two lists a judge works from, the writes they make on a referral (claim, direct, change, withdraw), and
+ * the download of its documents.
  *
- * Five thin functions over `/judicial/**`, and they are a **sibling** of `../referrals/service.ts` rather than
+ * Thin functions over `/judicial/**`, and they are a **sibling** of `../referrals/service.ts` rather than
  * a section of it. Three things follow from that, and all three are api's decisions rather than this file's:
  *
  * **No case id, anywhere.** api keys the whole judicial surface on the referral so a judge cannot name an
  * application, and resolves the case at its own end. So none of these takes a `deedPollId`, there is no
  * judicial equivalent of `findDeedPoll`, and a page that wanted one has nothing to call: the application a judge
- * sees arrives inside `getReferral` as `application`, a **narrow** projection (`JudicialCaseView`) that is
- * deliberately not a subset of the caseworker case — api's own architecture test asserts the two records are
+ * sees arrives inside `getReferral` as `application`, a projection of its own (`JudicialApplicationView`: the
+ * details, witnesses and attached documents, no payment or refund data) that is deliberately not a subset of the
+ * caseworker case — api's own architecture test asserts the two records are
  * unrelated, because the failure it guards against is a field added to the caseworker response appearing on a
  * judge's screen. Enriching this data with any other call would be that failure, reintroduced here.
  *
@@ -19,7 +21,7 @@
  * "somebody else has it" — saying so would enumerate for a judge exactly what the shared 404 exists to hide.
  * `claimedBy` and `decidedBy` on a response can therefore only ever name this caller or nobody.
  *
- * **The 409s and the 404 divide by visibility, not by the action.** Visibility is checked first, so a `409` only
+ * **The 409s and the 404 divide by visibility, not by the action.** (A change or withdraw 409 means "not a `Decided` referral you directed", a state and never a holder.) Visibility is checked first, so a `409` only
  * ever describes a referral the caller can still see. For a claim that leaves exactly one case — they already
  * hold it, or they have already directed it — because a referral in *another* judge's hands is invisible and so a
  * 404. For a direction it is the referral they can see but do not hold (it went back to the pool, or they have
@@ -36,14 +38,18 @@
  */
 import {
   claimJudicialReferral,
+  type DocumentDownload,
   directJudicialReferral,
+  downloadJudicialDocument,
   getJudicialMyReferrals,
   getJudicialPool,
   getJudicialReferral,
   type JudicialMyReferrals,
   type JudicialPool,
   type JudicialPoolQuery,
-  type JudicialReferralDetail
+  type JudicialReferralDetail,
+  reviseDirection,
+  withdrawDirection
 } from "@hmcts/deed-poll-api-client";
 import { type Caller, callApi } from "../api/deed-poll-api.js";
 import type { DirectionInput } from "./schemas.js";
@@ -107,6 +113,17 @@ export function getReferral(referralId: string, caller: Caller): Promise<Judicia
 }
 
 /**
+ * One of the referral's supporting documents, still streaming, with the headers api put on it.
+ *
+ * Keyed on the referral and never the case, like every judicial read: api resolves the document against the
+ * application behind the referral and answers the same 404 for a document that is not on it as for a referral this
+ * judge may not see, so there is nothing to pre-check here either.
+ */
+export function downloadReferralDocument(referralId: string, documentId: string, caller: Caller): Promise<DocumentDownload> {
+  return callApi(caller, (config) => downloadJudicialDocument(referralId, documentId, config));
+}
+
+/**
  * Pick a referral up out of the pool, becoming its holder.
  *
  * No body — the sub-resource names the transition and the holder comes from the token. The claimed referral
@@ -131,4 +148,27 @@ export function claimReferral(referralId: string, caller: Caller): Promise<Judic
  */
 export function recordDirection(referralId: string, direction: DirectionInput, caller: Caller): Promise<JudicialReferralDetail> {
   return callApi(caller, (config) => directJudicialReferral(referralId, direction, config));
+}
+
+/**
+ * Replace the direction this judge gave, while the referral is `Decided` and before the office closes it.
+ *
+ * The body is {@link recordDirection}'s and validated by the same form. api keeps the earlier direction on its audit
+ * trail, writes the caseworker a case note and sets `directionChangedAt`, so nothing here says what changed.
+ * `ConflictError` is a visible referral that is not this judge's direction; `NotFoundError` is one out of sight,
+ * closed included. Neither can mean somebody else directed it.
+ */
+export function changeDirection(referralId: string, direction: DirectionInput, caller: Caller): Promise<JudicialReferralDetail> {
+  return callApi(caller, (config) => reviseDirection(referralId, direction, config));
+}
+
+/**
+ * Take back the direction this judge gave, leaving the referral `Claimed` by them with the direction cleared, to be
+ * directed again with {@link recordDirection}. No body. The refusals are {@link changeDirection}'s.
+ *
+ * Named apart from the adapter's `withdrawDirection`, and from the caseworker's `withdrawReferral`, which withdraws
+ * the referral itself.
+ */
+export function withdrawOwnDirection(referralId: string, caller: Caller): Promise<JudicialReferralDetail> {
+  return callApi(caller, (config) => withdrawDirection(referralId, config));
 }

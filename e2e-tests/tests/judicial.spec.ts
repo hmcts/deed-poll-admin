@@ -156,12 +156,11 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   await expect(page).toHaveURL(`${POOL_PATH}/${mine.referralId}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to the judiciary");
 
-  // The narrow application view — `JudicialCaseView`, and exactly that. Both names in full, because a deed poll
-  // is about the whole name and showing the parts separately hides which one moved.
-  await expect(summaryRow(page, "Reference")).toContainText(mine.reference);
-  await expect(summaryRow(page, "Application type")).toContainText("Adult");
-  await expect(summaryRow(page, "Current name")).toContainText("Ines Kowalski");
-  await expect(summaryRow(page, "New name")).toContainText("Ines Nakamura");
+  // The application — `JudicialApplicationView`, grouped and labelled as the caseworker detail page is.
+  await expect(summaryRow(page, "Display reference")).toContainText(mine.reference);
+  await expect(summaryRow(page, "Type")).toContainText("Adult");
+  await expect(summaryRow(page, "Old surname")).toContainText("Kowalski");
+  await expect(summaryRow(page, "New surname")).toContainText("Nakamura");
 
   // **The disclosure check, from outside the view model.** The case carries a fee reference; the judicial screen
   // must not. api's DTO is what keeps it off — not a filter here (decision 4) — so this asserts the boundary
@@ -259,7 +258,7 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   // The declaration is above the submit and pressing the button is the attestation — the Design System's
   // check-answers pattern, not a tick box in front of a button that already confirms.
   await expect(page.getByText("By recording this direction you confirm it is your direction on this application.")).toBeVisible();
-  await expect(page.getByText("You cannot change a direction once it is recorded.")).toBeVisible();
+  await expect(page.getByText("You can change or withdraw your direction until the office closes the referral.")).toBeVisible();
   await expect(page.getByRole("checkbox")).toHaveCount(0);
   await expectNoAccessibilityViolations(page);
 
@@ -301,6 +300,102 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   // And it has left the shared pool, which is what a claim and a direction are for.
   await page.goto(POOL_PATH);
   await expect(page.locator(`a[href="${POOL_PATH}/${mine.referralId}"]`)).toHaveCount(0);
+});
+
+/**
+ * A judge revisits a direction they gave — `docs/plans/20261019-judicial-application-view.md`, decisions 3 to 6.
+ *
+ * **Happy path only, one referral's second thoughts.** The judge directs it (in the fewest steps), opens it decided
+ * and reads the application and its supporting document, changes the direction through the same form and check
+ * step, then withdraws it and directs again. The refusals are the page tests' subject.
+ *
+ * **What only a browser shows here:** that the change journey's flag survives every round trip — form, check step,
+ * confirm — so the confirm reaches api's `PUT` rather than recording a second direction, and that a withdrawal
+ * really leaves the referral claimed by this judge with the direction form offered again.
+ *
+ * The document is uploaded through the caseworker contract route, as an office would attach it, and downloaded
+ * through the judge's own session: the judicial route is the only door a judge has to it.
+ */
+test("judge changes a direction they gave, then withdraws it and directs again", async ({ page, request }) => {
+  const seeded = await seedReferral(request, { reason: "Minor" });
+  const uploaded = await request.post(`${MOCK_API_URL}/caseworker/cases/${seeded.caseId}/documents`, {
+    headers: bearer(CASEWORKER_EMAIL),
+    multipart: {
+      file: { name: "birth-certificate.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 e2e") },
+      documentTypeId: "11111111-1111-4111-8111-111111111111",
+      name: "Birth certificate for the judge"
+    }
+  });
+  expect(uploaded.status(), await uploaded.text()).toBe(201);
+
+  // Directed through the UI rather than seeded, so the director is the signed-in judge's own IDAM subject.
+  await page.goto(`${POOL_PATH}/${seeded.referralId}`);
+  await claimButton(page).click();
+  await directButton(page).click();
+  await fillDirection(page, { decision: "Approved", directions: "Approved on the papers.", gazette: "Yes" });
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Confirm and record the direction" }).click();
+  await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}?direction=recorded`);
+
+  // ── the decided referral: the application, its document, and the two controls ──────────────────────────────
+  await page.goto(`${POOL_PATH}/${seeded.referralId}`);
+  await expect(summaryRow(page, "Status")).toContainText("Decided");
+  await expect(summaryRow(page, "New surname")).toContainText("Nakamura");
+  // The fee reference was seeded on the case; api's judicial view carries no payment data, so it is nowhere here.
+  await expect(page.locator("body")).not.toContainText(seeded.feeReference);
+
+  const documentLink = page.getByRole("link", { name: "Birth certificate for the judge" });
+  const file = await page.request.get((await documentLink.getAttribute("href")) ?? "");
+  expect(file.status()).toBe(200);
+  expect(file.headers()["content-type"]).toContain("application/pdf");
+  expect(file.headers()["x-content-type-options"]).toBe("nosniff");
+
+  await expect(directButton(page)).toHaveCount(0);
+  await expectNoAccessibilityViolations(page);
+
+  // ── change it: the same form, prefilled, and the same attestation in the words of a change ─────────────────
+  await page.getByRole("link", { name: "Change your direction" }).click();
+  await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}/direction?change=1`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Change your direction");
+  await expect(page.getByRole("radio", { name: "Approved" })).toBeChecked();
+  await expect(gazetteAnswer(page, "Yes")).toBeChecked();
+  await expect(page.getByLabel("Directions (optional)")).toHaveValue("Approved on the papers.");
+
+  await fillDirection(page, { decision: "Rejected", directions: "Further evidence of the change is needed.", gazette: "No" });
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Check your changed direction");
+  await expect(page.getByText("Your earlier direction stays on record, and the office is told you changed it.")).toBeVisible();
+  await expectNoAccessibilityViolations(page);
+  await page.getByRole("button", { name: "Confirm and change the direction" }).click();
+
+  await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}?direction=changed`);
+  await expect(page.getByRole("alert")).toContainText("Your direction has been changed.");
+  await expect(summaryRow(page, "Status")).toContainText("Decided");
+  await expect(summaryRow(page, "Directions")).toContainText("Further evidence of the change is needed.");
+
+  // ── withdraw it: a confirmation, then the referral claimed by this judge and waiting for a new direction ────
+  await page.getByRole("link", { name: "Withdraw your direction" }).click();
+  await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}/withdraw`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Withdraw your direction");
+  await expect(page.getByText("Until you do, this referral stays claimed by you.")).toBeVisible();
+  await expectNoAccessibilityViolations(page);
+  await page.getByRole("button", { name: "Withdraw direction" }).click();
+
+  await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}?direction=withdrawn`);
+  await expect(page.getByRole("alert")).toContainText("Your direction has been withdrawn. Record a new direction.");
+  await expect(summaryRow(page, "Status")).toContainText("Claimed");
+  await expect(page.getByRole("link", { name: "Change your direction" })).toHaveCount(0);
+
+  // ── and direct again, as for any claimed referral ───────────────────────────────────────────────────────────
+  await directButton(page).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Record a direction");
+  await fillDirection(page, { decision: "Approved", directions: "Approved after reconsideration.", gazette: "Yes" });
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Confirm and record the direction" }).click();
+
+  await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}?direction=recorded`);
+  await expect(summaryRow(page, "Status")).toContainText("Decided");
+  await expect(summaryRow(page, "Directions")).toContainText("Approved after reconsideration.");
 });
 
 /**
