@@ -44,6 +44,14 @@ export function readNumericInput(raw: unknown, format: NumberFormat): NumericInp
   return { kind: "valid", value };
 }
 
+/**
+ * A stored number as the plain decimal `readNumericInput` accepts. `String()` switches to exponent notation
+ * below 1e-6 and from 1e21, which the form would then refuse on an unchanged save.
+ */
+export function formatNumericInput(value: number): string {
+  return value.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 100 });
+}
+
 /** The field error for an `invalid` reading, worded by the field's format. */
 export function numericInputMessage(label: string, format: NumberFormat): string {
   return format === "integer" ? `${label} must be a whole number` : `${label} must be a number`;
