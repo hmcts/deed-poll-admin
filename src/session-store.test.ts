@@ -11,10 +11,13 @@
  * The Playwright suite used to be the backstop for this. It no longer runs in any pipeline — see
  * `docs/PIPELINES.md` — and it needs browsers and a running app, so it is not the backstop here either.
  *
- * Requires a reachable Redis, served by this repo's `docker compose` on 6379. Skipped when there is none,
- * because the Jenkins nodejs test stage runs `yarn test` on a bare agent with no services — the only such
- * skip left in the repo, now that the deleted `apps/postgres` migration tests have gone with the data
- * access layer. Treat this as local-only coverage until a stage provides one.
+ * Requires a reachable Redis, served by this repo's `docker compose` on 6379. Skipped when `REDIS_URL` is unset and
+ * there is none, because the Jenkins nodejs test stage runs `yarn test` on a bare agent with no services; with
+ * `REDIS_URL` set, an unreachable Redis fails the file instead, so a validation run that names a Redis cannot pass by
+ * skipping. Treat this as local-only coverage until a stage provides one.
+ *
+ * The store is the app's own guarded one (./auth/guarded-session-store.ts), passed in the way `src/app.ts` passes
+ * it. Keys are written under the app's prefix and removed afterwards by id, never by flushing.
  *
  * Driven over real HTTP rather than by calling the store directly. Calling `store.set`/`store.get` would
  * test `connect-redis` and not the wiring — what is being pinned is that a cookie issued on one request
@@ -28,11 +31,15 @@ import { expressSessionRedis } from "@hmcts-cft/express-session-redis";
 import express from "express";
 import { createClient } from "redis";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { GuardedSessionStore } from "./auth/guarded-session-store.js";
 import { sessionStoreTtl } from "./auth/session.js";
 
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
 /** The prefix `src/app.ts` passes. Restated here so this asserts against a real keyspace. */
-const PREFIX = "admin-sess:";
+const PREFIX = "admin-sess-v2:";
+/** The connect-redis prefix the guarded store replaced, which nothing may write any more. */
+const LEGACY_PREFIX = "admin-sess:";
+const written = new Set<string>();
 
 const redisReachable = await canConnect();
 
@@ -48,8 +55,11 @@ describe.skipIf(!redisReachable)("a session through a real Redis", () => {
     app.use(
       expressSessionRedis({
         redisConnection: client,
-        sessionOptions: { secret: "a-test-secret", cookie: { maxAge: 60_000, httpOnly: true, secure: false, sameSite: "lax" } },
-        storeOptions: { prefix: PREFIX }
+        sessionOptions: {
+          store: new GuardedSessionStore({ client, prefix: PREFIX, ttl: () => 60 }),
+          secret: "a-test-secret",
+          cookie: { maxAge: 60_000, httpOnly: true, secure: false, sameSite: "lax" }
+        }
       })
     );
     // Deliberately writes on the first request and only reads on the second: `saveUninitialized` is false,
@@ -57,6 +67,7 @@ describe.skipIf(!redisReachable)("a session through a real Redis", () => {
     // store that persists nothing.
     app.get("/write", (req, res) => {
       (req.session as unknown as { subject?: string }).subject = "a-caseworker";
+      written.add(req.sessionID);
       req.session.save(() => res.json({ id: req.sessionID }));
     });
     app.get("/read", (req, res) => {
@@ -75,6 +86,7 @@ describe.skipIf(!redisReachable)("a session through a real Redis", () => {
 
   afterAll(async () => {
     await close?.();
+    await removeWritten(client);
     await client?.quit();
   });
 
@@ -99,21 +111,22 @@ describe.skipIf(!redisReachable)("a session through a real Redis", () => {
 
     expect(await client.exists(`${PREFIX}${id}`)).toBe(1);
     expect(await client.exists(`sess:${id}`)).toBe(0);
+    expect(await client.exists(`${LEGACY_PREFIX}${id}`)).toBe(0);
   });
 
   it("expires the key, so an abandoned session is not kept forever", async () => {
     const written = await fetch(`${baseUrl}/write`);
     const { id } = (await written.json()) as { id: string };
 
-    // From the cookie's `maxAge`, which is what `connect-redis` derives its TTL from. Positive rather than
-    // an exact value: the assertion is that a TTL was set at all, not how many seconds have elapsed since.
+    // Positive rather than an exact value: the assertion is that a TTL was set at all, not how many seconds have
+    // elapsed since.
     expect(await client.ttl(`${PREFIX}${id}`)).toBeGreaterThan(0);
   });
 });
 
 /**
- * The key lifetimes OWASP plan 03 sets, through a real Redis, because the point is what connect-redis does with the
- * TTL function on every write and every touch, and a double cannot show that. The limits are the app's defaults.
+ * The key lifetimes OWASP plan 03 sets, through a real Redis, because the point is what the store does with the TTL
+ * function on every write and every touch, and a double cannot show that. The limits are the app's defaults.
  */
 describe.skipIf(!redisReachable)("session key lifetimes through a real Redis", () => {
   const LIMITS = { idleSeconds: 1800, absoluteSeconds: 36_000 };
@@ -131,18 +144,23 @@ describe.skipIf(!redisReachable)("session key lifetimes through a real Redis", (
     app.use(
       expressSessionRedis({
         redisConnection: client,
-        sessionOptions: { secret: "a-test-secret", cookie: { maxAge: LIMITS.absoluteSeconds * 1000, httpOnly: true, secure: false, sameSite: "lax" } },
-        storeOptions: { prefix: PREFIX, ttl: sessionStoreTtl(LIMITS) }
+        sessionOptions: {
+          store: new GuardedSessionStore({ client, prefix: PREFIX, ttl: sessionStoreTtl(LIMITS) }),
+          secret: "a-test-secret",
+          cookie: { maxAge: LIMITS.absoluteSeconds * 1000, httpOnly: true, secure: false, sameSite: "lax" }
+        }
       })
     );
     const namespace = (req: express.Request) => req.session as unknown as { deedPoll?: Record<string, unknown> };
     app.get("/start-sign-in", (req, res) => {
       namespace(req).deedPoll = { flow: { state: "a-state" } };
+      written.add(req.sessionID);
       req.session.save(() => res.json({ id: req.sessionID }));
     });
     app.get("/signed-in", (req, res) => {
       const at = SIGNED_IN_AN_HOUR_AGO();
       namespace(req).deedPoll = { user: { name: "A Caseworker" }, authenticatedAt: at, lastSeenAt: at };
+      written.add(req.sessionID);
       req.session.save(() => res.json({ id: req.sessionID }));
     });
     app.get("/read", (req, res) => {
@@ -161,6 +179,7 @@ describe.skipIf(!redisReachable)("session key lifetimes through a real Redis", (
 
   afterAll(async () => {
     await close?.();
+    await removeWritten(client);
     await client?.quit();
   });
 
@@ -220,7 +239,12 @@ describe("a session request while Redis is unreachable", () => {
     await Promise.race([client.connect().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]);
 
     const app = express();
-    app.use(expressSessionRedis({ redisConnection: client, sessionOptions: { secret: "a-test-secret" }, storeOptions: { prefix: PREFIX } }));
+    app.use(
+      expressSessionRedis({
+        redisConnection: client,
+        sessionOptions: { store: new GuardedSessionStore({ client, prefix: PREFIX, ttl: () => 60 }), secret: "a-test-secret" }
+      })
+    );
     // Writes rather than reads, so the store is reached on a request carrying no cookie: `express-session`
     // will not read the store for a session id it cannot verify, and signing one here would mean restating
     // `cookie-signature`'s wire format in a test. `save` is what `signIn` calls, and forwarding its error is
@@ -254,6 +278,11 @@ describe("a session request while Redis is unreachable", () => {
   });
 });
 
+/** Only the sessions this file wrote, by id: the database may be a developer's shared one. */
+async function removeWritten(client: Awaited<ReturnType<typeof connect>> | undefined): Promise<void> {
+  if (client && written.size > 0) await client.del([...written].map((id) => `${PREFIX}${id}`));
+}
+
 async function connect() {
   const client = createClient({ url: REDIS_URL });
   client.on("error", () => {});
@@ -273,7 +302,8 @@ async function canConnect(): Promise<boolean> {
     await client.connect();
     await client.quit();
     return true;
-  } catch {
+  } catch (error) {
+    if (process.env.REDIS_URL !== undefined) throw new Error("REDIS_URL is set but Redis is unreachable", { cause: error });
     return false;
   }
 }

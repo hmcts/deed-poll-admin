@@ -8,6 +8,10 @@
  *
  * Namespaced under `deedPoll` per `.claude/rules/frontend.md`, so a second journey added later cannot
  * collide with it in the same store.
+ *
+ * Every save below goes through `./guarded-session-store.ts`, which refuses one based on a session that has since been
+ * destroyed, expired or written by another request, and the refusal rejects the save's promise. So none of these can
+ * put a logged-out session back, and none can replace newer tokens with the snapshot its request started from.
  */
 import { type CallerAccess, type CurrentUser, currentUser, holdsCallerAccess, plainHttpPermitted } from "@hmcts/deed-poll";
 import type { Request } from "express";

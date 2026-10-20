@@ -19,8 +19,10 @@ import { readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { deedPollApiStatus } from "@hmcts/deed-poll";
+import type { SessionData, Store } from "express-session";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
+import { GuardedSessionStore } from "./auth/guarded-session-store.js";
 import { refreshMiddleware } from "./auth/refresh-middleware.js";
 import { assertSessionTimeouts } from "./auth/session.js";
 import { sessionLifetime } from "./auth/session-lifetime.js";
@@ -47,12 +49,15 @@ const mocks = vi.hoisted(() => {
     // `isReady` and not just `ping`, because the readiness check consults it first — a reconnecting client
     // has `isOpen` true and `isReady` false, which answers "down" without a round trip. See `redisStatus`.
     isReady: true,
-    ping: vi.fn(async () => "PONG")
+    ping: vi.fn(async () => "PONG"),
+    withCommandOptions: vi.fn(() => sessionCommands)
   };
+  const sessionCommands = { eval: vi.fn(async () => 1) };
 
   return {
     passthrough,
     redisClient,
+    sessionCommands,
     createClient: vi.fn(() => redisClient),
     expressSessionRedis: vi.fn(() => passthrough),
     expressSessionPostgres: vi.fn(() => passthrough),
@@ -99,8 +104,8 @@ type HealthcheckOptions = {
 };
 
 type SessionRedisOptions = {
-  sessionOptions: { secret: string; name?: string; cookie: Record<string, unknown> };
-  storeOptions: { prefix: string; ttl?: unknown };
+  sessionOptions: { secret: string; name?: string; cookie: Record<string, unknown>; store: Store };
+  storeOptions?: unknown;
 };
 
 function healthcheckOptions(): HealthcheckOptions {
@@ -109,6 +114,13 @@ function healthcheckOptions(): HealthcheckOptions {
 
 function sessionRedisOptions(): SessionRedisOptions {
   return mocks.expressSessionRedis.mock.calls[0][0] as unknown as SessionRedisOptions;
+}
+
+/** A first write through the app's store, which the mocked client answers as created. */
+function storeWrite(sid: string, sess: object): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sessionRedisOptions().sessionOptions.store.set(sid, sess as SessionData, (error) => (error ? reject(error) : resolve()));
+  });
 }
 
 describe("createApp API configuration", () => {
@@ -163,15 +175,29 @@ describe("createApp", () => {
 
   // One Redis per product, shared with `deed-poll-web`, so the library's default `sess:` prefix would put a
   // public service's sessions and this one's IDAM tokens in a single keyspace.
-  it("should prefix session keys per component, since the product's Redis is shared with deed-poll-web", async () => {
-    expect(sessionRedisOptions().storeOptions).toEqual({ prefix: "admin-sess:", ttl: expect.any(Function) });
+  // The `-v2` keyspace is the guarded store's own, so an old instance mid-rollout can neither read nor rewrite it.
+  it("should prefix session keys per component, in the guarded store's own keyspace", async () => {
+    await storeWrite("a-session", { cookie: {} });
+
+    expect(mocks.sessionCommands.eval).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ keys: ["admin-sess-v2:a-session"] }));
+  });
+
+  // The library's connect-redis store writes unconditionally, which is how a request finishing after logout could put
+  // the session back (E01). Its options are therefore not passed: the store is.
+  it("should give express-session the guarded store, bounded per command, rather than the library's", async () => {
+    expect(sessionRedisOptions().sessionOptions.store).toBeInstanceOf(GuardedSessionStore);
+    expect(sessionRedisOptions().storeOptions).toBeUndefined();
+    expect(mocks.redisClient.withCommandOptions).toHaveBeenCalledWith({ timeout: 2_000 });
   });
 
   // Derived from the session rather than the cookie, which every request slides. See sessionStoreTtl.
   it("should give the store a TTL that a signed-in session's activity cannot extend", async () => {
-    const { ttl } = sessionRedisOptions().storeOptions as { ttl: (sess: unknown) => number };
+    await storeWrite("a-session", { cookie: {} });
 
-    expect(ttl({ cookie: {} })).toBe(600);
+    expect(mocks.sessionCommands.eval).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ arguments: [expect.any(String), '{"cookie":{}}', "600"] })
+    );
   });
 
   it("should connect a Redis client at the configured URL before mounting the session middleware", async () => {
