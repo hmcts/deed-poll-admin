@@ -370,7 +370,9 @@ describe("a save refuses input the rendered form could not have sent (R08)", () 
     expect(updateDeedPoll).not.toHaveBeenCalled();
     const field = control.replace(/-day$/, "");
     expect(refused.text).toContain(`<a href="#${field}">${message}</a>`);
-    expect(refused.text).toMatch(new RegExp(`id="${field}"`));
+    expect(refused.text).toMatch(
+      new RegExp(`id="${field}-error" class="govuk-error-message">\\s*<span class="govuk-visually-hidden">Error:</span> ${message}`)
+    );
   });
 
   it("should redraw a refused field from the stored record, so the corrected resubmit leaves it as it was", async () => {

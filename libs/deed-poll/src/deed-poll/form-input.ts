@@ -11,7 +11,7 @@ const DATE_PARTS = ["day", "month", "year"] as const;
  * The rule is the same for every kind: a value the rendered form could not have sent is `invalid`, never coerced.
  * A text, textarea or select sends one string; each date part one string; a checkbox `"true"` when ticked (or a
  * browser's default `"on"`) and nothing when not; Yes / No radios `"true"` or `"false"` or nothing; a multiselect
- * zero or more strings, each exactly one of its option values. An array or object where one string belongs is a
+ * zero or more strings, each exactly one of its option values and none twice. An array or object where one string belongs is a
  * repeated or bracketed name, which used to become a clear or its first element, and `Number()` read `"1e0"`,
  * `"0x2"` and `" 3 "` as options and dropped `"abc"` silently. Numbers keep their own parser, `readNumericInput`.
  *
@@ -87,6 +87,8 @@ function readMultiselect(raw: unknown, field: FieldDef): FieldInput {
   const members = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
   const allowed = new Set(field.enumSet ? enumOptions(field.enumSet).map((option) => option.value) : []);
   if (!members.every((member) => typeof member === "string" && allowed.has(member))) return { kind: "invalid" };
+  // A rendered checkbox group sends each value at most once.
+  if (new Set(members).size !== members.length) return { kind: "invalid" };
   return { kind: "valid", value: members.map(Number) };
 }
 

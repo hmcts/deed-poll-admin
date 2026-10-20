@@ -306,6 +306,12 @@ describe("deed-poll/edit-view", () => {
         expect(field(view, "inPerson")?.answer).toBeNull();
       });
 
+      it.each([[true], [false]])("should redraw a stored answer of %j when the replayed body selected nothing", (stored) => {
+        const view = buildEditView({ type: "Minor", inPerson: stored }, applicationTab, ADMIN, {});
+
+        expect(field(view, "inPerson")?.answer).toBe(stored);
+      });
+
       it("should give every other field no answer", () => {
         const view = buildEditView({ type: "Minor", retainPermanently: true }, applicationTab, ADMIN);
 

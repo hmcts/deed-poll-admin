@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FIELD_BY_NAME, type FieldDef } from "./form-fields.js";
-import { collectDateErrors, collectFormErrors, collectNumericErrors } from "./form-validation.js";
+import { collectDateErrors, collectFormErrors } from "./form-validation.js";
 
 const DATES: FieldDef[] = [
   { name: "signatureRequestedDate", label: "Signature requested date", kind: "date" },
@@ -95,9 +95,9 @@ const NUMBERS: FieldDef[] = [
   { name: "refundAmount", label: "Refund amount", kind: "number" }
 ];
 
-describe("collectNumericErrors", () => {
+describe("collectFormErrors on number fields", () => {
   it("should name each field whose text is not a number of its format", () => {
-    const errors = collectNumericErrors({ ageOfMinor: "7.5", refundAmount: "£25.00" }, NUMBERS);
+    const errors = collectFormErrors({ ageOfMinor: "7.5", refundAmount: "£25.00" }, NUMBERS);
 
     expect(errors).toEqual([
       { field: "ageOfMinor", message: "Age of minor years must be a whole number" },
@@ -106,8 +106,8 @@ describe("collectNumericErrors", () => {
   });
 
   it("should accept blank, absent and valid values, zero included", () => {
-    expect(collectNumericErrors({ ageOfMinor: "0", refundAmount: "  " }, NUMBERS)).toEqual([]);
-    expect(collectNumericErrors({}, NUMBERS)).toEqual([]);
+    expect(collectFormErrors({ ageOfMinor: "0", refundAmount: "  " }, NUMBERS)).toEqual([]);
+    expect(collectFormErrors({}, NUMBERS)).toEqual([]);
   });
 
   it("should ignore read-only and non-number fields, which are never patched", () => {
@@ -116,7 +116,7 @@ describe("collectNumericErrors", () => {
       { name: "newSurname", label: "New surname", kind: "text" }
     ];
 
-    expect(collectNumericErrors({ referencenumber: "x", newSurname: "12x" }, fields)).toEqual([]);
+    expect(collectFormErrors({ referencenumber: "x", newSurname: "12x" }, fields)).toEqual([]);
   });
 });
 
@@ -166,6 +166,10 @@ describe("input the rendered form could not have sent (review finding R08)", () 
     const errors = collectFormErrors({ iShall: ["1", member] }, SHAPED);
 
     expect(errors).toEqual([{ field: "iShall", message: "Select only options from the list for I shall" }]);
+  });
+
+  it("should refuse a multiselect option sent twice, which a rendered checkbox group cannot do", () => {
+    expect(collectFormErrors({ iShall: ["1", "1"] }, SHAPED)).toEqual([{ field: "iShall", message: "Select only options from the list for I shall" }]);
   });
 
   it("should refuse a multiselect member that is not a string", () => {

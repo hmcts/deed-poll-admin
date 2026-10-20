@@ -81,17 +81,6 @@ export function collectDateErrors(body: Record<string, unknown>, fields: FieldDe
   return errors;
 }
 
-/**
- * Errors for number fields whose text is not a number of the field's format (review finding E04).
- *
- * `readNumericInput`, through `readFieldInput`, is the one rule, shared with `buildUpdatePatch`, so what is refused
- * here is exactly what that function would refuse to build a patch from. Blank and absent are not errors: a blank
- * clears, and an absent field is left alone.
- */
-export function collectNumericErrors(body: Record<string, unknown>, fields: FieldDef[]): FormError[] {
-  return fields.filter((field) => field.kind === "number" && !field.readOnly).flatMap((field) => invalidInput(field, body));
-}
-
 function invalidInput(field: FieldDef, body: Record<string, unknown>): FormError[] {
   return readFieldInput(field, body).kind === "invalid" ? [{ field: field.name, message: fieldInputMessage(field) }] : [];
 }

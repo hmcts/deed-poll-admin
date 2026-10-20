@@ -262,7 +262,8 @@ describe("buildUpdatePatch", () => {
       ["a Yes / No answer of yes", { inPerson: "yes" }],
       ["multiselect members that only Number() reads", { iShall: ["1e0", "0x2", " 3 ", "", "99"] }],
       ["a multiselect member that is not a number", { iShall: "abc" }],
-      ["a multiselect member with a fraction", { iShall: ["1", "2.5"] }]
+      ["a multiselect member with a fraction", { iShall: ["1", "2.5"] }],
+      ["a multiselect option sent twice", { iShall: ["1", "1"] }]
     ])("should build no patch from %s", (_name, body) => {
       expect(() => buildUpdatePatch(body, SHAPED)).toThrow(InvalidInputError);
     });
