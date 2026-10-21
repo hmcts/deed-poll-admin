@@ -24,6 +24,7 @@ import {
   sealGazetteJourney,
   selectedGazetteCases
 } from "../../../gazette/journey.js";
+import { gazetteSendTimeLeft } from "../../../gazette/send-deadline.js";
 
 const en = {
   title: "Review applications for the London Gazette",
@@ -75,6 +76,9 @@ const en = {
   unknown:
     "The request outcome is unknown. Do not start another send for these applications. Check this request using its original details, or use Gazette requests to investigate.",
   checkStatus: "Check request status",
+  notSent: "The email has not been sent because there was not enough time left to send it safely. Confirm and send the email again.",
+  notChecked:
+    "The request status could not be checked because there was not enough time left to check it safely. No new email has been requested. Check the request status again.",
   unavailable: "The applications could not be checked. No new email has been requested from this page. Try again or check Gazette requests.",
   again: "Review selection again",
   incomplete: "Only applications with a completed checklist can be selected",
@@ -138,6 +142,10 @@ const cy = {
   unknown:
     "Nid yw canlyniad y cais yn hysbys. Peidiwch â dechrau anfon y ceisiadau hyn eto. Gwiriwch y cais hwn gan ddefnyddio ei fanylion gwreiddiol, neu defnyddiwch geisiadau Gazette i ymchwilio.",
   checkStatus: "Gwirio statws y cais",
+  // Awaiting translation: kept in English so `yarn welsh:check` and the translation request list them.
+  notSent: "The email has not been sent because there was not enough time left to send it safely. Confirm and send the email again.",
+  notChecked:
+    "The request status could not be checked because there was not enough time left to check it safely. No new email has been requested. Check the request status again.",
   unavailable:
     "Ni ellid gwirio’r ceisiadau. Nid oes e-bost newydd wedi’i ofyn amdano o’r dudalen hon. Rhowch gynnig arall arni neu gwiriwch geisiadau Gazette.",
   again: "Adolygu’r dewis eto",
@@ -252,7 +260,7 @@ async function confirmSelection(req: Request, res: Response, journey: GazetteJou
         // An old confirmation may already have been posted in another tab. Do not offer a new identity.
         return render(req, res, null, "changed");
       }
-      return submit(req, res, { ...journey, phase: "recover" });
+      return submit(req, res, journey);
     }
     return render(req, res, null, "invalid");
   } catch (error) {
@@ -271,11 +279,15 @@ function operationFailed(req: Request, res: Response, journey: GazetteJourney, e
 async function submit(req: Request, res: Response, journey: GazetteJourney) {
   const confirmation = journey.confirmation;
   if (!confirmation) return render(req, res, null, "invalid");
+  const timeoutMs = gazetteSendTimeLeft(res);
+  // No call means nothing admitted, so the journey and its key stand unchanged for the resend or the next check.
+  if (timeoutMs === null) return render(req, res, journey, journey.phase === "recover" ? "notChecked" : "notSent");
   try {
     const status = await sendGazetteSelection(
       { caseIds: confirmation.caseIds, recipientRevision: confirmation.recipientRevision, selectionFingerprint: confirmation.selectionFingerprint },
       confirmation.key,
-      callerFromRequest(req)
+      callerFromRequest(req),
+      { timeoutMs }
     );
     res.redirect(303, `/deed-polls/gazette/requests/${encodeURIComponent(status.batchId)}`);
   } catch (error) {
@@ -326,7 +338,7 @@ async function render(req: Request, res: Response, journey: GazetteJourney | nul
 function pagePresentation(phase: GazetteJourney["phase"] | undefined, content: typeof en, error?: keyof typeof en) {
   const errorId = phase === "review" ? "checks" : phase === "confirm" ? "confirmed" : "selection";
   const heading = phase === "review" ? content.reviewHeading : phase === "confirm" || phase === "recover" ? content.confirmHeading : content.heading;
-  const errorStatus = error === "unknown" || error === "unavailable" ? 503 : 400;
+  const errorStatus = error === "unknown" || error === "unavailable" || error === "notSent" || error === "notChecked" ? 503 : 400;
   const status = error ? errorStatus : 200;
   return { errorId, heading, status };
 }

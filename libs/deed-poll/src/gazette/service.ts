@@ -21,7 +21,7 @@ import {
   type UpdateGazetteSettings,
   updateGazetteSettings
 } from "@hmcts/deed-poll-api-client";
-import { type Caller, callApi, callGazetteApi } from "../api/deed-poll-api.js";
+import { type Caller, type CallLimit, callApi, callGazetteApi } from "../api/deed-poll-api.js";
 
 export const READY_FOR_PUBLICATION_FILTER = "readyForPublication";
 
@@ -61,6 +61,7 @@ export function findGazetteMembers(batchId: string, paging: GazetteNoticeHistory
 export function previewGazetteSelection(caseIds: string[], caller: Caller): Promise<GazettePreview> {
   return callGazetteApi(caller, (config) => previewGazetteNotice({ caseIds }, config));
 }
-export function sendGazetteSelection(input: SubmitGazette, key: string, caller: Caller): Promise<GazetteStatus> {
-  return callGazetteApi(caller, (config) => submitGazetteNotice(input, key, config));
+/** `limit` is what is left of the page's deadline, so a send cannot outlast the gateway in front of the browser. */
+export function sendGazetteSelection(input: SubmitGazette, key: string, caller: Caller, limit?: CallLimit): Promise<GazetteStatus> {
+  return callGazetteApi(caller, (config) => submitGazetteNotice(input, key, config), limit);
 }

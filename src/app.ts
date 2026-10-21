@@ -24,6 +24,7 @@ import { domainErrorHandler } from "./errors.js";
 import { createRateLimiter, rateLimitSettings } from "./rate-limit/limiter.js";
 import { mountAbuseLimits } from "./rate-limit/routes.js";
 import { uploadInFlightCap } from "./rate-limit/upload-in-flight.js";
+import { recordArrival } from "./request-arrival.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,6 +72,8 @@ export async function createApp(): Promise<Express> {
   const app = express();
 
   app.set("trust proxy", 1);
+  // First, so the Gazette send's deadline counts every layer below. See ./request-arrival.ts.
+  app.use(recordArrival());
   // Up to 100 reviewed IDs and the signed confirmation must fit even at the API field-length limits.
   app.use("/deed-polls/gazette/batch", express.urlencoded({ extended: true, limit: "512kb" }));
   app.use(express.urlencoded({ extended: true }));

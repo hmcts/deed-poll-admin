@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { Readable } from "node:stream";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type MockCase, type RunningMockApi, startMockApi } from "../mock/server.js";
 import {
   type ApiConfig,
@@ -20,6 +20,7 @@ import {
   createReferral,
   createSavedQuery,
   createWitness,
+  DEFAULT_TIMEOUT_MS,
   deleteNote,
   deleteSavedQuery,
   deleteWitness,
@@ -31,6 +32,7 @@ import {
   getCaseEmails,
   getFieldRules,
   getGazetteNoticeHistory,
+  getGazetteStatus,
   getJudicialMyReferrals,
   getJudicialPool,
   getJudicialReferral,
@@ -54,6 +56,7 @@ import {
   reviseDirection,
   selectSavedQuery,
   sendEmail,
+  submitGazetteNotice,
   updateWitness,
   uploadDocument,
   withdrawDirection,
@@ -1901,6 +1904,125 @@ describe("the upload's timeout, which is longer than the JSON default", () => {
       expect(result.error.kind).toBe("validation");
     } finally {
       await answering.close();
+    }
+  });
+});
+
+/**
+ * The Gazette submit's own timeout, on a clock running `CLOCK_SCALE` times fast.
+ *
+ * api sends the batch inside the request, so a real send can take longer than `DEFAULT_TIMEOUT_MS` and still
+ * succeed (finding R03). Waiting twelve real seconds per case would be slow, so `AbortSignal.timeout` is wrapped
+ * to divide every figure by the scale: the server's delay is divided the same way, the ratios stay as they are
+ * in production, and the HTTP and the abort are both real. The recorded figures pin the constants themselves.
+ * The scale is 20, not 100, because a slow send that should succeed then has 400 ms of real margin rather than 80 ms,
+ * which a cold localhost connect (about 75 ms, see `STREAM_TIMEOUT_MS`) could eat.
+ */
+const CLOCK_SCALE = 20;
+const GAZETTE_SUBMIT_TIMEOUT_MS = 20_000;
+const SLOW_SEND_MS = 12_000;
+const SENT_STATUS = { batchId: "00000000-0000-4000-8000-000000000009", state: "Sent", caseCount: 1 };
+const SUBMIT = { caseIds: ["00000000-0000-4000-8000-000000000001"], recipientRevision: 1, selectionFingerprint: "opaque" };
+
+describe("the Gazette submit's timeout, which is longer than the JSON default", () => {
+  let armed: number[];
+
+  beforeEach(() => {
+    armed = [];
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      armed.push(ms);
+      return realTimeout(ms / CLOCK_SCALE);
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("should report a send answered after the JSON default as sent, with one admission at the server", async () => {
+    const admitted: string[] = [];
+    const slow = await listen(
+      createServer((req, res) => {
+        admitted.push(String(req.headers["idempotency-key"]));
+        req.resume();
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify(SENT_STATUS));
+        }, SLOW_SEND_MS / CLOCK_SCALE);
+      })
+    );
+
+    try {
+      const result = await submitGazetteNotice(SUBMIT, "the-original-key", { baseUrl: slow.url });
+
+      expect(result).toEqual({ ok: true, data: SENT_STATUS });
+      expect(admitted).toEqual(["the-original-key"]);
+      expect(armed).toEqual([GAZETTE_SUBMIT_TIMEOUT_MS]);
+    } finally {
+      await slow.close();
+    }
+  });
+
+  it("should still time out a submit that api never answers", async () => {
+    const silent = await listen(createServer(() => {}));
+
+    try {
+      const result = await submitGazetteNotice(SUBMIT, "the-original-key", { baseUrl: silent.url });
+
+      expect(result).toMatchObject({ ok: false, error: { kind: "timeout" } });
+      expect(armed).toEqual([GAZETTE_SUBMIT_TIMEOUT_MS]);
+    } finally {
+      await silent.close();
+    }
+  });
+
+  it("should cap a configured timeout longer than the submit's own, because it may only shorten the wait", async () => {
+    const silent = await listen(createServer(() => {}));
+
+    try {
+      const result = await submitGazetteNotice(SUBMIT, "the-original-key", { baseUrl: silent.url, timeoutMs: 60_000 });
+
+      expect(result).toMatchObject({ ok: false, error: { kind: "timeout" } });
+      expect(armed).toEqual([GAZETTE_SUBMIT_TIMEOUT_MS]);
+    } finally {
+      await silent.close();
+    }
+  });
+
+  it("should let a configured timeout shorter than the submit's own win", async () => {
+    const silent = await listen(createServer(() => {}));
+
+    try {
+      const result = await submitGazetteNotice(SUBMIT, "the-original-key", { baseUrl: silent.url, timeoutMs: 5_000 });
+
+      expect(result).toMatchObject({ ok: false, error: { kind: "timeout" } });
+      expect(armed).toEqual([5_000]);
+    } finally {
+      await silent.close();
+    }
+  });
+
+  it("should leave the preview and the status read on the JSON default, because neither sends anything", async () => {
+    const slow = await listen(
+      createServer((req, res) => {
+        req.resume();
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify(SENT_STATUS));
+        }, SLOW_SEND_MS / CLOCK_SCALE);
+      })
+    );
+
+    try {
+      const preview = await previewGazetteNotice({ caseIds: SUBMIT.caseIds }, { baseUrl: slow.url });
+      const status = await getGazetteStatus(SENT_STATUS.batchId, { baseUrl: slow.url });
+
+      expect(preview).toMatchObject({ ok: false, error: { kind: "timeout" } });
+      expect(status).toMatchObject({ ok: false, error: { kind: "timeout" } });
+      expect(armed).toEqual([DEFAULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS]);
+    } finally {
+      await slow.close();
     }
   });
 });
