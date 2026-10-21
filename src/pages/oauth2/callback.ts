@@ -7,6 +7,7 @@
  */
 import type { Request, Response } from "express";
 import { callbackUrl, completeLogin, describeIdamError } from "../../auth/idam.js";
+import { safeReturnTo } from "../../auth/return-to.js";
 import { securityEvent } from "../../auth/security-events.js";
 import { signIn, takeFlow } from "../../auth/session.js";
 import { idamSettings } from "../../auth/settings.js";
@@ -55,7 +56,9 @@ export const GET = async (req: Request, res: Response) => {
   // After `signIn`, so the sid is the regenerated session's rather than the pre-login one.
   securityEvent("auth.login.succeeded", req);
 
-  res.redirect(flow.returnTo);
+  // Checked again although `/login` already checked it before storing: this sink trusts every writer of the flow,
+  // and a writer added later that forgot would make the one redirect a user trusts most an open one.
+  res.redirect(safeReturnTo(flow.returnTo));
 };
 
 function idamErrorCode(error: string): string {
