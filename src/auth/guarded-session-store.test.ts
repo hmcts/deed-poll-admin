@@ -169,6 +169,26 @@ describe.skipIf(!redisReachable)("the guarded session store", () => {
       expect(warn.mock.calls.flat().join(" ")).not.toContain(sid);
     });
 
+    it("should delete a session it holds and report that it was there, and report one already gone as not there", async () => {
+      const sid = await stored("first");
+
+      const present = await stores[0].destroyExisting(sid);
+      const gone = await stores[1].destroyExisting(sid);
+
+      expect(present).toBe(true);
+      expect(gone).toBe(false);
+      expect(await clients[0].exists(PREFIX + sid)).toBe(0);
+    });
+
+    it("should report a session as there to exactly one of two instances deleting it at once", async () => {
+      const sid = await stored("first");
+
+      const reports = await Promise.all([stores[0].destroyExisting(sid), stores[1].destroyExisting(sid)]);
+
+      expect(reports.filter(Boolean)).toHaveLength(1);
+      expect(await clients[0].exists(PREFIX + sid)).toBe(0);
+    });
+
     it("should bound a signed-in key by the absolute limit and an anonymous one by ten minutes", async () => {
       const anonymous = await stored("first");
       const signedIn = randomUUID();

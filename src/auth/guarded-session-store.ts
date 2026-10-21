@@ -178,6 +178,15 @@ export class GuardedSessionStore extends Store {
   }
 
   /**
+   * Destroy, reporting whether the key was there to destroy. One `DEL`, so of two requests replacing the same session
+   * at once only one hears that it existed. A re-sign-in needs that answer and `destroy`'s callback cannot carry it: a
+   * session already gone was logged out, and replacing it would undo the logout (review finding R05).
+   */
+  async destroyExisting(sid: string): Promise<boolean> {
+    return (await this.#run(DESTROY, sid, [])) === 1;
+  }
+
+  /**
    * Take the per-session refresh lease, waiting a bounded time for another request's refresh to finish.
    *
    * `acquired` comes with the lease, and the caller must read the session again before deciding anything, because the

@@ -174,6 +174,7 @@ describe("the persona switch", () => {
 
     await route.POST(req, pageResponse(), vi.fn());
 
+    expect(req.sessionStore.destroyExisting).toHaveBeenCalledWith(CASEWORKER_SESSION_ID);
     expect(req.session.regenerate).toHaveBeenCalled();
     expect(req.session.save).toHaveBeenCalled();
   });
@@ -241,6 +242,49 @@ describe("the persona switch", () => {
     for (const secret of ["token", "A Judge", "Pa55word11", CASEWORKER_SESSION_ID, JUDGE_SESSION_ID, "@"]) {
       expect(serialised).not.toContain(secret);
     }
+  });
+
+  // Review finding R05: a logout that landed while IDAM's grant was in flight must stay a logout.
+  describe("when the session was ended elsewhere while IDAM answered", () => {
+    function endedDuringGrant(): RequestDouble {
+      const req = Object.assign(signedInCaseworker(), { originalUrl: "/switch-persona" });
+      vi.mocked(req.sessionStore.destroyExisting).mockResolvedValue(false);
+      return req;
+    }
+
+    it("should sign the browser out and send it to sign in, rather than signing it in as the persona", async () => {
+      const req = endedDuringGrant();
+      const res = pageResponse();
+
+      await route.POST(req, res, vi.fn());
+
+      expect(req.session.regenerate).not.toHaveBeenCalled();
+      expect(req.session.destroy).toHaveBeenCalled();
+      expect(req.session.deedPoll).toEqual({});
+      expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2F");
+    });
+
+    it("should emit no switch event, since the logout that ended the session already emitted its own", async () => {
+      await route.POST(endedDuringGrant(), pageResponse(), vi.fn());
+
+      expect(trackEvent).not.toHaveBeenCalled();
+    });
+
+    it("should let any other failure to replace the session reach the error handler", async () => {
+      const req = signedInCaseworker();
+      vi.mocked(req.sessionStore.destroyExisting).mockRejectedValue(new Error("store down"));
+
+      await expect(route.POST(req, pageResponse(), vi.fn())).rejects.toThrow("store down");
+      expect(trackEvent).not.toHaveBeenCalled();
+    });
+
+    it("should emit no switch event when the new session cannot be created after the old one was deleted", async () => {
+      const req = signedInCaseworker();
+      req.session.regenerate.mockImplementation((done?: (error?: Error) => void) => done?.(new Error("regenerate failed")));
+
+      await expect(route.POST(req, pageResponse(), vi.fn())).rejects.toThrow("regenerate failed");
+      expect(trackEvent).not.toHaveBeenCalled();
+    });
   });
 
   describe("when the switcher is not on offer", () => {

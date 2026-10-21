@@ -21,6 +21,7 @@ import { fetchCallerAccess } from "./caller-access.js";
 import { SessionWriteRefusedError } from "./guarded-session-store.js";
 import { refreshTokens } from "./idam.js";
 import { refreshMiddleware } from "./refresh-middleware.js";
+import { STATUS_PATH, TIMED_OUT_PATH } from "./session-lifetime.js";
 
 vi.mock("./idam.js", async (importOriginal) => ({
   describeIdamError: (await importOriginal<typeof import("./idam.js")>()).describeIdamError,
@@ -585,6 +586,19 @@ describe("refreshMiddleware and the refresh lease", () => {
     await refreshMiddleware(req, res, next);
 
     expect(store(req).claimRefresh).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalled();
+  });
+
+  it.each([STATUS_PATH, TIMED_OUT_PATH])("should neither refresh nor backfill /me on %s, which an expired session still reaches", async (path) => {
+    const req = request([], { user: ROLES_ERA_USER, accessToken: "the-session-token", tokenExpiresAt: expiringIn(60) });
+    (req as unknown as { path: string }).path = path;
+
+    await refreshMiddleware(req, res, next);
+
+    expect(store(req).claimRefresh).not.toHaveBeenCalled();
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(fetchCallerAccess).not.toHaveBeenCalled();
+    expect(req.session.deedPoll.accessToken).toBe("the-session-token");
     expect(next).toHaveBeenCalled();
   });
 

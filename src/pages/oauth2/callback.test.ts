@@ -102,6 +102,17 @@ describe("the IDAM callback", () => {
     expect(req.session.regenerate).toHaveBeenCalled();
   });
 
+  // The persona switch asks the store whether the session it replaces still exists; a sign-in never does, because an
+  // anonymous session that has gone has nothing to protect and the new id must be minted regardless.
+  it("regenerates unconditionally, without asking whether the anonymous session is still stored", async () => {
+    const req = callback();
+
+    await GET(req, pageResponse());
+
+    expect(req.sessionStore.destroyExisting).not.toHaveBeenCalled();
+    expect(req.session.regenerate).toHaveBeenCalled();
+  });
+
   it("exchanges the code against the flow held in the session, not anything from the request", async () => {
     const req = callback();
 
