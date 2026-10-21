@@ -24,6 +24,7 @@ const MIN_SEND_MS = 5_000;
 export function gazetteSendTimeLeft(res: Response): number | null {
   const receivedAt: unknown = res.locals.receivedAt;
   if (typeof receivedAt !== "number") throw new Error("The request's arrival time is not recorded: mount recordArrival first");
-  const left = SEND_BUDGET_MS - (Date.now() - receivedAt);
+  // Whole milliseconds, because `AbortSignal.timeout` throws on a fraction and the monotonic clock carries one.
+  const left = Math.floor(SEND_BUDGET_MS - (performance.now() - receivedAt));
   return left < MIN_SEND_MS ? null : left;
 }

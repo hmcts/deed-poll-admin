@@ -73,7 +73,7 @@ the gateway's error page, not the recovery page with the request's key, and the 
 selected review. So a send over 20 s is still an unknown outcome until both gateways' `request_timeout` is raised or
 api sends asynchronously. And 20 s alone is no end-to-end bound, because the re-check and a token refresh spend the
 same request's time first: `recordArrival` (`src/request-arrival.ts`, the first layer in `createApp`) stamps
-`res.locals.receivedAt`, and the send and the status check wait only for what is left of a 25 s budget from it
+`res.locals.receivedAt` from the monotonic `performance.now()`, and the send and the status check wait only for what is left of a 25 s budget from it
 (`src/gazette/send-deadline.ts`), capped at 20 s and by `DEED_POLL_API_TIMEOUT_MS`, which can only shorten it. The
 budget bounds the send, not what precedes it: the re-check's reads and the refresh keep their own timeouts, so a
 pre-send phase that alone outlasts 30 s still ends on the gateway's page, having sent nothing. Under

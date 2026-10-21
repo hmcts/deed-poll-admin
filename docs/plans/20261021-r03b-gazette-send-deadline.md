@@ -33,7 +33,7 @@ execution baseline.
 ## Development Approach
 
 1. **Record arrival once, as early as possible.** A tiny middleware mounted first in `src/app.ts` (before sessions
-   and refresh) sets the arrival time on `res.locals` (for example `res.locals.receivedAt = Date.now()`). Pin its
+   and refresh) sets the arrival time on `res.locals` (`res.locals.receivedAt = performance.now()`, the monotonic clock, so a wall-clock step cannot lengthen the budget). Pin its
    position in `src/app.test.ts` as the other order-sensitive middleware is pinned. Nothing else uses it yet; do not
    build a general request-timing framework.
 2. **A budget and a floor, beside the page that uses them.** In the Gazette area: a total budget measured from arrival
@@ -148,7 +148,7 @@ it, and `libs/deed-poll-api-client/src/api/client.ts` only if the adapter must a
 
 - Red: `src/request-arrival.test.ts` failed to import the missing module; `src/app.test.ts`'s new "arrival time"
   test failed (no layer mounted).
-- Green: `src/request-arrival.ts` (`recordArrival()`, sets `res.locals.receivedAt = Date.now()`), mounted as the
+- Green: `src/request-arrival.ts` (`recordArrival()`, sets `res.locals.receivedAt = performance.now()`, monotonic), mounted as the
   first layer in `createApp`, right after `trust proxy`. `app.test.ts` pins it as `stack[0]`, matching every path,
   ahead of the session (and every other doubled layer) and `refreshMiddleware`.
 - Validation: lint clean, build 8/8, tests 8/8; app 115 files / 2501 tests (+3), others unchanged. No skips.

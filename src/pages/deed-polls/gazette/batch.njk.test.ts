@@ -79,7 +79,7 @@ async function render(body?: Record<string, unknown>, locale = "en", sessionID =
   const req = Object.assign(pageRequest({ body, teamLeader: true, accessToken: "token" }), { sessionID });
   const res = pageResponse();
   res.locals.locale = locale;
-  res.locals.receivedAt = Date.now() - spentMs;
+  res.locals.receivedAt = performance.now() - spentMs;
   await (body ? POST : GET)(req, res);
   if (!res.render.mock.calls.length) return { res, model: null, markup: "", journey: "" };
   const model = res.render.mock.calls[0][1];
@@ -133,7 +133,7 @@ it("should present the actual recipient and group counts, require explicit confi
 
 describe("the send's deadline, counted from the request's arrival", () => {
   beforeEach(() => {
-    vi.useFakeTimers({ now: Date.now(), toFake: ["Date"] });
+    vi.useFakeTimers({ now: Date.now(), toFake: ["Date", "performance"] });
   });
 
   afterEach(() => {
@@ -156,7 +156,7 @@ describe("the send's deadline, counted from the request's arrival", () => {
   it("should count the time the review re-check spent", async () => {
     const check = await confirmation();
     vi.mocked(gazetteReviewsCurrent).mockImplementationOnce(async () => {
-      vi.setSystemTime(Date.now() + 9_000);
+      vi.advanceTimersByTime(9_000);
       return true;
     });
 
@@ -168,7 +168,7 @@ describe("the send's deadline, counted from the request's arrival", () => {
   it("should send nothing when the review re-check itself spends the time down past the floor", async () => {
     const check = await confirmation();
     vi.mocked(gazetteReviewsCurrent).mockImplementationOnce(async () => {
-      vi.setSystemTime(Date.now() + 6_000);
+      vi.advanceTimersByTime(6_000);
       return true;
     });
 

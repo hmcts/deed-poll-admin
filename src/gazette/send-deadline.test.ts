@@ -1,18 +1,21 @@
 import express, { type Response } from "express";
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import { recordArrival } from "../request-arrival.js";
 import { gazetteSendTimeLeft } from "./send-deadline.js";
 
-const NOW = 1_760_000_000_000;
+const NOW = 100_000;
 
 describe("gazetteSendTimeLeft", () => {
+  let clock: MockInstance<() => number>;
+
   beforeEach(() => {
-    vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
+    clock = vi.spyOn(performance, "now").mockReturnValue(NOW);
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it.each([
@@ -31,16 +34,29 @@ describe("gazetteSendTimeLeft", () => {
     expect(() => gazetteSendTimeLeft(arrivedAt(undefined))).toThrow("mount recordArrival first");
   });
 
+  it("should round down to whole milliseconds, because AbortSignal.timeout refuses a fraction", () => {
+    expect(gazetteSendTimeLeft(arrivedAt(NOW - 12_000.4))).toBe(12_999);
+  });
+
+  it("should not grant more time when the wall clock is stepped back during the request", () => {
+    vi.useFakeTimers({ now: 1_760_000_000_000, toFake: ["Date"] });
+    const res = arrivedAt(NOW - 12_000);
+
+    vi.setSystemTime(1_760_000_000_000 - 60_000);
+
+    expect(gazetteSendTimeLeft(res)).toBe(13_000);
+  });
+
   it("should count from the time recordArrival recorded, not from when the handler ran", async () => {
     const app = express();
     app.use(recordArrival());
     app.use((_req, _res, next) => {
-      vi.setSystemTime(NOW + 12_000);
+      clock.mockReturnValue(NOW + 12_000);
       next();
     });
     app.get("/deadline", (_req, res) => {
       const first = gazetteSendTimeLeft(res);
-      vi.setSystemTime(NOW + 21_000);
+      clock.mockReturnValue(NOW + 21_000);
       res.json({ first, late: gazetteSendTimeLeft(res) });
     });
 
