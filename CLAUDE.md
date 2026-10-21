@@ -415,7 +415,7 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
 ## Session writes
 
 A destroyed session must stay destroyed whatever request is still holding it (review finding E01; plan
-`docs/plans/20261020-e01-session-revocation.md`). `connect-redis`'s unconditional `SET` let a refresh waiting on IDAM,
+`docs/plans/completed/20261020-e01-session-revocation.md`). `connect-redis`'s unconditional `SET` let a refresh waiting on IDAM,
 an activity save or `express-session`'s own autosave put a logged-out session back. The rules, which every future
 authenticated writer must follow:
 
@@ -492,7 +492,7 @@ only — api keeps the audit trail of writes and reads, and this app must not du
   and other control characters and caps the text at 500 characters. `src/for-log.test.ts` scans `src/pages` and fails
   a `console.*` call that interpolates `.message` without it.
 - **`forLog` bounds text; it is not a privacy filter.** What goes *into* an error message is the control (review
-  finding E03, `docs/plans/20261020-e03-safe-error-diagnostics.md`). A request's query values and raw headers never
+  finding E03, `docs/plans/completed/20261020-e03-safe-error-diagnostics.md`). A request's query values and raw headers never
   belong in one: a search's `q` and `where` are applicant names, and an `Origin` or `Sec-Fetch-Site` is whatever the
   browser sent. Safe inputs are the method, a route built from `req.baseUrl + req.path` (never `originalUrl`), a
   fixed operation or reason phrase, an HTTP status and schema field paths. The api client cuts a request path at its
@@ -555,7 +555,7 @@ referral under a case, a saved query, a Gazette request, an email — goes throu
 ## Numeric case-form input
 
 A typo in a number field used to reach the patch as `null`, an instruction to clear the stored value (review finding
-E04; plan `docs/plans/20261020-e04-numeric-input-validation.md`). The rules for every `kind: "number"` field:
+E04; plan `docs/plans/completed/20261020-e04-numeric-input-validation.md`). The rules for every `kind: "number"` field:
 
 - **One parser, four outcomes.** `readNumericInput` (`libs/deed-poll/src/deed-poll/numeric-input.ts`) reads a
   submitted control as `absent` (not in the body: omitted from the patch, never nulled), `blank` (empty or
@@ -582,6 +582,42 @@ E04; plan `docs/plans/20261020-e04-numeric-input-validation.md`). The rules for 
   persistence mocked; it proves the outgoing patch, not a live save.
 - **The field-error messages are English-only domain strings** in `form-validation.ts`, like the date-part messages, so
   they sit outside the Welsh extractor's page scope and add nothing to `yarn welsh:check`. Do not add `cy` strings.
+
+## Case edit form saves
+
+An unchanged save must write back exactly what is stored, and a refused save must redraw exactly what was submitted
+(review findings R01 and R02; plan `docs/plans/20261020-r01-r02-edit-form-untouched-fields.md`). The POST handler reads
+no case first, so the body is the only evidence of what the page rendered. The rules:
+
+- **"Absent" means something different for each field kind.** A rendered text input, textarea or select always
+  submits its value, even an empty one, and a rendered date always submits its three parts. So when one of these is
+  missing from the body, it was never rendered: hidden by its rule, locked, or not on this tab. `buildUpdatePatch`
+  (`libs/deed-poll/src/deed-poll/form-payload.ts`) leaves it out of the patch. A date counts as absent only when all
+  three parts are missing. A *present* empty value still clears a nullable field; a `notNullable` one (`privacy`, `urgency`) is
+  silently left out instead, because nulling its column is a 500 and the stored value stands. Numbers
+  follow `readNumericInput` (above), which has the same rule.
+- **Checkboxes are the exception, because an unticked box is absent too.** An absent boolean is `false` and an
+  absent multiselect is `[]`, so a hidden checkbox field would be cleared on every save. Today `getFieldRules` hides
+  none, and `deed-poll-validation.test.ts` fails if a rule ever hides a boolean or multiselect for any type, migrated
+  or not, published or not. A rule that needs to hide one first needs a different way to tell "unticked" from "not
+  rendered".
+- **The minor-only fields and the Gazette notice date are cleared by api, not here.** The old behaviour cleared them
+  only by accident. api's update applies `applyGazetteGate` and `applyMinorGate` to the merged record
+  (`DeedPollService.java` around lines 410-415 on api `origin/master` `554fe49`), and the mock's `patchCase` applies
+  the same two (`writeGates`), so a local save behaves as api's does. The fields a Deed of Relinquishment hides (old
+  names, marital status, nationality) are cleared by nobody, and no rule says they should be. If a clear is ever
+  needed here, call the gate function explicitly, never through absent-means-null.
+- **Checked state is computed in the view model, never in the template.** `decorate()` in
+  `libs/deed-poll/src/deed-poll/edit-view.ts` sets `checked` on a boolean field and on each multiselect option. It
+  reads stored values (`true`, numbers) and replayed ones (`"true"`/`"on"`, strings) the same way `buildUpdatePatch`
+  does, through the shared `checkbox-input.ts`. `edit.njk` reads only those flags. A template that compares raw values redraws every ticked box unticked on
+  a replay, and the corrected resubmit then clears them.
+- **A locked field redraws from the stored record.** A non-admin's privacy select is rendered disabled, so it is
+  never in the body; replaying it would redraw it blank. Read-only fields are excluded from the replay for the same
+  reason, and so is any other field the body does not carry, by the same absence test as the patch: drawn empty, a
+  field whose rule changed between render and redraw would be cleared by the corrected resubmit.
+  `src/case-edit-untouched-fields.test.ts` drives the real handler and the real `edit.njk`, reads the
+  rendered page back as the form a browser would submit, and pins both round trips.
 
 # Agent instructions
 
@@ -683,7 +719,7 @@ Follow these strict naming conventions throughout the project:
   referrals and its emails with `Promise.allSettled`, not `Promise.all`: the case read stays fatal, the referrals
   read degrades to `unavailableReferralsView()` and a log line. The field rules need only the case, so they are
   chained off the case promise inside the same `allSettled` rather than awaited after it, which would make them
-  wait for the panels too (review finding E05, `docs/plans/20261020-e05-case-detail-concurrency.md`; the
+  wait for the panels too (review finding E05, `docs/plans/completed/20261020-e05-case-detail-concurrency.md`; the
   `read scheduling` tests in `[id].test.ts` pin the order). `client.ts` classifies by status, so under
   `Promise.all` a referrals 404 rendered "Page not found" for a case that exists, a 5xx the 500 page, and a 403
   the 404 template — three disguises for a failure the adapter itself calls "try again shortly". The test for
