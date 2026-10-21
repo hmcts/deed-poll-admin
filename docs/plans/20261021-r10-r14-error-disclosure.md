@@ -143,7 +143,9 @@ session and the next one builds over it, wiping the results.
 - **Rechecked R14:** `src/errors.ts` still answers every `ForbiddenError` with `res.status(403).render("errors/404")`.
   The "non-enumerable" / "discloses nothing" claim appeared in four places, not three: `CLAUDE.md` (Personas and role
   gating), the `forbidden` row of `.claude/rules/backend.md`, the comment in `src/errors.ts`, and
-  `docs/ARCHITECTURE.md`'s Authorization paragraph. All four corrected.
+  `docs/ARCHITECTURE.md`'s Authorization paragraph. All four corrected. Review then found the claim in three code
+  comments too (`src/errors.test.ts`, `src/pages/switch-persona.ts` and its test's analogy, and
+  `src/auth/require-role.ts`), corrected in the review fix commit.
 - **Wording:** the 404 view says nothing about what was refused, and the gate fires before any lookup, so whether a
   particular resource exists is never disclosed. The 403 status does disclose that the area exists and is closed to
   the caller, which is deliberate and pinned by the e2e specs. `CLAUDE.md` and `backend.md` cite this plan at its

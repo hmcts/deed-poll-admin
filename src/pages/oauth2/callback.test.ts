@@ -193,13 +193,13 @@ describe("the IDAM callback", () => {
       expect(completeLogin).not.toHaveBeenCalled();
     });
 
-    it("renders no reason for a repeated error_description", async () => {
+    it("renders only this app's sentence for a known code with a repeated error_description", async () => {
       const res = pageResponse();
 
-      await GET(callback({ query: { error: "invalid_request", error_description: [MARKER, MARKER] } }), res);
+      await GET(callback({ query: { error: "access_denied", error_description: [MARKER, MARKER] } }), res);
 
       expect(res.status).toHaveBeenCalledWith(403);
-      expect(res.render).toHaveBeenCalledWith("errors/403", { reason: undefined });
+      expect(res.render).toHaveBeenCalledWith("errors/403", { reason: "Sign in was cancelled or refused." });
     });
 
     it("renders no reason for a repeated error, which is not a string and so goes to the exchange as before", async () => {

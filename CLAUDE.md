@@ -547,6 +547,11 @@ only — api keeps the audit trail of writes and reads, and this app must not du
   - **Never a token, secret, raw session id, cookie, email address, display name or applicant data**, test fixtures
     included. A value the browser or IDAM chose (an `error` code, a `Sec-Fetch-Site`, an `Origin`) is recorded only if
     it has the expected shape — otherwise `unrecognised`, or the host alone, or nothing — and never as prose.
+- **The IDAM callback's refusal page shows only this app's sentences** (review finding R10,
+  `docs/plans/completed/20261021-r10-r14-error-disclosure.md`). The callback query is the browser's to write, so
+  `src/pages/oauth2/callback.ts` maps a known RFC 6749 `error` code to its own `en`/`cy` sentence through a `Map`
+  (so `constructor` finds nothing) and renders `errors/403` with no `reason` for anything else. `error_description`
+  is never displayed. Add a code by adding a sentence, never by echoing the query.
 - **Every 403 is emitted in one place, `src/errors.ts`.** `ForbiddenError` carries `reason` (`role`, `same-origin` or
   the default `api`, which `callApi` raises) and the gate's details; `requireJudicial`, `requireCapability` and
   `same-origin.ts` set them, and `errors.ts` maps them to `authz.denied` or `csrf.refused`. Do not emit a refusal at
