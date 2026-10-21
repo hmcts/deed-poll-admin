@@ -47,42 +47,32 @@ export function collectFormErrors(body: Record<string, unknown>, fields: FieldDe
  * means 1926, which nobody typing "26" intends.
  */
 export function collectDateErrors(body: Record<string, unknown>, fields: FieldDef[]): FormError[] {
-  const errors: FormError[] = [];
-  for (const field of fields) {
-    if (field.kind !== "date" || field.readOnly) continue;
-    const input = readDateInput(field.name, body);
-    if (input.kind === "absent") continue;
-    // A repeated or bracketed part is not a date the caseworker typed (review finding R08), and reading it as
-    // blank would clear the field.
-    if (input.kind === "invalid") {
-      errors.push({ field: field.name, message: fieldInputMessage(field) });
-      continue;
-    }
-    const { day, month, year } = input;
-
-    // All blank: the caseworker is clearing the field, which is legitimate.
-    if (!day && !month && !year) continue;
-
-    const missing = [!day && "day", !month && "month", !year && "year"].filter(Boolean) as string[];
-    if (missing.length > 0) {
-      errors.push({
-        field: field.name,
-        message: `${field.label} must include a ${missing.join(" and ")}`
-      });
-      continue;
-    }
-    if (!isRealDate(day, month, year)) {
-      errors.push({
-        field: field.name,
-        message: `${field.label} must be a real date`
-      });
-    }
-  }
-  return errors;
+  return fields.filter((field) => field.kind === "date" && !field.readOnly).flatMap((field) => invalidDateInput(field, body));
 }
 
 function invalidInput(field: FieldDef, body: Record<string, unknown>): FormError[] {
   return readFieldInput(field, body).kind === "invalid" ? [{ field: field.name, message: fieldInputMessage(field) }] : [];
+}
+
+function invalidDateInput(field: FieldDef, body: Record<string, unknown>): FormError[] {
+  const input = readDateInput(field.name, body);
+  if (input.kind === "absent") return [];
+  // A repeated or bracketed part is not a date the caseworker typed (review finding R08), and reading it as
+  // blank would clear the field.
+  if (input.kind === "invalid") return [{ field: field.name, message: fieldInputMessage(field) }];
+  const { day, month, year } = input;
+
+  // All blank: the caseworker is clearing the field, which is legitimate.
+  if (!day && !month && !year) return [];
+
+  const missing = [!day && "day", !month && "month", !year && "year"].filter(Boolean) as string[];
+  if (missing.length > 0) {
+    return [{ field: field.name, message: `${field.label} must include a ${missing.join(" and ")}` }];
+  }
+  if (!isRealDate(day, month, year)) {
+    return [{ field: field.name, message: `${field.label} must be a real date` }];
+  }
+  return [];
 }
 
 /**
