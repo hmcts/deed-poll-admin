@@ -30,9 +30,9 @@ const environment = nunjucks.configure(
 );
 
 /** The content pair first and the handler's own values over it, as `renderInterceptorMiddleware` merges them. */
-async function html(locale: "en" | "cy"): Promise<string> {
+function html(locale: "en" | "cy"): string {
   const res = pageResponse();
-  await GET(pageRequest({ signedIn: false }), res);
+  GET(pageRequest({ signedIn: false }), res);
   const model = res.render.mock.calls[0][1] as Record<string, unknown>;
   return environment.render("signed-out/index.njk", { ...(model[locale] as object), ...model });
 }
@@ -57,16 +57,16 @@ function anonymousApp() {
 }
 
 describe("signed-out/index.njk", () => {
-  it("should say the user signed out of this service, with one link to sign in again", async () => {
-    const page = await html("en");
+  it("should say the user signed out of this service, with one link to sign in again", () => {
+    const page = html("en");
 
     expect(page).toContain("You have signed out");
     expect(page).toContain("You have signed out of this service.");
     expect(page).toContain('<a class="govuk-link" href="/login">Sign in again</a>');
   });
 
-  it("should render in Welsh", async () => {
-    const page = await html("cy");
+  it("should render in Welsh", () => {
+    const page = html("cy");
 
     expect(page).toContain('<a class="govuk-link" href="/login">Mewngofnodi eto</a>');
   });
