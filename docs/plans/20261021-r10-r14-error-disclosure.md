@@ -102,8 +102,8 @@ session and the next one builds over it, wiping the results.
 
 ### Task 3: Hand off
 
-- [ ] Record final commits, changed files and test counts in the execution notes.
-- [ ] Run all Validation Commands and hand off to the Ralphex review phases.
+- [x] Record final commits, changed files and test counts in the execution notes.
+- [x] Run all Validation Commands and hand off to the Ralphex review phases.
 
 ## Acceptance Criteria
 
@@ -152,6 +152,20 @@ session and the next one builds over it, wiping the results.
   with counts identical to Task 1: app 124 / 2618, deed-poll 68 / 1401, api-client 14 / 852, starter 12 / 127,
   cloud-native-platform 13 / 157, session-postgres 2 / 30, session-redis 1 / 7, simple-router 4 / 41. No failures,
   no skips.
+
+### Task 3 (hand off)
+
+- **Commits on `origin/master` `2a87bf5`:** `852db63` (plan), `226bbaf` (R10: the callback shows only this app's own
+  sentences), `092f7fc` (R14: describe exactly what a judicial 403 reveals), plus this hand-off commit.
+- **Changed files:** `src/pages/oauth2/callback.ts`, `src/pages/oauth2/callback.test.ts`,
+  `src/pages/oauth2/callback.njk.test.ts` (new), `scripts/extract-welsh-strings.mjs` (adds `src/pages/oauth2` to
+  `INCLUDE`), `src/errors.ts` (comment only), `CLAUDE.md`, `.claude/rules/backend.md`, `docs/ARCHITECTURE.md`, and
+  this plan.
+- **Final validation** (`REDIS_URL=redis://127.0.0.1:6379`): `yarn lint` clean (the same pre-existing Biome
+  config-migration info), `yarn build` 8/8, `yarn turbo test test:app --concurrency=1 --force` 8/8: app 124 files /
+  2618 tests, deed-poll 68 / 1401, api-client 14 / 852, starter 12 / 127, cloud-native-platform 13 / 157,
+  session-postgres 2 / 30, session-redis 1 / 7, simple-router 4 / 41. No failures, no skips. Against the baseline,
+  the only change is the app's +1 file / +17 tests from Task 1. Handed off to the Ralphex review phases.
 
 ## Post-Completion
 
