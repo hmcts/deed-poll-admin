@@ -426,6 +426,25 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
   but never recovers**: `openid-client`'s "discovered metadata issuer does not match the expected issuer", or an
   HTTPS refusal, repeats once per interval indefinitely. That is fixed in `IDAM_ISSUER_URL` or the chart, not by
   waiting or cycling the pod.
+- **Ending a session is local first, and IDAM is asked afterwards** (review finding R04; plan
+  `docs/plans/completed/20261021-r04-timeout-during-idam-outage.md`). A timeout (`endTimedOutSession` in
+  `src/auth/session-lifetime.ts`) and logout (`src/pages/logout.ts`) emit their ending event, end the session here
+  (regenerate or destroy; logout then sets `Clear-Site-Data`), and only then look up IDAM's end-session address,
+  through `availableEndSessionUrl` (`src/auth/end-session.ts`). A lookup that fails, the discovery cooldown included,
+  falls back exactly like an issuer advertising no endpoint (`TIMED_OUT_PATH` for a timed-out GET, `/login` as a
+  timed-out POST's sign-in link, `/signed-out` for logout), so an outage still ends the session on the first request rather than
+  answering 500 and emitting the event again on every retry. The IDAM session survives such an ending, and the sign-in
+  link can re-enter it once IDAM recovers; that is the accepted cost, and the fix is never to await IDAM before the local
+  end again. The event stays
+  *before* the local end, so it carries the old `sid`: fix an ordering problem here by moving the lookup, never the
+  event.
+- **A logout that cannot reach IDAM's end-session page lands on `/signed-out`, never on `/`** (plan
+  `docs/plans/completed/20261021-r04b-signed-out-page.md`). `/` sends an anonymous visitor straight to `/login`, which
+  starts IDAM sign-in without a click, so through the IDAM session that survives an outage (or an issuer advertising no
+  end-session endpoint) someone who clicked "Sign out" on a shared PC would be signed straight back in.
+  `src/pages/signed-out/` is public (`PUBLIC_PATHS`) and offers sign-in only as a link. Its copy says "signed out of
+  this service" because IDAM may still hold its own session. With IDAM healthy, logout still goes to IDAM's
+  end-session URL.
 
 ## Session writes
 

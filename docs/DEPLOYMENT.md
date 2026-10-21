@@ -309,6 +309,13 @@ The cookie expiry and any client-side warning are conveniences; neither decides 
 - **A timeout ends the session here and at IDAM**, as logout does. A GET returns, after IDAM end-session, to
   `/session-timed-out` (or `/` until the address is registered), and "Sign in again" resumes the original page. A
   timed-out POST gets a 401 page saying the changes were not saved; nothing is replayed.
+- **During an IDAM discovery outage a timeout or logout ends the session here only** (R04). The 5 s discovery
+  cooldown included, a timed-out GET goes straight to `/session-timed-out`, a timed-out POST's 401 page links to
+  `/login`, and logout still clears the cache and redirects to `/signed-out`, a public page whose "Sign in again" is
+  only a link. Never `/`, which would start IDAM sign-in at once. The same page is used when IDAM advertises no
+  end-session endpoint. The IDAM session is not ended, so once IDAM recovers "Sign in again" may sign the person at the
+  PC straight back in. Each such ending logs `IDAM end-session
+  address unavailable; the session was ended locally only`.
 - **Activity** is any signed-in request to a non-public page, recorded at most once a minute. Public pages, health
   probes and assets do not count.
 - **Redis TTL** is derived from the session: a signed-in key lives until 15 minutes after its absolute deadline, any
@@ -319,7 +326,7 @@ The cookie expiry and any client-side warning are conveniences; neither decides 
 
 ### Session writes and rollout
 
-Since the E01 fix (`docs/plans/20261020-e01-session-revocation.md`) the session store is `GuardedSessionStore`, which
+Since the E01 fix (`docs/plans/completed/20261020-e01-session-revocation.md`) the session store is `GuardedSessionStore`, which
 refuses any write that could recreate a logged-out or expired session or overwrite a newer one, and coordinates token
 refreshes across pods with a lease. The contract is in `CLAUDE.md` under "Session writes". What it means for a deploy:
 
@@ -342,7 +349,7 @@ refreshes across pods with a lease. The contract is in `CLAUDE.md` under "Sessio
   asking IDAM again, and the next refresh with a rotated-away token signs the user out. None of this logs a session id,
   subject or token.
 - **What it does not do.** It guarantees this app's stored session. It does not revoke the IDAM tokens a session held;
-  that remains IDAM's end-session on logout and api's token validation.
+  that remains IDAM's end-session on logout, when IDAM is reachable, and api's token validation.
 
 ## Security events
 

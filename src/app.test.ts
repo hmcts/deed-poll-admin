@@ -653,9 +653,9 @@ describe("createApp's no-store layer", () => {
   // The header is skipped exactly where requireAuth's allowlist says a page is public, so this reads every page off
   // the filesystem and pins which ones those are. A new page is a signed-in page, and uncacheable, unless it is
   // added here on purpose.
-  // `/session-timed-out` is for a user who is no longer signed in, and shows no case data. The two `/session/` routes
+  // `/session-timed-out` and `/signed-out` are for a user who is no longer signed in, and show no case data. The two `/session/` routes
   // answer an anonymous caller 401 themselves and set their own no-store.
-  it("should treat every page but the sign-in flow, the home redirect, the timed-out page and the footer pages as signed-in", async () => {
+  it("should treat every page but the sign-in flow, the home redirect, the timed-out and signed-out pages and the footer pages as signed-in", async () => {
     const { isPublicPath } = await vi.importActual<typeof import("./auth/require-auth.js")>("./auth/require-auth.js");
     const publicPages = new Set([
       "/",
@@ -663,6 +663,7 @@ describe("createApp's no-store layer", () => {
       "/logout",
       "/oauth2/callback",
       "/session-timed-out",
+      "/signed-out",
       "/session/keep-alive",
       "/session/status",
       "/accessibility-statement",
