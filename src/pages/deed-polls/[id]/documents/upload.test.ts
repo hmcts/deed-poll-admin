@@ -1,7 +1,7 @@
 import { findDeedPoll, findDocumentTypes, InvalidInputError, NotFoundError, uploadDocument } from "@hmcts/deed-poll";
 import express, { type Request, type Response } from "express";
 import supertest from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest } from "../../../../express-doubles.js";
 import { GET, POST } from "./upload.js";
 
@@ -221,6 +221,38 @@ describe("document upload page", () => {
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.render.mock.calls[0][1].errorField).toBe("documentTypeId");
+    });
+
+    describe("api's 404 wording for an unknown document type (R13)", () => {
+      const MARKER = "R13-MARKER-7f3a";
+
+      afterEach(() => {
+        vi.restoreAllMocks();
+      });
+
+      it.each([
+        ["api's JSON message", `Document type ${MARKER} not found`],
+        ["the adapter's message for a non-JSON body", "deed-poll-api answered 404"]
+      ])("renders this page's own sentence rather than %s", async (_label, apiMessage) => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        vi.mocked(uploadDocument).mockRejectedValue(new NotFoundError(apiMessage));
+        const res = response();
+
+        await handler(request({ documentTypeId: TYPE_ID }, aFile), res);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res.render.mock.calls[0][1].errorField).toBe("documentTypeId");
+        expect(res.render.mock.calls[0][1].errorMessage).toBe("Select a document type from the list");
+      });
+
+      it("logs api's message with a fixed prefix, cleaned for the log", async () => {
+        const log = vi.spyOn(console, "error").mockImplementation(() => {});
+        vi.mocked(uploadDocument).mockRejectedValue(new NotFoundError(`Document type ${MARKER}\r\nforged line\u001b[2J not found`));
+
+        await handler(request({ documentTypeId: TYPE_ID }, aFile), response());
+
+        expect(log).toHaveBeenCalledWith(`document upload refused an unknown document type: Document type ${MARKER}forged line not found`);
+      });
     });
 
     it("rethrows anything that is not a validation or lookup failure", async () => {

@@ -104,6 +104,9 @@ export function createGazetteRequests() {
   function admit(members: MockCase[], key: unknown, subject: string, name: string, identity: string, { settings, batches }: GazetteContext): Reply {
     const now = new Date();
     const batchId = randomUUID();
+    let failureCode: WireGazetteStatus["failureCode"] = null;
+    if (outcome === "NotSent") failureCode = "PROVIDER_REFUSED";
+    else if (outcome === "Uncertain") failureCode = "SEND_OUTCOME_UNKNOWN";
     const status: WireGazetteStatus = {
       batchId,
       state: outcome,
@@ -113,7 +116,7 @@ export function createGazetteRequests() {
       recipientRevision: settings.revision,
       ...counts(members),
       sentAt: outcome === "Sent" ? now : null,
-      failureCode: outcome === "NotSent" ? "PROVIDER_REFUSED" : outcome === "Uncertain" ? "SEND_OUTCOME_UNKNOWN" : null
+      failureCode
     };
     requests.set(batchId, { status, cases: membership(members), key: String(key), subject, identity });
     if (outcome === "Sent") {
