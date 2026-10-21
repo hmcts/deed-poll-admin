@@ -329,6 +329,20 @@ export function signIn(req: Request, user: CurrentUser, subject: string, tokens:
 }
 
 /**
+ * Sign a signed-in session in again as someone else (the persona switch), only if that session still exists.
+ *
+ * `signIn` regenerates whatever it is given, so a switch still waiting on IDAM when the session was logged out on
+ * another instance would sign the browser back in as the persona (review finding R05). Here the old key is deleted
+ * first and the store says whether it was there; if not, this rejects with the gone-session refusal and creates
+ * nothing. The regenerate that follows deletes the key again, which by then is a no-op. The OAuth callback keeps
+ * `signIn`: its session is anonymous, so there is nothing to protect, and a sign-in must always mint a new id.
+ */
+export async function reSignIn(req: Request, user: CurrentUser, subject: string, tokens: IdamTokens): Promise<void> {
+  if (!(await replacer(req).destroyExisting(req.sessionID))) throw new SessionWriteRefusedError("missing");
+  await signIn(req, user, subject, tokens);
+}
+
+/**
  * The access token, for calling `deed-poll-api` as the signed-in caseworker.
  *
  * api authenticates every caseworker route and derives both the audit author and the admin status from
@@ -548,6 +562,13 @@ function coordinator(req: Request): RefreshCoordinator {
   return store as RefreshCoordinator;
 }
 
+/** The store, if it can report whether a session it destroys was there. Anything else is refused, never assumed. */
+function replacer(req: Request): SessionReplacer {
+  const store = req.sessionStore as Partial<SessionReplacer> | undefined;
+  if (typeof store?.destroyExisting !== "function") throw new Error("the session store cannot replace a session only if it still exists");
+  return store as SessionReplacer;
+}
+
 /** Session lifetime limits in seconds, as checked by `assertSessionTimeouts`. */
 export interface SessionTimeouts {
   idleSeconds: number;
@@ -559,6 +580,11 @@ export interface RefreshCoordinator {
   claimRefresh(sid: string, sess: SessionData): Promise<RefreshClaim>;
   attachRefreshLease(sess: SessionData, lease: string): void;
   releaseRefresh(sid: string, lease: string): Promise<void>;
+}
+
+/** What a re-sign-in needs of the store: `GuardedSessionStore`, or a double of it. */
+export interface SessionReplacer {
+  destroyExisting(sid: string): Promise<boolean>;
 }
 
 /** When a session was signed in and last active, in Unix seconds. */

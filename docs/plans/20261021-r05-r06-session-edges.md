@@ -95,13 +95,13 @@ session and the next one builds over it, wiping the results.
 **Files:** `src/auth/guarded-session-store.ts` and its test, `src/auth/session.ts` and its test,
 `src/pages/switch-persona.ts` and its tests.
 
-- [ ] Record the execution baseline in the execution notes.
-- [ ] Add failing tests, with real Redis and two instances: a switch whose IDAM grant is held at a barrier while
+- [x] Record the execution baseline in the execution notes.
+- [x] Add failing tests, with real Redis and two instances: a switch whose IDAM grant is held at a barrier while
       logout lands on the other instance issues no new session cookie, leaves the browser signed out on both
       instances, and emits no `auth.persona.switched`; the store's delete-and-report operation reports a key that was
       there and one that was not, atomically. Keep, or add, tests that an ordinary switch still rotates the id and
       emits its event, and that the OAuth callback still signs in from an anonymous session.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 2: No refresh for an expired session's status or timed-out page (R06)
 
@@ -136,7 +136,30 @@ path constants, if needed).
 
 ## Execution notes
 
-(Record baseline, red/green evidence and final results here.)
+### Baseline (Task 1)
+
+Branch `fix/r05-r06-session-edges` at `e51a5f8` (plan only, on top of `origin/master` `06693df`), local Redis at
+`redis://127.0.0.1:6379`. `yarn lint`: clean, 518 files, 1 info, which is Biome's configuration-migration notice. `yarn build`: 8/8 tasks.
+`yarn turbo test test:app --concurrency=1 --force`: 8/8 tasks, no failures, no skips. App 121 files / 2551 tests;
+deed-poll 68 / 1401; api-client 14 / 852; express-govuk-starter 12 / 127; cloud-native-platform 13 / 157;
+simple-router 4 / 41; express-session-postgres 2 / 30; express-session-redis 1 / 7.
+
+Both findings confirmed at the baseline: `switch-persona.ts` called `signIn`, which regenerates unconditionally,
+and `refreshMiddleware` skips only `/logout`.
+
+### Task 1 (R05)
+
+- Red: the new two-instance test in `src/auth/session-lifecycle.test.ts` (switch held inside `loginAsPersona`, logout
+  on instance B) answered `302 /` with a new cookie, so the browser was signed in as the persona. The store tests failed
+  with `destroyExisting is not a function`.
+- Green: `GuardedSessionStore.destroyExisting(sid)` runs one `DEL` and reports whether it removed a key.
+  `reSignIn` in `src/auth/session.ts` calls it first. A `false` rejects with `SessionWriteRefusedError("missing")` and
+  creates nothing, and a store without the method fails closed. Otherwise it continues with `signIn`, whose
+  regenerate deletes the key again as a no-op. `switch-persona.ts` uses `reSignIn` and hands `isSessionGone` to
+  `endedElsewhere`. That means no cookie, `/login?returnTo=%2Fswitch-persona`, and no `auth.persona.switched` event.
+  The OAuth callback still calls `signIn`, and `callback.test.ts` now pins that it never consults the store.
+- Validation: lint clean; build 8/8; tests 8/8 tasks, no skips. The app suite is 121 files / 2563 tests (+12), and
+  every other package is unchanged from the baseline.
 
 ## Post-Completion
 

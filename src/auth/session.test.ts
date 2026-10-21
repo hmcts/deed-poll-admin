@@ -9,6 +9,7 @@ import {
   assertSessionSecret,
   assertSessionTimeouts,
   isSessionGone,
+  reSignIn,
   sessionCookieName,
   sessionHoldsAccess,
   sessionIdToken,
@@ -158,6 +159,57 @@ describe("signIn", () => {
 
     expect(sessionUser(req)).toBeDefined();
     expect(sessionIdToken(req)).toBeUndefined();
+  });
+});
+
+describe("reSignIn", () => {
+  const user = currentUser({ staff: false, judicial: true, capabilities: [] }, "A Judge");
+  const SUBJECT = "judge-subject";
+  const tokens = { idToken: "an-id-token", accessToken: "an-access-token", refreshToken: "a-refresh-token", expiresAt: Math.floor(Date.now() / 1000) + 3600 };
+
+  function signedIn(): RequestDouble {
+    return Object.assign(pageRequest({ subject: "caseworker-subject", accessToken: "a-caseworker-token" }), { sessionID: "the-old-id" });
+  }
+
+  it("should replace a session the store still holds, deleting it first and then regenerating", async () => {
+    const req = signedIn();
+
+    await reSignIn(req, user, SUBJECT, tokens);
+
+    expect(req.sessionStore.destroyExisting).toHaveBeenCalledWith("the-old-id");
+    expect(req.session.regenerate).toHaveBeenCalled();
+    expect(req.session.deedPoll).toMatchObject({ subject: SUBJECT, accessToken: "an-access-token" });
+    expect(req.session.save).toHaveBeenCalled();
+  });
+
+  // Review finding R05: the session was logged out while the caller waited on IDAM, so nothing may take its place.
+  it("should refuse as a gone session, creating nothing, when the store no longer holds the session", async () => {
+    const req = signedIn();
+    vi.mocked(req.sessionStore.destroyExisting).mockResolvedValue(false);
+
+    const outcome = reSignIn(req, user, SUBJECT, tokens);
+
+    await expect(outcome).rejects.toBeInstanceOf(SessionWriteRefusedError);
+    expect(isSessionGone(await outcome.catch((error: unknown) => error))).toBe(true);
+    expect(req.session.regenerate).not.toHaveBeenCalled();
+    expect(req.session.save).not.toHaveBeenCalled();
+    expect(req.session.deedPoll).toMatchObject({ subject: "caseworker-subject", accessToken: "a-caseworker-token" });
+  });
+
+  it("should fail closed, rather than regenerate unchecked, when the store cannot report the deletion", async () => {
+    const req = signedIn();
+    Object.assign(req, { sessionStore: {} });
+
+    await expect(reSignIn(req, user, SUBJECT, tokens)).rejects.toThrow("cannot replace");
+    expect(req.session.regenerate).not.toHaveBeenCalled();
+  });
+
+  it("should reject, creating nothing, when the deletion itself fails", async () => {
+    const req = signedIn();
+    vi.mocked(req.sessionStore.destroyExisting).mockRejectedValue(new Error("store down"));
+
+    await expect(reSignIn(req, user, SUBJECT, tokens)).rejects.toThrow("store down");
+    expect(req.session.regenerate).not.toHaveBeenCalled();
   });
 });
 

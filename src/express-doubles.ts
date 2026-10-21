@@ -25,7 +25,7 @@ import {
 import type { Request, Response } from "express";
 import { vi } from "vitest";
 import type { RefreshClaim } from "./auth/guarded-session-store.js";
-import type { RefreshCoordinator } from "./auth/session.js";
+import type { RefreshCoordinator, SessionReplacer } from "./auth/session.js";
 
 const CASEWORK = [OVERRIDE_PRIVACY, DELETE_NOTE, DELETE_WITNESS, MANAGE_SHARED_QUERIES, REPAIR_CCD];
 
@@ -177,24 +177,28 @@ export function sessionDouble(deedPoll: Record<string, unknown> = {}): SessionDo
 /**
  * The session store as the refresh sees it, always granting the lease. A real store's lease, waits and refusals are
  * tested against Redis in `src/auth/refresh-coordination.test.ts`; this lets a unit test reach the refresh at all,
- * since without a coordinating store it fails closed.
+ * since without a coordinating store it fails closed. It also reports every session a re-sign-in replaces as still
+ * stored; the race in which one is not is driven against Redis in `src/auth/session-lifecycle.test.ts`.
  */
 export function refreshCoordinatorDouble(claim?: RefreshClaim): RefreshCoordinatorDouble {
   const refreshClaim: RefreshClaim = claim ?? { outcome: "acquired", lease: "a-lease" };
   return {
     claimRefresh: vi.fn(() => Promise.resolve(refreshClaim)),
     attachRefreshLease: vi.fn(),
-    releaseRefresh: vi.fn(() => Promise.resolve())
+    releaseRefresh: vi.fn(() => Promise.resolve()),
+    destroyExisting: vi.fn(() => Promise.resolve(true))
   } as unknown as RefreshCoordinatorDouble;
 }
 
 export type Persona = keyof typeof PERSONA_ACCESS;
 
-export type RefreshCoordinatorDouble = RefreshCoordinator & {
-  claimRefresh: ReturnType<typeof vi.fn>;
-  attachRefreshLease: ReturnType<typeof vi.fn>;
-  releaseRefresh: ReturnType<typeof vi.fn>;
-};
+export type RefreshCoordinatorDouble = RefreshCoordinator &
+  SessionReplacer & {
+    claimRefresh: ReturnType<typeof vi.fn>;
+    attachRefreshLease: ReturnType<typeof vi.fn>;
+    releaseRefresh: ReturnType<typeof vi.fn>;
+    destroyExisting: ReturnType<typeof vi.fn>;
+  };
 
 export type SessionDouble = Request["session"] & {
   deedPoll: Record<string, unknown>;
@@ -204,7 +208,7 @@ export type SessionDouble = Request["session"] & {
   destroy: ReturnType<typeof vi.fn>;
 };
 
-export type RequestDouble = Request & { session: SessionDouble };
+export type RequestDouble = Request & { session: SessionDouble; sessionStore: RefreshCoordinatorDouble };
 
 export type ResponseDouble = Response & {
   render: ReturnType<typeof vi.fn>;
