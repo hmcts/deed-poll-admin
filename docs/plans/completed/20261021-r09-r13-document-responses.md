@@ -182,6 +182,21 @@ session and the next one builds over it, wiping the results.
 - `yarn welsh:check`: still the baseline crash in `scripts/extract-welsh-strings.mjs` (TypeScript 7.x has no JS
   compiler API), so no counts before or after. Fixing the extractor is a separate change.
 
+### Verification before PR (21 October 2026, Arbor)
+
+- ralphex (11m04s) ran after a green baseline; clean on the first external pass; tree clean, signals genuine.
+- Against `origin/master` `25d5053`: audit exit 0; lint exit 0; forced build exit 0; tests exit 0: 237 files, 5,194
+  tests, none failed or skipped.
+- Red against master's source (both changed source files restored): 19 of 55 new and changed tests fail.
+- Direct scoped Copilot review (gpt-6-astra, read-only, 55 tool calls) found one gap: the guard trimmed and split
+  the policy with JavaScript's `trim()` and `\s`, which accept U+00A0, while browsers split a CSP by ASCII whitespace
+  only. Fixed by Arbor: a policy with anything but printable ASCII and the five CSP whitespace characters is not
+  inert, and it is split by ASCII whitespace alone. Four new cases, red before the fix and green after.
+- `yarn welsh:check` could not be run: master's TypeScript 7 upgrade (#90, merged 2026-10-21 14:00Z) broke the
+  extractor (`ts.ScriptTarget` is undefined; TypeScript 7 no longer ships the JS compiler API). The one new string,
+  `unknownDocumentType`, was checked by hand: English-only in `en`, rendered as the page's existing `uploadRefused`
+  is. The extractor fix is a separate change.
+
 ## Post-Completion
 
 Publishing, merging and deployment are separate from this plan.
