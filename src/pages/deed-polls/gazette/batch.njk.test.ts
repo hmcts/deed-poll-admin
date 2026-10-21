@@ -142,7 +142,8 @@ describe("the send's deadline, counted from the request's arrival", () => {
 
   it.each([
     { spent: 0, timeoutMs: 25_000 },
-    { spent: 12_000, timeoutMs: 13_000 }
+    { spent: 12_000, timeoutMs: 13_000 },
+    { spent: 20_000, timeoutMs: 5_000 }
   ])("should give the send what is left of the budget after $spent ms, and redirect as before", async ({ spent, timeoutMs }) => {
     const check = await confirmation();
 
@@ -164,6 +165,20 @@ describe("the send's deadline, counted from the request's arrival", () => {
     expect(vi.mocked(sendGazetteSelection).mock.calls[0][3]).toEqual({ timeoutMs: 13_000 });
   });
 
+  it("should send nothing when the review re-check itself spends the time down past the floor", async () => {
+    const check = await confirmation();
+    vi.mocked(gazetteReviewsCurrent).mockImplementationOnce(async () => {
+      vi.setSystemTime(Date.now() + 6_000);
+      return true;
+    });
+
+    const late = await render({ journey: check.journey, action: "send", confirmed: "yes" }, "en", "admin-session", 15_000);
+
+    expect(sendGazetteSelection).not.toHaveBeenCalled();
+    expect(late.res.status).toHaveBeenCalledWith(503);
+    expect(late.model?.errorList).toEqual([{ text: late.model?.en.notSent, href: "#confirmed" }]);
+  });
+
   it.each(["en", "cy"])("should send nothing under the floor and re-render the %s confirm step with the same key", async (locale) => {
     const check = await confirmation();
 
@@ -181,23 +196,23 @@ describe("the send's deadline, counted from the request's arrival", () => {
     expect(resent.res.redirect).toHaveBeenCalledWith(303, `/deed-polls/gazette/requests/${BATCH_ID}`);
   });
 
-  it("should make no status check under the floor and re-render the recovery page with the original key and body", async () => {
+  it.each(["en", "cy"])("should make no status check under the floor and re-render the %s recovery page with the original key and body", async (locale) => {
     const check = await confirmation();
     vi.mocked(sendGazetteSelection).mockRejectedValueOnce(new GazetteOutcomeUnknownError());
     const lost = await render({ journey: check.journey, action: "send", confirmed: "yes" });
     const original = vi.mocked(sendGazetteSelection).mock.calls[0];
     vi.mocked(sendGazetteSelection).mockClear();
 
-    const late = await render({ journey: lost.journey, action: "check" }, "en", "admin-session", 20_500);
+    const late = await render({ journey: lost.journey, action: "check" }, locale, "admin-session", 20_500);
 
     expect(sendGazetteSelection).not.toHaveBeenCalled();
     expect(late.res.status).toHaveBeenCalledWith(503);
     expect(late.model?.phase).toBe("recover");
     expect(late.model?.confirmation).toEqual(lost.model?.confirmation);
-    expect(late.markup).toContain("The request status could not be checked");
+    expect(late.markup).toContain(late.model?.[locale].notChecked);
     expect(late.markup).toContain('value="check"');
     expect(late.markup).not.toContain('value="send"');
-    await render({ journey: late.journey, action: "check" });
+    await render({ journey: late.journey, action: "check" }, locale);
     expect(vi.mocked(sendGazetteSelection).mock.calls[0].slice(0, 3)).toEqual(original.slice(0, 3));
   });
 });

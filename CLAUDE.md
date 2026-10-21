@@ -74,7 +74,9 @@ selected review. So a send over 20 s is still an unknown outcome until both gate
 api sends asynchronously. And 20 s alone is no end-to-end bound, because the re-check and a token refresh spend the
 same request's time first: `recordArrival` (`src/request-arrival.ts`, the first layer in `createApp`) stamps
 `res.locals.receivedAt`, and the send and the status check wait only for what is left of a 25 s budget from it
-(`src/gazette/send-deadline.ts`), capped at 20 s and by `DEED_POLL_API_TIMEOUT_MS`, which can only shorten it. Under
+(`src/gazette/send-deadline.ts`), capped at 20 s and by `DEED_POLL_API_TIMEOUT_MS`, which can only shorten it. The
+budget bounds the send, not what precedes it: the re-check's reads and the refresh keep their own timeouts, so a
+pre-send phase that alone outlasts 30 s still ends on the gateway's page, having sent nothing. Under
 a 5 s floor nothing is sent: the confirm step or the recovery page re-renders with the same journey and key, saying
 nothing was sent or checked (`docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
 

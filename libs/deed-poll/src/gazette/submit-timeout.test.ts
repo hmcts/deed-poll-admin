@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GazetteOutcomeUnknownError } from "./errors.js";
 import { sendGazetteSelection } from "./service.js";
 
-const CLOCK_SCALE = 100;
+const CLOCK_SCALE = 20;
 const SLOW_SEND_MS = 12_000;
 const INPUT = { caseIds: ["00000000-0000-4000-8000-000000000001"], recipientRevision: 1, selectionFingerprint: "opaque" };
 const CALLER = { accessToken: "delivery-manager-token" };

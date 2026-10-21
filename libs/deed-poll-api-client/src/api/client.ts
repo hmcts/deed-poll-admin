@@ -121,7 +121,7 @@ export {
 export const DEFAULT_TIMEOUT_MS = 10_000;
 
 /**
- * Sixty seconds, for the one call that sends a body instead of receiving one.
+ * Sixty seconds, for the upload, which sends a large body instead of receiving one.
  *
  * `DEFAULT_TIMEOUT_MS` is sized for a request whose body is a few hundred bytes, so the clock is really
  * measuring api's thinking time. A multipart upload is up to `MAX_UPLOAD_BYTES` — 25 MB — and the same
@@ -137,7 +137,8 @@ export const DEFAULT_TIMEOUT_MS = 10_000;
  * have).
  *
  * Still bounded, and still overridable: `DEED_POLL_API_TIMEOUT_MS` wins over this the same way it wins
- * over the default, so an environment that needs a different figure sets one number rather than two.
+ * over the default, so an environment that needs a different figure sets one number rather than two. (The
+ * Gazette submit is the exception: there it can only shorten `GAZETTE_SUBMIT_TIMEOUT_MS`.)
  */
 const UPLOAD_TIMEOUT_MS = 60_000;
 

@@ -261,8 +261,10 @@ but both Application Gateways on the path default `request_timeout` to 30 s and 
 backend gateway (deed-poll-api's entry in `azure-platform-terraform`'s `backend_lb_config.yaml`) and the frontend
 gateway in front of this app (`terraform-module-applicationgateway`'s default). This app therefore gives the submit
 at most 20 s, and only what is left of a 25 s budget counted from the request's arrival, so that it answers the
-browser inside 30 s whatever the review re-check and a token refresh spent first. `DEED_POLL_API_TIMEOUT_MS` can only
-shorten that wait. Under a 5 s floor nothing is sent: the page says so and keeps the same request key, so sending or
+browser inside 30 s whatever the review re-check and a token refresh spent first. That bounds the send only: the
+re-check's case reads and the refresh keep their own timeouts, so if they alone outlast 30 s (a very slow api) the
+caseworker still gets the gateway's error page, with nothing sent. `DEED_POLL_API_TIMEOUT_MS` can only
+shorten the send's wait. Under a 5 s floor nothing is sent: the page says so and keeps the same request key, so sending or
 checking again is the same keyed request. A send that times out shows as an unknown outcome; Check request status
 recovers it and nothing is sent twice. The fix is a platform change
 raising `request_timeout` on both gateways for deed-poll, or api sending asynchronously. Once both are raised, raise

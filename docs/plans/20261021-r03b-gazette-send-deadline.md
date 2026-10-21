@@ -121,7 +121,10 @@ it, and `libs/deed-poll-api-client/src/api/client.ts` only if the adapter must a
 ## Acceptance Criteria
 
 - The browser always gets this app's own answer (redirect, recovery page, or the new not-sent message) within the
-  budget, whatever the request spent before the send.
+  budget, whatever the request spent before the send, provided that pre-send time itself fits the budget. The
+  re-check's reads and a token refresh keep their own timeouts (any other call's timeout is out of scope, item 7), so
+  a pre-send phase that alone outlasts 30 s still reaches the gateway's error page, having sent nothing (review
+  finding, recorded in the Review notes).
 - With ample time, behaviour is exactly as on this branch before this plan.
 - Under the floor, no api call is made, nothing is admitted, and the same key is kept; no new key is ever offered.
 - `DEED_POLL_API_TIMEOUT_MS` can only shorten the send's wait.
@@ -192,6 +195,17 @@ it, and `libs/deed-poll-api-client/src/api/client.ts` only if the adapter must a
   `@hmcts/deed-poll` 68 / 1401, `@hmcts/deed-poll-api-client` 14 / 852, cloud-native-platform 13 / 157,
   express-govuk-starter 12 / 127, simple-router 4 / 41, express-session-postgres 2 / 30, express-session-redis 1 / 7.
   No failures, no skips. Handed off to the Ralphex review phases.
+
+### Review notes
+
+- Review 0 confirmed that `gazetteReviewsCurrent` runs before the deadline is checked and has none of its own: up to
+  ten rounds of case reads at the ordinary timeout. Bounding those reads is another call's timeout, out of scope
+  (item 7), so the acceptance criterion and the docs now say the bound holds only when the pre-send phase fits.
+  Nothing is sent in that case. A persistently slow re-check makes every resend land under the floor again; bounding
+  the re-check is the follow-up if that is seen.
+- `gazetteSendTimeLeft` now throws when no arrival time was recorded, instead of counting from now and granting the
+  full budget, and a test wires the real `recordArrival` to it.
+- The scaled-clock tests run at 20× rather than 100×, so a slow send that should succeed has 400 ms of real margin.
 
 ## Post-Completion
 

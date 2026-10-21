@@ -1915,8 +1915,10 @@ describe("the upload's timeout, which is longer than the JSON default", () => {
  * succeed (finding R03). Waiting twelve real seconds per case would be slow, so `AbortSignal.timeout` is wrapped
  * to divide every figure by the scale: the server's delay is divided the same way, the ratios stay as they are
  * in production, and the HTTP and the abort are both real. The recorded figures pin the constants themselves.
+ * The scale is 20, not 100, because a slow send that should succeed then has 400 ms of real margin rather than 80 ms,
+ * which a cold localhost connect (about 75 ms, see `STREAM_TIMEOUT_MS`) could eat.
  */
-const CLOCK_SCALE = 100;
+const CLOCK_SCALE = 20;
 const GAZETTE_SUBMIT_TIMEOUT_MS = 20_000;
 const SLOW_SEND_MS = 12_000;
 const SENT_STATUS = { batchId: "00000000-0000-4000-8000-000000000009", state: "Sent", caseCount: 1 };
