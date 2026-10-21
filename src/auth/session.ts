@@ -336,6 +336,10 @@ export function signIn(req: Request, user: CurrentUser, subject: string, tokens:
  * first and the store says whether it was there; if not, this rejects with the gone-session refusal and creates
  * nothing. The regenerate that follows deletes the key again, which by then is a no-op. The OAuth callback keeps
  * `signIn`: its session is anonymous, so there is nothing to protect, and a sign-in must always mint a new id.
+ *
+ * Not atomic, by decision: a logout landing between `destroyExisting` and the new session's save still loses to the
+ * switch. That window is a couple of Redis round trips, down from the whole IDAM grant; see `CLAUDE.md`, "Session
+ * writes", before relying on this anywhere the persona switcher is not.
  */
 export async function reSignIn(req: Request, user: CurrentUser, subject: string, tokens: IdamTokens): Promise<void> {
   if (!(await replacer(req).destroyExisting(req.sessionID))) throw new SessionWriteRefusedError("missing");

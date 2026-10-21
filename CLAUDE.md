@@ -476,7 +476,12 @@ authenticated writer must follow:
   `endedElsewhere` with no cookie and no `auth.persona.switched` event, returning to `/` after sign-in because
   `/switch-persona` has no `GET`. A store without the method fails closed. The
   OAuth callback is the one unconditional regenerate: its session is anonymous, so there is nothing to protect, and a
-  sign-in must always mint a new id (session fixation). Do not route it through `reSignIn`.
+  sign-in must always mint a new id (session fixation). Do not route it through `reSignIn`. **One window is left
+  open, deliberately** (Steve, 2026-10-21): `regenerate` deletes and then saves, so a logout or timeout landing in the
+  couple of Redis round trips between `destroyExisting` and the new session's `CREATE` finds nothing to delete, and the
+  switch then completes. Closing it needs one script that creates the new key only if the old one still exists,
+  deleting it in the same step; that was judged not worth the risk in the store for a non-production tool. Revisit it
+  before the switcher is ever allowed near production.
 - **A gone session is one outcome: `isSessionGone(error)`.** Its handler is `endedElsewhere`
   (`src/auth/ended-elsewhere.ts`): destroy the request's copy and redirect to `/login`, emitting no event, because
   whatever ended the session already did. The keep-alive endpoint answers 401. A request whose write was refused never

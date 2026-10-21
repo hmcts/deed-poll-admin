@@ -190,6 +190,21 @@ and `refreshMiddleware` skips only `/logout`.
   no failures and no skips. App 121 files / 2567 tests (baseline 2551, so +16); every other package matches the
   baseline. Ready for the Ralphex review phases.
 
+### Verification before PR, and the window left open (21 October 2026, Arbor)
+
+- ralphex (17m49s) ran after a green baseline; clean on the first external pass; tree clean, signals genuine.
+- Against `origin/master` `06693df`: audit exit 0; lint exit 0; forced build exit 0; tests exit 0: 235 files, 5,184
+  tests, none failed or skipped, including the Redis session suites.
+- Red against master's source (five changed source files restored): 16 of 291 new and changed tests fail. All pass with
+  this branch's code.
+- Direct scoped Copilot review (gpt-6-astra, read-only, 51 tool calls) found one remaining window in R05: `regenerate`
+  deletes and then saves, so a logout or timeout landing between `destroyExisting` and the new session's `CREATE` finds
+  nothing to delete and the switch completes. The regression test holds the switch before `destroyExisting`, so it does
+  not cover that window. **Steve's decision (2026-10-21): ship, and document the window.** It shrank from the whole
+  IDAM grant (seconds) to a couple of Redis round trips, on a non-production tool. Closing it needs one store script
+  that creates the new key only if the old one still exists, deleting it in the same step. Recorded in `CLAUDE.md`
+  ("Session writes") and on `reSignIn`, to revisit before the switcher is ever allowed near production.
+
 ## Post-Completion
 
 Publishing, merging and deployment are separate from this plan.
