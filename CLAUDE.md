@@ -467,6 +467,14 @@ authenticated writer must follow:
   times. The change must be computed from the re-read session, never copied from the request's snapshot, or an older
   snapshot rolls back newer tokens or access. `touchLastSeen`, `storeAccess` and `publishRefresh` are its callers.
   Sign-in, persona switch and timeout restart regenerate instead: the old key is deleted, a new id created.
+- **A re-sign-in replaces its session only if that session still exists** (review finding R05; plan
+  `docs/plans/completed/20261021-r05-r06-session-edges.md`). A persona switch waits on IDAM's password grant, and a
+  logout on another pod can land meanwhile, so it calls `reSignIn` in `src/auth/session.ts`, not `signIn`.
+  `reSignIn` first runs the store's `destroyExisting` (one `DEL` that reports whether a key was there). If the key was
+  already gone it refuses with `SessionWriteRefusedError("missing")` and creates nothing, so the switch ends in
+  `endedElsewhere` with no cookie and no `auth.persona.switched` event. A store without the method fails closed. The
+  OAuth callback is the one unconditional regenerate: its session is anonymous, so there is nothing to protect, and a
+  sign-in must always mint a new id (session fixation). Do not route it through `reSignIn`.
 - **A gone session is one outcome: `isSessionGone(error)`.** Its handler is `endedElsewhere`
   (`src/auth/ended-elsewhere.ts`): destroy the request's copy and redirect to `/login`, emitting no event, because
   whatever ended the session already did. The keep-alive endpoint answers 401. A request whose write was refused never
@@ -477,6 +485,12 @@ authenticated writer must follow:
   refused if the lease expired or passed on; a lost lease fails the request and is never retried, because IDAM may
   already have rotated the refresh token. The lease is released in `finally`, only if still held, and dies with the
   session's `DEL`.
+- **The lifetime paths are never refreshed** (review finding R06, same plan). `refreshMiddleware` skips
+  `NOT_REFRESHED_PATHS`: `/logout`, `STATUS_PATH` and `TIMED_OUT_PATH`, the last two imported from
+  `session-lifetime.ts` rather than restated. The skip runs before the `/me` backfill as well. The lifetime middleware
+  exempts the timed-out page and only answers the status poll, so without the skip a session past its absolute limit
+  got fresh IDAM tokens from either one. Neither path's answer or render changed. Do not add a refresh for either one
+  anywhere else.
 - **TTL is the session's own.** `sessionStoreTtl`: signed-in until 15 minutes after the absolute deadline, anonymous
   10 minutes. Revision and lease share the key, so no coordination state can outlive or resurrect a session.
 - **Legacy and rollout.** Old `admin-sess:` string records are never read; they expire on their own TTL. Old pods can

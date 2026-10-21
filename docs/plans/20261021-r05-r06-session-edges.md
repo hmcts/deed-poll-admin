@@ -118,12 +118,12 @@ path constants, if needed).
 
 **Files:** `CLAUDE.md`, this plan.
 
-- [ ] In `CLAUDE.md`'s "Session writes" section: a re-sign-in (persona switch) replaces its session only if it still
+- [x] In `CLAUDE.md`'s "Session writes" section: a re-sign-in (persona switch) replaces its session only if it still
       exists, and the OAuth callback is the one unconditional regenerate. Beside the refresh rules: the lifetime paths
       are never refreshed. **Reference this plan by its `docs/plans/completed/` path**, since that is where it will be
       once the run ends.
-- [ ] Record final commits, changed files and test counts in the execution notes.
-- [ ] Run all Validation Commands and hand off to the Ralphex review phases.
+- [x] Record final commits, changed files and test counts in the execution notes.
+- [x] Run all Validation Commands and hand off to the Ralphex review phases.
 
 ## Acceptance Criteria
 
@@ -174,6 +174,21 @@ and `refreshMiddleware` skips only `/logout`.
   mock now spreads the original to keep the constants.
 - Validation: lint clean (the 1 info); build 8/8; tests 8/8 tasks, no skips. The app suite is 121 files / 2567 tests
   (+4), and every other package is unchanged from the baseline.
+
+### Task 3 (rules and handoff)
+
+- `CLAUDE.md` "Session writes" gains two rules. A re-sign-in (`reSignIn`, the persona switch) replaces its session only
+  if it still exists, and the OAuth callback is the one unconditional regenerate. The lifetime paths are never
+  refreshed. Both cite this plan's `docs/plans/completed/` path.
+- Commits on `fix/r05-r06-session-edges`: `e51a5f8` (plan), `7e53681` (R05), `d4cf53c` (R06), then this task's
+  docs commit.
+- Changed files against `06693df`: `src/auth/guarded-session-store.ts` and test, `src/auth/session.ts` and test,
+  `src/auth/session-lifecycle.test.ts`, `src/pages/switch-persona.ts` and test, `src/pages/oauth2/callback.test.ts`,
+  `src/express-doubles.ts`, `src/auth/refresh-middleware.ts` and test, `src/auth/session-lifetime-refresh.test.ts`,
+  `src/app.test.ts`, `CLAUDE.md`, this plan.
+- Final validation with `REDIS_URL=redis://127.0.0.1:6379`: lint clean (the 1 info); build 8/8; tests 8/8 tasks with
+  no failures and no skips. App 121 files / 2567 tests (baseline 2551, so +16); every other package matches the
+  baseline. Ready for the Ralphex review phases.
 
 ## Post-Completion
 
