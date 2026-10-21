@@ -15,6 +15,13 @@ import { GAZETTE_REFUSAL_CODE, GAZETTE_REQUEST_STATE } from "../api/wire.js";
 import { type RunningMockApi, startMockApi } from "./server.js";
 
 const DELIVERY_MANAGER = `x.${Buffer.from(JSON.stringify({ sub: "admin", roles: ["caseworker-deedpoll-delivery-manager"] })).toString("base64url")}.signature`;
+const EXPECTED_FAILURE_CODES: Record<(typeof GAZETTE_REQUEST_STATE)[number], string | null> = {
+  Preparing: null,
+  Sending: null,
+  Sent: null,
+  NotSent: "PROVIDER_REFUSED",
+  Uncertain: "SEND_OUTCOME_UNKNOWN"
+};
 let mock: RunningMockApi;
 const config = () => ({ baseUrl: mock.url, accessToken: DELIVERY_MANAGER });
 beforeAll(async () => {
@@ -65,7 +72,7 @@ it.each(GAZETTE_REQUEST_STATE)("should return %s as an outcome, replay the same 
   await fixture("gazette-outcome", { state });
   const key = randomUUID();
   const sent = await submitGazetteNotice(input, key, config());
-  expect(sent).toMatchObject({ ok: true, data: { state, caseCount: 2 } });
+  expect(sent).toMatchObject({ ok: true, data: { state, caseCount: 2, failureCode: EXPECTED_FAILURE_CODES[state] } });
   if (!sent.ok) throw new Error("Expected status");
   expect(older.dateNoticeSentToLondonGazette).toEqual(state === "Sent" ? sent.data.sentAt : null);
   expect(await getGazetteNoticeHistory({}, config())).toMatchObject({ ok: true, data: { total: state === "Sent" ? 1 : 0 } });
