@@ -1,5 +1,5 @@
 /**
- * Logout during an IDAM discovery outage (review finding R04, plan `docs/plans/20261021-r04-timeout-during-idam-outage.md`).
+ * Logout during an IDAM discovery outage (review finding R04, plan `docs/plans/completed/20261021-r04-timeout-during-idam-outage.md`).
  *
  * `openid-client` runs for real against a loopback discovery endpoint, so the failure is the one a pod sees: a 503, and
  * then the cooldown's refusal on the next attempt. The end-session lookup used to be awaited before `Clear-Site-Data`
@@ -8,10 +8,14 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { trackEvent } from "@hmcts-cft/cloud-native-platform";
+import express, { type NextFunction, type Request, type Response } from "express";
+import request from "supertest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetIdamDiscovery } from "../auth/idam.js";
+import { requireAuth } from "../auth/require-auth.js";
 import { pageRequest, pageResponse } from "../express-doubles.js";
 import { GET } from "./logout.js";
+import { GET as signedOutPage } from "./signed-out/index.js";
 
 vi.mock("../auth/settings.js", () => ({ idamSettings: () => idam.config }));
 vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
@@ -66,7 +70,7 @@ describe("logout while IDAM discovery fails", () => {
     server.close();
   });
 
-  it("should destroy the session, clear the cache and redirect to / with one auth.logout event", async () => {
+  it("should destroy the session, clear the cache and redirect to /signed-out with one auth.logout event", async () => {
     const req = signedIn();
     const res = pageResponse();
 
@@ -74,7 +78,7 @@ describe("logout while IDAM discovery fails", () => {
 
     expect(req.session.destroy).toHaveBeenCalled();
     expect(res.setHeader).toHaveBeenCalledWith("Clear-Site-Data", '"cache"');
-    expect(res.redirect).toHaveBeenCalledWith("/");
+    expect(res.redirect).toHaveBeenCalledWith("/signed-out");
     expect(vi.mocked(trackEvent).mock.calls.map(([name]) => name)).toEqual(["auth.logout"]);
   });
 
@@ -85,7 +89,22 @@ describe("logout while IDAM discovery fails", () => {
     await GET(signedIn(), res);
 
     expect(res.setHeader).toHaveBeenCalledWith("Clear-Site-Data", '"cache"');
-    expect(res.redirect).toHaveBeenCalledWith("/");
+    expect(res.redirect).toHaveBeenCalledWith("/signed-out");
+    expect(discoveryRequests).toBe(1);
+  });
+
+  it("should land on a page that starts no sign-in when the browser follows the redirect", async () => {
+    // `/` would send this anonymous visitor to `/login` at once, through an IDAM session that survived the outage.
+    const app = appWithSessionInCookie();
+
+    const logout = await request(app).get("/logout").set("Cookie", "signed-in=yes");
+    const landing = await request(app).get(logout.headers.location);
+
+    expect(logout.status).toBe(302);
+    expect(logout.headers.location).toBe("/signed-out");
+    expect(landing.status).toBe(200);
+    expect(landing.headers.location).toBeUndefined();
+    expect(landing.text).toBe("signed-out/index");
     expect(discoveryRequests).toBe(1);
   });
 
@@ -102,6 +121,24 @@ describe("logout while IDAM discovery fails", () => {
     expect(res.setHeader).toHaveBeenCalledWith("Clear-Site-Data", '"cache"');
   });
 });
+
+/** Signed in only while the request carries the cookie, so the followed redirect arrives anonymous as it would. */
+function appWithSessionInCookie() {
+  const app = express();
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    const visitor = req.headers.cookie?.includes("signed-in=yes") ? signedIn() : pageRequest({ signedIn: false });
+    Object.assign(req, { session: visitor.session, sessionID: "a-session-id" });
+    next();
+  });
+  app.use(requireAuth());
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.render = ((view: string) => void res.send(view)) as Response["render"];
+    next();
+  });
+  app.get("/logout", GET);
+  app.get("/signed-out", signedOutPage);
+  return app;
+}
 
 function signedIn() {
   return Object.assign(pageRequest({ idToken: "an-id-token", subject: "idam-subject-1" }), {

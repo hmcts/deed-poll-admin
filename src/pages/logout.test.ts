@@ -63,7 +63,7 @@ describe("the logout page", () => {
 
   it("signs out locally even when the issuer advertises no end-session endpoint", async () => {
     // The local half is the half that matters, so say it is done rather than pretending the IDAM
-    // session is gone as well.
+    // session is gone as well. Not `/`: that sends an anonymous visitor straight to sign-in.
     vi.mocked(endSessionUrl).mockResolvedValue(undefined);
     const req = signedIn();
     const res = pageResponse();
@@ -71,7 +71,7 @@ describe("the logout page", () => {
     await GET(req, res);
 
     expect(req.session.destroy).toHaveBeenCalled();
-    expect(res.redirect).toHaveBeenCalledWith("/");
+    expect(res.redirect).toHaveBeenCalledWith("/signed-out");
   });
 
   it("tells the browser to drop its cached pages, on the way to IDAM and on the local fallback", async () => {
@@ -116,13 +116,13 @@ describe("the logout page", () => {
       expect(req.session.deedPoll.user).toBeUndefined();
     });
 
-    it("should tell the browser to drop its cached pages and redirect to the service's own start page", async () => {
+    it("should tell the browser to drop its cached pages and redirect to the signed-out page, not to / which signs in", async () => {
       const res = pageResponse();
 
       await GET(signedIn(), res);
 
       expect(res.setHeader).toHaveBeenCalledWith("Clear-Site-Data", '"cache"');
-      expect(res.redirect).toHaveBeenCalledWith("/");
+      expect(res.redirect).toHaveBeenCalledWith("/signed-out");
       expect(res.setHeader.mock.invocationCallOrder[0]).toBeLessThan(res.redirect.mock.invocationCallOrder[0]);
     });
 

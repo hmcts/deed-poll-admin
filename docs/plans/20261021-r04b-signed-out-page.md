@@ -82,10 +82,10 @@ session and the next one builds over it, wiping the results.
 
 **Files:** `src/pages/logout.ts` and its tests (including `logout-idam-outage.test.ts`).
 
-- [ ] Add failing tests: with IDAM unreachable, and with IDAM advertising no end-session endpoint, logout redirects to
+- [x] Add failing tests: with IDAM unreachable, and with IDAM advertising no end-session endpoint, logout redirects to
       `/signed-out` (not `/`), with `Clear-Site-Data` set and exactly one `auth.logout` event; following that redirect
       starts no sign-in. With IDAM healthy it still redirects to IDAM's end-session URL.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 3: Record the rule and hand off
 
@@ -128,6 +128,18 @@ session and the next one builds over it, wiping the results.
 - `yarn welsh:check`: 732 strings, 514 identical (507 prose): +3 strings, +2 identical, exactly the new ones.
 - Validation: lint clean (513 files), build 8/8, all tests pass with no skips; app 119 files / 2525 tests, libraries
   unchanged.
+
+### Task 2
+
+- Red: five failures, all receiving `/` — logout.test's no-endpoint and outage cases, the outage file's 503 and
+  cooldown cases, and a new HTTP test (`requireAuth` in front of `/logout` and `/signed-out`, the followed redirect
+  arriving anonymous) that got `Location: /`.
+- Green: `logout.ts` redirects to `SIGNED_OUT_PATH` when `away` is `undefined`; event, `signOut` and
+  `Clear-Site-Data` order unchanged. The followed redirect answers 200 with no `Location` and makes no further
+  discovery request; the healthy-IDAM test still gets IDAM's end-session URL.
+- `yarn welsh:check`: unchanged at 732 strings, 514 identical (507 prose).
+- Validation: lint clean (513 files), build 8/8, all tests pass with no skips; app 119 files / 2526 tests (+1),
+  libraries unchanged.
 
 ## Post-Completion
 
