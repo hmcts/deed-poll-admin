@@ -94,11 +94,11 @@ session and the next one builds over it, wiping the results.
 
 **Files:** `CLAUDE.md`, this plan.
 
-- [ ] In `CLAUDE.md`'s Gazette paragraph, add one or two sentences: the submit's own timeout, why it sits just above
+- [x] In `CLAUDE.md`'s Gazette paragraph, add one or two sentences: the submit's own timeout, why it sits just above
       the gateway's 30 s and not at api's 60 s, and that a send over 30 s is still an unknown outcome until the gateway
       `request_timeout` or api changes (the two follow-ups). Reference this plan and finding R03.
-- [ ] Record final commits, changed files and test counts in the execution notes.
-- [ ] Run all Validation Commands and hand off to the Ralphex review phases.
+- [x] Record final commits, changed files and test counts in the execution notes.
+- [x] Run all Validation Commands and hand off to the Ralphex review phases.
 
 ## Acceptance Criteria
 
@@ -147,6 +147,23 @@ failures and no skips: app 2498 (114 files), deed-poll 1394 (68), deed-poll-api-
 express-govuk-starter 127, cloud-native-platform 157, simple-router 41, express-session-postgres 30,
 express-session-redis 7. The full suite was not run separately before the change; the pre-change library counts are
 the above minus the nine added tests (deed-poll 1389, deed-poll-api-client 847).
+
+### Task 2 (2026-10-21)
+
+`CLAUDE.md`: five lines after the Gazette paragraph's `callGazetteApi` sentence give the submit's own 35 s timeout
+(shared by the status check), why it sits just above the gateway's 30 s `request_timeout` default rather than api's
+60 s Notify deadline, that a send over 30 s is still an unknown outcome, and the two follow-ups, citing R03 and this
+plan.
+
+Commits: `e9346b5` (plan), `81fa200` (Task 1), and this task's commit. Files changed across the branch:
+`libs/deed-poll-api-client/src/api/client.ts`, `libs/deed-poll-api-client/src/api/client.test.ts`,
+`libs/deed-poll/src/gazette/submit-timeout.test.ts` (new), `CLAUDE.md`, this plan.
+
+Validation (`REDIS_URL=redis://127.0.0.1:6379`): `yarn lint` clean (507 files, the same Biome config-migration
+info); `yarn build` 8/8 tasks; `yarn turbo test test:app --concurrency=1 --force` 8/8 tasks, no failures and no
+skips: app 2498 (114 files), deed-poll 1394 (68), deed-poll-api-client 851 (14), express-govuk-starter 127,
+cloud-native-platform 157, simple-router 41, express-session-postgres 30, express-session-redis 7. Identical to
+Task 1, as expected for a documentation-only change. Handed off to the Ralphex review phases.
 
 ## Post-Completion
 
