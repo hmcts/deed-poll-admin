@@ -207,6 +207,23 @@ it, and `libs/deed-poll-api-client/src/api/client.ts` only if the adapter must a
   full budget, and a test wires the real `recordArrival` to it.
 - The scaled-clock tests run at 20× rather than 100×, so a slow send that should succeed has 400 ms of real margin.
 
+### Verification before PR (21 October 2026, Arbor)
+
+- Covers the whole branch: R03, its 20 s correction, and this deadline. ralphex (36m52s) ran after a green baseline;
+  its external review raised findings on the first pass, fixed and committed, then passed clean. Tree clean, signals
+  genuine.
+- The run gave the two new messages (`notSent`, `notChecked`) machine-written Welsh, which would have hidden them from
+  `yarn welsh:check` and the translation request. Replaced with English in `a37b5aa`, as the repo does for strings
+  awaiting the Welsh Language Unit.
+- Against `origin/master`: `yarn npm audit --recursive --environment production` exit 0; `yarn lint` exit 0;
+  `yarn turbo build build:app --force` exit 0; `yarn turbo test test:app --concurrency=1 --force` exit 0: 230 files,
+  5,135 tests, none failed or skipped. `yarn welsh:check`: 731 strings, 514 identical.
+- Red against master's source (the five changed source files restored, new modules kept): 19 of the new and changed
+  tests fail (11 of 104 in the app, 5 of 23 in the domain library, 3 of 163 in the api client). All pass with this
+  branch's code.
+- Direct scoped Copilot review (gpt-6-astra, read-only, whole branch against `origin/master`, 60 tool calls): no
+  issues found. An earlier review of the 20 s-only version found the end-to-end budget gap this plan fixes.
+
 ## Post-Completion
 
 Publishing, merging and deployment are separate from this plan.
