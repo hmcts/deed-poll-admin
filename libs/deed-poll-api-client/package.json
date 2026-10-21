@@ -23,7 +23,7 @@
   "devDependencies": {
     "tsx": "*",
     "typescript": "7.0.2",
-    "vitest": "*"
+    "vitest": "4.1.12"
   },
   "dependencies": {
     "zod": "4.6.7"
