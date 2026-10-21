@@ -24,24 +24,24 @@ const environment = nunjucks.configure(
 );
 
 /** The content pair first and the handler's own values over it, as `renderInterceptorMiddleware` merges them. */
-async function html(overrides: Record<string, unknown> = {}): Promise<string> {
+function html(overrides: Record<string, unknown> = {}): string {
   const res = pageResponse();
-  await GET(pageRequest({ signedIn: false }), res);
+  GET(pageRequest({ signedIn: false }), res);
   const model = { ...(res.render.mock.calls[0][1] as Record<string, unknown>), ...overrides };
   return environment.render("session-timed-out/index.njk", { ...(model.en as object), ...model });
 }
 
 describe("session-timed-out/index.njk", () => {
-  it("should say the user was signed out, with one link to sign in again", async () => {
-    const page = await html();
+  it("should say the user was signed out, with one link to sign in again", () => {
+    const page = html();
 
     expect(page).toContain("You have been signed out");
     expect(page).toContain('href="/login?returnTo=%2F"');
     expect(page).not.toContain("were not saved");
   });
 
-  it("should say the changes were not saved when a POST timed out", async () => {
-    const page = await html({ unsaved: true, signInHref: "https://hmcts-access.example/o/endSession?id_token_hint=x" });
+  it("should say the changes were not saved when a POST timed out", () => {
+    const page = html({ unsaved: true, signInHref: "https://hmcts-access.example/o/endSession?id_token_hint=x" });
 
     expect(page).toContain("Any changes you were making were not saved.");
     expect(page).toContain('href="https://hmcts-access.example/o/endSession?id_token_hint=x"');
