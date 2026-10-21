@@ -299,7 +299,9 @@ single file:
   list of directories, so a page area that is not on it contributes nothing to
   `.business_context/welsh-translation-request.csv` and nothing to `yarn welsh:check` — with no failure anywhere,
   because the pages still carry their `en`/`cy` pairs. `src/pages/judicial/**` shipped that way and was invisible
-  to the translation request until the directory was added. A page whose *second* content pair is named
+  to the translation request until the directory was added. **As of 2026-10-21 the extractor itself crashes**
+  (`scripts/extract-welsh-strings.mjs:185`: TypeScript 7.x no longer ships the JS compiler API it calls), so
+  `yarn welsh:check` reports nothing until it is fixed; check a new `en`/`cy` pair by hand. A page whose *second* content pair is named
   `<name>En`/`<name>Cy` is picked up too, under a `<name>.` key prefix.
 - **The same silence applies one level down, to a content *shape* the extractor cannot parse.** An unparsed key is
   not reported as unparsed — it is simply absent, and a page whose other twenty keys are present looks complete. All

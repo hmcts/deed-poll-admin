@@ -84,7 +84,8 @@ session and the next one builds over it, wiping the results.
 
 **Files:** `src/document-response.ts` and its tests; the two `file.ts` routes' tests if their expectations change.
 
-- [x] Record the execution baseline, `welsh:check` counts and the api verification in the execution notes.
+- [x] Record the execution baseline and the api verification in the execution notes; `welsh:check` counts could not be
+  recorded (baseline crash, see notes).
 - [x] Add failing tests:
   - `text/html`, `image/svg+xml` and an unknown type with `inline` and `default-src 'none'; sandbox` become `attachment`;
   - PDF with `inline` and `sandbox allow-same-origin` becomes `attachment`, and so does PDF with `sandbox` but no
@@ -184,3 +185,6 @@ session and the next one builds over it, wiping the results.
 ## Post-Completion
 
 Publishing, merging and deployment are separate from this plan.
+
+Outstanding: confirm `yarn welsh:check` grows by exactly `upload.unknownDocumentType` once
+`scripts/extract-welsh-strings.mjs` works under TypeScript 7.x.

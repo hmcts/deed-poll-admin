@@ -50,6 +50,8 @@ describe("sendDocument", () => {
     ["default-src is not 'none'", "default-src 'self'; sandbox"],
     ["default-src lists a source beside 'none'", "default-src 'none' https:; sandbox"],
     ["a later bare sandbox follows one with an allowance", "default-src 'none'; sandbox allow-same-origin; sandbox"],
+    ["a later default-src 'none' follows one that is not", "default-src 'self'; default-src 'none'; sandbox"],
+    ["a later default-src is not 'none'", "default-src 'none'; default-src 'self'; sandbox"],
     ["there is no sandbox", "default-src 'none'"]
   ])("should download a PDF rather than render it in place when %s", (_, contentSecurityPolicy) => {
     const res = streamResponse();

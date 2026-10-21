@@ -101,10 +101,7 @@ function mediaType(contentType: string): string {
 function isInertPolicy(contentSecurityPolicy: string | null): boolean {
   if (!contentSecurityPolicy) return false;
 
-  const directives = contentSecurityPolicy
-    .split(";")
-    .map((directive) => directive.trim().toLowerCase().split(/\s+/))
-    .filter(([name]) => name !== "");
+  const directives = contentSecurityPolicy.split(";").map((directive) => directive.trim().toLowerCase().split(/\s+/));
   const sandboxes = directives.filter(([name]) => name === "sandbox");
   const defaultSources = directives.filter(([name]) => name === "default-src");
 
