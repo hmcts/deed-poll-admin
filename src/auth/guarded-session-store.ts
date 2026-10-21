@@ -149,11 +149,14 @@ export class GuardedSessionStore extends Store {
     const body = JSON.stringify(sess);
     const version = this.#versions.get(sess);
 
-    const write = !version
-      ? this.#create(sid, sess, body, ttl)
-      : !version.lease && version.data === dataOf(sess)
-        ? this.#keep(sid, version, ttl)
-        : this.#update(sid, sess, version, body, ttl);
+    let write: Promise<void>;
+    if (!version) {
+      write = this.#create(sid, sess, body, ttl);
+    } else if (!version.lease && version.data === dataOf(sess)) {
+      write = this.#keep(sid, version, ttl);
+    } else {
+      write = this.#update(sid, sess, version, body, ttl);
+    }
     write.then(() => callback(), callback);
   }
 
