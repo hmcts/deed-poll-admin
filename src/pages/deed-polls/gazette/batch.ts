@@ -142,9 +142,10 @@ const cy = {
   unknown:
     "Nid yw canlyniad y cais yn hysbys. Peidiwch â dechrau anfon y ceisiadau hyn eto. Gwiriwch y cais hwn gan ddefnyddio ei fanylion gwreiddiol, neu defnyddiwch geisiadau Gazette i ymchwilio.",
   checkStatus: "Gwirio statws y cais",
-  notSent: "Nid yw’r e-bost wedi’i anfon oherwydd nad oedd digon o amser ar ôl i’w anfon yn ddiogel. Cadarnhewch ac anfonwch yr e-bost eto.",
+  // Awaiting translation: kept in English so `yarn welsh:check` and the translation request list them.
+  notSent: "The email has not been sent because there was not enough time left to send it safely. Confirm and send the email again.",
   notChecked:
-    "Ni ellid gwirio statws y cais oherwydd nad oedd digon o amser ar ôl i’w wirio’n ddiogel. Nid oes e-bost newydd wedi’i ofyn amdano. Gwiriwch statws y cais eto.",
+    "The request status could not be checked because there was not enough time left to check it safely. No new email has been requested. Check the request status again.",
   unavailable:
     "Ni ellid gwirio’r ceisiadau. Nid oes e-bost newydd wedi’i ofyn amdano o’r dudalen hon. Rhowch gynnig arall arni neu gwiriwch geisiadau Gazette.",
   again: "Adolygu’r dewis eto",
