@@ -1,4 +1,5 @@
 import { InvalidInputError } from "../errors.js";
+import { isTicked, tickedValues } from "./checkbox-input.js";
 import { composeDateParts } from "./date-parts.js";
 import { EDITABLE_FIELDS, type FieldDef } from "./form-fields.js";
 import { collectNumericErrors } from "./form-validation.js";
@@ -16,15 +17,21 @@ import { readNumericInput } from "./numeric-input.js";
  * the midnight-UTC instant this app means the one it states, rather than leaving api's
  * `coerceDates` to supply it.
  *
- * Each field in `fields` is written (empty inputs → null), matching the Dynamics
- * form where saving persists the whole form, clearing blanked fields — so state
- * derivation stays correct (clearing dateEnroled un-enrols). Pass ONLY the fields
- * on the submitted tab so a per-tab save never nulls fields on other tabs.
+ * Each field in `fields` that the body carries is written (empty inputs → null),
+ * matching the Dynamics form where saving persists the whole form, clearing blanked
+ * fields — so state derivation stays correct (clearing dateEnroled un-enrols). Pass
+ * ONLY the fields on the submitted tab so a per-tab save never nulls fields on other tabs.
  *
- * The one exception is a `notNullable` field: its column is NOT NULL, so "absent"
- * must mean "leave alone" rather than "clear". Nulling one is a 500, which is exactly
- * what a non-admin saving the Application tab used to get — `privacy` renders disabled
- * for them and a disabled control is not submitted.
+ * An absent text, textarea, enum or date field is omitted rather than cleared (review
+ * finding R02): a rendered one is always submitted, even empty, so absent means it was
+ * not rendered — hidden by its type's rules, or disabled. Checkboxes are the exception,
+ * because an unticked one is absent too, so an absent boolean is `false` and an absent
+ * multiselect `[]`; `deed-poll-validation.test.ts` fails if a rule ever hides one. The
+ * minor-only fields and the Gazette notice date a type hides are cleared by api's own
+ * write-path gates, not here.
+ *
+ * A `notNullable` field submitted empty is omitted too: its column is NOT NULL, and
+ * nulling one is a 500.
  *
  * Number fields follow `readNumericInput` instead (review finding E04): absent is omitted, blank clears, and
  * text that is not a number throws `InvalidInputError` naming each such field, so no patch exists to send.
@@ -53,18 +60,22 @@ function readField(field: FieldDef, body: Record<string, unknown>): unknown {
       if (input.kind === "absent") return undefined;
       return input.kind === "valid" ? input.value : null;
     }
-    case "date":
-      return composeDateParts(str(body[`${field.name}-day`]), str(body[`${field.name}-month`]), str(body[`${field.name}-year`]));
+    case "date": {
+      const [day, month, year] = [body[`${field.name}-day`], body[`${field.name}-month`], body[`${field.name}-year`]];
+      if (day === undefined && month === undefined && year === undefined) return undefined;
+      return composeDateParts(str(day), str(month), str(year));
+    }
     case "boolean":
       // Unchecked checkboxes are absent from the body; a present truthy value wins.
-      return body[field.name] === "true" || body[field.name] === "on";
+      return isTicked(body[field.name]);
     case "multiselect":
-      return toIntArray(body[field.name]);
+      return tickedValues(body[field.name]);
     // Everything else is read as a plain string: `enum`, `text` and `textarea`, plus any
     // kind added later. The prototype listed those three explicitly ahead of `default`;
     // they are named here instead, because the branch behaves identically for all of them
     // and an empty value always becomes null rather than "".
     default: {
+      if (body[field.name] === undefined) return undefined;
       const v = str(body[field.name]);
       return v === "" ? null : v;
     }
@@ -75,10 +86,4 @@ function readField(field: FieldDef, body: Record<string, unknown>): unknown {
 function str(v: unknown): string {
   if (Array.isArray(v)) v = v[0];
   return typeof v === "string" ? v.trim() : "";
-}
-
-/** Multi-checkbox → int[]. Body value is a string or array of strings. */
-function toIntArray(v: unknown): number[] {
-  const arr = Array.isArray(v) ? v : v == null ? [] : [v];
-  return arr.map((x) => Number(String(x))).filter((n) => Number.isInteger(n));
 }
