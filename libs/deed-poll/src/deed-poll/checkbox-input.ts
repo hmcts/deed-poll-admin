@@ -22,6 +22,7 @@ export function yesNoAnswer(raw: unknown): boolean | null {
  * stored numbers too: a submitted value reaches it only once `readFieldInput` has accepted it (review finding R08).
  */
 export function tickedValues(raw: unknown): number[] {
-  const values = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
+  if (raw == null) return [];
+  const values = Array.isArray(raw) ? raw : [raw];
   return values.map((value) => Number(String(value))).filter((n) => Number.isInteger(n));
 }
