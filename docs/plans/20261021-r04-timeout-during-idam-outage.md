@@ -100,11 +100,11 @@ session and the next one builds over it, wiping the results.
 
 **Files:** `CLAUDE.md`, this plan.
 
-- [ ] Add a short rule to `CLAUDE.md` (near the IDAM discovery paragraph or "Session writes"): ending a session is
+- [x] Add a short rule to `CLAUDE.md` (near the IDAM discovery paragraph or "Session writes"): ending a session is
       local first, the IDAM end-session lookup comes after and its failure falls back like an absent endpoint, and the
       ending event is still emitted before the local end so it carries the old `sid`. Reference this plan and R04.
-- [ ] Record final commits, changed files and test counts in the execution notes.
-- [ ] Run all Validation Commands and hand off to the Ralphex review phases.
+- [x] Record final commits, changed files and test counts in the execution notes.
+- [x] Run all Validation Commands and hand off to the Ralphex review phases.
 
 ## Acceptance Criteria
 
@@ -149,6 +149,21 @@ session and the next one builds over it, wiping the results.
   `yarn turbo test test:app --concurrency=1 --force` with `REDIS_URL` set: 8/8 tasks; app 117 files / 2515 tests;
   deed-poll 1389, api-client 847, cloud-native-platform 157, govuk-starter 127, simple-router 41, session-postgres 30,
   session-redis 7. No failures, no skips.
+
+### Task 3 (2026-10-21)
+
+- `CLAUDE.md` gains one bullet after the IDAM discovery paragraph under "Deployment and sessions": end locally first,
+  look up the end-session address afterwards through `availableEndSessionUrl`, fall back like an absent endpoint on
+  failure, and keep the ending event before the local end so it carries the old `sid`.
+- Commits: `670ee74` (Task 1, timeout), `a20ec26` (Task 2, logout), and this Task 3 commit (rule and notes).
+- Changed files since the plan commit `4ac848a`: `src/auth/end-session.ts` and `end-session.test.ts` (new),
+  `src/auth/session-lifetime.ts`, `session-lifetime.test.ts`, `session-lifetime-idam-outage.test.ts` (new),
+  `src/pages/logout.ts`, `logout.test.ts`, `logout-idam-outage.test.ts` (new), `CLAUDE.md`, this plan.
+- Final validation with `REDIS_URL` set: `yarn lint` clean (existing biome-migrate info only), `yarn build` 8/8,
+  `yarn turbo test test:app --concurrency=1 --force` 8/8 tasks; app 117 files / 2515 tests; deed-poll 1389,
+  api-client 847, cloud-native-platform 157, govuk-starter 127, simple-router 41, session-postgres 30,
+  session-redis 7. No failures, no skips; the Redis session suites ran and passed. Handed off to the Ralphex review
+  phases.
 
 ## Post-Completion
 
