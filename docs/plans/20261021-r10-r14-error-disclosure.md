@@ -96,9 +96,9 @@ session and the next one builds over it, wiping the results.
 
 **Files:** `CLAUDE.md`, `.claude/rules/backend.md`, and `src/errors.ts`'s comment if it repeats the claim.
 
-- [ ] Correct the wording as described in the Development Approach. **Reference this plan by its
+- [x] Correct the wording as described in the Development Approach. **Reference this plan by its
       `docs/plans/completed/` path**, since that is where it will be once the run ends.
-- [ ] Run all Validation Commands (no test changes are expected) and record the results.
+- [x] Run all Validation Commands (no test changes are expected) and record the results.
 
 ### Task 3: Hand off
 
@@ -137,6 +137,21 @@ session and the next one builds over it, wiping the results.
   hand: two English keys, `accessDenied` and `unavailable`, mirrored by `cy`, and nothing else in the directory.
 - **Green:** focused `src/pages/oauth2` 2 files / 40 tests. Full run: lint clean, build 8/8, tests 8/8 with app
   124 files / 2618 tests and every library count as at baseline. No failures, no skips. `yarn format` changed nothing.
+
+### Task 2 (R14)
+
+- **Rechecked R14:** `src/errors.ts` still answers every `ForbiddenError` with `res.status(403).render("errors/404")`.
+  The "non-enumerable" / "discloses nothing" claim appeared in four places, not three: `CLAUDE.md` (Personas and role
+  gating), the `forbidden` row of `.claude/rules/backend.md`, the comment in `src/errors.ts`, and
+  `docs/ARCHITECTURE.md`'s Authorization paragraph. All four corrected.
+- **Wording:** the 404 view says nothing about what was refused, and the gate fires before any lookup, so whether a
+  particular resource exists is never disclosed. The 403 status does disclose that the area exists and is closed to
+  the caller, which is deliberate and pinned by the e2e specs. `CLAUDE.md` and `backend.md` cite this plan at its
+  `docs/plans/completed/` path. No behaviour, test or expected status changed.
+- **Validation:** `yarn format` changed nothing, `yarn lint` clean (the same pre-existing info), build 8/8, tests 8/8
+  with counts identical to Task 1: app 124 / 2618, deed-poll 68 / 1401, api-client 14 / 852, starter 12 / 127,
+  cloud-native-platform 13 / 157, session-postgres 2 / 30, session-redis 1 / 7, simple-router 4 / 41. No failures,
+  no skips.
 
 ## Post-Completion
 
