@@ -241,6 +241,69 @@ describe("sessionLifetime", () => {
     });
   });
 
+  // R04: the end-session address needs discovery, so it is asked only after the session has been ended here.
+  describe("while IDAM discovery is failing", () => {
+    beforeEach(() => {
+      vi.mocked(endSessionUrl).mockRejectedValue(new Error("IDAM discovery failed recently; a new attempt is held off until the cooldown ends"));
+    });
+
+    it("should still end an idle GET on this request and send it to the timed-out page", async () => {
+      const req = request({ path: "/deed-polls/case-1?tab=notes", lastSeenAt: NOW_SECONDS - 1800 });
+
+      const { res, next } = await run(req);
+
+      expect(req.session.regenerate).toHaveBeenCalledTimes(1);
+      expect(req.session.deedPoll.user).toBeUndefined();
+      expect(req.session.deedPoll.timedOutReturnTo).toBe("/deed-polls/case-1?tab=notes");
+      expect(res.redirect).toHaveBeenCalledWith("/session-timed-out");
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it("should still end an idle POST with 401, offering the plain sign-in link", async () => {
+      const req = request({ method: "POST", path: "/deed-polls/case-1/notes", lastSeenAt: NOW_SECONDS - 1800 });
+
+      const { res } = await run(req);
+
+      expect(req.session.regenerate).toHaveBeenCalledTimes(1);
+      expect(req.session.deedPoll.user).toBeUndefined();
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.render).toHaveBeenCalledWith("session-timed-out/index", expect.objectContaining({ unsaved: true, signInHref: "/login" }));
+    });
+
+    it("should emit the ending event once, carrying the old session's sid", async () => {
+      await run(request({ lastSeenAt: NOW_SECONDS - 1800 }));
+
+      expect(vi.mocked(trackEvent).mock.calls).toEqual([
+        ["auth.session.ended", expect.objectContaining({ reason: "idle", sid: createHash("sha256").update(SESSION_ID).digest("hex").slice(0, 16) })]
+      ]);
+    });
+
+    it("should log a fixed line, with no token or error prose in it", async () => {
+      await run(request({ lastSeenAt: NOW_SECONDS - 1800 }));
+
+      const logged = JSON.stringify(vi.mocked(console.warn).mock.calls);
+      expect(logged).toContain("IDAM end-session address unavailable");
+      expect(logged).not.toMatch(/an-id-token|a-secret-access-token|cooldown|a-timed-session-id/);
+    });
+  });
+
+  it.each(["GET", "POST"])("should end the session here before asking IDAM where to send the browser on a %s", async (method) => {
+    const req = request({ method, lastSeenAt: NOW_SECONDS - 1800 });
+    const order: string[] = [];
+    req.session.regenerate.mockImplementation((done?: (error?: Error) => void) => {
+      order.push("regenerate");
+      done?.();
+    });
+    vi.mocked(endSessionUrl).mockImplementation(async () => {
+      order.push("endSessionUrl");
+      return END_SESSION;
+    });
+
+    await run(req);
+
+    expect(order).toEqual(["regenerate", "endSessionUrl"]);
+  });
+
   describe("its security events", () => {
     const ended = (reason: string, method = "GET") => [
       "auth.session.ended",

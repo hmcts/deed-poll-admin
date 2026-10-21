@@ -13,36 +13,36 @@ function renderedModel(res: ReturnType<typeof pageResponse>): Record<string, unk
 }
 
 describe("the timed-out page", () => {
-  it("should offer to sign in again, back to where the timed-out request was going", async () => {
+  it("should offer to sign in again, back to where the timed-out request was going", () => {
     const res = pageResponse();
 
-    await GET(timedOutRequest("/deed-polls/case-1?tab=notes"), res);
+    GET(timedOutRequest("/deed-polls/case-1?tab=notes"), res);
 
     expect(res.render).toHaveBeenCalledWith("session-timed-out/index", expect.anything());
     expect(renderedModel(res)).toMatchObject({ unsaved: false, signInHref: "/login?returnTo=%2Fdeed-polls%2Fcase-1%3Ftab%3Dnotes" });
   });
 
-  it("should send sign-in to the root when nothing was recorded", async () => {
+  it("should send sign-in to the root when nothing was recorded", () => {
     const res = pageResponse();
 
-    await GET(timedOutRequest(), res);
+    GET(timedOutRequest(), res);
 
     expect(renderedModel(res)).toMatchObject({ signInHref: "/login?returnTo=%2F" });
   });
 
   // The stored value already went through `safeReturnTo`, but this link is a redirect sink in its own right.
-  it.each(["//evil.example", "/\\evil.example", "https://evil.example"])("should fall back to the root for %o", async (stored) => {
+  it.each(["//evil.example", "/\\evil.example", "https://evil.example"])("should fall back to the root for %o", (stored) => {
     const res = pageResponse();
 
-    await GET(timedOutRequest(stored), res);
+    GET(timedOutRequest(stored), res);
 
     expect(renderedModel(res)).toMatchObject({ signInHref: "/login?returnTo=%2F" });
   });
 
-  it("should carry Welsh copy with the same keys as the English", async () => {
+  it("should carry Welsh copy with the same keys as the English", () => {
     const res = pageResponse();
 
-    await GET(timedOutRequest(), res);
+    GET(timedOutRequest(), res);
 
     const { en, cy } = renderedModel(res) as { en: Record<string, string>; cy: Record<string, string> };
     expect(Object.keys(cy)).toEqual(Object.keys(en));

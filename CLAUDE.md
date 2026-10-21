@@ -64,6 +64,21 @@ status check replays that keyed POST without pre-reading changed case data. An A
 request status redirects to its read-only page. Unknown outcomes never offer a new key.
 The domain's `callGazetteApi` seam accepts only typed Gazette refusals as evidence of
 non-admission and strips provider diagnostics. Ordinary operations still use `callApi`.
+The submit (and the status check, which replays it) has its own 20 s timeout, `GAZETTE_SUBMIT_TIMEOUT_MS` in the
+api client, because api sends synchronously and the default 10 s turned a slow success into an unknown outcome
+(finding R03, `docs/plans/completed/20261021-r03-gazette-submit-timeout.md`). It is not api's 60 s Notify deadline,
+and not "just above 30 s" either: **both** Application Gateways default `request_timeout` to 30 s, the backend one
+between this app and api and the frontend one between the browser and this app. Past 30 s the caseworker would get
+the gateway's error page, not the recovery page with the request's key, and the send request first re-checks every
+selected review. So a send over 20 s is still an unknown outcome until both gateways' `request_timeout` is raised or
+api sends asynchronously. And 20 s alone is no end-to-end bound, because the re-check and a token refresh spend the
+same request's time first: `recordArrival` (`src/request-arrival.ts`, the first layer in `createApp`) stamps
+`res.locals.receivedAt` from the monotonic `performance.now()`, and the send and the status check wait only for what is left of a 25 s budget from it
+(`src/gazette/send-deadline.ts`), capped at 20 s and by `DEED_POLL_API_TIMEOUT_MS`, which can only shorten it. The
+budget bounds the send, not what precedes it: the re-check's reads and the refresh keep their own timeouts, so a
+pre-send phase that alone outlasts 30 s still ends on the gateway's page, having sent nothing. Under
+a 5 s floor nothing is sent: the confirm step or the recovery page re-renders with the same journey and key, saying
+nothing was sent or checked (`docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
 
 `yarn test:gazette` runs eight browser journeys against a fresh mock on 3216 and this app on 3316,
 using Redis on 6316/database 1 and local IDAM on 5556. It is separate from `yarn test:e2e` because its
@@ -411,6 +426,25 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
   but never recovers**: `openid-client`'s "discovered metadata issuer does not match the expected issuer", or an
   HTTPS refusal, repeats once per interval indefinitely. That is fixed in `IDAM_ISSUER_URL` or the chart, not by
   waiting or cycling the pod.
+- **Ending a session is local first, and IDAM is asked afterwards** (review finding R04; plan
+  `docs/plans/completed/20261021-r04-timeout-during-idam-outage.md`). A timeout (`endTimedOutSession` in
+  `src/auth/session-lifetime.ts`) and logout (`src/pages/logout.ts`) emit their ending event, end the session here
+  (regenerate or destroy; logout then sets `Clear-Site-Data`), and only then look up IDAM's end-session address,
+  through `availableEndSessionUrl` (`src/auth/end-session.ts`). A lookup that fails, the discovery cooldown included,
+  falls back exactly like an issuer advertising no endpoint (`TIMED_OUT_PATH` for a timed-out GET, `/login` as a
+  timed-out POST's sign-in link, `/signed-out` for logout), so an outage still ends the session on the first request rather than
+  answering 500 and emitting the event again on every retry. The IDAM session survives such an ending, and the sign-in
+  link can re-enter it once IDAM recovers; that is the accepted cost, and the fix is never to await IDAM before the local
+  end again. The event stays
+  *before* the local end, so it carries the old `sid`: fix an ordering problem here by moving the lookup, never the
+  event.
+- **A logout that cannot reach IDAM's end-session page lands on `/signed-out`, never on `/`** (plan
+  `docs/plans/completed/20261021-r04b-signed-out-page.md`). `/` sends an anonymous visitor straight to `/login`, which
+  starts IDAM sign-in without a click, so through the IDAM session that survives an outage (or an issuer advertising no
+  end-session endpoint) someone who clicked "Sign out" on a shared PC would be signed straight back in.
+  `src/pages/signed-out/` is public (`PUBLIC_PATHS`) and offers sign-in only as a link. Its copy says "signed out of
+  this service" because IDAM may still hold its own session. With IDAM healthy, logout still goes to IDAM's
+  end-session URL.
 
 ## Session writes
 

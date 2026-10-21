@@ -1,5 +1,6 @@
 /**
- * Where a timed-out session lands, after `sessionLifetime` has ended it here and at IDAM.
+ * Where a timed-out session lands, after `sessionLifetime` has ended it here and at IDAM — or here only, when IDAM's
+ * end-session address is unavailable (R04), in which case a GET is redirected here directly.
  *
  * Public, because the user it is for is no longer signed in. A GET arrives from IDAM's end-session redirect once
  * this address is registered for the client (OWASP plan 03, Task 10); until then IDAM returns to `/`. A timed-out
@@ -24,7 +25,7 @@ const cy = {
   signIn: "Mewngofnodi eto"
 };
 
-export const GET = async (req: Request, res: Response) => {
+export const GET = (req: Request, res: Response) => {
   // Through `safeReturnTo` again on the way out, although it was stored that way: this link is a redirect sink.
   const returnTo = safeReturnTo(sessionTimedOutReturnTo(req));
   renderTimedOut(res, { unsaved: false, signInHref: `/login?returnTo=${encodeURIComponent(returnTo)}` });

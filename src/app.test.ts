@@ -343,6 +343,9 @@ const gates = vi.hoisted(() => ({
   sameOrigin: function requireSameOriginDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
+  arrival: function recordArrivalDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
   sessionLifetime: function sessionLifetimeDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
@@ -358,6 +361,7 @@ vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gate
 vi.mock("./auth/same-origin.js", () => ({ requireSameOrigin: () => gates.sameOrigin }));
 vi.mock("./auth/no-store.js", () => ({ noStore: () => gates.noStore }));
 vi.mock("./auth/session-lifetime.js", () => ({ sessionLifetime: vi.fn(() => gates.sessionLifetime) }));
+vi.mock("./request-arrival.js", () => ({ recordArrival: () => gates.arrival }));
 
 describe("createApp's judicial gate", () => {
   let stack: MountedLayer[];
@@ -570,6 +574,28 @@ describe("createApp's session lifetime limits", () => {
   });
 });
 
+/**
+ * That a request's arrival is recorded before anything can spend its time. The Gazette send's deadline is counted from
+ * this moment, so a layer mounted ahead of it (a session read, a token refresh against IDAM, the body parser) would be
+ * time the deadline never saw, and the frontend gateway's 30 s would cut the browser off first.
+ */
+describe("createApp's arrival time", () => {
+  it("should be the first layer, for every path, ahead of the session and the token refresh", async () => {
+    vi.clearAllMocks();
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    const stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+
+    expect(stack.filter((layer) => layer.handle === gates.arrival)).toHaveLength(1);
+    expect(stack[0].handle).toBe(gates.arrival);
+    expect(stack.findIndex((layer) => layer.handle === mocks.passthrough)).toBeGreaterThan(0);
+    expect(stack.findIndex((layer) => layer.handle === refreshMiddleware)).toBeGreaterThan(0);
+    for (const path of ["/", "/deed-polls/gazette/batch", "/judicial/referrals", "/health/readiness"]) {
+      expect(stack[0].match(path), path).toBe(true);
+    }
+  });
+});
+
 type MountedLayer = { handle: unknown; matchers: ((path: string) => unknown)[]; match: (path: string) => boolean };
 
 describe("createApp's Gazette gate", () => {
@@ -627,9 +653,9 @@ describe("createApp's no-store layer", () => {
   // The header is skipped exactly where requireAuth's allowlist says a page is public, so this reads every page off
   // the filesystem and pins which ones those are. A new page is a signed-in page, and uncacheable, unless it is
   // added here on purpose.
-  // `/session-timed-out` is for a user who is no longer signed in, and shows no case data. The two `/session/` routes
+  // `/session-timed-out` and `/signed-out` are for a user who is no longer signed in, and show no case data. The two `/session/` routes
   // answer an anonymous caller 401 themselves and set their own no-store.
-  it("should treat every page but the sign-in flow, the home redirect, the timed-out page and the footer pages as signed-in", async () => {
+  it("should treat every page but the sign-in flow, the home redirect, the timed-out and signed-out pages and the footer pages as signed-in", async () => {
     const { isPublicPath } = await vi.importActual<typeof import("./auth/require-auth.js")>("./auth/require-auth.js");
     const publicPages = new Set([
       "/",
@@ -637,6 +663,7 @@ describe("createApp's no-store layer", () => {
       "/logout",
       "/oauth2/callback",
       "/session-timed-out",
+      "/signed-out",
       "/session/keep-alive",
       "/session/status",
       "/accessibility-statement",

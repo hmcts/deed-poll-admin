@@ -36,3 +36,20 @@ test("a caseworker can find sign-out and cannot reopen a protected page afterwar
   await page.goto("/deed-polls");
   await expect(page.locator("#username")).toBeVisible();
 });
+
+test("the signed-out page offers sign-in only as a link, in English and Welsh", async ({ browser }) => {
+  // Reached only when IDAM's end-session page is unavailable, which the simulator never is, so open it directly.
+  const context = await browser.newContext({ storageState: undefined });
+  const page = await context.newPage();
+
+  await page.goto("/signed-out");
+
+  await expect(page).toHaveURL(/\/signed-out$/);
+  await expect(page.getByRole("heading", { name: "You have signed out" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Sign in again" })).toHaveAttribute("href", "/login");
+  const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  expect(accessibility.violations).toEqual([]);
+  await page.goto("/signed-out?lng=cy");
+  await expect(page.getByRole("link", { name: "Mewngofnodi eto" })).toHaveAttribute("href", "/login");
+  await context.close();
+});

@@ -13,7 +13,7 @@ import {
   UnauthorizedError
 } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
 import { GET, POST } from "./batch.js";
 
@@ -75,10 +75,11 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
-async function render(body?: Record<string, unknown>, locale = "en", sessionID = "admin-session") {
+async function render(body?: Record<string, unknown>, locale = "en", sessionID = "admin-session", spentMs = 0) {
   const req = Object.assign(pageRequest({ body, teamLeader: true, accessToken: "token" }), { sessionID });
   const res = pageResponse();
   res.locals.locale = locale;
+  res.locals.receivedAt = performance.now() - spentMs;
   await (body ? POST : GET)(req, res);
   if (!res.render.mock.calls.length) return { res, model: null, markup: "", journey: "" };
   const model = res.render.mock.calls[0][1];
@@ -122,8 +123,97 @@ it("should present the actual recipient and group counts, require explicit confi
   expect(sendGazetteSelection).not.toHaveBeenCalled();
   const sent = await render({ journey: check.journey, action: "send", confirmed: "yes" });
   expect(sent.res.redirect).toHaveBeenCalledWith(303, `/deed-polls/gazette/requests/${BATCH_ID}`);
-  expect(sendGazetteSelection).toHaveBeenCalledWith({ caseIds: [ID], recipientRevision: 2, selectionFingerprint: "original-fingerprint" }, expect.any(String), {
-    accessToken: "token"
+  expect(sendGazetteSelection).toHaveBeenCalledWith(
+    { caseIds: [ID], recipientRevision: 2, selectionFingerprint: "original-fingerprint" },
+    expect.any(String),
+    { accessToken: "token" },
+    { timeoutMs: expect.any(Number) }
+  );
+});
+
+describe("the send's deadline, counted from the request's arrival", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ now: Date.now(), toFake: ["Date", "performance"] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each([
+    { spent: 0, timeoutMs: 25_000 },
+    { spent: 12_000, timeoutMs: 13_000 },
+    { spent: 20_000, timeoutMs: 5_000 }
+  ])("should give the send what is left of the budget after $spent ms, and redirect as before", async ({ spent, timeoutMs }) => {
+    const check = await confirmation();
+
+    const sent = await render({ journey: check.journey, action: "send", confirmed: "yes" }, "en", "admin-session", spent);
+
+    expect(vi.mocked(sendGazetteSelection).mock.calls[0][3]).toEqual({ timeoutMs });
+    expect(sent.res.redirect).toHaveBeenCalledWith(303, `/deed-polls/gazette/requests/${BATCH_ID}`);
+  });
+
+  it("should count the time the review re-check spent", async () => {
+    const check = await confirmation();
+    vi.mocked(gazetteReviewsCurrent).mockImplementationOnce(async () => {
+      vi.advanceTimersByTime(9_000);
+      return true;
+    });
+
+    await render({ journey: check.journey, action: "send", confirmed: "yes" }, "en", "admin-session", 3_000);
+
+    expect(vi.mocked(sendGazetteSelection).mock.calls[0][3]).toEqual({ timeoutMs: 13_000 });
+  });
+
+  it("should send nothing when the review re-check itself spends the time down past the floor", async () => {
+    const check = await confirmation();
+    vi.mocked(gazetteReviewsCurrent).mockImplementationOnce(async () => {
+      vi.advanceTimersByTime(6_000);
+      return true;
+    });
+
+    const late = await render({ journey: check.journey, action: "send", confirmed: "yes" }, "en", "admin-session", 15_000);
+
+    expect(sendGazetteSelection).not.toHaveBeenCalled();
+    expect(late.res.status).toHaveBeenCalledWith(503);
+    expect(late.model?.errorList).toEqual([{ text: late.model?.en.notSent, href: "#confirmed" }]);
+  });
+
+  it.each(["en", "cy"])("should send nothing under the floor and re-render the %s confirm step with the same key", async (locale) => {
+    const check = await confirmation();
+
+    const late = await render({ journey: check.journey, action: "send", confirmed: "yes" }, locale, "admin-session", 21_000);
+
+    expect(sendGazetteSelection).not.toHaveBeenCalled();
+    expect(late.res.status).toHaveBeenCalledWith(503);
+    expect(late.model?.phase).toBe("confirm");
+    expect(late.model?.confirmation).toEqual(check.model?.confirmation);
+    expect(late.model?.errorList).toEqual([{ text: late.model?.[locale].notSent, href: "#confirmed" }]);
+    expect(late.markup).toContain('value="send"');
+    expect(late.markup).not.toContain('value="check"');
+    const resent = await render({ journey: late.journey, action: "send", confirmed: "yes" }, locale);
+    expect(sendGazetteSelection).toHaveBeenCalledExactlyOnceWith(expect.anything(), check.model?.confirmation.key, expect.anything(), expect.anything());
+    expect(resent.res.redirect).toHaveBeenCalledWith(303, `/deed-polls/gazette/requests/${BATCH_ID}`);
+  });
+
+  it.each(["en", "cy"])("should make no status check under the floor and re-render the %s recovery page with the original key and body", async (locale) => {
+    const check = await confirmation();
+    vi.mocked(sendGazetteSelection).mockRejectedValueOnce(new GazetteOutcomeUnknownError());
+    const lost = await render({ journey: check.journey, action: "send", confirmed: "yes" });
+    const original = vi.mocked(sendGazetteSelection).mock.calls[0];
+    vi.mocked(sendGazetteSelection).mockClear();
+
+    const late = await render({ journey: lost.journey, action: "check" }, locale, "admin-session", 20_500);
+
+    expect(sendGazetteSelection).not.toHaveBeenCalled();
+    expect(late.res.status).toHaveBeenCalledWith(503);
+    expect(late.model?.phase).toBe("recover");
+    expect(late.model?.confirmation).toEqual(lost.model?.confirmation);
+    expect(late.markup).toContain(late.model?.[locale].notChecked);
+    expect(late.markup).toContain('value="check"');
+    expect(late.markup).not.toContain('value="send"');
+    await render({ journey: late.journey, action: "check" }, locale);
+    expect(vi.mocked(sendGazetteSelection).mock.calls[0].slice(0, 3)).toEqual(original.slice(0, 3));
   });
 });
 
@@ -139,11 +229,14 @@ it("should preserve the exact payload and key after a lost response, even if dat
   vi.mocked(gazetteReviewsCurrent).mockClear().mockResolvedValue(false);
   const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3 * 60 * 60_000);
   try {
-    await render({ journey: lost.journey, action: "check" });
+    await render({ journey: lost.journey, action: "check" }, "en", "admin-session", 12_000);
   } finally {
     clock.mockRestore();
   }
-  expect(sendGazetteSelection).toHaveBeenLastCalledWith(...original);
+  expect(sendGazetteSelection).toHaveBeenLastCalledWith(original[0], original[1], original[2], { timeoutMs: expect.any(Number) });
+  const timeoutMs = vi.mocked(sendGazetteSelection).mock.lastCall?.[3]?.timeoutMs;
+  expect(timeoutMs).toBeGreaterThanOrEqual(5_000);
+  expect(timeoutMs).toBeLessThanOrEqual(13_000);
   expect(gazetteReviewsCurrent).not.toHaveBeenCalled();
 });
 

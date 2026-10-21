@@ -184,7 +184,10 @@ No status page offers a resend control. **Review and select applications** opens
 mandatory five-item checklist: complete it for each application, select the reviewed
 cases, check the API-confirmed recipient and adult/minor groups, then explicitly send.
 One email contains spreadsheet download links. Changed data invalidates review;
-a lost response offers a status check using the original request identity. Reviews
+a lost response offers a status check using the original request identity. A send waits at most 20 s
+for the API, so a slower one shows as an unknown outcome that the status check recovers. If the request
+has already used most of its time before the send, nothing is sent or checked: the page says so and
+keeps the same request identity, so trying again cannot send twice. Reviews
 belong to the current visit and are not persisted as business sign-off. See
 [plan 16](docs/plans/16-gazette-1-ready-list-review-and-send.md).
 
