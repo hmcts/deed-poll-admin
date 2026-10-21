@@ -1,0 +1,137 @@
+# Plan: give the Gazette send a deadline counted from when the request arrived
+
+## Overview
+
+Follow-up to R03 (`docs/plans/completed/20261021-r03-gazette-submit-timeout.md`, on this branch). The submit now has
+its own 20 s timeout, but a direct review found that 20 s is not an end-to-end bound: the same browser request may
+already have spent time before the send. That time comes from the review re-check (`gazetteReviewsCurrent`, up to
+100 case reads, ten at a time) and, when the token is near expiry, the refresh middleware's IDAM call and `/me`.
+The frontend Application Gateway cuts the browser's request off at 30 s, so a slow pre-send phase plus a 20 s send can
+still show the caseworker the gateway's error page instead of the success redirect or the recovery page.
+
+Steve's decision (2026-10-21): use a deadline counted from the request's arrival. The submit gets what remains of a
+fixed budget, capped at the existing 20 s; if too little remains, nothing is sent and the page says so safely.
+
+## Context
+
+Baseline: this branch's head (R03 plus its correction). Read `CLAUDE.md` (the Gazette paragraph, including the R03
+timeout sentences, and "Abuse limits"), `.claude/rules/backend.md` and the other applicable rules first. Record the
+execution baseline.
+
+- `libs/deed-poll-api-client/src/api/client.ts`: `GAZETTE_SUBMIT_TIMEOUT_MS = 20_000`, applied in
+  `submitGazetteNotice` as `config.timeoutMs ?? GAZETTE_SUBMIT_TIMEOUT_MS`. Its docblock explains the four numbers.
+- `libs/deed-poll/src/api/deed-poll-api.ts`: `apiConfig` sets `timeoutMs` from `DEED_POLL_API_TIMEOUT_MS` when that
+  is set; `callGazetteApi(caller, call)` builds the config and classifies failures.
+- `libs/deed-poll/src/gazette/service.ts`: `sendGazetteSelection(input, key, caller)`.
+- `src/pages/deed-polls/gazette/batch.ts`: the send (`confirmSelection` with `action=send`, which re-checks reviews
+  and then calls `submit`) and the status check (`phase=recover`, `action=check`, which calls `submit` directly).
+- `src/app.ts`: middleware order is pinned by `src/app.test.ts`. Nothing records a request's arrival time today.
+- Layer rules (`.claude/rules/backend.md`): `Caller` is `{ accessToken }` and nothing else; pages never build an
+  `ApiConfig`; HTTP concerns stay out of the domain. A time budget is not an identity, so it must not go on
+  `Caller`.
+
+## Development Approach
+
+1. **Record arrival once, as early as possible.** A tiny middleware mounted first in `src/app.ts` (before sessions
+   and refresh) sets the arrival time on `res.locals` (for example `res.locals.receivedAt = Date.now()`). Pin its
+   position in `src/app.test.ts` as the other order-sensitive middleware is pinned. Nothing else uses it yet; do not
+   build a general request-timing framework.
+2. **A budget and a floor, beside the page that uses them.** In the Gazette area: a total budget measured from arrival
+   (25 s: inside the frontend gateway's 30 s, leaving about 5 s to render and respond), and a minimum useful send
+   time (5 s). Document both against the four timeouts already listed at `GAZETTE_SUBMIT_TIMEOUT_MS`.
+3. **The submit's timeout is the smallest of three:** the remaining budget, `GAZETTE_SUBMIT_TIMEOUT_MS` (20 s), and
+   `DEED_POLL_API_TIMEOUT_MS` when an operator has set it. The operator override can shorten the wait, never extend
+   it past the deadline. Pass the remaining time from the page to the domain as an explicit, optional argument
+   (for example `sendGazetteSelection(input, key, caller, { timeoutMs })`), which the domain turns into the call's
+   config. Keep `Caller` unchanged, and keep the adapter's own default for callers that pass nothing.
+4. **Too little time left: do not send.** If the remaining budget is under the floor when the send or the status
+   check is about to call api, make no api call, so nothing is admitted:
+   - For a first send, re-render the confirm step with a message that nothing was sent and the caseworker can send
+     again. The journey is unchanged, so its request key (derived from the visit) is unchanged; a resend is the same
+     keyed request.
+   - For a status check, re-render the recovery page as it is now, with a message that the check could not be made
+     and can be tried again. The original key and body are kept.
+   Never mint a new key, and never offer one, in either case.
+5. Behaviour when the budget is ample is exactly today's: a 10–20 s send redirects to the request page; an abort, a
+   gateway 504 or a dropped connection renders the recovery page with the original key.
+6. **Copy:** the two new messages are caseworker-facing, so they go in the page's `en`/`cy` pairs (the Gazette pages
+   carry Welsh). Where no Welsh exists yet, follow the page's existing practice for untranslated strings, and confirm
+   the `yarn welsh:check` count changes only by the new strings.
+7. **Out of scope:** the gateways' `request_timeout` (platform), an asynchronous send in api, and any other call's
+   timeout. No new dependency.
+8. Work test first. Use fake timers or an injected clock for the budget arithmetic, and keep one real-HTTP test that
+   proves the remaining time reaches the request. Local task commits are appropriate; publishing is separate.
+
+## Validation Commands
+
+Run from the admin repository root before implementation and after each task:
+
+```bash
+export REDIS_URL=redis://127.0.0.1:6379
+yarn lint
+yarn build
+yarn turbo test test:app --concurrency=1 --force
+```
+
+Use installed dependencies and local Redis. Never flush Redis: it is shared. Record actual counts, failures and
+skips; distinguish baseline failures from regressions, and inspect formatting diffs. Do not send email and do not call
+a live environment.
+
+Run every build and test command in the foreground and wait for it to finish. A backgrounded build ends the
+session and the next one builds over it, wiping the results.
+
+## Implementation Steps
+
+### Task 1: Record when a request arrived
+
+**Files:** `src/app.ts`, `src/app.test.ts`, and a small module for the middleware with its test.
+
+- [ ] Record the execution baseline in the execution notes.
+- [ ] Add failing tests: the arrival time is set on `res.locals` for every request, before any session or refresh
+      middleware runs (pinned in `src/app.test.ts`).
+- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+
+### Task 2: Send only within the deadline
+
+**Files:** `src/pages/deed-polls/gazette/batch.ts` and its tests (handler and `*.njk.test.ts`),
+`libs/deed-poll/src/gazette/service.ts` and its test, `libs/deed-poll/src/api/deed-poll-api.ts` if the config needs
+it, and `libs/deed-poll-api-client/src/api/client.ts` only if the adapter must accept a lower timeout than its default.
+
+- [ ] Add failing tests, with an injected clock:
+  - ample budget: the submit gets 20 s, behaviour unchanged;
+  - 12 s already spent: the submit gets 13 s;
+  - `DEED_POLL_API_TIMEOUT_MS` of 5 s: the submit gets 5 s; of 60 s: still capped by the deadline;
+  - under the floor on a first send: no api call, the confirm step re-renders with the not-sent message and the same
+    key;
+  - under the floor on a status check: no api call, the recovery page re-renders with the original key and body;
+  - a real-HTTP test where the remaining time reaches the request.
+- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+
+### Task 3: Record the rule and hand off
+
+**Files:** `CLAUDE.md`, `docs/DEPLOYMENT.md`, the `GAZETTE_SUBMIT_TIMEOUT_MS` docblock, this plan.
+
+- [ ] Update the R03 sentences in `CLAUDE.md`'s Gazette paragraph and the `docs/DEPLOYMENT.md` passage: the send's
+      timeout is the remaining part of a 25 s budget from arrival, capped at 20 s and by `DEED_POLL_API_TIMEOUT_MS`,
+      and below a 5 s floor nothing is sent. **Reference plans by their `docs/plans/completed/` path**, since that is
+      where they will be once the run ends.
+- [ ] Record final commits, changed files and test counts in the execution notes.
+- [ ] Run all Validation Commands and hand off to the Ralphex review phases.
+
+## Acceptance Criteria
+
+- The browser always gets this app's own answer (redirect, recovery page, or the new not-sent message) within the
+  budget, whatever the request spent before the send.
+- With ample time, behaviour is exactly as on this branch before this plan.
+- Under the floor, no api call is made, nothing is admitted, and the same key is kept; no new key is ever offered.
+- `DEED_POLL_API_TIMEOUT_MS` can only shorten the send's wait.
+- `Caller` is unchanged, and no page builds an `ApiConfig`.
+- All Validation Commands pass with no new failures or skips.
+
+## Execution notes
+
+(Record baseline, red/green evidence and final results here.)
+
+## Post-Completion
+
+Publishing, merging and deployment are separate from this plan.
