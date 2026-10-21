@@ -61,6 +61,7 @@ const INCLUDE = [
   path.join(ROOT, "src/pages/deed-polls"),
   path.join(ROOT, "src/pages/judicial"),
   path.join(ROOT, "src/pages/session-timed-out"),
+  path.join(ROOT, "src/pages/signed-out"),
   path.join(ROOT, "src/locales")
 ];
 

@@ -75,6 +75,11 @@ describe("requireAuth", () => {
       }
     });
 
+    // Logout lands here when IDAM's end-session page cannot be reached, so its visitor is already signed out.
+    it("allows the signed-out page", () => {
+      expect(isPublicPath("/signed-out")).toBe(true);
+    });
+
     it("allows health probes, which have no session", () => {
       expect(isPublicPath("/health")).toBe(true);
       expect(isPublicPath("/health/readiness")).toBe(true);

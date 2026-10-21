@@ -73,10 +73,10 @@ session and the next one builds over it, wiping the results.
 **Files:** `src/pages/signed-out/` (handler, template, tests), `src/auth/require-auth.ts` and its test,
 `scripts/extract-welsh-strings.mjs` if needed.
 
-- [ ] Record the execution baseline and the `welsh:check` counts in the execution notes.
-- [ ] Add failing tests: an anonymous GET of `/signed-out` renders 200 with the heading and a "Sign in again" link to
+- [x] Record the execution baseline and the `welsh:check` counts in the execution notes.
+- [x] Add failing tests: an anonymous GET of `/signed-out` renders 200 with the heading and a "Sign in again" link to
       `/login`, without redirecting; it renders in Welsh with `?lng=cy`; it is public; the layout test still passes.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 2: Send both logout fallbacks there
 
@@ -107,6 +107,27 @@ session and the next one builds over it, wiping the results.
 ## Execution notes
 
 (Record baseline, red/green evidence and final results here.)
+
+### Baseline (branch head `d8c6c85`, REDIS_URL=redis://127.0.0.1:6379)
+
+- `yarn lint`: clean (510 files, one config-migration info). `yarn build`: 8/8 tasks.
+- `yarn turbo test test:app --concurrency=1 --force`: all pass, no skips. app 117 files / 2517 tests;
+  deed-poll 1389; deed-poll-api-client 847; cloud-native-platform 157; express-govuk-starter 127;
+  simple-router 41; express-session-postgres 30; express-session-redis 7.
+- `yarn welsh:check` (exits 1 by design): 729 strings, 512 still identical in cy (505 prose, 7 not prose).
+
+### Task 1
+
+- Red: `allows the signed-out page` (require-auth) and the app.test public-pages sweep failed; both signed-out test
+  files failed to import the missing handler.
+- Green: `src/pages/signed-out/index.ts`, `index.njk`, `index.test.ts`, `index.njk.test.ts` (markup en/cy, plus an
+  anonymous HTTP GET through the real `requireAuth` and the starter's `localeMiddleware`: 200, no `Location`, and
+  `?lng=cy` renders "Mewngofnodi eto"). `/signed-out` added to `PUBLIC_PATHS` and the extractor's `INCLUDE`.
+  Title and body are English pending translation (`...en`, the repo's practice); "Sign in again" reuses
+  "Mewngofnodi eto".
+- `yarn welsh:check`: 732 strings, 514 identical (507 prose): +3 strings, +2 identical, exactly the new ones.
+- Validation: lint clean (513 files), build 8/8, all tests pass with no skips; app 119 files / 2525 tests, libraries
+  unchanged.
 
 ## Post-Completion
 
