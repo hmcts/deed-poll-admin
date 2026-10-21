@@ -414,6 +414,34 @@ describe("the two-witness enrolment gate", () => {
   });
 });
 
+describe("the update's write-path gates", () => {
+  it("should clear the minor-only fields when an update leaves the case a type that hides them", async () => {
+    const created = await (
+      await post("/caseworker/cases", { dateReceived: "2026-03-10", type: "Minor", parents: "Synthetic Parents", ageOfMinor: 9, ageOfMinorMonths: 4 })
+    ).json();
+
+    const updated = await (await patch(`/caseworker/cases/${created.id}`, { type: "Adult" })).json();
+
+    expect(updated).toMatchObject({ parents: null, ageOfMinor: null, ageOfMinorMonths: null, minorDateOfBirth: null });
+  });
+
+  it("should keep the minor-only fields on a Minor case", async () => {
+    const created = await (await post("/caseworker/cases", { dateReceived: "2026-03-10", type: "Minor", parents: "Synthetic Parents" })).json();
+
+    const updated = await (await patch(`/caseworker/cases/${created.id}`, { newSurname: "Amended" })).json();
+
+    expect(updated.parents).toBe("Synthetic Parents");
+  });
+
+  it("should clear the Gazette notice date when the case is not published", async () => {
+    const created = await (await post("/caseworker/cases", { dateReceived: "2026-03-10", dateNoticeSentToLondonGazette: "2026-03-12" })).json();
+
+    const updated = await (await patch(`/caseworker/cases/${created.id}`, { publishToLondonGazette: false })).json();
+
+    expect(updated.dateNoticeSentToLondonGazette).toBeNull();
+  });
+});
+
 describe("the witness routes", () => {
   const WITNESS = { witnessName: "Alex Witness", witnessAddress: "1 Test Road", witnessOccupation: "Baker", declarant: false };
 

@@ -73,17 +73,14 @@
     {% elif f.kind == "boolean" %}
       {{ govukCheckboxes({
         name: f.name,
-        items: [{ value: "true", text: f.label, checked: (f.value == true) }]
+        items: [{ value: "true", text: f.label, checked: f.checked }]
       }) }}
     {% elif f.kind == "multiselect" %}
-      {% set boxes = [] %}
-      {% for o in f.options %}
-        {% set boxes = (boxes.push({ value: o.value, text: o.text, checked: (o.value | int) in (f.value or []) }), boxes) %}
-      {% endfor %}
+      {# Each option's `checked` comes from the view model, which reads stored and replayed values alike. #}
       {{ govukCheckboxes({
         name: f.name,
         fieldset: { legend: { text: f.label } },
-        items: boxes
+        items: f.options
       }) }}
     {% elif f.kind == "number" %}
       {{ govukInput({
