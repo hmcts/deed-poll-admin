@@ -251,7 +251,7 @@ database to connect to: that is api's, along with the schema and the Flyway migr
 |---|---|
 | **api deployed to the target environment** | **Outstanding.** api's own `docs/plans/jenkins-pipeline-cutover.md` is what makes this true; until it lands, a deployed pod's readiness probe reports DOWN and Kubernetes keeps it out of the Service. That is the intended behaviour — a pod that cannot reach api cannot serve a single case page |
 | `DEED_POLL_API_URL` | Set in `charts/deed-poll-admin/values.yaml` to `http://deed-poll-api-{env}.service.core-compute-{env}.internal` — the CNP internal host of api's `charts/deed-poll-api`, cluster-internal and cleartext, not an ingress. Preview overrides it to AAT's, because api's preview deploys are per-PR hosts with no stable name |
-| `DEED_POLL_API_TIMEOUT_MS` | Optional, and when set it overrides **every** call's timeout, including the two that have their own. Unset, each call keeps its own: 10 s for JSON calls, 60 s for uploads (`UPLOAD_TIMEOUT_MS`) and 20 s for the Gazette submit and its status-check replay (`GAZETTE_SUBMIT_TIMEOUT_MS`, finding R03). A value below 20 s turns a slow but successful Gazette send back into an unknown outcome, and one at or above 30 s lets the frontend gateway answer the browser first. An unparseable value falls back to those per-call defaults rather than becoming `NaN`. The readiness probe does **not** use it: `HEALTH_PROBE_TIMEOUT_MS` is fixed at 2s, because a probe must answer on its own terms |
+| `DEED_POLL_API_TIMEOUT_MS` | Optional, and when set it overrides every call's timeout except the Gazette submit and its status-check replay, which it can only shorten. Unset, each call keeps its own: 10 s for JSON calls, 60 s for uploads (`UPLOAD_TIMEOUT_MS`), and for the Gazette submit what is left of a 25 s budget from the request's arrival, capped at 20 s (`GAZETTE_SUBMIT_TIMEOUT_MS`, findings R03 and R03b). A value below 20 s turns a slow but successful Gazette send back into an unknown outcome; a value above 20 s does not lengthen it. An unparseable value falls back to those per-call defaults rather than becoming `NaN`. The readiness probe does **not** use it: `HEALTH_PROBE_TIMEOUT_MS` is fixed at 2s, because a probe must answer on its own terms |
 | **An S2S credential** | **Nothing to add, and adding one would be wrong.** api authenticates a *forwarded IDAM access token* and nothing else — see its `SecurityConfiguration`, an OAuth2 resource server with no `ServiceAuthorization` filter, and `openapi.json`, whose only security scheme is `bearerAuth`. The caseworker's own token, held in this app's session, is the whole credential. If api ever adds S2S, the answer is a token provider minting one per call against `service-auth-provider-api`, plus an S2S microservice name registered for **this app**; it is not a static secret in the vault. `deed-poll-web/docs/external-dependencies.md` tracks the same requirement for the other frontend |
 
 ### Gazette send timeout follow-up
@@ -260,11 +260,15 @@ database to connect to: that is api's, along with the schema and the Flyway migr
 but both Application Gateways on the path default `request_timeout` to 30 s and neither entry overrides it: the
 backend gateway (deed-poll-api's entry in `azure-platform-terraform`'s `backend_lb_config.yaml`) and the frontend
 gateway in front of this app (`terraform-module-applicationgateway`'s default). This app therefore gives the submit
-20 s, so that it answers the browser inside 30 s even after re-checking the selected reviews. A send over 20 s shows
-as an unknown outcome; Check request status recovers it and nothing is sent twice. The fix is a platform change
+at most 20 s, and only what is left of a 25 s budget counted from the request's arrival, so that it answers the
+browser inside 30 s whatever the review re-check and a token refresh spent first. `DEED_POLL_API_TIMEOUT_MS` can only
+shorten that wait. Under a 5 s floor nothing is sent: the page says so and keeps the same request key, so sending or
+checking again is the same keyed request. A send that times out shows as an unknown outcome; Check request status
+recovers it and nothing is sent twice. The fix is a platform change
 raising `request_timeout` on both gateways for deed-poll, or api sending asynchronously. Once both are raised, raise
-`GAZETTE_SUBMIT_TIMEOUT_MS` in the api client to sit well inside the new frontend limit. See
-`docs/plans/completed/20261021-r03-gazette-submit-timeout.md`.
+`GAZETTE_SUBMIT_TIMEOUT_MS` in the api client and `SEND_BUDGET_MS` in `src/gazette/send-deadline.ts` to sit well
+inside the new frontend limit. See `docs/plans/completed/20261021-r03-gazette-submit-timeout.md` and
+`docs/plans/completed/20261021-r03b-gazette-send-deadline.md`.
 
 ### API URL validation and transport follow-up
 

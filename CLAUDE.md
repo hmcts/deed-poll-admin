@@ -71,7 +71,12 @@ and not "just above 30 s" either: **both** Application Gateways default `request
 between this app and api and the frontend one between the browser and this app. Past 30 s the caseworker would get
 the gateway's error page, not the recovery page with the request's key, and the send request first re-checks every
 selected review. So a send over 20 s is still an unknown outcome until both gateways' `request_timeout` is raised or
-api sends asynchronously.
+api sends asynchronously. And 20 s alone is no end-to-end bound, because the re-check and a token refresh spend the
+same request's time first: `recordArrival` (`src/request-arrival.ts`, the first layer in `createApp`) stamps
+`res.locals.receivedAt`, and the send and the status check wait only for what is left of a 25 s budget from it
+(`src/gazette/send-deadline.ts`), capped at 20 s and by `DEED_POLL_API_TIMEOUT_MS`, which can only shorten it. Under
+a 5 s floor nothing is sent: the confirm step or the recovery page re-renders with the same journey and key, saying
+nothing was sent or checked (`docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
 
 `yarn test:gazette` runs eight browser journeys against a fresh mock on 3216 and this app on 3316,
 using Redis on 6316/database 1 and local IDAM on 5556. It is separate from `yarn test:e2e` because its

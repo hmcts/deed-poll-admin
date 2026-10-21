@@ -111,12 +111,12 @@ it, and `libs/deed-poll-api-client/src/api/client.ts` only if the adapter must a
 
 **Files:** `CLAUDE.md`, `docs/DEPLOYMENT.md`, the `GAZETTE_SUBMIT_TIMEOUT_MS` docblock, this plan.
 
-- [ ] Update the R03 sentences in `CLAUDE.md`'s Gazette paragraph and the `docs/DEPLOYMENT.md` passage: the send's
+- [x] Update the R03 sentences in `CLAUDE.md`'s Gazette paragraph and the `docs/DEPLOYMENT.md` passage: the send's
       timeout is the remaining part of a 25 s budget from arrival, capped at 20 s and by `DEED_POLL_API_TIMEOUT_MS`,
       and below a 5 s floor nothing is sent. **Reference plans by their `docs/plans/completed/` path**, since that is
       where they will be once the run ends.
-- [ ] Record final commits, changed files and test counts in the execution notes.
-- [ ] Run all Validation Commands and hand off to the Ralphex review phases.
+- [x] Record final commits, changed files and test counts in the execution notes.
+- [x] Run all Validation Commands and hand off to the Ralphex review phases.
 
 ## Acceptance Criteria
 
@@ -175,6 +175,23 @@ it, and `libs/deed-poll-api-client/src/api/client.ts` only if the adapter must a
 - `yarn welsh:check`: 729 → 731 strings (the two new ones), identical-in-cy count unchanged at 512.
 - Validation: lint clean (511 files, the pre-existing info), build 8/8, tests 8/8; app 116 files / 2517 tests (+16),
   `@hmcts/deed-poll` 68 / 1401 (+7), `@hmcts/deed-poll-api-client` 14 / 852 (+1), others unchanged. No skips.
+
+### Task 3
+
+- Docs: `CLAUDE.md`'s Gazette paragraph and `docs/DEPLOYMENT.md` (the `DEED_POLL_API_TIMEOUT_MS` row and "Gazette send
+  timeout follow-up") now state the 25 s budget from arrival, the 20 s cap, that `DEED_POLL_API_TIMEOUT_MS` only
+  shortens it, and the 5 s floor; the `GAZETTE_SUBMIT_TIMEOUT_MS` docblock names the budget and floor. Plans are
+  referenced by their `docs/plans/completed/` paths.
+- Commits: `f9fd591` (Task 1), `940f3c2` (Task 2), and this task's docs commit.
+- Changed files across the plan: `src/request-arrival.ts` (+test), `src/app.ts`, `src/app.test.ts`,
+  `src/gazette/send-deadline.ts` (+test), `src/pages/deed-polls/gazette/batch.ts`, `batch.njk.test.ts`,
+  `libs/deed-poll/src/gazette/service.ts`, `send.test.ts`, `submit-timeout.test.ts`,
+  `libs/deed-poll/src/api/deed-poll-api.ts`, `libs/deed-poll-api-client/src/api/client.ts` (+test), `CLAUDE.md`,
+  `docs/DEPLOYMENT.md`, this plan.
+- Final validation: lint clean (511 files, the pre-existing info), build 8/8, tests 8/8; app 116 files / 2517,
+  `@hmcts/deed-poll` 68 / 1401, `@hmcts/deed-poll-api-client` 14 / 852, cloud-native-platform 13 / 157,
+  express-govuk-starter 12 / 127, simple-router 4 / 41, express-session-postgres 2 / 30, express-session-redis 1 / 7.
+  No failures, no skips. Handed off to the Ralphex review phases.
 
 ## Post-Completion
 

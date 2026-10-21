@@ -155,7 +155,9 @@ const UPLOAD_TIMEOUT_MS = 60_000;
  *   caseworker gets the gateway's error page instead of the recovery page that carries the request's key.
  * - So this app must answer the browser inside 30 s in total, and the send request first re-checks every selected
  *   review (`gazetteReviewsCurrent`, up to 100 case reads, ten at a time). Twenty seconds leaves that, and the
- *   render, about ten.
+ *   render, about ten. Because that re-check (and a token refresh) can take longer, the page also counts a 25 s
+ *   budget from the request's arrival and passes what is left as the timeout, and under 5 s sends nothing
+ *   (`src/gazette/send-deadline.ts`).
  *
  * A send over 20 s is still an unknown outcome — recoverable, because "Check request status" replays the same key —
  * until both gateways' `request_timeout` is raised or api answers 202 and sends in the background. Only the submit
