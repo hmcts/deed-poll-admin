@@ -107,12 +107,12 @@ session and the next one builds over it, wiping the results.
 
 **Files:** `CLAUDE.md`, this plan.
 
-- [ ] Add one or two sentences to `CLAUDE.md` beside the judicial documents paragraph: the relay renders `inline` only
+- [x] Add one or two sentences to `CLAUDE.md` beside the judicial documents paragraph: the relay renders `inline` only
       for PDF, JPEG and PNG under `default-src 'none'` and a bare `sandbox`, and downloads everything else. Also note
       that the upload page never renders api's 404 text. **Reference this plan by its `docs/plans/completed/` path**,
       since that is where it will be once the run ends.
-- [ ] Record final commits, changed files, test counts and `welsh:check` counts in the execution notes.
-- [ ] Run all Validation Commands and hand off to the Ralphex review phases.
+- [x] Record final commits, changed files, test counts and `welsh:check` counts in the execution notes.
+- [x] Run all Validation Commands and hand off to the Ralphex review phases.
 
 ## Acceptance Criteria
 
@@ -166,6 +166,20 @@ session and the next one builds over it, wiping the results.
   app 2577 (+6), others unchanged.
 - `yarn welsh:check` still crashes at `scripts/extract-welsh-strings.mjs` as at baseline, so the expected +1 string
   cannot be confirmed by count until the extractor is fixed.
+
+### Task 3 (hand-off)
+
+- `CLAUDE.md`: the judicial documents paragraph now states the relay's inline rule and that the upload page never
+  renders api's 404 text, citing `docs/plans/completed/20261021-r09-r13-document-responses.md`.
+- Commits: `a4806fa` (R09), `b7aa382` (R13), and this task's docs commit.
+- Changed files across the run: `src/document-response.ts`, `src/document-response.test.ts` (new),
+  `src/pages/deed-polls/[id]/documents/upload.ts`, `src/pages/deed-polls/[id]/documents/upload.test.ts`,
+  `src/pages/deed-polls/document-upload.njk.test.ts` (new), `CLAUDE.md`, this plan.
+- Final validation: lint clean (520 files, the pre-existing Biome config-migration info only), build 8/8, all suites
+  pass with no skips — app 2577 (+26 over baseline), deed-poll 1401, api-client 852, cloud-native-platform 157,
+  express-govuk-starter 127, simple-router 41, express-session-postgres 30, express-session-redis 7.
+- `yarn welsh:check`: still the baseline crash in `scripts/extract-welsh-strings.mjs` (TypeScript 7.x has no JS
+  compiler API), so no counts before or after. Fixing the extractor is a separate change.
 
 ## Post-Completion
 

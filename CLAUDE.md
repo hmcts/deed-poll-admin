@@ -265,7 +265,10 @@ single file:
   download through `src/pages/judicial/referrals/[referralId]/documents/[documentId]/file.ts`, which shares
   `src/document-response.ts` with the caseworker route. Who may open one is api's visibility: any judge on `Open`,
   the holder on `Claimed`, the director on `Decided`, nobody once closed. The same 404 covers each refusal and
-  renders the unavailable page.
+  renders the unavailable page. The relay keeps api's `inline` only for PDF, JPEG and PNG under a policy with
+  `default-src 'none'` and a bare `sandbox` (no `allow-*` token), and downloads everything else, filename kept; the
+  caseworker upload page never renders api's 404 text, only its own sentence, logging api's through `forLog`
+  (review findings R09 and R13, `docs/plans/completed/20261021-r09-r13-document-responses.md`).
 - **The judge who gave a direction can change or withdraw it until the office closes the referral.** On a
   `Decided` referral (api shows it only to its director) the page links to `direction?change=1`, which reuses the
   direction form and check page, prefilled and worded as a change, and calls `reviseDirection` (`PUT`). It also
