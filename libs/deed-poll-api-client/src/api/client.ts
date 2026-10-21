@@ -730,7 +730,9 @@ export function getJudicialMyReferrals(query: JudicialPoolQuery, config: ApiConf
 
   const search = parameters.toString();
 
-  return request(config, "GET", `/judicial/referrals/mine${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.JudicialMyReferralsResponse);
+  const querySuffix = search === "" ? "" : `?${search}`;
+
+  return request(config, "GET", `/judicial/referrals/mine${querySuffix}`, WIRE_SCHEMAS.JudicialMyReferralsResponse);
 }
 
 /**
