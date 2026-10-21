@@ -86,10 +86,10 @@ session and the next one builds over it, wiping the results.
 
 **Files:** `src/app.ts`, `src/app.test.ts`, and a small module for the middleware with its test.
 
-- [ ] Record the execution baseline in the execution notes.
-- [ ] Add failing tests: the arrival time is set on `res.locals` for every request, before any session or refresh
+- [x] Record the execution baseline in the execution notes.
+- [x] Add failing tests: the arrival time is set on `res.locals` for every request, before any session or refresh
       middleware runs (pinned in `src/app.test.ts`).
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 2: Send only within the deadline
 
@@ -131,6 +131,24 @@ it, and `libs/deed-poll-api-client/src/api/client.ts` only if the adapter must a
 ## Execution notes
 
 (Record baseline, red/green evidence and final results here.)
+
+### Baseline (2026-10-21, head `bd93c66`)
+
+- `yarn lint`: clean (509 files after Task 1; one Biome config-migration info, pre-existing).
+- `yarn build`: 8/8 tasks successful.
+- `yarn turbo test test:app --concurrency=1 --force` with `REDIS_URL=redis://127.0.0.1:6379`: 8/8 tasks; app 114 files
+  / 2498 tests, `@hmcts/deed-poll` 68 / 1394, `@hmcts/deed-poll-api-client` 14 / 851, cloud-native-platform 13 / 157,
+  express-govuk-starter 12 / 127, simple-router 4 / 41, express-session-postgres 2 / 30, express-session-redis 1 / 7.
+  No failures, no skips.
+
+### Task 1
+
+- Red: `src/request-arrival.test.ts` failed to import the missing module; `src/app.test.ts`'s new "arrival time"
+  test failed (no layer mounted).
+- Green: `src/request-arrival.ts` (`recordArrival()`, sets `res.locals.receivedAt = Date.now()`), mounted as the
+  first layer in `createApp`, right after `trust proxy`. `app.test.ts` pins it as `stack[0]`, matching every path,
+  ahead of the session (and every other doubled layer) and `refreshMiddleware`.
+- Validation: lint clean, build 8/8, tests 8/8; app 115 files / 2501 tests (+3), others unchanged. No skips.
 
 ## Post-Completion
 

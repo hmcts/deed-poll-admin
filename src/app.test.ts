@@ -343,6 +343,9 @@ const gates = vi.hoisted(() => ({
   sameOrigin: function requireSameOriginDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
+  arrival: function recordArrivalDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
   sessionLifetime: function sessionLifetimeDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
@@ -358,6 +361,7 @@ vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gate
 vi.mock("./auth/same-origin.js", () => ({ requireSameOrigin: () => gates.sameOrigin }));
 vi.mock("./auth/no-store.js", () => ({ noStore: () => gates.noStore }));
 vi.mock("./auth/session-lifetime.js", () => ({ sessionLifetime: vi.fn(() => gates.sessionLifetime) }));
+vi.mock("./request-arrival.js", () => ({ recordArrival: () => gates.arrival }));
 
 describe("createApp's judicial gate", () => {
   let stack: MountedLayer[];
@@ -566,6 +570,28 @@ describe("createApp's session lifetime limits", () => {
 
     for (const path of ["/", "/deed-polls", "/deed-polls/abc/notes", "/judicial/referrals", "/deed-polls/gazette"]) {
       expect(layer.match(path), path).toBe(true);
+    }
+  });
+});
+
+/**
+ * That a request's arrival is recorded before anything can spend its time. The Gazette send's deadline is counted from
+ * this moment, so a layer mounted ahead of it (a session read, a token refresh against IDAM, the body parser) would be
+ * time the deadline never saw, and the frontend gateway's 30 s would cut the browser off first.
+ */
+describe("createApp's arrival time", () => {
+  it("should be the first layer, for every path, ahead of the session and the token refresh", async () => {
+    vi.clearAllMocks();
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    const stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+
+    expect(stack.filter((layer) => layer.handle === gates.arrival)).toHaveLength(1);
+    expect(stack[0].handle).toBe(gates.arrival);
+    expect(stack.findIndex((layer) => layer.handle === mocks.passthrough)).toBeGreaterThan(0);
+    expect(stack.findIndex((layer) => layer.handle === refreshMiddleware)).toBeGreaterThan(0);
+    for (const path of ["/", "/deed-polls/gazette/batch", "/judicial/referrals", "/health/readiness"]) {
+      expect(stack[0].match(path), path).toBe(true);
     }
   });
 });
