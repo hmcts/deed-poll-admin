@@ -84,15 +84,15 @@ session and the next one builds over it, wiping the results.
 
 **Files:** `src/document-response.ts` and its tests; the two `file.ts` routes' tests if their expectations change.
 
-- [ ] Record the execution baseline, `welsh:check` counts and the api verification in the execution notes.
-- [ ] Add failing tests:
+- [x] Record the execution baseline, `welsh:check` counts and the api verification in the execution notes.
+- [x] Add failing tests:
   - `text/html`, `image/svg+xml` and an unknown type with `inline` and `default-src 'none'; sandbox` become `attachment`;
   - PDF with `inline` and `sandbox allow-same-origin` becomes `attachment`, and so does PDF with `sandbox` but no
     `default-src 'none'`;
   - PDF, JPEG and PNG (including `application/pdf; charset=binary` and upper-case types) with
     `default-src 'none'; sandbox` stay `inline`;
   - api's filename survives every downgrade.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 2: The upload page's own words for an unknown document type (R13)
 
@@ -123,7 +123,36 @@ session and the next one builds over it, wiping the results.
 
 ## Execution notes
 
-(Record baseline, red/green evidence and final results here.)
+### Baseline (Task 1)
+
+- Admin baseline `660cc84` (plan commit on `origin/master` `25d5053`), branch `fix/r09-r13-document-responses`.
+- `yarn lint`: clean (519 files after the change, 518 before; one pre-existing Biome config-migration info).
+  `yarn build`: 8/8 tasks. `yarn turbo test test:app --concurrency=1 --force` with local Redis: all pass, no skips —
+  app 2551, deed-poll 1401, api-client 852, cloud-native-platform 157, express-govuk-starter 127, simple-router 41,
+  express-session-postgres 30, express-session-redis 7.
+- `yarn welsh:check` **crashes at baseline** rather than reporting counts:
+  `TypeError: Cannot read properties of undefined (reading 'ESNext')` at `scripts/extract-welsh-strings.mjs:185`.
+  The extractor uses `typescript`'s JS compiler API (`ts.ScriptTarget`, `ts.createSourceFile`), which the TypeScript
+  7.x upgrade (`64d20b8`, renovate) no longer provides. Pre-existing and outside this plan's scope; no counts can be
+  recorded before or after until it is fixed.
+- Both findings recheck at baseline: `isInertPolicy` asked only that no `sandbox` carry `allow-scripts`, whatever the
+  type, and `upload.ts` rendered `NotFoundError.message` against `documentTypeId`.
+- api verification (`deed-poll-api` `origin/master` `554fe49`, read only):
+  `src/main/java/uk/gov/hmcts/reform/deedpoll/api/DocumentFileResponses.java` sets `inline` only when the bare
+  `type/subtype` is in `INLINE_MIME_TYPES = Set.of("application/pdf", "image/jpeg", "image/png")`, `attachment`
+  otherwise, and always sends `Content-Security-Policy: default-src 'none'; sandbox` (`INERT_CONTENT_POLICY`) and
+  `X-Content-Type-Options: nosniff`. So the new rule leaves every response api sends today unchanged.
+
+### Task 1 (R09)
+
+- New `src/document-response.test.ts` (20 tests). Red before the change: 11 failed (HTML, SVG, unknown type, a
+  type prefixed by an allowlisted one, six policy shapes and the filename-on-type-downgrade case), 9 passed.
+- `containedDisposition` now keeps `inline` only for `application/pdf`, `image/jpeg`, `image/png` (media type
+  compared lower-case, parameters ignored) under a policy whose every `sandbox` is bare and whose every
+  `default-src` is exactly `'none'`. Downgrades keep api's parameters, filename included. Policy and `nosniff`
+  forwarding unchanged. The docblock no longer says a sandbox merely without `allow-scripts` gives a unique origin.
+- Green: the new file plus both routes' tests, 47/47. Full validation: lint clean, build 8/8, all suites pass with
+  no skips, app 2571 (+20), others unchanged.
 
 ## Post-Completion
 
