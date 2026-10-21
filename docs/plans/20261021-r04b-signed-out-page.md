@@ -91,11 +91,11 @@ session and the next one builds over it, wiping the results.
 
 **Files:** `CLAUDE.md`, this plan.
 
-- [ ] Extend the R04 rule in `CLAUDE.md`: a logout that cannot reach IDAM's end-session page lands on `/signed-out`,
+- [x] Extend the R04 rule in `CLAUDE.md`: a logout that cannot reach IDAM's end-session page lands on `/signed-out`,
       never on `/`, because `/` signs an anonymous visitor straight back in through a surviving IDAM session.
       **Reference plans by their `docs/plans/completed/` path**, since that is where they will be once the run ends.
-- [ ] Record final commits, changed files, test counts and `welsh:check` counts in the execution notes.
-- [ ] Run all Validation Commands and hand off to the Ralphex review phases.
+- [x] Record final commits, changed files, test counts and `welsh:check` counts in the execution notes.
+- [x] Run all Validation Commands and hand off to the Ralphex review phases.
 
 ## Acceptance Criteria
 
@@ -140,6 +140,21 @@ session and the next one builds over it, wiping the results.
 - `yarn welsh:check`: unchanged at 732 strings, 514 identical (507 prose).
 - Validation: lint clean (513 files), build 8/8, all tests pass with no skips; app 119 files / 2526 tests (+1),
   libraries unchanged.
+
+### Task 3
+
+- `CLAUDE.md`: the R04 rule's logout fallback now reads `/signed-out`, and a new bullet beside it says why a logout
+  without IDAM's end-session page must never land on `/`, citing `docs/plans/completed/20261021-r04b-signed-out-page.md`.
+- Commits: `59f4c97` (Task 1, the page), `b625c33` (Task 2, logout fallbacks), and this Task 3 commit.
+- Changed files since `d8c6c85`: `CLAUDE.md`, this plan, `scripts/extract-welsh-strings.mjs`, `src/app.test.ts`,
+  `src/auth/require-auth.ts` and its test, `src/pages/logout.ts`, `logout.test.ts`, `logout-idam-outage.test.ts`,
+  `src/pages/signed-out/index.ts`, `index.njk`, `index.test.ts`, `index.njk.test.ts`.
+- Final validation: lint clean (513 files), build 8/8, all tests pass with no skips; app 119 files / 2526 tests
+  (baseline 117 / 2517); deed-poll 1389, deed-poll-api-client 847, cloud-native-platform 157, express-govuk-starter
+  127, simple-router 41, express-session-postgres 30, express-session-redis 7 (all unchanged).
+- `yarn welsh:check`: 732 strings, 514 identical (507 prose), against the baseline 729 / 512 (505): only the page's
+  three new strings, two of them pending translation.
+- Handed off to the Ralphex review phases.
 
 ## Post-Completion
 
