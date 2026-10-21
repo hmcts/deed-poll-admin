@@ -182,6 +182,53 @@ describe("buildUpdatePatch", () => {
     expect(patch.urgencyreason).toBeNull();
   });
 
+  describe("fields absent from the body (review finding R02)", () => {
+    const FIELDS = ["newForename", "returnReason", "maritalStatus", "dateNoticeSentToLondonGazette", "inPerson", "iShall"].map((name) => FIELD_BY_NAME[name]);
+
+    it("should omit an absent text, textarea, enum or date field, because a rendered one is always submitted", () => {
+      const patch = buildUpdatePatch({}, FIELDS);
+
+      expect(patch).not.toHaveProperty("newForename");
+      expect(patch).not.toHaveProperty("returnReason");
+      expect(patch).not.toHaveProperty("maritalStatus");
+      expect(patch).not.toHaveProperty("dateNoticeSentToLondonGazette");
+    });
+
+    it("should still clear a text, textarea, enum or date field submitted empty", () => {
+      const body = {
+        newForename: "",
+        returnReason: "  ",
+        maritalStatus: "",
+        "dateNoticeSentToLondonGazette-day": "",
+        "dateNoticeSentToLondonGazette-month": "",
+        "dateNoticeSentToLondonGazette-year": ""
+      };
+
+      const patch = buildUpdatePatch(body, FIELDS);
+
+      expect(patch).toMatchObject({ newForename: null, returnReason: null, maritalStatus: null, dateNoticeSentToLondonGazette: null });
+    });
+
+    it("should read a date as present when any one of its parts is submitted", () => {
+      const patch = buildUpdatePatch({ "dateNoticeSentToLondonGazette-year": "2026" }, FIELDS);
+
+      expect(patch.dateNoticeSentToLondonGazette).toBeNull();
+    });
+
+    it("should still read an absent checkbox as unticked, because an unticked one is never submitted", () => {
+      const patch = buildUpdatePatch({}, FIELDS);
+
+      expect(patch.inPerson).toBe(false);
+      expect(patch.iShall).toEqual([]);
+    });
+
+    it("should still refuse to clear a notNullable enum submitted empty", () => {
+      const patch = buildUpdatePatch({ privacy: "" }, [FIELD_BY_NAME.privacy]);
+
+      expect(patch).not.toHaveProperty("privacy");
+    });
+  });
+
   it("ignores read-only/derived fields (state, referencenumber)", () => {
     const patch = buildUpdatePatch({ state: "Enroled", referencenumber: "9" });
     expect(patch).not.toHaveProperty("state");

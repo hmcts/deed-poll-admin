@@ -179,9 +179,10 @@ export function sessionDouble(deedPoll: Record<string, unknown> = {}): SessionDo
  * tested against Redis in `src/auth/refresh-coordination.test.ts`; this lets a unit test reach the refresh at all,
  * since without a coordinating store it fails closed.
  */
-export function refreshCoordinatorDouble(claim: RefreshClaim = { outcome: "acquired", lease: "a-lease" }): RefreshCoordinatorDouble {
+export function refreshCoordinatorDouble(claim?: RefreshClaim): RefreshCoordinatorDouble {
+  const refreshClaim: RefreshClaim = claim ?? { outcome: "acquired", lease: "a-lease" };
   return {
-    claimRefresh: vi.fn(async () => claim),
+    claimRefresh: vi.fn(async () => refreshClaim),
     attachRefreshLease: vi.fn(),
     releaseRefresh: vi.fn(async () => undefined)
   } as unknown as RefreshCoordinatorDouble;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyCreateDefaults, getFieldRules, validate } from "./deed-poll-validation.js";
 import { DeedPollType, MaritalStatus, ReferToMaster } from "./enums/option-sets.js";
+import { EDITABLE_FIELDS } from "./form-fields.js";
 
 describe("deed-poll-validation", () => {
   describe("getFieldRules — per-type required/visible matrix", () => {
@@ -56,6 +57,27 @@ describe("deed-poll-validation", () => {
         expect(Object.values(r).every((x) => !x.required)).toBe(true);
         expect(Object.values(r).every((x) => x.visible)).toBe(true);
       }
+    });
+    // A hidden field is never rendered, so it is absent from the body. `buildUpdatePatch` omits an absent text,
+    // enum or date, but reads an absent checkbox as unticked (an unticked one is never submitted either), so a rule
+    // that hid a boolean or multiselect would clear its stored value on every save (review finding R02).
+    it("should never hide a boolean or multiselect field, for any type, migrated or not, published or not", () => {
+      const checkboxes = EDITABLE_FIELDS.filter((field) => field.kind === "boolean" || field.kind === "multiselect").map((field) => field.name);
+      const hidden: string[] = [];
+
+      for (const type of [...Object.values(DeedPollType), null]) {
+        for (const migrated of [false, true]) {
+          for (const publishToGazette of [false, true]) {
+            const rules = getFieldRules(type, migrated, publishToGazette);
+            for (const name of checkboxes) {
+              if (rules[name]?.visible === false) hidden.push(`${name} (${type}, migrated ${migrated}, publish ${publishToGazette})`);
+            }
+          }
+        }
+      }
+
+      expect(checkboxes.length).toBeGreaterThan(0);
+      expect(hidden).toEqual([]);
     });
   });
 
