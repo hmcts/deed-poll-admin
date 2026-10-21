@@ -141,6 +141,25 @@ export const DEFAULT_TIMEOUT_MS = 10_000;
  */
 const UPLOAD_TIMEOUT_MS = 60_000;
 
+/**
+ * Thirty-five seconds, for the Gazette submit, because api sends the batch inside the request (finding R03,
+ * `docs/plans/20261021-r03-gazette-submit-timeout.md`).
+ *
+ * Three numbers bound that send, and this is the shortest one that is not wrong:
+ * - api waits up to 60 s on GOV.UK Notify (`GazetteNotify`'s call deadline, 30 s per read).
+ * - The backend Application Gateway in front of api's `.internal` address cuts a request off at 30 s: deed-poll-api's
+ *   entry in `azure-platform-terraform`'s `backend_lb_config.yaml` sets no `request_timeout`, so
+ *   `terraform-module-application-backend` defaults it to 30, and answers 504.
+ * - This app, just above the gateway, so a 10-30 s send is reported as sent and the gateway, not this app, is what
+ *   ends a longer one. Waiting api's 60 s would only hold a pod on a response the gateway has already abandoned.
+ *
+ * So a send over 30 s is still an unknown outcome — recoverable, because "Check request status" replays the same
+ * key — until the gateway's `request_timeout` is raised or api answers 202 and sends in the background. Only the
+ * submit gets this: the preview and the status read send nothing. `DEED_POLL_API_TIMEOUT_MS` still wins, as it does
+ * over the upload's.
+ */
+const GAZETTE_SUBMIT_TIMEOUT_MS = 35_000;
+
 /** The multipart field name api reads the upload from. Matches `UploadPolicy.UPLOAD_FILE_FIELD`. */
 const UPLOAD_FILE_FIELD = "file";
 
@@ -175,7 +194,8 @@ export function previewGazetteNotice(input: PreviewGazette, config: ApiConfig): 
 }
 
 export function submitGazetteNotice(input: SubmitGazette, key: string, config: ApiConfig): Promise<GazetteApiResult<GazetteStatus>> {
-  return gazetteRequest(config, "/caseworker/gazette-notices", WIRE_SCHEMAS.GazetteStatusResponse, input, key);
+  const timeoutMs = config.timeoutMs ?? GAZETTE_SUBMIT_TIMEOUT_MS;
+  return gazetteRequest({ ...config, timeoutMs }, "/caseworker/gazette-notices", WIRE_SCHEMAS.GazetteStatusResponse, input, key);
 }
 
 export function getGazetteRequests(query: GazetteRequestsQuery, config: ApiConfig): Promise<ApiResult<GazetteRequests>> {
@@ -372,7 +392,7 @@ export function uploadDocument(caseId: string, upload: DocumentUpload, config: A
   if (upload.documentName !== undefined) form.append("name", upload.documentName);
   if (upload.direction !== undefined) form.append("direction", upload.direction);
 
-  // The only call given a timeout of its own — see `UPLOAD_TIMEOUT_MS` for why the JSON default is the
+  // One of two calls given a timeout of its own — see `UPLOAD_TIMEOUT_MS` for why the JSON default is the
   // wrong bound for a request that sends 25 MB.
   const timeoutMs = config.timeoutMs ?? UPLOAD_TIMEOUT_MS;
 

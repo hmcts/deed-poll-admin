@@ -82,13 +82,13 @@ session and the next one builds over it, wiping the results.
 **Files:** `libs/deed-poll-api-client/src/api/client.ts` and its test; a domain-level test beside the Gazette service
 (`libs/deed-poll/src/gazette/`), using a real local HTTP server as the G02 probe does.
 
-- [ ] Record the execution baseline and the re-verified gateway and api timeouts in the execution notes.
-- [ ] Add failing tests: a submit answered with a valid `200 Sent` after 12 s (over the old 10 s, under the new
+- [x] Record the execution baseline and the re-verified gateway and api timeouts in the execution notes.
+- [x] Add failing tests: a submit answered with a valid `200 Sent` after 12 s (over the old 10 s, under the new
       limit) resolves as sent, with exactly one admission at the server; a submit with no answer before the new limit
       becomes `GazetteOutcomeUnknownError`; `DEED_POLL_API_TIMEOUT_MS` (or `config.timeoutMs`) still overrides it; an
       ordinary call still times out at `DEFAULT_TIMEOUT_MS`. Use fake timers or a short injected timeout where a real
       wait would make the suite slow, but keep one real-HTTP test that proves the wiring.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 2: Record the timeouts and hand off
 
@@ -111,7 +111,42 @@ session and the next one builds over it, wiping the results.
 
 ## Execution notes
 
-(Record baseline, the timeout verification, red/green evidence and final results here.)
+### Task 1 (2026-10-21)
+
+Baseline: branch `fix/r03-gazette-submit-timeout` at `e9346b5` (plan commit) on admin `origin/master` `6b438d4`. The
+finding holds there: `submitGazetteNotice` set no timeout and fell to `DEFAULT_TIMEOUT_MS = 10_000`.
+
+Timeouts re-verified (read only):
+- Gateway: `platops/azure-platform-terraform` `origin/HEAD` `3907250`, `environments/stg/backend_lb_config.yaml:445-446`
+  and `environments/demo/backend_lb_config.yaml:459-460` list `deed-poll` / `api` with no `request_timeout` (stg has no
+  `request_timeout` anywhere in the file). `hmcts/terraform-module-application-backend` `af204ff` `main.tf:105`:
+  `request_timeout = contains(keys(app), "request_timeout") ? app.request_timeout : 30`, used at line 116. So 30 s.
+- api: `hmcts/deed-poll-api` `master` `554fe49`, `GazetteNotify.java:38` `transport(Duration.ofSeconds(60))`, lines
+  47-48 connect 5 s, read and write 30 s, `callTimeout(deadline)`. Unchanged from the plan.
+- The status-check replay (`src/pages/deed-polls/gazette/batch.ts:275`) calls the same `sendGazetteSelection`, so it
+  gets the same timeout with no separate change. The preview sends nothing and stays on the default.
+
+Change: `GAZETTE_SUBMIT_TIMEOUT_MS = 35_000` in `libs/deed-poll-api-client/src/api/client.ts`, applied as
+`config.timeoutMs ?? GAZETTE_SUBMIT_TIMEOUT_MS` in `submitGazetteNotice` only, with the three numbers documented at
+the constant.
+
+Tests: four in `client.test.ts` ("the Gazette submit's timeout…") and five in the new
+`libs/deed-poll/src/gazette/submit-timeout.test.ts`. One is a real 12 s wait end to end through
+`sendGazetteSelection` (G02 adapted: answered `200 Sent` after 12 s, one admission with the original key and body).
+The rest wrap `AbortSignal.timeout` to run 100x fast over real HTTP and record the armed figures: submit 35 000 ms,
+preview and status read 10 000 ms, a configured 5 000 ms wins; a silent server, a gateway-style HTML 504 and a dropped
+connection each become `GazetteOutcomeUnknownError` after one admission under the original key.
+
+Red: before the change, the slow-send tests failed in both files (client `timeout`, domain
+`GazetteOutcomeUnknownError` at 10 017 ms); the other seven passed, as they pin behaviour that must not change.
+Green after the change: `deed-poll-api-client` `src/api` 408 passed; `deed-poll` `src/gazette` 49 passed.
+
+Validation (`REDIS_URL=redis://127.0.0.1:6379`): `yarn lint` clean (507 files, one existing Biome
+config-migration info); `yarn build` 8/8 tasks; `yarn turbo test test:app --concurrency=1 --force` 8/8 tasks, no
+failures and no skips: app 2498 (114 files), deed-poll 1394 (68), deed-poll-api-client 851 (14),
+express-govuk-starter 127, cloud-native-platform 157, simple-router 41, express-session-postgres 30,
+express-session-redis 7. The full suite was not run separately before the change; the pre-change library counts are
+the above minus the nine added tests (deed-poll 1389, deed-poll-api-client 847).
 
 ## Post-Completion
 
