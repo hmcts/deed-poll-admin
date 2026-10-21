@@ -466,13 +466,15 @@ authenticated writer must follow:
   change, and on `conflict` reloads and re-derives the same change from what the store now holds, at most three
   times. The change must be computed from the re-read session, never copied from the request's snapshot, or an older
   snapshot rolls back newer tokens or access. `touchLastSeen`, `storeAccess` and `publishRefresh` are its callers.
-  Sign-in, persona switch and timeout restart regenerate instead: the old key is deleted, a new id created.
+  Sign-in, persona switch and timeout restart regenerate instead: the old key is deleted, a new id created (a persona
+  switch only if the old key still existed; see the next rule).
 - **A re-sign-in replaces its session only if that session still exists** (review finding R05; plan
   `docs/plans/completed/20261021-r05-r06-session-edges.md`). A persona switch waits on IDAM's password grant, and a
   logout on another pod can land meanwhile, so it calls `reSignIn` in `src/auth/session.ts`, not `signIn`.
   `reSignIn` first runs the store's `destroyExisting` (one `DEL` that reports whether a key was there). If the key was
   already gone it refuses with `SessionWriteRefusedError("missing")` and creates nothing, so the switch ends in
-  `endedElsewhere` with no cookie and no `auth.persona.switched` event. A store without the method fails closed. The
+  `endedElsewhere` with no cookie and no `auth.persona.switched` event, returning to `/` after sign-in because
+  `/switch-persona` has no `GET`. A store without the method fails closed. The
   OAuth callback is the one unconditional regenerate: its session is anonymous, so there is nothing to protect, and a
   sign-in must always mint a new id (session fixation). Do not route it through `reSignIn`.
 - **A gone session is one outcome: `isSessionGone(error)`.** Its handler is `endedElsewhere`

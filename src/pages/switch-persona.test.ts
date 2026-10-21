@@ -261,7 +261,7 @@ describe("the persona switch", () => {
       expect(req.session.regenerate).not.toHaveBeenCalled();
       expect(req.session.destroy).toHaveBeenCalled();
       expect(req.session.deedPoll).toEqual({});
-      expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2Fswitch-persona");
+      expect(res.redirect).toHaveBeenCalledWith("/login?returnTo=%2F");
     });
 
     it("should emit no switch event, since the logout that ended the session already emitted its own", async () => {
@@ -275,6 +275,14 @@ describe("the persona switch", () => {
       vi.mocked(req.sessionStore.destroyExisting).mockRejectedValue(new Error("store down"));
 
       await expect(route.POST(req, pageResponse(), vi.fn())).rejects.toThrow("store down");
+      expect(trackEvent).not.toHaveBeenCalled();
+    });
+
+    it("should emit no switch event when the new session cannot be created after the old one was deleted", async () => {
+      const req = signedInCaseworker();
+      req.session.regenerate.mockImplementation((done?: (error?: Error) => void) => done?.(new Error("regenerate failed")));
+
+      await expect(route.POST(req, pageResponse(), vi.fn())).rejects.toThrow("regenerate failed");
       expect(trackEvent).not.toHaveBeenCalled();
     });
   });

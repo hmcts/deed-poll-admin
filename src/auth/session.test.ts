@@ -177,7 +177,8 @@ describe("reSignIn", () => {
     await reSignIn(req, user, SUBJECT, tokens);
 
     expect(req.sessionStore.destroyExisting).toHaveBeenCalledWith("the-old-id");
-    expect(req.session.regenerate).toHaveBeenCalled();
+    // Reversed, `regenerate` would delete the key first and every switch would read as a logout.
+    expect(vi.mocked(req.sessionStore.destroyExisting).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(req.session.regenerate).mock.invocationCallOrder[0]);
     expect(req.session.deedPoll).toMatchObject({ subject: SUBJECT, accessToken: "an-access-token" });
     expect(req.session.save).toHaveBeenCalled();
   });
@@ -202,6 +203,15 @@ describe("reSignIn", () => {
 
     await expect(reSignIn(req, user, SUBJECT, tokens)).rejects.toThrow("cannot replace");
     expect(req.session.regenerate).not.toHaveBeenCalled();
+  });
+
+  it("should reject, signed in as nobody, when the session cannot be regenerated after the old one is deleted", async () => {
+    const req = signedIn();
+    vi.mocked(req.session.regenerate).mockImplementation((callback: (error?: Error) => void) => callback(new Error("regenerate failed")));
+
+    await expect(reSignIn(req, user, SUBJECT, tokens)).rejects.toThrow("regenerate failed");
+    expect(req.session.deedPoll).not.toMatchObject({ subject: SUBJECT });
+    expect(req.session.save).not.toHaveBeenCalled();
   });
 
   it("should reject, creating nothing, when the deletion itself fails", async () => {

@@ -89,7 +89,8 @@ export const POST = async (req: Request, res: Response, next: NextFunction) => {
     await reSignIn(req, switched.login.user, switched.login.subject, switched.login.tokens);
   } catch (error) {
     // Logged out while IDAM answered (review finding R05): that logout stands, and it already emitted its event.
-    if (isSessionGone(error)) return endedElsewhere(req, res);
+    // Back to `/` once signed in again, because this URL has no `GET` and would land on the 404 page.
+    if (isSessionGone(error)) return endedElsewhere(req, res, "/");
     throw error;
   }
   // After it, so the sid is the regenerated session's.

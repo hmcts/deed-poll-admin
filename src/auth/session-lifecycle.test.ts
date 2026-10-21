@@ -296,6 +296,8 @@ describe.skipIf(!redisReachable)("the session's writers across two app instances
       });
       const [a, b] = instances();
       const cookie = await signedInCookie(a);
+      // Counted rather than assumed absent: the prefix is per run, not per test, so a sibling may have stored one.
+      const judgesBefore = judgeSessions(await storedSubjects());
 
       const pending = switchTo(a, cookie);
       await idam.entered;
@@ -304,9 +306,9 @@ describe.skipIf(!redisReachable)("the session's writers across two app instances
       const res = await pending;
 
       expect(res.status).toBe(302);
-      expect(res.headers.location).toBe("/login?returnTo=%2Fswitch-persona");
+      expect(res.headers.location).toBe("/login?returnTo=%2F");
       expect(res.headers["set-cookie"]).toBeUndefined();
-      expect(await storedSubjects()).not.toContain("judge-subject");
+      expect(judgeSessions(await storedSubjects())).toBe(judgesBefore);
       expect(await signedIn(a, cookie)).toBe(false);
       expect(await signedIn(b, cookie)).toBe(false);
       expect(vi.mocked(trackEvent).mock.calls.map(([name]) => name)).not.toContain("auth.persona.switched");
@@ -351,6 +353,10 @@ describe.skipIf(!redisReachable)("the session's writers across two app instances
       }
     }
     return subjects;
+  }
+
+  function judgeSessions(subjects: string[]): number {
+    return subjects.filter((subject) => subject === "judge-subject").length;
   }
 
   async function waitUntilGone(key: string): Promise<void> {

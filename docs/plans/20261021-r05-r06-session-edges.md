@@ -156,7 +156,7 @@ and `refreshMiddleware` skips only `/logout`.
   `reSignIn` in `src/auth/session.ts` calls it first. A `false` rejects with `SessionWriteRefusedError("missing")` and
   creates nothing, and a store without the method fails closed. Otherwise it continues with `signIn`, whose
   regenerate deletes the key again as a no-op. `switch-persona.ts` uses `reSignIn` and hands `isSessionGone` to
-  `endedElsewhere`. That means no cookie, `/login?returnTo=%2Fswitch-persona`, and no `auth.persona.switched` event.
+  `endedElsewhere`. That means no cookie, `/login?returnTo=%2F` (`/` because the switch has no `GET` to return to), and no `auth.persona.switched` event.
   The OAuth callback still calls `signIn`, and `callback.test.ts` now pins that it never consults the store.
 - Validation: lint clean; build 8/8; tests 8/8 tasks, no skips. The app suite is 121 files / 2563 tests (+12), and
   every other package is unchanged from the baseline.

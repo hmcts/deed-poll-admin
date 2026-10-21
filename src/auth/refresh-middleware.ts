@@ -1,9 +1,9 @@
 /**
  * Middleware to check token expiry and refresh tokens before they expire.
  *
- * Runs on every request after `requireAuth`, so it only fires for authenticated users. If the access
- * token is close to expiry and a refresh token exists, attempts to refresh silently. If the refresh
- * fails (token revoked, expired, or IDAM refuses), clears the session and redirects to login.
+ * Runs on every request after `requireAuth` except `NOT_REFRESHED_PATHS` (see below), so it only fires for
+ * authenticated users. If the access token is close to expiry and a refresh token exists, attempts to refresh
+ * silently. If the refresh fails (token revoked, expired, or IDAM refuses), clears the session and redirects to login.
  *
  * **Why 5 minutes before expiry?** Refreshing at the exact moment of expiry races with requests that
  * need a valid token — the API might receive an expired token while the refresh is in flight. Refreshing
@@ -13,7 +13,8 @@
  * **It is also where the caller's access is kept current.** Each successful refresh asks api's `GET /me` with the
  * new token, so a changed AM assignment takes effect within one token lifetime; a failed `/me` keeps the previous
  * answer. A session holding no answer at all — one saved before this app read `/me` — is asked once on the next
- * request that does not refresh, and asked again on the one after if that fails, so nobody has to sign in again.
+ * request that does not refresh (the skipped paths aside), and asked again on the one after if that fails, so nobody
+ * has to sign in again.
  *
  * **One refresh per session at a time, across every instance (review finding E01).** A refresh token may be single-use,
  * so two requests refreshing with it at once would each be answered with different tokens, and the later save would
