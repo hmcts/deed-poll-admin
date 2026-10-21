@@ -182,9 +182,9 @@ export function sessionDouble(deedPoll: Record<string, unknown> = {}): SessionDo
 export function refreshCoordinatorDouble(claim?: RefreshClaim): RefreshCoordinatorDouble {
   const refreshClaim: RefreshClaim = claim ?? { outcome: "acquired", lease: "a-lease" };
   return {
-    claimRefresh: vi.fn(async () => refreshClaim),
+    claimRefresh: vi.fn(() => Promise.resolve(refreshClaim)),
     attachRefreshLease: vi.fn(),
-    releaseRefresh: vi.fn(async () => undefined)
+    releaseRefresh: vi.fn(() => Promise.resolve())
   } as unknown as RefreshCoordinatorDouble;
 }
 
