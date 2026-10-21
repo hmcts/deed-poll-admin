@@ -159,8 +159,9 @@ const UPLOAD_TIMEOUT_MS = 60_000;
  *
  * A send over 20 s is still an unknown outcome — recoverable, because "Check request status" replays the same key —
  * until both gateways' `request_timeout` is raised or api answers 202 and sends in the background. Only the submit
- * gets this: the preview and the status read send nothing. `DEED_POLL_API_TIMEOUT_MS` still wins, as it does over
- * the upload's.
+ * gets this: the preview and the status read send nothing. It is a ceiling, not a default: a configured timeout
+ * (`DEED_POLL_API_TIMEOUT_MS`, or what is left of the page's deadline) can only shorten the wait, never extend it
+ * past the gateways (plan `docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
  */
 const GAZETTE_SUBMIT_TIMEOUT_MS = 20_000;
 
@@ -198,7 +199,7 @@ export function previewGazetteNotice(input: PreviewGazette, config: ApiConfig): 
 }
 
 export function submitGazetteNotice(input: SubmitGazette, key: string, config: ApiConfig): Promise<GazetteApiResult<GazetteStatus>> {
-  const timeoutMs = config.timeoutMs ?? GAZETTE_SUBMIT_TIMEOUT_MS;
+  const timeoutMs = Math.min(config.timeoutMs ?? GAZETTE_SUBMIT_TIMEOUT_MS, GAZETTE_SUBMIT_TIMEOUT_MS);
   return gazetteRequest({ ...config, timeoutMs }, "/caseworker/gazette-notices", WIRE_SCHEMAS.GazetteStatusResponse, input, key);
 }
 

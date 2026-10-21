@@ -1975,7 +1975,20 @@ describe("the Gazette submit's timeout, which is longer than the JSON default", 
     }
   });
 
-  it("should let a configured timeout win over the submit's own", async () => {
+  it("should cap a configured timeout longer than the submit's own, because it may only shorten the wait", async () => {
+    const silent = await listen(createServer(() => {}));
+
+    try {
+      const result = await submitGazetteNotice(SUBMIT, "the-original-key", { baseUrl: silent.url, timeoutMs: 60_000 });
+
+      expect(result).toMatchObject({ ok: false, error: { kind: "timeout" } });
+      expect(armed).toEqual([GAZETTE_SUBMIT_TIMEOUT_MS]);
+    } finally {
+      await silent.close();
+    }
+  });
+
+  it("should let a configured timeout shorter than the submit's own win", async () => {
     const silent = await listen(createServer(() => {}));
 
     try {

@@ -87,6 +87,31 @@ describe("on a scaled clock", () => {
     await expect(sendGazetteSelection(INPUT, randomUUID(), CALLER)).rejects.toBeInstanceOf(GazetteOutcomeUnknownError);
     expect(vi.mocked(AbortSignal.timeout)).toHaveBeenCalledExactlyOnceWith(5_000);
   });
+
+  it("should arm the request with the time the page has left, when that is shorter than the submit's own", async () => {
+    await serve((_req, res) => answer(res, 200, SENT));
+
+    await sendGazetteSelection(INPUT, randomUUID(), CALLER, { timeoutMs: 13_000 });
+
+    expect(vi.mocked(AbortSignal.timeout)).toHaveBeenCalledExactlyOnceWith(13_000);
+  });
+
+  it("should time out a send at the time the page has left, after one admission", async () => {
+    const key = randomUUID();
+    await serve((_req, res) => setTimeout(() => answer(res, 200, SENT), SLOW_SEND_MS / CLOCK_SCALE));
+
+    await expect(sendGazetteSelection(INPUT, key, CALLER, { timeoutMs: 8_000 })).rejects.toBeInstanceOf(GazetteOutcomeUnknownError);
+    expect(admitted).toEqual([{ key, body: JSON.stringify(INPUT) }]);
+  });
+
+  it("should still cap an ample deadline and a 60 s DEED_POLL_API_TIMEOUT_MS at the submit's own twenty seconds", async () => {
+    process.env.DEED_POLL_API_TIMEOUT_MS = "60000";
+    await serve((_req, res) => answer(res, 200, SENT));
+
+    await sendGazetteSelection(INPUT, randomUUID(), CALLER, { timeoutMs: 25_000 });
+
+    expect(vi.mocked(AbortSignal.timeout)).toHaveBeenCalledExactlyOnceWith(20_000);
+  });
 });
 
 /** Start a stand-in api that records each submit's key and body before handing it to `respond`. */

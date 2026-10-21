@@ -97,7 +97,7 @@ session and the next one builds over it, wiping the results.
 `libs/deed-poll/src/gazette/service.ts` and its test, `libs/deed-poll/src/api/deed-poll-api.ts` if the config needs
 it, and `libs/deed-poll-api-client/src/api/client.ts` only if the adapter must accept a lower timeout than its default.
 
-- [ ] Add failing tests, with an injected clock:
+- [x] Add failing tests, with an injected clock:
   - ample budget: the submit gets 20 s, behaviour unchanged;
   - 12 s already spent: the submit gets 13 s;
   - `DEED_POLL_API_TIMEOUT_MS` of 5 s: the submit gets 5 s; of 60 s: still capped by the deadline;
@@ -105,7 +105,7 @@ it, and `libs/deed-poll-api-client/src/api/client.ts` only if the adapter must a
     key;
   - under the floor on a status check: no api call, the recovery page re-renders with the original key and body;
   - a real-HTTP test where the remaining time reaches the request.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 3: Record the rule and hand off
 
@@ -149,6 +149,32 @@ it, and `libs/deed-poll-api-client/src/api/client.ts` only if the adapter must a
   first layer in `createApp`, right after `trust proxy`. `app.test.ts` pins it as `stack[0]`, matching every path,
   ahead of the session (and every other doubled layer) and `refreshMiddleware`.
 - Validation: lint clean, build 8/8, tests 8/8; app 115 files / 2501 tests (+3), others unchanged. No skips.
+
+### Task 2
+
+- Red: with `batch.ts` at head, 7 of the 48 page tests failed (the new deadline tests and the four-argument send);
+  the adapter's new 60 s cap test failed against the old `??` default.
+- Green:
+  - `submitGazetteNotice` treats `GAZETTE_SUBMIT_TIMEOUT_MS` as a ceiling: `Math.min(config.timeoutMs ?? 20 s, 20 s)`,
+    so a configured timeout can only shorten the wait.
+  - `callGazetteApi(caller, call, limit?)` and `sendGazetteSelection(input, key, caller, limit?)` take an optional
+    `CallLimit` (`{ timeoutMs }`) beside the unchanged `Caller`; the config's timeout is the shorter of it and
+    `DEED_POLL_API_TIMEOUT_MS`.
+  - `src/gazette/send-deadline.ts`: `gazetteSendTimeLeft(res)` returns `25 s - (now - res.locals.receivedAt)`, or
+    `null` under the 5 s floor; a missing or non-numeric arrival counts as now, a future one is clamped.
+  - `batch.ts` `submit` checks it immediately before the call (after the review re-check). Under the floor it makes
+    no call and re-renders the same journey: confirm step with `notSent`, or the recovery page with `notChecked`
+    (both 503, `en`/`cy`). `confirmSelection` now passes the confirm-phase journey, and `submit` still moves to
+    `recover` on an unknown outcome.
+- Tests: deadline module (budget arithmetic on fake `Date`); page (0 s and 12 s spent → 25 s / 13 s passed; time
+  spent in the review re-check counted; under the floor on a send in `en` and `cy`, same confirmation and key, and a
+  resend uses that key; under the floor on a status check, same confirmation, then the next check replays the
+  original body and key); domain (limit passed through; overrides of 5 s and 60 s against 13 s left); real HTTP on a
+  scaled clock (13 s left armed; 8 s left times out after one admission; 25 s left with a 60 s override armed at 20 s);
+  adapter (60 s configured capped at 20 s).
+- `yarn welsh:check`: 729 → 731 strings (the two new ones), identical-in-cy count unchanged at 512.
+- Validation: lint clean (511 files, the pre-existing info), build 8/8, tests 8/8; app 116 files / 2517 tests (+16),
+  `@hmcts/deed-poll` 68 / 1401 (+7), `@hmcts/deed-poll-api-client` 14 / 852 (+1), others unchanged. No skips.
 
 ## Post-Completion
 

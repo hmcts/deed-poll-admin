@@ -80,9 +80,14 @@ export async function callApi<T>(caller: Caller, call: (config: ApiConfig) => Pr
 /**
  * Only a published Gazette refusal proves non-admission; discard untrusted diagnostic prose. A 429 stays an
  * unknown outcome too: api's limiter answering does not prove an earlier attempt under the same key was not admitted.
+ *
+ * `limit.timeoutMs` is the time the caller has left to wait. It is a time budget, not an identity, so it travels
+ * beside the `Caller` rather than on it, and it can only shorten `DEED_POLL_API_TIMEOUT_MS`, never extend it.
  */
-export async function callGazetteApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<GazetteApiResult<T>>): Promise<T> {
-  const result = await call(apiConfig(caller));
+export async function callGazetteApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<GazetteApiResult<T>>, limit: CallLimit = {}): Promise<T> {
+  const config = apiConfig(caller);
+  const timeoutMs = shortest(config.timeoutMs, limit.timeoutMs);
+  const result = await call({ ...config, timeoutMs });
   if (result.ok) return result.data;
   if (result.error.kind === "gazette-refusal") throw new GazetteRefusalError(result.error);
   if (result.error.kind === "unauthorized") throw new UnauthorizedError("Authentication required");
@@ -145,6 +150,12 @@ function apiConfig(caller: Caller): ApiConfig {
   };
 }
 
+function shortest(configured: number | undefined, limit: number | undefined): number | undefined {
+  if (configured === undefined) return limit;
+  if (limit === undefined) return configured;
+  return Math.min(configured, limit);
+}
+
 /**
  * One classified failure as the domain error the app already renders.
  *
@@ -173,4 +184,9 @@ function errorFor(error: ApiError): Error {
     default:
       return new Error(`deed-poll-api call failed (${error.kind}): ${error.message}`);
   }
+}
+
+/** How long one call may wait at most. Unset leaves the configured or the adapter's own timeout. */
+export interface CallLimit {
+  timeoutMs?: number;
 }
