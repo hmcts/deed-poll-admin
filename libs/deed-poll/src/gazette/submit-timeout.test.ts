@@ -52,7 +52,7 @@ describe("on a scaled clock", () => {
 
     expect(status).toEqual(SENT);
     expect(admitted).toEqual([{ key, body: JSON.stringify(INPUT) }]);
-    expect(vi.mocked(AbortSignal.timeout)).toHaveBeenCalledExactlyOnceWith(35_000);
+    expect(vi.mocked(AbortSignal.timeout)).toHaveBeenCalledExactlyOnceWith(20_000);
   });
 
   it("should report a send api never answers as an unknown outcome, after one admission under the original key", async () => {

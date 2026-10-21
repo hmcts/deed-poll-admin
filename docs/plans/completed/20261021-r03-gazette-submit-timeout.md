@@ -165,6 +165,20 @@ skips: app 2498 (114 files), deed-poll 1394 (68), deed-poll-api-client 851 (14),
 cloud-native-platform 157, simple-router 41, express-session-postgres 30, express-session-redis 7. Identical to
 Task 1, as expected for a documentation-only change. Handed off to the Ralphex review phases.
 
+### Correction after the run (21 October 2026, Arbor)
+
+The plan said to size the timeout "just above the gateway's 30 s", and the run chose 35 s. That was wrong, and the
+mistake was the plan's: it considered only the backend gateway between admin and api. The **frontend** Application
+Gateway between the browser and admin also defaults `request_timeout` to 30 s
+(`hmcts/terraform-module-applicationgateway` `variables.tf`, `default = 30`; `azure-platform-terraform` sets no
+override). With 35 s, a send finishing between about 30 and 35 s would have shown the caseworker the gateway's error
+page at 30 s, not the recovery page carrying the request's key: worse than the old 10 s. The send request also
+re-checks every selected review first (`gazetteReviewsCurrent`, up to 100 reads, ten at a time).
+
+Changed to `GAZETTE_SUBMIT_TIMEOUT_MS = 20_000`, leaving about 10 s for the re-check and the render, with the
+constant's docblock, `CLAUDE.md` and `docs/DEPLOYMENT.md` updated to name both gateways. The follow-up for others now
+covers both gateways' `request_timeout`, or an asynchronous send in api.
+
 ## Post-Completion
 
 Follow-ups for others: deed-poll-api's `request_timeout` in `azure-platform-terraform`'s backend gateway config, or an

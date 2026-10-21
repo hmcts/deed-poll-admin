@@ -64,11 +64,14 @@ status check replays that keyed POST without pre-reading changed case data. An A
 request status redirects to its read-only page. Unknown outcomes never offer a new key.
 The domain's `callGazetteApi` seam accepts only typed Gazette refusals as evidence of
 non-admission and strips provider diagnostics. Ordinary operations still use `callApi`.
-The submit (and the status check, which replays it) has its own 35 s timeout, `GAZETTE_SUBMIT_TIMEOUT_MS` in the
+The submit (and the status check, which replays it) has its own 20 s timeout, `GAZETTE_SUBMIT_TIMEOUT_MS` in the
 api client, because api sends synchronously and the default 10 s turned a slow success into an unknown outcome
-(finding R03, `docs/plans/20261021-r03-gazette-submit-timeout.md`). It sits just above the backend gateway's 30 s
-`request_timeout` default, not at api's 60 s Notify deadline: past 30 s the gateway has already answered 504. So a
-send over 30 s is still an unknown outcome until the gateway's `request_timeout` is raised or api sends asynchronously.
+(finding R03, `docs/plans/completed/20261021-r03-gazette-submit-timeout.md`). It is not api's 60 s Notify deadline,
+and not "just above 30 s" either: **both** Application Gateways default `request_timeout` to 30 s, the backend one
+between this app and api and the frontend one between the browser and this app. Past 30 s the caseworker would get
+the gateway's error page, not the recovery page with the request's key, and the send request first re-checks every
+selected review. So a send over 20 s is still an unknown outcome until both gateways' `request_timeout` is raised or
+api sends asynchronously.
 
 `yarn test:gazette` runs eight browser journeys against a fresh mock on 3216 and this app on 3316,
 using Redis on 6316/database 1 and local IDAM on 5556. It is separate from `yarn test:e2e` because its

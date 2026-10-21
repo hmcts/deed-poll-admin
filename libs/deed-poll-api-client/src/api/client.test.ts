@@ -1917,7 +1917,7 @@ describe("the upload's timeout, which is longer than the JSON default", () => {
  * in production, and the HTTP and the abort are both real. The recorded figures pin the constants themselves.
  */
 const CLOCK_SCALE = 100;
-const GAZETTE_SUBMIT_TIMEOUT_MS = 35_000;
+const GAZETTE_SUBMIT_TIMEOUT_MS = 20_000;
 const SLOW_SEND_MS = 12_000;
 const SENT_STATUS = { batchId: "00000000-0000-4000-8000-000000000009", state: "Sent", caseCount: 1 };
 const SUBMIT = { caseIds: ["00000000-0000-4000-8000-000000000001"], recipientRevision: 1, selectionFingerprint: "opaque" };
