@@ -32,7 +32,11 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
+// TypeScript 7 no longer ships the JavaScript compiler API this script parses with (`createSourceFile`, `ScriptTarget`),
+// only an `unstable/*` one, so the build's `typescript` cannot serve here. `typescript-6` is the last release that has
+// it, pinned under an alias for this script alone; `.github/renovate.json` holds it below 7, and
+// `src/welsh-extractor.test.ts` fails if the script stops reaching its summary line.
+import ts from "typescript-6";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(ROOT, ".business_context", "welsh-translation-request.csv");
