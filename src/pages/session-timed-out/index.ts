@@ -25,7 +25,7 @@ const cy = {
   signIn: "Mewngofnodi eto"
 };
 
-export const GET = async (req: Request, res: Response) => {
+export const GET = (req: Request, res: Response) => {
   // Through `safeReturnTo` again on the way out, although it was stored that way: this link is a redirect sink.
   const returnTo = safeReturnTo(sessionTimedOutReturnTo(req));
   renderTimedOut(res, { unsaved: false, signInHref: `/login?returnTo=${encodeURIComponent(returnTo)}` });
