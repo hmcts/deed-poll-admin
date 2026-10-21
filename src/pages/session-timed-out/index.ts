@@ -1,5 +1,6 @@
 /**
- * Where a timed-out session lands, after `sessionLifetime` has ended it here and at IDAM.
+ * Where a timed-out session lands, after `sessionLifetime` has ended it here and at IDAM — or here only, when IDAM's
+ * end-session address is unavailable (R04), in which case a GET is redirected here directly.
  *
  * Public, because the user it is for is no longer signed in. A GET arrives from IDAM's end-session redirect once
  * this address is registered for the client (OWASP plan 03, Task 10); until then IDAM returns to `/`. A timed-out

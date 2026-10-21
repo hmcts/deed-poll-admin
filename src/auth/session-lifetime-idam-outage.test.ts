@@ -136,6 +136,20 @@ describe.skipIf(!redisReachable)("a timed-out session while IDAM discovery fails
     expect(await client.exists(PREFIX + sidOf(cookie))).toBe(0);
   });
 
+  it("should still link an idle POST's sign-in to IDAM's end-session page when discovery succeeds", async () => {
+    discoveryHealthy = true;
+    const app = appInstance(client);
+    const cookie = await idleCookie(app);
+
+    const res = await request(app).post("/page").set("Cookie", cookie);
+
+    expect(res.status).toBe(401);
+    const away = new URL((/href="([^"]+)"/.exec(res.text) ?? [])[1].replaceAll("&amp;", "&"));
+    expect(`${away.origin}${away.pathname}`).toBe(`${base}/o/endSession`);
+    expect(away.searchParams.get("id_token_hint")).toBe("an-id-token");
+    expect(await client.exists(PREFIX + sidOf(cookie))).toBe(0);
+  });
+
   function endedEvents(): unknown[] {
     return vi
       .mocked(trackEvent)

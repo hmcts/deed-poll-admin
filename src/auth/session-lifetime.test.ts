@@ -287,8 +287,8 @@ describe("sessionLifetime", () => {
     });
   });
 
-  it("should end the session here before asking IDAM where to send the browser", async () => {
-    const req = request({ lastSeenAt: NOW_SECONDS - 1800 });
+  it.each(["GET", "POST"])("should end the session here before asking IDAM where to send the browser on a %s", async (method) => {
+    const req = request({ method, lastSeenAt: NOW_SECONDS - 1800 });
     const order: string[] = [];
     req.session.regenerate.mockImplementation((done?: (error?: Error) => void) => {
       order.push("regenerate");

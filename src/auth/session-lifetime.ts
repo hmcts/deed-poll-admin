@@ -11,7 +11,8 @@
  *
  * A timeout ends the session here and then at IDAM, as logout does. **Not a redirect to `/login`:** the IDAM session
  * usually outlives ours, so `/login` would sign whoever is at the PC straight back in. That looks equivalent
- * locally, where the IDAM simulator keeps no session, and is not.
+ * locally, where the IDAM simulator keeps no session, and is not. While IDAM discovery is failing only the local end
+ * happens, and the IDAM session survives: the lesser risk beside a session that never ends here (R04).
  */
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { renderTimedOut } from "../pages/session-timed-out/index.js";
@@ -105,7 +106,7 @@ async function endTimedOutSession(req: Request, res: Response, reason: EndReason
   }
 
   // Never replayed: the person at the PC may not be who submitted it. The sign-in link ends the IDAM session first,
-  // for the same reason the GET route does, rather than offering `/login`.
+  // for the same reason the GET route does, and falls back to `/login` only when IDAM cannot be asked (R04).
   await restartAfterTimeout(req, undefined);
   const away = await availableEndSessionUrl(idamSettings(), idToken, postLogoutPath);
   res.status(401);

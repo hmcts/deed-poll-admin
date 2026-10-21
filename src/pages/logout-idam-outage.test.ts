@@ -25,9 +25,11 @@ describe("logout while IDAM discovery fails", () => {
   let server: Server;
   let base: string;
   let discoveryHealthy: boolean;
+  let discoveryRequests: number;
 
   beforeAll(async () => {
     server = createServer((_req, res) => {
+      discoveryRequests += 1;
       if (!discoveryHealthy) return void res.writeHead(503).end();
       res.writeHead(200, { "content-type": "application/json" }).end(
         JSON.stringify({
@@ -50,6 +52,7 @@ describe("logout while IDAM discovery fails", () => {
     vi.clearAllMocks();
     resetIdamDiscovery();
     discoveryHealthy = false;
+    discoveryRequests = 0;
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.spyOn(console, "info").mockImplementation(() => undefined);
   });
@@ -83,6 +86,7 @@ describe("logout while IDAM discovery fails", () => {
 
     expect(res.setHeader).toHaveBeenCalledWith("Clear-Site-Data", '"cache"');
     expect(res.redirect).toHaveBeenCalledWith("/");
+    expect(discoveryRequests).toBe(1);
   });
 
   it("should still send the browser to IDAM's end-session page when discovery succeeds", async () => {
