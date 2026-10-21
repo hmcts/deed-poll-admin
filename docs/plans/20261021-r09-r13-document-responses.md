@@ -98,10 +98,10 @@ session and the next one builds over it, wiping the results.
 
 **Files:** `src/pages/deed-polls/[id]/documents/upload.ts` and its tests (handler and template).
 
-- [ ] Add failing tests: a synthetic marker in api's 404 message (JSON and non-JSON) does not appear in the rendered
+- [x] Add failing tests: a synthetic marker in api's 404 message (JSON and non-JSON) does not appear in the rendered
       HTML; the page's own sentence renders against `documentTypeId` with status 400; the marker appears in the
       log line, cleaned by `forLog`.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 3: Record the rules and hand off
 
@@ -153,6 +153,19 @@ session and the next one builds over it, wiping the results.
   forwarding unchanged. The docblock no longer says a sandbox merely without `allow-scripts` gives a unique origin.
 - Green: the new file plus both routes' tests, 47/47. Full validation: lint clean, build 8/8, all suites pass with
   no skips, app 2571 (+20), others unchanged.
+
+### Task 2 (R13)
+
+- Three new handler tests in `upload.test.ts` and a new `src/pages/deed-polls/document-upload.njk.test.ts`
+  (3 tests) rendering the real template. Red before the change: all 6 failed.
+- On `NotFoundError` the page now renders its own `en.unknownDocumentType` ("Select a document type from the list")
+  against `documentTypeId` with status 400, and logs
+  `document upload refused an unknown document type: <api's message through forLog>`. `cy` is `{ ...en }`, so the
+  new string is English in the `cy` shape awaiting translation, as the rest of the page is.
+- Green: focused 33/33. Full validation: lint clean (520 files), build 8/8, all suites pass with no skips,
+  app 2577 (+6), others unchanged.
+- `yarn welsh:check` still crashes at `scripts/extract-welsh-strings.mjs` as at baseline, so the expected +1 string
+  cannot be confirmed by count until the extractor is fixed.
 
 ## Post-Completion
 
