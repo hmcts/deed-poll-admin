@@ -72,6 +72,20 @@ describe("the IDAM callback", () => {
     expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1");
   });
 
+  // `/login` checks `returnTo` before storing it, but the callback must not depend on every writer of the flow
+  // having done so.
+  it.each([
+    ["an absolute URL", "https://evil.example"],
+    ["a protocol-relative URL", "//evil.example"],
+    ["a backslash-relative URL", "/\\evil.example"]
+  ])("should send the user to the root rather than to %s held in the flow", async (_label, returnTo) => {
+    const res = pageResponse();
+
+    await GET(callback({ flow: { ...FLOW, returnTo } }), res);
+
+    expect(res.redirect).toHaveBeenCalledWith("/");
+  });
+
   it("stores the id token, so logout can end the IDAM session too", async () => {
     const req = callback();
 
