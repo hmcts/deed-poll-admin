@@ -445,7 +445,8 @@ function unavailable(res: Response) {
 }
 
 function directionHref(referralId: string, isChange: boolean): string {
-  return `${referralPath(referralId)}/direction${isChange ? `?change=${CHANGE_FLAG}` : ""}`;
+  const query = isChange ? `?change=${CHANGE_FLAG}` : "";
+  return `${referralPath(referralId)}/direction${query}`;
 }
 
 /** A referral this judge may direct on this journey, and the values its form starts with. */
