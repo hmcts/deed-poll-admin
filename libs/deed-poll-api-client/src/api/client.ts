@@ -251,7 +251,9 @@ export function getGazetteNoticeHistory(query: GazetteNoticeHistoryQuery, config
   if (query.size !== undefined) parameters.set("size", String(query.size));
   const search = parameters.toString();
 
-  return request(config, "GET", `/caseworker/gazette-notices${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.GazetteNoticeHistoryResponse);
+  const querySuffix = search === "" ? "" : `?${search}`;
+
+  return request(config, "GET", `/caseworker/gazette-notices${querySuffix}`, WIRE_SCHEMAS.GazetteNoticeHistoryResponse);
 }
 
 /** One case with its notes, witnesses and documents. One call, because the detail page needs all four. */
