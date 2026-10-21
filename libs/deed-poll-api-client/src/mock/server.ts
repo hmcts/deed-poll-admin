@@ -741,8 +741,10 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (MOCK_SCENARIOS[scenario].caseWrite === "reject") return send(res, 400, MOCK_WRITE_REJECTION);
 
     // Merged before the rules run, for the reason api's own update does: a patch setting one date of a
-    // pair is valid or not depending on the other, which it may never mention.
-    const merged = { ...record, ...(parsed.data as Partial<MockCase>) };
+    // pair is valid or not depending on the other, which it may never mention. Then gated, as api's
+    // `applyGazetteGate` and `applyMinorGate` gate the merged record: admin leaves a field its rules hide out
+    // of the patch (review finding R02), so this is what clears one.
+    const merged = writeGates({ ...record, ...(parsed.data as Partial<MockCase>) });
     const dateErrors = dateRuleErrors(merged);
     if (dateErrors.length > 0) return send(res, 400, { error: "Case dates are inconsistent", errors: dateErrors });
 
@@ -2199,6 +2201,19 @@ function reprefix(existing: string | null | undefined, type: string | null | und
   if (!parsed) return existing ?? null;
 
   return `${prefixFor(type)}${parsed[1]}-${parsed[2]}`;
+}
+
+/**
+ * api's two write-path gates on an update: Publish to London Gazette = No clears the notice date, and a type
+ * that hides the minor-only fields (Adult, Adult Transgender, Relinquishment) clears all four.
+ */
+function writeGates<T extends Partial<MockCase>>(merged: T): T {
+  const hidesMinorFields = merged.type === "Adult" || merged.type === "AdultTransgender" || merged.type === "DeedOfRelinquishment";
+  return {
+    ...merged,
+    ...(merged.publishToLondonGazette === false ? { dateNoticeSentToLondonGazette: null } : {}),
+    ...(hidesMinorFields ? Object.fromEntries(MINOR_ONLY_FIELDS.map((field) => [field, null])) : {})
+  };
 }
 
 /**

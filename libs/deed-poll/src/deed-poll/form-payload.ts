@@ -1,8 +1,6 @@
 import { InvalidInputError } from "../errors.js";
-import { composeDateParts } from "./date-parts.js";
 import { EDITABLE_FIELDS, type FieldDef } from "./form-fields.js";
-import { collectNumericErrors } from "./form-validation.js";
-import { readNumericInput } from "./numeric-input.js";
+import { fieldInputMessage, readFieldInput } from "./form-input.js";
 
 /**
  * Turn a flat SSR form POST body into an update patch, driven by the field
@@ -16,69 +14,40 @@ import { readNumericInput } from "./numeric-input.js";
  * the midnight-UTC instant this app means the one it states, rather than leaving api's
  * `coerceDates` to supply it.
  *
- * Each field in `fields` is written (empty inputs → null), matching the Dynamics
- * form where saving persists the whole form, clearing blanked fields — so state
- * derivation stays correct (clearing dateEnroled un-enrols). Pass ONLY the fields
- * on the submitted tab so a per-tab save never nulls fields on other tabs.
+ * Each field in `fields` that the body carries is written (empty inputs → null),
+ * matching the Dynamics form where saving persists the whole form, clearing blanked
+ * fields — so state derivation stays correct (clearing dateEnroled un-enrols). Pass
+ * ONLY the fields on the submitted tab so a per-tab save never nulls fields on other tabs.
  *
- * The one exception is a `notNullable` field: its column is NOT NULL, so "absent"
- * must mean "leave alone" rather than "clear". Nulling one is a 500, which is exactly
- * what a non-admin saving the Application tab used to get — `privacy` renders disabled
- * for them and a disabled control is not submitted.
+ * An absent text, textarea, enum or date field is omitted rather than cleared (review
+ * finding R02): a rendered one is always submitted, even empty, so absent means it was
+ * not rendered — hidden by its type's rules, or disabled. Checkboxes are the exception,
+ * because an unticked one is absent too, so an absent boolean is `false` and an absent
+ * multiselect `[]`; `deed-poll-validation.test.ts` fails if a rule ever hides one. A
+ * `nullable` boolean is not a checkbox but Yes / No radios (review finding R07), so it
+ * follows the text rule: nothing selected is absent and omitted, leaving an unanswered
+ * question unanswered. The
+ * minor-only fields and the Gazette notice date a type hides are cleared by api's own
+ * write-path gates, not here.
+ *
+ * A `notNullable` field submitted empty is omitted too: its column is NOT NULL, and
+ * nulling one is a 500.
  *
  * Number fields follow `readNumericInput` instead (review finding E04): absent is omitted, blank clears, and
  * text that is not a number throws `InvalidInputError` naming each such field, so no patch exists to send.
- * A typo used to become `null` — an instruction to clear the stored value.
+ * A typo used to become `null` — an instruction to clear the stored value. Every other kind refuses the same way
+ * a value the rendered form could not have sent (review finding R08); `readFieldInput` is the rule for each.
  */
 export function buildUpdatePatch(body: Record<string, unknown>, fields: FieldDef[] = EDITABLE_FIELDS): Record<string, unknown> {
-  const errors = collectNumericErrors(body, fields);
+  const readings = fields.filter((field) => !field.readOnly).map((field) => ({ field, input: readFieldInput(field, body) }));
+  const errors = readings.filter(({ input }) => input.kind === "invalid").map(({ field }) => ({ field: field.name, message: fieldInputMessage(field) }));
   if (errors.length > 0) {
-    throw new InvalidInputError("Numeric input is not a number", errors);
+    throw new InvalidInputError("Form input could not have been sent by the form", errors);
   }
   const patch: Record<string, unknown> = {};
-  for (const field of fields) {
-    if (field.readOnly) continue;
-    const value = readField(field, body);
-    if (value === undefined || (value === null && field.notNullable)) continue;
-    patch[field.name] = value;
+  for (const { field, input } of readings) {
+    if (input.kind !== "valid" || (input.value === null && field.notNullable)) continue;
+    patch[field.name] = input.value;
   }
   return patch;
-}
-
-function readField(field: FieldDef, body: Record<string, unknown>): unknown {
-  switch (field.kind) {
-    case "number": {
-      const input = readNumericInput(body[field.name], field.numberFormat ?? "decimal");
-      // `invalid` cannot reach here: buildUpdatePatch's pre-pass has already thrown on it.
-      if (input.kind === "absent") return undefined;
-      return input.kind === "valid" ? input.value : null;
-    }
-    case "date":
-      return composeDateParts(str(body[`${field.name}-day`]), str(body[`${field.name}-month`]), str(body[`${field.name}-year`]));
-    case "boolean":
-      // Unchecked checkboxes are absent from the body; a present truthy value wins.
-      return body[field.name] === "true" || body[field.name] === "on";
-    case "multiselect":
-      return toIntArray(body[field.name]);
-    // Everything else is read as a plain string: `enum`, `text` and `textarea`, plus any
-    // kind added later. The prototype listed those three explicitly ahead of `default`;
-    // they are named here instead, because the branch behaves identically for all of them
-    // and an empty value always becomes null rather than "".
-    default: {
-      const v = str(body[field.name]);
-      return v === "" ? null : v;
-    }
-  }
-}
-
-/** Coerce a possibly-array/undefined body value to a trimmed string. */
-function str(v: unknown): string {
-  if (Array.isArray(v)) v = v[0];
-  return typeof v === "string" ? v.trim() : "";
-}
-
-/** Multi-checkbox → int[]. Body value is a string or array of strings. */
-function toIntArray(v: unknown): number[] {
-  const arr = Array.isArray(v) ? v : v == null ? [] : [v];
-  return arr.map((x) => Number(String(x))).filter((n) => Number.isInteger(n));
 }

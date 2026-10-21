@@ -151,12 +151,171 @@ describe("deed-poll/edit-view", () => {
         expect(field(view, readOnly.name)?.value).toBe("Stored");
       });
 
-      it("treats an empty body as a replay, not as absent", () => {
-        // An empty submitted object is a real rejected POST with everything blanked, so the form
-        // must come back blank rather than silently repopulated from storage.
-        const view = buildEditView({ newSurname: "Stored" }, applicationTab, ADMIN, {});
+      it("should redraw a field submitted empty as blank rather than repopulating it from storage", () => {
+        const view = buildEditView({ newSurname: "Stored" }, applicationTab, ADMIN, { newSurname: "" });
 
-        expect(field(view, "newSurname")?.value).toBeNull();
+        expect(field(view, "newSurname")?.value).toBe("");
+      });
+
+      it("should redraw a field the body does not carry from the stored record, since it was never rendered", () => {
+        // Its rule can change between render and redraw. Drawn empty, the corrected resubmit would clear it (R02).
+        const view = buildEditView(
+          { type: "Minor", parents: "Stored Parents", ageOfMinor: 9, minorDateOfBirth: "2017-01-01T00:00:00.000Z" },
+          applicationTab,
+          ADMIN,
+          {
+            newSurname: "Typed"
+          }
+        );
+
+        expect(field(view, "parents")?.value).toBe("Stored Parents");
+        expect(field(view, "ageOfMinor")?.value).toBe("9");
+        expect(field(view, "minorDateOfBirth")?.dateParts).toEqual({ day: "1", month: "1", year: "2017" });
+      });
+
+      it("should redraw a locked privacy select from the stored record, since a disabled control is never submitted", () => {
+        const view = buildEditView({ type: "Adult", privacy: "Private" }, applicationTab, CASEWORKER, { newSurname: "Typed" });
+
+        expect(field(view, "privacy")?.locked).toBe(true);
+        expect(field(view, "privacy")?.value).toBe("Private");
+      });
+
+      it("should still replay privacy for a caller who may edit it", () => {
+        const view = buildEditView({ type: "Adult", privacy: "Private" }, applicationTab, ADMIN, { privacy: "Normal" });
+
+        expect(field(view, "privacy")?.value).toBe("Normal");
+      });
+    });
+
+    describe("checked state (review finding R01)", () => {
+      const STORED = { type: "Minor", inPerson: true, retainPermanently: true, iShall: [1, 4], iHaveSubscribed: [1, 3], andAlsoMyOld: [1, 2] };
+
+      function ticked(view: ReturnType<typeof buildEditView>, name: string): string[] {
+        return (field(view, name)?.options ?? []).filter((option) => option.checked).map((option) => option.value);
+      }
+
+      it("should tick stored true booleans and stored multiselect numbers on a normal render", () => {
+        const view = buildEditView(STORED, applicationTab, ADMIN);
+
+        expect(field(view, "retainPermanently")?.checked).toBe(true);
+        expect(ticked(view, "iShall")).toEqual(["1", "4"]);
+        expect(ticked(view, "iHaveSubscribed")).toEqual(["1", "3"]);
+        expect(ticked(view, "andAlsoMyOld")).toEqual(["1", "2"]);
+      });
+
+      it("should leave stored false booleans and empty multiselects unticked on a normal render", () => {
+        const view = buildEditView({ type: "Minor", retainPermanently: false, iShall: [] }, applicationTab, ADMIN);
+
+        expect(field(view, "retainPermanently")?.checked).toBe(false);
+        expect(ticked(view, "iShall")).toEqual([]);
+        expect(ticked(view, "andAlsoMyOld")).toEqual([]);
+      });
+
+      it.each(["true", "on"])("should tick a boolean replayed as %s", (submittedValue) => {
+        const view = buildEditView({ type: "Minor" }, applicationTab, ADMIN, { retainPermanently: submittedValue });
+
+        expect(field(view, "retainPermanently")?.checked).toBe(true);
+      });
+
+      it("should tick every replayed multiselect value when two or more were submitted", () => {
+        const view = buildEditView({ type: "Minor" }, applicationTab, ADMIN, {
+          iShall: ["1", "4"],
+          iHaveSubscribed: ["1", "3"],
+          andAlsoMyOld: ["1", "2"]
+        });
+
+        expect(ticked(view, "iShall")).toEqual(["1", "4"]);
+        expect(ticked(view, "iHaveSubscribed")).toEqual(["1", "3"]);
+        expect(ticked(view, "andAlsoMyOld")).toEqual(["1", "2"]);
+      });
+
+      it("should tick a single replayed multiselect value, which arrives as a string rather than an array", () => {
+        const view = buildEditView({ type: "Minor" }, applicationTab, ADMIN, { iShall: "4" });
+
+        expect(ticked(view, "iShall")).toEqual(["4"]);
+      });
+
+      it("should untick what the stored record held when the replayed body has no ticks, since an unticked box is absent", () => {
+        const view = buildEditView(STORED, applicationTab, ADMIN, {});
+
+        expect(field(view, "retainPermanently")?.checked).toBe(false);
+        expect(ticked(view, "iShall")).toEqual([]);
+      });
+    });
+
+    describe("a replayed value the form could not have sent (review finding R08)", () => {
+      const STORED = { type: "Minor", newForename: "Stored", inPerson: true, retainPermanently: true, iShall: [1, 4], ageOfMinor: 9 };
+
+      function ticked(view: ReturnType<typeof buildEditView>, name: string): string[] {
+        return (field(view, name)?.options ?? []).filter((option) => option.checked).map((option) => option.value);
+      }
+
+      it("should redraw each such field from the stored record, so a corrected resubmit leaves it as it was", () => {
+        const view = buildEditView(STORED, applicationTab, ADMIN, {
+          newForename: ["Ada", "Eve"],
+          inPerson: "yes",
+          retainPermanently: "TRUE",
+          iShall: ["1e0", "0x2"],
+          ageOfMinor: ["1", "2"]
+        });
+
+        expect(field(view, "newForename")?.value).toBe("Stored");
+        expect(field(view, "inPerson")?.answer).toBe(true);
+        expect(field(view, "retainPermanently")?.checked).toBe(true);
+        expect(ticked(view, "iShall")).toEqual(["1", "4"]);
+        expect(field(view, "ageOfMinor")?.value).toBe("9");
+      });
+
+      it("should redraw a date with a malformed part from the stored record", () => {
+        const view = buildEditView({ ...STORED, dateReceived: "2026-03-01T00:00:00.000Z" }, applicationTab, ADMIN, {
+          "dateReceived-day": ["1", "2"],
+          "dateReceived-month": "3",
+          "dateReceived-year": "2026"
+        });
+
+        expect(field(view, "dateReceived")?.dateParts).toEqual({ day: "1", month: "3", year: "2026" });
+      });
+
+      it("should still redraw a mistyped number as typed, since it is one string the caseworker can correct", () => {
+        const view = buildEditView(STORED, applicationTab, ADMIN, { ageOfMinor: "12x" });
+
+        expect(field(view, "ageOfMinor")?.value).toBe("12x");
+      });
+    });
+
+    describe("a nullable boolean's answer (review finding R07)", () => {
+      it.each([true, false, null])("should carry a stored %s as the answer, ticking no checkbox", (stored) => {
+        const view = buildEditView({ type: "Minor", inPerson: stored }, applicationTab, ADMIN);
+
+        expect(field(view, "inPerson")?.answer).toBe(stored);
+        expect(field(view, "inPerson")?.checked).toBe(false);
+      });
+
+      it.each([
+        ["true", true],
+        ["false", false]
+      ])("should carry a replayed %s as the answer over the stored one", (submitted, expected) => {
+        const view = buildEditView({ type: "Minor", inPerson: !expected }, applicationTab, ADMIN, { inPerson: submitted });
+
+        expect(field(view, "inPerson")?.answer).toBe(expected);
+      });
+
+      it("should keep the stored answer when the replayed body selected nothing, which only an unanswered question sends", () => {
+        const view = buildEditView({ type: "Minor", inPerson: null }, applicationTab, ADMIN, {});
+
+        expect(field(view, "inPerson")?.answer).toBeNull();
+      });
+
+      it.each([[true], [false]])("should redraw a stored answer of %j when the replayed body selected nothing", (stored) => {
+        const view = buildEditView({ type: "Minor", inPerson: stored }, applicationTab, ADMIN, {});
+
+        expect(field(view, "inPerson")?.answer).toBe(stored);
+      });
+
+      it("should give every other field no answer", () => {
+        const view = buildEditView({ type: "Minor", retainPermanently: true }, applicationTab, ADMIN);
+
+        expect(field(view, "retainPermanently")?.answer).toBeNull();
       });
     });
   });

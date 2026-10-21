@@ -245,27 +245,32 @@ describe.skipIf(!redisReachable)("the guarded session store", () => {
       expect((await next.claimRefresh(sid, (await get(next, sid)) as SessionData)).outcome).toBe("acquired");
     });
 
-    it("should give up a lease whose claim reply was lost, so the session is not blocked until it expires", async () => {
-      const sid = await stored("first");
-      let replies = 0;
-      const lossy = new GuardedSessionStore({
-        client: {
-          eval: async (script, options) => {
-            const reply = await clients[1].eval(script, options);
-            if (script.includes("'TIME'") && replies++ === 0) throw new Error("Command timeout");
-            return reply;
-          }
-        },
-        prefix: PREFIX,
-        ttl: sessionStoreTtl(LIMITS)
-      });
+    it.each(["received", "lost"])(
+      "should give up a lease whose claim reply was lost and preserve the claim error when the release reply is %s",
+      async (releaseReply) => {
+        const sid = await stored("first");
+        const claimError = new Error("Command timeout");
+        let replies = 0;
+        const lossy = new GuardedSessionStore({
+          client: {
+            eval: async (script, options) => {
+              const reply = await clients[1].eval(script, options);
+              if (script.includes("'TIME'") && replies++ === 0) throw claimError;
+              if (script.includes("'HDEL'") && releaseReply === "lost") throw new Error("Release timeout");
+              return reply;
+            }
+          },
+          prefix: PREFIX,
+          ttl: sessionStoreTtl(LIMITS)
+        });
 
-      await expect(lossy.claimRefresh(sid, (await get(lossy, sid)) as SessionData)).rejects.toThrow("Command timeout");
+        await expect(lossy.claimRefresh(sid, (await get(lossy, sid)) as SessionData)).rejects.toBe(claimError);
 
-      expect(await clients[0].hGet(PREFIX + sid, "lease")).toBeNull();
-      const next = leased({ refreshWaitMs: 0 });
-      expect((await next.claimRefresh(sid, (await get(next, sid)) as SessionData)).outcome).toBe("acquired");
-    });
+        expect(await clients[0].hGet(PREFIX + sid, "lease")).toBeNull();
+        const next = leased({ refreshWaitMs: 0 });
+        expect((await next.claimRefresh(sid, (await get(next, sid)) as SessionData)).outcome).toBe("acquired");
+      }
+    );
 
     it("should release only the lease it was given, never one another request now holds", async () => {
       const sid = await stored("first");

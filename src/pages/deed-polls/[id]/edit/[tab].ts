@@ -49,6 +49,9 @@ const en = {
   subgridLinkPrefix: "View",
   save: "Save",
   cancel: "Cancel",
+  // The two answers of a nullable boolean's radios — see `nullable` on FieldDef.
+  yes: "Yes",
+  no: "No",
   // Shown when api refuses the save without naming a field. Its own wording is developer-facing — the
   // fallback in `failureFromResponse` is literally "deed-poll-api answered 400" — and
   // `.claude/rules/backend.md` forbids putting api's internal error text in front of a caseworker, so
@@ -86,9 +89,9 @@ export const POST = async (req: Request, res: Response) => {
   const body = req.body as Record<string, unknown>;
 
   // **Strict on write, deliberately unlike GET.** `tabFor` falls back to the first tab, which is
-  // Application — 46 editable fields. `buildUpdatePatch` writes every field it is given, blanking
-  // absent ones other than numbers, so falling back here would null most of the 46 from a body that
-  // never mentioned them.
+  // Application — 46 editable fields. `buildUpdatePatch` reads an absent checkbox as unticked, so
+  // falling back here would untick every Application box and declaration from a body that never
+  // mentioned them.
   // A mistyped tab in a POST target is not something to guess at.
   //
   // This is also what refuses the retired `referral` slug, which GET redirects: a form posted from a stale page

@@ -415,7 +415,7 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
 ## Session writes
 
 A destroyed session must stay destroyed whatever request is still holding it (review finding E01; plan
-`docs/plans/20261020-e01-session-revocation.md`). `connect-redis`'s unconditional `SET` let a refresh waiting on IDAM,
+`docs/plans/completed/20261020-e01-session-revocation.md`). `connect-redis`'s unconditional `SET` let a refresh waiting on IDAM,
 an activity save or `express-session`'s own autosave put a logged-out session back. The rules, which every future
 authenticated writer must follow:
 
@@ -492,7 +492,7 @@ only — api keeps the audit trail of writes and reads, and this app must not du
   and other control characters and caps the text at 500 characters. `src/for-log.test.ts` scans `src/pages` and fails
   a `console.*` call that interpolates `.message` without it.
 - **`forLog` bounds text; it is not a privacy filter.** What goes *into* an error message is the control (review
-  finding E03, `docs/plans/20261020-e03-safe-error-diagnostics.md`). A request's query values and raw headers never
+  finding E03, `docs/plans/completed/20261020-e03-safe-error-diagnostics.md`). A request's query values and raw headers never
   belong in one: a search's `q` and `where` are applicant names, and an `Origin` or `Sec-Fetch-Site` is whatever the
   browser sent. Safe inputs are the method, a route built from `req.baseUrl + req.path` (never `originalUrl`), a
   fixed operation or reason phrase, an HTTP status and schema field paths. The api client cuts a request path at its
@@ -555,12 +555,13 @@ referral under a case, a saved query, a Gazette request, an email — goes throu
 ## Numeric case-form input
 
 A typo in a number field used to reach the patch as `null`, an instruction to clear the stored value (review finding
-E04; plan `docs/plans/20261020-e04-numeric-input-validation.md`). The rules for every `kind: "number"` field:
+E04; plan `docs/plans/completed/20261020-e04-numeric-input-validation.md`). The rules for every `kind: "number"` field:
 
 - **One parser, four outcomes.** `readNumericInput` (`libs/deed-poll/src/deed-poll/numeric-input.ts`) reads a
   submitted control as `absent` (not in the body: omitted from the patch, never nulled), `blank` (empty or
   whitespace-only: `null`, unless the field is `notNullable`), `valid` (the number) or `invalid`. Only `blank` clears.
-  `collectNumericErrors` and `buildUpdatePatch` both call it, so validation and patch construction cannot drift; do
+  `readFieldInput` (`form-input.ts`) hands every number field to it, and `collectFormErrors` and `buildUpdatePatch`
+  both read through `readFieldInput`, so validation and patch construction cannot drift; do
   not convert a numeric string anywhere else, and never with a bare `Number()`.
 - **Accepted syntax is plain decimal after trimming: `^[+-]?(\d+(\.\d*)?|\.\d+)$`.** Signs are kept because
   `UpdateCaseRequest` sets no minimum. Exponents, `0x`/`0b`/`0o` prefixes, `NaN`, `Infinity`, currency symbols,
@@ -572,9 +573,10 @@ E04; plan `docs/plans/20261020-e04-numeric-input-validation.md`). The rules for 
   `7.00000000000000001` are refused rather than rounded (the fraction is checked on the text, since `Number()`
   rounds the second to 7). Absent means `decimal` (`refundAmount`), and a decimal longer than a double holds is
   rounded by `Number()`. Add no range, precision or positivity rule here; those belong to api.
-- **Validate before mutation.** The edit handler runs `collectFormErrors` (dates and numbers together, in field
-  order) before building the patch, and re-renders the exact submitted text with GOV.UK field errors and no write.
-  `buildUpdatePatch` also throws `InvalidInputError` on an invalid number, so a future caller that skips validation
+- **Validate before mutation.** The edit handler runs `collectFormErrors` (dates, numbers and any input the form could
+  not have sent, together in field order) before building the patch, and re-renders the exact submitted text with
+  GOV.UK field errors and no write. `buildUpdatePatch` also throws `InvalidInputError` on any invalid reading, a
+  number included, so a future caller that skips validation
   still gets no patch. Read-only numbers are never patched, whatever is posted.
 - **api's validation still applies.** This guard only stops unreadable text becoming a clearing patch. api remains
   authoritative for permissions and business rules, and its 400s still come back through the handler's existing
@@ -582,6 +584,65 @@ E04; plan `docs/plans/20261020-e04-numeric-input-validation.md`). The rules for 
   persistence mocked; it proves the outgoing patch, not a live save.
 - **The field-error messages are English-only domain strings** in `form-validation.ts`, like the date-part messages, so
   they sit outside the Welsh extractor's page scope and add nothing to `yarn welsh:check`. Do not add `cy` strings.
+
+## Case edit form saves
+
+An unchanged save must write back exactly what is stored, and a refused save must redraw exactly what was submitted
+(review findings R01 and R02; plan `docs/plans/completed/20261020-r01-r02-edit-form-untouched-fields.md`). The POST handler reads
+no case first, so the body is the only evidence of what the page rendered. The rules:
+
+- **"Absent" means something different for each field kind.** A rendered text input, textarea or select always
+  submits its value, even an empty one, and a rendered date always submits its three parts. So when one of these is
+  missing from the body, it was never rendered: hidden by its rule, locked, or not on this tab. `buildUpdatePatch`
+  (`libs/deed-poll/src/deed-poll/form-payload.ts`) leaves it out of the patch. A date counts as absent only when all
+  three parts are missing. A *present* empty value still clears a nullable field; a `notNullable` one (`privacy`, `urgency`) is
+  silently left out instead, because nulling its column is a 500 and the stored value stands. Numbers
+  follow `readNumericInput` (above), which has the same rule.
+- **Checkboxes are the exception, because an unticked box is absent too.** An absent boolean is `false` and an
+  absent multiselect is `[]`, so a hidden checkbox field would be cleared on every save. Today `getFieldRules` hides
+  none, and `deed-poll-validation.test.ts` fails if a rule ever hides a boolean or multiselect for any type, migrated
+  or not, published or not. A rule that needs to hide one first needs a different way to tell "unticked" from "not
+  rendered".
+- **A nullable boolean is Yes / No radios, not a checkbox** (review finding R07; plan
+  `docs/plans/completed/20261020-r07-r08-edit-form-input-shapes.md`). A checkbox has two states and `inPerson` has three:
+  api types it `["boolean", "null"]`, and as a checkbox an unanswered question read as unticked, so every save of the
+  Application tab turned "not answered" into "No". `nullable: true` on the `FieldDef` renders it as radios with
+  neither selected for `null`; nothing selected is absent and leaves the stored value alone, Yes sends `"true"` and
+  No `"false"`. `form-fields.test.ts` pins which booleans are nullable to `openapi.json`, so a contract change
+  fails there. `retainPermanently` is a plain `boolean` and stays a checkbox. This is not required-field
+  enforcement: an unanswered question may stay unanswered, and "required" is api's rule.
+- **A value the rendered form could not have sent is a field error and no write** (review finding R08, same plan).
+  `readFieldInput` (`libs/deed-poll/src/deed-poll/form-input.ts`) is the one parser per kind, shared by
+  `collectFormErrors` and `buildUpdatePatch` as `readNumericInput` is for numbers, and reads each field as absent,
+  valid or invalid. What each kind may send: a text input or textarea one string (trimmed); a select one string, exactly `""` or one of its `enumOptions` values (not trimmed); each date part
+  one string; a checkbox `"true"` (or a browser's default `"on"`) when ticked and nothing when not; Yes / No radios
+  `"true"`, `"false"` or nothing; a multiselect zero or more strings, each exactly equal to one of its `enumOptions`
+  values, none repeated. Anything else (an array or object from a repeated or bracketed name, `"TRUE"`, a member such
+  as `"1e0"`, `"0x2"`, `" 3 "`, `""`, `"2.5"`, one outside the option set or one sent twice, a select value such as `"NotAStatus"`) is refused by `collectFormErrors` in field order
+  before any write, and `buildUpdatePatch` throws `InvalidInputError` on the same input. It used to be coerced into
+  a clear, a first element or `false`. Nothing ticked still clears a multiselect. A refused field redraws from the
+  stored record rather than as sent, except a mistyped number, which redraws as typed. The messages are
+  English-only domain strings like the numeric ones and add nothing to `yarn welsh:check`. The date-part rule is
+  `readDateInput`, which `collectDateErrors` uses, so the new-case form's date received and the query builder's date
+  rows refuse a repeated or bracketed part the same way rather than reading it as blank.
+- **The minor-only fields and the Gazette notice date are cleared by api, not here.** The old behaviour cleared them
+  only by accident. api's update applies `applyGazetteGate` and `applyMinorGate` to the merged record
+  (`DeedPollService.java` around lines 410-415 on api `origin/master` `554fe49`), and the mock's `patchCase` applies
+  the same two (`writeGates`), so a local save behaves as api's does. The fields a Deed of Relinquishment hides (old
+  names, marital status, nationality) are cleared by nobody, and no rule says they should be. If a clear is ever
+  needed here, call the gate function explicitly, never through absent-means-null.
+- **Checked state is computed in the view model, never in the template.** `decorate()` in
+  `libs/deed-poll/src/deed-poll/edit-view.ts` sets `checked` on a boolean field and on each multiselect option. It
+  reads stored values (`true`, numbers) and replayed ones (`"true"`/`"on"`, strings) through `checkbox-input.ts`, and
+  sets `answer` (`true`, `false` or `null`) on a nullable boolean. A replayed value reaches it only once
+  `readFieldInput` has accepted it, so it reads a box the way the patch does. `edit.njk` reads only those flags. A template that compares raw values redraws every ticked box unticked on
+  a replay, and the corrected resubmit then clears them.
+- **A locked field redraws from the stored record.** A non-admin's privacy select is rendered disabled, so it is
+  never in the body; replaying it would redraw it blank. Read-only fields are excluded from the replay for the same
+  reason, and so is any other field the body does not carry, by the same absence test as the patch: drawn empty, a
+  field whose rule changed between render and redraw would be cleared by the corrected resubmit.
+  `src/case-edit-untouched-fields.test.ts` drives the real handler and the real `edit.njk`, reads the
+  rendered page back as the form a browser would submit, and pins both round trips.
 
 # Agent instructions
 
@@ -683,7 +744,7 @@ Follow these strict naming conventions throughout the project:
   referrals and its emails with `Promise.allSettled`, not `Promise.all`: the case read stays fatal, the referrals
   read degrades to `unavailableReferralsView()` and a log line. The field rules need only the case, so they are
   chained off the case promise inside the same `allSettled` rather than awaited after it, which would make them
-  wait for the panels too (review finding E05, `docs/plans/20261020-e05-case-detail-concurrency.md`; the
+  wait for the panels too (review finding E05, `docs/plans/completed/20261020-e05-case-detail-concurrency.md`; the
   `read scheduling` tests in `[id].test.ts` pin the order). `client.ts` classifies by status, so under
   `Promise.all` a referrals 404 rendered "Page not found" for a case that exists, a 5xx the 500 page, and a 403
   the 404 template — three disguises for a failure the adapter itself calls "try again shortly". The test for

@@ -7,11 +7,13 @@
  * because every decision it makes (is this field required, may this caller edit privacy, which
  * options does this enum have) is a business rule, and none of it is HTTP.
  */
+import { isTicked, tickedValues, yesNoAnswer } from "./checkbox-input.js";
 import type { DateParts } from "./date-parts.js";
 import { splitDateParts, submittedDateParts } from "./date-parts.js";
 import { getFieldRules } from "./deed-poll-validation.js";
 import type { DeedPollType } from "./enums/option-sets.js";
 import { enumOptions, type FieldDef, FORM_TABS, type TabDef } from "./form-fields.js";
+import { readFieldInput } from "./form-input.js";
 import { privacyEditable } from "./form-presentation.js";
 import type { FormError } from "./form-validation.js";
 import { formatNumericInput } from "./numeric-input.js";
@@ -21,7 +23,12 @@ export interface EditField extends FieldDef {
   value: unknown;
   dateParts: DateParts | null;
   rule: { visible: boolean; required: boolean };
-  options: { value: string; text: string }[];
+  /** For a multiselect each option carries its own `checked`; see `isTicked`. */
+  options: { value: string; text: string; checked?: boolean }[];
+  /** For a checkbox boolean, whether its box is ticked; false for every other kind. See `isTicked`. */
+  checked: boolean;
+  /** For a `nullable` boolean, which radio is selected — `null` for neither; null for every other kind. */
+  answer: boolean | null;
   /** Editable in principle but not by this caller — currently only `privacy`. */
   locked: boolean;
 }
@@ -75,9 +82,16 @@ export function buildErrorSummary(errors: FormError[], tab: TabDef): { text: str
  * Decorate a tab's fields with everything needed to render them.
  *
  * `submitted`, when present, is a rejected POST body replayed over the stored record, so a
- * re-rendered form shows what the caseworker typed rather than what is saved. Read-only fields are
- * excluded from that replay — they were never editable, so the body has nothing to say about them
- * and the stored value is the truth.
+ * re-rendered form shows what the caseworker typed rather than what is saved. Read-only and locked
+ * fields are excluded from that replay — one is never editable and the other renders disabled, so
+ * neither is ever in the body and the stored value is the truth. So is any other field the body does
+ * not carry, by the absence test `buildUpdatePatch` uses: it was not rendered, and redrawing it empty
+ * would have the corrected resubmit clear it if its rule has changed since.
+ *
+ * Checked state is computed here rather than in the template (review finding R01): a stored record
+ * holds `true` and numbers, a replayed body `"true"`/`"on"` and strings, and a template comparing raw
+ * values redrew every ticked box unticked on a replay, so the corrected resubmit cleared them. A
+ * field whose submitted value the form could not have sent is redrawn from the record too; see `couldBeRendered`.
  */
 export function buildEditView(record: Record<string, unknown>, tab: TabDef, ctx: EditContext, submitted?: Record<string, unknown>): EditView {
   const type = (record.type ?? null) as DeedPollType | null;
@@ -104,7 +118,9 @@ function decorate(
   canEditPrivacy: boolean,
   submitted?: Record<string, unknown>
 ): EditField {
-  const replaying = submitted !== undefined && !field.readOnly;
+  // Privacy editability is governed by the caller's role, separately from the per-type rules.
+  const locked = field.name === "privacy" ? !canEditPrivacy : false;
+  const replaying = submitted !== undefined && !field.readOnly && !locked && wasSubmitted(field, submitted) && couldBeRendered(field, submitted);
   const raw = replaying ? (submitted[field.name] ?? null) : (record[field.name] ?? null);
   // Submitted text is replayed as typed; only a stored number needs rendering as something the parser accepts.
   const value = !replaying && field.kind === "number" && typeof raw === "number" && Number.isFinite(raw) ? formatNumericInput(raw) : raw;
@@ -114,8 +130,38 @@ function decorate(
     value,
     dateParts: field.kind !== "date" ? null : replaying ? submittedDateParts(field.name, submitted) : splitDateParts(record[field.name] ?? null),
     rule: rules[field.name] ?? { visible: true, required: false },
-    options: field.enumSet ? enumOptions(field.enumSet) : [],
-    // Privacy editability is governed by the caller's role, separately from the per-type rules.
-    locked: field.name === "privacy" ? !canEditPrivacy : false
+    options: optionsFor(field, raw),
+    checked: field.kind === "boolean" && !field.nullable && isTicked(raw),
+    answer: field.kind === "boolean" && field.nullable ? yesNoAnswer(raw) : null,
+    locked
   };
+}
+
+/**
+ * An unticked checkbox is absent too, so a checkbox field always counts as submitted. Yes / No radios with
+ * neither selected are absent as well, but only an unanswered question renders that way, so its stored `null`
+ * is what to redraw.
+ */
+function wasSubmitted(field: FieldDef, submitted: Record<string, unknown>): boolean {
+  if ((field.kind === "boolean" && !field.nullable) || field.kind === "multiselect") return true;
+  if (field.kind === "date") return ["day", "month", "year"].some((part) => submitted[`${field.name}-${part}`] !== undefined);
+  return submitted[field.name] !== undefined;
+}
+
+/**
+ * A value the rendered form could not have sent (review finding R08) has no control to redraw it in — an array is
+ * not one text box — so its field redraws from the stored record, and a corrected resubmit leaves it as it was. A
+ * number is the exception: `12x` is one string the caseworker typed and must see again beside its error.
+ */
+function couldBeRendered(field: FieldDef, submitted: Record<string, unknown>): boolean {
+  if (field.kind === "number") return typeof submitted[field.name] === "string";
+  return readFieldInput(field, submitted).kind !== "invalid";
+}
+
+function optionsFor(field: FieldDef, raw: unknown): EditField["options"] {
+  if (!field.enumSet) return [];
+  const options = enumOptions(field.enumSet);
+  if (field.kind !== "multiselect") return options;
+  const ticked = tickedValues(raw);
+  return options.map((option) => ({ ...option, checked: ticked.includes(Number(option.value)) }));
 }

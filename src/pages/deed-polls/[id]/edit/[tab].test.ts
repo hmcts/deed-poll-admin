@@ -1,4 +1,4 @@
-import { FORM_TABS, findDeedPoll, InvalidInputError, NotFoundError, updateDeedPoll } from "@hmcts/deed-poll";
+import { enumOptions, type FieldDef, FORM_TABS, findDeedPoll, InvalidInputError, NotFoundError, updateDeedPoll } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../express-doubles.js";
@@ -15,6 +15,7 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
 
 const APPLICATION = FORM_TABS[0].id;
 const SUBGRID = FORM_TABS.find((t) => t.subgrid)?.id ?? "notes";
+const EMPTY_REFUND_DATE = { "dateOfRefund-day": "", "dateOfRefund-month": "", "dateOfRefund-year": "" };
 
 const found = {
   id: "case-1",
@@ -41,10 +42,23 @@ function bodyFor(tabId: string): Record<string, string> {
   const tab = FORM_TABS.find((t) => t.id === tabId);
   const body: Record<string, string> = {};
   for (const field of tab?.sections.flatMap((s) => s.fields) ?? []) {
-    if (field.readOnly || field.kind === "date") continue;
-    body[field.name] = field.kind === "number" ? "1" : "value";
+    if (field.readOnly) continue;
+    // A rendered date always submits its three parts, empty or not.
+    if (field.kind === "date") {
+      for (const part of ["day", "month", "year"]) body[`${field.name}-${part}`] = "";
+      continue;
+    }
+    body[field.name] = valueFor(field);
   }
   return body;
+}
+
+/** What the rendered control sends: anything else is refused before any write (review finding R08). */
+function valueFor(field: FieldDef): string {
+  if (field.kind === "number") return "1";
+  if (field.kind === "boolean") return "true";
+  if ((field.kind === "multiselect" || field.kind === "enum") && field.enumSet) return enumOptions(field.enumSet)[0].value;
+  return "value";
 }
 
 describe("case edit tab page", () => {
@@ -153,9 +167,9 @@ describe("case edit tab page", () => {
     });
 
     it("404s an unrecognised tab rather than falling back, which would blank the Application tab", async () => {
-      // tabFor falls back to the first tab, which has 46 editable fields, and buildUpdatePatch
-      // writes every field it is given — blanking absent ones. Falling back on a write would null
-      // all 46 from a body that never mentioned them. This is the guard against that.
+      // tabFor falls back to the first tab, which has 46 editable fields, and buildUpdatePatch reads
+      // an absent checkbox as unticked. Falling back on a write would untick every Application box
+      // and declaration from a body that never mentioned them. This is the guard against that.
       await expect(POST(request("nonsense", {}), response())).rejects.toThrow(NotFoundError);
 
       expect(updateDeedPoll).not.toHaveBeenCalled();
@@ -163,7 +177,7 @@ describe("case edit tab page", () => {
 
     it("refuses a post to the retired referral tab rather than writing its body onto the Application tab", async () => {
       // The other half of the retirement. GET redirects, but a form posted from a page loaded before the
-      // retirement must not be accepted: falling back would blank 46 Application fields, and nothing accepts
+      // retirement must not be accepted: falling back would untick every Application box, and nothing accepts
       // the retired fields any more — they are out of `FORM_TABS`, so out of `EDITABLE_FIELDS`.
       await expect(POST(request("referral", { masterName: "Master Smith" }), response())).rejects.toThrow(NotFoundError);
 
@@ -320,7 +334,7 @@ describe("case edit tab page", () => {
     ])("should write the refund amount once for %s", async (_label, typed, expected) => {
       const res = response();
 
-      await POST(request("refund", { refundAmount: typed, refundReference: "Ref-1" }), res);
+      await POST(request("refund", { refundAmount: typed, refundReference: "Ref-1", ...EMPTY_REFUND_DATE }), res);
 
       expect(updateDeedPoll).toHaveBeenCalledTimes(1);
       expect(updateDeedPoll).toHaveBeenCalledWith(
