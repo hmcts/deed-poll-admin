@@ -292,9 +292,11 @@ The cookie expiry and any client-side warning are conveniences; neither decides 
   `/session-timed-out` (or `/` until the address is registered), and "Sign in again" resumes the original page. A
   timed-out POST gets a 401 page saying the changes were not saved; nothing is replayed.
 - **During an IDAM discovery outage a timeout or logout ends the session here only** (R04). The 5 s discovery
-  cooldown included, a timed-out GET goes straight to `/session-timed-out` (or `/`), a timed-out POST's 401 page links
-  to `/login`, and logout still clears the cache and redirects to `/`. The IDAM session is not ended, so once IDAM
-  recovers "Sign in again" may sign the person at the PC straight back in. Each such ending logs `IDAM end-session
+  cooldown included, a timed-out GET goes straight to `/session-timed-out`, a timed-out POST's 401 page links to
+  `/login`, and logout still clears the cache and redirects to `/signed-out`, a public page whose "Sign in again" is
+  only a link. Never `/`, which would start IDAM sign-in at once. The same page is used when IDAM advertises no
+  end-session endpoint. The IDAM session is not ended, so once IDAM recovers "Sign in again" may sign the person at the
+  PC straight back in. Each such ending logs `IDAM end-session
   address unavailable; the session was ended locally only`.
 - **Activity** is any signed-in request to a non-public page, recorded at most once a minute. Public pages, health
   probes and assets do not count.

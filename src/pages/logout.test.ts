@@ -58,7 +58,7 @@ describe("the logout page", () => {
     // and IDAM would prompt the user to confirm which session to end.
     await GET(signedIn(), pageResponse());
 
-    expect(vi.mocked(endSessionUrl).mock.calls[0][1]).toBe("an-id-token");
+    expect(endSessionUrl).toHaveBeenCalledWith({ issuerUrl: "https://idam.example/o" }, "an-id-token", undefined);
   });
 
   it("signs out locally even when the issuer advertises no end-session endpoint", async () => {
@@ -95,7 +95,7 @@ describe("the logout page", () => {
 
     await GET(pageRequest({ signedIn: false }), res);
 
-    expect(vi.mocked(endSessionUrl).mock.calls[0][1]).toBeUndefined();
+    expect(endSessionUrl).toHaveBeenCalledWith({ issuerUrl: "https://idam.example/o" }, undefined, undefined);
     expect(res.redirect).toHaveBeenCalled();
   });
 
