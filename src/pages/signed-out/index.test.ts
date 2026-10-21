@@ -7,19 +7,19 @@ function renderedModel(res: ReturnType<typeof pageResponse>): Record<string, unk
 }
 
 describe("the signed-out page", () => {
-  it("should render the page rather than redirect, so signing in again takes a click", async () => {
+  it("should render the page rather than redirect, so signing in again takes a click", () => {
     const res = pageResponse();
 
-    await GET(pageRequest({ signedIn: false }), res);
+    GET(pageRequest({ signedIn: false }), res);
 
     expect(res.render).toHaveBeenCalledWith("signed-out/index", expect.anything());
     expect(res.redirect).not.toHaveBeenCalled();
   });
 
-  it("should carry Welsh copy with the same keys as the English", async () => {
+  it("should carry Welsh copy with the same keys as the English", () => {
     const res = pageResponse();
 
-    await GET(pageRequest({ signedIn: false }), res);
+    GET(pageRequest({ signedIn: false }), res);
 
     const { en, cy } = renderedModel(res) as { en: Record<string, string>; cy: Record<string, string> };
     expect(Object.keys(cy)).toEqual(Object.keys(en));

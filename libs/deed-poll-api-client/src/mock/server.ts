@@ -482,16 +482,16 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       }
       if (method === "POST" && (typeof claims.sub !== "string" || !claims.sub)) return send(res, 401, { error: "Subject required" });
       const result = gazetteRequests.handle(
-        method,
-        pathname,
-        searchParams,
-        method === "POST" ? await readJsonBody(req) : undefined,
-        req.headers["idempotency-key"],
-        typeof claims.sub === "string" ? claims.sub : "",
-        typeof claims.name === "string" ? claims.name : "Administrator",
-        cases,
-        gazetteSettings,
-        gazetteBatches
+        {
+          method,
+          path: pathname,
+          query: searchParams,
+          body: method === "POST" ? await readJsonBody(req) : undefined,
+          key: req.headers["idempotency-key"],
+          subject: typeof claims.sub === "string" ? claims.sub : "",
+          name: typeof claims.name === "string" ? claims.name : "Administrator"
+        },
+        { cases, settings: gazetteSettings, batches: gazetteBatches }
       );
       if (result.loseResponse) {
         res.destroy();
