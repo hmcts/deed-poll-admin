@@ -97,7 +97,8 @@ function readSelect(raw: unknown, field: FieldDef): FieldInput {
 }
 
 function readMultiselect(raw: unknown, field: FieldDef): FieldInput {
-  const members = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
+  if (raw === undefined) return { kind: "valid", value: [] };
+  const members = Array.isArray(raw) ? raw : [raw];
   const allowed = optionValues(field);
   if (!members.every((member) => typeof member === "string" && allowed.has(member))) return { kind: "invalid" };
   // A rendered checkbox group sends each value at most once.
