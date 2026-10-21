@@ -4,14 +4,15 @@
 {% from "govuk/components/select/macro.njk" import govukSelect %}
 {% from "govuk/components/date-input/macro.njk" import govukDateInput %}
 {% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
+{% from "govuk/components/radios/macro.njk" import govukRadios %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
 {% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
 
 {#
   Error lookup. `errors` is a flat list of {field, message} from the handler; resolving it here
-  rather than decorating each field in the view model keeps the error sources — date parts and numbers, and
-  the domain's cross-field rules — rendering identically. Nunjucks has no `break`, so `errorFor`
+  rather than decorating each field in the view model keeps the error sources — date parts, numbers, input the
+  form could not have sent, and the domain's cross-field rules — rendering identically. Nunjucks has no `break`, so `errorFor`
   takes the LAST match rather than the first; a field with two messages is not a case this form
   produces.
 #}
@@ -70,16 +71,33 @@
         value: f.value,
         errorMessage: { text: err } if err | length else undefined
       }) }}
+    {% elif f.kind == "boolean" and f.nullable %}
+      {#
+        Radios, not a checkbox: the contract allows "not answered", which a lone checkbox cannot show or keep —
+        see `nullable` on FieldDef. Neither is selected when `answer` is null, and the view model decides which.
+      #}
+      {{ govukRadios({
+        name: f.name, idPrefix: f.name,
+        classes: "govuk-radios--inline",
+        fieldset: { legend: { text: f.label } },
+        errorMessage: { text: err } if err | length else undefined,
+        items: [
+          { value: "true", text: yes, checked: f.answer === true },
+          { value: "false", text: no, checked: f.answer === false }
+        ]
+      }) }}
     {% elif f.kind == "boolean" %}
       {{ govukCheckboxes({
-        name: f.name,
+        name: f.name, idPrefix: f.name,
+        errorMessage: { text: err } if err | length else undefined,
         items: [{ value: "true", text: f.label, checked: f.checked }]
       }) }}
     {% elif f.kind == "multiselect" %}
       {# Each option's `checked` comes from the view model, which reads stored and replayed values alike. #}
       {{ govukCheckboxes({
-        name: f.name,
+        name: f.name, idPrefix: f.name,
         fieldset: { legend: { text: f.label } },
+        errorMessage: { text: err } if err | length else undefined,
         items: f.options
       }) }}
     {% elif f.kind == "number" %}
