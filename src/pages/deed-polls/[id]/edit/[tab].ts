@@ -49,6 +49,9 @@ const en = {
   subgridLinkPrefix: "View",
   save: "Save",
   cancel: "Cancel",
+  // The two answers of a nullable boolean's radios — see `nullable` on FieldDef.
+  yes: "Yes",
+  no: "No",
   // Shown when api refuses the save without naming a field. Its own wording is developer-facing — the
   // fallback in `failureFromResponse` is literally "deed-poll-api answered 400" — and
   // `.claude/rules/backend.md` forbids putting api's internal error text in front of a caseworker, so

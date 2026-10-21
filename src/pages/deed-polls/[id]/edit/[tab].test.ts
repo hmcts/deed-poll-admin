@@ -1,4 +1,4 @@
-import { FORM_TABS, findDeedPoll, InvalidInputError, NotFoundError, updateDeedPoll } from "@hmcts/deed-poll";
+import { enumOptions, type FieldDef, FORM_TABS, findDeedPoll, InvalidInputError, NotFoundError, updateDeedPoll } from "@hmcts/deed-poll";
 import type { Request } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../express-doubles.js";
@@ -48,9 +48,17 @@ function bodyFor(tabId: string): Record<string, string> {
       for (const part of ["day", "month", "year"]) body[`${field.name}-${part}`] = "";
       continue;
     }
-    body[field.name] = field.kind === "number" ? "1" : "value";
+    body[field.name] = valueFor(field);
   }
   return body;
+}
+
+/** What the rendered control sends: anything else is refused before any write (review finding R08). */
+function valueFor(field: FieldDef): string {
+  if (field.kind === "number") return "1";
+  if (field.kind === "boolean") return "true";
+  if ((field.kind === "multiselect" || field.kind === "enum") && field.enumSet) return enumOptions(field.enumSet)[0].value;
+  return "value";
 }
 
 describe("case edit tab page", () => {

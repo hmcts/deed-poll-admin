@@ -11,9 +11,8 @@ export class PostgresStore extends Store {
   private disableTouch: boolean;
   private cleanupInterval: number;
   private cleanupTimer?: NodeJS.Timeout;
-  private tableInitialized = false;
 
-  constructor(options: PostgresStoreOptions) {
+  private constructor(options: PostgresStoreOptions) {
     super();
 
     if (!options.pool) {
@@ -25,17 +24,16 @@ export class PostgresStore extends Store {
     this.schemaName = options.schemaName || "public";
     this.ttl = options.ttl || 86400;
     this.disableTouch = options.disableTouch || false;
-    this.cleanupInterval = options.cleanupInterval || 900000; // 15 minutes default
+    this.cleanupInterval = options.cleanupInterval ?? 900000; // 15 minutes default
+  }
 
-    this.initTable()
-      .then(() => {
-        if (this.cleanupInterval > 0) {
-          this.startCleanup();
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to initialize session table:", err);
-      });
+  static async create(options: PostgresStoreOptions): Promise<PostgresStore> {
+    const store = new PostgresStore(options);
+    await store.initTable();
+    if (store.cleanupInterval > 0) {
+      store.startCleanup();
+    }
+    return store;
   }
 
   private async initTable(): Promise<void> {
@@ -50,8 +48,6 @@ export class PostgresStore extends Store {
 
       const createIndexQuery = format("CREATE INDEX IF NOT EXISTS %I ON %I.%I (expire)", `idx_${this.tableName}_expire`, this.schemaName, this.tableName);
       await client.query(createIndexQuery);
-
-      this.tableInitialized = true;
     } finally {
       client.release();
     }
@@ -70,8 +66,6 @@ export class PostgresStore extends Store {
   }
 
   private async clearExpiredSessions(): Promise<void> {
-    if (!this.tableInitialized) return;
-
     const client = await this.pool.connect();
     try {
       const query = format("DELETE FROM %I.%I WHERE expire < NOW()", this.schemaName, this.tableName);
@@ -90,10 +84,6 @@ export class PostgresStore extends Store {
   }
 
   async get(sid: string, callback: (err: any, session?: SessionData | null) => void): Promise<void> {
-    if (!this.tableInitialized) {
-      return callback(null, null);
-    }
-
     const client = await this.pool.connect();
     try {
       const query = format("SELECT sess FROM %I.%I WHERE sid = $1 AND expire > NOW()", this.schemaName, this.tableName);
@@ -113,10 +103,6 @@ export class PostgresStore extends Store {
   }
 
   async set(sid: string, session: SessionData, callback?: (err?: any) => void): Promise<void> {
-    if (!this.tableInitialized) {
-      await this.initTable();
-    }
-
     const client = await this.pool.connect();
     try {
       const expire = this.getExpireDate(session);
@@ -137,10 +123,6 @@ export class PostgresStore extends Store {
   }
 
   async destroy(sid: string, callback?: (err?: any) => void): Promise<void> {
-    if (!this.tableInitialized) {
-      return callback?.(null);
-    }
-
     const client = await this.pool.connect();
     try {
       const query = format("DELETE FROM %I.%I WHERE sid = $1", this.schemaName, this.tableName);
@@ -154,7 +136,7 @@ export class PostgresStore extends Store {
   }
 
   async touch(sid: string, session: SessionData, callback?: (err?: any) => void): Promise<void> {
-    if (this.disableTouch || !this.tableInitialized) {
+    if (this.disableTouch) {
       return callback?.(null);
     }
 
@@ -174,10 +156,6 @@ export class PostgresStore extends Store {
   }
 
   async clear(callback?: (err?: any) => void): Promise<void> {
-    if (!this.tableInitialized) {
-      return callback?.(null);
-    }
-
     const client = await this.pool.connect();
     try {
       const query = format("DELETE FROM %I.%I", this.schemaName, this.tableName);
@@ -191,10 +169,6 @@ export class PostgresStore extends Store {
   }
 
   async length(callback: (err: any, length?: number) => void): Promise<void> {
-    if (!this.tableInitialized) {
-      return callback(null, 0);
-    }
-
     const client = await this.pool.connect();
     try {
       const query = format("SELECT COUNT(*) FROM %I.%I", this.schemaName, this.tableName);
@@ -209,10 +183,6 @@ export class PostgresStore extends Store {
   }
 
   async all(callback: (err: any, sessions?: SessionData[] | { [sid: string]: SessionData } | null) => void): Promise<void> {
-    if (!this.tableInitialized) {
-      return callback(null, {});
-    }
-
     const client = await this.pool.connect();
     try {
       const query = format("SELECT sid, sess FROM %I.%I WHERE expire > NOW()", this.schemaName, this.tableName);
