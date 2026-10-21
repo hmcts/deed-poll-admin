@@ -1,6 +1,6 @@
 /**
  * IDAM's end-session address, or `undefined` when it cannot be had right now (review finding R04, plan
- * `docs/plans/20261021-r04-timeout-during-idam-outage.md`).
+ * `docs/plans/completed/20261021-r04-timeout-during-idam-outage.md`).
  *
  * Asked only after the session has been ended here. A discovery failure, including the cooldown that follows one, is
  * treated like an issuer that advertises no end-session endpoint: the local end is already done, so the caller falls
