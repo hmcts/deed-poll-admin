@@ -45,15 +45,21 @@ import {
   signOut,
   storeAccess
 } from "./session.js";
+import { STATUS_PATH, TIMED_OUT_PATH } from "./session-lifetime.js";
 import { idamSettings } from "./settings.js";
 
 const REFRESH_WINDOW_SECONDS = 5 * 60; // Refresh 5 minutes before expiry
-// Revocation must never wait on renewal: a request holding the lease would otherwise delay or fail a sign-out.
-const LOGOUT_PATH = "/logout";
+/**
+ * Paths that are never renewed. Revocation must never wait on renewal: a request holding the lease would otherwise
+ * delay or fail a sign-out. The two lifetime paths pass `sessionLifetime` unenforced, so a session past its absolute
+ * limit still reaches them, and renewing it there would issue IDAM tokens for a session that is over (review finding
+ * R06). The status poll's answer and the timed-out page need nothing this middleware does.
+ */
+const NOT_REFRESHED_PATHS = new Set(["/logout", STATUS_PATH, TIMED_OUT_PATH]);
 
 export async function refreshMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   const user = sessionUser(req);
-  if (!user || req.path === LOGOUT_PATH) {
+  if (!user || NOT_REFRESHED_PATHS.has(req.path)) {
     // Not signed in — nothing to refresh. `requireAuth` would have already redirected.
     return next();
   }

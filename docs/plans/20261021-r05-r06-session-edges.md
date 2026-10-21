@@ -108,11 +108,11 @@ session and the next one builds over it, wiping the results.
 **Files:** `src/auth/refresh-middleware.ts` and its tests, `src/auth/session-lifetime.ts` (to export or share the
 path constants, if needed).
 
-- [ ] Add failing tests: on a session 60 s past its absolute limit with its token inside the refresh window,
+- [x] Add failing tests: on a session 60 s past its absolute limit with its token inside the refresh window,
       `GET /session/status` answers as before (`absoluteRemaining: 0`) and makes no IDAM refresh and no `/me` call,
       and stored tokens are unchanged; the same for `GET /session-timed-out`; on any other path a session inside the
       window is still refreshed.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 3: Record the rules and hand off
 
@@ -160,6 +160,20 @@ and `refreshMiddleware` skips only `/logout`.
   The OAuth callback still calls `signIn`, and `callback.test.ts` now pins that it never consults the store.
 - Validation: lint clean; build 8/8; tests 8/8 tasks, no skips. The app suite is 121 files / 2563 tests (+12), and
   every other package is unchanged from the baseline.
+
+### Task 2 (R06)
+
+- Red: in `src/auth/session-lifetime-refresh.test.ts`, a session 60 s past its absolute limit with two minutes of
+  token left, run through `sessionLifetime` and `refreshMiddleware` and then the real page handler, called IDAM's
+  refresh on both `/session/status` and `/session-timed-out`. The two `refresh-middleware.test.ts` cases (a session
+  holding no `/me` answer, on each path) claimed the lease and refreshed. Four failures.
+- Green: `refreshMiddleware` skips `NOT_REFRESHED_PATHS`, which is `/logout` plus `STATUS_PATH` and `TIMED_OUT_PATH`
+  imported from `session-lifetime.ts`. The skip comes before the backfill, so neither path asks `/me`. The status
+  answer (`absoluteRemaining: 0`) and the timed-out render are unchanged, and the existing control case still
+  renews a session within its limits on `/deed-polls`. `src/app.test.ts` mocked `session-lifetime.js` whole, so its
+  mock now spreads the original to keep the constants.
+- Validation: lint clean (the 1 info); build 8/8; tests 8/8 tasks, no skips. The app suite is 121 files / 2567 tests
+  (+4), and every other package is unchanged from the baseline.
 
 ## Post-Completion
 
