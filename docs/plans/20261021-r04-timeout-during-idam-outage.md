@@ -91,10 +91,10 @@ session and the next one builds over it, wiping the results.
 
 **Files:** `src/pages/logout.ts` and its tests.
 
-- [ ] Add failing tests: with discovery failing, logout destroys the session, sets `Clear-Site-Data: "cache"`, and
+- [x] Add failing tests: with discovery failing, logout destroys the session, sets `Clear-Site-Data: "cache"`, and
       redirects to `/`, with exactly one `auth.logout` event; with IDAM healthy, it still redirects to IDAM's
       end-session page.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 3: Record the order and hand off
 
@@ -134,6 +134,21 @@ session and the next one builds over it, wiping the results.
   `yarn turbo test test:app --concurrency=1 --force` with `REDIS_URL` set: 8/8 tasks; app 116 files / 2509 tests;
   deed-poll 1389, api-client 847, cloud-native-platform 157, govuk-starter 127, simple-router 41, session-postgres 30,
   session-redis 7. No failures and no skips.
+
+### Task 2 (2026-10-21)
+
+- `src/pages/logout.ts` now sets `Clear-Site-Data` straight after `signOut`, then asks `availableEndSessionUrl`, and
+  redirects to `/` when it answers `undefined`. Event and `signOut` order unchanged.
+- Red: 4 new unit tests in `logout.test.ts` (the old "rejects when the lookup throws" test replaced by a
+  discovery-failing block: session destroyed, header and `/` redirect, one `auth.logout`, lookup after destroy) and 2
+  of 3 in the new `src/pages/logout-idam-outage.test.ts` (real `openid-client`, loopback discovery answering 503,
+  then the cooldown) failed with `ClientError` / a rejection. The healthy-IDAM case passed before and after. Two
+  existing assertions were loosened from full-arity `toHaveBeenCalledWith` to the id-token argument, since the helper
+  forwards an undefined `postLogoutPath`.
+- Green: focused 17/17. `yarn lint` clean (existing biome-migrate info only), `yarn build` 8/8,
+  `yarn turbo test test:app --concurrency=1 --force` with `REDIS_URL` set: 8/8 tasks; app 117 files / 2515 tests;
+  deed-poll 1389, api-client 847, cloud-native-platform 157, govuk-starter 127, simple-router 41, session-postgres 30,
+  session-redis 7. No failures, no skips.
 
 ## Post-Completion
 
