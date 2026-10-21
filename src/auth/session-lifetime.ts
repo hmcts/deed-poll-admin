@@ -15,8 +15,8 @@
  */
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { renderTimedOut } from "../pages/session-timed-out/index.js";
+import { availableEndSessionUrl } from "./end-session.js";
 import { endedElsewhere } from "./ended-elsewhere.js";
-import { endSessionUrl } from "./idam.js";
 import { isProbeOrAssetPath, isPublicPath } from "./require-auth.js";
 import { safeReturnTo } from "./return-to.js";
 import { securityEvent } from "./security-events.js";
@@ -93,17 +93,21 @@ async function endTimedOutSession(req: Request, res: Response, reason: EndReason
   console.warn(`session ended: ${reason}`);
   securityEvent("auth.session.ended", req, { reason });
 
+  // Read before the restart takes it with the session. IDAM is asked only after the local end, so an IDAM outage
+  // cannot leave a timed-out session standing (R04).
   const idToken = sessionIdToken(req);
-  const away = await endSessionUrl(idamSettings(), idToken, limits.logoutPathRegistered ? TIMED_OUT_PATH : "/");
+  const postLogoutPath = limits.logoutPathRegistered ? TIMED_OUT_PATH : "/";
 
   if (req.method === "GET") {
     await restartAfterTimeout(req, safeReturnTo(req.originalUrl));
+    const away = await availableEndSessionUrl(idamSettings(), idToken, postLogoutPath);
     return res.redirect(away ?? TIMED_OUT_PATH);
   }
 
   // Never replayed: the person at the PC may not be who submitted it. The sign-in link ends the IDAM session first,
   // for the same reason the GET route does, rather than offering `/login`.
   await restartAfterTimeout(req, undefined);
+  const away = await availableEndSessionUrl(idamSettings(), idToken, postLogoutPath);
   res.status(401);
   renderTimedOut(res, { unsaved: true, signInHref: away ?? "/login" });
 }

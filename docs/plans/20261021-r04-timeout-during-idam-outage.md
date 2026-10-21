@@ -80,12 +80,12 @@ session and the next one builds over it, wiping the results.
 
 **Files:** `src/auth/session-lifetime.ts` and its tests.
 
-- [ ] Record the execution baseline in the execution notes.
-- [ ] Add failing tests, with discovery failing (a loopback endpoint answering 503, or the cooldown): an idle-expired
+- [x] Record the execution baseline in the execution notes.
+- [x] Add failing tests, with discovery failing (a loopback endpoint answering 503, or the cooldown): an idle-expired
       GET is regenerated on the first request and redirected to the timed-out page; the old Redis key is gone; exactly
       one `auth.session.ended` event is emitted, carrying the old `sid`; the non-GET branch ends the session too. With
       IDAM healthy, the redirect to IDAM's end-session page is unchanged.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 2: Sign out cleanly while IDAM is unreachable (R04)
 
@@ -117,6 +117,23 @@ session and the next one builds over it, wiping the results.
 ## Execution notes
 
 (Record baseline, red/green evidence and final results here.)
+
+### Task 1 (2026-10-21)
+
+- Baseline: `4ac848a` (plan commit on `origin/master` `6b438d4`). Finding confirmed there: `endTimedOutSession` awaited
+  `endSessionUrl` before `restartAfterTimeout`, and `src/pages/logout.ts` awaited it before `Clear-Site-Data`. Those
+  are its only two callers, and both want the same fallback, so the catch lives in a new
+  `src/auth/end-session.ts` (`availableEndSessionUrl`) rather than in `endSessionUrl` itself. Its log line is fixed
+  prose, with no error, URL or token.
+- Red: with the baseline `session-lifetime.ts`, 8 of the new tests failed (5 unit tests in
+  `session-lifetime.test.ts`; 3 in the new Redis plus real `openid-client` suite
+  `src/auth/session-lifetime-idam-outage.test.ts`, whose loopback discovery answers 503), all with
+  "IDAM discovery failed recently" or a 500. The healthy-IDAM tests passed before and after.
+- Green: focused suites 54/54 (including `session-lifecycle.test.ts` and `session-lifetime-refresh.test.ts`).
+  `yarn lint` clean (only the existing biome-migrate info), `yarn build` 8/8, and
+  `yarn turbo test test:app --concurrency=1 --force` with `REDIS_URL` set: 8/8 tasks; app 116 files / 2509 tests;
+  deed-poll 1389, api-client 847, cloud-native-platform 157, govuk-starter 127, simple-router 41, session-postgres 30,
+  session-redis 7. No failures and no skips.
 
 ## Post-Completion
 
