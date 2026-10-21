@@ -1,6 +1,6 @@
 /**
  * A timed-out session during an IDAM discovery outage, end to end (review finding R04, plan
- * `docs/plans/20261021-r04-timeout-during-idam-outage.md`).
+ * `docs/plans/completed/20261021-r04-timeout-during-idam-outage.md`).
  *
  * `openid-client` runs for real against a loopback discovery endpoint, and the session lives in real Redis under a
  * per-run prefix that is removed afterwards, never flushed. What is asserted is the response, what Redis holds and the
