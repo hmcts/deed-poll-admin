@@ -103,7 +103,8 @@ export async function seedCases(
       throw new Error(`${key}: read-back differs from the planned state, type, marker, witnesses, notes or referrals. Existing data has not been reset.`);
     }
     if (expectedReferral !== item.referral?.state) deferredJudicial.push(key);
-    report(`${key}  ${actual.displayReference}  ${actual.type}  ${actual.state}${expectedReferral ? ` / referral ${expectedReferral}` : ""}`);
+    const referralSummary = expectedReferral ? ` / referral ${expectedReferral}` : "";
+    report(`${key}  ${actual.displayReference}  ${actual.type}  ${actual.state}${referralSummary}`);
   }
 
   async function step<T>(name: string, write: () => Promise<ApiResult<T>>): Promise<T> {
