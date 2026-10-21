@@ -10,7 +10,7 @@
  * so api authorises the new persona correctly and stamps the audit columns with it. See that file for why the
  * obvious alternative — rewriting the session's `CurrentUser` — produces a UI that lies.
  *
- * **`signIn` and deliberately not `updateTokens`.** Three reasons, and the middle one is the trap this task
+ * **`reSignIn` and deliberately not `updateTokens`.** Three reasons, and the middle one is the trap this task
  * exists for:
  *
  *   - It replaces the **refresh token** as well as the access token. `refreshMiddleware` renews five minutes
@@ -33,10 +33,11 @@
  * looking for a bug in the switcher.
  */
 import type { NextFunction, Request, Response } from "express";
+import { endedElsewhere } from "../auth/ended-elsewhere.js";
 import { personaFor, personaSwitcherEnabled, personaSwitcherView } from "../auth/persona-switcher.js";
 import { loginAsPersona } from "../auth/persona-users.js";
 import { securityEvent } from "../auth/security-events.js";
-import { sessionSubject, signIn } from "../auth/session.js";
+import { isSessionGone, reSignIn, sessionSubject } from "../auth/session.js";
 import { idamSettings } from "../auth/settings.js";
 
 /**
@@ -82,9 +83,16 @@ export const POST = async (req: Request, res: Response, next: NextFunction) => {
     });
   }
 
-  // Before `signIn`, which replaces the subject.
+  // Before `reSignIn`, which replaces the subject.
   const fromSubject = sessionSubject(req);
-  await signIn(req, switched.login.user, switched.login.subject, switched.login.tokens);
+  try {
+    await reSignIn(req, switched.login.user, switched.login.subject, switched.login.tokens);
+  } catch (error) {
+    // Logged out while IDAM answered (review finding R05): that logout stands, and it already emitted its event.
+    // Back to `/` once signed in again, because this URL has no `GET` and would land on the 404 page.
+    if (isSessionGone(error)) return endedElsewhere(req, res, "/");
+    throw error;
+  }
   // After it, so the sid is the regenerated session's.
   securityEvent("auth.persona.switched", req, { fromSubject, toSubject: switched.login.subject, personaId: persona.id });
 

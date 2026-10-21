@@ -360,7 +360,10 @@ vi.mock("./auth/require-role.js", () => ({ requireCapability: vi.fn(() => gates.
 vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gates.persona }));
 vi.mock("./auth/same-origin.js", () => ({ requireSameOrigin: () => gates.sameOrigin }));
 vi.mock("./auth/no-store.js", () => ({ noStore: () => gates.noStore }));
-vi.mock("./auth/session-lifetime.js", () => ({ sessionLifetime: vi.fn(() => gates.sessionLifetime) }));
+vi.mock("./auth/session-lifetime.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./auth/session-lifetime.js")>()),
+  sessionLifetime: vi.fn(() => gates.sessionLifetime)
+}));
 vi.mock("./request-arrival.js", () => ({ recordArrival: () => gates.arrival }));
 
 describe("createApp's judicial gate", () => {
