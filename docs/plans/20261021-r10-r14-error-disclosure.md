@@ -83,14 +83,14 @@ session and the next one builds over it, wiping the results.
 **Files:** `src/pages/oauth2/callback.ts` and its tests (handler, and a template test rendering the real
 `errors/403.njk`).
 
-- [ ] Record the execution baseline in the execution notes.
-- [ ] Add failing tests, with a login flow on the session:
+- [x] Record the execution baseline in the execution notes.
+- [x] Add failing tests, with a login flow on the session:
   - a synthetic marker in `error_description` never appears in the HTML;
   - an unrecognised `error` (including a marker), an `error` with characters outside the code pattern, and a
     repeated `error` or `error_description` (arrays) all render the page with no `reason`;
   - `access_denied` and `temporarily_unavailable` render their fixed sentences;
   - the security event and the 403 status are unchanged in every case.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 2: Describe the 403 accurately (R14)
 
@@ -115,7 +115,28 @@ session and the next one builds over it, wiping the results.
 
 ## Execution notes
 
-(Record baseline, red/green evidence and final results here.)
+### Task 1 (R10)
+
+- **Baseline:** branch `fix/r10-r14-error-disclosure` at `852db63` (the plan commit on `origin/master` `2a87bf5`),
+  `REDIS_URL=redis://127.0.0.1:6379`. `yarn lint` clean (one Biome config-migration info, pre-existing), `yarn build`
+  8/8 tasks, `yarn turbo test test:app --concurrency=1 --force` 8/8 tasks: app 123 files / 2601 tests, deed-poll
+  68 / 1401, api-client 14 / 852, express-govuk-starter 12 / 127, cloud-native-platform 13 / 157,
+  express-session-postgres 2 / 30, express-session-redis 1 / 7, simple-router 4 / 41. No failures, no skips.
+- **Rechecked R10 at baseline:** the `error` branch rendered `req.query.error_description ?? req.query.error`.
+  Confirmed by the new tests failing red: 15 failures across `callback.test.ts` and the new
+  `callback.njk.test.ts` (marker text on the page, raw codes as `reason`). The repeated-`error` case already passed:
+  an array is not a string, so it skips the refusal branch and ends on the exchange-failure 403 with no `reason`.
+  That behaviour is kept and now pinned.
+- **Implementation:** `src/pages/oauth2/callback.ts` maps `access_denied` to "Sign in was cancelled or refused." and
+  `temporarily_unavailable`/`server_error` to one shared "not working at the moment" sentence, through a `Map` so a
+  code such as `constructor` resolves to nothing. Every other value gets no `reason`; `error_description` is no
+  longer read. The `en` pair has `cy = { ...en }` for translation. The security event, the 403 status and the flow
+  consumption are unchanged and pinned (event outcome for a known, unknown and malformed code).
+- **Welsh:** `src/pages/oauth2` was not in the extractor's `INCLUDE`, so it is added. `yarn welsh:check` still
+  crashes on master (`scripts/extract-welsh-strings.mjs:185`, admin#249 not merged), so the new pair was checked by
+  hand: two English keys, `accessDenied` and `unavailable`, mirrored by `cy`, and nothing else in the directory.
+- **Green:** focused `src/pages/oauth2` 2 files / 40 tests. Full run: lint clean, build 8/8, tests 8/8 with app
+  124 files / 2618 tests and every library count as at baseline. No failures, no skips. `yarn format` changed nothing.
 
 ## Post-Completion
 
