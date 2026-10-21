@@ -229,11 +229,14 @@ it("should preserve the exact payload and key after a lost response, even if dat
   vi.mocked(gazetteReviewsCurrent).mockClear().mockResolvedValue(false);
   const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3 * 60 * 60_000);
   try {
-    await render({ journey: lost.journey, action: "check" });
+    await render({ journey: lost.journey, action: "check" }, "en", "admin-session", 12_000);
   } finally {
     clock.mockRestore();
   }
-  expect(sendGazetteSelection).toHaveBeenLastCalledWith(...original);
+  expect(sendGazetteSelection).toHaveBeenLastCalledWith(original[0], original[1], original[2], { timeoutMs: expect.any(Number) });
+  const timeoutMs = vi.mocked(sendGazetteSelection).mock.lastCall?.[3]?.timeoutMs;
+  expect(timeoutMs).toBeGreaterThanOrEqual(5_000);
+  expect(timeoutMs).toBeLessThanOrEqual(13_000);
   expect(gazetteReviewsCurrent).not.toHaveBeenCalled();
 });
 

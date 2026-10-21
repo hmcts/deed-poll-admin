@@ -38,9 +38,28 @@ next refresh fails and the user is logged out immediately, rather than lingering
 ```yaml
 hmcts_access:
   idam_frontend: HMCTS_ACCESS      # Professional-facing
-  mfa_required: false               # Using existing caseworker accounts
+  mfa_required: false               # MFA is enforced upstream by MOJ SSO; see below
   self_registration_allowed: false  # Caseworkers only
 ```
+
+## How staff authenticate (OWASP plan 03, Task 9)
+
+Answered by Steve Newman on 2026-10-15, for OWASP finding M8 (`mfa_required: false`):
+
+| Question | Answer |
+|---|---|
+| (a) Can an HMCTS Access username/password login complete for this client? | No. `@justice.gov.uk` accounts are always sent through MOJ SSO; there is no password sign-in for this client |
+| (b) Does MOJ SSO (Entra) enforce MFA for these staff? | Yes, always, and staff cannot bypass it |
+| (c) What does `mfa_required: true` do, and does it affect the AAT `password` grant? | Moot: the flag stays `false` (plan 03 decision 3) |
+| (d) Does end-session revoke the refresh token? | Yes. No separate revoke call is needed (plan 03 Task 12 dropped) |
+| (e) How long is an IDAM / HMCTS Access session? | 8 hours, shorter than this app's 10-hour absolute limit. A missed end-session hop could allow a silent sign-in for at most 8 hours |
+
+On the strength of these, Steve accepted the M8 risk the same day: the client keeps `mfa_required: false` in
+every environment. The record, its compensating controls and its voiding conditions are
+[ADR-0010 in deed-poll-documentation](https://github.com/hmcts/deed-poll-documentation/blob/main/decisions/0010-staff-mfa-is-enforced-by-moj-sso.md).
+**The acceptance is void if production is added to the client without a review, or if the H1 role gate is not
+in place before production.** AAT testing-support personas still sign in by password without MFA, on test data
+only.
 
 ## Test Users
 

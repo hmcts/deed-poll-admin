@@ -336,9 +336,10 @@ async function render(req: Request, res: Response, journey: GazetteJourney | nul
 }
 
 function pagePresentation(phase: GazetteJourney["phase"] | undefined, content: typeof en, error?: keyof typeof en) {
-  const errorId = phase === "review" ? "checks" : phase === "confirm" ? "confirmed" : "selection";
-  const heading = phase === "review" ? content.reviewHeading : phase === "confirm" || phase === "recover" ? content.confirmHeading : content.heading;
   const errorStatus = error === "unknown" || error === "unavailable" || error === "notSent" || error === "notChecked" ? 503 : 400;
   const status = error ? errorStatus : 200;
-  return { errorId, heading, status };
+  if (phase === "review") return { errorId: "checks", heading: content.reviewHeading, status };
+  if (phase === "confirm") return { errorId: "confirmed", heading: content.confirmHeading, status };
+  if (phase === "recover") return { errorId: "selection", heading: content.confirmHeading, status };
+  return { errorId: "selection", heading: content.heading, status };
 }

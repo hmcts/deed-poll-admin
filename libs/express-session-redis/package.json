@@ -31,14 +31,14 @@
     "lint:fix": "biome check --write ."
   },
   "peerDependencies": {
-    "connect-redis": "^9.0.0",
+    "connect-redis": "^9.0.0 || ^10.0.0",
     "express": "^5.1.0",
     "express-session": "^1.18.2"
   },
   "devDependencies": {
     "@types/express": "5.0.6",
     "@types/express-session": "1.19.0",
-    "connect-redis": "9.0.0",
+    "connect-redis": "10.0.0",
     "express-session": "1.19.0"
   }
 }
