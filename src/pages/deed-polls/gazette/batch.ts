@@ -326,6 +326,7 @@ async function render(req: Request, res: Response, journey: GazetteJourney | nul
 function pagePresentation(phase: GazetteJourney["phase"] | undefined, content: typeof en, error?: keyof typeof en) {
   const errorId = phase === "review" ? "checks" : phase === "confirm" ? "confirmed" : "selection";
   const heading = phase === "review" ? content.reviewHeading : phase === "confirm" || phase === "recover" ? content.confirmHeading : content.heading;
-  const status = error === "unknown" || error === "unavailable" ? 503 : error ? 400 : 200;
+  const errorStatus = error === "unknown" || error === "unavailable" ? 503 : 400;
+  const status = error ? errorStatus : 200;
   return { errorId, heading, status };
 }

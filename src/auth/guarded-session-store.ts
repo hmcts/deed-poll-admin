@@ -187,11 +187,14 @@ export class GuardedSessionStore extends Store {
     const lease = randomUUID();
     const deadline = Date.now() + this.#refreshWaitMs;
     for (;;) {
-      const claimed = await this.#run(CLAIM, sid, [version.inc, lease, String(this.#refreshLeaseMs)]).catch(async (error: unknown) => {
+      let claimed: unknown;
+      try {
+        claimed = await this.#run(CLAIM, sid, [version.inc, lease, String(this.#refreshLeaseMs)]);
+      } catch (error) {
         // A timed-out claim may still have been granted, and nobody else knows its lease, so give it up if it was.
         await this.releaseRefresh(sid, lease).catch(() => {});
         throw error;
-      });
+      }
       if (claimed === 1) return { outcome: "acquired", lease };
       if (claimed === -1) return { outcome: "missing" };
       if (claimed !== 0) return { outcome: "conflict" };

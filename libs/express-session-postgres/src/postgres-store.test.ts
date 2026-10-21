@@ -1,3 +1,4 @@
+import type { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PostgresStore } from "./postgres-store.js";
 
@@ -14,40 +15,39 @@ describe("PostgresStore", () => {
   let store: PostgresStore;
 
   beforeEach(async () => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mockPool.connect.mockResolvedValue(mockClient);
     mockClient.query.mockResolvedValue({ rows: [] });
 
-    store = new PostgresStore({
-      pool: mockPool as any,
+    store = await PostgresStore.create({
+      pool: mockPool as unknown as Pool,
       tableName: "test_session",
       schemaName: "public",
       ttl: 3600,
       cleanupInterval: 0 // Disable auto cleanup for tests
     });
-
-    // Wait for initialization to complete
-    await new Promise((resolve) => setImmediate(resolve));
   });
 
   afterEach(() => {
     store.stopCleanup();
+    vi.useRealTimers();
   });
 
-  describe("constructor", () => {
-    it("should throw error if pool is not provided", () => {
-      expect(() => new PostgresStore({} as any)).toThrow("PostgreSQL connection pool is required");
+  describe("create", () => {
+    it("should reject if pool is not provided", async () => {
+      await expect(PostgresStore.create({})).rejects.toThrow("PostgreSQL connection pool is required");
     });
 
-    it("should set default values", () => {
-      const defaultStore = new PostgresStore({
-        pool: mockPool as any,
+    it("should use the default table name", async () => {
+      const defaultStore = await PostgresStore.create({
+        pool: mockPool as unknown as Pool,
         cleanupInterval: 0
       });
-      expect(defaultStore).toBeDefined();
+      expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining("CREATE TABLE IF NOT EXISTS public.session"));
+      defaultStore.stopCleanup();
     });
 
-    it("should initialize table on construction", async () => {
+    it("should initialize the table and index before returning", async () => {
       expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining("CREATE TABLE IF NOT EXISTS"));
       expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining("CREATE INDEX IF NOT EXISTS"));
     });
@@ -152,8 +152,8 @@ describe("PostgresStore", () => {
     });
 
     it("should skip if disableTouch is true", async () => {
-      const touchStore = new PostgresStore({
-        pool: mockPool as any,
+      const touchStore = await PostgresStore.create({
+        pool: mockPool as unknown as Pool,
         disableTouch: true,
         cleanupInterval: 0
       });
@@ -234,15 +234,79 @@ describe("PostgresStore", () => {
     });
   });
 
-  describe("clearExpiredSessions", () => {
-    it("should create store with cleanup interval", () => {
-      const storeWithCleanup = new PostgresStore({
-        pool: mockPool as any,
-        cleanupInterval: 1000
-      });
+  describe("initialization lifecycle", () => {
+    it("waits for both DDL queries before returning the store and starting cleanup", async () => {
+      vi.useFakeTimers();
+      vi.clearAllMocks();
+      const table = Promise.withResolvers<{ rows: never[] }>();
+      const index = Promise.withResolvers<{ rows: never[] }>();
+      mockClient.query.mockReturnValueOnce(table.promise).mockReturnValueOnce(index.promise);
+      const ready = vi.fn();
+      const creating = PostgresStore.create({ pool: mockPool as unknown as Pool, cleanupInterval: 1000 });
+      void creating.then(ready);
 
-      expect(storeWithCleanup).toBeDefined();
-      storeWithCleanup.stopCleanup();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(mockClient.query).toHaveBeenCalledTimes(1);
+      expect(ready).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+
+      table.resolve({ rows: [] });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(mockClient.query).toHaveBeenCalledTimes(2);
+      expect(ready).not.toHaveBeenCalled();
+      expect(mockClient.release).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+
+      index.resolve({ rows: [] });
+      store = await creating;
+      expect(mockClient.release).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(1);
+      vi.clearAllMocks();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(mockClient.query).toHaveBeenCalledWith("DELETE FROM public.session WHERE expire < NOW()");
+      expect(mockClient.release).toHaveBeenCalledTimes(1);
+
+      store.stopCleanup();
+      store.stopCleanup();
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(mockClient.query).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(["connection", "table", "index"])("propagates %s initialization failures without starting cleanup", async (stage) => {
+      vi.useFakeTimers();
+      vi.clearAllMocks();
+      const error = new Error("Database setup failed");
+      if (stage === "connection") {
+        mockPool.connect.mockRejectedValueOnce(error);
+      } else {
+        if (stage === "index") mockClient.query.mockResolvedValueOnce({ rows: [] });
+        mockClient.query.mockRejectedValueOnce(error);
+      }
+
+      await expect(PostgresStore.create({ pool: mockPool as unknown as Pool })).rejects.toBe(error);
+      expect(mockClient.release).toHaveBeenCalledTimes(stage === "connection" ? 0 : 1);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("disables cleanup when the interval is zero", async () => {
+      vi.useFakeTimers();
+      store = await PostgresStore.create({ pool: mockPool as unknown as Pool, cleanupInterval: 0 });
+      vi.clearAllMocks();
+      await vi.advanceTimersByTimeAsync(900000);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(mockPool.connect).not.toHaveBeenCalled();
+    });
+
+    it("cleans up every 15 minutes by default", async () => {
+      vi.useFakeTimers();
+      store = await PostgresStore.create({ pool: mockPool as unknown as Pool });
+      vi.clearAllMocks();
+      await vi.advanceTimersByTimeAsync(899999);
+      expect(mockClient.query).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mockClient.query).toHaveBeenCalledWith("DELETE FROM public.session WHERE expire < NOW()");
+      expect(mockClient.release).toHaveBeenCalledTimes(1);
     });
   });
 });

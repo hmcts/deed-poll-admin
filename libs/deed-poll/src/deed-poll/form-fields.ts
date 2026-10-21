@@ -31,6 +31,13 @@ export interface FieldDef {
    * `decimal`, which is what absent means. `form-fields.test.ts` pins each editable number field to the contract.
    */
   numberFormat?: NumberFormat;
+  /**
+   * For kind 'boolean': `UpdateCaseRequest` publishes the field as `["boolean", "null"]`, so "not answered" is a
+   * value of its own. Such a field renders as Yes / No radios rather than one checkbox, because an unticked box
+   * and an unanswered question both arrive absent, and reading absent as `false` turned every stored `null`
+   * into "No" on any save of its tab (review finding R07). `form-fields.test.ts` pins this to the contract.
+   */
+  nullable?: boolean;
   /** Read-only on the form (disabled input); never written on save. */
   readOnly?: boolean;
   /**
@@ -117,7 +124,7 @@ const APPLICATION_TAB: TabDef = {
         { name: "referencenumber", label: "Reference number", kind: "number", readOnly: true, column: 1 },
         { name: "displayReference", label: "Display reference", kind: "text", readOnly: true, column: 1 },
         { name: "dateOfApplication", label: "Date of application", kind: "date", column: 1 },
-        { name: "inPerson", label: "In person", kind: "boolean", column: 1 },
+        { name: "inPerson", label: "In person", kind: "boolean", nullable: true, column: 1 },
         // an internal counter, not a caseworker concept
         { name: "postCounter", label: "Post / Counter", kind: "enum", enumSet: "postCounter", queryable: false, column: 1 },
         // unique per case — a lookup, never a filter
