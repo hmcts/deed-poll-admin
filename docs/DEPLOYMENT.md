@@ -251,8 +251,18 @@ database to connect to: that is api's, along with the schema and the Flyway migr
 |---|---|
 | **api deployed to the target environment** | **Outstanding.** api's own `docs/plans/jenkins-pipeline-cutover.md` is what makes this true; until it lands, a deployed pod's readiness probe reports DOWN and Kubernetes keeps it out of the Service. That is the intended behaviour — a pod that cannot reach api cannot serve a single case page |
 | `DEED_POLL_API_URL` | Set in `charts/deed-poll-admin/values.yaml` to `http://deed-poll-api-{env}.service.core-compute-{env}.internal` — the CNP internal host of api's `charts/deed-poll-api`, cluster-internal and cleartext, not an ingress. Preview overrides it to AAT's, because api's preview deploys are per-PR hosts with no stable name |
-| `DEED_POLL_API_TIMEOUT_MS` | Optional. An unset or unparseable value falls back to the adapter's own default rather than becoming `NaN`. The readiness probe does **not** use it: `HEALTH_PROBE_TIMEOUT_MS` is fixed at 2s, because a probe must answer on its own terms |
+| `DEED_POLL_API_TIMEOUT_MS` | Optional, and when set it overrides **every** call's timeout, including the two that have their own. Unset, each call keeps its own: 10 s for JSON calls, 60 s for uploads (`UPLOAD_TIMEOUT_MS`) and 35 s for the Gazette submit and its status-check replay (`GAZETTE_SUBMIT_TIMEOUT_MS`, finding R03). A value below 35 s turns a slow but successful Gazette send back into an unknown outcome. An unparseable value falls back to those per-call defaults rather than becoming `NaN`. The readiness probe does **not** use it: `HEALTH_PROBE_TIMEOUT_MS` is fixed at 2s, because a probe must answer on its own terms |
 | **An S2S credential** | **Nothing to add, and adding one would be wrong.** api authenticates a *forwarded IDAM access token* and nothing else — see its `SecurityConfiguration`, an OAuth2 resource server with no `ServiceAuthorization` filter, and `openapi.json`, whose only security scheme is `bearerAuth`. The caseworker's own token, held in this app's session, is the whole credential. If api ever adds S2S, the answer is a token provider minting one per call against `service-auth-provider-api`, plus an S2S microservice name registered for **this app**; it is not a static secret in the vault. `deed-poll-web/docs/external-dependencies.md` tracks the same requirement for the other frontend |
+
+### Gazette send timeout follow-up
+
+**Outstanding, for others.** api sends a Gazette batch inside the submit request and waits up to 60 s on Notify,
+but the backend Application Gateway cuts api requests off at its 30 s `request_timeout` default, because
+deed-poll-api's entry in `azure-platform-terraform`'s `backend_lb_config.yaml` sets none. A send over 30 s therefore
+answers 504 and shows as an unknown outcome; Check request status recovers it and nothing is sent twice. The fix is a
+platform change raising deed-poll-api's `request_timeout`, or api sending asynchronously. Once the gateway limit is
+raised, raise `GAZETTE_SUBMIT_TIMEOUT_MS` in the api client to sit just above it. See
+`docs/plans/20261021-r03-gazette-submit-timeout.md`.
 
 ### API URL validation and transport follow-up
 

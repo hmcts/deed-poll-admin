@@ -3,8 +3,8 @@
  *
  * api prepares and sends the batch inside the submit request, so an admitted send can take longer than the
  * client's ten-second default and still succeed. These tests drive `sendGazetteSelection` against a local server
- * standing in for api. One waits in real time, because it is the reported case and proves the wiring with no
- * clock trick at all; the rest wrap `AbortSignal.timeout` to run `CLOCK_SCALE` times fast so they stay quick.
+ * standing in for api, wrapping `AbortSignal.timeout` to run `CLOCK_SCALE` times fast: the HTTP and the abort are
+ * real, only the clock is scaled, so a twelve-second send costs the suite a fraction of a second.
  */
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -38,24 +38,21 @@ afterEach(async () => {
   server = undefined;
 });
 
-it(
-  "should report a send api answers after twelve real seconds as sent, with exactly one admission",
-  async () => {
+describe("on a scaled clock", () => {
+  beforeEach(() => {
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => realTimeout(ms / CLOCK_SCALE));
+  });
+
+  it("should report a send api answers after twelve seconds as sent, with exactly one admission", async () => {
     const key = randomUUID();
-    await serve((_req, res) => setTimeout(() => answer(res, 200, SENT), SLOW_SEND_MS));
+    await serve((_req, res) => setTimeout(() => answer(res, 200, SENT), SLOW_SEND_MS / CLOCK_SCALE));
 
     const status = await sendGazetteSelection(INPUT, key, CALLER);
 
     expect(status).toEqual(SENT);
     expect(admitted).toEqual([{ key, body: JSON.stringify(INPUT) }]);
-  },
-  SLOW_SEND_MS + 8_000
-);
-
-describe("on a scaled clock", () => {
-  beforeEach(() => {
-    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
-    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => realTimeout(ms / CLOCK_SCALE));
+    expect(vi.mocked(AbortSignal.timeout)).toHaveBeenCalledExactlyOnceWith(35_000);
   });
 
   it("should report a send api never answers as an unknown outcome, after one admission under the original key", async () => {

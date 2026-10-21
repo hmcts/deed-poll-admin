@@ -155,7 +155,7 @@ the above minus the nine added tests (deed-poll 1389, deed-poll-api-client 847).
 60 s Notify deadline, that a send over 30 s is still an unknown outcome, and the two follow-ups, citing R03 and this
 plan.
 
-Commits: `e9346b5` (plan), `81fa200` (Task 1), and this task's commit. Files changed across the branch:
+Commits: `e9346b5` (plan), `81fa200` (Task 1) and `57af2a7` (Task 2). Files changed across the branch:
 `libs/deed-poll-api-client/src/api/client.ts`, `libs/deed-poll-api-client/src/api/client.test.ts`,
 `libs/deed-poll/src/gazette/submit-timeout.test.ts` (new), `CLAUDE.md`, this plan.
 

@@ -1969,6 +1969,7 @@ describe("the Gazette submit's timeout, which is longer than the JSON default", 
       const result = await submitGazetteNotice(SUBMIT, "the-original-key", { baseUrl: silent.url });
 
       expect(result).toMatchObject({ ok: false, error: { kind: "timeout" } });
+      expect(armed).toEqual([GAZETTE_SUBMIT_TIMEOUT_MS]);
     } finally {
       await silent.close();
     }
