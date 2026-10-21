@@ -82,7 +82,7 @@ function seedCase([state, type, forename, surname, age, referralState]: (typeof 
     inPerson: i % 3 === 2,
     nationality: "BritishCitizen",
     nationalitySection: "Section1",
-    maritalStatus: minor ? "Single" : i % 3 === 0 ? "MarriedCivilPartnership" : "Single",
+    maritalStatus: !minor && i % 3 === 0 ? "MarriedCivilPartnership" : "Single",
     privacy: typeIsPrivate ? "Private" : "Normal",
     publishToLondonGazette: !typeIsPrivate && type !== "DeedOfRelinquishment",
     urgency: urgent ? "Urgent" : "Normal",
@@ -166,7 +166,9 @@ function seedProgress(state: CaseState, anchor: Date, age: number, i: number, mi
 }
 
 function seedWitnesses(state: CaseState, i: number, number: string, minor: boolean): WitnessCreate[] {
-  const witnessCount = state === "Received" ? i % 3 : state === "AwaitingFurtherDocs" ? 1 : 2;
+  let witnessCount = 2;
+  if (state === "Received") witnessCount = i % 3;
+  else if (state === "AwaitingFurtherDocs") witnessCount = 1;
   return Array.from({ length: witnessCount }, (_, w) => ({
     witnessName: `${w === 0 ? "Morgan" : "Casey"} Witness-${number}`,
     witnessAddress: `${w + 1} Synthetic Witness Road, ${TOWNS[i % TOWNS.length]}, ${POSTCODES[i % POSTCODES.length]}`,
