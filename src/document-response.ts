@@ -27,6 +27,15 @@ import type { NextFunction, Response } from "express";
  * api that stops sending one must not silently turn every case document into an inline render. Downloading
  * is the safe reading of an absent instruction.
  */
+/**
+ * A browser parses a policy by ASCII whitespace only (U+0009, U+000A, U+000C, U+000D, U+0020), so a no-break space
+ * or any other non-ASCII character makes the directive it touches a malformed name the browser drops. JavaScript's
+ * `trim()` and `\s` accept such characters, which would read `"\u00a0sandbox"` as the sandbox the browser ignores.
+ * So a policy holding anything but printable ASCII and those separators is not inert at all, and it is split by
+ * ASCII whitespace alone.
+ */
+const CSP_CHARACTERS = /^[\t\n\f\r\x20-\x7e]*$/;
+const CSP_WHITESPACE = /[\t\n\f\r ]+/;
 const FALLBACK_DISPOSITION = 'attachment; filename="document"';
 
 /**
@@ -99,9 +108,9 @@ function mediaType(contentType: string): string {
  * precedence rule it would otherwise depend on.
  */
 function isInertPolicy(contentSecurityPolicy: string | null): boolean {
-  if (!contentSecurityPolicy) return false;
+  if (!contentSecurityPolicy || !CSP_CHARACTERS.test(contentSecurityPolicy)) return false;
 
-  const directives = contentSecurityPolicy.split(";").map((directive) => directive.trim().toLowerCase().split(/\s+/));
+  const directives = contentSecurityPolicy.split(";").map((directive) => directive.toLowerCase().split(CSP_WHITESPACE).filter(Boolean));
   const sandboxes = directives.filter(([name]) => name === "sandbox");
   const defaultSources = directives.filter(([name]) => name === "default-src");
 

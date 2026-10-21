@@ -52,7 +52,13 @@ describe("sendDocument", () => {
     ["a later bare sandbox follows one with an allowance", "default-src 'none'; sandbox allow-same-origin; sandbox"],
     ["a later default-src 'none' follows one that is not", "default-src 'self'; default-src 'none'; sandbox"],
     ["a later default-src is not 'none'", "default-src 'none'; default-src 'self'; sandbox"],
-    ["there is no sandbox", "default-src 'none'"]
+    ["there is no sandbox", "default-src 'none'"],
+    // Browsers split a policy on ASCII whitespace only, so a directive led by U+00A0 is a malformed name they drop,
+    // while JavaScript's trim() and \s would read it as the directive (review of R09).
+    ["no-break spaces lead both directives", "\u00a0default-src 'none'; \u00a0sandbox"],
+    ["a no-break space separates default-src from its source", "default-src\u00a0'none'; sandbox"],
+    ["a no-break space trails the sandbox", "default-src 'none'; sandbox\u00a0"],
+    ["a non-ASCII character appears anywhere in the policy", "default-src 'none'; sandbox; report-uri https://exämple.test"]
   ])("should download a PDF rather than render it in place when %s", (_, contentSecurityPolicy) => {
     const res = streamResponse();
 
