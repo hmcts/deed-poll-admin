@@ -156,6 +156,18 @@ session and the next one builds over it, wiping the results.
   three new strings, two of them pending translation.
 - Handed off to the Ralphex review phases.
 
+### Verification before PR (21 October 2026, Arbor)
+
+- Covers the whole branch: R04 and this signed-out page. ralphex (13m34s) ran after a green baseline; clean on the
+  first external pass. Tree clean, signals genuine. One stale plan path in a test comment fixed in `1e09d17`.
+- Against `origin/master`: audit exit 0; lint exit 0; forced build exit 0; tests exit 0: 232 files, 5,124 tests,
+  none failed or skipped. `yarn welsh:check`: 732 strings, 514 identical (the page's title and body await
+  translation; "Sign in again" reuses the existing Welsh).
+- Red against master's source (the four changed source files restored, new modules kept): 23 of 116 of the new and
+  changed tests fail. All pass with this branch's code.
+- Direct scoped Copilot review (gpt-6-astra, read-only, whole branch against `origin/master`, 76 tool calls): no
+  issues found. An earlier review of R04 alone found the `/` fallback re-sign-in this plan fixes.
+
 ## Post-Completion
 
 Publishing, merging and deployment are separate from this plan.
