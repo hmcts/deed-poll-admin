@@ -34,19 +34,7 @@ export function createGazetteRequests() {
       loseResponse = parsed.data.loseResponse ?? false;
       return { status: 200, body: { state: outcome } };
     },
-    handle(
-      method: string,
-      path: string,
-      query: URLSearchParams,
-      body: unknown,
-      key: unknown,
-      subject: string,
-      name: string,
-      cases: Map<string, MockCase>,
-      settings: Settings,
-      batches: Map<string, LegacyBatch>
-    ): Reply {
-      const context: GazetteContext = { cases, settings, batches };
+    handle({ method, path, query, body, key, subject, name }: GazetteRequest, context: GazetteContext): Reply {
       if (path === "/caseworker/gazette-notice-previews" && method === "POST") {
         return previewRequest(body, context);
       }
@@ -58,7 +46,7 @@ export function createGazetteRequests() {
       }
       const match = /^\/caseworker\/gazette-notices\/([^/]+)(\/cases)?$/.exec(path);
       if (match && method === "GET") {
-        return readRequest(decodeURIComponent(match[1]), Boolean(match[2]), query, batches);
+        return readRequest(decodeURIComponent(match[1]), Boolean(match[2]), query, context.batches);
       }
       return { status: 405, body: { error: "Method not allowed" } };
     }
@@ -253,6 +241,15 @@ function page<T>(rows: T[], query: URLSearchParams, key: string): Reply {
   };
 }
 
+interface GazetteRequest {
+  method: string;
+  path: string;
+  query: URLSearchParams;
+  body: unknown;
+  key: unknown;
+  subject: string;
+  name: string;
+}
 interface GazetteContext {
   cases: Map<string, MockCase>;
   settings: Settings;
