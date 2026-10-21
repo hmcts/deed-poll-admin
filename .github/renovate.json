@@ -46,6 +46,11 @@
       "allowedVersions": "<25"
     },
     {
+      "description": "Hold the Welsh extractor's TypeScript alias on 6.x. TypeScript 7 dropped the JavaScript compiler API that scripts/extract-welsh-strings.mjs parses with; the build's own typescript moves freely",
+      "matchDepNames": ["typescript-6"],
+      "allowedVersions": "<7"
+    },
+    {
       "description": "Group all Node.js version updates",
       "groupName": "Node.js version",
       "matchPackageNames": ["node"],
