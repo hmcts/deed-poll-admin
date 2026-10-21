@@ -169,6 +169,18 @@ session and the next one builds over it, wiping the results.
   session-postgres 2 / 30, session-redis 1 / 7, simple-router 4 / 41. No failures, no skips. Against the baseline,
   the only change is the app's +1 file / +17 tests from Task 1. Handed off to the Ralphex review phases.
 
+### Verification before PR (21 October 2026, Arbor)
+
+- ralphex (11m48s) ran after a green baseline; clean on the first external pass; tree clean, signals genuine. It also
+  added `src/pages/oauth2` to the Welsh extractor's `INCLUDE`, as `CLAUDE.md` requires for a page area that gains an
+  `en`/`cy` pair; the other changes outside the callback are comment wording for R14.
+- Against `origin/master` `2a87bf5`: audit exit 0; lint exit 0; forced build exit 0; tests exit 0: 238 files, 5,233
+  tests, none failed or skipped.
+- Red against master's source (`callback.ts` restored): 15 of 98 new and changed tests fail.
+- Direct scoped Copilot review (gpt-6-astra, read-only, 76 tool calls): no issues found.
+- `yarn welsh:check` could not be run, because the extractor is broken on master until admin#249 merges. The two new
+  sentences were checked by hand: `cy` is `{ ...en }`, so they await translation.
+
 ## Post-Completion
 
 Publishing, merging and deployment are separate from this plan.
