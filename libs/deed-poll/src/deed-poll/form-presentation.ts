@@ -103,17 +103,10 @@ export function privacyEditable(type: DeedPollType | null | undefined, ctx: Pres
 export function tabVisibility(input: PresentationInput): FormPresentation["tabs"] {
   // Enrolment/Return keyed on state: Enroled(4) shows Enrolment only,
   // Returned(5) shows Return only, everything else shows both.
-  let enrolment = true;
-  let ret = true;
-  if (input.state === DeedPollState.Enroled) {
-    enrolment = true;
-    ret = false;
-  } else if (input.state === DeedPollState.Returned) {
-    enrolment = false;
-    ret = true;
-  }
-
-  return { enrolment, return: ret };
+  return {
+    enrolment: input.state !== DeedPollState.Returned,
+    return: input.state !== DeedPollState.Enroled
+  };
 }
 
 /** Build the full presentation model for a record + viewer context. */
