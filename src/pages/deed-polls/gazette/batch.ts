@@ -10,6 +10,7 @@ import {
   gazetteChecklistComplete,
   gazetteReviewsCurrent,
   gazetteReviewVersion,
+  NotFoundError,
   previewGazetteSelection,
   sendGazetteSelection,
   UnauthorizedError
@@ -189,7 +190,12 @@ async function selectCases(req: Request, res: Response, journey: GazetteJourney,
       const id = action.slice(7);
       if (!id || id.length > 255 || (journey.reviews.length >= 100 && !journey.reviews.some((r) => r.id === id)))
         return render(req, res, withSelection, "invalid");
-      const record = await findDeedPoll(id, caller);
+      const record = await findDeedPoll(id, caller).catch((error: unknown) => {
+        // No such case is a bad action, not an outage, so the visit stands (review finding R11).
+        if (error instanceof NotFoundError) return null;
+        throw error;
+      });
+      if (!record) return render(req, res, withSelection, "invalid");
       return render(req, res, { ...withSelection, phase: "review", reviewing: { id, version: gazetteReviewVersion(record) } }, undefined, record);
     }
     if (typeof action === "string" && /^page:[1-9]\d{0,5}$/.test(action)) return render(req, res, { ...withSelection, page: Number(action.slice(5)) });

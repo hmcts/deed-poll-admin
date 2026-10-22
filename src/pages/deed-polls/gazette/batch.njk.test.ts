@@ -1,3 +1,4 @@
+import { createServer, type Server } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -307,6 +308,61 @@ it("should reject copied session state or a direct send without valid confirmati
   const missing = await render({ action: "send", confirmed: "yes" });
   expect(missing.markup).not.toContain('value="send"');
   expect(sendGazetteSelection).not.toHaveBeenCalled();
+});
+
+describe("a review action naming no usable case (review finding R11)", () => {
+  let paths: string[];
+  let server: Server;
+  const previousUrl = process.env.DEED_POLL_API_URL;
+
+  beforeEach(async () => {
+    paths = [];
+    server = createServer((req, res) => {
+      paths.push(req.url ?? "");
+      res.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ message: "Case not found" }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    process.env.DEED_POLL_API_URL = `http://127.0.0.1:${address && typeof address === "object" ? address.port : 0}`;
+  });
+
+  // After the visit is set up, so only the action under test reaches the real domain and adapter.
+  async function readCasesFromApi() {
+    const actual = await vi.importActual<typeof import("@hmcts/deed-poll")>("@hmcts/deed-poll");
+    vi.mocked(findDeedPoll).mockImplementation(actual.findDeedPoll);
+  }
+
+  afterEach(async () => {
+    process.env.DEED_POLL_API_URL = previousUrl;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it.each([".", ".."])("should render the invalid state and keep the visit for review:%s, asking api nothing", async (id) => {
+    const list = await reviewed();
+    await readCasesFromApi();
+
+    const result = await render({ journey: list.journey, action: `review:${id}`, caseIds: ID });
+
+    expect(paths).toEqual([]);
+    expect(result.res.status).toHaveBeenCalledWith(400);
+    expect(result.model?.phase).toBe("select");
+    expect(result.model?.selectedCount).toBe("1 applications selected");
+    expect(result.markup).toContain("This review form is no longer valid");
+    expect(result.markup).not.toContain("The applications could not be checked");
+    expect(console.error).not.toHaveBeenCalledWith("Gazette review or preview unavailable");
+  });
+
+  it("should render the same invalid state when api has no such case", async () => {
+    const list = await render();
+    await readCasesFromApi();
+
+    const result = await render({ journey: list.journey, action: "review:case-gone" });
+
+    expect(paths).toEqual(["/caseworker/cases/case-gone"]);
+    expect(result.res.status).toHaveBeenCalledWith(400);
+    expect(result.model?.phase).toBe("select");
+    expect(result.markup).not.toContain("The applications could not be checked");
+  });
 });
 
 it("should render Welsh checklist and confirmation copy and escape names and preview references", async () => {

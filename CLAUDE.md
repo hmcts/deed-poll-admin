@@ -594,6 +594,10 @@ Search, email preview, email send and upload are limited per IDAM subject
   (`rateLimit.uploadInFlight`) enforces in every mode.
 - **Search counts only a non-blank `q`.** Saved-query and worklist links carry `where` or `filter`, and the dashboard's
   counts are internal reads; counting either would refuse a caseworker for clicking their own dashboard.
+- **The observe-check script's tests skip without `python3`.** `src/rate-limit-observe-check.test.ts` drives
+  `scripts/rate-limit-observe-check.sh` and its parser (review finding R16) only when `python3` runs, and nobody has
+  confirmed the Jenkins agents have it, so a green pipeline may not have run them. Run them locally before changing
+  either file.
 - **Gazette's 429 stays an unknown outcome.** `callGazetteApi` turns it into `GazetteOutcomeUnknownError`, not
   `TooManyRequestsError`, because only a published Gazette refusal proves nothing was admitted under the request's
   key. The Gazette batch page is not limited here; api limits it.
@@ -621,6 +625,13 @@ referral under a case, a saved query, a Gazette request, an email — goes throu
   so a refusal there would report a completed send as an unknown outcome.
 - `src/case-redirects.test.ts` drives the two reported handlers over HTTP. A URL-parsing client resolves `.`, `..`
   and `%2E` as dot segments before sending, so the dot-only refusal is tested at the handler boundary instead.
+- **The api adapter refuses the same three ids itself, so no api request ever carries one** (review finding R11; plan
+  `docs/plans/completed/20261022-r11-r16-path-segments-and-observe-guard.md`). The check is once, in `exchange`
+  (`hasUsableSegments` in `libs/deed-poll-api-client/src/api/client.ts`), which every operation reaches, so a new
+  operation cannot skip it. Such a path answers `{ kind: "not-found" }` with a fixed message naming no id, sends
+  nothing, and reaches a page as `NotFoundError`. That does not replace `pathSegment`: the adapter guards api's
+  paths, the helpers guard this app's redirects. The Gazette batch page's `review:<id>` reads a not-found case as
+  its existing `invalid` state, not as a Gazette outage.
 
 ## Numeric case-form input
 
