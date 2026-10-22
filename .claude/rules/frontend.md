@@ -203,6 +203,9 @@ export const POST = async (req: Request, res: Response) => {
 - **Identical structure** - `cy` object must mirror `en` exactly
 - **Test with `?lng=cy`** - verify all text translates correctly
 - **No hardcoded English** - all visible text must come from content objects
+- **No `as` cast on a nested object in `en`/`cy`** - `scripts/extract-welsh-strings.mjs` does not unwrap one,
+  so its keys silently drop out of the translation request and `yarn welsh:check`. Widen the type where you look
+  it up instead, as the witness pages' `blankErrors` do
 - **A development tool is the one exception, and it is English-only on purpose** - the persona switcher's
   strip and its refusal page hold their copy in a `COPY` const (`src/auth/persona-switcher.ts`,
   `src/pages/switch-persona.ts`) rather than in `en`/`cy` pairs. `yarn welsh:check` fails on a `cy` value

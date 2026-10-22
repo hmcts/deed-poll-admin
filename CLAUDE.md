@@ -731,7 +731,8 @@ no case first, so the body is the only evidence of what the page rendered. The r
   `docs/plans/completed/20261022-r12-r15-gtm-off-and-input-gaps.md`). `TEXTAREA_MAX_LENGTH` (2,000, in `libs/deed-poll/src/deed-poll/form-fields.ts`) is the one constant:
   `[tab].ts` passes it to `edit.njk` as `textareaMaxLength`, and `readFieldInput` reads a textarea whose trimmed text
   is longer as invalid (`too-long`), so `collectFormErrors` refuses it in field order and `buildUpdatePatch` throws.
-  It counts `string.length` (UTF-16 code units) because that is what the browser's `maxlength` counts, so text a
+  It counts `string.length` (UTF-16 code units) with a submitted CRLF counted once, because that is what the
+  browser's `maxlength` and character count measure before the form turns each line break into CRLF, so text a
   browser accepts is never refused. api stores the three textareas as unbounded `text`; a longer legacy value is
   refused on its next save with the field error and redrawn as typed for the caseworker to shorten, never cleared.
   Do not restate the number in a page or template.

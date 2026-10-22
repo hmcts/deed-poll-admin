@@ -19,7 +19,8 @@ import type { NumberFormat } from "./numeric-input.js";
 /**
  * The most characters a `textarea` field saves, and the `maxlength` the edit form's character count advertises.
  * api stores the three as unbounded `text`, so this app is what holds the 2,000 the field definitions describe
- * (review finding R15). A browser's `maxlength` counts UTF-16 code units, and so does `readFieldInput`.
+ * (review finding R15). A browser's `maxlength` counts UTF-16 code units with each line break as one, and so does
+ * `readFieldInput`, though the form submits a line break as CRLF.
  */
 export const TEXTAREA_MAX_LENGTH = 2000;
 

@@ -189,6 +189,15 @@ describe("amend a witness page", () => {
       }
     });
 
+    it("should refuse an absent field as blank rather than as too long", async () => {
+      const res = response();
+
+      await POST(request({ ...SUBMITTED, witnessOccupation: undefined }), res);
+
+      expect(updateWitness).not.toHaveBeenCalled();
+      expect(res.render.mock.calls[0][1].errors.witnessOccupation).toBe("Enter the witness's occupation");
+    });
+
     it("should save padded values trimmed", async () => {
       await POST(request({ ...SUBMITTED, witnessName: "  Sam Doe  ", witnessOccupation: " Nurse " }), response());
 

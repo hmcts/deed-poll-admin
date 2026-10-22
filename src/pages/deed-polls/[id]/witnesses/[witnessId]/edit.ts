@@ -159,12 +159,11 @@ function declarantFrom(value: unknown): boolean | undefined {
 function ownMessages(issues: readonly SchemaIssue[]): Record<string, string> {
   const blankErrors: Readonly<Record<string, string | undefined>> = en.blankErrors;
   return Object.fromEntries(
-    issues
-      .map((issue) => [String(issue.path[0] ?? ""), issue] as const)
-      .flatMap(([field, issue]) => {
-        const message = issue.code === "too_big" ? en.fieldErrors[field] : (blankErrors[field] ?? en.fieldErrors[field]);
-        return message ? [[field, message]] : [];
-      })
+    issues.flatMap((issue) => {
+      const field = String(issue.path[0] ?? "");
+      const message = issue.code === "too_big" ? en.fieldErrors[field] : (blankErrors[field] ?? en.fieldErrors[field]);
+      return message ? [[field, message]] : [];
+    })
   );
 }
 

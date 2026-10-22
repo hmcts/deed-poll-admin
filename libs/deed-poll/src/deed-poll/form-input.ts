@@ -41,7 +41,8 @@ export function readFieldInput(field: FieldDef, body: Record<string, unknown>): 
       if (raw === undefined) return { kind: "absent" };
       if (typeof raw !== "string") return { kind: "invalid" };
       const text = raw.trim();
-      if (field.kind === "textarea" && text.length > TEXTAREA_MAX_LENGTH) return { kind: "invalid", reason: "too-long" };
+      // A browser counts a line break once, then submits it as CRLF, so it is measured as one here too.
+      if (field.kind === "textarea" && text.replace(/\r\n?/g, "\n").length > TEXTAREA_MAX_LENGTH) return { kind: "invalid", reason: "too-long" };
       return { kind: "valid", value: text === "" ? null : text };
     }
   }

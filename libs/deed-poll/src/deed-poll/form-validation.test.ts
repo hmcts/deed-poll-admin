@@ -239,6 +239,13 @@ describe("the textarea limit the edit form advertises (review finding R15)", () 
     expect(collectFormErrors({ returnReason: `  ${"x".repeat(TEXTAREA_MAX_LENGTH)}\n ` }, RETURN)).toEqual([]);
   });
 
+  it("should count a submitted CRLF line break once, as the browser's character count did", () => {
+    const paragraphs = `${"x".repeat(990)}\r\n${"x".repeat(1009)}`;
+
+    expect(collectFormErrors({ returnReason: paragraphs }, RETURN)).toEqual([]);
+    expect(collectFormErrors({ returnReason: `${paragraphs}x` }, RETURN)).toHaveLength(1);
+  });
+
   it("should count UTF-16 code units, as a browser's maxlength does", () => {
     // "😀" is two code units, so 1,000 of them fill the limit and one more character is over it.
     expect(collectFormErrors({ returnReason: "😀".repeat(1000) }, RETURN)).toEqual([]);
