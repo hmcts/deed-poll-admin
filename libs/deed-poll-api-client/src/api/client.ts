@@ -196,7 +196,9 @@ export async function listCases(query: CaseListQuery, config: ApiConfig): Promis
 
   const search = parameters.toString();
 
-  return request(config, "GET", `/caseworker/cases${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.CaseListResponse);
+  const querySuffix = search === "" ? "" : `?${search}`;
+
+  return request(config, "GET", `/caseworker/cases${querySuffix}`, WIRE_SCHEMAS.CaseListResponse);
 }
 
 /** Gazette writes classify only the published structured refusal as proof of no admission. */
