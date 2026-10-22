@@ -26,10 +26,14 @@ export async function seedTestAccounts(options: TestAccountOptions): Promise<See
     throw new Error("IDAM discovery returned an unexpected issuer or token endpoint.");
   if (new URL(discovery.token_endpoint).origin !== new URL(options.issuerUrl).origin)
     throw new Error("IDAM token endpoint is outside the selected issuer origin.");
-  const clientToken = await token(discovery.token_endpoint, { grant_type: "client_credentials", scope: "profile roles" });
-  const result: SeedCredentials = { caseworkerToken: "" };
-  for (const persona of ["admin", "judge"] as const) {
-    if (persona === "judge" && options.deferJudicial) continue;
+  const tokenEndpoint = discovery.token_endpoint;
+  const clientToken = await token(tokenEndpoint, { grant_type: "client_credentials", scope: "profile roles" });
+  const caseworkerToken = await provisionAccount("admin");
+  if (options.deferJudicial) return { caseworkerToken };
+  const judgeToken = await provisionAccount("judge");
+  return { caseworkerToken, judgeToken };
+
+  async function provisionAccount(persona: "admin" | "judge"): Promise<string> {
     const user = accounts[persona];
     await request(`${options.supportUrl}/test/idam/users/${user.id}`, {
       method: "PUT",
@@ -45,15 +49,13 @@ export async function seedTestAccounts(options: TestAccountOptions): Promise<See
         }
       })
     });
-    const accessToken = await token(discovery.token_endpoint, {
+    return token(tokenEndpoint, {
       grant_type: "password",
       scope: "openid profile roles",
       username: user.email,
       password: user.password
     });
-    result[persona === "admin" ? "caseworkerToken" : "judgeToken"] = accessToken;
   }
-  return result;
 
   async function token(endpoint: string, fields: Record<string, string>): Promise<string> {
     const response = await request(endpoint, {
