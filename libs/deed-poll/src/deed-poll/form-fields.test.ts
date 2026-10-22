@@ -9,10 +9,10 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { CASE_FIELD_TABS, EDITABLE_FIELDS, FIELD_BY_NAME, FORM_TABS, LEGACY_REFERRAL_TAB } from "./form-fields.js";
+import { CASE_FIELD_TABS, EDITABLE_FIELDS, FIELD_BY_NAME, FORM_TABS, LEGACY_REFERRAL_TAB, TEXTAREA_MAX_LENGTH } from "./form-fields.js";
 
 const OPENAPI = JSON.parse(readFileSync(new URL("../../../deed-poll-api-client/openapi.json", import.meta.url), "utf8")) as {
-  components: { schemas: { UpdateCaseRequest: { properties: Record<string, { type: string | string[] }> } } };
+  components: { schemas: { UpdateCaseRequest: { properties: Record<string, { type: string | string[]; maxLength?: number }> } } };
 };
 
 const LEGACY_FIELD_NAMES = LEGACY_REFERRAL_TAB.sections.flatMap((section) => section.fields).map((field) => field.name);
@@ -90,6 +90,18 @@ describe("deed-poll/form-fields", () => {
       for (const field of booleans) {
         expect(field.nullable === true, field.name).toBe([properties[field.name]?.type].flat().includes("null"));
       }
+    });
+  });
+
+  describe("textarea fields", () => {
+    it("should cap every textarea at the maxLength api publishes for it, so the form and api refuse the same text", () => {
+      // api holds the same 2,000 since review finding R15 (deed-poll-api#124), counting a line break once as this
+      // app does. A cap that moved at one end only would refuse here what api accepts, or send what api refuses.
+      const textareas = CASE_FIELD_TABS.flatMap((tab) => tab.sections.flatMap((section) => section.fields)).filter((field) => field.kind === "textarea");
+
+      expect(textareas.map((field) => field.name).sort()).toEqual(["masterDirections", "referralNotes", "returnReason"]);
+      for (const field of textareas)
+        expect(OPENAPI.components.schemas.UpdateCaseRequest.properties[field.name].maxLength, field.name).toBe(TEXTAREA_MAX_LENGTH);
     });
   });
 

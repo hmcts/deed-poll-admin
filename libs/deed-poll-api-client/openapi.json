@@ -2897,7 +2897,9 @@
             "enum": ["Approved", "Rejected", null]
           },
           "masterDirections": {
-            "type": ["string", "null"]
+            "type": ["string", "null"],
+            "description": "A line break counts as one character towards maxLength, whether it is sent as LF, CRLF or CR.",
+            "maxLength": 2000
           },
           "masterName": {
             "type": ["string", "null"]
@@ -2966,7 +2968,9 @@
             "enum": ["Yes", "No", null]
           },
           "referralNotes": {
-            "type": ["string", "null"]
+            "type": ["string", "null"],
+            "description": "A line break counts as one character towards maxLength, whether it is sent as LF, CRLF or CR.",
+            "maxLength": 2000
           },
           "refundAmount": {
             "type": ["number", "null"]
@@ -3005,7 +3009,9 @@
             "type": "boolean"
           },
           "returnReason": {
-            "type": ["string", "null"]
+            "type": ["string", "null"],
+            "description": "A line break counts as one character towards maxLength, whether it is sent as LF, CRLF or CR.",
+            "maxLength": 2000
           },
           "signatureReceivedDate": {
             "type": ["string", "null"],
@@ -3136,7 +3142,7 @@
       },
       "CreateWitnessRequest": {
         "additionalProperties": true,
-        "description": "A witness or declarant. All four fields are required: every column is NOT NULL. declarant must be a JSON boolean -- the string \"true\" is refused rather than coerced. Values are stored as submitted and not trimmed. The case comes from the path and no author is recorded, so neither can be set here. Unknown keys are ignored.",
+        "description": "A witness or declarant. All four fields are required: every column is NOT NULL. declarant must be a JSON boolean -- the string \"true\" is refused rather than coerced. The three text fields are trimmed, stored trimmed, and refused if blank; each maximum is measured after trimming. The case comes from the path and no author is recorded, so neither can be set here. Unknown keys are ignored.",
         "properties": {
           "declarant": {
             "type": "boolean",
@@ -3144,16 +3150,21 @@
           },
           "witnessAddress": {
             "type": "string",
-            "description": "The whole address as one free-text field, exactly as the source form holds it.",
-            "maxLength": 250
+            "description": "The whole address as one free-text field, exactly as the source form holds it. Trimmed first: the bounds hold for the trimmed value, which is what is stored, so a blank is refused.",
+            "maxLength": 250,
+            "minLength": 1
           },
           "witnessName": {
             "type": "string",
-            "maxLength": 100
+            "description": "Trimmed first: the bounds hold for the trimmed value, which is what is stored, so a blank is refused.",
+            "maxLength": 100,
+            "minLength": 1
           },
           "witnessOccupation": {
             "type": "string",
-            "maxLength": 100
+            "description": "Trimmed first: the bounds hold for the trimmed value, which is what is stored, so a blank is refused.",
+            "maxLength": 100,
+            "minLength": 1
           }
         },
         "required": ["declarant", "witnessAddress", "witnessName", "witnessOccupation"]
@@ -4720,7 +4731,9 @@
             "enum": ["Approved", "Rejected", null]
           },
           "masterDirections": {
-            "type": ["string", "null"]
+            "type": ["string", "null"],
+            "description": "A line break counts as one character towards maxLength, whether it is sent as LF, CRLF or CR.",
+            "maxLength": 2000
           },
           "masterName": {
             "type": ["string", "null"]
@@ -4789,7 +4802,9 @@
             "enum": ["Yes", "No", null]
           },
           "referralNotes": {
-            "type": ["string", "null"]
+            "type": ["string", "null"],
+            "description": "A line break counts as one character towards maxLength, whether it is sent as LF, CRLF or CR.",
+            "maxLength": 2000
           },
           "refundAmount": {
             "type": ["number", "null"]
@@ -4828,7 +4843,9 @@
             "type": "boolean"
           },
           "returnReason": {
-            "type": ["string", "null"]
+            "type": ["string", "null"],
+            "description": "A line break counts as one character towards maxLength, whether it is sent as LF, CRLF or CR.",
+            "maxLength": 2000
           },
           "signatureReceivedDate": {
             "type": ["string", "null"],
@@ -4951,16 +4968,21 @@
           },
           "witnessAddress": {
             "type": "string",
-            "description": "The whole address as one free-text field, exactly as the source form holds it.",
-            "maxLength": 250
+            "description": "The whole address as one free-text field, exactly as the source form holds it. Trimmed first: the bounds hold for the trimmed value, which is what is stored, so a blank is refused.",
+            "maxLength": 250,
+            "minLength": 1
           },
           "witnessName": {
             "type": "string",
-            "maxLength": 100
+            "description": "Trimmed first: the bounds hold for the trimmed value, which is what is stored, so a blank is refused.",
+            "maxLength": 100,
+            "minLength": 1
           },
           "witnessOccupation": {
             "type": "string",
-            "maxLength": 100
+            "description": "Trimmed first: the bounds hold for the trimmed value, which is what is stored, so a blank is refused.",
+            "maxLength": 100,
+            "minLength": 1
           }
         }
       },
