@@ -90,19 +90,28 @@ describe("email view template", () => {
     expect(rendered).toContain("&lt;b&gt;bold&lt;/b&gt; &amp; so on");
   });
 
-  it("should preserve the body's line breaks in CSS rather than by building markup from it", async () => {
-    // pre-wrap, because turning newlines into <p> or <li> means constructing HTML from caseworker free text.
+  it.each([
+    {
+      behaviour: "preserve the body's line breaks in CSS rather than by building markup from it",
+      // pre-wrap, because turning newlines into <p> or <li> means constructing HTML from caseworker free text.
+      content: "app-email-body",
+      detail: "* One reason\n* Another"
+    },
+    {
+      behaviour: "say this is the wording rather than a copy of what the applicant saw",
+      content: "The wording that was sent",
+      detail: "branded by GOV.UK Notify"
+    },
+    {
+      behaviour: "say no documents were attached rather than leaving the cell empty",
+      content: "Documents attached",
+      detail: "None"
+    }
+  ])("should $behaviour", async ({ content, detail }) => {
     const rendered = await page();
 
-    expect(rendered).toContain("app-email-body");
-    expect(rendered).toContain("* One reason\n* Another");
-  });
-
-  it("should say this is the wording rather than a copy of what the applicant saw", async () => {
-    const rendered = await page();
-
-    expect(rendered).toContain("The wording that was sent");
-    expect(rendered).toContain("branded by GOV.UK Notify");
+    expect(rendered).toContain(content);
+    expect(rendered).toContain(detail);
   });
 
   it.each([
@@ -139,13 +148,6 @@ describe("email view template", () => {
 
     expect(rendered).not.toMatch(/delivered|viewed|opened|downloaded/i);
     expect(rendered).toContain("It is not confirmation that the applicant received or read it.");
-  });
-
-  it("should say no documents were attached rather than leaving the cell empty", async () => {
-    const rendered = await page();
-
-    expect(rendered).toContain("Documents attached");
-    expect(rendered).toContain("None");
   });
 
   it("should list the documents an email carried, so notify-4's attachments need no change here", async () => {
