@@ -12,7 +12,7 @@ export function gazetteSettingsFormSchema(messages: { required: string; invalid:
       .refine((email) => email.indexOf("@") <= 64, messages.invalid),
     revision: z
       .string({ error: messages.reload })
-      .regex(/^(0|[1-9][0-9]*)$/, messages.reload)
+      .regex(/^(0|[1-9]\d*)$/, messages.reload)
       .transform(Number)
       .refine((value) => Number.isSafeInteger(value) && value <= 2147483647, messages.reload)
   });
