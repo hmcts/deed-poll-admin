@@ -121,9 +121,9 @@ its tests if its classification needs changing; the caseworker document route's 
 (a `*.test.ts` that spawns the parser on crafted files, under `src/` like `src/welsh-extractor.test.ts`, or beside the
 script if the root vitest config picks it up).
 
-- [ ] Add failing tests for each refusal listed in the Development Approach, plus one accepted browser-shaped preview
+- [x] Add failing tests for each refusal listed in the Development Approach, plus one accepted browser-shaped preview
       copy, with no network request.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 3: Record the rules and hand off
 
@@ -177,6 +177,28 @@ Both findings rechecked at the baseline: `encodeURIComponent` built every id seg
   and send no request.
 - **Green.** `yarn lint` clean (same one info), `yarn build` 8/8, tests 8/8: app 125 / 2627 (+8), deed-poll-api-client
   15 / 1039 (+187), others unchanged. `yarn format` changed only this task's files.
+
+### Task 2 (R16)
+
+- **Shape.** The parser is `scripts/rate-limit-observe-check-parse.py`, run with `python3 -I`. It has its own
+  tokenizer rather than `shlex`, because a browser writes a body holding an apostrophe in `$'…'` quoting, which
+  `shlex` cannot read, and because refusing shell syntax needs to know what was quoted. Outside quotes only
+  `[A-Za-z0-9_-./:=,+@%]` is allowed. Anything else is refused as shell syntax: `;`, `|`, `&`, `<`, `>`, `$`,
+  a backtick, globbing or brace characters, `#`, or an unescaped line break. Options are an allowlist of what a browser writes (`-H`/`--header`,
+  `-b`/`--cookie`, `-X`/`--request` with `POST` only, `--url`, `-d`/`--data`/`--data-raw`/`--data-binary`,
+  `--compressed`), so `-K`, `--config`, `--next`, `-:`, `-o`, `-O`, `-T`, `--upload-file` and anything else are
+  refused without a list of them. Also refused: a body, header or cookie that curl would read from a file, a URL in
+  any value except a Referer or Origin header, and a URL with characters curl would glob. The parser prints the
+  argument list NUL-separated, with `--disable` inserted first so `~/.curlrc` cannot change the request. The script
+  reads it into an array and runs that array, so `eval` is gone. Messages never include a value from the file.
+  Window alignment, request limits and the summary are unchanged. `--check-only` stops after the parse.
+- **Test.** `src/rate-limit-observe-check.test.ts` runs the real script with `--check-only` on crafted files, with a
+  `curl` stub first on the PATH that records any call. It covers 28 refusals (each exits 3, prints no cookie or body
+  marker and never calls curl), a Chrome-shaped copy that is accepted, the exact argument list for that copy, and a
+  `$'…'` body. Red: all 31 failed before the change. It skips if `python3` is missing, like the Redis suites do
+  without Redis.
+- **Green.** `yarn lint` clean (524 files, same one info), `yarn build` 8/8, tests 8/8: app 126 / 2658 (+31), others
+  unchanged. `yarn format` changed nothing.
 
 ## Post-Completion
 
