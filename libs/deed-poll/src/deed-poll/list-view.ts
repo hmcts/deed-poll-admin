@@ -73,7 +73,7 @@ export const CASE_LIST_COLUMNS: CaseListColumn[] = [
   { label: "Privacy", sort: "privacy" },
   { label: "Received", sort: "dateReceived" },
   { label: "Type", sort: "type" },
-  { label: "State", sort: "state" },
+  { label: "Status", sort: "state" },
   { label: "New forename", sort: "newForename" },
   // Sortable, and confirmed so rather than assumed: `newSurname` is named in the `sort` parameter's
   // sortable-field prose, so the header this pair produces cannot earn a 400.

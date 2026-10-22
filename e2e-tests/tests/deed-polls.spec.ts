@@ -513,7 +513,7 @@ test("caseworker sees how many applications have a returned direction, and follo
   // Decision 5, where a caseworker would notice it: the count is a fact about the service, so another tab —
   // whose own list holds none of these cases — does not narrow it. Against api's global total, which is exactly
   // the claim: a count narrowed by the tab would be below it.
-  await page.getByRole("link", { name: "Enroled" }).click();
+  await page.getByRole("link", { name: "Enrolled" }).click();
   await expect(banner).toContainText("applications have a returned direction needing action");
   await expectReturnedForActionCountMatchesApi(page, request);
 
@@ -851,7 +851,7 @@ test("caseworker is told a case is short of witnesses, and can enrol it once it 
 
   // Saved anyway, because the banner explains and api enforces — a UI that refused to submit would diverge
   // the moment api's rule changed. The message is api's own, rendered against the date it names.
-  await fillDate(page.getByRole("group", { name: "Date enroled" }), { day: "1", month: "4", year: "2026" });
+  await fillDate(page.getByRole("group", { name: "Date enrolled" }), { day: "1", month: "4", year: "2026" });
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("alert")).toContainText("A Deed Poll cannot be sent for enrolment until two witnesses have been recorded.");
   await expect(page.getByRole("alert")).toContainText("This case has one; please add one more witness.");
@@ -868,11 +868,11 @@ test("caseworker is told a case is short of witnesses, and can enrol it once it 
   // Nothing left to say, so nothing is said — and the same date now saves.
   await page.goto(`${caseUrl}/edit/enrolment`);
   await expect(page.getByRole("region", { name: "Important" })).toHaveCount(0);
-  await fillDate(page.getByRole("group", { name: "Date enroled" }), { day: "1", month: "4", year: "2026" });
+  await fillDate(page.getByRole("group", { name: "Date enrolled" }), { day: "1", month: "4", year: "2026" });
   await page.getByRole("button", { name: "Save" }).click();
 
   await expect(page).toHaveURL(`${caseUrl}#enrolment`);
-  await expect(caseHeader(page)).toContainText("Enroled");
+  await expect(caseHeader(page)).toContainText("Enrolled");
 });
 
 /**
@@ -1110,7 +1110,7 @@ test("caseworker saves the query they built, follows it from the filter bar, and
 
   // Away to another tab, which carries the conditions and so is not the saved query: the entry stops being
   // current and becomes the link a caseworker actually travels by.
-  await page.getByRole("link", { name: "Enroled" }).click();
+  await page.getByRole("link", { name: "Enrolled" }).click();
   await savedQueries.getByRole("link", { name: queryName }).click();
 
   // And the conditions are in the builder, not merely in the URL — decision 7, which is the whole reason a

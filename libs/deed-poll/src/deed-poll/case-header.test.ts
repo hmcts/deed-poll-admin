@@ -46,7 +46,7 @@ describe("buildCaseHeader", () => {
   it("reproduces every field from the Dynamics header", () => {
     expect(flatten(buildCaseHeader(record))).toEqual({
       Type: "Adult",
-      State: "Received",
+      Status: "Received",
       "Modified By": "# svc_HMCTS_LCPT_Dev",
       "Modified On": "13 May 2026 at 9:44am",
       "Created By": "Bence Luo"
@@ -61,7 +61,7 @@ describe("buildCaseHeader", () => {
     const tagged = buildCaseHeader(record)
       .rows.filter((r) => r.tag)
       .map((r) => r.key);
-    expect(tagged).toEqual(["State"]);
+    expect(tagged).toEqual(["Status"]);
   });
 
   it("labels enums rather than leaking member names", () => {
@@ -73,7 +73,7 @@ describe("buildCaseHeader", () => {
       })
     );
     expect(header.Type).toBe("Adult Transgender");
-    expect(header.State).toBe("Awaiting Further Docs/Info");
+    expect(header.Status).toBe("Awaiting Further Docs/Info");
   });
 
   it("renders a row predating the audit columns as Not recorded", () => {
@@ -93,7 +93,7 @@ describe("buildCaseHeader", () => {
     // The header is a fixed set of facts: rows must not appear and disappear per
     // case the way the tab sections' optional fields do.
     const header = buildCaseHeader({});
-    expect(header.rows.map((r) => r.key)).toEqual(["Type", "State", "Modified By", "Modified On", "Created By"]);
+    expect(header.rows.map((r) => r.key)).toEqual(["Type", "Status", "Modified By", "Modified On", "Created By"]);
     expect(header.rows.every((r) => r.value === NOT_RECORDED)).toBe(true);
   });
 });

@@ -698,7 +698,7 @@ describe("deed-polls list page", () => {
         "Privacy",
         "Received",
         "Type",
-        "State",
+        "Status",
         "New forename",
         "New surname"
       ]);
@@ -1155,7 +1155,7 @@ describe("deed-polls list page", () => {
       await GET(pageRequest({ query: { sort: "state:asc" } }), res);
 
       const header = res.render.mock.calls[0][1].sortHeaders[4];
-      expect(header).toEqual({ label: "State", field: "state", href: "/deed-polls?sort=state%3Adesc", ariaSort: "ascending" });
+      expect(header).toEqual({ label: "Status", field: "state", href: "/deed-polls?sort=state%3Adesc", ariaSort: "ascending" });
     });
 
     it("carries the tab, the conditions and the order on every page link", async () => {

@@ -152,7 +152,7 @@ const APPLICATION_TAB: TabDef = {
         { name: "parents", label: "Parents", kind: "text", column: 1 },
 
         { name: "privacy", label: "Privacy", kind: "enum", enumSet: "privacy", notNullable: true, column: 2 },
-        { name: "state", label: "State", kind: "enum", enumSet: "state", readOnly: true, column: 2 },
+        { name: "state", label: "Status", kind: "enum", enumSet: "state", readOnly: true, column: 2 },
         { name: "urgency", label: "Urgency", kind: "enum", enumSet: "urgency", notNullable: true, column: 2 },
         // free prose; the queryable fact is the `urgency` enum beside it
         { name: "urgencyreason", label: "Urgency reason", kind: "text", queryable: false, column: 2 },
@@ -333,8 +333,8 @@ const ENROLMENT_TAB: TabDef = {
       // cell empty — a single stack, not two columns.
       label: "Enrolment",
       fields: [
-        { name: "dateEnroled", label: "Date enroled", kind: "date", column: 1 },
-        { name: "daysReceivedToEnroled", label: "Days received to enroled", kind: "number", readOnly: true, column: 1 },
+        { name: "dateEnroled", label: "Date enrolled", kind: "date", column: 1 },
+        { name: "daysReceivedToEnroled", label: "Days received to enrolled", kind: "number", readOnly: true, column: 1 },
         { name: "dateNoticeSentToLondonGazette", label: "Date notice sent to London Gazette", kind: "date", column: 1 }
       ]
     }
