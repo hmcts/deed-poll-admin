@@ -849,7 +849,7 @@ describe("referrals", () => {
     expect(result.ok && result.data.state).toBe("Withdrawn");
     // Recomputed from the referrals rather than pushed: withdrawal is terminal, so the case holds none.
     const after = await getCase(id, config);
-    expect(after.ok && after.data.currentReferralState).toBe(null);
+    expect(after.ok && after.data.currentReferralState).toBeNull();
   });
 
   it("should carry the live referral's state onto the case list row as well as the case", async () => {
@@ -899,7 +899,7 @@ describe("referrals", () => {
     // The direction survives the close: closing records that the office actioned it, not that it is undone.
     expect(result.data).toMatchObject({ state: "Closed", decision: "Approved", publishToGazette: true });
     const after = await getCase(id, config);
-    expect(after.ok && after.data.currentReferralState).toBe(null);
+    expect(after.ok && after.data.currentReferralState).toBeNull();
   });
 
   it("should report conflict when closing a referral no judge has directed", async () => {
@@ -943,7 +943,7 @@ describe("recordConfirmation", () => {
     expect(after.ok && after.data.total).toBe(0);
     // The case itself says it is waiting for nothing, which is the same answer read a second way.
     const read = await getCase(id, config);
-    expect(read.ok && read.data.awaitingConfirmationSince).toBe(null);
+    expect(read.ok && read.data.awaitingConfirmationSince).toBeNull();
   });
 
   it("should send the outcome and the note and nothing else, because the recorder is the token", async () => {
@@ -1365,7 +1365,7 @@ describe("saved queries", () => {
 
     const patched = await patchSavedQuery(created.data.id, { description: null }, config);
 
-    expect(patched.ok && patched.data.description).toBe(null);
+    expect(patched.ok && patched.data.description).toBeNull();
   });
 
   it("should return an unnarrowed query's conditions as an empty array rather than null", async () => {
