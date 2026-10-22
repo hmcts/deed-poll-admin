@@ -98,10 +98,23 @@ describe("direction form template", () => {
     expect(html).toContain('name="publishToGazette"');
   });
 
-  it("should caption the form with the application's reference, so the judge sees what they are directing", async () => {
+  it.each([
+    {
+      behaviour: "should caption the form with the application's reference, so the judge sees what they are directing",
+      content: "KBDP2026-00001"
+    },
+    {
+      behaviour: "should state that the directions are optional, because api does not require them",
+      content: "Directions (optional)"
+    },
+    {
+      behaviour: "should offer cancel as a link back to the referral, so it acts on nothing",
+      content: '<a class="govuk-link" href="/judicial/referrals/ref-1">Cancel</a>'
+    }
+  ])("$behaviour", async ({ content }) => {
     const html = await renderEmpty();
 
-    expect(html).toContain("KBDP2026-00001");
+    expect(html).toContain(content);
   });
 
   // Decision 6, and the reason the handler compares to string literals: an unanswered form must post nothing for
@@ -112,11 +125,29 @@ describe("direction form template", () => {
     expect(html).not.toContain("checked");
   });
 
-  it("should label the decisions in the case's own vocabulary", async () => {
+  it.each([
+    {
+      behaviour: "should label the decisions in the case's own vocabulary",
+      content: 'value="Approved"',
+      detail: 'value="Rejected"'
+    },
+    // api's bound, and a character count rather than a `maxlength`: a browser that stops accepting characters
+    // silently gives no reason for having done so.
+    {
+      behaviour: "should count the directions down from api's 4,000-character limit",
+      content: "govuk-character-count",
+      detail: "4000"
+    },
+    {
+      behaviour: "should post to itself, so nothing is recorded by reaching this page",
+      content: 'action="/judicial/referrals/ref-1/direction"',
+      detail: 'method="post"'
+    }
+  ])("$behaviour", async ({ content, detail }) => {
     const html = await renderEmpty();
 
-    expect(html).toContain('value="Approved"');
-    expect(html).toContain('value="Rejected"');
+    expect(html).toContain(content);
+    expect(html).toContain(detail);
   });
 
   // The Gazette answer is the judge's, and it is asked as its own question rather than inferred from anything
@@ -127,34 +158,6 @@ describe("direction form template", () => {
     expect(html).toContain("Should this deed poll be published in the Gazette?");
     expect(html).toContain('value="true"');
     expect(html).toContain('value="false"');
-  });
-
-  it("should state that the directions are optional, because api does not require them", async () => {
-    const html = await renderEmpty();
-
-    expect(html).toContain("Directions (optional)");
-  });
-
-  // api's bound, and a character count rather than a `maxlength`: a browser that stops accepting characters
-  // silently gives no reason for having done so.
-  it("should count the directions down from api's 4,000-character limit", async () => {
-    const html = await renderEmpty();
-
-    expect(html).toContain("govuk-character-count");
-    expect(html).toContain("4000");
-  });
-
-  it("should post to itself, so nothing is recorded by reaching this page", async () => {
-    const html = await renderEmpty();
-
-    expect(html).toContain('action="/judicial/referrals/ref-1/direction"');
-    expect(html).toContain('method="post"');
-  });
-
-  it("should offer cancel as a link back to the referral, so it acts on nothing", async () => {
-    const html = await renderEmpty();
-
-    expect(html).toContain('<a class="govuk-link" href="/judicial/referrals/ref-1">Cancel</a>');
   });
 
   it("should bring back what was typed and chosen when a submission is rejected", async () => {
