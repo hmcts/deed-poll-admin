@@ -129,12 +129,12 @@ script if the root vitest config picks it up).
 
 **Files:** `CLAUDE.md`, `docs/DEPLOYMENT.md`, this plan.
 
-- [ ] `CLAUDE.md` "Redirect paths": the adapter refuses empty and dot-only ids itself, so no api request carries one.
+- [x] `CLAUDE.md` "Redirect paths": the adapter refuses empty and dot-only ids itself, so no api request carries one.
       `docs/DEPLOYMENT.md`'s observe-check section: the script parses the copied command and runs exactly the checked
       preview request, never `eval`. **Reference this plan by its `docs/plans/completed/` path**, since that is where it
       will be once the run ends.
-- [ ] Record final commits, changed files and test counts in the execution notes.
-- [ ] Run all Validation Commands and hand off to the Ralphex review phases.
+- [x] Record final commits, changed files and test counts in the execution notes.
+- [x] Run all Validation Commands and hand off to the Ralphex review phases.
 
 ## Acceptance Criteria
 
@@ -199,6 +199,27 @@ Both findings rechecked at the baseline: `encodeURIComponent` built every id seg
   without Redis.
 - **Green.** `yarn lint` clean (524 files, same one info), `yarn build` 8/8, tests 8/8: app 126 / 2658 (+31), others
   unchanged. `yarn format` changed nothing.
+
+### Task 3 (handoff)
+
+- **Docs.** `CLAUDE.md` "Redirect paths" gains a bullet: the adapter refuses empty and dot-only ids in `exchange`,
+  sends nothing, and the Gazette `review:<id>` not-found is the `invalid` state. `docs/DEPLOYMENT.md`'s observe-check
+  step says the script parses the copied command, runs exactly the checked list with `--disable`, never `eval`s, and
+  has `--check-only`. Both cite this plan at its `docs/plans/completed/` path.
+- **Commits.** `e9f9061` (R11), `50abbcc` (R16), and this task's docs commit, on `7707dfa` (plan) over `3eb272d`.
+- **Changed files** (against `3eb272d`): `libs/deed-poll-api-client/src/api/client.ts`,
+  `libs/deed-poll-api-client/src/api/client-path-segments.test.ts`, `src/pages/deed-polls/gazette/batch.ts`,
+  `src/pages/deed-polls/gazette/batch.njk.test.ts`, `src/pages/deed-polls/[id]/documents/[documentId]/file.test.ts`,
+  `scripts/rate-limit-observe-check.sh`, `scripts/rate-limit-observe-check-parse.py`,
+  `src/rate-limit-observe-check.test.ts`, `CLAUDE.md`, `docs/DEPLOYMENT.md`, this plan.
+- **Final validation.** `yarn lint`: 524 files, no fixes, the same one info. `yarn build`: 8/8 (cached, no source
+  change since Task 2). Tests 8/8, no failures or skips reported: app 126 / 2658, deed-poll 68 / 1401,
+  deed-poll-api-client 15 / 1039, express-govuk-starter 12 / 127, cloud-native-platform 13 / 157, simple-router
+  4 / 41, express-session-postgres 2 / 30, express-session-redis 1 / 7. Against the baseline: +1 app file and +39 app
+  tests, +1 client file and +187 client tests, nothing else changed. The observe-check script was never run against
+  a live host.
+- **Open risk.** `src/rate-limit-observe-check.test.ts` skips without `python3`; whether the Jenkins agents have it
+  is unchecked.
 
 ## Post-Completion
 
