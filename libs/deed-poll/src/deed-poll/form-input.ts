@@ -37,15 +37,18 @@ export function readFieldInput(field: FieldDef, body: Record<string, unknown>): 
       return readMultiselect(raw, field);
     case "enum":
       return readSelect(raw, field);
-    default: {
-      if (raw === undefined) return { kind: "absent" };
-      if (typeof raw !== "string") return { kind: "invalid" };
-      const text = raw.trim();
-      // A browser counts a line break once, then submits it as CRLF, so it is measured as one here too.
-      if (field.kind === "textarea" && text.replace(/\r\n?/g, "\n").length > TEXTAREA_MAX_LENGTH) return { kind: "invalid", reason: "too-long" };
-      return { kind: "valid", value: text === "" ? null : text };
-    }
+    default:
+      return readTextInput(raw, field);
   }
+}
+
+function readTextInput(raw: unknown, field: FieldDef): FieldInput {
+  if (raw === undefined) return { kind: "absent" };
+  if (typeof raw !== "string") return { kind: "invalid" };
+  const text = raw.trim();
+  // A browser counts a line break once, then submits it as CRLF, so it is measured as one here too.
+  if (field.kind === "textarea" && text.replace(/\r\n?/g, "\n").length > TEXTAREA_MAX_LENGTH) return { kind: "invalid", reason: "too-long" };
+  return { kind: "valid", value: text === "" ? null : text };
 }
 
 /**
