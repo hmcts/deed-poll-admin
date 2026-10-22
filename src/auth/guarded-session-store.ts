@@ -142,7 +142,7 @@ export class GuardedSessionStore extends Store {
 
   override set(sid: string, sess: SessionData, callback: (err?: unknown) => void = () => {}): void {
     const ttl = Math.ceil(this.#ttl(sess));
-    if (!(ttl > 0)) {
+    if (!Number.isSafeInteger(ttl) || ttl <= 0) {
       this.destroy(sid, callback);
       return;
     }
