@@ -111,6 +111,35 @@ beforeEach(() => {
   mock.reset();
 });
 
+describe("API base URL paths", () => {
+  it.each([
+    { label: "no trailing slash", suffix: "", expectedPath: "/caseworker/cases" },
+    { label: "one trailing slash", suffix: "/", expectedPath: "/caseworker/cases" },
+    { label: "several trailing slashes", suffix: "///", expectedPath: "/caseworker/cases" },
+    { label: "a path prefix", suffix: "/proxy///", expectedPath: "/proxy/caseworker/cases" },
+    { label: "internal slashes", suffix: "/proxy//v1///", expectedPath: "/proxy//v1/caseworker/cases" },
+    { label: "an encoded path separator", suffix: "/api%2Fv1///", expectedPath: "/api%2Fv1/caseworker/cases" }
+  ])("should preserve the request path with $label", async ({ suffix, expectedPath }) => {
+    const paths: string[] = [];
+    const recorder = await listen(
+      createServer((req, res) => {
+        paths.push(req.url ?? "");
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ filter: "all", cases: [], page: 1, size: 25, total: 0, totalPages: 0 }));
+      })
+    );
+
+    try {
+      const result = await listCases({}, { baseUrl: `${recorder.url}${suffix}`, timeoutMs: 2000 });
+
+      expect(result.ok).toBe(true);
+      expect(paths).toEqual([expectedPath]);
+    } finally {
+      await recorder.close();
+    }
+  });
+});
+
 describe("getGazetteNoticeHistory", () => {
   const token = `x.${Buffer.from(JSON.stringify({ sub: "admin-1", roles: ["caseworker-deedpoll-delivery-manager"] })).toString("base64url")}.signature`;
 
