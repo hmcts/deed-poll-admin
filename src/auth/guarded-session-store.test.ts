@@ -47,6 +47,56 @@ describe.skipIf(!redisReachable)("the guarded session store", () => {
   });
 
   describe("its contract", () => {
+    describe.each([NaN, -Infinity, -1, 0, Infinity, 1e100, Number.MAX_SAFE_INTEGER + 1])("with an invalid TTL of %s", (ttl) => {
+      it("should leave no record when saving a fresh session", async () => {
+        const store = new GuardedSessionStore({ client: clients[0], prefix: PREFIX, ttl: () => ttl });
+        const sid = randomUUID();
+
+        await set(store, sid, session("fresh"));
+
+        expect(await clients[0].exists(PREFIX + sid)).toBe(0);
+      });
+
+      it("should delete an existing session instead of renewing it", async () => {
+        const sid = await stored("first");
+        const store = new GuardedSessionStore({ client: clients[0], prefix: PREFIX, ttl: () => ttl });
+        const loaded = (await get(store, sid)) as SessionData;
+
+        await set(store, sid, loaded);
+
+        expect(await clients[0].exists(PREFIX + sid)).toBe(0);
+      });
+    });
+
+    it.each(["update", "publish"])("should remove a session with an infinite TTL during %s", async (operation) => {
+      const sid = await stored("first");
+      const store = new GuardedSessionStore({ client: clients[0], prefix: PREFIX, ttl: () => Infinity });
+      const loaded = (await get(store, sid)) as SessionData & { marker: string };
+      if (operation === "publish") {
+        const claim = await store.claimRefresh(sid, loaded);
+        expect(claim.outcome).toBe("acquired");
+        store.attachRefreshLease(loaded, (claim as { lease: string }).lease);
+      }
+      loaded.marker = "second";
+
+      await set(store, sid, loaded);
+
+      expect(await clients[0].exists(PREFIX + sid)).toBe(0);
+    });
+
+    it.each([60, 60.1])("should round a positive TTL of %s up to whole seconds", async (ttl) => {
+      const store = new GuardedSessionStore({ client: clients[0], prefix: PREFIX, ttl: () => ttl });
+      const sid = randomUUID();
+      const started = Date.now();
+
+      await set(store, sid, session("first"));
+
+      expect(await get(stores[1], sid)).toMatchObject({ marker: "first" });
+      const remaining = await clients[0].pTTL(PREFIX + sid);
+      expect(remaining).toBeGreaterThanOrEqual(Math.ceil(ttl) * 1000 - (Date.now() - started) - 1);
+      expect(remaining).toBeLessThanOrEqual(Math.ceil(ttl) * 1000);
+    });
+
     it("should create a session it has never stored, under a fresh id", async () => {
       const sid = randomUUID();
 
