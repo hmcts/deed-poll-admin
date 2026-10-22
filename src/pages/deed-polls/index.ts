@@ -280,7 +280,15 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
     // inferred from the rows this one holds — decision 9.
     const paging = buildPaging(results, (wanted) => listHref({ filter: filter.key, q, conditions, sort, page: wanted }));
 
-    return render(res, view, await savedQueries, await counts, buildCaseList(results.cases), paging, rowErrors, [], submitted);
+    return render(res, view, {
+      savedQueries: await savedQueries,
+      counts: await counts,
+      cases: buildCaseList(results.cases),
+      paging,
+      rowErrors,
+      unaddressed: [],
+      submitted
+    });
   } catch (error) {
     if (!(error instanceof InvalidInputError)) throw error;
 
@@ -290,7 +298,15 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
 
     // No paging: a refused query has no page of results to be one of. The counts survive, because the
     // queries they read are not the one that was refused — decision 5.
-    return render(res, view, await savedQueries, await counts, [], null, [...rowErrors, ...refusals.rows], refusals.unaddressed, submitted);
+    return render(res, view, {
+      savedQueries: await savedQueries,
+      counts: await counts,
+      cases: [],
+      paging: null,
+      rowErrors: [...rowErrors, ...refusals.rows],
+      unaddressed: refusals.unaddressed,
+      submitted
+    });
   }
 }
 
@@ -372,17 +388,7 @@ async function worklistCount(name: string, read: () => Promise<number>): Promise
   }
 }
 
-function render(
-  res: Response,
-  view: ListView,
-  savedQueries: SavedQueryNavGroups,
-  counts: WorklistCounts,
-  cases: CaseListRow[],
-  paging: CaseListPaging | null,
-  rowErrors: QueryRowError[],
-  unaddressed: FieldError[],
-  submitted?: Record<string, unknown>
-) {
+function render(res: Response, view: ListView, { savedQueries, counts, cases, paging, rowErrors, unaddressed, submitted }: ListRenderData) {
   // Resolved here as well as by the render interceptor, because the row builder needs the words before
   // the template does — the pattern `.claude/rules/frontend.md` gives for a schema's messages.
   const content = res.locals.locale === "cy" ? cy : en;
@@ -607,6 +613,17 @@ interface ListView {
   conditions: CaseCondition[];
   sort?: CaseListSort;
   page?: number;
+}
+
+/** The results and validation feedback rendered alongside the requested list view. */
+interface ListRenderData {
+  savedQueries: SavedQueryNavGroups;
+  counts: WorklistCounts;
+  cases: CaseListRow[];
+  paging: CaseListPaging | null;
+  rowErrors: QueryRowError[];
+  unaddressed: FieldError[];
+  submitted?: Record<string, unknown>;
 }
 
 /** Independent counts; Gazette is absent for non-admins. */
