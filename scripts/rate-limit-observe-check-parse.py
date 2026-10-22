@@ -30,6 +30,8 @@ URL_HEADERS = {"referer", "origin"}
 # Headers that would route the checked URL to another virtual host behind the same gateway.
 ROUTING_HEADERS = re.compile(r"host|forwarded|x-forwarded-.*")
 SCHEME = re.compile(rb"[A-Za-z][A-Za-z0-9+.-]*://")
+# curl sends a header or cookie value as given, so a CR or LF in one starts another header the name checks never saw.
+CONTROL = re.compile(rb"[\x00-\x1f\x7f]")
 SIMPLE_ESCAPES = {"a": 7, "b": 8, "e": 27, "E": 27, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11,
                   "\\": 92, "'": 39, '"': 34, "?": 63}
 
@@ -183,6 +185,8 @@ def checked(argv):
 def check_value(option, value):
     if option in ("-X", "--request") and value != b"POST":
         raise Refusal("the method is not POST")
+    if option in ("-H", "--header", "-b", "--cookie") and CONTROL.search(value):
+        raise Refusal("a header or cookie holds a control character, such as a line break")
     if option in ("-H", "--header"):
         if value.startswith(b"@"):
             raise Refusal("a header would be read from a file")
