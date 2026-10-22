@@ -328,8 +328,8 @@ describe("referrals/referrals-view", () => {
   describe("the applicant's confirmation", () => {
     it("should carry nothing at all for a referral nobody asked to confirm, which is most of them", () => {
       // Null rather than a section reading "not recorded": that would answer a question nobody put.
-      expect(buildReferralDetail(REFERRAL).confirmation).toBe(null);
-      expect(buildReferralDetail(DECIDED).confirmation).toBe(null);
+      expect(buildReferralDetail(REFERRAL).confirmation).toBeNull();
+      expect(buildReferralDetail(DECIDED).confirmation).toBeNull();
     });
 
     it("should say when the applicant was asked, and that the answer is still outstanding", () => {
