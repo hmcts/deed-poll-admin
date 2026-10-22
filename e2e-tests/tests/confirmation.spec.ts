@@ -157,6 +157,7 @@ test("caseworker follows the awaiting-confirmation count to the longest wait and
   await expect(caseHeaderRow(page, "State")).toContainText("Returned");
   // Read off the page rather than computed here: it is api's date formatted by the app, and a second formatting in
   // this file would be a third opinion about how one timestamp reads.
+  // biome-ignore lint/performance/useDomNodeTextContent: Playwright Locator reads rendered text; textContent includes hidden text and preserves source whitespace.
   const askedOnCase = ((await notice.innerText()).match(/asked on (.+?) whether/) ?? ["", ""])[1];
   expect(askedOnCase).not.toBe("");
   await expectNoAccessibilityViolations(page);
