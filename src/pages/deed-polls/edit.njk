@@ -166,7 +166,7 @@
         {% for section in sections %}
           <h2 class="govuk-heading-m">{{ section.label }}</h2>
           {% for f in section.fields %}
-            {{ field(f, noteMaxLength) }}
+            {{ field(f, textareaMaxLength) }}
           {% endfor %}
         {% endfor %}
 

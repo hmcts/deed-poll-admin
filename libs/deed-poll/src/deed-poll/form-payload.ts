@@ -40,7 +40,9 @@ import { fieldInputMessage, readFieldInput } from "./form-input.js";
  */
 export function buildUpdatePatch(body: Record<string, unknown>, fields: FieldDef[] = EDITABLE_FIELDS): Record<string, unknown> {
   const readings = fields.filter((field) => !field.readOnly).map((field) => ({ field, input: readFieldInput(field, body) }));
-  const errors = readings.filter(({ input }) => input.kind === "invalid").map(({ field }) => ({ field: field.name, message: fieldInputMessage(field) }));
+  const errors = readings
+    .filter(({ input }) => input.kind === "invalid")
+    .map(({ field, input }) => ({ field: field.name, message: fieldInputMessage(field, input) }));
   if (errors.length > 0) {
     throw new InvalidInputError("Form input could not have been sent by the form", errors);
   }

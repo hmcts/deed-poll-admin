@@ -12,7 +12,7 @@
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { findDeedPoll, InvalidInputError, NotFoundError, updateDeedPoll } from "@hmcts/deed-poll";
+import { findDeedPoll, InvalidInputError, NotFoundError, TEXTAREA_MAX_LENGTH, updateDeedPoll } from "@hmcts/deed-poll";
 import express, { type NextFunction, type Request, type Response } from "express";
 import nunjucks from "nunjucks";
 import supertest from "supertest";
@@ -417,6 +417,70 @@ describe("a save refuses input the rendered form could not have sent (R08)", () 
     // Assert
     expect(saved.status).toBe(302);
     expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toMatchObject({ iShall: [], iHaveSubscribed: [1, 3] });
+  });
+});
+
+describe("a save enforces the textarea limit the page advertises (R15)", () => {
+  const RETURNED = { ...STORED, state: "Returned", dateReturned: "2026-04-01T00:00:00.000Z", returnReason: "Synthetic reason & more" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionUser = undefined;
+    vi.mocked(findDeedPoll).mockResolvedValue(RETURNED as never);
+    vi.mocked(updateDeedPoll).mockResolvedValue(RETURNED as never);
+  });
+
+  it("should advertise the limit it enforces", async () => {
+    // Act
+    const shown = await supertest(app).get("/deed-polls/case-1/edit/return");
+
+    // Assert
+    expect(shown.text).toContain(`data-maxlength="${TEXTAREA_MAX_LENGTH}"`);
+  });
+
+  it("should save text of exactly the limit", async () => {
+    // Arrange
+    const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/return")).text);
+    shown.set("returnReason", "x".repeat(TEXTAREA_MAX_LENGTH));
+
+    // Act
+    const saved = await supertest(app).post("/deed-polls/case-1/edit/return").type("form").send(shown.toString());
+
+    // Assert
+    expect(saved.status).toBe(302);
+    expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toMatchObject({ returnReason: "x".repeat(TEXTAREA_MAX_LENGTH) });
+  });
+
+  it("should refuse text over the limit with a field error, no write, and the text redrawn as typed", async () => {
+    // Arrange
+    const typed = `${"x".repeat(TEXTAREA_MAX_LENGTH)}<y>`;
+    const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/return")).text);
+    shown.set("returnReason", typed);
+
+    // Act
+    const refused = await supertest(app).post("/deed-polls/case-1/edit/return").type("form").send(shown.toString());
+
+    // Assert
+    expect(refused.status).toBe(400);
+    expect(updateDeedPoll).not.toHaveBeenCalled();
+    const message = "Return reason must be 2,000 characters or less";
+    expect(refused.text).toContain(`<a href="#returnReason">${message}</a>`);
+    expect(refused.text).toMatch(
+      new RegExp(`id="returnReason-error" class="govuk-error-message">\\s*<span class="govuk-visually-hidden">Error:</span> ${message}`)
+    );
+    expect(serialise(refused.text).get("returnReason")).toBe(typed);
+  });
+
+  it("should write an ordinary stored value back exactly on an unchanged save", async () => {
+    // Arrange
+    const shown = serialise((await supertest(app).get("/deed-polls/case-1/edit/return")).text);
+
+    // Act
+    const saved = await supertest(app).post("/deed-polls/case-1/edit/return").type("form").send(shown.toString());
+
+    // Assert
+    expect(saved.status).toBe(302);
+    expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).toEqual({ dateReturned: "2026-04-01T00:00:00.000Z", returnReason: "Synthetic reason & more" });
   });
 });
 

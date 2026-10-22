@@ -234,5 +234,24 @@ describe("new deed poll page", () => {
 
       expect(vi.mocked(createDeedPoll).mock.calls[0][0].newForename).toBeUndefined();
     });
+
+    // Review finding R15: the edit tabs trim, so the create had sent names the tabs would not.
+    it("sends the names trimmed", async () => {
+      vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
+
+      await POST(request({ ...validBody, newForename: "  Applicant  ", newSurname: "\tLovelace " }), response());
+
+      expect(vi.mocked(createDeedPoll).mock.calls[0][0]).toEqual(expect.objectContaining({ newForename: "Applicant", newSurname: "Lovelace" }));
+    });
+
+    it("treats a whitespace-only name as absent, the same as an empty one", async () => {
+      vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
+
+      await POST(request({ ...validBody, newForename: "   ", newSurname: " " }), response());
+
+      const sent = vi.mocked(createDeedPoll).mock.calls[0][0];
+      expect(sent.newForename).toBeUndefined();
+      expect(sent.newSurname).toBeUndefined();
+    });
   });
 });

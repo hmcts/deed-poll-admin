@@ -312,7 +312,9 @@ single file:
   not reported as unparsed — it is simply absent, and a page whose other twenty keys are present looks complete. All
   three shapes `.claude/rules/frontend.md` documents are handled now (string, nested object, and a **function** that
   interpolates a runtime value), but a fourth would need adding: `const en = (m) => ({ … })`, the whole-object
-  function form, is not read, and a page written that way would contribute nothing. A second pair mirrors the same
+  function form, is not read, and a page written that way would contribute nothing. Nor is a nested object under a
+  cast (`fieldErrors: { … } as Record<string, string>`): both witness pages' `fieldErrors` are missing that way, so
+  their `blankErrors` carry no cast and the lookup widens the type at the use site instead. A second pair mirrors the same
   way the first does, `<name>Cy = { ...<name>En }`: until 2026-10-19 only a bare `{ ...en }` counted, so a page with
   no plain pair (the judicial document route) reported its strings with no `cy`, and they were missing from
   `yarn welsh:check`'s count. Function entries are reported
@@ -407,6 +409,13 @@ Facts that are easy to get wrong from the code alone, and expensive to get wrong
   build the Key Vault alias map, and `getPropertiesVolumeSecrets` swallows a missing chart by returning an
   empty map — so moving or excluding that file un-aliases every secret with nothing failing until the first
   `config.get` in a deployed pod.
+- **Admin carries no Google Tag Manager, and the CSP names no Google host** (review finding R12; plan
+  `docs/plans/completed/20261022-r12-r15-gtm-off-and-input-gaps.md`). `src/app.ts` calls `configureHelmet({ enableGoogleTagManager: false })` and passes no `gtm` nunjucks
+  global, so the starter's analytics templates render nothing; there is no `gtm` config. The template's placeholder
+  `GTM-XXXXXX` bootstrap was inline and un-nonced, and `*.googletagmanager.com` is a known CSP-bypass host, so the
+  allowance weakened containment for a feature admin does not use. Adopting GTM later needs a real container, a nonce
+  and analytics consent, not a config flag. The change is in the app, not `libs/express-govuk-starter`, and Dynatrace
+  is untouched. `src/analytics.test.ts` pins the rendered page and the exact CSP.
 - **This repo owns no Terraform.** The resource group, Key Vault, App Insights and Redis are all in
   [`hmcts/deed-poll-infra`](https://github.com/hmcts/deed-poll-infra). **Do not create an `infrastructure/`
   directory here.** The Postgres that root also provisions is `deed-poll-api`'s now, not this app's.
@@ -702,7 +711,7 @@ no case first, so the body is the only evidence of what the page rendered. The r
   as `"1e0"`, `"0x2"`, `" 3 "`, `""`, `"2.5"`, one outside the option set or one sent twice, a select value such as `"NotAStatus"`) is refused by `collectFormErrors` in field order
   before any write, and `buildUpdatePatch` throws `InvalidInputError` on the same input. It used to be coerced into
   a clear, a first element or `false`. Nothing ticked still clears a multiselect. A refused field redraws from the
-  stored record rather than as sent, except a mistyped number, which redraws as typed. The messages are
+  stored record rather than as sent, except a mistyped number or a textarea string, which redraw as typed. The messages are
   English-only domain strings like the numeric ones and add nothing to `yarn welsh:check`. The date-part rule is
   `readDateInput`, which `collectDateErrors` uses, so the new-case form's date received and the query builder's date
   rows refuse a repeated or bracketed part the same way rather than reading it as blank.
@@ -718,6 +727,15 @@ no case first, so the body is the only evidence of what the page rendered. The r
   sets `answer` (`true`, `false` or `null`) on a nullable boolean. A replayed value reaches it only once
   `readFieldInput` has accepted it, so it reads a box the way the patch does. `edit.njk` reads only those flags. A template that compares raw values redraws every ticked box unticked on
   a replay, and the corrected resubmit then clears them.
+- **A textarea's advertised `maxlength` is also its enforced limit** (review finding R15; plan
+  `docs/plans/completed/20261022-r12-r15-gtm-off-and-input-gaps.md`). `TEXTAREA_MAX_LENGTH` (2,000, in `libs/deed-poll/src/deed-poll/form-fields.ts`) is the one constant:
+  `[tab].ts` passes it to `edit.njk` as `textareaMaxLength`, and `readFieldInput` reads a textarea whose trimmed text
+  is longer as invalid (`too-long`), so `collectFormErrors` refuses it in field order and `buildUpdatePatch` throws.
+  It counts `string.length` (UTF-16 code units) with a submitted CRLF counted once, because that is what the
+  browser's `maxlength` and character count measure before the form turns each line break into CRLF, so text a
+  browser accepts is never refused. api stores the three textareas as unbounded `text`; a longer legacy value is
+  refused on its next save with the field error and redrawn as typed for the caseworker to shorten, never cleared.
+  Do not restate the number in a page or template.
 - **A locked field redraws from the stored record.** A non-admin's privacy select is rendered disabled, so it is
   never in the body; replaying it would redraw it blank. Read-only fields are excluded from the replay for the same
   reason, and so is any other field the body does not carry, by the same absence test as the patch: drawn empty, a

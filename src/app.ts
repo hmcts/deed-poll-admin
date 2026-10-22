@@ -80,7 +80,9 @@ export async function createApp(): Promise<Express> {
   app.use(cookieParser());
   app.use(monitoringMiddleware(config.get("applicationInsights")));
   app.use(configureNonce());
-  app.use(configureHelmet());
+  // No Google Tag Manager (review finding R12): admin uses none, and the starter's default admits its hosts, a known
+  // CSP-bypass, to the policy. Adopting it later needs a real container, a nonce on its bootstrap and analytics consent.
+  app.use(configureHelmet({ enableGoogleTagManager: false }));
   const sessionSecret = config.get<string>("session.secret");
   assertSessionSecret(sessionSecret);
   const sessionTimeouts = assertSessionTimeouts(config.get("session.idleTimeoutSeconds"), config.get("session.absoluteTimeoutSeconds"));
@@ -189,7 +191,6 @@ export async function createApp(): Promise<Express> {
   await configureGovuk(app, [__dirname], {
     nunjucksGlobals: {
       appAssetPath: isDev ? "/src/assets" : "/assets",
-      gtm: config.get("gtm"),
       dynatrace: config.get("dynatrace")
     },
     assetOptions
