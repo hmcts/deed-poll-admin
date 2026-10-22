@@ -36,12 +36,28 @@ describe("requireSameOrigin", () => {
     expect(next).toHaveBeenCalledWith();
   });
 
-  // The case this middleware exists for, and the measured pair it arrives as: byte-for-byte the same
-  // `Origin` as the test above, distinguishable only by `Sec-Fetch-Site`.
-  it("refuses a post from another service in the same environment, which SameSite=Lax permits", () => {
+  it.each([
+    // The case this middleware exists for, and the measured pair it arrives as: byte-for-byte the same
+    // `Origin` as the test above, distinguishable only by `Sec-Fetch-Site`.
+    {
+      behaviour: "refuses a post from another service in the same environment, which SameSite=Lax permits",
+      secFetchSite: "same-site",
+      origin: "null"
+    },
+    {
+      behaviour: "refuses a cross-site post",
+      secFetchSite: "cross-site",
+      origin: "https://evil.example"
+    },
+    {
+      behaviour: "refuses a sibling's fetch(), which names its origin and is still same-site",
+      secFetchSite: "same-site",
+      origin: "https://xui-webapp.aat.platform.hmcts.net"
+    }
+  ])("$behaviour", ({ secFetchSite, origin }) => {
     const next = vi.fn();
 
-    requireSameOrigin()(requestDouble({ secFetchSite: "same-site", origin: "null" }), pageResponse(), next);
+    requireSameOrigin()(requestDouble({ secFetchSite, origin }), pageResponse(), next);
 
     expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
   });
@@ -51,22 +67,6 @@ describe("requireSameOrigin", () => {
     const next = vi.fn();
 
     requireSameOrigin()(requestDouble({ secFetchSite: "same-site", originalUrl: "/session/keep-alive" }), pageResponse(), next);
-
-    expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
-  });
-
-  it("refuses a cross-site post", () => {
-    const next = vi.fn();
-
-    requireSameOrigin()(requestDouble({ secFetchSite: "cross-site", origin: "https://evil.example" }), pageResponse(), next);
-
-    expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
-  });
-
-  it("refuses a sibling's fetch(), which names its origin and is still same-site", () => {
-    const next = vi.fn();
-
-    requireSameOrigin()(requestDouble({ secFetchSite: "same-site", origin: "https://xui-webapp.aat.platform.hmcts.net" }), pageResponse(), next);
 
     expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
   });
