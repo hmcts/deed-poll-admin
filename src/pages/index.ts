@@ -36,7 +36,7 @@ const CASE_LIST_PATH = "/deed-polls";
 
 const JUDICIAL_POOL_PATH = "/judicial/referrals";
 
-export const GET = async (req: Request, res: Response) => {
+export const GET = (req: Request, res: Response) => {
   // Back here after signing in, not to either home: which one is right is not knowable yet, and `/login`'s own
   // fallback is this path for the same reason.
   if (!sessionUser(req)) {
