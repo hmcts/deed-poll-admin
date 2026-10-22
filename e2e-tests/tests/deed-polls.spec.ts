@@ -1015,8 +1015,14 @@ test("caseworker builds a condition without a round trip, and is told when the v
   await operator.selectOption("between");
   await expect(page.getByRole("group", { name: "Lower value for condition 1" }).getByLabel("Day")).toBeVisible();
   await expect(page.getByRole("group", { name: "Upper value for condition 1" }).getByLabel("Year")).toBeVisible();
+  await expect(page.getByText("Enter both values to use this condition", { exact: true })).toBeVisible();
   await expect(announcer).toHaveText("Condition 1 now asks for two values.");
   await expectNoAccessibilityViolations(page);
+
+  // Numeric bounds use numeric inputs, retaining distinct lower/upper accessible labels.
+  await field.selectOption("ageOfMinor");
+  await expect(page.getByLabel("Lower value for condition 1", { exact: true })).toHaveAttribute("type", "number");
+  await expect(page.getByLabel("Upper value for condition 1", { exact: true })).toHaveAttribute("type", "number");
 
   // A comparison of the same shape keeps a value already typed: `contains` and `is` both ask a text field
   // for one string, and rebuilding the box would empty it under the caseworker.
