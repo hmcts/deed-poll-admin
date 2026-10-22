@@ -382,6 +382,7 @@ function summaryRow(page: Page, key: string): Locator {
  * a well-meaning wording change made in a template.
  */
 async function expectNoReceiptClaim(within: Locator): Promise<void> {
+  // biome-ignore lint/performance/useDomNodeTextContent: Check the rendered wording through Playwright, excluding hidden content.
   const text = (await within.innerText()).toLowerCase();
 
   expect(text.match(/delivered|viewed|opened|downloaded/g) ?? []).toEqual([]);
