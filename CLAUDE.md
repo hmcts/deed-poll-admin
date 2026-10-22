@@ -594,6 +594,10 @@ Search, email preview, email send and upload are limited per IDAM subject
   (`rateLimit.uploadInFlight`) enforces in every mode.
 - **Search counts only a non-blank `q`.** Saved-query and worklist links carry `where` or `filter`, and the dashboard's
   counts are internal reads; counting either would refuse a caseworker for clicking their own dashboard.
+- **The observe-check script's tests skip without `python3`.** `src/rate-limit-observe-check.test.ts` drives
+  `scripts/rate-limit-observe-check.sh` and its parser (review finding R16) only when `python3` runs, and nobody has
+  confirmed the Jenkins agents have it, so a green pipeline may not have run them. Run them locally before changing
+  either file.
 - **Gazette's 429 stays an unknown outcome.** `callGazetteApi` turns it into `GazetteOutcomeUnknownError`, not
   `TooManyRequestsError`, because only a published Gazette refusal proves nothing was admitted under the request's
   key. The Gazette batch page is not limited here; api limits it.

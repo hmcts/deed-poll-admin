@@ -27,6 +27,8 @@ BODY = {"-d", "--data", "--data-raw", "--data-binary"}
 # --data-raw is the one body option that does not read a file named after an "@".
 READS_AT_FILE = {"-d", "--data", "--data-binary"}
 URL_HEADERS = {"referer", "origin"}
+# Headers that would route the checked URL to another virtual host behind the same gateway.
+ROUTING_HEADERS = re.compile(r"host|forwarded|x-forwarded-.*")
 SCHEME = re.compile(rb"[A-Za-z][A-Za-z0-9+.-]*://")
 SIMPLE_ESCAPES = {"a": 7, "b": 8, "e": 27, "E": 27, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11,
                   "\\": 92, "'": 39, '"': 34, "?": 63}
@@ -110,23 +112,21 @@ def ansi_c(text, i):
         if e in SIMPLE_ESCAPES:
             out.append(SIMPLE_ESCAPES[e])
             i += 2
-        elif e in ("x", "u", "U"):
-            limit = {"x": 2, "u": 4, "U": 8}[e]
-            digits = re.match(r"[0-9A-Fa-f]{1,%d}" % limit, text[i + 2:])
+        elif e in ("x", "u"):
+            digits = re.match(r"[0-9A-Fa-f]{1,%d}" % (2 if e == "x" else 4), text[i + 2:])
             if not digits:
                 raise Refusal("a $'...' escape is malformed")
             value = int(digits.group(), 16)
+            if 0xD800 <= value <= 0xDFFF:
+                raise Refusal("a $'...' escape is malformed")
             out += bytes([value]) if e == "x" else chr(value).encode()
             i += 2 + len(digits.group())
-        elif re.match(r"[0-7]", e):
-            digits = re.match(r"[0-7]{1,3}", text[i + 1:]).group()
-            out.append(int(digits, 8) & 0xFF)
-            i += 1 + len(digits)
         elif e == "":
             break
         else:
-            out += ("\\" + e).encode()
-            i += 2
+            # Browsers write only the simple escapes, \x and \u; refusing the rest of bash's set (octal, \U, \c)
+            # means nothing is decoded differently from how bash would decode it.
+            raise Refusal("a $'...' escape is not one a browser writes")
     raise Refusal("a quote is not closed")
 
 
@@ -187,6 +187,8 @@ def check_value(option, value):
         if value.startswith(b"@"):
             raise Refusal("a header would be read from a file")
         name = value.split(b":", 1)[0].strip().lower().decode("utf-8", "replace")
+        if ROUTING_HEADERS.fullmatch(name):
+            raise Refusal("a header would change where the request is routed")
         if name in URL_HEADERS:
             return
     if option in ("-b", "--cookie") and b"=" not in value:

@@ -196,11 +196,12 @@ budget is 30 previews per 10 minutes per subject, in both apps.
 3. **Run the check:** `scripts/rate-limit-observe-check.sh <that file>`.
    - It refuses anything but a preview POST to AAT's admin. `scripts/rate-limit-observe-check-parse.py` parses the
      copied command into an argument list and accepts only what a browser writes: one destination URL, other URLs
-     only in a `Referer` or `Origin` header, a form body, no method but `POST`, no config, output or upload option,
-     and no unquoted shell syntax. The script then runs exactly that list, with `--disable` first so `~/.curlrc`
+     only in a `Referer` or `Origin` header, no `Host` or forwarding header, a form body, no method but `POST`, no
+     config, output or upload option, no file read with `@`, and no unquoted shell syntax. The script then runs exactly that list, with `--disable` first so `~/.curlrc`
      cannot change it, and never `eval`s the file (review finding R16; plan
      `docs/plans/completed/20261022-r11-r16-path-segments-and-observe-guard.md`). A refusal names no value from the
      file. `--check-only` parses and stops, sending nothing.
+   - It needs `python3` on the `PATH`. Without it the script stops with exit 3 before sending anything.
    - It waits for a fresh 10-minute window if the current one is nearly over.
    - It sends 35 previews a second apart and prints a count of each response status.
    - Expect all `200`. A `429` means something is enforcing.

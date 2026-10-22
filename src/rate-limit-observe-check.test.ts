@@ -67,6 +67,8 @@ describe.skipIf(!HAS_PYTHON)("the abuse-limit observe check", () => {
 
       expect(run.status).toBe(0);
       expect(run.output).toContain("Accepted");
+      // The parser's list for this copy holds 17 arguments; the count shows the script's read loop kept every one.
+      expect(run.output).toContain("17 arguments");
       expect(run.output).not.toContain(COOKIE_MARKER);
       expect(run.output).not.toContain(BODY_MARKER);
       expect(existsSync(curlCalled)).toBe(false);
@@ -128,6 +130,14 @@ describe.skipIf(!HAS_PYTHON)("the abuse-limit observe check", () => {
       ["an upload", `curl '${PREVIEW}' -T secrets.txt --data-raw '${BODY}'`],
       ["--upload-file", `curl '${PREVIEW}' --upload-file secrets.txt --data-raw '${BODY}'`],
       ["a body read from a file", `curl '${PREVIEW}' --data @secrets.txt`],
+      ["a -d body read from a file", `curl '${PREVIEW}' -d @secrets.txt`],
+      ["a --data-binary body read from a file", `curl '${PREVIEW}' --data-binary @secrets.txt`],
+      ["a header read from a file", `curl '${PREVIEW}' -H @headers.txt --data-raw '${BODY}'`],
+      ["a Host header", `curl '${PREVIEW}' -H 'Host: other.aat.platform.hmcts.net' --data-raw '${BODY}'`],
+      ["an X-Forwarded-Host header", `curl '${PREVIEW}' -H 'X-Forwarded-Host: other' --data-raw '${BODY}'`],
+      ["a NUL in a $'…' body", `curl '${PREVIEW}' --data-raw $'a\\x00b'`],
+      ["a surrogate $'…' escape", `curl '${PREVIEW}' --data-raw $'a\\uD800b'`],
+      ["an escape no browser writes", `curl '${PREVIEW}' --data-raw $'a\\101b'`],
       ["a cookie read from a file", `curl '${PREVIEW}' -b cookies.txt --data-raw '${BODY}'`],
       ["a second command after ;", `curl '${PREVIEW}' --data-raw '${BODY}'; curl '${SEND}'`],
       ["a second command on its own line", `curl '${PREVIEW}' --data-raw '${BODY}'\ncurl '${SEND}'`],

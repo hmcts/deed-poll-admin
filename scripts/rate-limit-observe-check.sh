@@ -33,7 +33,7 @@ curl_args=()
 while IFS= read -r -d '' arg; do curl_args+=("$arg"); done < <(python3 -I "$PARSER" "$CURL_FILE")
 (( ${#curl_args[@]} > 0 )) || { echo "Refusing: the copied request could not be read." >&2; exit 3; }
 if [[ "$CHECK_ONLY" == true ]]; then
-  echo "Accepted: one preview POST to AAT's admin. Nothing was sent."
+  echo "Accepted: one preview POST to AAT's admin, ${#curl_args[@]} arguments. Nothing was sent."
   exit 0
 fi
 
