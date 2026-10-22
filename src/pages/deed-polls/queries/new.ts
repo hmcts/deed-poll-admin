@@ -82,7 +82,7 @@ const en = {
 // English content in the cy shape — see the note in ../index.ts.
 const cy = { ...en };
 
-export const GET = async (req: Request, res: Response) => {
+export const GET = (req: Request, res: Response) => {
   render(res, req, {}, {}, []);
 };
 
