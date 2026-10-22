@@ -289,8 +289,8 @@ describe("the persona switch", () => {
 
   describe("when the switcher is not on offer", () => {
     // `next()` reaches `notFoundHandler()`, which `app.ts` mounts after the router — so a deployed environment
-    // outside the allowlist answers exactly as it would for a route that does not exist. Same non-enumerability
-    // argument as `/judicial/**`'s 404.
+    // outside the allowlist answers exactly as it would for a route that does not exist — unlike `/judicial/**`'s
+    // refusal, whose 403 discloses the area.
     it("should hand the request on to the not-found handler when the flag is off", async () => {
       settings.set("personaSwitcher.enabled", false);
       const req = signedInCaseworker();

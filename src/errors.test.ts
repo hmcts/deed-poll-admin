@@ -6,8 +6,8 @@
  * deploy). So the one place that decides what a refused caseworker sees was verified by nothing CI runs.
  *
  * What matters here is the status/view pairing rather than the rendering: a 403 answering the **404** view is
- * what keeps `/judicial/**` non-enumerable, and it is exactly the kind of deliberate mismatch a later reader
- * "corrects".
+ * what keeps a guessed `/judicial/**` URL from saying whether that resource exists, and it is exactly the kind of
+ * deliberate mismatch a later reader "corrects". The 403 status still discloses the area (review finding R14).
  */
 import { createHash } from "node:crypto";
 import { ACCESS_GAZETTE, ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "@hmcts/deed-poll";
@@ -45,10 +45,10 @@ describe("domainErrorHandler", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  // The pairing the judicial area's non-enumeration rests on: 403 so the refusal is honest to a client, the 404
-  // view so a caseworker who guessed the URL is not told there is something behind it. `errors/403` exists and is
-  // deliberately not used here — it belongs to the login flow, where the user knows who they are.
-  it("should answer a forbidden request with a 403 status on the 404 view, disclosing nothing", () => {
+  // 403 so the refusal is honest to a client, which also tells it the area exists and is closed to it (R14); the
+  // 404 view so a caseworker who guessed the URL is not told whether that resource exists. `errors/403` exists and
+  // is deliberately not used here — it belongs to the login flow, where the user knows who they are.
+  it("should answer a forbidden request with a 403 status on the 404 view, which names nothing about the resource", () => {
     const res = pageResponse();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 

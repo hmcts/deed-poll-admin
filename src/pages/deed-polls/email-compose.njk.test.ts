@@ -90,11 +90,27 @@ describe("email compose template", () => {
     expect(rendered).not.toContain("additionalNotes");
   });
 
-  it("should open with the judge's own words already in the control", async () => {
+  it.each([
+    {
+      behaviour: "open with the judge's own words already in the control",
+      content: "Identity not established.",
+      label: "The Master&#39;s reason for refusing the application"
+    },
+    {
+      behaviour: "post to the check page, because sending is irreversible",
+      content: 'action="/deed-polls/case-1/emails/application-rejected/preview"',
+      label: "Continue"
+    },
+    {
+      behaviour: "offer a way out that abandons the email rather than sending it",
+      content: 'href="/deed-polls/case-1#emails"',
+      label: "Cancel"
+    }
+  ])("should $behaviour", async ({ content, label }) => {
     const rendered = await page();
 
-    expect(rendered).toContain("Identity not established.");
-    expect(rendered).toContain("The Master&#39;s reason for refusing the application");
+    expect(rendered).toContain(content);
+    expect(rendered).toContain(label);
   });
 
   it("should mark the optional slot as optional and leave the required one unmarked", async () => {
@@ -112,13 +128,6 @@ describe("email compose template", () => {
     expect(rendered).toContain("govuk-character-count");
     expect(rendered).toContain("4000");
     expect(rendered).not.toMatch(/<textarea[^>]*maxlength=/);
-  });
-
-  it("should post to the check page, because sending is irreversible", async () => {
-    const rendered = await page();
-
-    expect(rendered).toContain('action="/deed-polls/case-1/emails/application-rejected/preview"');
-    expect(rendered).toContain("Continue");
   });
 
   it("should carry no journey key when the form is opened from the tab, because none has been minted yet", async () => {
@@ -152,12 +161,5 @@ describe("email compose template", () => {
 
     expect(rendered).not.toContain("<script>alert(1)</script>");
     expect(rendered).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
-  });
-
-  it("should offer a way out that abandons the email rather than sending it", async () => {
-    const rendered = await page();
-
-    expect(rendered).toContain('href="/deed-polls/case-1#emails"');
-    expect(rendered).toContain("Cancel");
   });
 });
