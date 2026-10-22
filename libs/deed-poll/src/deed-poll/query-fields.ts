@@ -101,7 +101,7 @@ export const QUERYABLE_FIELDS: FieldDef[] = [
  * with no second edit — and narrowing it would turn "every form field" into "every form field except the
  * ones someone remembered".
  */
-const DERIVED_FIELD_NAMES = ["daysReceivedToEnroled", "daysReceivedToReturned"];
+const DERIVED_FIELD_NAMES = new Set(["daysReceivedToEnroled", "daysReceivedToReturned"]);
 
 /**
  * The fields the builder's chooser offers, grouped as the case tabs present them — one group per section
@@ -186,7 +186,7 @@ export function queryableField(name: unknown): FieldDef | undefined {
 
 /** Whether the chooser offers the field: neither curated out on the form nor derived by api. */
 function isChoosable(field: FieldDef): boolean {
-  return field.queryable !== false && !DERIVED_FIELD_NAMES.includes(field.name);
+  return field.queryable !== false && !DERIVED_FIELD_NAMES.has(field.name);
 }
 
 /** One `<optgroup>` of the field chooser: a tab's section, labelled from the two. */
