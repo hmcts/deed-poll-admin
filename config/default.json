@@ -26,10 +26,6 @@
     },
     "uploadInFlight": 4
   },
-  "gtm": {
-    "containerId": "GTM-XXXXXX",
-    "enabled": false
-  },
   "dynatrace": {
     "url": "https://your-dynatrace-url.com",
     "enabled": false

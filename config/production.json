@@ -2,9 +2,6 @@
   "personaSwitcher": {
     "enabled": false
   },
-  "gtm": {
-    "enabled": true
-  },
   "dynatrace": {
     "enabled": true
   },

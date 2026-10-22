@@ -106,11 +106,11 @@ session and the next one builds over it, wiping the results.
 **Files:** `src/app.ts`, `config/default.json`, `config/production.json`, and a test (an existing app or helmet test
 in `src/`, or a new colocated one).
 
-- [ ] Record the execution baseline in the execution notes.
-- [ ] Add failing tests through the real app: a rendered page holds no `googletagmanager` or `GTM-` text, and the
+- [x] Record the execution baseline in the execution notes.
+- [x] Add failing tests through the real app: a rendered page holds no `googletagmanager` or `GTM-` text, and the
       `Content-Security-Policy` header names no `googletagmanager.com` or `google-analytics.com` host, while still
       carrying the nonce and the other directives it has today.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 2: Edit-form textarea limit (R15.1)
 
@@ -158,7 +158,28 @@ handler test.
 
 ## Execution notes
 
-(Record baseline, red/green evidence and final results here.)
+### Baseline (2026-10-22)
+
+- Branch `fix/r12-r15-gtm-off-and-input-gaps` at `7394944` (the plan commit on admin `origin/master` `4785bd2`).
+- `yarn lint`: clean, one pre-existing Biome info (the `biome migrate` configuration notice). `yarn build`: 8/8.
+- `yarn turbo test test:app --concurrency=1 --force` with local Redis: all green, no skips. app 126 files / 2,669
+  tests; deed-poll 68 / 1,401; deed-poll-api-client 15 / 1,039; express-govuk-starter 12 / 127; cloud-native-platform
+  13 / 157; simple-router 4 / 41; express-session-postgres 2 / 30; express-session-redis 1 / 7.
+- R12 rechecked: `/signed-out` rendered the GTM bootstrap for `GTM-XXXXXX`, and the CSP carried
+  `*.googletagmanager.com` in `script-src`, `img-src`, `connect-src` and `frame-src` and `*.google-analytics.com` in
+  `img-src` and `connect-src`. Only `src/app.ts` read the `gtm` config; no chart, env mapping or test named it.
+
+### Task 1 (R12)
+
+- New `src/analytics.test.ts` drives the real `createApp` (real starter, helmet, router and `/signed-out` page; Redis
+  and the session store doubled, assets from `dist`). Red at baseline on both tests: GTM markup present, Google hosts
+  in the CSP.
+- `src/app.ts`: `configureHelmet({ enableGoogleTagManager: false })` with a comment citing R12, and no `gtm` global;
+  the `gtm` blocks removed from `config/default.json` and `config/production.json`. Dynatrace and the starter are
+  untouched.
+- The CSP is pinned exactly (nonce normalised). Every directive is as before minus the Google sources; `frame-src`
+  disappears because GTM was its only source, so frames fall back to `default-src 'self'`.
+- After: lint clean (same info), build 8/8, app 127 files / 2,671 tests (+2), every other package unchanged, no skips.
 
 ## Post-Completion
 
