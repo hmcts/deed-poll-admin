@@ -117,7 +117,7 @@ describe("POST /__mock/cases", () => {
     const seeded = await response.json();
     expect(seeded.newForename).toBe("Jo");
     expect(seeded.state).toBe("Enroled");
-    expect(seeded.displayReference).toBe(null);
+    expect(seeded.displayReference).toBeNull();
   });
 
   it("should seed a case with children, so a page can be tested against a populated one", async () => {
@@ -221,7 +221,7 @@ describe("POST /__mock/referrals/{id}/confirmation-request", () => {
     const response = await post(`/__mock/referrals/${referralId}/confirmation-request`, { confirmationRequestedAt: "whenever" });
 
     expect(response.status).toBe(400);
-    expect((await get(`/caseworker/cases/${caseId}`)).awaitingConfirmationSince).toBe(null);
+    expect((await get(`/caseworker/cases/${caseId}`)).awaitingConfirmationSince).toBeNull();
   });
 });
 
@@ -465,7 +465,7 @@ describe("the witness routes", () => {
 
     expect(response.status).toBe(204);
     expect(await response.text()).toBe("");
-    expect((await get(`/caseworker/cases/${seeded.id}/witnesses`)).length).toBe(0);
+    expect(await get(`/caseworker/cases/${seeded.id}/witnesses`)).toHaveLength(0);
   });
 
   it("should delete without asking for a role, because a 403 is not a state this mock models", async () => {
@@ -1414,7 +1414,7 @@ describe("the case's awaitingConfirmationSince, and the worklist it feeds", () =
     const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Confirmed", note: "x".repeat(1001) });
 
     expect(response.status).toBe(400);
-    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).confirmationOutcome).toBe(null);
+    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).confirmationOutcome).toBeNull();
   });
 
   it("should answer 404 for a referral recorded through the wrong case, and record nothing", async () => {
