@@ -364,6 +364,187 @@ describe("PostgresStore", () => {
     });
   });
 
+  describe("write and enumeration callback contracts", () => {
+    const session = { cookie: { maxAge: 7200000 }, userId: "123" };
+    type Callback = (error: unknown, value?: unknown) => void;
+    const operations = [
+      { name: "set", invoke: (s: PostgresStore, cb: Callback) => s.set("session123", session, cb), rows: [], expected: [null] },
+      { name: "destroy", invoke: (s: PostgresStore, cb: Callback) => s.destroy("session123", cb), rows: [], expected: [null] },
+      { name: "clear", invoke: (s: PostgresStore, cb: Callback) => s.clear(cb), rows: [], expected: [null] },
+      { name: "length", invoke: (s: PostgresStore, cb: Callback) => s.length(cb), rows: [{ count: "10" }], expected: [null, 10] },
+      {
+        name: "all",
+        invoke: (s: PostgresStore, cb: Callback) => s.all(cb),
+        rows: [{ sid: "session123", sess: session }],
+        expected: [null, { session123: session }]
+      }
+    ];
+
+    describe.each(operations)("$name", ({ invoke, rows, expected }) => {
+      it("returns void and delivers the result once after the operation and release", async () => {
+        vi.clearAllMocks();
+        const query = Promise.withResolvers<{ rows: unknown[] }>();
+        mockClient.query.mockReturnValueOnce(query.promise);
+        const callback = vi.fn();
+
+        const returned = invoke(store, callback);
+        await nextTurn();
+        expect(callback).not.toHaveBeenCalled();
+        expect(mockClient.release).not.toHaveBeenCalled();
+        query.resolve({ rows });
+        await nextTurn();
+
+        expect(returned).toBeUndefined();
+        expect(callback).toHaveBeenCalledExactlyOnceWith(...expected);
+        expect(mockPool.connect).toHaveBeenCalledTimes(1);
+        expect(mockClient.query).toHaveBeenCalledTimes(1);
+        expect(mockClient.release).toHaveBeenCalledTimes(1);
+        expect(mockClient.release.mock.invocationCallOrder[0]).toBeLessThan(callback.mock.invocationCallOrder[0]);
+      });
+
+      it.each(["connection", "query"])("delivers a %s failure once, after any acquired client is released", async (stage) => {
+        vi.clearAllMocks();
+        const error = new Error("Database unavailable");
+        if (stage === "connection") mockPool.connect.mockRejectedValueOnce(error);
+        else mockClient.query.mockRejectedValueOnce(error);
+        const callback = vi.fn();
+
+        const returned = invoke(store, callback);
+        // Drain the old implementation's rejected return during the source-unchanged regression run.
+        await Promise.resolve(returned).catch(() => undefined);
+        await nextTurn();
+
+        expect(callback).toHaveBeenCalledExactlyOnceWith(error);
+        expect(returned).toBeUndefined();
+        expect(mockPool.connect).toHaveBeenCalledTimes(1);
+        expect(mockClient.query).toHaveBeenCalledTimes(stage === "connection" ? 0 : 1);
+        expect(mockClient.release).toHaveBeenCalledTimes(stage === "connection" ? 0 : 1);
+        if (stage === "query") {
+          expect(mockClient.release.mock.invocationCallOrder[0]).toBeLessThan(callback.mock.invocationCallOrder[0]);
+        }
+      });
+    });
+
+    it("delivers a set serialization failure after releasing the client without querying", async () => {
+      vi.clearAllMocks();
+      const error = new Error("Cannot serialize session");
+      const unserializable = {
+        toJSON: () => {
+          throw error;
+        }
+      };
+      const callback = vi.fn();
+
+      store.set("session123", unserializable, callback);
+      await nextTurn();
+
+      expect(callback).toHaveBeenCalledExactlyOnceWith(error);
+      expect(mockClient.query).not.toHaveBeenCalled();
+      expect(mockClient.release).toHaveBeenCalledTimes(1);
+      expect(mockClient.release.mock.invocationCallOrder[0]).toBeLessThan(callback.mock.invocationCallOrder[0]);
+    });
+
+    it.each(operations.flatMap(({ name }) => ["success", "connection failure", "query failure"].map((outcome) => [name, outcome])))(
+      "%s keeps a throwing consumer separate after %s",
+      (method, outcome) => {
+        // Consumer exceptions belong to the caller, never to the database operation's error path.
+        const run = spawnSync(
+          process.execPath,
+          [
+            "--input-type=module",
+            "--eval",
+            `
+        import { PostgresStore } from ${JSON.stringify(new URL("./postgres-store.ts", import.meta.url).href)};
+        let calls = 0, releases = 0, releasedAtCallback = -1;
+        const client = { query: async () => ({ rows: [] }), release: () => { releases++; } };
+        const pool = { connect: async () => client };
+        const store = await PostgresStore.create({ pool, cleanupInterval: 0 });
+        releases = 0;
+        const outcome = ${JSON.stringify(outcome)};
+        if (outcome === "connection failure") pool.connect = async () => { throw new Error("No connection"); };
+        client.query = async () => {
+          if (outcome === "query failure") throw new Error("Query failed");
+          return { rows: [{ count: "1", sid: "session123", sess: {} }] };
+        };
+        process.on("uncaughtExceptionMonitor", (error, origin) => {
+          console.log(JSON.stringify({ message: error.message, origin, calls, releases, releasedAtCallback }));
+        });
+        const callback = () => { calls++; releasedAtCallback = releases; throw new Error("Consumer failed"); };
+        const invoke = {
+          set: () => store.set("session123", {}, callback),
+          destroy: () => store.destroy("session123", callback),
+          clear: () => store.clear(callback),
+          length: () => store.length(callback),
+          all: () => store.all(callback)
+        };
+        invoke[${JSON.stringify(method)}]();
+      `
+          ],
+          { encoding: "utf8", timeout: 5000 }
+        );
+
+        expect(run.error).toBeUndefined();
+        expect(run.status).toBe(1);
+        const releases = outcome === "connection failure" ? 0 : 1;
+        expect(JSON.parse(run.stdout.trim())).toEqual({
+          message: "Consumer failed",
+          origin: "uncaughtException",
+          calls: 1,
+          releases,
+          releasedAtCallback: releases
+        });
+      }
+    );
+
+    it.each([
+      ...["set", "destroy", "clear"].flatMap((method) => ["success", "connection failure", "query failure"].map((outcome) => [method, outcome])),
+      ["set", "serialization failure"]
+    ])("%s handles %s without an optional callback or unhandled rejection", (method, outcome) => {
+      const run = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          `
+        import { setImmediate as nextTurn } from "node:timers/promises";
+        import { PostgresStore } from ${JSON.stringify(new URL("./postgres-store.ts", import.meta.url).href)};
+        let queries = 0, releases = 0, connections = 0;
+        const client = { query: async () => ({ rows: [] }), release: () => { releases++; } };
+        const pool = { connect: async () => client };
+        const store = await PostgresStore.create({ pool, cleanupInterval: 0 });
+        releases = 0;
+        const outcome = ${JSON.stringify(outcome)};
+        pool.connect = async () => {
+          connections++;
+          if (outcome === "connection failure") throw new Error("No connection");
+          return client;
+        };
+        client.query = async () => {
+          queries++;
+          if (outcome === "query failure") throw new Error("Query failed");
+          return { rows: [] };
+        };
+        const session = outcome === "serialization failure" ? { toJSON() { throw new Error("Cannot serialize"); } } : {};
+        const invoke = { set: () => store.set("session123", session), destroy: () => store.destroy("session123"), clear: () => store.clear() };
+        const returned = invoke[${JSON.stringify(method)}]();
+        await nextTurn();
+        console.log(JSON.stringify({ returnedVoid: returned === undefined, queries, releases, connections }));
+      `
+        ],
+        { encoding: "utf8", timeout: 5000 }
+      );
+
+      expect(run.error).toBeUndefined();
+      expect(run.status).toBe(0);
+      expect(JSON.parse(run.stdout.trim())).toEqual({
+        returnedVoid: true,
+        connections: 1,
+        queries: outcome === "connection failure" || outcome === "serialization failure" ? 0 : 1,
+        releases: outcome === "connection failure" ? 0 : 1
+      });
+    });
+  });
+
   describe("initialization lifecycle", () => {
     it("waits for both DDL queries before returning the store and starting cleanup", async () => {
       vi.useFakeTimers();
