@@ -106,14 +106,14 @@ session and the next one builds over it, wiping the results.
 **Files:** `libs/deed-poll-api-client/src/api/client.ts` and its tests; `src/pages/deed-polls/gazette/batch.ts` and
 its tests if its classification needs changing; the caseworker document route's test.
 
-- [ ] Record the execution baseline in the execution notes.
-- [ ] Add failing tests, against a local server that records request paths:
+- [x] Record the execution baseline in the execution notes.
+- [x] Add failing tests, against a local server that records request paths:
   - for every adapter function that takes an id, `""`, `"."` and `".."` produce a not-found result with no request
     made;
   - an ordinary id still requests exactly today's path;
   - the Gazette `review:..` action renders the not-found or invalid state, not the outage page;
   - the caseworker document download with `documentId=..` or `id=..` answers 404 with no api request.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 2: The observe-check script runs only what it checked (R16)
 
@@ -147,7 +147,36 @@ script if the root vitest config picks it up).
 
 ## Execution notes
 
-(Record baseline, red/green evidence and final results here.)
+### Baseline (2026-10-22)
+
+Branch `fix/r11-r16-path-segments-and-observe-guard` at `7707dfa` (plan commit on `origin/master` `3eb272d`),
+`REDIS_URL=redis://127.0.0.1:6379`. `yarn lint`: 523 files, no fixes, one Biome info (configuration migrate notice).
+`yarn build`: 8/8 tasks. `yarn turbo test test:app --concurrency=1 --force`: 8/8 tasks, no failures or skips reported —
+app 125 files / 2619 tests, deed-poll 68 / 1401, deed-poll-api-client 14 / 852, express-govuk-starter 12 / 127,
+cloud-native-platform 13 / 157, simple-router 4 / 41, express-session-postgres 2 / 30, express-session-redis 1 / 7.
+Both findings rechecked at the baseline: `encodeURIComponent` built every id segment, and `review:..` reached
+`findDeedPoll`, whose 404 `operationFailed` rendered as the outage page (503).
+
+### Task 1 (R11)
+
+- **Where the guard is.** One check in `exchange` (`hasUsableSegments` in `client.ts`), not a helper at each path
+  builder as the Development Approach suggested. Every operation reaches `exchange` (through `request`, `send`,
+  `requestNoContent`, `download` and `gazetteRequest`), and no fixed path contains an empty or dot segment, so such a
+  segment can only have come from an id. Ids are encoded as before, so `%2E` is sent as `%252E`. An operation added
+  later cannot skip the check. The result is `{ kind: "not-found", status: 404, message: "deed-poll-api path would
+  contain an unusable id" }`, a fixed message that names no id, and no request is sent.
+- **Red.** `client-path-segments.test.ts` against a server recording every path: 111 cases (each of the 36
+  id-taking operations, each id position, `""`/`.`/`..`) failed before the guard, because each sent a request.
+  The 37 ordinary-id path tests and the encoding test passed before and after. With the guard disabled, the
+  document-route cases failed (4) and the Gazette cases rendered 503.
+- **Gazette.** `selectCases` now treats a `NotFoundError` from the `review:<id>` read as the existing `invalid`
+  state, rendered with the visit's selection kept (400). That covers both a dot-only id and a case api no longer
+  has. No new copy. The other steps' `operationFailed` is unchanged.
+- **Document route.** No handler change. The route's new tests run the real domain and adapter, and
+  `documentId=..`, `id=..`, `.` and `""` reject with `NotFoundError` (which `src/errors.ts` renders as the 404 page)
+  and send no request.
+- **Green.** `yarn lint` clean (same one info), `yarn build` 8/8, tests 8/8: app 125 / 2627 (+8), deed-poll-api-client
+  15 / 1039 (+187), others unchanged. `yarn format` changed only this task's files.
 
 ## Post-Completion
 

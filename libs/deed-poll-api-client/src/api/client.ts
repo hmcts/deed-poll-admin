@@ -171,6 +171,9 @@ const GAZETTE_SUBMIT_TIMEOUT_MS = 20_000;
 /** The multipart field name api reads the upload from. Matches `UploadPolicy.UPLOAD_FILE_FIELD`. */
 const UPLOAD_FILE_FIELD = "file";
 
+// Fixed and naming no id: the id is a caller's input and this reaches a log through `callApi`.
+const UNUSABLE_SEGMENT_MESSAGE = "deed-poll-api path would contain an unusable id";
+
 /**
  * One page of the case list: a saved-query filter, field-level conditions, an order and a page.
  *
@@ -1035,6 +1038,7 @@ async function exchange(
 ): Promise<SendResult> {
   // Startup validates the app's URL; direct adapter consumers must receive the same protection.
   assertApiBaseUrl(config.baseUrl);
+  if (!hasUsableSegments(path)) return { ok: false, error: { kind: "not-found", status: 404, message: UNUSABLE_SEGMENT_MESSAGE } };
   const url = `${config.baseUrl.replace(/\/+$/, "")}${path}`;
   const isForm = body instanceof FormData;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -1076,6 +1080,23 @@ async function exchange(
     // often answers with a proxy's HTML, and reading that must not be the unbounded wait.
     clearTimeout(timer);
   }
+}
+
+/**
+ * Whether every segment of the path names something, rather than moving the path (review finding R11,
+ * `docs/plans/completed/20261022-r11-r16-path-segments-and-observe-guard.md`).
+ *
+ * `encodeURIComponent` leaves dots alone, so an id of `.` or `..` would be resolved as a dot segment and an empty
+ * one would leave `//` or a trailing `/`: `getCase("..")` asked api for `/caseworker/`. Checked here, once, rather
+ * than at each path builder, because every operation reaches `exchange` and no fixed path holds such a segment —
+ * so one of these can only have come from an id, and an operation added later cannot forget the check. Ids are
+ * percent-encoded, so `%2E` in one arrives as `%252E` and is an ordinary segment.
+ */
+function hasUsableSegments(path: string): boolean {
+  return withoutQuery(path)
+    .split("/")
+    .slice(1)
+    .every((segment) => segment !== "" && segment !== "." && segment !== "..");
 }
 
 /**

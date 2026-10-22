@@ -8,10 +8,11 @@
  * being implied by it.
  */
 
+import { createServer, type Server } from "node:http";
 import { PassThrough } from "node:stream";
-import { downloadDocument } from "@hmcts/deed-poll";
+import { downloadDocument, NotFoundError } from "@hmcts/deed-poll";
 import type { NextFunction, Response } from "express";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest } from "../../../../../express-doubles.js";
 import { GET } from "./file.js";
 
@@ -221,5 +222,52 @@ describe("document download route", () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(download.body.destroyed).toBe(true);
+  });
+});
+
+// Through the real domain and adapter, against a server that records what reaches it (review finding R11). Over
+// HTTP a URL-parsing client resolves `..` before sending, so the dot-only id is handed to the handler directly.
+describe("document download route with an unusable id", () => {
+  let paths: string[];
+  let server: Server;
+  const previousUrl = process.env.DEED_POLL_API_URL;
+
+  beforeEach(async () => {
+    paths = [];
+    const actual = await vi.importActual<typeof import("@hmcts/deed-poll")>("@hmcts/deed-poll");
+    vi.mocked(downloadDocument).mockImplementation(actual.downloadDocument);
+    server = createServer((req, res) => {
+      paths.push(req.url ?? "");
+      res.writeHead(404).end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    process.env.DEED_POLL_API_URL = `http://127.0.0.1:${address && typeof address === "object" ? address.port : 0}`;
+  });
+
+  afterEach(async () => {
+    process.env.DEED_POLL_API_URL = previousUrl;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it.each([
+    { id: "case-1", documentId: ".." },
+    { id: "..", documentId: "doc-9" },
+    { id: "case-1", documentId: "." },
+    { id: "case-1", documentId: "" }
+  ])("should refuse $id/$documentId as not found without asking api", async (params) => {
+    const next = vi.fn() as unknown as NextFunction;
+
+    const outcome = GET(pageRequest({ params, accessToken: "session-token" }), streamResponse(), next);
+
+    // `NotFoundError` is what `src/errors.ts` renders as the 404 page.
+    await expect(outcome).rejects.toBeInstanceOf(NotFoundError);
+    expect(paths).toEqual([]);
+  });
+
+  it("should still ask api for an ordinary document", async () => {
+    await expect(GET(pageRequest({ params: PARAMS, accessToken: "session-token" }), streamResponse(), vi.fn())).rejects.toBeInstanceOf(NotFoundError);
+
+    expect(paths).toEqual(["/caseworker/cases/case-1/documents/doc-9/file"]);
   });
 });
