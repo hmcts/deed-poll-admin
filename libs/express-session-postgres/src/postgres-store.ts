@@ -1,3 +1,4 @@
+import { callbackify } from "node:util";
 import type { SessionData } from "express-session";
 import { Store } from "express-session";
 import type { Pool } from "pg";
@@ -135,24 +136,23 @@ export class PostgresStore extends Store {
     }
   }
 
-  async touch(sid: string, session: SessionData, callback?: (err?: any) => void): Promise<void> {
+  touch(sid: string, session: SessionData, callback?: (err?: any) => void): void {
     if (this.disableTouch) {
-      return callback?.(null);
-    }
-
-    const client = await this.pool.connect();
-    try {
-      const expire = this.getExpireDate(session);
-
-      const query = format("UPDATE %I.%I SET expire = $2 WHERE sid = $1", this.schemaName, this.tableName);
-      await client.query(query, [sid, expire]);
-
       callback?.(null);
-    } catch (error) {
-      callback?.(error);
-    } finally {
-      client.release();
+      return;
     }
+
+    // Deliver completion outside the database operation so a consumer's throw is not retried as a store error.
+    callbackify(async () => {
+      const client = await this.pool.connect();
+      try {
+        const expire = this.getExpireDate(session);
+        const query = format("UPDATE %I.%I SET expire = $2 WHERE sid = $1", this.schemaName, this.tableName);
+        await client.query(query, [sid, expire]);
+      } finally {
+        client.release();
+      }
+    })((error) => callback?.(error));
   }
 
   async clear(callback?: (err?: any) => void): Promise<void> {

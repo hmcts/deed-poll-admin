@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import type { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PostgresStore } from "./postgres-store.js";
@@ -138,17 +140,24 @@ describe("PostgresStore", () => {
   });
 
   describe("touch", () => {
-    it("should update session expiration", async () => {
-      const sessionData = { cookie: { maxAge: 3600000 } };
+    it.each([
+      { source: "cookie maxAge", sessionData: { cookie: { maxAge: 7200000 } }, seconds: 7200 },
+      { source: "store TTL", sessionData: {}, seconds: 3600 }
+    ])("should update session expiration using $source", async ({ sessionData, seconds }) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const now = new Date("2026-10-22T12:00:00Z");
+      vi.setSystemTime(now);
       mockClient.query.mockResolvedValue({ rows: [] });
+      const callback = vi.fn();
 
-      await new Promise<void>((resolve) => {
-        store.touch("session123", sessionData, (err) => {
-          expect(err).toBeNull();
-          expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE"), ["session123", expect.any(Date)]);
-          resolve();
-        });
-      });
+      store.touch("session123", sessionData, callback);
+      await nextTurn();
+
+      expect(callback).toHaveBeenCalledExactlyOnceWith(null);
+      expect(mockClient.query).toHaveBeenCalledWith("UPDATE public.test_session SET expire = $2 WHERE sid = $1", [
+        "session123",
+        new Date(now.getTime() + seconds * 1000)
+      ]);
     });
 
     it("should skip if disableTouch is true", async () => {
@@ -169,6 +178,95 @@ describe("PostgresStore", () => {
       });
 
       touchStore.stopCleanup();
+    });
+
+    it("returns void and completes once, after the update settles and the client is released", async () => {
+      vi.clearAllMocks();
+      const update = Promise.withResolvers<{ rows: never[] }>();
+      mockClient.query.mockReturnValueOnce(update.promise);
+      const callback = vi.fn();
+
+      expect(store.touch("session123", {}, callback)).toBeUndefined();
+      await nextTurn();
+      expect(callback).not.toHaveBeenCalled();
+      expect(mockClient.release).not.toHaveBeenCalled();
+
+      update.resolve({ rows: [] });
+      await nextTurn();
+      expect(callback).toHaveBeenCalledExactlyOnceWith(null);
+      expect(mockClient.release).toHaveBeenCalledTimes(1);
+      expect(mockClient.release.mock.invocationCallOrder[0]).toBeLessThan(callback.mock.invocationCallOrder[0]);
+    });
+
+    it.each(["connection", "query"])("delivers a %s failure to the callback exactly once", async (stage) => {
+      vi.clearAllMocks();
+      const error = new Error("Database unavailable");
+      if (stage === "connection") mockPool.connect.mockRejectedValueOnce(error);
+      else mockClient.query.mockRejectedValueOnce(error);
+      const callback = vi.fn();
+
+      store.touch("session123", {}, callback);
+      await nextTurn();
+
+      expect(callback).toHaveBeenCalledExactlyOnceWith(error);
+      expect(mockClient.query).toHaveBeenCalledTimes(stage === "connection" ? 0 : 1);
+      expect(mockClient.release).toHaveBeenCalledTimes(stage === "connection" ? 0 : 1);
+    });
+
+    it.each(["success", "connection failure", "query failure"])("handles %s when the optional callback is omitted", async (outcome) => {
+      vi.clearAllMocks();
+      if (outcome === "connection failure") mockPool.connect.mockRejectedValueOnce(new Error("No connection"));
+      if (outcome === "query failure") mockClient.query.mockRejectedValueOnce(new Error("Update failed"));
+
+      expect(store.touch("session123", {})).toBeUndefined();
+      await nextTurn();
+
+      expect(mockPool.connect).toHaveBeenCalledTimes(1);
+      expect(mockClient.query).toHaveBeenCalledTimes(outcome === "connection failure" ? 0 : 1);
+      expect(mockClient.release).toHaveBeenCalledTimes(outcome === "connection failure" ? 0 : 1);
+    });
+
+    it("keeps disabled touch synchronous and does not acquire a client, with or without a callback", async () => {
+      const touchStore = await PostgresStore.create({ pool: mockPool as unknown as Pool, disableTouch: true, cleanupInterval: 0 });
+      vi.clearAllMocks();
+      const callback = vi.fn();
+
+      expect(touchStore.touch("session123", {}, callback)).toBeUndefined();
+      expect(callback).toHaveBeenCalledExactlyOnceWith(null);
+      expect(touchStore.touch("session123", {})).toBeUndefined();
+      expect(mockPool.connect).not.toHaveBeenCalled();
+      expect(mockClient.query).not.toHaveBeenCalled();
+      expect(mockClient.release).not.toHaveBeenCalled();
+      touchStore.stopCleanup();
+    });
+
+    it.each(["success", "query failure"])("does not retry or turn a throwing callback into a rejected promise after %s", (outcome) => {
+      // Isolate the deliberately uncaught consumer error from Vitest's own exception handlers.
+      const run = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          `
+        import { PostgresStore } from ${JSON.stringify(new URL("./postgres-store.ts", import.meta.url).href)};
+        let calls = 0;
+        let releases = 0;
+        const client = { query: async () => ({ rows: [] }), release: () => { releases++; } };
+        const store = await PostgresStore.create({ pool: { connect: async () => client }, cleanupInterval: 0 });
+        releases = 0;
+        if (${JSON.stringify(outcome)} === "query failure") client.query = async () => { throw new Error("Update failed"); };
+        process.on("uncaughtExceptionMonitor", (error, origin) => {
+          console.log(JSON.stringify({ message: error.message, origin, calls, releases }));
+        });
+        store.touch("session123", {}, () => { calls++; throw new Error("Consumer failed"); });
+      `
+        ],
+        { encoding: "utf8", timeout: 5000 }
+      );
+
+      expect(run.error).toBeUndefined();
+      expect(run.status).toBe(1);
+      expect(JSON.parse(run.stdout.trim())).toEqual({ message: "Consumer failed", origin: "uncaughtException", calls: 1, releases: 1 });
     });
   });
 
