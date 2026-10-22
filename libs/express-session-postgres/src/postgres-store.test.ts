@@ -56,45 +56,77 @@ describe("PostgresStore", () => {
   });
 
   describe("get", () => {
-    it("should retrieve session from database", async () => {
+    it.each(["stored session", "missing session"])("returns void and delivers %s once after releasing the client", async (outcome) => {
+      vi.clearAllMocks();
       const sessionData = { cookie: { maxAge: 3600000 }, userId: "123" };
+      const rows = outcome === "stored session" ? [{ sess: sessionData }] : [];
+      const result = Promise.withResolvers<{ rows: typeof rows }>();
+      mockClient.query.mockReturnValueOnce(result.promise);
+      const callback = vi.fn();
 
-      mockClient.query.mockResolvedValueOnce({
-        rows: [{ sess: sessionData }]
-      });
+      expect(store.get("session123", callback)).toBeUndefined();
+      await nextTurn();
+      expect(mockClient.query).toHaveBeenCalledExactlyOnceWith("SELECT sess FROM public.test_session WHERE sid = $1 AND expire > NOW()", ["session123"]);
+      expect(callback).not.toHaveBeenCalled();
+      expect(mockClient.release).not.toHaveBeenCalled();
 
-      await new Promise<void>((resolve) => {
-        store.get("session123", (err, session) => {
-          expect(err).toBeNull();
-          expect(session).toEqual(sessionData);
-          expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining("SELECT sess FROM"), ["session123"]);
-          resolve();
-        });
-      });
+      result.resolve({ rows });
+      await nextTurn();
+      expect(callback).toHaveBeenCalledExactlyOnceWith(null, outcome === "stored session" ? sessionData : null);
+      expect(callback.mock.calls[0][1]).toBe(outcome === "stored session" ? sessionData : null);
+      expect(mockClient.release).toHaveBeenCalledTimes(1);
+      expect(mockClient.release.mock.invocationCallOrder[0]).toBeLessThan(callback.mock.invocationCallOrder[0]);
     });
 
-    it("should return null for non-existent session", async () => {
-      mockClient.query.mockResolvedValueOnce({ rows: [] });
+    it.each(["connection", "query"])("delivers a %s failure exactly once without a session", async (stage) => {
+      vi.clearAllMocks();
+      const error = new Error("Database unavailable");
+      if (stage === "connection") mockPool.connect.mockRejectedValueOnce(error);
+      else mockClient.query.mockRejectedValueOnce(error);
+      const callback = vi.fn();
 
-      await new Promise<void>((resolve) => {
-        store.get("nonexistent", (err, session) => {
-          expect(err).toBeNull();
-          expect(session).toBeNull();
-          resolve();
-        });
-      });
+      store.get("session123", callback);
+      await nextTurn();
+
+      expect(callback).toHaveBeenCalledExactlyOnceWith(error);
+      expect(mockClient.query).toHaveBeenCalledTimes(stage === "connection" ? 0 : 1);
+      expect(mockClient.release).toHaveBeenCalledTimes(stage === "connection" ? 0 : 1);
+      if (stage === "query") {
+        expect(mockClient.release.mock.invocationCallOrder[0]).toBeLessThan(callback.mock.invocationCallOrder[0]);
+      }
     });
 
-    it("should handle errors", async () => {
-      const error = new Error("Database error");
-      mockClient.query.mockRejectedValueOnce(error);
-
-      await new Promise<void>((resolve) => {
-        store.get("session123", (err) => {
-          expect(err).toBe(error);
-          resolve();
+    it.each(["stored session", "missing session", "query failure"])("keeps a throwing consumer separate after %s", (outcome) => {
+      // Real uncaught consumer errors must be isolated from Vitest's own exception handlers.
+      const run = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          `
+        import { PostgresStore } from ${JSON.stringify(new URL("./postgres-store.ts", import.meta.url).href)};
+        let calls = 0;
+        let releases = 0;
+        const client = { query: async () => ({ rows: [] }), release: () => { releases++; } };
+        const store = await PostgresStore.create({ pool: { connect: async () => client }, cleanupInterval: 0 });
+        releases = 0;
+        const outcome = ${JSON.stringify(outcome)};
+        client.query = async () => {
+          if (outcome === "query failure") throw new Error("Read failed");
+          return { rows: outcome === "stored session" ? [{ sess: { userId: "123" } }] : [] };
+        };
+        process.on("uncaughtExceptionMonitor", (error, origin) => {
+          console.log(JSON.stringify({ message: error.message, origin, calls, releases }));
         });
-      });
+        store.get("session123", () => { calls++; throw new Error("Consumer failed"); });
+      `
+        ],
+        { encoding: "utf8", timeout: 5000 }
+      );
+
+      expect(run.error).toBeUndefined();
+      expect(run.status).toBe(1);
+      expect(JSON.parse(run.stdout.trim())).toEqual({ message: "Consumer failed", origin: "uncaughtException", calls: 1, releases: 1 });
     });
   });
 
