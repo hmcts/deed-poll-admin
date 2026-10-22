@@ -70,8 +70,8 @@ export const POST = async (req: Request, res: Response) => {
   // hand-crafted POST set anything on the schema, including `state`, which is derived not supplied.
   const parsed = createDeedPollSchema.safeParse({
     type: body.type || undefined,
-    newForename: body.newForename || undefined,
-    newSurname: body.newSurname || undefined,
+    newForename: trimmedOrAbsent(body.newForename),
+    newSurname: trimmedOrAbsent(body.newSurname),
     dateReceived: composeDateParts(body["dateReceived-day"], body["dateReceived-month"], body["dateReceived-year"]) ?? undefined
   });
 
@@ -107,6 +107,16 @@ export const POST = async (req: Request, res: Response) => {
     throw error;
   }
 };
+
+/**
+ * Trimmed as the edit tabs' `readFieldInput` trims (review finding R15), with whitespace alone read as absent
+ * like an empty value. Anything that is not a string is passed on for the schema to refuse.
+ */
+function trimmedOrAbsent(value: unknown): unknown {
+  if (typeof value !== "string") return value || undefined;
+
+  return value.trim() || undefined;
+}
 
 /**
  * Re-render with the submitted values, not an empty form.

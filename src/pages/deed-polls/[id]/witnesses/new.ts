@@ -13,13 +13,12 @@
  * up to 250 characters is the field most expensive to lose, and it is also the one most likely to trip the
  * limit.
  *
- * **A blank field is accepted, and that is api's rule rather than an omission here.** `createWitnessSchema`
- * has caps and no minimum, byte-identical to api's own reference schema — api accepts `""` and stores what
- * it was given. A local required check would refuse a body api accepts, so the two ends would disagree
- * about what a witness is, and it would put a rule in a page handler that belongs in the domain. If
- * witnesses ever need mandatory fields, it is `WitnessSchemas` at api's end that says so first.
+ * **A blank field is refused** (review finding R15). `createWitnessSchema` trims each text field and requires
+ * something to be left, because a blank witness counted towards the enrolment-witness threshold. That is
+ * stricter than api, which still accepts `""`; the rule lives in the domain schema, not in this handler. A
+ * blank, whitespace-only or absent field gets `blankErrors`, a too-long one `fieldErrors`.
  */
-import { createWitness, createWitnessSchema, type FieldError, findDeedPoll, InvalidInputError, zodErrorToFieldErrors } from "@hmcts/deed-poll";
+import { createWitness, createWitnessSchema, type FieldError, findDeedPoll, InvalidInputError } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
 import { casePath } from "../../../../case-path.js";
@@ -46,13 +45,17 @@ const en = {
   cancel: "Cancel",
   errorSummaryTitle: "There is a problem",
   // The page's own copy for a schema rejection. Zod's messages are developer-facing ("Too big: expected
-  // string to have <=100 characters"), and the schema is api's file verbatim, so the wording belongs here
-  // rather than in a local edit to a shared schema.
+  // string to have <=100 characters"), so the wording belongs here rather than in the domain schema.
   fieldErrors: {
     witnessName: `Name must be ${MAX_NAME} characters or fewer`,
     witnessAddress: `Address must be ${MAX_ADDRESS} characters or fewer`,
     witnessOccupation: `Occupation must be ${MAX_OCCUPATION} characters or fewer`,
     declarant: "Select yes if this person is the declarant"
+  } as Record<string, string>,
+  blankErrors: {
+    witnessName: "Enter the witness's name",
+    witnessAddress: "Enter the witness's address",
+    witnessOccupation: "Enter the witness's occupation"
   } as Record<string, string>,
   witnessRefused: "The witness could not be saved. Check the details and try again."
 };
@@ -70,7 +73,7 @@ export const POST = async (req: Request, res: Response) => {
   const parsed = createWitnessSchema.safeParse(submitted(req));
 
   if (!parsed.success) {
-    return rerender(req, res, ownMessages(zodErrorToFieldErrors(parsed.error)));
+    return rerender(req, res, ownMessages(parsed.error.issues));
   }
 
   try {
@@ -125,9 +128,19 @@ function declarantFrom(value: unknown): boolean | undefined {
   return undefined;
 }
 
-/** Schema rejections, rendered in this page's words and keyed by the control they belong against. */
-function ownMessages(errors: FieldError[]): Record<string, string> {
-  return Object.fromEntries(errors.filter((error) => en.fieldErrors[error.field]).map((error) => [error.field, en.fieldErrors[error.field]]));
+/**
+ * Schema rejections, rendered in this page's words and keyed by the control they belong against. Only a
+ * too-long text field gets the length message: blank, whitespace-only and absent all read as not entered.
+ */
+function ownMessages(issues: readonly SchemaIssue[]): Record<string, string> {
+  return Object.fromEntries(
+    issues
+      .map((issue) => [String(issue.path[0] ?? ""), issue] as const)
+      .flatMap(([field, issue]) => {
+        const message = issue.code === "too_big" ? en.fieldErrors[field] : (en.blankErrors[field] ?? en.fieldErrors[field]);
+        return message ? [[field, message]] : [];
+      })
+  );
 }
 
 /** api's rejections, rendered in api's words: it applies rules this form has no local copy of. */
@@ -162,4 +175,9 @@ function summaryList(errors: Record<string, string>, formError?: string): { text
   const rows = FIELD_ORDER.filter((field) => errors[field]).map((field) => ({ text: errors[field], href: `#${field}` }));
 
   return formError ? [{ text: formError, href: "#witnessName" }, ...rows] : rows;
+}
+
+interface SchemaIssue {
+  code: string;
+  path: readonly PropertyKey[];
 }

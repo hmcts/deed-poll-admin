@@ -128,11 +128,11 @@ handler test.
 **Files:** `libs/deed-poll/src/witnesses/schemas.ts` and its tests; the witness new/edit pages and tests;
 `src/pages/deed-polls/new.ts` and its tests.
 
-- [ ] Add failing tests: blank and whitespace-only name, address and occupation are refused on create and edit with
+- [x] Add failing tests: blank and whitespace-only name, address and occupation are refused on create and edit with
       no api call and the input redrawn; padded values are sent trimmed; the maximum is measured after trimming; a
       partial edit that omits a field is unchanged; `"  Applicant  "` is sent as `"Applicant"` and a whitespace-only
       name behaves as an empty one.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 4: Record the rules and hand off
 
@@ -203,6 +203,24 @@ handler test.
   which pins existing behaviour.
 - After: lint clean (same info; Biome fixed formatting and import order only), build 8/8, app 127 / 2,675 (+4),
   deed-poll 68 / 1,410 (+9), every other package unchanged, no skips.
+
+### Task 3 (R15.2, R15.3)
+
+- `createWitnessSchema` now trims each of the three text fields and requires at least one character (`.trim().min(1).max(n)`),
+  so the maximum is measured after trimming and the trimmed values are what is sent. `updateWitnessSchema` is still
+  its partial, so an omitted field stays out of the patch. This is stricter than api, which still accepts `""`. The
+  old schema test and page test that pinned "a blank is accepted" were replaced, and the page docblocks updated.
+- Both witness pages now choose the message by Zod issue code: `too_big` gets the existing length message, and
+  anything else on a text field (blank, whitespace-only, absent) gets a new `blankErrors` entry ("Enter the witness's
+  name" / "address" / "occupation"). The submitted text is redrawn as before. That is three new page strings per page,
+  with `cy` copied from `en` by the existing `{ ...en }`, so `yarn welsh:check` should grow by six rows.
+- `src/pages/deed-polls/new.ts` trims `newForename`/`newSurname` through `trimmedOrAbsent`, so whitespace alone is
+  absent like an empty value. A value that is not a string is passed on for the schema to refuse.
+- Tests: schemas +6 net (blank ×3, trim, max-after-trim, update blank/trim, omitted field; one removed); new witness
+  page +5 net; edit witness page +4; new case +2. Each refusal test failed before the change. The trim tests went
+  green with the schema change, before the page change.
+- After: lint clean (same info), build 8/8, app 127 / 2,686 (+11), deed-poll 68 / 1,416 (+6), every other package
+  unchanged, no skips.
 
 ## Post-Completion
 

@@ -170,6 +170,36 @@ describe("amend a witness page", () => {
       expect(res.render.mock.calls[0][1].errorList).toEqual([{ text: "Name must be 100 characters or fewer", href: "#witnessName" }]);
     });
 
+    it.each([
+      ["witnessName", "Enter the witness's name"],
+      ["witnessAddress", "Enter the witness's address"],
+      ["witnessOccupation", "Enter the witness's occupation"]
+    ])("should refuse a blank or whitespace-only %s with no api call and the input redrawn", async (field, message) => {
+      for (const blank of ["", "   "]) {
+        vi.mocked(updateWitness).mockClear();
+        const res = response();
+
+        await POST(request({ ...SUBMITTED, [field]: blank }), res);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(updateWitness).not.toHaveBeenCalled();
+        expect(res.render.mock.calls[0][1].values[field]).toBe(blank);
+        expect(res.render.mock.calls[0][1].errors[field]).toBe(message);
+        expect(res.render.mock.calls[0][1].errorList).toEqual([{ text: message, href: `#${field}` }]);
+      }
+    });
+
+    it("should save padded values trimmed", async () => {
+      await POST(request({ ...SUBMITTED, witnessName: "  Sam Doe  ", witnessOccupation: " Nurse " }), response());
+
+      expect(updateWitness).toHaveBeenCalledWith(
+        "case-1",
+        "witness-1",
+        expect.objectContaining({ witnessName: "Sam Doe", witnessOccupation: "Nurse" }),
+        CALLER
+      );
+    });
+
     it("should re-render with the witness id, so the failed form still posts back to the same witness", async () => {
       const res = response();
 
