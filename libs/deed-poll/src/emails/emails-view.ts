@@ -210,6 +210,10 @@ export function buildEmailDetail(emails: CaseEmails, notificationId: string): Em
   // but trimmed to decide whether there is anything to render at all.
   const body = typeof email.body === "string" ? email.body : "";
   const hasBody = body.trim().length > 0;
+  let missingBody: string | null = null;
+  if (!hasBody) {
+    missingBody = email.notifyState ? NO_BODY[email.notifyState] : NO_BODY_NO_STATE;
+  }
 
   return {
     id: email.id,
@@ -224,7 +228,7 @@ export function buildEmailDetail(emails: CaseEmails, notificationId: string): Em
     // address was rejected" knows to ring the applicant, where "Failed" alone tells them only to worry.
     failureReason: typeof email.failureReason === "string" && email.failureReason.trim().length > 0 ? email.failureReason : null,
     body: hasBody ? body : null,
-    missingBody: hasBody ? null : email.notifyState ? NO_BODY[email.notifyState] : NO_BODY_NO_STATE,
+    missingBody,
     // Empty for every email today: the one shipped template carries no attachments, and notify-4 is blocked on
     // document generation. Rendered anyway, so the first email that does carry one needs no change here.
     documents: email.documents.map((document) => ({ id: document.id, name: orPlaceholder(document.name, UNNAMED_DOCUMENT) }))
