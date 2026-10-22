@@ -37,10 +37,10 @@ describe("save a query page", () => {
   });
 
   describe("GET", () => {
-    it("should render an empty form", async () => {
+    it("should render an empty form", () => {
       const res = response();
 
-      await GET(request(), res);
+      GET(request(), res);
 
       expect(res.render.mock.calls[0][0]).toBe("deed-polls/queries/new");
       expect(res.render.mock.calls[0][1].values).toEqual({});
@@ -54,52 +54,52 @@ describe("save a query page", () => {
       ["caseworker", false],
       ["judge", false],
       ["none", false]
-    ] as const)("should decide the share box for %s from the stored answer (%s)", async (persona, expected) => {
+    ] as const)("should decide the share box for %s from the stored answer (%s)", (persona, expected) => {
       const res = response();
 
-      await GET(pageRequest({ query: QUERY, accessToken: "session-token", persona }), res);
+      GET(pageRequest({ query: QUERY, accessToken: "session-token", persona }), res);
 
       expect(res.render.mock.calls[0][1].canPublish).toBe(expected);
     });
 
-    it("should hide the share box from a caseworker, because publishing is an Administrator's act", async () => {
+    it("should hide the share box from a caseworker, because publishing is an Administrator's act", () => {
       const res = response();
 
-      await GET(request(), res);
+      GET(request(), res);
 
       expect(res.render.mock.calls[0][1].canPublish).toBe(false);
     });
 
-    it("should hide the share box from a judge, so holding any role is not holding the admin one", async () => {
+    it("should hide the share box from a judge, so holding any role is not holding the admin one", () => {
       // `isAdmin` and `isJudicial` are alternatives rather than a ladder, so this is not implied by the
       // caseworker case above.
       const res = response();
 
-      await GET(pageRequest({ query: QUERY, accessToken: "session-token", judicial: true }), res);
+      GET(pageRequest({ query: QUERY, accessToken: "session-token", judicial: true }), res);
 
       expect(res.render.mock.calls[0][1].canPublish).toBe(false);
     });
 
-    it("should post back to the same query it was opened with, so the query needs no hidden inputs", async () => {
+    it("should post back to the same query it was opened with, so the query needs no hidden inputs", () => {
       const res = response();
 
-      await GET(request(), res);
+      GET(request(), res);
 
       expect(res.render.mock.calls[0][1].formAction).toBe(
         "/deed-polls/queries/new?filter=received&where=newSurname%3Acontains%3ASmith&sort=dateReceived%3Adesc"
       );
     });
 
-    it("should cancel back to the list it was opened from, results and all", async () => {
+    it("should cancel back to the list it was opened from, results and all", () => {
       const res = response();
 
-      await GET(request(), res);
+      GET(request(), res);
 
       expect(res.render.mock.calls[0][1].cancelHref).toBe("/deed-polls?filter=received&where=newSurname%3Acontains%3ASmith&sort=dateReceived%3Adesc");
     });
 
-    it("should reach api for nothing at all, because a name and a URL are the whole of the form", async () => {
-      await GET(request(), response());
+    it("should reach api for nothing at all, because a name and a URL are the whole of the form", () => {
+      GET(request(), response());
 
       expect(createSavedQuery).not.toHaveBeenCalled();
     });

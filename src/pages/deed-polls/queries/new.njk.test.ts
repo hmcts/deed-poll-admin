@@ -42,10 +42,10 @@ describe("save a query template", () => {
     vi.mocked(selectSavedQuery).mockResolvedValue(undefined);
   });
 
-  it("should carry the query in the form's action and in no hidden input", async () => {
+  it("should carry the query in the form's action and in no hidden input", () => {
     const res = pageResponse();
 
-    await GET(pageRequest({ query: QUERY, accessToken: "session-token" }), res);
+    GET(pageRequest({ query: QUERY, accessToken: "session-token" }), res);
     const page = html(res.render.mock.calls[0][1]);
 
     expect(page).toContain('action="/deed-polls/queries/new?filter=received&amp;where=newSurname%3Acontains%3ASmith&amp;sort=dateReceived%3Adesc"');
@@ -53,10 +53,10 @@ describe("save a query template", () => {
     expect(page).not.toContain('name="filter"');
   });
 
-  it("should offer an Administrator three controls, with a share box that is not ticked by default", async () => {
+  it("should offer an Administrator three controls, with a share box that is not ticked by default", () => {
     const res = pageResponse();
 
-    await GET(pageRequest({ query: QUERY, accessToken: "session-token", teamLeader: true }), res);
+    GET(pageRequest({ query: QUERY, accessToken: "session-token", teamLeader: true }), res);
     const page = html(res.render.mock.calls[0][1]);
 
     expect(page).toContain('id="name"');
@@ -65,13 +65,13 @@ describe("save a query template", () => {
     expect(page).not.toContain("checked");
   });
 
-  it("should offer a caseworker the same form with no share box at all", async () => {
+  it("should offer a caseworker the same form with no share box at all", () => {
     // Absent rather than disabled, per `witness-edit.njk`: a disabled control has no value to read. And no
     // sentence replaces it, unlike the amend page's write controls -- a caseworker who never had the right to
     // publish is not looking at a broken form, and explaining the gap would advertise a power they lack.
     const res = pageResponse();
 
-    await GET(pageRequest({ query: QUERY, accessToken: "session-token" }), res);
+    GET(pageRequest({ query: QUERY, accessToken: "session-token" }), res);
     const page = html(res.render.mock.calls[0][1]);
 
     expect(page).toContain('id="name"');
