@@ -54,11 +54,11 @@ const MIGRATED_RELAXED_FIELDS = [
  */
 const MINOR_ONLY_FIELDS = ["minorDateOfBirth", "ageOfMinor", "ageOfMinorMonths", "parents"] as const;
 
-const MINOR_TYPES: DeedPollType[] = [DeedPollType.Minor, DeedPollType.MinorTransgender];
-const ADULT_TYPES: DeedPollType[] = [DeedPollType.Adult, DeedPollType.AdultTransgender];
+const MINOR_TYPES = new Set<DeedPollType>([DeedPollType.Minor, DeedPollType.MinorTransgender]);
+const ADULT_TYPES = new Set<DeedPollType>([DeedPollType.Adult, DeedPollType.AdultTransgender]);
 
-const isMinor = (t?: DeedPollType | null) => !!t && MINOR_TYPES.includes(t);
-const isAdult = (t?: DeedPollType | null) => !!t && ADULT_TYPES.includes(t);
+const isMinor = (t?: DeedPollType | null) => !!t && MINOR_TYPES.has(t);
+const isAdult = (t?: DeedPollType | null) => !!t && ADULT_TYPES.has(t);
 const isRelinquishment = (t?: DeedPollType | null) => t === DeedPollType.DeedOfRelinquishment;
 
 /** Shape of the record subset the validator inspects. */

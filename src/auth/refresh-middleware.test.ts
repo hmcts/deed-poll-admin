@@ -606,7 +606,10 @@ describe("refreshMiddleware and the refresh lease", () => {
     const req = request();
     (req as unknown as { sessionStore: unknown }).sessionStore = {};
 
-    await expect(refreshMiddleware(req, res, next)).rejects.toThrow("cannot coordinate");
+    const refresh = refreshMiddleware(req, res, next);
+
+    await expect(refresh).rejects.toThrow(TypeError);
+    await expect(refresh).rejects.toThrow("the session store cannot coordinate token refreshes");
 
     expect(refreshTokens).not.toHaveBeenCalled();
     expect(next).not.toHaveBeenCalled();
