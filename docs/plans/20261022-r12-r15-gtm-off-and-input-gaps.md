@@ -118,10 +118,10 @@ in `src/`, or a new colocated one).
 `src/pages/deed-polls/[id]/edit/[tab].ts` (the shared constant); `src/case-edit-untouched-fields.test.ts` or a sibling
 handler test.
 
-- [ ] Add failing tests: 2,000 characters saves; 2,001 is a field error with no write and the text redrawn;
+- [x] Add failing tests: 2,000 characters saves; 2,001 is a field error with no write and the text redrawn;
       `buildUpdatePatch` throws on it; an unchanged save of an ordinary value still writes it back exactly; the
       rendered `maxlength` equals the enforced limit.
-- [ ] Implement, run focused tests and all Validation Commands, and record the results.
+- [x] Implement, run focused tests and all Validation Commands, and record the results.
 
 ### Task 3: Witness fields and new-case names (R15.2, R15.3)
 
@@ -180,6 +180,29 @@ handler test.
 - The CSP is pinned exactly (nonce normalised). Every directive is as before minus the Google sources; `frame-src`
   disappears because GTM was its only source, so frames fall back to `default-src 'self'`.
 - After: lint clean (same info), build 8/8, app 127 files / 2,671 tests (+2), every other package unchanged, no skips.
+
+### Task 2 (R15.1)
+
+- Only `returnReason` (Return tab) is still editable; `referralNotes` and `masterDirections` sit on the retired
+  Referral tab, outside `FORM_TABS`. The rule is on the `textarea` kind, so it covers all three wherever they render.
+- `TEXTAREA_MAX_LENGTH = 2000` in `form-fields.ts` (exported through the package index). `readFieldInput` reads a
+  textarea whose trimmed text is longer as `{ kind: "invalid", reason: "too-long" }`; `fieldInputMessage(field, input)`
+  words it "Return reason must be 2,000 characters or less" (English-only domain string). `collectFormErrors` and
+  `buildUpdatePatch` both pass the reading through, so field order, no write and the `InvalidInputError` follow from
+  the existing paths. `string.length` counts UTF-16 code units, as `maxlength` does.
+- `edit-view.ts` `couldBeRendered` now redraws a textarea's submitted string as typed (like a number), so an over-long
+  value is shortened rather than retyped. An array in a textarea still redraws from the record.
+- `[tab].ts` drops `noteMaxLength` from `en` and passes `textareaMaxLength: TEXTAREA_MAX_LENGTH` in the model;
+  `edit.njk` reads that. It was a number, which the Welsh extractor never reported.
+- Legacy values: whether migrated records hold a longer return reason is not recorded. If one does, its next save
+  of the Return tab is refused with the field error naming the limit, the text is redrawn, and the caseworker
+  shortens it; nothing is cleared or lost.
+- Tests: `form-validation.test.ts` (+7), `form-payload.test.ts` (+2), `case-edit-untouched-fields.test.ts` (+4: the
+  rendered `data-maxlength` equals the constant, 2,000 saves, 2,001 is a 400 with the error, no write and the text
+  redrawn, an unchanged ordinary save writes back exactly). Red before the change except the unchanged-save test,
+  which pins existing behaviour.
+- After: lint clean (same info; Biome fixed formatting and import order only), build 8/8, app 127 / 2,675 (+4),
+  deed-poll 68 / 1,410 (+9), every other package unchanged, no skips.
 
 ## Post-Completion
 

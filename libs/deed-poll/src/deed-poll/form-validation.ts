@@ -51,7 +51,8 @@ export function collectDateErrors(body: Record<string, unknown>, fields: FieldDe
 }
 
 function invalidInput(field: FieldDef, body: Record<string, unknown>): FormError[] {
-  return readFieldInput(field, body).kind === "invalid" ? [{ field: field.name, message: fieldInputMessage(field) }] : [];
+  const input = readFieldInput(field, body);
+  return input.kind === "invalid" ? [{ field: field.name, message: fieldInputMessage(field, input) }] : [];
 }
 
 function invalidDateInput(field: FieldDef, body: Record<string, unknown>): FormError[] {

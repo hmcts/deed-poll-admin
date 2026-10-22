@@ -16,6 +16,13 @@ import type { NumberFormat } from "./numeric-input.js";
  *   - Notes/Witnesses/Documents are subgrids, handled separately (nested CRUD).
  */
 
+/**
+ * The most characters a `textarea` field saves, and the `maxlength` the edit form's character count advertises.
+ * api stores the three as unbounded `text`, so this app is what holds the 2,000 the field definitions describe
+ * (review finding R15). A browser's `maxlength` counts UTF-16 code units, and so does `readFieldInput`.
+ */
+export const TEXTAREA_MAX_LENGTH = 2000;
+
 /** The control kind, deciding how a field renders and how its POST value coerces. */
 export type FieldKind = "text" | "textarea" | "date" | "number" | "boolean" | "enum" | "multiselect";
 

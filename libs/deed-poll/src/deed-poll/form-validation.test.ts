@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FIELD_BY_NAME, type FieldDef } from "./form-fields.js";
+import { FIELD_BY_NAME, type FieldDef, TEXTAREA_MAX_LENGTH } from "./form-fields.js";
 import { collectDateErrors, collectFormErrors } from "./form-validation.js";
 
 const DATES: FieldDef[] = [
@@ -215,5 +215,43 @@ describe("input the rendered form could not have sent (review finding R08)", () 
     const fields: FieldDef[] = [{ name: "displayReference", label: "Display reference", kind: "text", readOnly: true }];
 
     expect(collectFormErrors({ displayReference: ["a", "b"] }, fields)).toEqual([]);
+  });
+});
+
+describe("the textarea limit the edit form advertises (review finding R15)", () => {
+  const RETURN = [FIELD_BY_NAME.dateReturned, FIELD_BY_NAME.returnReason];
+
+  it("should be the 2,000 characters the field definitions describe", () => {
+    expect(TEXTAREA_MAX_LENGTH).toBe(2000);
+  });
+
+  it("should accept text of exactly the limit", () => {
+    expect(collectFormErrors({ returnReason: "x".repeat(TEXTAREA_MAX_LENGTH) }, RETURN)).toEqual([]);
+  });
+
+  it("should refuse text one character over the limit, naming the limit", () => {
+    const errors = collectFormErrors({ returnReason: "x".repeat(TEXTAREA_MAX_LENGTH + 1) }, RETURN);
+
+    expect(errors).toEqual([{ field: "returnReason", message: "Return reason must be 2,000 characters or less" }]);
+  });
+
+  it("should measure after trimming, as the saved value is trimmed", () => {
+    expect(collectFormErrors({ returnReason: `  ${"x".repeat(TEXTAREA_MAX_LENGTH)}\n ` }, RETURN)).toEqual([]);
+  });
+
+  it("should count UTF-16 code units, as a browser's maxlength does", () => {
+    // "😀" is two code units, so 1,000 of them fill the limit and one more character is over it.
+    expect(collectFormErrors({ returnReason: "😀".repeat(1000) }, RETURN)).toEqual([]);
+    expect(collectFormErrors({ returnReason: `${"😀".repeat(1000)}x` }, RETURN)).toHaveLength(1);
+  });
+
+  it("should leave text fields unlimited, since none advertises a limit", () => {
+    expect(collectFormErrors({ newForename: "x".repeat(TEXTAREA_MAX_LENGTH + 1) }, [FIELD_BY_NAME.newForename])).toEqual([]);
+  });
+
+  it("should report the limit in field order beside a date error", () => {
+    const errors = collectFormErrors({ ...parts("dateReturned", "3", "", ""), returnReason: "x".repeat(TEXTAREA_MAX_LENGTH + 1) }, RETURN);
+
+    expect(errors.map((error) => error.field)).toEqual(["dateReturned", "returnReason"]);
   });
 });

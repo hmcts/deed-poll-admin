@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { InvalidInputError } from "../errors.js";
-import { FIELD_BY_NAME } from "./form-fields.js";
+import { FIELD_BY_NAME, TEXTAREA_MAX_LENGTH } from "./form-fields.js";
 import { buildUpdatePatch } from "./form-payload.js";
 
 const NUMBER_FIELDS = ["ageOfMinor", "ageOfMinorMonths", "refundAmount"].map((name) => FIELD_BY_NAME[name]);
@@ -310,6 +310,26 @@ describe("buildUpdatePatch", () => {
 
     it("should still clear a multiselect with nothing ticked", () => {
       expect(buildUpdatePatch({}, SHAPED).iShall).toEqual([]);
+    });
+  });
+
+  describe("the textarea limit (review finding R15)", () => {
+    const RETURN = [FIELD_BY_NAME.returnReason];
+
+    it("should write text of exactly the limit", () => {
+      const text = "x".repeat(TEXTAREA_MAX_LENGTH);
+
+      expect(buildUpdatePatch({ returnReason: text }, RETURN)).toEqual({ returnReason: text });
+    });
+
+    it("should build no patch from text over the limit, naming the field", () => {
+      try {
+        buildUpdatePatch({ returnReason: "x".repeat(TEXTAREA_MAX_LENGTH + 1) }, RETURN);
+        expect.unreachable();
+      } catch (error) {
+        expect(error).toBeInstanceOf(InvalidInputError);
+        expect((error as InvalidInputError).errors).toEqual([{ field: "returnReason", message: "Return reason must be 2,000 characters or less" }]);
+      }
     });
   });
 

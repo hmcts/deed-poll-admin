@@ -1,5 +1,5 @@
 import { composeDateParts } from "./date-parts.js";
-import { enumOptions, type FieldDef } from "./form-fields.js";
+import { enumOptions, type FieldDef, TEXTAREA_MAX_LENGTH } from "./form-fields.js";
 import { numericInputMessage, readNumericInput } from "./numeric-input.js";
 
 const DATE_PARTS = ["day", "month", "year"] as const;
@@ -41,6 +41,7 @@ export function readFieldInput(field: FieldDef, body: Record<string, unknown>): 
       if (raw === undefined) return { kind: "absent" };
       if (typeof raw !== "string") return { kind: "invalid" };
       const text = raw.trim();
+      if (field.kind === "textarea" && text.length > TEXTAREA_MAX_LENGTH) return { kind: "invalid", reason: "too-long" };
       return { kind: "valid", value: text === "" ? null : text };
     }
   }
@@ -59,7 +60,10 @@ export function readDateInput(name: string, body: Record<string, unknown>): Date
 }
 
 /** The field error for an `invalid` reading, worded for the caseworker rather than naming the input's shape. */
-export function fieldInputMessage(field: FieldDef): string {
+export function fieldInputMessage(field: FieldDef, input?: FieldInput): string {
+  if (input?.kind === "invalid" && input.reason === "too-long") {
+    return `${field.label} must be ${TEXTAREA_MAX_LENGTH.toLocaleString("en-GB")} characters or less`;
+  }
   switch (field.kind) {
     case "number":
       return numericInputMessage(field.label, field.numberFormat ?? "decimal");
@@ -110,6 +114,7 @@ function optionValues(field: FieldDef): Set<string> {
   return new Set(field.enumSet ? enumOptions(field.enumSet).map((option) => option.value) : []);
 }
 
-export type FieldInput = { kind: "absent" } | { kind: "valid"; value: unknown } | { kind: "invalid" };
+/** `too-long` is a textarea over `TEXTAREA_MAX_LENGTH`: one string the caseworker typed, so it is redrawn as sent. */
+export type FieldInput = { kind: "absent" } | { kind: "valid"; value: unknown } | { kind: "invalid"; reason?: "too-long" };
 
 export type DateInput = { kind: "absent" } | { kind: "parts"; day: string; month: string; year: string } | { kind: "invalid" };

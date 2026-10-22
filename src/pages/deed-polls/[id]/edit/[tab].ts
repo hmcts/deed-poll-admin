@@ -34,6 +34,7 @@ import {
   LEGACY_REFERRAL_TAB,
   NotFoundError,
   type TabDef,
+  TEXTAREA_MAX_LENGTH,
   tabFor,
   updateDeedPoll
 } from "@hmcts/deed-poll";
@@ -60,8 +61,7 @@ const en = {
   // The witness-shortfall banner's title and its way out. The sentence itself is view-model data, not a
   // label: it interpolates the case's count and api's threshold — see enrolment-requirement.ts.
   bannerTitle: "Important",
-  witnessWarningLink: "View the witnesses on this case",
-  noteMaxLength: 2000
+  witnessWarningLink: "View the witnesses on this case"
 };
 
 // English content in the cy shape — see the note in ../../index.ts.
@@ -175,6 +175,8 @@ function render(
       found.witnesses.length,
       (errors ?? []).map((error) => error.field)
     ),
+    // The limit `readFieldInput` enforces, so the advertised and enforced numbers cannot drift (review finding R15).
+    textareaMaxLength: TEXTAREA_MAX_LENGTH,
     errors: errors ?? [],
     errorSummary: errors ? buildErrorSummary(errors, tab) : [],
     en,

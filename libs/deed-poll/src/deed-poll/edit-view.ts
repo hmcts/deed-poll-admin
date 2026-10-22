@@ -151,10 +151,11 @@ function wasSubmitted(field: FieldDef, submitted: Record<string, unknown>): bool
 /**
  * A value the rendered form could not have sent (review finding R08) has no control to redraw it in — an array is
  * not one text box — so its field redraws from the stored record, and a corrected resubmit leaves it as it was. A
- * number is the exception: `12x` is one string the caseworker typed and must see again beside its error.
+ * number is the exception: `12x` is one string the caseworker typed and must see again beside its error. So is a
+ * textarea over its limit (review finding R15), which the caseworker shortens rather than retypes.
  */
 function couldBeRendered(field: FieldDef, submitted: Record<string, unknown>): boolean {
-  if (field.kind === "number") return typeof submitted[field.name] === "string";
+  if (field.kind === "number" || field.kind === "textarea") return typeof submitted[field.name] === "string";
   return readFieldInput(field, submitted).kind !== "invalid";
 }
 
