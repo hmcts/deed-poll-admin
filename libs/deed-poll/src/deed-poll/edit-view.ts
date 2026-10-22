@@ -124,11 +124,15 @@ function decorate(
   const raw = replaying ? (submitted[field.name] ?? null) : (record[field.name] ?? null);
   // Submitted text is replayed as typed; only a stored number needs rendering as something the parser accepts.
   const value = !replaying && field.kind === "number" && typeof raw === "number" && Number.isFinite(raw) ? formatNumericInput(raw) : raw;
+  let dateParts: DateParts | null = null;
+  if (field.kind === "date") {
+    dateParts = replaying ? submittedDateParts(field.name, submitted) : splitDateParts(record[field.name] ?? null);
+  }
 
   return {
     ...field,
     value,
-    dateParts: field.kind !== "date" ? null : replaying ? submittedDateParts(field.name, submitted) : splitDateParts(record[field.name] ?? null),
+    dateParts,
     rule: rules[field.name] ?? { visible: true, required: false },
     options: optionsFor(field, raw),
     checked: field.kind === "boolean" && !field.nullable && isTicked(raw),
