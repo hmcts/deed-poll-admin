@@ -17,15 +17,6 @@ import { Readable } from "node:stream";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import type { z } from "zod";
 import { assertApiBaseUrl } from "./transport.js";
-import type {
-  WireGazetteError,
-  WireGazetteMembers,
-  WireGazettePreview,
-  WireGazetteRequests,
-  WireGazetteStatus,
-  WirePreviewGazette,
-  WireSubmitGazette
-} from "./wire.js";
 import {
   WIRE_SCHEMAS,
   type WireCallerAccess,
@@ -43,9 +34,14 @@ import {
   type WireEmailSlotsWrite,
   type WireEmailType,
   type WireFieldRules,
+  type WireGazetteError,
+  type WireGazetteMembers,
   type WireGazetteNoticeBatch,
   type WireGazetteNoticeHistory,
+  type WireGazettePreview,
+  type WireGazetteRequests,
   type WireGazetteSettings,
+  type WireGazetteStatus,
   type WireJudicialApplicationView,
   type WireJudicialCaseNote,
   type WireJudicialDirection,
@@ -56,6 +52,7 @@ import {
   type WireJudicialReferralSummary,
   type WireJudicialWitness,
   type WireNote,
+  type WirePreviewGazette,
   type WireRecordConfirmation,
   type WireReferral,
   type WireReferralCreate,
@@ -64,6 +61,7 @@ import {
   type WireSavedQueryCreate,
   type WireSavedQueryUpdate,
   type WireSentEmail,
+  type WireSubmitGazette,
   type WireUpdateGazetteSettings,
   type WireWitnessCreate,
   type WireWitnessUpdate
