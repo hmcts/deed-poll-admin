@@ -136,35 +136,19 @@ describe("document download route", () => {
     expect(res.headers["X-Content-Type-Options"]).toBe("nosniff");
   });
 
-  it("should download rather than render in place when the policy sent does not sandbox the response", async () => {
+  it.each([
     // The presence of a policy is not the same fact as the presence of an inert one. A proxy that inserts
     // its own `Content-Security-Policy`, or an api build that loosens this one, would otherwise both satisfy
     // the guard and replace helmet's `default-src 'self'` with something weaker — an applicant's PDF
     // executing in the admin origin under a policy that permits it.
-    vi.mocked(downloadDocument).mockResolvedValue(apiDownload({ contentSecurityPolicy: "default-src *" }) as never);
-    const res = streamResponse();
-
-    await GET(pageRequest({ params: PARAMS }), res, vi.fn());
-
-    expect(res.headers["Content-Disposition"]).toBe('attachment; filename="deed poll.pdf"');
-  });
-
-  it("should download rather than render in place when the sandbox allows scripts, which gives back what it took", async () => {
-    vi.mocked(downloadDocument).mockResolvedValue(
-      apiDownload({ contentSecurityPolicy: "default-src 'none'; sandbox allow-scripts allow-same-origin" }) as never
-    );
-    const res = streamResponse();
-
-    await GET(pageRequest({ params: PARAMS }), res, vi.fn());
-
-    expect(res.headers["Content-Disposition"]).toBe('attachment; filename="deed poll.pdf"');
-  });
-
-  it("should download rather than render in place when a later bare sandbox follows one allowing scripts", async () => {
+    ["the policy sent does not sandbox the response", "default-src *"],
+    ["the sandbox allows scripts, which gives back what it took", "default-src 'none'; sandbox allow-scripts allow-same-origin"],
     // A browser resolves a repeated directive to its first occurrence, so this policy renders with
     // scripting ON. Asking whether *some* sandbox is inert would find the trailing bare one and pass —
     // then forward the script-allowing policy as this origin's own.
-    vi.mocked(downloadDocument).mockResolvedValue(apiDownload({ contentSecurityPolicy: "default-src 'none'; sandbox allow-scripts; sandbox" }) as never);
+    ["a later bare sandbox follows one allowing scripts", "default-src 'none'; sandbox allow-scripts; sandbox"]
+  ])("should download rather than render in place when %s", async (_scenario, contentSecurityPolicy) => {
+    vi.mocked(downloadDocument).mockResolvedValue(apiDownload({ contentSecurityPolicy }) as never);
     const res = streamResponse();
 
     await GET(pageRequest({ params: PARAMS }), res, vi.fn());
