@@ -45,7 +45,7 @@ const cy = { ...en };
 
 const typeOptions = [{ value: "", text: en.typeEmpty }, ...Object.entries(DEED_POLL_TYPE_LABEL).map(([value, text]) => ({ value, text }))];
 
-export const GET = async (_req: Request, res: Response) => {
+export const GET = (_req: Request, res: Response) => {
   res.render("deed-polls/new", { values: {}, typeOptions, en, cy });
 };
 
