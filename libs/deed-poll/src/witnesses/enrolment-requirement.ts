@@ -19,7 +19,7 @@ export const WITNESSES_REQUIRED_FOR_ENROLMENT = 2;
  * sets it and `signatureReceivedDate` otherwise. A tab is warned because it carries one of these, rather
  * than because its id is in a list here: if a date moves tab, the warning moves with it.
  */
-const ENROLMENT_DATE_FIELDS = ["signatureReceivedDate", "dateEnroled"];
+const ENROLMENT_DATE_FIELDS = new Set(["signatureReceivedDate", "dateEnroled"]);
 
 /**
  * "1 of 2 witnesses recorded" — the shortfall, not the rule, so a caseworker reads what to do rather
@@ -63,7 +63,7 @@ export function enrolmentWitnessWarning(tab: TabDef, recorded: number, refusedFi
   // Not on every tab: the shortfall is not what a caseworker editing an address is being told about, and
   // a banner that appears everywhere is read nowhere. A refusal addressed to one of the dates is the
   // exception, because then it IS what the caseworker is being told about, whichever tab they are on.
-  if (!carriesEnrolmentDate(tab) && !refusedFields.some((field) => ENROLMENT_DATE_FIELDS.includes(field))) {
+  if (!carriesEnrolmentDate(tab) && !refusedFields.some((field) => ENROLMENT_DATE_FIELDS.has(field))) {
     return null;
   }
 
@@ -78,5 +78,5 @@ export function enrolmentWitnessWarning(tab: TabDef, recorded: number, refusedFi
 }
 
 function carriesEnrolmentDate(tab: TabDef): boolean {
-  return tab.sections.some((section) => section.fields.some((field) => ENROLMENT_DATE_FIELDS.includes(field.name)));
+  return tab.sections.some((section) => section.fields.some((field) => ENROLMENT_DATE_FIELDS.has(field.name)));
 }
