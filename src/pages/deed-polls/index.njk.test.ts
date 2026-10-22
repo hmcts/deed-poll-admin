@@ -276,7 +276,7 @@ describe("deed-polls list template", () => {
   it("shows every field the chooser offers, and not the ones api computes", async () => {
     const markup = await render();
 
-    expect(markup).toContain('<option value="state">State</option>');
+    expect(markup).toContain('<option value="state">Status</option>');
     expect(markup).not.toContain('value="daysReceivedToEnroled"');
   });
 
@@ -751,7 +751,7 @@ describe("deed-polls list template", () => {
     it("marks the current tab with aria-current=page rather than a strong, since you-are-here is not importance", async () => {
       const nav = filterNav(await render({ filter: "enroled" }));
 
-      expect(nav).toContain('<span class="app-filter-nav__current" aria-current="page">Enroled</span>');
+      expect(nav).toContain('<span class="app-filter-nav__current" aria-current="page">Enrolled</span>');
       expect(nav).not.toContain("<strong");
       expect(nav).not.toContain('aria-current="true"');
       // One current entry, so the other five are still links to somewhere.

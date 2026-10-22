@@ -172,7 +172,7 @@ Three facts about the confirmation worklist that are not derivable from a single
 - **A case can be waiting for the applicant with no case state saying so.** There is no ninth `DeedPollState`:
   the case still reads `Returned`, and `awaitingConfirmationSince` — recomputed by api from its referrals' two
   confirmation columns — is the only thing that says it is waiting. So the case page says it as inset text
-  *beside* the State row (`src/pages/deed-polls/[id].ts`), and a referral is "waiting" by api's two-column
+  *beside* the Status row (the case's `state`, labelled Status since 2026-10-22) (`src/pages/deed-polls/[id].ts`), and a referral is "waiting" by api's two-column
   predicate rather than by its state: `Closed` clears neither column, so a closed referral can still be holding
   its case on the worklist.
 - **A recorded confirmation cannot be amended, and a 409's meaning comes from a fresh read.** api publishes no

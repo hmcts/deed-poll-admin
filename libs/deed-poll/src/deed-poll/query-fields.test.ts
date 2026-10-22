@@ -76,7 +76,7 @@ describe("deed-poll/query-fields", () => {
       const state = QUERYABLE_FIELDS.find((field) => field.name === "state");
 
       expect(state).toBe(FIELD_BY_NAME.state);
-      expect(state?.label).toBe("State");
+      expect(state?.label).toBe("Status");
       expect(state?.enumSet).toBe("state");
     });
 

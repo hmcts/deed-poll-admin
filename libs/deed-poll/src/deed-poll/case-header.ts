@@ -108,7 +108,7 @@ export function buildCaseHeader(record: CaseHeaderInput): CaseHeader {
     entityLabel: ENTITY_LABEL,
     rows: [
       { key: "Type", value: label("type", record.type) },
-      { key: "State", value: label("state", record.state), tag: true },
+      { key: "Status", value: label("state", record.state), tag: true },
       { key: "Modified By", value: author(record.modifiedBy) },
       { key: "Modified On", value: formatTimestamp(record.modifiedOn) },
       { key: "Created By", value: author(record.createdBy) }

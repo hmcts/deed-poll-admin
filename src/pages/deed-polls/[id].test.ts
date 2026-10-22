@@ -1047,7 +1047,7 @@ describe("case detail page", () => {
       await GET(request(), res);
 
       const model = res.render.mock.calls[0][1];
-      expect(model.header.rows.find((row: { key: string }) => row.key === "State").value).toBe("Returned");
+      expect(model.header.rows.find((row: { key: string }) => row.key === "Status").value).toBe("Returned");
       expect(model.case.state).toBe("Returned");
     });
 

@@ -96,7 +96,7 @@ test("caseworker follows the awaiting-confirmation count to the longest wait and
 
   // The count is a fact about the service rather than about the tab on screen, so another tab does not narrow it —
   // `Enroled` holds none of these cases.
-  await page.getByRole("link", { name: "Enroled" }).click();
+  await page.getByRole("link", { name: "Enrolled" }).click();
   await expect(banner).toContainText("waiting for the applicant to confirm they want to proceed");
   await expectAwaitingCountMatchesApi(page, request);
   // And the Waiting column belongs to one tab (decision 4): the value is on every row api publishes, and the
@@ -154,7 +154,7 @@ test("caseworker follows the awaiting-confirmation count to the longest wait and
   const notice = awaitingNotice(page);
   await expect(notice).toContainText("The applicant was asked on");
   await expect(notice).toContainText("has not replied yet");
-  await expect(caseHeaderRow(page, "State")).toContainText("Returned");
+  await expect(caseHeaderRow(page, "Status")).toContainText("Returned");
   // Read off the page rather than computed here: it is api's date formatted by the app, and a second formatting in
   // this file would be a third opinion about how one timestamp reads.
   // biome-ignore lint/performance/useDomNodeTextContent: Playwright Locator reads rendered text; textContent includes hidden text and preserves source whitespace.
@@ -256,7 +256,7 @@ test("caseworker follows the awaiting-confirmation count to the longest wait and
   // derive it are untouched.
   await page.goto(`/deed-polls/${oldest.id}`);
   await expect(awaitingNotice(page)).toHaveCount(0);
-  await expect(caseHeaderRow(page, "State")).toContainText("Returned");
+  await expect(caseHeaderRow(page, "Status")).toContainText("Returned");
 
   // The form refuses to present an action that no longer applies — a back button, a bookmark or a second tab —
   // and redirects to the referral, which shows the answer that explains why.
