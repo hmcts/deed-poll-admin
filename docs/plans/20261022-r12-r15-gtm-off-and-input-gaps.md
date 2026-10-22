@@ -138,12 +138,12 @@ handler test.
 
 **Files:** `CLAUDE.md`, this plan.
 
-- [ ] `CLAUDE.md`: in "Case edit form saves", the textarea limit and its shared constant; a short note that admin
+- [x] `CLAUDE.md`: in "Case edit form saves", the textarea limit and its shared constant; a short note that admin
       carries no GTM and why (finding R12), near the CSP or deployment facts. **Reference this plan by its
       `docs/plans/completed/` path**, since that is where it will be once the run ends.
-- [ ] Run `yarn welsh:check` and record that it changed only by any new strings (it exits 1 by design).
-- [ ] Record final commits, changed files and test counts in the execution notes.
-- [ ] Run all Validation Commands and hand off to the Ralphex review phases.
+- [x] Run `yarn welsh:check` and record that it changed only by any new strings (it exits 1 by design).
+- [x] Record final commits, changed files and test counts in the execution notes.
+- [x] Run all Validation Commands and hand off to the Ralphex review phases.
 
 ## Acceptance Criteria
 
@@ -221,6 +221,29 @@ handler test.
   green with the schema change, before the page change.
 - After: lint clean (same info), build 8/8, app 127 / 2,686 (+11), deed-poll 68 / 1,416 (+6), every other package
   unchanged, no skips.
+
+### Task 4 (rules and hand-off)
+
+- `CLAUDE.md`: a "Case edit form saves" bullet for `TEXTAREA_MAX_LENGTH` (the one constant behind both the rendered
+  `maxlength` and the refusal), the redraw exception widened to textareas, and a "Deployment and sessions" bullet that
+  admin carries no GTM and the CSP no Google host (R12). Both cite this plan at its `docs/plans/completed/` path.
+- `yarn welsh:check` (exits 1 by design): baseline `4785bd2` 737 strings / 519 identical; after Task 3 still 737,
+  because the extractor silently skips a nested object under an `as` cast, and Task 3's `blankErrors` had one. Both
+  witness pages now declare `blankErrors` without the cast (the lookup widens the type at the use site), and the count
+  is 743 / 525: exactly the six new strings. The pre-existing `fieldErrors` on both pages carry the same cast and were
+  already absent at baseline; left as found (out of scope) and recorded in `CLAUDE.md` beside the other unread shapes.
+  A follow-up should either drop those casts or teach the extractor to unwrap `as`/`satisfies`, which will add their
+  rows to the translation request.
+- Commits: `e3ca73b` (R12), `bf115f4` (R15.1), `871bc17` (R15.2, R15.3), and this task's commit.
+- Changed files against `4785bd2`: `config/default.json`, `config/production.json`, `CLAUDE.md`, this plan,
+  `libs/deed-poll/src/deed-poll/{edit-view,form-fields,form-input,form-payload,form-validation}.ts` and the payload and
+  validation tests, `libs/deed-poll/src/witnesses/schemas.ts` and test, `src/analytics.test.ts` (new), `src/app.ts`,
+  `src/case-edit-untouched-fields.test.ts`, `src/pages/deed-polls/[id]/edit/[tab].ts`, `src/pages/deed-polls/edit.njk`,
+  `src/pages/deed-polls/new.ts` and test, and both witness pages and their tests.
+- Final Validation Commands: lint clean (the same one pre-existing info), build 8/8, tests all green with no skips:
+  app 127 / 2,686 (baseline 126 / 2,669); deed-poll 68 / 1,416 (baseline 1,401); deed-poll-api-client 15 / 1,039,
+  express-govuk-starter 12 / 127, cloud-native-platform 13 / 157, simple-router 4 / 41, express-session-postgres
+  2 / 30 and express-session-redis 1 / 7, all unchanged. Ready for the Ralphex review phases.
 
 ## Post-Completion
 

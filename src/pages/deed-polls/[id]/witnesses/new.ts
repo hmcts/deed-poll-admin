@@ -52,11 +52,12 @@ const en = {
     witnessOccupation: `Occupation must be ${MAX_OCCUPATION} characters or fewer`,
     declarant: "Select yes if this person is the declarant"
   } as Record<string, string>,
+  // No `as` cast here: the Welsh extractor reads only a bare object literal, and a cast one is silently skipped.
   blankErrors: {
     witnessName: "Enter the witness's name",
     witnessAddress: "Enter the witness's address",
     witnessOccupation: "Enter the witness's occupation"
-  } as Record<string, string>,
+  },
   witnessRefused: "The witness could not be saved. Check the details and try again."
 };
 
@@ -133,11 +134,12 @@ function declarantFrom(value: unknown): boolean | undefined {
  * too-long text field gets the length message: blank, whitespace-only and absent all read as not entered.
  */
 function ownMessages(issues: readonly SchemaIssue[]): Record<string, string> {
+  const blankErrors: Readonly<Record<string, string | undefined>> = en.blankErrors;
   return Object.fromEntries(
     issues
       .map((issue) => [String(issue.path[0] ?? ""), issue] as const)
       .flatMap(([field, issue]) => {
-        const message = issue.code === "too_big" ? en.fieldErrors[field] : (en.blankErrors[field] ?? en.fieldErrors[field]);
+        const message = issue.code === "too_big" ? en.fieldErrors[field] : (blankErrors[field] ?? en.fieldErrors[field]);
         return message ? [[field, message]] : [];
       })
   );
