@@ -495,7 +495,7 @@ describe("openapi.json and the wire schemas", () => {
     const judicial = Object.entries(spec.components.schemas).filter(([name]) => name.startsWith("Judicial"));
 
     // Counted, so a judicial schema api adds is swept by the loop below rather than silently missed by it.
-    expect(judicial.length).toBe(9);
+    expect(judicial).toHaveLength(9);
     for (const [name, schema] of judicial) {
       for (const property of Object.keys(schema.properties ?? {})) {
         expect(property, `${name}.${property}`).not.toMatch(/^(claimedById|decidedById|ownerId|subject|userId)$/);
