@@ -14,8 +14,9 @@ export function requireJudicial(): RequestHandler {
     }
 
     // The message is for the log, never for the user: `errors.ts` renders the shared "Page not found"
-    // view, so a caseworker who guesses a judicial URL learns nothing about what is behind it. The route and
-    // not `originalUrl`, whose query string can carry a search.
+    // view, so a caseworker who guesses a judicial URL learns nothing about what is behind it — only, from the 403
+    // status, that the area exists and is closed to them (R14). The route and not `originalUrl`, whose query
+    // string can carry a search.
     next(new ForbiddenError(`${req.method} ${req.baseUrl}${req.path} requires judicial access`, { reason: "role" }));
   };
 }

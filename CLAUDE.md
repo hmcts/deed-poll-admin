@@ -224,8 +224,12 @@ single file:
   caseworker who defeated this gate would see a screen of 403s, not a judge's referrals. The gate decides which
   chrome a signed-in user gets.
 - **It refuses with `next(new ForbiddenError(...))` and renders nothing.** `src/errors.ts` answers 403 on the
-  **404** view, so a guessed judicial URL discloses nothing, and logs the message the gate built — that render
-  is the end of the chain, and the starter's handler (the only thing that logs) is never reached.
+  **404** view and logs the message the gate built — that render is the end of the chain, and the starter's
+  handler (the only thing that logs) is never reached. The view says nothing about what was refused, and the gate
+  runs before anything is looked up, so a guessed judicial URL never discloses whether that referral exists. The
+  **403 status does disclose the area**: that `/judicial/**` exists and this caller may not enter it. That is
+  deliberate and pinned by `e2e-tests/tests/judicial.spec.ts` and `staff-roles.spec.ts`; do not describe the area
+  as non-enumerable (review finding R14, `docs/plans/completed/20261021-r10-r14-error-disclosure.md`).
   `src/pages/errors/403.njk` exists but belongs to the login flow, where the user already knows who they are.
 - **Staff capabilities do not imply judicial access.** Team leaders and Delivery Managers are refused
   `/judicial/**` unless they separately hold the judicial role. `isAdmin` remains only the privacy adapter.
@@ -544,6 +548,11 @@ only — api keeps the audit trail of writes and reads, and this app must not du
   - **Never a token, secret, raw session id, cookie, email address, display name or applicant data**, test fixtures
     included. A value the browser or IDAM chose (an `error` code, a `Sec-Fetch-Site`, an `Origin`) is recorded only if
     it has the expected shape — otherwise `unrecognised`, or the host alone, or nothing — and never as prose.
+- **The IDAM callback's refusal page shows only this app's sentences** (review finding R10,
+  `docs/plans/completed/20261021-r10-r14-error-disclosure.md`). The callback query is the browser's to write, so
+  `src/pages/oauth2/callback.ts` maps a known RFC 6749 `error` code to its own `en`/`cy` sentence through a `Map`
+  (so `constructor` finds nothing) and renders `errors/403` with no `reason` for anything else. `error_description`
+  is never displayed. Add a code by adding a sentence, never by echoing the query.
 - **Every 403 is emitted in one place, `src/errors.ts`.** `ForbiddenError` carries `reason` (`role`, `same-origin` or
   the default `api`, which `callApi` raises) and the gate's details; `requireJudicial`, `requireCapability` and
   `same-origin.ts` set them, and `errors.ts` maps them to `authz.denied` or `csrf.refused`. Do not emit a refusal at

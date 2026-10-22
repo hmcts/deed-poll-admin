@@ -15,6 +15,19 @@ import { idamSettings } from "../../auth/settings.js";
 // RFC 6749's error codes are lower-case words joined by underscores. The query is the browser's to write, so
 // anything else is recorded as one fixed value rather than as text an attacker chose.
 const IDAM_ERROR_CODE = /^[a-z_]{1,64}$/;
+const en = {
+  accessDenied: "Sign in was cancelled or refused.",
+  unavailable: "The sign-in service is not working at the moment. Try again later."
+};
+const cy = { ...en };
+// The page shows a sentence of this app's choosing, keyed by an RFC 6749 code it knows, and never the query's text:
+// a description, or an unknown code, is whatever the link that started the flow put there (review finding R10, plan
+// `docs/plans/completed/20261021-r10-r14-error-disclosure.md`). A Map, so a code such as `constructor` finds nothing.
+const REFUSAL_SENTENCES = new Map<string, keyof typeof en>([
+  ["access_denied", "accessDenied"],
+  ["temporarily_unavailable", "unavailable"],
+  ["server_error", "unavailable"]
+]);
 
 export const GET = async (req: Request, res: Response) => {
   const flow = takeFlow(req);
@@ -31,7 +44,7 @@ export const GET = async (req: Request, res: Response) => {
   if (typeof req.query.error === "string") {
     // The code only: `error_description` is prose IDAM may fill with the user's own details.
     securityEvent("auth.login.failed", req, { reason: "idam_error", outcome: idamErrorCode(req.query.error) });
-    return res.status(403).render("errors/403", { reason: req.query.error_description ?? req.query.error });
+    return res.status(403).render("errors/403", { reason: refusalReason(req.query.error, res.locals.locale === "cy" ? cy : en) });
   }
 
   const settings = idamSettings();
@@ -63,4 +76,9 @@ export const GET = async (req: Request, res: Response) => {
 
 function idamErrorCode(error: string): string {
   return IDAM_ERROR_CODE.test(error) ? error : "unrecognised";
+}
+
+function refusalReason(error: string, content: typeof en): string | undefined {
+  const key = REFUSAL_SENTENCES.get(error);
+  return key ? content[key] : undefined;
 }

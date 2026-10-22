@@ -144,7 +144,11 @@ describe("the IDAM callback", () => {
   });
 
   describe("when IDAM reports a refusal", () => {
-    it("renders a 403 with the reason rather than attempting an exchange", async () => {
+    // Review finding R10: the query is the browser's to write, so anything shown on the page must be this app's own
+    // sentence, chosen by a code it knows, and never IDAM's (or an attacker's) prose.
+    const MARKER = "MARKER-a1b2c3 Call 0800 000 0000 to restore access";
+
+    it("renders a 403 with this app's sentence for access_denied rather than attempting an exchange", async () => {
       // IDAM signals a refusal by redirecting here with ?error=, not by failing the exchange. Without
       // this the exchange would fail on a missing `code` and report a server fault for what is usually
       // the user declining.
@@ -153,16 +157,69 @@ describe("the IDAM callback", () => {
       await GET(callback({ query: { error: "access_denied", error_description: "User declined" } }), res);
 
       expect(res.status).toHaveBeenCalledWith(403);
-      expect(res.render).toHaveBeenCalledWith("errors/403", { reason: "User declined" });
+      expect(res.render).toHaveBeenCalledWith("errors/403", { reason: "Sign in was cancelled or refused." });
       expect(completeLogin).not.toHaveBeenCalled();
     });
 
-    it("falls back to the error code when there is no description", async () => {
+    it.each(["temporarily_unavailable", "server_error"])("renders the shared unavailable sentence for %s", async (error) => {
       const res = pageResponse();
+
+      await GET(callback({ query: { error, error_description: MARKER } }), res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.render).toHaveBeenCalledWith("errors/403", { reason: "The sign-in service is not working at the moment. Try again later." });
+    });
+
+    it("never shows error_description, whatever the code", async () => {
+      const res = pageResponse();
+
+      await GET(callback({ query: { error: "access_denied", error_description: MARKER } }), res);
+
+      expect(JSON.stringify(res.render.mock.calls)).not.toContain("MARKER");
+    });
+
+    it.each([
+      ["an unrecognised code", "MARKER_code"],
+      ["a code outside the code pattern", `access_denied ${MARKER}`],
+      ["a valid-looking code this app does not know", "invalid_scope"],
+      ["a code naming an object prototype member", "constructor"]
+    ])("renders no reason for %s", async (_label, error) => {
+      const res = pageResponse();
+
+      await GET(callback({ query: { error, error_description: MARKER } }), res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.render).toHaveBeenCalledWith("errors/403", { reason: undefined });
+      expect(completeLogin).not.toHaveBeenCalled();
+    });
+
+    it("renders only this app's sentence for a known code with a repeated error_description", async () => {
+      const res = pageResponse();
+
+      await GET(callback({ query: { error: "access_denied", error_description: [MARKER, MARKER] } }), res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.render).toHaveBeenCalledWith("errors/403", { reason: "Sign in was cancelled or refused." });
+    });
+
+    it("renders no reason for a repeated error, which is not a string and so goes to the exchange as before", async () => {
+      vi.mocked(completeLogin).mockRejectedValue(new Error("missing code"));
+      const res = pageResponse();
+
+      await GET(callback({ query: { error: ["access_denied", MARKER], error_description: MARKER } }), res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.render).toHaveBeenCalledWith("errors/403");
+      expect(events()[0][1].reason).toBe("exchange_failed");
+    });
+
+    it("renders the same sentence in Welsh until the translation arrives", async () => {
+      const res = pageResponse();
+      res.locals.locale = "cy";
 
       await GET(callback({ query: { error: "access_denied" } }), res);
 
-      expect(res.render).toHaveBeenCalledWith("errors/403", { reason: "access_denied" });
+      expect(res.render).toHaveBeenCalledWith("errors/403", { reason: "Sign in was cancelled or refused." });
     });
 
     it("still consumes the flow, so the abandoned attempt cannot be resumed", async () => {
@@ -235,6 +292,18 @@ describe("the IDAM callback", () => {
         ]
       ]);
       expect(JSON.stringify(events())).not.toContain("declined");
+    });
+
+    it.each([
+      ["access_denied", "access_denied"],
+      ["invalid_scope", "invalid_scope"],
+      ["access_denied\nforged: line", "unrecognised"]
+    ])("should keep recording %s as before, whatever the page shows", async (error, outcome) => {
+      await GET(callback({ query: { error, error_description: "User jane@example.com declined" } }), pageResponse());
+
+      expect(events()).toEqual([
+        ["auth.login.failed", { sid: sid(PRE_LOGIN_SESSION_ID), env: "test", method: "GET", route: "/oauth2/callback", reason: "idam_error", outcome }]
+      ]);
     });
 
     it("should record an error code that is not one IDAM could send as unrecognised", async () => {

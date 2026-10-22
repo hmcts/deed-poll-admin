@@ -22,8 +22,8 @@
  *   - It regenerates the session id, as any change of authenticated identity should.
  *
  * **A refusal is a 404, via `next()` to the not-found handler.** Both the shut gate and an unknown persona id
- * take that path: it is the same non-enumerability argument as `/judicial/**`'s, so nothing about the response
- * says whether this route exists in this environment or which ids it would accept.
+ * take that path, so nothing about the response says whether this route exists in this environment or which ids
+ * it would accept. That is stronger than `/judicial/**`'s refusal, whose 403 discloses the area (review finding R14).
  *
  * **A persona that cannot be obtained renders its reason and not the 500 page** (task 5). `loginAsPersona`
  * classifies the failure — an unpublished role, a client registered for neither grant type, IDAM unreachable —
