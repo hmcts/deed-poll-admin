@@ -5,7 +5,7 @@ import appInsights from "applicationinsights";
 import { queryRedactingSpanProcessor } from "./query-redacting-span-processor.js";
 
 export class MonitoringService {
-  private client?: appInsights.TelemetryClient;
+  private readonly client?: appInsights.TelemetryClient;
 
   constructor(
     connectionString: string,
