@@ -561,7 +561,7 @@ function reload(req: Request): Promise<void> {
 function coordinator(req: Request): RefreshCoordinator {
   const store = req.sessionStore as Partial<RefreshCoordinator> | undefined;
   if (typeof store?.claimRefresh !== "function" || typeof store.attachRefreshLease !== "function" || typeof store.releaseRefresh !== "function") {
-    throw new Error("the session store cannot coordinate token refreshes");
+    throw new TypeError("the session store cannot coordinate token refreshes");
   }
   return store as RefreshCoordinator;
 }
