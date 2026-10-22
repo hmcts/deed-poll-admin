@@ -171,9 +171,15 @@ function valueControls(control: ValueControl, arity: ValueArity, fieldName: stri
       const slots = arity === 2 ? [lower, names.upperValueName ?? ""] : [lower];
 
       return slots.map((name, slot) => {
-        const label = `${slots.length === 1 ? labels.value : slot === 0 ? labels.lowerBound : labels.upperBound} ${number}`;
+        let valueLabel = labels.value;
+        if (slots.length !== 1) {
+          valueLabel = slot === 0 ? labels.lowerBound : labels.upperBound;
+        }
+        const label = `${valueLabel} ${number}`;
 
-        return control === "date" ? dateControl(name, label, labels) : inputControl(name, label, control === "number" ? "number" : "text");
+        if (control === "date") return dateControl(name, label, labels);
+
+        return inputControl(name, label, control === "number" ? "number" : "text");
       });
     }
   }
@@ -250,7 +256,10 @@ function updateHint(row: HTMLElement, field: HTMLSelectElement, arity: ValueArit
 
   const id = `${field.id}-hint`;
   const existing = document.getElementById(id);
-  const wanted = arity === 0 ? "" : arity === 2 ? labels.enterBothValues : labels.enterValue;
+  let wanted = "";
+  if (arity !== 0) {
+    wanted = arity === 2 ? labels.enterBothValues : labels.enterValue;
+  }
 
   if (wanted === "") {
     existing?.remove();
@@ -282,7 +291,12 @@ function announce(
 ): void {
   if (announcer === null || field.value === "" || operator.value === "") return;
 
-  const message = arity === 0 ? labels.announceNoValue : arity === 2 ? labels.announceValues : labels.announceValue;
+  let message = labels.announceValue;
+  if (arity === 0) {
+    message = labels.announceNoValue;
+  } else if (arity === 2) {
+    message = labels.announceValues;
+  }
   announcer.textContent = message.replace("{n}", row.dataset.conditionNumber ?? "");
 }
 
