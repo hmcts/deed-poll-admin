@@ -5,12 +5,12 @@ import type { Pool } from "pg";
 import format from "pg-format";
 
 export class PostgresStore extends Store {
-  private pool: Pool;
-  private tableName: string;
-  private schemaName: string;
-  private ttl: number;
-  private disableTouch: boolean;
-  private cleanupInterval: number;
+  private readonly pool: Pool;
+  private readonly tableName: string;
+  private readonly schemaName: string;
+  private readonly ttl: number;
+  private readonly disableTouch: boolean;
+  private readonly cleanupInterval: number;
   private cleanupTimer?: NodeJS.Timeout;
 
   private constructor(options: PostgresStoreOptions) {
