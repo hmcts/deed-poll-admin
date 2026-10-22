@@ -84,23 +84,22 @@ export class PostgresStore extends Store {
     return new Date(Date.now() + ttl * 1000);
   }
 
-  async get(sid: string, callback: (err: any, session?: SessionData | null) => void): Promise<void> {
-    const client = await this.pool.connect();
-    try {
-      const query = format("SELECT sess FROM %I.%I WHERE sid = $1 AND expire > NOW()", this.schemaName, this.tableName);
-      const result = await client.query(query, [sid]);
+  get(sid: string, callback: (err: any, session?: SessionData | null) => void): void {
+    callbackify(async (): Promise<SessionData | null> => {
+      const client = await this.pool.connect();
+      try {
+        const query = format("SELECT sess FROM %I.%I WHERE sid = $1 AND expire > NOW()", this.schemaName, this.tableName);
+        const result = await client.query(query, [sid]);
 
-      if (result.rows.length === 0) {
-        return callback(null, null);
+        if (result.rows.length === 0) {
+          return null;
+        }
+
+        return result.rows[0].sess;
+      } finally {
+        client.release();
       }
-
-      const session = result.rows[0].sess;
-      callback(null, session);
-    } catch (error) {
-      callback(error);
-    } finally {
-      client.release();
-    }
+    })(callback);
   }
 
   async set(sid: string, session: SessionData, callback?: (err?: any) => void): Promise<void> {
