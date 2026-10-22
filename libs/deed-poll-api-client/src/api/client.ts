@@ -1075,7 +1075,7 @@ async function exchange(
           ...(config.accessToken === undefined ? {} : { authorization: `Bearer ${config.accessToken}` }),
           ...(body !== undefined && !isForm ? { "content-type": "application/json" } : {})
         },
-        body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
+        body: isForm ? body : JSON.stringify(body),
         signal: controller?.signal ?? AbortSignal.timeout(timeoutMs),
         // Never forward a token or request body to a redirect target, including an HTTP downgrade.
         redirect: "error"
