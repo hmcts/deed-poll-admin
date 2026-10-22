@@ -956,6 +956,14 @@ async function parseResponse<S extends z.ZodType>(response: Response, schema: S,
   return { ok: true, data: parsed.data };
 }
 
+/** Scan the suffix once, leaving internal slash runs and encoded path segments unchanged. */
+function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "/") end--;
+
+  return value.slice(0, end);
+}
+
 /**
  * The path a diagnostic may name: everything before the query or fragment.
  *
@@ -1043,7 +1051,7 @@ async function exchange(
   // Startup validates the app's URL; direct adapter consumers must receive the same protection.
   assertApiBaseUrl(config.baseUrl);
   if (!hasUsableSegments(path)) return { ok: false, error: { kind: "not-found", status: 404, message: UNUSABLE_SEGMENT_MESSAGE } };
-  const url = `${config.baseUrl.replace(/\/+$/, "")}${path}`;
+  const url = `${withoutTrailingSlashes(config.baseUrl)}${path}`;
   const isForm = body instanceof FormData;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   // A cancellable timer for the streaming case; `AbortSignal.timeout` cannot be called off once armed.
