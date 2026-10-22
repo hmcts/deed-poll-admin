@@ -196,7 +196,7 @@ export async function createApp(): Promise<Express> {
     assetOptions
   });
 
-  await configureCookieManager(app, {
+  configureCookieManager(app, {
     categories: {
       essential: [sessionCookieName()],
       analytics: ["_ga", "_gid", "dtCookie", "dtSa", "rxVisitor", "rxvt"],

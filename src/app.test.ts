@@ -70,7 +70,7 @@ vi.mock("@hmcts-cft/express-session-redis", () => ({ expressSessionRedis: mocks.
 vi.mock("@hmcts-cft/express-session-postgres", () => ({ expressSessionPostgres: mocks.expressSessionPostgres }));
 vi.mock("@hmcts-cft/simple-router", () => ({ createSimpleRouter: vi.fn(async () => gates.router) }));
 vi.mock("@hmcts-cft/express-govuk-starter", () => ({
-  configureCookieManager: vi.fn(async () => undefined),
+  configureCookieManager: vi.fn(() => undefined),
   configureGovuk: vi.fn(async () => undefined),
   configureHelmet: vi.fn(() => mocks.passthrough),
   configureNonce: vi.fn(() => mocks.passthrough),
