@@ -91,12 +91,16 @@ export function buildSortHeaders(sort: CaseListSort | undefined, href: ((sort: C
     if (href === null) return { label: column.label, field: column.sort };
 
     const current = sort?.field === column.sort ? sort.direction : undefined;
+    let ariaSort: CaseListSortHeader["ariaSort"] = "none";
+    if (current !== undefined) {
+      ariaSort = current === "asc" ? "ascending" : "descending";
+    }
 
     return {
       label: column.label,
       field: column.sort,
       href: href({ field: column.sort, direction: current === "asc" ? "desc" : "asc" }),
-      ariaSort: current === undefined ? "none" : current === "asc" ? "ascending" : "descending"
+      ariaSort
     };
   });
 }
