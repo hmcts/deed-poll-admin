@@ -30,10 +30,10 @@ describe("new deed poll page", () => {
   });
 
   describe("GET", () => {
-    it("renders an empty form with the type options", async () => {
+    it("renders an empty form with the type options", () => {
       const res = response();
 
-      await GET(request(), res);
+      GET(request(), res);
 
       const model = res.render.mock.calls[0][1];
       expect(res.render.mock.calls[0][0]).toBe("deed-polls/new");
@@ -41,18 +41,18 @@ describe("new deed poll page", () => {
       expect(model.typeOptions.length).toBeGreaterThan(1);
     });
 
-    it("offers an empty first option, so no type is preselected", async () => {
+    it("offers an empty first option, so no type is preselected", () => {
       const res = response();
 
-      await GET(request(), res);
+      GET(request(), res);
 
       expect(res.render.mock.calls[0][1].typeOptions[0].value).toBe("");
     });
 
-    it("provides both en and cy content objects with matching keys", async () => {
+    it("provides both en and cy content objects with matching keys", () => {
       const res = response();
 
-      await GET(request(), res);
+      GET(request(), res);
 
       const model = res.render.mock.calls[0][1];
       expect(Object.keys(model.en)).toEqual(Object.keys(model.cy));
