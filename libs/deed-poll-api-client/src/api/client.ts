@@ -702,7 +702,9 @@ export function getJudicialPool(query: JudicialPoolQuery, config: ApiConfig): Pr
 
   const search = parameters.toString();
 
-  return request(config, "GET", `/judicial/referrals${search === "" ? "" : `?${search}`}`, WIRE_SCHEMAS.JudicialPoolResponse);
+  const querySuffix = search === "" ? "" : `?${search}`;
+
+  return request(config, "GET", `/judicial/referrals${querySuffix}`, WIRE_SCHEMAS.JudicialPoolResponse);
 }
 
 /**
