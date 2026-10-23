@@ -1,3 +1,5 @@
+/// <reference lib="esnext.array" />
+
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ErrorRequestHandler, Express, RequestHandler, Router } from "express";
@@ -25,14 +27,8 @@ export async function createSimpleRouter(...mounts: MountSpec[]): Promise<Router
 }
 
 async function discoverAndLoadRoutes(mounts: MountSpec[]): Promise<RouteEntry[]> {
-  const allRoutes: RouteEntry[] = [];
-
-  for (const mountSpec of mounts) {
-    const mountRoutes = await processMountSpec(mountSpec);
-    allRoutes.push(...mountRoutes);
-  }
-
-  return allRoutes;
+  // Module initialization must remain sequential and stop at the first failure.
+  return (await Array.fromAsync(mounts, processMountSpec)).flat();
 }
 
 async function processMountSpec(mountSpec: MountSpec): Promise<RouteEntry[]> {
@@ -46,14 +42,7 @@ async function processMountSpec(mountSpec: MountSpec): Promise<RouteEntry[]> {
   const prefix = normalizePrefix(mountSpec.prefix || "");
   const routes = discoverAndSortRoutes(routesDir);
 
-  const routeEntries: RouteEntry[] = [];
-
-  for (const route of routes) {
-    const moduleRoutes = await loadModuleRoutes(route, prefix, mountSpec);
-    routeEntries.push(...moduleRoutes);
-  }
-
-  return routeEntries;
+  return (await Array.fromAsync(routes, (route) => loadModuleRoutes(route, prefix, mountSpec))).flat();
 }
 
 function discoverAndSortRoutes(pagesDir: string) {
