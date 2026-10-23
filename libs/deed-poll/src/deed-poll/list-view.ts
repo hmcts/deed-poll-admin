@@ -93,28 +93,15 @@ export function buildCaseList(cases: CaseSummary[]): CaseListRow[] {
     // allocates one — a seeded or imported row need not have — so the placeholder is possible here,
     // and a reference-less case showing as such is the honest rendering. The row still links.
     reference: record.displayReference ?? NOT_PROVIDED,
-    privacy: format("privacy", record.privacy),
+    privacy: formatValue(FIELD_BY_NAME.privacy, record.privacy),
     isPrivate: record.privacy === "Private",
-    dateReceived: format("dateReceived", record.dateReceived),
-    type: format("type", record.type),
-    state: format("state", record.state),
-    newForename: format("newForename", record.newForename),
-    newSurname: format("newSurname", record.newSurname),
+    dateReceived: formatValue(FIELD_BY_NAME.dateReceived, record.dateReceived),
+    type: formatValue(FIELD_BY_NAME.type, record.type),
+    state: formatValue(FIELD_BY_NAME.state, record.state),
+    newForename: formatValue(FIELD_BY_NAME.newForename, record.newForename),
+    newSurname: formatValue(FIELD_BY_NAME.newSurname, record.newSurname),
     waiting: waitingFor(record.daysAwaitingConfirmation)
   }));
-}
-
-/**
- * Format one cell by looking its field up in the shared metadata.
- *
- * A name absent from `FIELD_BY_NAME` would silently stringify, so it falls back to `String()` only
- * for a genuinely unset value and otherwise trusts the metadata — every name used above is on a
- * form tab, and a test pins that.
- */
-function format(name: string, raw: unknown): string {
-  const field = FIELD_BY_NAME[name];
-  if (!field) return raw === null || raw === undefined || raw === "" ? NOT_PROVIDED : String(raw);
-  return formatValue(field, raw);
 }
 
 /**
