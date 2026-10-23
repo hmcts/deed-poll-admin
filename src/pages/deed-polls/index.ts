@@ -537,12 +537,12 @@ function queryMetadataJson(content: typeof en): string {
     announceNoValue: content.announceNoValue
   };
 
-  return JSON.stringify(queryBuilderMetadata(labels)).replaceAll("<", "\\u003c");
+  return JSON.stringify(queryBuilderMetadata(labels)).replaceAll("<", String.raw`\u003c`);
 }
 
 /** The condition numbers as a sentence reads them: `2`, `2 and 3`, `2, 3 and 5`. */
 function listOfNumbers(numbers: number[]): string {
-  return numbers.length < 2 ? numbers.join("") : `${numbers.slice(0, -1).join(", ")} and ${numbers[numbers.length - 1]}`;
+  return numbers.length < 2 ? numbers.join("") : `${numbers.slice(0, -1).join(", ")} and ${numbers.at(-1)}`;
 }
 
 /**

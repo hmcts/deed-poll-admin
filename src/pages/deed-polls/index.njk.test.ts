@@ -20,21 +20,26 @@ import {
   countReturnedForAction,
   findDeedPolls,
   findSavedQueries,
-  InvalidInputError
+  InvalidInputError,
+  queryBuilderMetadata
 } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { GET } from "./index.js";
 
-vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
-  countAwaitingConfirmation: vi.fn(),
-  countGazetteReadyCases: vi.fn(),
-  countReturnedForAction: vi.fn(),
-  findDeedPolls: vi.fn(),
-  findSavedQueries: vi.fn()
-}));
+vi.mock("@hmcts/deed-poll", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@hmcts/deed-poll")>();
+  return {
+    ...original,
+    queryBuilderMetadata: vi.fn(original.queryBuilderMetadata),
+    countAwaitingConfirmation: vi.fn(),
+    countGazetteReadyCases: vi.fn(),
+    countReturnedForAction: vi.fn(),
+    findDeedPolls: vi.fn(),
+    findSavedQueries: vi.fn()
+  };
+});
 
 // The three roots `configureGovuk` mounts, minus the assets it also wires up: govuk-frontend's macros,
 // the starter's layouts, and this app's pages.
@@ -320,6 +325,25 @@ describe("deed-polls list template", () => {
       expect(metadata.labels.announceValue).toContain("{n}");
       // Once, so the page is not carrying the same table per row.
       expect([...markup.matchAll(/id="query-builder-metadata"/g)]).toHaveLength(1);
+    });
+
+    it("keeps script-closing metadata text inside its JSON data block and preserves it when parsed", async () => {
+      const original = await vi.importActual<typeof import("@hmcts/deed-poll")>("@hmcts/deed-poll");
+      const hostile = '</script><script id="injected-metadata">alert(1)</script><';
+      vi.mocked(queryBuilderMetadata).mockImplementationOnce((labels) => ({
+        ...original.queryBuilderMetadata(labels),
+        labels: { ...labels, chooseValue: hostile }
+      }));
+
+      const markup = await render();
+      const opening = '<script type="application/json" id="query-builder-metadata">';
+      const start = markup.indexOf(opening) + opening.length;
+      const json = markup.slice(start, markup.indexOf("</script>", start));
+
+      expect(json).not.toContain("<");
+      expect(json).toContain(String.raw`\u003c/script>`);
+      expect(markup).not.toContain('<script id="injected-metadata">');
+      expect(metadataFrom(markup).labels.chooseValue).toBe(hostile);
     });
 
     it("gives each row the names the script needs, rather than leaving it to compose them", async () => {
