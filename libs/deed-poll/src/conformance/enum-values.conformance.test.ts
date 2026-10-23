@@ -102,7 +102,7 @@ describe("Enum-value conformance — Dynamics integers preserved", () => {
 
     it(`${name} integers are unique (reverse map is lossless)`, () => {
       const rev = reverse(actual);
-      expect(Object.keys(rev).length).toBe(Object.keys(actual).length);
+      expect(Object.keys(rev)).toHaveLength(Object.keys(actual).length);
     });
   }
 });
