@@ -86,14 +86,14 @@ function enhanceRow(row: HTMLElement, metadata: QueryBuilderMetadata, announcer:
  */
 function refreshOperators(operator: HTMLSelectElement, fieldName: string, metadata: QueryBuilderMetadata): void {
   const kind = metadata.fields[fieldName]?.kind;
-  const admitted = kind === undefined ? [] : (metadata.kinds[kind]?.operators ?? []);
+  const admitted: readonly string[] = kind === undefined ? [] : (metadata.kinds[kind]?.operators ?? []);
   const chosen = operator.value;
 
   operator.replaceChildren(option("", metadata.labels.chooseOperator), ...admitted.map((name) => option(name, metadata.operators[name].label)));
   // A comparison the new kind also admits is kept: changing "New forename contains" to "New surname" should
   // not make the caseworker say "contains" again. One it does not admit goes, which is what the server does
   // with it anyway.
-  operator.value = admitted.some((name) => name === chosen) ? chosen : "";
+  operator.value = admitted.includes(chosen) ? chosen : "";
 }
 
 /** The value control the row now asks with — swapped in, announced, and left unfocused. */
