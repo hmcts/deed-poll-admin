@@ -47,7 +47,7 @@ import { formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
  *      codes in one view and the per-case arithmetic above would no longer apply.
  */
 export function shortCode(id: string): string {
-  const hex = id.replace(/-/g, "").toUpperCase();
+  const hex = id.replaceAll("-", "").toUpperCase();
   // A non-uuid id (nothing generates one, but the type does not forbid it) is returned
   // uppercased and ungrouped rather than padded into a fake code.
   if (hex.length < 8) return hex;
