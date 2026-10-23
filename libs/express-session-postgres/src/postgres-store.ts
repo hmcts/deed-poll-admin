@@ -169,7 +169,7 @@ export class PostgresStore extends Store {
       try {
         const query = format("SELECT COUNT(*) FROM %I.%I", this.schemaName, this.tableName);
         const result = await client.query(query);
-        return parseInt(result.rows[0].count, 10);
+        return Number.parseInt(result.rows[0].count, 10);
       } finally {
         client.release();
       }
