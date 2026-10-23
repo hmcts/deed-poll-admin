@@ -14,6 +14,10 @@ const DEFAULT_VAULT_URI_SUFFIX = "aat";
 /**
  * Adds secrets from Azure Key Vault to configuration object
  * Matches the API of @hmcts/properties-volume addFromAzureVault function
+ *
+ * Vault reads run concurrently; declaration order determines alias precedence. A read failure
+ * leaves config unchanged, instead of retaining earlier vaults' partial results. The first
+ * failing read is reported; other in-flight reads continue without writing to config.
  */
 export async function addFromAzureVault(config: Config, options: AzureVaultOptions): Promise<void> {
   const { pathToHelmChart, vaultUriSuffix = DEFAULT_VAULT_URI_SUFFIX } = options;
@@ -30,15 +34,15 @@ export async function addFromAzureVault(config: Config, options: AzureVaultOptio
       console.warn(`Azure Vault: Invalid vault configuration for '${vaultName}', missing secrets`);
     }
 
-    for (const vault of vaults) {
-      await processVault(config, vault, vaultUriSuffix);
-    }
+    const vaultConfigs = await Promise.all(vaults.map((vault) => processVault(vault, vaultUriSuffix)));
+    const merged = vaultConfigs.reduce((result, secrets) => deepMerge(result, secrets), config);
+    Object.assign(config, merged);
   } catch (error: unknown) {
     throw new Error(`Azure Key Vault: ${errorMessage(error)}`);
   }
 }
 
-async function processVault(config: Config, vault: VaultDefinition, vaultUriSuffix: string): Promise<void> {
+async function processVault(vault: VaultDefinition, vaultUriSuffix: string): Promise<Config> {
   const { name: vaultName, secrets } = vault;
 
   const vaultUri = `https://${vaultName}-${vaultUriSuffix}.vault.azure.net/`;
@@ -47,8 +51,7 @@ async function processVault(config: Config, vault: VaultDefinition, vaultUriSuff
 
   try {
     const secretResults = await Promise.all(secrets.map((secret) => processSecret(client, secret)));
-    const secretsConfig: Config = Object.fromEntries(secretResults.map(({ key, value }) => [key, value]));
-    Object.assign(config, deepMerge(config, secretsConfig));
+    return Object.fromEntries(secretResults.map(({ key, value }) => [key, value]));
   } catch (error: unknown) {
     const message = errorMessage(error);
     if (message && !message.includes(vaultName)) {

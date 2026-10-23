@@ -148,6 +148,12 @@ await getPropertiesVolumeSecrets({
 
 Lower-level: populate a `config`-shaped object directly from a Helm chart's vault definitions. Used internally by `getPropertiesVolumeSecrets` but also exposed for callers that want to feed the `config` package:
 
+Vaults are read concurrently, then merged in declaration order; later declarations win duplicate aliases,
+regardless of completion order. The supplied object is updated only after every read succeeds. Unlike
+partial per-vault updates, a failed read leaves the supplied configuration unchanged. The first read to
+fail is reported with its existing secret/vault context; other in-flight reads continue but cannot write
+partial results. This does not cancel later requests when an earlier vault fails.
+
 ```typescript
 import config from "config";
 import { addFromAzureVault } from "@hmcts-cft/cloud-native-platform";
