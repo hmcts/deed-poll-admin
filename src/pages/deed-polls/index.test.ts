@@ -899,6 +899,14 @@ describe("deed-polls list page", () => {
       expect(res.render.mock.calls[0][1].unusedConditions).toBe("Condition 2 was not used, because it is not complete.");
     });
 
+    it("joins two unused condition numbers with and and no comma", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest({ query: { where: ["type:is:Adult", "newForename:is:", "ageOfMinor:between:3"] } }), res);
+
+      expect(res.render.mock.calls[0][1].unusedConditions).toBe("Conditions 2 and 3 were not used, because they are not complete.");
+    });
+
     it("names every unused condition in one statement, reading as a sentence", async () => {
       const res = pageResponse();
 
