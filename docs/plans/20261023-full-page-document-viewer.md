@@ -11,6 +11,26 @@ Steve approved the scope and the interactive design on 23 October 2026. The port
 [document-viewer.html](../prototypes/document-viewer.html). It contains fictional pages and simulated page
 counts; use it as the interaction/layout reference, never as a document renderer or production fixture.
 
+## Decisions (Steve, 2026-10-23)
+
+These supersede anything below that says otherwise. The companion api plan records the same decisions.
+
+1. **DOCX previews come from api, which converts through Docmosis Tornado.** Nothing changes here: the viewer
+   renders the PDF api returns.
+2. **Preview requests fit inside the 30 s gateways.** api's preview budget is 25 s (finding R03: both Application
+   Gateways cut requests off at 30 s). The adapter's preview timeout must cover api's 25 s and still finish inside
+   the frontend gateway's 30 s, so set it just above api's budget and below 30 s, never at api's old 45 s.
+3. **Phased release.** PDF, JPEG, PNG and TIFF previews may be released before the DOCX converter is provisioned.
+   Until then api answers a DOCX preview with the fixed 503 `PREVIEW_UNAVAILABLE`, and the viewer shows its
+   preview-unavailable state with **Download original** still working. That state is a normal, tested outcome, not a
+   failure to hide.
+4. **No case reference for judges.** The judicial viewer shows no case reference: `JudicialApplicationView`
+   deliberately excludes `referencenumber` (business decision, 2026-10-19). The caseworker viewer shows it. The
+   prototype's "Case reference" in the judge journey is wrong on this point; follow this decision, not the mock-up.
+5. **api audits a preview as `DOCUMENT_PREVIEWED`**, separately from `DOCUMENT_DOWNLOADED`. This app records nothing
+   itself, but must not fetch a preview where a download is meant, or the reverse.
+6. **The prototype is not to be changed.** It stays as approved, design-only.
+
 ## Context
 
 Reviewed default-branch baselines:
@@ -67,7 +87,7 @@ to Post-Completion, not automatable task checkboxes.
 
 1. Open the viewer in the current app tab from every authorized document link. Retain the application
    header, account navigation, persona strip where enabled, session warning and Welsh language support.
-2. Show the document name, original format, case reference when already disclosed in that context, and
+2. Show the document name, original format, the case reference in the caseworker context only (Decision 4), and
    **Back to case** or **Back to referral**. Return to the same document section and restore the opener's
    position where the browser supports it; a concrete return link always works without browser Back.
 3. Offer a document selector, **Document N of M**, **Previous document** and **Next document**. Use only
