@@ -126,9 +126,17 @@ res.render("page", { en, cy, firstName: applicant.firstName });
 
 Object and function entries can be mixed, and static pages keep passing plain objects unchanged.
 
-### `getTranslation(translations, key, locale)` / `loadTranslations(paths)`
+### `getTranslation(translations, key, locale)` / `loadTranslations(localesPath)`
 
 Utilities for loading and retrieving translations from `locales/en.ts` and `locales/cy.ts` files.
+
+Locale modules load concurrently and should export independent translation data; do not depend on
+one module's side effects running before another's. `configureGovuk` also loads translations across
+its supplied module paths concurrently, then merges them in path order: later paths replace earlier
+values for matching top-level keys, including whole nested objects. The result retains `en`, `cy`
+key order. Compiled `.js` files take precedence over `.ts`, and named `content` takes precedence over
+the default export. Missing or failed imports contribute an empty locale without discarding other
+loaded translations; diagnostic messages may appear in completion order.
 
 ## Nunjucks layouts
 
