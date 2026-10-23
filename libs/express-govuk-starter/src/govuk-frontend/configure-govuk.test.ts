@@ -122,7 +122,7 @@ describe("configureGovuk", () => {
 
     // Should add the static assets middleware and pageUrl middleware (2 total)
     const middlewareCalls = useSpy.mock.calls;
-    expect(middlewareCalls.length).toBe(2);
+    expect(middlewareCalls).toHaveLength(2);
   });
 
   it("should configure assets when assets option is provided", async () => {
