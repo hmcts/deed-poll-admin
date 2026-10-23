@@ -66,30 +66,37 @@ export function formatValue(field: FieldDef, raw: unknown): string {
     case "boolean":
       return raw ? "Yes" : "No";
 
-    case "enum": {
-      const map = field.enumSet ? (LABELS as Record<string, Record<string, string>>)[field.enumSet] : undefined;
-      return map?.[String(raw)] ?? String(raw);
-    }
+    case "enum":
+      return formatOption(field, raw);
 
     case "multiselect": {
       const values = Array.isArray(raw) ? raw : [raw];
       if (values.length === 0) return NOT_PROVIDED;
-      const map = field.enumSet ? (LABELS as Record<string, Record<string, string>>)[field.enumSet] : undefined;
-      return values.map((v) => map?.[String(v)] ?? String(v)).join(", ");
+      return values.map((value) => formatOption(field, value)).join(", ");
     }
 
-    case "number":
-      // `String()` rather than a truthiness check: refundAmount of 0 must survive.
-      return String(raw);
-
     default:
-      return String(raw);
+      return scalarText(raw) ?? NOT_PROVIDED;
   }
+}
+
+/** Preserve meaningful zero/false values without invoking object conversion hooks. */
+function scalarText(raw: unknown): string | undefined {
+  return typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean" ? String(raw) : undefined;
+}
+
+function formatOption(field: FieldDef, raw: unknown): string {
+  const value = scalarText(raw);
+  if (value === undefined) return NOT_PROVIDED;
+  const map = field.enumSet ? (LABELS as Record<string, Record<string, string>>)[field.enumSet] : undefined;
+  const mapped = map?.[value];
+  return typeof mapped === "string" ? mapped : value;
 }
 
 /** GOV.UK-style "1 January 2026", or the placeholder when unparseable. */
 function formatDate(raw: unknown): string {
-  const d = raw instanceof Date ? raw : new Date(String(raw));
+  if (!(raw instanceof Date) && typeof raw !== "string") return NOT_PROVIDED;
+  const d = raw instanceof Date ? raw : new Date(raw);
   if (Number.isNaN(d.getTime())) return NOT_PROVIDED;
   return d.toLocaleDateString("en-GB", {
     day: "numeric",
