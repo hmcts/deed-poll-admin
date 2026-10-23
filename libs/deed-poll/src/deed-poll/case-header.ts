@@ -53,9 +53,10 @@ export type CaseHeaderInput = Partial<Pick<CaseDetail, "type" | "state" | "modif
 
 /** Look a stored enum member up in the shared label registry. */
 function label(set: string, value: unknown): string {
-  if (value === null || value === undefined || value === "") return NOT_RECORDED;
+  if (typeof value !== "string" || value === "") return NOT_RECORDED;
   const map = (LABELS as Record<string, Record<string, string>>)[set];
-  return map?.[String(value)] ?? String(value);
+  const mapped = map?.[value];
+  return typeof mapped === "string" ? mapped : value;
 }
 
 /**
@@ -68,8 +69,8 @@ function label(set: string, value: unknown): string {
  * zone explicitly also keeps the output independent of the server's local TZ.
  */
 export function formatTimestamp(raw: unknown): string {
-  if (raw === null || raw === undefined || raw === "") return NOT_RECORDED;
-  const d = raw instanceof Date ? raw : new Date(String(raw));
+  if (!(raw instanceof Date) && typeof raw !== "string") return NOT_RECORDED;
+  const d = raw instanceof Date ? raw : new Date(raw);
   if (Number.isNaN(d.getTime())) return NOT_RECORDED;
 
   const date = d.toLocaleDateString("en-GB", {
