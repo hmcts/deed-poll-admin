@@ -30,6 +30,13 @@ These supersede anything below that says otherwise. The companion api plan recor
 5. **api audits a preview as `DOCUMENT_PREVIEWED`**, separately from `DOCUMENT_DOWNLOADED`. This app records nothing
    itself, but must not fetch a preview where a download is meant, or the reverse.
 6. **The prototype is not to be changed.** It stays as approved, design-only.
+7. **The viewer enforces a 100-page limit for every preview** (Steve, 2026-10-23: no uploaded document is expected
+   to come near 50). api stopped parsing PDF originals and Docmosis output, because parsing is what a crafted PDF
+   exploits to exhaust a pod's memory, so api counts pages only for the previews it builds (JPEG, PNG, TIFF frames)
+   and the viewer must refuse the rest. Read `numPages` from PDF.js as soon as the document loads and before any
+   page or thumbnail renders; over 100, destroy that document and show a fixed, localized "too large to preview"
+   state with **Download original** still working. Take the number from the published `x-document-preview-limits`
+   extension rather than restating it, and test it with a real PDF over the limit.
 
 ## Context
 
