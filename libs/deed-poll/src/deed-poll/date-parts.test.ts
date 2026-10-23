@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { composeDateParts, splitDateParts, submittedDateParts } from "./date-parts.js";
 
 describe("deed-poll/date-parts", () => {
@@ -49,6 +49,37 @@ describe("deed-poll/date-parts", () => {
     it("returns empty parts for an unparseable value rather than throwing", () => {
       expect(splitDateParts("not a date")).toEqual({ day: "", month: "", year: "" });
       expect(splitDateParts(new Date("nonsense"))).toEqual({ day: "", month: "", year: "" });
+    });
+
+    it.each([
+      ["an array containing an ISO date", ["2026-03-01T00:00:00.000Z"]],
+      ["a year number", 2026],
+      ["zero", 0],
+      ["a boolean", true],
+      ["a null-prototype object", Object.create(null)]
+    ])("returns fresh empty parts for %s", (_name, value) => {
+      const first = splitDateParts(value);
+
+      expect(first).toEqual({ day: "", month: "", year: "" });
+      first.day = "mutated";
+      expect(splitDateParts(value)).toEqual({ day: "", month: "", year: "" });
+    });
+
+    it.each(["toString", Symbol.toPrimitive])("does not invoke an object's %s coercion hook", (hook) => {
+      const coerce = vi.fn(() => "2026-03-01T00:00:00.000Z");
+
+      const parts = splitDateParts({ [hook]: coerce });
+
+      expect(coerce).not.toHaveBeenCalled();
+      expect(parts).toEqual({ day: "", month: "", year: "" });
+    });
+
+    it("splits offset dates in UTC for both string and Date inputs", () => {
+      const value = "2026-03-01T00:30:00+01:00";
+      const expected = { day: "28", month: "2", year: "2026" };
+
+      expect(splitDateParts(value)).toEqual(expected);
+      expect(splitDateParts(new Date(value))).toEqual(expected);
     });
 
     it("round-trips through composeDateParts", () => {
