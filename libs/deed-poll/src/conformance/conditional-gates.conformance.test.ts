@@ -36,14 +36,15 @@ describe("Conditional-gate conformance (deedpoll business_rules.md)", () => {
     });
   });
 
-  describe("Online Application Reference gate", () => {
-    it("requires onlineApplicationReference when postCounter = Online", () => {
+  // Intentional departure from Dynamics: AAT staff no longer need to supply this reference.
+  describe("retired Online Application Reference gate", () => {
+    it.each([DeedPollType.Adult, DeedPollType.Minor])("does not require the retired online reference for an online %s application", (type) => {
       const errors = validate({
-        type: DeedPollType.Adult,
+        type,
         postCounter: PostCounter.Online,
         onlineApplicationReference: ""
       } as ValidationInput);
-      expect(hasError(errors, "onlineApplicationReference")).toBe(true);
+      expect(hasError(errors, "onlineApplicationReference")).toBe(false);
     });
 
     it("does not require it for Post/Counter", () => {
