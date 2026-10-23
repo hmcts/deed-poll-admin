@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getFieldRules } from "./deed-poll-validation.js";
 import { buildDetailTabs, type DetailSection, formatValue, NOT_PROVIDED } from "./detail-view.js";
 import { DeedPollState, DeedPollType, Privacy, ReferToMaster } from "./enums/option-sets.js";
@@ -62,6 +62,80 @@ describe("formatValue", () => {
 
   it("keeps a zero number rather than treating it as absent", () => {
     expect(formatValue(field({ kind: "number" }), 0)).toBe("0");
+  });
+
+  it.each(["text", "textarea", "number", "enum"] as const)("rejects objects instead of coercing a %s value", (kind) => {
+    const definition = field({ kind });
+
+    for (const raw of [{}, ["Adult"], Object.create(null) as Record<string, unknown>]) {
+      expect(formatValue(definition, raw)).toBe(NOT_PROVIDED);
+    }
+  });
+
+  it.each(["text", "textarea", "number", "enum"] as const)("does not invoke conversion hooks for a %s value", (kind) => {
+    const coerce = vi.fn(() => "Adult");
+    const definition = field({ kind });
+
+    expect(formatValue(definition, { toString: coerce })).toBe(NOT_PROVIDED);
+    expect(formatValue(definition, { [Symbol.toPrimitive]: coerce })).toBe(NOT_PROVIDED);
+    expect(coerce).not.toHaveBeenCalled();
+  });
+
+  it.each(["text", "textarea", "number", "enum"] as const)("preserves scalar fallback values for %s", (kind) => {
+    const definition = field({ kind });
+
+    expect(formatValue(definition, 0)).toBe("0");
+    expect(formatValue(definition, false)).toBe("false");
+    expect(formatValue(definition, "Future value")).toBe("Future value");
+  });
+
+  it.each(["constructor", "toString", "__proto__"])("renders inherited enum name %s as text", (raw) => {
+    expect(formatValue(field({ kind: "enum", enumSet: "type" }), raw)).toBe(raw);
+  });
+
+  it("preserves multiselect order and marks unsupported entries instead of dropping them", () => {
+    const raw = [1, {}, 4, Object.create(null) as Record<string, unknown>];
+
+    expect(formatValue(field({ kind: "multiselect", enumSet: "iShall" }), raw)).toBe("and my wife, Not provided, and my children, Not provided");
+  });
+
+  it("does not invoke multiselect entries' conversion hooks", () => {
+    const coerce = vi.fn(() => 1);
+    const raw = [{ toString: coerce }, { [Symbol.toPrimitive]: coerce }];
+
+    expect(formatValue(field({ kind: "multiselect", enumSet: "iShall" }), raw)).toBe("Not provided, Not provided");
+    expect(coerce).not.toHaveBeenCalled();
+  });
+
+  it("keeps multiselect scalar and string-integer compatibility and unknown values", () => {
+    const definition = field({ kind: "multiselect", enumSet: "iShall" });
+
+    expect(formatValue(definition, 4)).toBe("and my children");
+    expect(formatValue(definition, ["1", "4", 99])).toBe("and my wife, and my children, 99");
+    expect(formatValue(definition, ["constructor", "toString", "__proto__"])).toBe("constructor, toString, __proto__");
+  });
+
+  it.each([
+    ["a number", 2026],
+    ["an ISO array", ["2026-01-01T00:00:00Z"]],
+    ["a null-prototype object", Object.create(null) as Record<string, unknown>]
+  ])("rejects %s instead of coercing it into a date", (_description, raw) => {
+    expect(formatValue(field({ kind: "date" }), raw)).toBe(NOT_PROVIDED);
+  });
+
+  it.each(["toString", Symbol.toPrimitive])("does not invoke a date's %s hook", (key) => {
+    const coerce = vi.fn(() => "2026-01-01T00:00:00Z");
+
+    expect(formatValue(field({ kind: "date" }), { [key]: coerce })).toBe(NOT_PROVIDED);
+    expect(coerce).not.toHaveBeenCalled();
+  });
+
+  it("preserves UTC string dates and the invalid-date placeholder", () => {
+    const definition = field({ kind: "date" });
+
+    expect(formatValue(definition, "2026-01-01T00:30:00+01:00")).toBe("31 December 2025");
+    expect(formatValue(definition, "invalid")).toBe(NOT_PROVIDED);
+    expect(formatValue(definition, new Date("invalid"))).toBe(NOT_PROVIDED);
   });
 });
 
