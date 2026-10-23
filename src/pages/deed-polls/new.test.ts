@@ -11,8 +11,8 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
 
 const validBody = {
   type: "Adult",
-  newForename: "Ada",
-  newSurname: "Lovelace",
+  oldForename: "Ada",
+  oldSurname: "Lovelace",
   "dateReceived-day": "1",
   "dateReceived-month": "3",
   "dateReceived-year": "2026"
@@ -66,8 +66,19 @@ describe("new deed poll page", () => {
       await POST(request(validBody), response());
 
       expect(createDeedPoll).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "Adult", newForename: "Ada", newSurname: "Lovelace", dateReceived: "2026-03-01T00:00:00.000Z" }),
+        expect.objectContaining({ type: "Adult", oldForename: "Ada", oldSurname: "Lovelace", dateReceived: "2026-03-01T00:00:00.000Z" }),
         expect.anything()
+      );
+    });
+
+    it.each(["Adult", "Minor"])("should create a %s case with only the old name", async (type) => {
+      vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
+
+      await POST(request({ ...validBody, type, newForename: "Proposed", newSurname: "Name" }), response());
+
+      expect(createDeedPoll).toHaveBeenCalledWith(
+        { type, oldForename: "Ada", oldSurname: "Lovelace", dateReceived: "2026-03-01T00:00:00.000Z" },
+        { accessToken: "caseworker-token" }
       );
     });
 
@@ -117,7 +128,7 @@ describe("new deed poll page", () => {
       await POST(request({ ...validBody, type: "NotAType" }), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.render).toHaveBeenCalledWith("deed-polls/new", expect.objectContaining({ values: expect.objectContaining({ newForename: "Ada" }) }));
+      expect(res.render).toHaveBeenCalledWith("deed-polls/new", expect.objectContaining({ values: expect.objectContaining({ oldForename: "Ada" }) }));
       expect(createDeedPoll).not.toHaveBeenCalled();
     });
 
@@ -230,28 +241,28 @@ describe("new deed poll page", () => {
     it("treats an omitted optional field as absent rather than an empty string", async () => {
       vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
 
-      await POST(request({ ...validBody, newForename: "" }), response());
+      await POST(request({ ...validBody, oldForename: "" }), response());
 
-      expect(vi.mocked(createDeedPoll).mock.calls[0][0].newForename).toBeUndefined();
+      expect(vi.mocked(createDeedPoll).mock.calls[0][0].oldForename).toBeUndefined();
     });
 
     // Review finding R15: the edit tabs trim, so the create had sent names the tabs would not.
     it("sends the names trimmed", async () => {
       vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
 
-      await POST(request({ ...validBody, newForename: "  Applicant  ", newSurname: "\tLovelace " }), response());
+      await POST(request({ ...validBody, oldForename: "  Applicant  ", oldSurname: "\tLovelace " }), response());
 
-      expect(vi.mocked(createDeedPoll).mock.calls[0][0]).toEqual(expect.objectContaining({ newForename: "Applicant", newSurname: "Lovelace" }));
+      expect(vi.mocked(createDeedPoll).mock.calls[0][0]).toEqual(expect.objectContaining({ oldForename: "Applicant", oldSurname: "Lovelace" }));
     });
 
     it("treats a whitespace-only name as absent, the same as an empty one", async () => {
       vi.mocked(createDeedPoll).mockResolvedValue({ id: "case-1" } as never);
 
-      await POST(request({ ...validBody, newForename: "   ", newSurname: " " }), response());
+      await POST(request({ ...validBody, oldForename: "   ", oldSurname: " " }), response());
 
       const sent = vi.mocked(createDeedPoll).mock.calls[0][0];
-      expect(sent.newForename).toBeUndefined();
-      expect(sent.newSurname).toBeUndefined();
+      expect(sent.oldForename).toBeUndefined();
+      expect(sent.oldSurname).toBeUndefined();
     });
   });
 });
