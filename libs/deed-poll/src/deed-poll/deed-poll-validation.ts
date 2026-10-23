@@ -1,4 +1,4 @@
-import { DeedPollType, MaritalStatus, PostCounter, ReferToMaster, Urgency } from "./enums/option-sets.js";
+import { DeedPollType, MaritalStatus, type PostCounter, ReferToMaster, Urgency } from "./enums/option-sets.js";
 
 /**
  * A single field's UI + validation rule for a given Type, as consumed by both
@@ -266,10 +266,9 @@ export function applyCreateDefaults(input: ValidationInput): Partial<ValidationI
  * violations — empty when valid. The caller decides whether to hard-fail
  * (create/submit) or treat as advisory (incremental save).
  *
- * Combines the per-type required matrix (getFieldRules) with the three
- * conditional gates the source enforces field-by-field:
- *   - urgencyreason required when urgency = Urgent (2)
- *   - onlineApplicationReference required when postcounter = Online (2)
+ * Combines the per-type required matrix (getFieldRules) with the urgency-reason gate.
+ * The inherited online-reference requirement was retired following AAT staff feedback;
+ * existing references remain optional for correspondence.
  */
 export function validate(input: ValidationInput): ValidationError[] {
   const errors: ValidationError[] = [];
@@ -292,14 +291,6 @@ export function validate(input: ValidationInput): ValidationError[] {
     errors.push({
       field: "urgencyreason",
       message: "Urgency reason is required when urgency is Urgent"
-    });
-  }
-
-  // Conditional gate: online application reference.
-  if (input.postCounter === PostCounter.Online && isEmpty(input.onlineApplicationReference)) {
-    errors.push({
-      field: "onlineApplicationReference",
-      message: "Online application reference is required for online applications"
     });
   }
 

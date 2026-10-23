@@ -69,6 +69,21 @@ describe("case edit tab page", () => {
     vi.mocked(updateDeedPoll).mockResolvedValue(found as never);
   });
 
+  it.each(["Adult", "Minor"])("should hide the online reference on a %s form and leave its stored value untouched on save", async (type) => {
+    vi.mocked(findDeedPoll).mockResolvedValue({ ...found, type, onlineApplicationReference: "ONLINE-123" } as never);
+    const res = response();
+
+    await GET(request(APPLICATION), res);
+
+    const fields = res.render.mock.calls[0][1].sections.flatMap((section: { fields: { name: string }[] }) => section.fields);
+    expect(fields.map((field: { name: string }) => field.name)).not.toContain("onlineApplicationReference");
+
+    await POST(request(APPLICATION, { ...bodyFor(APPLICATION), type, onlineApplicationReference: "Replacement" }), response());
+
+    expect(updateDeedPoll).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updateDeedPoll).mock.calls[0][1]).not.toHaveProperty("onlineApplicationReference");
+  });
+
   describe("GET", () => {
     it("renders its own template, qualified by directory", async () => {
       const res = response();

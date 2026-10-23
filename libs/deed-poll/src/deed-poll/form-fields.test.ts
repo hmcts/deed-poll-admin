@@ -43,6 +43,11 @@ describe("deed-poll/form-fields", () => {
     });
   });
 
+  it("should retain the hidden online reference in the catalogue without offering it for editing", () => {
+    expect(FIELD_BY_NAME.onlineApplicationReference.name).toBe("onlineApplicationReference");
+    expect(EDITABLE_FIELDS.map((field) => field.name)).not.toContain("onlineApplicationReference");
+  });
+
   describe("EDITABLE_FIELDS", () => {
     it("should exclude the retired referral fields, so no write reaches them through the generic case form", () => {
       // `buildUpdatePatch` writes what its tab's fields list holds; a field on no editable tab cannot be

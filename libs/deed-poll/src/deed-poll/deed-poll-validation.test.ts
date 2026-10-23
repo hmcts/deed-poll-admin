@@ -162,9 +162,9 @@ describe("deed-poll-validation", () => {
       expect(errs.map((e) => e.field)).not.toContain("urgencyreason");
     });
 
-    it("requires onlineApplicationReference when postcounter = Online", () => {
+    it("does not require the retired online reference when postcounter = Online", () => {
       const errs = validate({ postCounter: "Online" });
-      expect(errs.map((e) => e.field)).toContain("onlineApplicationReference");
+      expect(errs.map((e) => e.field)).not.toContain("onlineApplicationReference");
     });
 
     it("accepts Online with a reference present", () => {
