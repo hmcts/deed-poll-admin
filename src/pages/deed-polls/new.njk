@@ -25,17 +25,17 @@
       }) }}
 
       {{ govukInput({
-        id: "newForename",
-        name: "newForename",
+        id: "oldForename",
+        name: "oldForename",
         label: { text: forenameLabel },
-        value: values.newForename
+        value: values.oldForename
       }) }}
 
       {{ govukInput({
-        id: "newSurname",
-        name: "newSurname",
+        id: "oldSurname",
+        name: "oldSurname",
         label: { text: surnameLabel },
-        value: values.newSurname
+        value: values.oldSurname
       }) }}
 
       {# Parts are read back from the body so a rejected date stays on screen next to its error. #}

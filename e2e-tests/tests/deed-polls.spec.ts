@@ -100,6 +100,21 @@ test("caseworker creates a case and edits one of its tabs", async ({ page, brows
 
   await expectWelshKeysResolve(browser, caseUrl);
 
+  await expect(summaryRow(page, "Old forename")).toContainText("Jo");
+  await expect(summaryRow(page, "Old surname")).toContainText("Bloggs");
+  await page.getByRole("link", { name: "Change Names" }).click();
+  await expect(page.getByLabel("Old forename", { exact: true })).toHaveValue("Jo");
+  await expect(page.getByLabel("Old surname", { exact: true })).toHaveValue("Bloggs");
+  await expect(page.getByLabel("New forename", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("New surname", { exact: true })).toHaveValue("");
+  await page.getByLabel("New forename", { exact: true }).fill("Josephine");
+  await page.getByLabel("New surname", { exact: true }).fill("Taylor");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page).toHaveURL(`${caseUrl}#application`);
+  await expect(summaryRow(page, "Old surname")).toContainText("Bloggs");
+  await expect(summaryRow(page, "New forename")).toContainText("Josephine");
+  await expect(summaryRow(page, "New surname")).toContainText("Taylor");
+
   // Two witnesses before any signature date, because api refuses a write that leaves a case carrying an
   // enrolment date with fewer than two — `DeedPollService.requireWitnessesForEnrolment`, and Signature
   // Received is one of the two dates that puts a case there. Arrangement for the save below, not the
@@ -1442,8 +1457,8 @@ test.describe("without the admin role", () => {
  */
 async function fillNewCaseForm(page: Page, name: { forename: string; surname: string }): Promise<void> {
   await page.getByLabel("Application type").selectOption({ label: "Adult" });
-  await page.getByLabel("New forename").fill(name.forename);
-  await page.getByLabel("New surname").fill(name.surname);
+  await page.getByLabel("Old forename").fill(name.forename);
+  await page.getByLabel("Old surname").fill(name.surname);
   await fillDate(page.getByRole("group", { name: "Date received" }), DATE_RECEIVED);
 }
 
