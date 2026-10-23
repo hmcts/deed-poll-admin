@@ -28,7 +28,7 @@ export function web(url: string, timeout = 10000): HealthCheck {
   };
 }
 
-export function raw(check: () => Promise<unknown> | unknown): HealthCheck {
+export function raw(check: () => unknown): HealthCheck {
   return async () => {
     try {
       const result = await check();
