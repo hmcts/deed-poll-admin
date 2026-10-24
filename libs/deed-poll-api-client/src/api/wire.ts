@@ -23,6 +23,7 @@
  * `docs/plans/completed/02-dal-cutover-to-api.md`.
  */
 import { z } from "zod";
+import { validateGazetteRecipientEmail } from "./gazette-recipient-email.js";
 
 /**
  * The option-set members, as api's spec declares them.
@@ -1043,8 +1044,7 @@ const gazetteSettingsSchema = z.object({
   updatedBy: z.string().nullish()
 });
 
-export const GAZETTE_RECIPIENT_EMAIL_PATTERN =
-  "^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:[.][A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:[.][A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$";
+export { GAZETTE_RECIPIENT_EMAIL_PATTERN } from "./gazette-recipient-email.js";
 
 const updateGazetteSettingsSchema = z
   .object({
@@ -1052,7 +1052,7 @@ const updateGazetteSettingsSchema = z
       .string()
       .trim()
       .max(254)
-      .regex(new RegExp(GAZETTE_RECIPIENT_EMAIL_PATTERN))
+      .superRefine(validateGazetteRecipientEmail)
       .refine((value) => value.indexOf("@") <= 64),
     revision: z.number().int().nonnegative()
   })
