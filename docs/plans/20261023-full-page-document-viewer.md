@@ -193,6 +193,14 @@ no newly added viewer prose may silently disappear from extraction. Use a fresh 
 following the existing isolated Gazette/session configurations. Run real PDF.js and its real worker, not
 the illustrative prototype. Browser tests use synthetic local files; no AAT calls in automated suites.
 
+**Browsers in this devcontainer.** `npx playwright install` cannot download here: the proxy answers HTTP 400
+(`GatewayExceptionResponse`), and retrying does not help. `~/.cache/ms-playwright` holds `chromium-1243` and
+`chromium_headless_shell-1243`. If Playwright asks for a different build, symlink the cached one to the name it wants
+(`ln -sfn ~/.cache/ms-playwright/chromium-1243 ~/.cache/ms-playwright/chromium-<wanted>`, and the same for
+`chromium_headless_shell`) and record that in the execution notes; a green local run on a symlinked build does not
+prove a browser-version-sensitive failure impossible. Never flush the shared Redis, and run the browser journeys on
+their own isolated ports and Redis database, following the existing Gazette configuration.
+
 ## Implementation Steps
 
 ### Task 1: Reconcile the preview contract and extend the adapter/mock
