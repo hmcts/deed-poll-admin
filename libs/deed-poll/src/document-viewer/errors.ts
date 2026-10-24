@@ -10,3 +10,6 @@ export class DocumentPreviewRefusedError extends Error {
     this.name = "DocumentPreviewRefusedError";
   }
 }
+
+// The viewer's relay maps each code to its own status, so the app names the type the error carries.
+export type { PreviewRefusalCode };

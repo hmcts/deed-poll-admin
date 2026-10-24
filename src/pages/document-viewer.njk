@@ -1,0 +1,98 @@
+{% extends "layouts/app-full-width.njk" %}
+
+{#
+  The full-page document viewer, shared by the caseworker and judicial scopes (`src/document-viewer/page.ts`).
+
+  Without JavaScript everything here still works except the preview itself: the return link, the selector form,
+  previous/next document links and **Download original** are plain links and a GET form. The page and zoom controls
+  are rendered hidden and disabled, for the renderer to enable once it has a preview whose page count it knows; the
+  no-JavaScript sentence is what the frame shows until then.
+
+  Nothing here fetches a document. The preview's URL is a data attribute the renderer reads, never a `src`, a
+  preload or an embed, because api audits every preview it serves.
+#}
+{% block page_content %}
+<a class="govuk-back-link" href="{{ viewer.returnPath }}">{{ backText }}</a>
+
+<div class="app-document-viewer" data-module="app-document-viewer" data-preview-url="{{ viewer.current.previewPath }}"
+  data-message-loading="{{ messages.loading }}"
+  data-message-unavailable="{{ messages.unavailable }}"
+  data-message-too-large="{{ messages.tooLarge }}"
+  data-message-busy="{{ messages.busy }}"
+  data-message-signed-out="{{ messages.signedOut }}"
+  data-message-forbidden="{{ messages.forbidden }}"
+  data-message-failed="{{ messages.failed }}">
+
+  <h1 class="govuk-heading-l app-document-viewer__title">{{ viewer.current.name }}</h1>
+
+  <dl class="govuk-summary-list govuk-summary-list--no-border app-document-viewer__facts">
+    {% if formatText %}
+    <div class="govuk-summary-list__row">
+      <dt class="govuk-summary-list__key">{{ fileTypeLabel }}</dt>
+      <dd class="govuk-summary-list__value" data-viewer-format>{{ formatText }}</dd>
+    </div>
+    {% endif %}
+    {% if scope == "caseworker" and caseReference %}
+    <div class="govuk-summary-list__row">
+      <dt class="govuk-summary-list__key">{{ caseReferenceLabel }}</dt>
+      <dd class="govuk-summary-list__value" data-viewer-case-reference>{{ caseReference }}</dd>
+    </div>
+    {% endif %}
+  </dl>
+
+  <nav class="app-document-viewer__documents" aria-label="{{ documentControlsLabel }}">
+    <form method="get" action="{{ viewer.current.viewPath }}" novalidate class="app-document-viewer__selector">
+      <div class="govuk-form-group">
+        <label class="govuk-label" for="viewer-document">{{ documentSelectLabel }}</label>
+        <select class="govuk-select" id="viewer-document" name="{{ selectionParameter }}">
+          {% for document in viewer.documents %}
+          <option value="{{ document.id }}"{% if document.isCurrent %} selected{% endif %}>{{ document.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="govuk-button govuk-button--secondary" data-module="govuk-button">{{ openDocument }}</button>
+    </form>
+
+    <p class="govuk-body" data-viewer-position>{{ positionText }}</p>
+
+    <ul class="govuk-list app-document-viewer__document-links">
+      {% if viewer.previousPath %}
+      <li><a class="govuk-link" href="{{ viewer.previousPath }}" data-viewer-previous-document>{{ previousDocument }}</a></li>
+      {% endif %}
+      {% if viewer.nextPath %}
+      <li><a class="govuk-link" href="{{ viewer.nextPath }}" data-viewer-next-document>{{ nextDocument }}</a></li>
+      {% endif %}
+      <li><a class="govuk-link" href="{{ viewer.current.downloadPath }}" download data-viewer-download>{{ downloadOriginal }}</a></li>
+    </ul>
+  </nav>
+
+  <p class="govuk-body-s">{{ previewNotice }}</p>
+
+  <div class="app-document-viewer__toolbar" data-viewer-toolbar hidden>
+    <div class="app-document-viewer__pages" role="group" aria-label="{{ pageNavigationLabel }}">
+      <button type="button" class="govuk-button govuk-button--secondary" data-viewer-previous-page disabled>{{ previousPage }}</button>
+      <label class="govuk-label" for="viewer-page">{{ pageNumberLabel }}</label>
+      <input class="govuk-input govuk-input--width-3" id="viewer-page" type="text" inputmode="numeric" data-viewer-page-number disabled>
+      <span class="govuk-body" data-viewer-page-total></span>
+      <button type="button" class="govuk-button govuk-button--secondary" data-viewer-next-page disabled>{{ nextPage }}</button>
+    </div>
+    <div class="app-document-viewer__zoom" role="group" aria-label="{{ zoomLabel }}">
+      <button type="button" class="govuk-button govuk-button--secondary" aria-label="{{ zoomOut }}" data-viewer-zoom-out disabled>−</button>
+      <output class="govuk-body" aria-label="{{ zoomLevelLabel }}" data-viewer-zoom-level></output>
+      <button type="button" class="govuk-button govuk-button--secondary" aria-label="{{ zoomIn }}" data-viewer-zoom-in disabled>+</button>
+      <button type="button" class="govuk-button govuk-button--secondary" data-viewer-fit-width disabled>{{ fitWidth }}</button>
+      <button type="button" class="govuk-button govuk-button--secondary" data-viewer-fit-page disabled>{{ fitPage }}</button>
+      <button type="button" class="govuk-button govuk-button--secondary" data-viewer-rotate disabled>{{ rotate }}</button>
+    </div>
+    <button type="button" class="govuk-button govuk-button--secondary" aria-controls="viewer-thumbnails" aria-expanded="true"
+      data-viewer-thumbnails-toggle data-show-text="{{ showThumbnails }}" data-hide-text="{{ hideThumbnails }}" disabled>{{ hideThumbnails }}</button>
+  </div>
+
+  <div class="app-document-viewer__body">
+    <nav class="app-document-viewer__thumbnails" id="viewer-thumbnails" aria-label="{{ thumbnailsLabel }}" data-viewer-thumbnails hidden></nav>
+    <section class="app-document-viewer__page" aria-label="{{ documentPageLabel }}" data-viewer-page>
+      <div class="govuk-body" role="status" aria-live="polite" data-viewer-status>{{ noScript }}</div>
+    </section>
+  </div>
+</div>
+{% endblock %}

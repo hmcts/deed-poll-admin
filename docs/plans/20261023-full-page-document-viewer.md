@@ -246,18 +246,18 @@ create `src/document-viewer/context.ts` and tests.
 document route directories; create `src/document-viewer/page.ts`, `content.ts`, `preview-response.ts`
 and their tests; create `src/pages/document-viewer.njk` and its template tests.
 
-- [ ] Test both scopes through the real app middleware as well as handler doubles: anonymous access,
+- [x] Test both scopes through the real app middleware as well as handler doubles: anonymous access,
       judicial-area refusal, correct caller propagation and safe parameter handling.
-- [ ] Render the shared full-width shell with real context, bilingual content, document selector, distinct
+- [x] Render the shared full-width shell with real context, bilingual content, document selector, distinct
       page/document controls, thumbnails region, document status and a working return link. Escape names.
-- [ ] Add scoped binary proxies using the published preview operation. Force original-download disposition
+- [x] Add scoped binary proxies using the published preview operation. Force original-download disposition
       to attachment in the new download route while retaining original MIME/name/bytes and containment.
       Keep legacy `/file` handlers and consumers unchanged.
-- [ ] Distinguish viewer-context failure from preview-resource failure. Clear unavailable content, preserve
+- [x] Distinguish viewer-context failure from preview-resource failure. Clear unavailable content, preserve
       safe navigation and show localized fixed errors; do not call a document failure a withdrawn referral.
-- [ ] Provide native navigation/download without JavaScript. A selector GET may redirect only to a document
+- [x] Provide native navigation/download without JavaScript. A selector GET may redirect only to a document
       in the authorized context; no conversion job or business mutation is started by form/navigation GETs.
-- [ ] Verify header policy separation, streaming cancellation, no public route holes and no duplicated
+- [x] Verify header policy separation, streaming cancellation, no public route holes and no duplicated
       downloads/audit-provoking binary preloads during shell rendering. Run Validation Commands.
 
 ### Task 4: Package and implement the real page renderer
@@ -393,6 +393,26 @@ anchor, no `returnTo`) and `/view`, `/preview`, `/download` paths through `pathS
 `#documents` id yet; Task 6 adds it with the entry points. Validation: lint and build clean; serial suite green, no
 skips, Redis suites ran: deed-poll-api-client 1110, deed-poll 1517, app 2733, express-govuk-starter 132,
 cloud-native-platform 156, express-session-postgres 85, simple-router 45, express-session-redis 7.
+
+**Task 3, 2026-10-24.** Routes: `view`, `preview` and `download` under both `deed-polls/[id]/documents/[documentId]/` and
+`judicial/referrals/[referralId]/documents/[documentId]/`; legacy `file.ts` routes untouched. Each builds its paths with
+`caseViewerScope`/`referralViewerScope` + `documentPaths` before any read. Shell: `src/document-viewer/page.ts`
+(`showViewer`) renders `src/pages/document-viewer.njk` (extends `app-full-width.njk`) from one case or referral read, with
+`en`/`cy` from `src/document-viewer/content.ts` (`cy` mirrors `en` until Task 6 adds the module to extraction). The
+selector is a GET form back to the current view; `?document=` 303-redirects only to a document in the context, and
+anything else (forged id, URL, array, object) is the fixed `NotFoundError`. Page/zoom/rotate controls and thumbnails are
+rendered hidden and disabled for Task 4/5; the status region carries the no-JS sentence and the renderer's fixed
+messages travel as `data-message-*`. The shell carries the preview URL only as `data-preview-url`: no `src`, preload or
+embed, and its handler calls no preview or download. Preview relay (`src/document-viewer/preview-response.ts`): fixed
+`attachment; filename="preview.pdf"`, `default-src 'none'; sandbox`, nosniff, no-store and api's length, whatever api
+sent; api's four refusals keep their status (422/422/503/429 + `Retry-After`) as JSON `{ code }`; a 404 on either scope is
+`{ code: "DOCUMENT_UNAVAILABLE" }`, never the referral-unavailable page; 401/403/timeouts go to `domainErrorHandler`; an
+unfinished response close aborts the api read. Download: `sendDownload` in `src/document-response.ts` forces
+`attachment` keeping api's filename, type and policy. Judicial view: a referral 404 is the existing unavailable page, a
+document absent from a visible referral is the shared 404. `src/document-viewer/routes.test.ts` drives all six routes
+through the real `requireAuth`, `requireJudicial` and `domainErrorHandler` over HTTP. Validation: lint and build clean;
+serial suite green, no skips, Redis suites ran: deed-poll-api-client 1110, deed-poll 1517, app 2827,
+express-govuk-starter 132, cloud-native-platform 156, express-session-postgres 85, simple-router 45, express-session-redis 7.
 
 ## Post-Completion
 
