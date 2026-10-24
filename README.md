@@ -217,7 +217,45 @@ database 2. It takes about twelve minutes, because it waits on a real clock: the
 the warning and the timed-out page. A second journey, without JavaScript, shows the server still ends the session.
 These local checks use the mock and never send a real Notify email.
 
+For the document viewer journeys (`yarn test:document-viewer`), prepare the same way: `yarn build`, the IDAM
+simulator seeded with `yarn idam:users`, and Redis on 6379. The suite starts its own app on 3319 and a fresh mock on
+3219, uses Redis database 4, and is kept out of `yarn test:e2e` because it switches the mock's preview scenario. It
+runs one caseworker and one judicial journey over all five file types (see below).
+
 There are no database commands: this repo has no database.
+
+### The document viewer
+
+Every document link opens a full-page viewer in the same tab. There are two entry points: the case page's
+Documents tab (generated deeds included) and the judicial referral's document list. Each has its own scoped
+routes: `/deed-polls/{id}/documents/{documentId}/view` and
+`/judicial/referrals/{referralId}/documents/{documentId}/view`, with `/preview` and `/download` beside each. The old
+`/file` routes still work. The viewer shows one page at a time. It has page controls, thumbnails, zoom, fit to
+width or whole page, and rotation, plus a document selector with previous and next document. Each document keeps
+its own page, zoom and rotation during the visit, and **Back to case** or **Back to referral** returns to
+`#documents`. Judges see no case reference. Without JavaScript you still get the selector, neighbour links,
+**Download original** and the return link.
+
+- **Formats.** api turns every allowed upload type into a PDF preview: a PDF as it is, JPEG and PNG as one page,
+  TIFF as one page per frame, and DOCX paginated by api's Docmosis Tornado conversion. The page count comes from the
+  preview PDF. **Download original** always returns the uploaded bytes and filename as an attachment, and rotation
+  changes only what is on screen.
+- **Limits.** The adapter waits at most 27 s for a preview (api's budget is 25 s, both gateways cut off at 30 s). It
+  relays at most 50 MiB (`DOCUMENT_PREVIEW_LIMITS` in `libs/deed-poll-api-client/src/api/client.ts`, pinned to the
+  published spec). The viewer refuses a preview over 100 pages before drawing any of it.
+- **Errors.** api's four preview refusals (`PREVIEW_INVALID_DOCUMENT`, `PREVIEW_LIMIT_EXCEEDED`,
+  `PREVIEW_UNAVAILABLE`, `PREVIEW_BUSY`) and a missing document each get a fixed sentence in the viewer, and the
+  download keeps working. **Try again** appears only for busy and failed previews, and **Sign in again** only when
+  the session has ended. A DOCX before the converter is provisioned is the `PREVIEW_UNAVAILABLE` state (decision 3).
+- **PDF.js.** `pdfjs-dist` is pinned and bundled by vite, and its worker is a hashed asset served from this app's
+  origin. Its fonts, cmaps and the JavaScript image decoders are served under `/assets/pdfjs/`
+  (`src/document-viewer/pdfjs-assets.ts`). It runs with WebAssembly, scripting, XFA and range requests turned off,
+  so the CSP is unchanged. No CDN and no external viewer are used.
+- `docs/prototypes/document-viewer.html` is a **design-only** prototype with fictional pages. It is not a renderer
+  or a test fixture. The mock's synthetic previews are built in `libs/deed-poll-api-client/src/mock/document-preview.ts`.
+
+The plan and its evidence are in
+[`docs/plans/20261023-full-page-document-viewer.md`](docs/plans/20261023-full-page-document-viewer.md).
 
 ### Representative data in non-production environments
 

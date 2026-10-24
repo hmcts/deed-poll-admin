@@ -266,7 +266,8 @@ single file:
   `libs/deed-poll/src/judicial/view.ts` builds the read-only "Application" section from that type alone, listing its
   fields in `APPLICATION_SECTIONS` and borrowing only labels and formatting from the caseworker metadata. Do not
   import the caseworker view model: the judge's page must not grow a field because the caseworker's did. Documents
-  download through `src/pages/judicial/referrals/[referralId]/documents/[documentId]/file.ts`, which shares
+  open in the shared viewer (see "Document viewer" below); the original download, and the legacy
+  `src/pages/judicial/referrals/[referralId]/documents/[documentId]/file.ts`, share
   `src/document-response.ts` with the caseworker route. Who may open one is api's visibility: any judge on `Open`,
   the holder on `Claimed`, the director on `Decided`, nobody once closed. The same 404 covers each refusal and
   renders the unavailable page. The relay keeps api's `inline` only for PDF, JPEG and PNG under a policy with
@@ -610,6 +611,44 @@ Search, email preview, email send and upload are limited per IDAM subject
 - **Gazette's 429 stays an unknown outcome.** `callGazetteApi` turns it into `GazetteOutcomeUnknownError`, not
   `TooManyRequestsError`, because only a published Gazette refusal proves nothing was admitted under the request's
   key. The Gazette batch page is not limited here; api limits it.
+
+## Document viewer
+
+Every document link opens one app-owned viewer (plan `docs/plans/20261023-full-page-document-viewer.md`). Facts that
+span several files:
+
+- **Two scoped route sets, never one generic URL.** `deed-polls/[id]/documents/[documentId]/` and
+  `judicial/referrals/[referralId]/documents/[documentId]/` each have `view`, `preview` and `download`, and a
+  judicial URL never carries a case id. Each route builds its paths with `caseViewerScope`/`referralViewerScope` and
+  `documentPaths` (`src/document-viewer/context.ts`) **before any read**. The return link is that scope's fixed
+  `#documents` anchor and never a `returnTo`. The legacy `file.ts` routes stay for existing consumers.
+- **The view reads its context once, and each binary request is authorised on its own.** The selector, title and
+  return link come from the one case or referral read (`libs/deed-poll/src/document-viewer/view.ts`, api's order).
+  `preview` and `download` read nothing first, and nothing loads every document to fill the selector. A preview 404
+  is `{ code: "DOCUMENT_UNAVAILABLE" }` inside the viewer, never the referral-unavailable page; a referral 404 on
+  `view` is that page.
+- **api's preview refusals are typed, and their prose never travels.** `callPreviewApi`
+  (`libs/deed-poll/src/api/deed-poll-api.ts`) maps the four codes to `DocumentPreviewRefusedError` only on their
+  published status. It replaces api's message with `document preview failed (<kind> <status>)`, because api's prose
+  can hold a converter's words or a file name. The relay (`src/document-viewer/preview-response.ts`) answers a
+  fixed `preview.pdf` attachment under `default-src 'none'; sandbox`, and the shell's CSP is the app's own, not the
+  binary's.
+- **The limits are the producer's, restated once.** `DOCUMENT_PREVIEW_LIMITS` and `PREVIEW_TIMEOUT_MS` (27 s, a ceiling
+  `DEED_POLL_API_TIMEOUT_MS` can only shorten) are in the api client, and `contract.test.ts` pins the limits to
+  `openapi.json`. The page passes them to the browser as `data-max-bytes`/`data-max-pages`; do not restate them in
+  the client.
+- **PDF.js runs with WebAssembly off (`useWasm: false`) so the CSP stays unchanged.** Turning it on needs
+  `'wasm-unsafe-eval'`. Also off: scripting, XFA, the annotation layer and range or streamed loading. It is the
+  **legacy** build in both the browser and the Node tests. `pdfjs-dist` is a devDependency because vite bundles it.
+  Its data files are copied by `vite.build.ts` to `/assets/pdfjs/` (`PDFJS_ASSET_MOUNT`), which
+  `src/document-viewer/pdfjs-assets.ts` serves in development; `pdfjs-assets.test.ts` pins both lists.
+- **`src/assets/**` is not typechecked by `yarn build`** (`tsconfig.app.json` excludes it), so the viewer client in
+  `src/assets/js/document-viewer/` is checked only by its tests. Its rules live in DOM-free `presentation.ts`.
+  Switching documents replaces history and never pushes, and per-document state lives only in memory,
+  `history.state` and a validated fragment, never in storage. `viewer.test.ts` scans the sources for storage,
+  logging and session requests.
+- **Welsh:** `src/document-viewer` is on the extractor's `INCLUDE`, and `src/welsh-extractor.test.ts` compares every
+  `en` key of `content.ts` with the extracted rows.
 
 ## Redirect paths
 

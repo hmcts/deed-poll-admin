@@ -338,12 +338,12 @@ following existing patterns, and synthetic fixtures in the client mock/test dire
 **Files:** `README.md`, `docs/DEPLOYMENT.md`, `CLAUDE.md` where a new cross-file invariant needs recording,
 and this plan's Execution notes; update existing packaging/extractor tests if their contracts changed.
 
-- [ ] Document viewer entry points, all formats, original downloads, limits, errors, worker asset handling
+- [x] Document viewer entry points, all formats, original downloads, limits, errors, worker asset handling
       and the API/converter deployment dependency. Keep the approved prototype clearly labelled design-only.
-- [ ] Record starting/implementation SHAs, API/spec provenance, changed files, all-format fixture provenance,
+- [x] Record starting/implementation SHAs, API/spec provenance, changed files, all-format fixture provenance,
       test results and translation baseline. Leave review results pending until Ralphex's later review
       phases run, then append their evidence; do not mark AAT acceptance from mock runs.
-- [ ] Recheck documentation paths/commands and relevant packaging/extractor tests. Run Validation Commands
+- [x] Recheck documentation paths/commands and relevant packaging/extractor tests. Run Validation Commands
       after any code/test corrections; do not add tests that merely assert prose in this planning file.
 
 ## Acceptance Criteria
@@ -563,6 +563,37 @@ route tests); keyboard, screen-reader announcements, 320px, Welsh and the sessio
 limits and stale-response cleanup (Tasks 3 to 5 and the 101-page journey). No OCR claim is made. **Handoff:** review
 base `05a99499d705b0137b5dfdb0b24cc809d9e6d6ff`; api dependency is unmerged PR #129 (`19bb0c2`). Local mock evidence
 does not establish deployed converter acceptance, which stays Post-Completion.
+
+**Task 8, 2026-10-24.** Documentation: README "The document viewer" (entry points, scoped routes, all five formats,
+original download, the 27 s / 50 MiB / 100-page limits, the four refusal codes and the retry/sign-in actions, PDF.js
+worker and `/assets/pdfjs/` data, the design-only prototype) and the `yarn test:document-viewer` prerequisites;
+DEPLOYMENT "Document previews" under deed-poll-api (api PR #129 first, the Docmosis Tornado converter with the
+`PREVIEW_UNAVAILABLE` phased release, the timeout, assets served from the pod with the CSP unchanged, and AAT acceptance
+outstanding); CLAUDE.md "Document viewer" for the cross-file invariants (scoped routes and paths before any read, one
+context read, independent binary authorisation, typed refusals without api prose, the limits' single home, PDF.js with
+WebAssembly off, the client being outside `yarn build`'s typecheck, Welsh extraction), and the judicial documents
+bullet now points at the viewer. Every path, symbol and command named in them was checked against the tree.
+**Evidence.** Review base / start `05a99499d705b0137b5dfdb0b24cc809d9e6d6ff` (merge base with `origin/master` `300a189`).
+Implementation commits: Task 1 `36b8754`, Task 2 `7bbbf06`, Task 3 `fe410cf`, Task 4 `8e4872d`, Task 5 `8d869b6`,
+Task 6 `8ce5f0a`, Task 7 `cea7151`, Task 8 this commit. API/spec provenance: api PR #129 head `19bb0c2`, unmerged;
+artefact SHA-256 `351b6047…afed45` per `SPEC-PROVENANCE.md` (Task 1). Changed files (`05a9949..cea7151`, 86):
+adapter, spec and mock in `libs/deed-poll-api-client` (11), domain in `libs/deed-poll/src` (9), app routes, shell, relay
+and PDF.js assets in `src/document-viewer`, `src/pages/document-viewer.njk`, `src/pages/deed-polls` and
+`src/pages/judicial` (about 35 with tests), the client and styles in `src/assets` (18), `src/app.ts`,
+`src/document-response.ts`, `src/locales/cy.ts`, `vite.build.ts`, `package.json`/`yarn.lock`, the extractor and its test,
+the translation request, two Playwright configs and two specs, and this plan. Fixture provenance: every preview and
+original in the mock and the journeys is synthetic, generated in this repo (`libs/deed-poll-api-client/src/mock/`
+`preview-sources.ts` and `document-preview.ts`, `syntheticPdf`; renderer tests `src/assets/js/document-viewer/test-pdfs.ts`), with no
+real or AAT document. Tests: Task 7's counts (deed-poll-api-client 1110, deed-poll 1520, app 2973,
+express-govuk-starter 132, cloud-native-platform 156, express-session-postgres 85, simple-router 45,
+express-session-redis 7; 2 browser journeys; coverage app 84.05%, deed-poll 87.56%, deed-poll-api-client 98.15%). Task 8
+changed no code or test. Rerun: `yarn lint` clean, the packaging/extractor/pipeline/chart tests (46) pass, and
+`yarn build` plus the serial suite pass with no skips and identical counts, the four Redis session suites having run;
+`yarn welsh:check` 792 / 574. Translation baseline: 743 / 525 identical before the viewer, 792 / 574 after (exactly the 49
+viewer strings), unchanged here; the Welsh feedback-link label change from Task 7 awaits the language owner. Still open:
+the `judicial.spec.ts` `summaryRow` defect (three journeys, pre-existing), and the build's GOV.UK font/crest asset paths
+noted in Task 4. **Review results: pending** Ralphex's review phases, whose evidence is appended below when they run.
+Nothing here is AAT acceptance.
 
 ## Post-Completion
 
