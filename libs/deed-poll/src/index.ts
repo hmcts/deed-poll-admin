@@ -41,6 +41,8 @@ export * from "./deed-poll/query-builder.js";
 export * from "./deed-poll/query-fields.js";
 export * from "./deed-poll/schemas.js";
 export * from "./deed-poll/service.js";
+export * from "./document-viewer/errors.js";
+export * from "./document-viewer/view.js";
 export * from "./documents/document-types.js";
 export * from "./documents/documents-view.js";
 export * from "./documents/schemas.js";

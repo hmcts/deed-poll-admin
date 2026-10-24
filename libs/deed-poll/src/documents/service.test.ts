@@ -1,13 +1,20 @@
-import { downloadDocument as apiDownloadDocument, uploadDocument as apiUploadDocument, getCase } from "@hmcts/deed-poll-api-client";
+import {
+  downloadDocument as apiDownloadDocument,
+  previewDocument as apiPreviewDocument,
+  uploadDocument as apiUploadDocument,
+  getCase
+} from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { InvalidInputError, NotFoundError } from "../errors.js";
-import { downloadDocument, findDocument, findDocuments, uploadDocument } from "./service.js";
+import { DocumentPreviewRefusedError } from "../document-viewer/errors.js";
+import { ForbiddenError, InvalidInputError, NotFoundError, UnauthorizedError } from "../errors.js";
+import { downloadDocument, findDocument, findDocuments, previewDocument, uploadDocument } from "./service.js";
 
 vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll-api-client")>()),
   getCase: vi.fn(),
   uploadDocument: vi.fn(),
-  downloadDocument: vi.fn()
+  downloadDocument: vi.fn(),
+  previewDocument: vi.fn()
 }));
 
 const CALLER = { accessToken: "caseworker-token" };
@@ -127,6 +134,64 @@ describe("documents/service", () => {
       } as never);
 
       await expect(downloadDocument("case-1", "doc-1", CALLER)).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
+  describe("previewDocument", () => {
+    const refused = (code: string, retryAfterSeconds: number | null) => ({ ok: false, error: { kind: "preview-refused", code, retryAfterSeconds } });
+
+    it("should ask api for the case's preview, not its original, with the caseworker's token and no pre-read", async () => {
+      const preview = { body: "stream", contentType: "application/pdf", contentLength: 12 };
+      vi.mocked(apiPreviewDocument).mockResolvedValue(ok(preview) as never);
+
+      const result = await previewDocument("case/1", "doc 2", CALLER);
+
+      expect(result).toEqual(preview);
+      expect(apiPreviewDocument).toHaveBeenCalledWith("case/1", "doc 2", expect.objectContaining({ accessToken: "caseworker-token", signal: undefined }));
+      expect(apiDownloadDocument).not.toHaveBeenCalled();
+      expect(getCase).not.toHaveBeenCalled();
+    });
+
+    it("should pass the caller's signal so a closed browser request stops the api call", async () => {
+      const controller = new AbortController();
+      vi.mocked(apiPreviewDocument).mockResolvedValue(ok({ body: "stream" }) as never);
+
+      await previewDocument("case-1", "doc-1", CALLER, controller.signal);
+
+      expect(apiPreviewDocument).toHaveBeenCalledWith("case-1", "doc-1", expect.objectContaining({ signal: controller.signal }));
+    });
+
+    it.each([
+      ["PREVIEW_INVALID_DOCUMENT", null],
+      ["PREVIEW_LIMIT_EXCEEDED", null],
+      ["PREVIEW_UNAVAILABLE", null],
+      ["PREVIEW_BUSY", 30]
+    ])("should throw DocumentPreviewRefusedError for %s, keeping api's wait", async (code, retryAfterSeconds) => {
+      vi.mocked(apiPreviewDocument).mockResolvedValue(refused(code, retryAfterSeconds) as never);
+
+      const error = await previewDocument("case-1", "doc-1", CALLER).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(DocumentPreviewRefusedError);
+      expect(error).toMatchObject({ code, retryAfterSeconds, message: `Document preview was refused (${code})` });
+    });
+
+    it.each([
+      ["not-found", 404, NotFoundError],
+      ["forbidden", 403, ForbiddenError],
+      ["unauthorized", 401, UnauthorizedError]
+    ])("should map a %s failure to the error the app already renders", async (kind, status, expected) => {
+      vi.mocked(apiPreviewDocument).mockResolvedValue({ ok: false, error: { kind, status, message: "refused" } } as never);
+
+      await expect(previewDocument("case-1", "doc-1", CALLER)).rejects.toBeInstanceOf(expected);
+    });
+
+    it("should report a timeout as a plain error naming api, not as a refusal", async () => {
+      vi.mocked(apiPreviewDocument).mockResolvedValue({ ok: false, error: { kind: "timeout", message: "timed out" } } as never);
+
+      const error = await previewDocument("case-1", "doc-1", CALLER).catch((caught: unknown) => caught);
+
+      expect(error).not.toBeInstanceOf(DocumentPreviewRefusedError);
+      expect((error as Error).message).toContain("deed-poll-api call failed (timeout)");
     });
   });
 });

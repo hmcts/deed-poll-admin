@@ -39,6 +39,7 @@
 import {
   claimJudicialReferral,
   type DocumentDownload,
+  type DocumentPreview,
   directJudicialReferral,
   downloadJudicialDocument,
   getJudicialMyReferrals,
@@ -48,10 +49,11 @@ import {
   type JudicialPool,
   type JudicialPoolQuery,
   type JudicialReferralDetail,
+  previewJudicialDocument,
   reviseDirection,
   withdrawDirection
 } from "@hmcts/deed-poll-api-client";
-import { type Caller, callApi } from "../api/deed-poll-api.js";
+import { type Caller, callApi, callPreviewApi } from "../api/deed-poll-api.js";
 import type { DirectionInput } from "./schemas.js";
 
 /**
@@ -121,6 +123,15 @@ export function getReferral(referralId: string, caller: Caller): Promise<Judicia
  */
 export function downloadReferralDocument(referralId: string, documentId: string, caller: Caller): Promise<DocumentDownload> {
   return callApi(caller, (config) => downloadJudicialDocument(referralId, documentId, config));
+}
+
+/**
+ * The judicial twin of the caseworker preview: one PDF of a referral's document, keyed on the referral and never the
+ * case. api applies exactly the download's visibility and answers the same 404 for a document that is not on the
+ * referral, so a 404 here is that document being unavailable, not evidence about the referral's holder.
+ */
+export function previewReferralDocument(referralId: string, documentId: string, caller: Caller, signal?: AbortSignal): Promise<DocumentPreview> {
+  return callPreviewApi(caller, (config) => previewJudicialDocument(referralId, documentId, config), signal);
 }
 
 /**

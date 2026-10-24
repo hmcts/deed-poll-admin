@@ -19,7 +19,16 @@
  * vault secrets have been mounted into the environment. Reading the environment lazily, per call, is
  * correct at any point in the startup sequence.
  */
-import { type ApiConfig, type ApiError, type ApiResult, assertApiBaseUrl, checkApiReachable, type GazetteApiResult } from "@hmcts/deed-poll-api-client";
+import {
+  type ApiConfig,
+  type ApiError,
+  type ApiResult,
+  assertApiBaseUrl,
+  checkApiReachable,
+  type GazetteApiResult,
+  type PreviewApiResult
+} from "@hmcts/deed-poll-api-client";
+import { DocumentPreviewRefusedError } from "../document-viewer/errors.js";
 import { ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "../errors.js";
 
 import { GazetteOutcomeUnknownError, GazetteRefusalError } from "../gazette/errors.js";
@@ -93,6 +102,21 @@ export async function callGazetteApi<T>(caller: Caller, call: (config: ApiConfig
   if (result.error.kind === "unauthorized") throw new UnauthorizedError("Authentication required");
   if (result.error.kind === "forbidden") throw new ForbiddenError("Gazette access refused");
   throw new GazetteOutcomeUnknownError();
+}
+
+/**
+ * A document preview: `callApi`'s mapping, plus api's four preview refusals as one typed error.
+ *
+ * A refusal is a normal viewer state, not a fault: the preview was not produced and the original download still
+ * works, so the page needs api's code to choose its own `en`/`cy` sentence. Nothing of api's prose travels.
+ * `signal` lets the page stop the call when the browser has gone; it never extends the configured timeout.
+ */
+export async function callPreviewApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<PreviewApiResult<T>>, signal?: AbortSignal): Promise<T> {
+  const result = await call({ ...apiConfig(caller), signal });
+  if (result.ok) return result.data;
+  if (result.error.kind === "preview-refused") throw new DocumentPreviewRefusedError(result.error.code, result.error.retryAfterSeconds);
+
+  throw errorFor(result.error);
 }
 
 /**

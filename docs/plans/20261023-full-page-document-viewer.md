@@ -228,16 +228,16 @@ their own isolated ports and Redis database, following the existing Gazette conf
 `documents/service.ts`, `judicial/service.ts`, exports and their tests as needed;
 create `src/document-viewer/context.ts` and tests.
 
-- [ ] Add failing cases for caseworker/judicial context, selector membership/order, current selection,
+- [x] Add failing cases for caseworker/judicial context, selector membership/order, current selection,
       previous/next boundaries, zero/one/many documents and titles with unsafe characters.
-- [ ] Compose the context from one existing case or referral read. Judicial context uses only its published
+- [x] Compose the context from one existing case or referral read. Judicial context uses only its published
       application/document projection. Preserve API order and existing availability facts; a metadata flag
       does not prove bytes still exist. An unknown selection is refused rather than silently substituted.
-- [ ] Build same-origin scoped view/preview/original-download URLs and fixed context return paths with the
+- [x] Build same-origin scoped view/preview/original-download URLs and fixed context return paths with the
       existing path helpers. Keep raw IDs only in domain calls; reject empty/dot-only IDs before I/O.
-- [ ] Add domain preview operations through `callApi`; keep binary authorization independent of the selector
+- [x] Add domain preview operations through `callApi`; keep binary authorization independent of the selector
       and avoid per-document metadata calls or a system-user fallback.
-- [ ] Test encoded delimiter IDs, forged selections/return destinations, absent application projections,
+- [x] Test encoded delimiter IDs, forged selections/return destinations, absent application projections,
       expired access and independent contexts for concurrent tabs. Run Validation Commands.
 
 ### Task 3: Add the protected viewer, preview and original-download routes
@@ -377,6 +377,21 @@ gained an optional caller `signal`. The mock builds real synthetic PDFs (`src/mo
 `preview-converter-unavailable` and `preview-busy`. A malformed `Content-Length` is refused by undici before the
 adapter sees it, so no branch handles one. Validation: `yarn lint` and `yarn build` clean; serial suite all green with
 no skips and the four Redis session suites run: deed-poll-api-client 1110, deed-poll 1479, app 2713, express-govuk-starter 132,
+cloud-native-platform 156, express-session-postgres 85, simple-router 45, express-session-redis 7.
+
+**Task 2, 2026-10-24.** Domain: `libs/deed-poll/src/document-viewer/view.ts` builds `DocumentViewerContext` from the one
+case or referral read (`buildCaseViewerContext`: the case's `hasFile` documents with `displayReference`;
+`buildReferralViewerContext`: `application.documents`, `caseReference` always `null`), in api's order, with
+position/total/previous/next and a format key per allowed MIME (`null` otherwise). An unknown or file-less selection
+throws `NotFoundError` with a fixed message naming no id. Previews: `previewDocument` (documents service) and
+`previewReferralDocument` (judicial service) go through a new `callPreviewApi` seam beside `callApi`, which maps api's
+four refusal codes to `DocumentPreviewRefusedError(code, retryAfterSeconds)`, everything else through `callApi`'s
+mapping, and passes an optional caller `AbortSignal`; no pre-read, no download fallback. App:
+`src/document-viewer/context.ts` builds scope base/return paths with `casePath`/`referralPath` (fixed `#documents`
+anchor, no `returnTo`) and `/view`, `/preview`, `/download` paths through `pathSegment`; a route must call
+`caseViewerScope`/`referralViewerScope` and `documentPaths` before any read. The judicial referral page has no
+`#documents` id yet; Task 6 adds it with the entry points. Validation: lint and build clean; serial suite green, no
+skips, Redis suites ran: deed-poll-api-client 1110, deed-poll 1517, app 2733, express-govuk-starter 132,
 cloud-native-platform 156, express-session-postgres 85, simple-router 45, express-session-redis 7.
 
 ## Post-Completion
