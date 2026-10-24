@@ -171,6 +171,24 @@ describe("document-viewer.njk", () => {
     expect(page).not.toContain('rel="preload"');
   });
 
+  it("should render the retry and sign-in actions hidden, the sign-in link returning to this document's view", async () => {
+    const page = await caseworkerPage("doc-a");
+
+    expect(page).toContain("data-viewer-retry hidden>Try again</button>");
+    expect(page).toContain('data-viewer-sign-in hidden><a class="govuk-link" href="/deed-polls/case-1/documents/doc-a/view">Sign in again</a>');
+  });
+
+  it("should keep the signed-in session warning, and add no keep-alive of its own", async () => {
+    const res = pageResponse();
+    await caseView(pageRequest({ params: { id: "case-1", documentId: "doc-a" } }), res);
+
+    const page = html({ ...res.render.mock.calls[0][1], sessionClock: { idleSeconds: 1800, idleRemaining: 1800, absoluteRemaining: 28800 } });
+
+    expect(page).toContain('id="session-timeout-idle"');
+    expect(page).toContain('href="/logout"');
+    expect(page).not.toMatch(/session\/(status|keep-alive)/);
+  });
+
   it("should hand the renderer api's published preview limits, not numbers of its own", async () => {
     const page = await caseworkerPage("doc-a");
 

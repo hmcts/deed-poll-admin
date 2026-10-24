@@ -193,5 +193,23 @@ describe("documents/service", () => {
       expect(error).not.toBeInstanceOf(DocumentPreviewRefusedError);
       expect((error as Error).message).toContain("deed-poll-api call failed (timeout)");
     });
+
+    it.each([
+      ["unavailable", 500, Error],
+      ["validation", 400, InvalidInputError],
+      ["forbidden", 403, ForbiddenError]
+    ])("should replace api's prose on a %s failure with a fixed message, because it ends in a log line", async (kind, status, expected) => {
+      const prose = "Docmosis: template render failed for Statement of J Smith.docx";
+      vi.mocked(apiPreviewDocument).mockResolvedValue({
+        ok: false,
+        error: { kind, status, message: prose, fieldErrors: [{ field: "file", message: prose }] }
+      } as never);
+
+      const error = await previewDocument("case-1", "doc-1", CALLER).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(expected);
+      expect((error as Error).message).toContain(`document preview failed (${kind} ${status})`);
+      expect(JSON.stringify({ message: (error as Error).message, ...(error as object) })).not.toContain("Docmosis");
+    });
   });
 });

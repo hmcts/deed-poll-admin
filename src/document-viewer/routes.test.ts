@@ -10,11 +10,13 @@ import { PassThrough } from "node:stream";
 import {
   downloadDocument,
   downloadReferralDocument,
+  ForbiddenError,
   findDeedPoll,
   getReferral,
   NotFoundError,
   previewDocument,
-  previewReferralDocument
+  previewReferralDocument,
+  UnauthorizedError
 } from "@hmcts/deed-poll";
 import express, { type NextFunction, type Request, type Response } from "express";
 import supertest from "supertest";
@@ -204,5 +206,37 @@ describe("document viewer routes over HTTP", () => {
 
     expect(answer.status).toBe(404);
     expect(answer.text).toBe("view:judicial/referrals/unavailable");
+  });
+
+  describe("a preview api refused or never answered", () => {
+    const logged = () => vi.mocked(console.error).mock.calls.flat().map(String).join("\n");
+
+    it("should answer 403 on the 404 view when api refuses the caller, logging nothing of the document", async () => {
+      vi.mocked(previewDocument).mockRejectedValue(new ForbiddenError("document preview failed (forbidden 403)"));
+
+      const answer = await supertest(app).get(CASE_ROUTES[1]).set("x-persona", "caseworker");
+
+      expect(answer.status).toBe(403);
+      expect(answer.text).toBe("view:errors/404");
+      expect(logged()).not.toContain("Deed poll");
+    });
+
+    it("should sign the session out and answer 401 when api refuses the token", async () => {
+      vi.mocked(previewReferralDocument).mockRejectedValue(new UnauthorizedError("document preview failed (unauthorized 401)"));
+
+      const answer = await supertest(app).get(REFERRAL_ROUTES[1]).set("x-persona", "judge");
+
+      expect(answer.status).toBe(401);
+      expect(answer.text).toBe("view:errors/401");
+    });
+
+    it("should leave a timeout to the fault handler rather than call it an unavailable document", async () => {
+      vi.mocked(previewDocument).mockRejectedValue(new Error("deed-poll-api call failed (timeout): document preview failed (timeout)"));
+
+      const answer = await supertest(app).get(CASE_ROUTES[1]).set("x-persona", "caseworker");
+
+      expect(answer.status).toBe(500);
+      expect(answer.text).not.toContain("DOCUMENT_UNAVAILABLE");
+    });
   });
 });

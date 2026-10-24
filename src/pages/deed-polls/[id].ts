@@ -68,6 +68,7 @@ import {
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../../auth/current-user.js";
 import { casePath } from "../../case-path.js";
+import { caseViewerScope, documentPaths } from "../../document-viewer/context.js";
 import { forLog } from "../../for-log.js";
 import { pathSegment } from "../../path-segment.js";
 
@@ -257,7 +258,12 @@ export const GET = async (req: Request, res: Response) => {
     tabs: buildDetailTabs({ ...found, referrals, emails: emails?.history ?? null } as unknown as Record<string, unknown>, rules, presentation),
     header: buildCaseHeader(found),
     notes: buildNotesView(found.notes),
-    documents: buildDocumentsView(found.documents),
+    // Each row opens the full-page viewer, which offers the original download itself. The path is built here
+    // with the viewer's own helpers, so the case page and the viewer cannot disagree on where a document lives.
+    documents: buildDocumentsView(found.documents).map((document) => ({
+      ...document,
+      viewHref: documentPaths(caseViewerScope(found.id), document.id).viewPath
+    })),
     referrals: referralsView,
     // Per row, so keyed by referral id: the sentence interpolates each row's date, and the template looks its row
     // up rather than calling content. A failed read has no rows and so no notices.

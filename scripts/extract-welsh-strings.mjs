@@ -9,12 +9,14 @@
  *
  *   node scripts/extract-welsh-strings.mjs            # writes .business_context/welsh-translation-request.csv
  *   node scripts/extract-welsh-strings.mjs --check    # exits 1 if any cy value is still identical to en
+ *   node scripts/extract-welsh-strings.mjs --out=<file>  # writes the CSV elsewhere (the extractor's own test)
  *
  * **The source is parsed, not imported.** These are page modules: importing one pulls in the domain and
  * therefore Prisma, so reading the AST keeps this a text operation with no database and no build step.
  *
  * **Scope is the service's own page areas plus the shared locale files** — today `pages/deed-polls/**` (the
- * caseworker) and `pages/judicial/**` (the judge). `pages/onboarding/**` is template demo content that nothing
+ * caseworker) and `pages/judicial/**` (the judge) — and `src/document-viewer/`, whose `content.ts` holds the words of
+ * the one viewer template both of them render. `pages/onboarding/**` is template demo content that nothing
  * in this service links to, and `pages/(footer)/**` arrived already translated — paying to translate either
  * would be waste. That boundary is a judgement call, so it is stated here rather than buried in a glob.
  *
@@ -39,7 +41,8 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript-6";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const OUT = path.join(ROOT, ".business_context", "welsh-translation-request.csv");
+const OUT_ARGUMENT = process.argv.find((argument) => argument.startsWith("--out="));
+const OUT = OUT_ARGUMENT ? path.resolve(OUT_ARGUMENT.slice("--out=".length)) : path.join(ROOT, ".business_context", "welsh-translation-request.csv");
 
 /**
  * Machine-drafted Welsh, keyed by the English string so repeats stay consistent.
@@ -67,6 +70,7 @@ const INCLUDE = [
   path.join(ROOT, "src/pages/oauth2"),
   path.join(ROOT, "src/pages/session-timed-out"),
   path.join(ROOT, "src/pages/signed-out"),
+  path.join(ROOT, "src/document-viewer"),
   path.join(ROOT, "src/locales")
 ];
 

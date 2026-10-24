@@ -200,15 +200,14 @@
           {% set docRows = [] %}
           {% for d in documents %}
             {#
-              Links to this app's own download route, not deed-poll-api's. The prototype could use
-              /api/... because one Nest app served both; api is a separate service on a separate
-              origin, so a direct link would need its base URL on the page and would leave the
-              browser's session behind. The route forwards api's stream instead, same-origin and
-              with the caseworker's token. A document with no file attached is not linked.
+              Links to this app's own full-page viewer, never to deed-poll-api: api is a separate service on a
+              separate origin, so a direct link would need its base URL on the page and would leave the
+              browser's session behind. The viewer offers **Download original** beside the preview. A document
+              with no file attached is not linked. The href is the handler's (`viewHref`).
             #}
             {% set nameCell %}
               {% if d.downloadable %}
-                <a class="govuk-link" href="/deed-polls/{{ case.id }}/documents/{{ d.id }}/file">{{ d.name }}</a>
+                <a class="govuk-link" href="{{ d.viewHref }}">{{ d.name }}</a>
               {% else %}
                 {{ d.name }}
               {% endif %}

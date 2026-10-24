@@ -116,7 +116,17 @@ export async function callPreviewApi<T>(caller: Caller, call: (config: ApiConfig
   if (result.ok) return result.data;
   if (result.error.kind === "preview-refused") throw new DocumentPreviewRefusedError(result.error.code, result.error.retryAfterSeconds);
 
-  throw errorFor(result.error);
+  throw errorFor(withoutProse(result.error));
+}
+
+/**
+ * A preview failure with api's prose replaced by its kind and status. A converter's own words can arrive in api's
+ * error body, and every failure here ends in a log line (`src/errors.ts`, or the starter's 500 handler), so the
+ * message is fixed and field errors are dropped: nothing on this page has a field to show them against.
+ */
+function withoutProse(error: ApiError): ApiError {
+  const status = error.status === undefined ? "" : ` ${error.status}`;
+  return { ...error, message: `document preview failed (${error.kind}${status})`, fieldErrors: [] };
 }
 
 /**

@@ -107,6 +107,9 @@
     <nav class="app-document-viewer__thumbnails" id="viewer-thumbnails" aria-label="{{ thumbnailsLabel }}" data-viewer-thumbnails hidden></nav>
     <section class="app-document-viewer__page" aria-label="{{ documentPageLabel }}" tabindex="0" data-viewer-page>
       <div class="govuk-body" role="status" aria-live="polite" data-viewer-status>{{ noScript }}</div>
+      {# Shown by the renderer beside the status it suits, never both at once and never without JavaScript. #}
+      <button type="button" class="govuk-button govuk-button--secondary" data-viewer-retry hidden>{{ tryAgain }}</button>
+      <p class="govuk-body" data-viewer-sign-in hidden><a class="govuk-link" href="{{ viewer.current.viewPath }}">{{ signInAgain }}</a></p>
     </section>
   </div>
 </div>

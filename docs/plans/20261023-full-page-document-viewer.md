@@ -303,17 +303,17 @@ prefer a narrowly scoped app-owned configuration rather than changing the vendor
 **Files:** caseworker/judicial detail handlers, templates and tests; `src/document-viewer/content.ts`;
 `scripts/extract-welsh-strings.mjs` and extractor tests; session/asset integration tests as needed.
 
-- [ ] Re-inventory document links and route each existing viewing action to the scoped viewer, including
+- [x] Re-inventory document links and route each existing viewing action to the scoped viewer, including
       generated deeds. Keep explicit original-download actions clearly labelled and direct.
-- [ ] Add the shared content module to Welsh extraction and test that every viewer label, error and dynamic
+- [x] Add the shared content module to Welsh extraction and test that every viewer label, error and dynamic
       page/document-count sentence is collected. Preserve both languages and existing extractor conventions.
-- [ ] Cover loading, missing file, lost referral access, 401, 403, timeout, damaged PDF and failed DOCX/TIFF
+- [x] Cover loading, missing file, lost referral access, 401, 403, timeout, damaged PDF and failed DOCX/TIFF
       conversion with useful localized messages, safe retry/selection/return actions and no fabricated counts.
-- [ ] Preserve the existing idle/absolute timeout and logout behaviour. Viewing must not add an automatic
+- [x] Preserve the existing idle/absolute timeout and logout behaviour. Viewing must not add an automatic
       keepalive, suppress the session warning or retain buffers/state across logout/persona changes.
-- [ ] Verify no source bytes, filenames, credentials or converter prose enter error logs/telemetry; raw
+- [x] Verify no source bytes, filenames, credentials or converter prose enter error logs/telemetry; raw
       source names remain escaped presentation. Test the no-JS navigation/download path.
-- [ ] Run focused integration/template/extractor tests and Validation Commands; record counts and baselines.
+- [x] Run focused integration/template/extractor tests and Validation Commands; record counts and baselines.
 
 ### Task 7: Verify the complete staff and judicial journeys
 
@@ -488,6 +488,38 @@ toolbar, thumbnail toggle), Tab order through the toolbar to the frame, and no C
 Validation: lint and build clean; serial suite green, no skips, Redis suites ran: deed-poll-api-client 1110, deed-poll
 1517, app 2946, express-govuk-starter 132, cloud-native-platform 156, express-session-postgres 85, simple-router 45,
 express-session-redis 7.
+
+**Task 6, 2026-10-24.** Inventory: still exactly two document links (case details' documents tab and the judicial
+referral's document list); generated deeds are rows in the same supporting-documents list, so they are covered by
+it. Correspondence previews are not file previews. Both now open the scoped viewer, with the paths built in the handler
+by `caseViewerScope`/`referralViewerScope` + `documentPaths` (`viewHref` on the case page, `href` on the referral).
+**Download original** stays in the viewer as a direct attachment link, and the legacy `/file` routes are unchanged for
+existing consumers. The referral page's documents heading gained `id="documents"`, which the viewer's return link
+already named; the case page's tab panel already had it. Welsh: `src/document-viewer` is on the extractor's
+`INCLUDE`, `cy` keeps the repo's `{ ...en }` mirror, and the script gained `--out=<file>` so
+`src/welsh-extractor.test.ts` can compare every key of the viewer's `en` with the extracted rows (49, the
+"Document N of M" function and both `{page}`/`{total}` sentences included) without writing the tracked CSV.
+`welsh:check` baseline 743 strings / 525 identical, now 792 / 574: exactly the 49 viewer strings, all awaiting
+translation. `.business_context/welsh-translation-request.csv` was regenerated. That also brought in rows other
+features had changed without re-running the extractor (6 rows gone, the rest new). Failure states: the renderer shows
+**Try again** beside `busy` and `failed` (a timeout, api down or a 5xx relay answer), and **Sign in again** (a link to
+the document's own view, so `requireAuth` sends the reader through sign-in and back) beside `signedOut`. Neither
+action appears for `unavailable`, `tooLarge` or `forbidden`, which another request would not change. The selector,
+the document buttons and the return link stay usable in every state, and the page total is empty whenever no
+preview is open, so no count is ever invented. A preview 404 is the document-unavailable sentence and a lost
+referral on the view is the existing unavailable page (both pinned in Task 3). New route tests over HTTP: a preview
+403 answers 403 on the 404 view, a 401 signs out on `errors/401`, and a timeout reaches the fault handler as a 500,
+never `DOCUMENT_UNAVAILABLE`. Logs: `callPreviewApi` now replaces api's message with
+`document preview failed (<kind> <status>)` and drops field errors, because api's error prose (a converter's words,
+a file name) otherwise reached `forbidden:` and 500 log lines. Pinned in `documents/service.test.ts`. No viewer route or
+relay logs anything itself. `src/assets/js/document-viewer/viewer.test.ts` scans the renderer sources: no
+`/session/` request, keep-alive or timer, no storage or cookie API, no `console`/`trackEvent`/`sendBeacon`, and a
+`pagehide` teardown, which logout and a persona switch both trigger by navigating away. The session warning still
+renders on the viewer (template test with a `sessionClock`). The no-JS path is the plain links, the GET selector and the
+download link (template and route tests from Task 3). Viewer client typechecked separately (throwaway DOM tsconfig):
+clean. Validation: lint and build clean; serial suite green, no skips, Redis suites ran: deed-poll-api-client 1110,
+deed-poll 1520, app 2973, express-govuk-starter 132, cloud-native-platform 156, express-session-postgres 85,
+simple-router 45, express-session-redis 7.
 
 ## Post-Completion
 

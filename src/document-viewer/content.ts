@@ -57,6 +57,10 @@ export const en = {
     forbidden: "You do not have permission to view this document.",
     failed: "The preview could not be loaded. Try again, or download the original."
   },
+  // Offered beside `busy` and `failed` only: the other refusals give the same answer however often they are asked.
+  tryAgain: "Try again",
+  // Beside `signedOut`. A link to this document's own view, which sends a signed-out reader through sign-in and back.
+  signInAgain: "Sign in again",
   referralUnavailable: {
     title: "This referral is no longer available",
     heading: "This referral is no longer available",

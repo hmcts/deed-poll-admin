@@ -82,7 +82,8 @@
         <p class="govuk-body">{{ witnessesEmpty }}</p>
       {% endif %}
 
-      <h3 class="govuk-heading-s">{{ documentsHeading }}</h3>
+      {# `documents` is the viewer's way back (`src/document-viewer/context.ts`), so a judge returns to this list. #}
+      <h3 class="govuk-heading-s" id="documents">{{ documentsHeading }}</h3>
       {% if documents.length %}
         {% set documentRows = [] %}
         {% for document in documents %}

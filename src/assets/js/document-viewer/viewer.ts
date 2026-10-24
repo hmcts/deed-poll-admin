@@ -54,6 +54,9 @@ const MESSAGE_KEYS: Readonly<Record<Exclude<LoadFailure, "stale">, string>> = {
   failed: "messageFailed"
 };
 
+/** The failures a second request can cure. The rest answer the same however often they are asked. */
+const RETRYABLE: ReadonlySet<Exclude<LoadFailure, "stale">> = new Set(["busy", "failed"]);
+
 /** GOV.UK Frontend's tablet breakpoint, 641px. */
 const TABLET_AND_WIDER = "(min-width: 40.0625em)";
 
@@ -91,6 +94,13 @@ export function initDocumentViewer(root: HTMLElement): DocumentViewer | null {
   const say = (text: string) => {
     status.textContent = text;
     status.hidden = text === "";
+  };
+
+  /** The failure's fixed sentence, with the one action that can help beside it. */
+  const fail = (reason: Exclude<LoadFailure, "stale">) => {
+    say(root.dataset[MESSAGE_KEYS[reason]] ?? "");
+    controls.retry.hidden = !RETRYABLE.has(reason);
+    controls.signIn.hidden = reason !== "signedOut";
   };
 
   const announce = (text: string) => {
@@ -164,7 +174,7 @@ export function initDocumentViewer(root: HTMLElement): DocumentViewer | null {
       clear();
       opened = null;
       sync();
-      say(root.dataset[MESSAGE_KEYS.unavailable] ?? "");
+      fail("unavailable");
       return;
     }
     if (outcome === "rendered") {
@@ -195,11 +205,13 @@ export function initDocumentViewer(root: HTMLElement): DocumentViewer | null {
     clear();
     opened = null;
     sync();
+    controls.retry.hidden = true;
+    controls.signIn.hidden = true;
     say(root.dataset.messageLoading ?? "");
 
     const result = await loader.load(entry.previewUrl);
     if (!result.ok) {
-      if (result.reason !== "stale") say(root.dataset[MESSAGE_KEYS[result.reason]] ?? "");
+      if (result.reason !== "stale") fail(result.reason);
       return;
     }
 
@@ -232,6 +244,7 @@ export function initDocumentViewer(root: HTMLElement): DocumentViewer | null {
     controls.format.textContent = entry.format;
     controls.formatRow.hidden = entry.format === "";
     controls.download.setAttribute("href", entry.downloadUrl);
+    controls.signIn.querySelector("a")?.setAttribute("href", entry.viewUrl);
     controls.selector.setAttribute("action", entry.viewUrl);
     controls.select.value = entry.id;
     remember(presentation());
@@ -251,6 +264,11 @@ export function initDocumentViewer(root: HTMLElement): DocumentViewer | null {
   controls.nextDocument.addEventListener("click", () => {
     const { next } = neighbours(documents, current.id);
     if (next) openDocument(next.id);
+  });
+  // The button hides itself as the request starts, so focus goes to the heading rather than to the page's body.
+  controls.retry.addEventListener("click", () => {
+    controls.title.focus();
+    void load();
   });
   controls.previousPage.addEventListener("click", () => goToPage(presentation().page - 1));
   controls.nextPage.addEventListener("click", () => goToPage(presentation().page + 1));
@@ -326,6 +344,8 @@ function findControls(root: HTMLElement): Controls | null {
   const found = {
     frame: one<HTMLElement>("[data-viewer-page]"),
     status: one<HTMLElement>("[data-viewer-status]"),
+    retry: one<HTMLButtonElement>("[data-viewer-retry]"),
+    signIn: one<HTMLElement>("[data-viewer-sign-in]"),
     announcement: one<HTMLElement>("[data-viewer-announcement]"),
     thumbnailsRegion: one<HTMLElement>("[data-viewer-thumbnails]"),
     toolbar: one<HTMLElement>("[data-viewer-toolbar]"),
@@ -455,6 +475,8 @@ interface ViewerEntry {
 interface Controls {
   frame: HTMLElement;
   status: HTMLElement;
+  retry: HTMLButtonElement;
+  signIn: HTMLElement;
   announcement: HTMLElement;
   thumbnailsRegion: HTMLElement;
   toolbar: HTMLElement;
