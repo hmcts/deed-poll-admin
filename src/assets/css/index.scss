@@ -22,6 +22,10 @@
 // away, since every rule is scoped to a class only that partial emits.
 @use "components/persona-switcher";
 
+// The document viewer's frame, text layer and thumbnails. Inert elsewhere: every rule is scoped to a class only the
+// viewer's template or its renderer emits.
+@use "components/document-viewer";
+
 /*
  * Caseworker case-detail styles, ported from the prototype's app.css.
  *

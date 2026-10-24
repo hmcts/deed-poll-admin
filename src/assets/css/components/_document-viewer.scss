@@ -1,0 +1,141 @@
+/*
+ * The document viewer's page frame, its text layer and its thumbnails (`src/pages/document-viewer.njk`, drawn by
+ * `src/assets/js/document-viewer/`). The toolbar and the responsive layout are plan Task 5's.
+ *
+ * `.textLayer` is PDF.js's own class, and its rules are the subset of PDF.js's `pdf_viewer.css` (6.4.299) that
+ * positions the page's text exactly over the canvas, kept here rather than imported because the rest of that file
+ * styles a viewer this app does not use. The text is transparent: it is there to be read aloud and selected.
+ *
+ * `base` and not `index`, so this file gets the settings, tools and helpers and emits only the rules below.
+ */
+@use "govuk-frontend/dist/govuk/base" as *;
+
+.app-document-viewer__body {
+  display: flex;
+  gap: govuk-spacing(3);
+  align-items: flex-start;
+}
+
+.app-document-viewer__page {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 80vh;
+  overflow: auto;
+  background-color: govuk-colour("light-grey");
+}
+
+.app-document-viewer__sheet {
+  position: relative;
+  margin: 0 auto;
+  width: fit-content;
+  background-color: govuk-colour("white");
+
+  canvas {
+    display: block;
+  }
+}
+
+// A fixed width, so the page's fit to width is measured against the space it will keep once the thumbnails draw.
+.app-document-viewer__thumbnails {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 160px;
+  max-height: 80vh;
+  overflow: auto;
+}
+
+.app-document-viewer__thumbnail-list {
+  margin: 0;
+  padding: govuk-spacing(1);
+  list-style: none;
+}
+
+.app-document-viewer__thumbnail {
+  min-height: 120px;
+  margin-bottom: govuk-spacing(2);
+  text-align: center;
+}
+
+.app-document-viewer__thumbnail-page {
+  margin: 0 auto govuk-spacing(1);
+  border: 1px solid $govuk-border-colour;
+  width: fit-content;
+
+  canvas {
+    display: block;
+  }
+}
+
+.app-document-viewer__thumbnail-label {
+  display: block;
+  margin: 0;
+}
+
+.textLayer {
+  --min-font-size: 1;
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  --total-scale-factor: var(--scale-factor);
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+
+  &[data-main-rotation="90"] {
+    transform: rotate(90deg) translateY(-100%);
+  }
+
+  &[data-main-rotation="180"] {
+    transform: rotate(180deg) translate(-100%, -100%);
+  }
+
+  &[data-main-rotation="270"] {
+    transform: rotate(270deg) translateX(-100%);
+  }
+
+  :is(span, br) {
+    position: absolute;
+    color: transparent;
+    white-space: pre;
+    cursor: text;
+    transform-origin: 0% 0%;
+    user-select: text;
+  }
+
+  > :not(.markedContent),
+  .markedContent span:not(.markedContent) {
+    --font-height: 0;
+    --scale-x: 1;
+    --rotate: 0deg;
+    z-index: 1;
+    font-size: calc(var(--text-scale-factor) * var(--font-height));
+    transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+  }
+
+  .markedContent {
+    display: contents;
+  }
+
+  ::selection {
+    background: rgba(0, 0, 255, 0.25);
+  }
+
+  .endOfContent {
+    display: block;
+    position: absolute;
+    inset: 100% 0 0;
+    z-index: 0;
+    cursor: default;
+    user-select: none;
+  }
+}

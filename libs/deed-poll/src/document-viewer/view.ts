@@ -24,6 +24,9 @@ import type { CaseDetail, Document, JudicialDocument, JudicialReferralDetail } f
 import { NOT_PROVIDED } from "../deed-poll/detail-view.js";
 import { NotFoundError } from "../errors.js";
 
+// The renderer refuses a preview over these, so the page hands it api's published numbers rather than a copy.
+export { DOCUMENT_PREVIEW_LIMITS } from "@hmcts/deed-poll-api-client";
+
 const FORMAT_BY_MIME_TYPE: ReadonlyMap<string, DocumentFormat> = new Map([
   ["application/pdf", "pdf"],
   ["image/jpeg", "jpeg"],

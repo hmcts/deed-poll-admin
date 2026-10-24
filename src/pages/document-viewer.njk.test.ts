@@ -7,7 +7,7 @@
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { findDeedPoll, getReferral } from "@hmcts/deed-poll";
+import { DOCUMENT_PREVIEW_LIMITS, findDeedPoll, getReferral } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
@@ -123,6 +123,14 @@ describe("document-viewer.njk", () => {
     expect(page).not.toMatch(/(src|href)="[^"]*\/preview"/);
     expect(page).not.toMatch(/<(iframe|embed|object)\b/);
     expect(page).not.toContain('rel="preload"');
+  });
+
+  it("should hand the renderer api's published preview limits, not numbers of its own", async () => {
+    const page = await caseworkerPage("doc-a");
+
+    expect(page).toContain(`data-max-pages="${DOCUMENT_PREVIEW_LIMITS.maxPages}"`);
+    expect(page).toContain(`data-max-bytes="${DOCUMENT_PREVIEW_LIMITS.maxOutputBytes}"`);
+    expect(page).toContain('data-label-page="Page"');
   });
 
   it("should show a judge no case reference, and the way back to the referral", async () => {

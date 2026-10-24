@@ -1,4 +1,4 @@
-import { buildCaseViewerContext, buildReferralViewerContext, NotFoundError } from "@hmcts/deed-poll";
+import { buildCaseViewerContext, buildReferralViewerContext, DOCUMENT_PREVIEW_LIMITS, NotFoundError } from "@hmcts/deed-poll";
 import type { CaseDetail, JudicialReferralDetail } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
@@ -39,6 +39,7 @@ describe("showViewer", () => {
       scope: "caseworker",
       caseReference: "KBDP2026-00042",
       selectionParameter: "document",
+      previewLimits: { maxPages: DOCUMENT_PREVIEW_LIMITS.maxPages, maxBytes: DOCUMENT_PREVIEW_LIMITS.maxOutputBytes },
       positionText: "Document 2 of 3",
       formatText: "Word document",
       backText: "Back to case",

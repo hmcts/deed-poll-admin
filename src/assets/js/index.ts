@@ -17,6 +17,13 @@ initQueryBuilder();
 // The session timeout warning. A no-op on pages without a signed-in session, which carry no dialog.
 initSessionTimeout();
 
+// The document viewer's renderer, imported only where there is a viewer, so PDF.js is its own chunk and no other
+// page fetches it. The chunk is same-origin, which is all the CSP's `script-src 'self'` asks of a dynamic import.
+const documentViewer = document.querySelector<HTMLElement>('[data-module="app-document-viewer"]');
+if (documentViewer) {
+  void import("./document-viewer/viewer.js").then(({ initDocumentViewer }) => initDocumentViewer(documentViewer));
+}
+
 const config = {
   userPreferences: {
     cookieName: "cookie_policy"

@@ -83,6 +83,7 @@
     "@vitest/coverage-v8": "4.1.12",
     "@vitest/ui": "4.1.12",
     "js-yaml": "5.5.0",
+    "pdfjs-dist": "6.4.299",
     "sass": "1.106.1",
     "supertest": "7.3.1",
     "tsx": "4.23.15",

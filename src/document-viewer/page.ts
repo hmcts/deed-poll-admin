@@ -10,7 +10,7 @@
  * value that is not one of them (a forged id, a repeated or bracketed parameter) is refused with the same fixed
  * `NotFoundError` as an unknown selection, never substituted.
  */
-import { type DocumentViewerContext, NotFoundError } from "@hmcts/deed-poll";
+import { DOCUMENT_PREVIEW_LIMITS, type DocumentViewerContext, NotFoundError } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { cy, en } from "./content.js";
 import { documentPaths, type ViewerScope, viewerLinks } from "./context.js";
@@ -36,6 +36,7 @@ export function showViewer(req: Request, res: Response, scope: ViewerScope, cont
     caseReference: context.caseReference,
     viewer: links,
     selectionParameter: SELECTION_PARAMETER,
+    previewLimits: { maxPages: DOCUMENT_PREVIEW_LIMITS.maxPages, maxBytes: DOCUMENT_PREVIEW_LIMITS.maxOutputBytes },
     positionText: content.documentPosition(context.position, context.total),
     formatText: context.current.format ? content.formats[context.current.format] : null,
     backText: context.scope === "judicial" ? content.backToReferral : content.backToCase

@@ -267,17 +267,17 @@ create app-owned `src/assets/js/document-viewer/` renderer modules and tests;
 read `libs/express-govuk-starter/src/helmet/helmet-middleware.ts` and its tests for existing policy;
 prefer a narrowly scoped app-owned configuration rather than changing the vendored starter.
 
-- [ ] Pin a maintained PDF.js version and its matching worker, checking its license/security guidance at
+- [x] Pin a maintained PDF.js version and its matching worker, checking its license/security guidance at
       execution time. Serve worker, fonts and any CMaps from built app assets in development and production.
-- [ ] Write renderer tests with real small PDFs for actual page counts, text layers, intrinsic page sizes,
+- [x] Write renderer tests with real small PDFs for actual page counts, text layers, intrinsic page sizes,
       orientation and malformed/truncated/oversized content. A fake renderer is insufficient acceptance.
-- [ ] Load only the chosen authorized preview. Enforce response/byte limits, use cancelable loading/render
+- [x] Load only the chosen authorized preview. Enforce response/byte limits, use cancelable loading/render
       tasks and discard stale generations after fast document switches, failures or teardown.
-- [ ] Render the selected page, readable text layer where present and lazy low-resolution thumbnails.
+- [x] Render the selected page, readable text layer where present and lazy low-resolution thumbnails.
       Bound canvas pixels and released resources; never render every full-size page simultaneously.
-- [ ] Keep document scripting, XFA, executable links and editable forms disabled. Verify the actual worker
+- [x] Keep document scripting, XFA, executable links and editable forms disabled. Verify the actual worker
       under the app CSP without weakening original binary containment or adding global unsafe policies.
-- [ ] Verify built/hashed asset resolution and Docker packaging with the existing build/pipeline checks.
+- [x] Verify built/hashed asset resolution and Docker packaging with the existing build/pipeline checks.
       Run focused browser rendering checks and Validation Commands.
 
 ### Task 5: Implement the approved controls and per-document state
@@ -413,6 +413,41 @@ document absent from a visible referral is the shared 404. `src/document-viewer/
 through the real `requireAuth`, `requireJudicial` and `domainErrorHandler` over HTTP. Validation: lint and build clean;
 serial suite green, no skips, Redis suites ran: deed-poll-api-client 1110, deed-poll 1517, app 2827,
 express-govuk-starter 132, cloud-native-platform 156, express-session-postgres 85, simple-router 45, express-session-redis 7.
+
+**Task 4, 2026-10-24.** PDF.js: `pdfjs-dist` 6.4.299 (latest, Apache-2.0, published 2026-10-03; no advisory in `yarn npm
+audit`), exact pin, a **devDependency** because vite bundles it, so `yarn workspaces focus --production` leaves it and its
+optional native `@napi-rs/canvas` out of the image. The **legacy** build is used in the browser and in the Node tests
+alike: the modern build needs `Uint8Array.prototype.toHex` and refuses to load under Node 24, and one build in both
+places means the tests parse with the code that ships. Worker: `pdf.worker.min.mjs?url`, a hashed same-origin asset
+(`dist/assets/assets/pdf.worker.min-<hash>.mjs`); `experimental.renderBuiltUrl: relative` in `vite.build.ts` was needed
+because the default base produced `/assets/pdf.worker…`, a 404 that the dev middleware hid. Data: `standard_fonts/`,
+`cmaps/` and only the two `*_nowasm_fallback.js` decoders are copied to `dist/assets/pdfjs/` (`PDFJS_ASSET_PATH`);
+`src/document-viewer/pdfjs-assets.ts` serves the same paths in development. **`useWasm: false`**: PDF.js 6 decodes
+CCITT/JBIG2 and JPX through WebAssembly, which would need `'wasm-unsafe-eval'`; the JS fallbacks need nothing, so the
+CSP is unchanged (no helmet edit, `src/analytics.test.ts` untouched). Options: no range/stream/auto-fetch, XFA off, no
+annotation layer (links and fields inert, appearances drawn), no scripting manager, `maxImageSize` 64 MP, password
+PDFs refused as damaged. Renderer (`src/assets/js/document-viewer/`): `fetch-preview` (Accept PDF, `redirect: manual`,
+`data-max-bytes` checked on the declared length and while streaming, statuses/codes to fixed message keys),
+`pdf-document` (`numPages` read on open, over `data-max-pages` destroyed before any page), `preview-loader`
+(generations: abort, destroy, `stale`), `page-geometry` (canvas ≤ 16.7 MP, density lowered rather than refused),
+`render-page` (cancellable canvas + PDF.js `TextLayer`, `release` zeroes the canvas and cleans the page), `thumbnails`
+(lazy via IntersectionObserver, one at a time, ≤ 40,000 px each), `viewer` (fit width, teardown on `pagehide`, reload
+on a back-forward restore). `index.ts` imports it dynamically only where the viewer exists, so no other page loads
+PDF.js. Page and document controls stay Task 5's. Tests: 45 renderer tests with real generated PDFs
+(`test-pdfs.ts`: page counts 1/3/100/101, portrait/landscape sizes, `/Rotate 90`, text and empty text, script + link +
+form field not executed, garbage/truncated/empty, abort, closed document, stale generations); `pdfjs-assets.test.ts`
+pins the paths, the refusal of `.wasm`/`quickjs`, the pin and the fallback names against the worker. Browser
+(throwaway Playwright script, isolated mock :3218, app :3318, Redis db 3, cached Chromium 1243 symlinked as 1248 per
+the note above), against both the vite middleware and the built `dist` (`VITE_MIDDLEWARE=false`): PDF (3 pages, text
+layer "Statutory declaration page 1"), landscape PDF, 4-frame TIFF and 3-page DOCX previews drew page 1 at the frame's
+width with every thumbnail; 101 pages showed the too-large sentence, a damaged PDF and `preview-converter-unavailable`
+DOCX the unavailable one, `preview-busy` the busy one; a navigation mid-load ended on the second document; a real
+dedicated worker ran from the hashed URL; a CCITT G4 image decoded through `jbig2_nowasm_fallback.js` (200) and drew;
+no `securitypolicyviolation`. Two pre-existing build defects seen, not changed: GOV.UK fonts and crest are copied to
+`dist/assets/{fonts,images}/node_modules/…` (404 at `/assets/fonts/…` in a built run) and the layout requests
+`/@vite/client` without the middleware. Validation: lint and build clean; serial suite green, no skips, Redis suites
+ran: deed-poll-api-client 1110, deed-poll 1517, app 2878, express-govuk-starter 132, cloud-native-platform 156,
+express-session-postgres 85, simple-router 45, express-session-redis 7.
 
 ## Post-Completion
 

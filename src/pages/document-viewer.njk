@@ -15,6 +15,7 @@
 <a class="govuk-back-link" href="{{ viewer.returnPath }}">{{ backText }}</a>
 
 <div class="app-document-viewer" data-module="app-document-viewer" data-preview-url="{{ viewer.current.previewPath }}"
+  data-max-pages="{{ previewLimits.maxPages }}" data-max-bytes="{{ previewLimits.maxBytes }}" data-label-page="{{ pageNumberLabel }}"
   data-message-loading="{{ messages.loading }}"
   data-message-unavailable="{{ messages.unavailable }}"
   data-message-too-large="{{ messages.tooLarge }}"
