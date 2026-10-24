@@ -23,7 +23,7 @@
  * `webServer` have something to wait for — and so the readiness check task 5 adds has something to probe.
  * Both, because api's actuator serves both and `checkApiReachable` deliberately probes the liveness group.
  *
- * **Thirteen of api's rules are restated here.** A mock that applied none of them would let a
+ * **Fourteen of api's rules are restated here.** A mock that applied none of them would let a
  * page ship having never seen a real reference number or a derived state:
  *
  *   1. Reference-number allocation — the year from Date Received, the prefix from Type, a per-year serial.
@@ -75,10 +75,13 @@
  *      api's `StaffArea` and `RoleCapabilities`), and Gazette history's paging. Fixture claims are decoded,
  *      never verified; local IDAM tokens without roles use the configured userinfo endpoint; the history
  *      reads frozen batches, newest first with an identity tie-break and a sorted 100-reference preview.
+ *  14. Document previews on both surfaces (api PR #129), scoped and visible exactly as `/file` is: a real PDF
+ *      per format, or api's refusal for the same input — see `document-preview.ts`, whose fixtures are all
+ *      synthetic. The `preview-converter-unavailable` and `preview-busy` scenarios reach api's 503 and 429.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `ReferralNotes`, `JudicialReferralService`,
- * `CaseEmailService`, `GazetteNoticeHistory`, `RoleCapabilities`, `StaffArea` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
+ * `CaseEmailService`, `GazetteNoticeHistory`, `DocumentPreviewService`, `RoleCapabilities`, `StaffArea` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
  * privacy lock, the minor and Gazette write gates, create-time defaults, the saved-query permission rules —
  * see `savedQuery`) is deliberately NOT modelled: no
  * page's behaviour depends on it, and a half-copy would be a second opinion to keep in step. If a page
@@ -142,6 +145,7 @@ import type {
 } from "../api/wire.js";
 import { REFERRAL_STATE, URGENCY, WIRE_SCHEMAS } from "../api/wire.js";
 import { callerAccess } from "./caller-access.js";
+import { buildDocumentPreview, type DocumentPreviewMode, PREVIEW_BUSY_RETRY_AFTER_SECONDS } from "./document-preview.js";
 import {
   APPLICATION_REJECTED,
   DEFAULT_SCENARIO,
@@ -560,10 +564,10 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, 405, { error: `no such route: ${method} ${pathname}` });
     }
 
-    const judicial = /^\/judicial\/referrals\/([^/]+)(?:\/(claim|direction|direction\/withdraw|documents\/([^/]+)\/file))?$/.exec(pathname);
+    const judicial = /^\/judicial\/referrals\/([^/]+)(?:\/(claim|direction|direction\/withdraw|documents\/([^/]+)\/(file|preview)))?$/.exec(pathname);
     if (judicial) {
       const documentId = judicial[3] === undefined ? undefined : decodeURIComponent(judicial[3]);
-      return judicialReferral(req, res, method, decodeURIComponent(judicial[1]), documentId === undefined ? judicial[2] : "file", documentId);
+      return judicialReferral(req, res, method, decodeURIComponent(judicial[1]), documentId === undefined ? judicial[2] : judicial[4], documentId);
     }
 
     // Before the `{id}` route, exactly as api relies on Spring ordering a literal pattern first: matched
@@ -603,7 +607,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
     if (collection === "notes") return notes(req, res, method, found, childId);
     if (collection === "witnesses") return witnesses(req, res, method, found, childId);
-    if (collection === "documents") return documents(req, res, method, found, childId, action === "file");
+    if (collection === "documents") return documents(req, res, method, found, childId, action);
     if (collection === "referrals") return referrals(req, res, method, found, childId, action);
     if (collection === "emails") return emails(req, res, method, found, childId, action === "preview");
 
@@ -875,7 +879,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     method: string,
     record: MockCase,
     documentId: string | undefined,
-    wantsFile: boolean
+    action: string | undefined
   ): Promise<void> {
     if (documentId === undefined && method === "POST") {
       const upload = parseMultipart(await readRawBody(req), req.headers["content-type"] ?? "");
@@ -902,12 +906,12 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return send(res, 201, toWireDocument(created));
     }
 
-    if (documentId !== undefined && method === "GET" && wantsFile) {
+    if (documentId !== undefined && method === "GET" && (action === "file" || action === "preview")) {
       const id = decodeURIComponent(documentId);
       const document = record.documents.find((candidate) => candidate.id === id);
       if (!document) return send(res, 404, { error: `Document ${id} not found` });
 
-      return sendDocumentFile(res, document);
+      return action === "file" ? sendDocumentFile(res, document) : sendDocumentPreview(res, document, MOCK_SCENARIOS[scenario].documentPreview);
     }
 
     return send(res, 404, { error: `no such route: ${method} on documents` });
@@ -1373,11 +1377,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
     // Visibility is the referral's, already checked above: a document is readable by exactly the judges who may
     // read the referral. One 404 for a document not on this application and one with no file, as api answers.
-    if (method === "GET" && action === "file") {
+    if (method === "GET" && (action === "file" || action === "preview")) {
       const document = record.documents.find((candidate) => candidate.id === documentId && candidate.bytes.length > 0);
       if (!document) return send(res, 404, { error: `Document ${documentId} not found` });
 
-      return sendDocumentFile(res, document);
+      return action === "file" ? sendDocumentFile(res, document) : sendDocumentPreview(res, document, MOCK_SCENARIOS[scenario].documentPreview);
     }
 
     if (method === "POST" && action === "claim") {
@@ -2381,6 +2385,39 @@ function sendDocumentFile(res: ServerResponse, document: MockDocument): void {
     "cache-control": "no-store"
   });
   res.end(document.bytes);
+}
+
+/**
+ * One document's preview, with the headers api publishes for both preview operations, or api's refusal. The same
+ * 404 as `/file` for a document with no bytes, because api reads the original first. See `document-preview.ts`.
+ */
+function sendDocumentPreview(res: ServerResponse, document: MockDocument, mode: DocumentPreviewMode): void {
+  if (document.bytes.length === 0) {
+    send(res, 404, { error: `Document ${document.id} not found` });
+    return;
+  }
+
+  const outcome = buildDocumentPreview(document.mimeType, document.bytes, mode);
+  if (!outcome.ok) {
+    res.writeHead(outcome.status, {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+      ...(outcome.code === "PREVIEW_BUSY" ? { "retry-after": String(PREVIEW_BUSY_RETRY_AFTER_SECONDS) } : {})
+    });
+    res.end(JSON.stringify({ error: outcome.error, code: outcome.code }));
+    return;
+  }
+
+  res.writeHead(200, {
+    "content-type": "application/pdf",
+    "content-length": String(outcome.pdf.length),
+    "content-disposition": 'inline; filename="document-preview.pdf"',
+    "content-security-policy": "default-src 'none'; sandbox",
+    "x-content-type-options": "nosniff",
+    "cache-control": "no-store",
+    "accept-ranges": "none"
+  });
+  res.end(outcome.pdf);
 }
 
 function toWireNote(note: MockNote): unknown {

@@ -26,6 +26,7 @@ import {
   type WireCaseWrite,
   type WireCorrespondenceDocument,
   type WireDocument,
+  type WireDocumentPreviewError,
   type WireDocumentType,
   type WireEmailHistory,
   type WireEmailPreview,
@@ -165,6 +166,30 @@ const UPLOAD_TIMEOUT_MS = 60_000;
  * past the gateways (plan `docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
  */
 const GAZETTE_SUBMIT_TIMEOUT_MS = 20_000;
+
+/**
+ * Twenty-seven seconds, for a document preview, which api builds inside the request before it sends a byte.
+ *
+ * api's preview budget is 25 s (`requestBudgetSeconds` in the operations' `x-document-preview-limits`), so a
+ * conversion api would still finish must not be cut off here first, which the ten-second default would do to every
+ * DOCX. And both Application Gateways end the request at 30 s (see `GAZETTE_SUBMIT_TIMEOUT_MS`), so waiting longer
+ * would only swap this app's timeout for the gateway's error page. Never api's old 45 s (decision 2 of
+ * `docs/plans/20261023-full-page-document-viewer.md`). A ceiling like the Gazette submit's: a configured timeout can
+ * only shorten it.
+ */
+const PREVIEW_TIMEOUT_MS = 27_000;
+
+/**
+ * The producer's preview limits that this app enforces, as api publishes them in both preview operations'
+ * `x-document-preview-limits`. Restated because a running app cannot read the document; `contract.test.ts` pins each
+ * to the published value, so a refresh that changes one fails there.
+ *
+ * - `maxOutputBytes` bounds the body this adapter will relay, so a preview larger than api promises never reaches a
+ *   browser.
+ * - `maxPages` is for the viewer: api counts pages only for the previews it builds, never for a PDF or a converted
+ *   DOCX, so the viewer refuses one over the limit before rendering (decision 7).
+ */
+export const DOCUMENT_PREVIEW_LIMITS = { maxOutputBytes: 52_428_800, maxPages: 100 } as const;
 
 /** The multipart field name api reads the upload from. Matches `UploadPolicy.UPLOAD_FILE_FIELD`. */
 const UPLOAD_FILE_FIELD = "file";
@@ -439,6 +464,29 @@ export function downloadJudicialDocument(referralId: string, documentId: string,
   return download(config, `${judicialReferralPath(referralId)}/documents/${encodeURIComponent(documentId)}/file`);
 }
 
+/**
+ * Fetch a case document's preview: the whole document as one PDF, whatever its original type, for viewing in place.
+ *
+ * Not {@link downloadDocument}, and the two must not stand in for each other: api audits this as
+ * `DOCUMENT_PREVIEWED` and the original as `DOCUMENT_DOWNLOADED` (decision 5). Streamed like the download, under
+ * {@link PREVIEW_TIMEOUT_MS} rather than the default. Only a body that is a PDF within
+ * `DOCUMENT_PREVIEW_LIMITS.maxOutputBytes` is relayed: anything else is `invalid-response`, and a body that runs
+ * past the limit errors mid-stream rather than arriving whole.
+ *
+ * A preview api did not produce is a `preview-refused` failure carrying api's code, and leaves `/file` working.
+ */
+export function previewDocument(caseId: string, documentId: string, config: ApiConfig): Promise<PreviewApiResult<DocumentPreview>> {
+  return preview(config, `/caseworker/cases/${encodeURIComponent(caseId)}/documents/${encodeURIComponent(documentId)}/preview`);
+}
+
+/**
+ * The judicial twin of {@link previewDocument}, scoped exactly as {@link downloadJudicialDocument} is: `not-found`
+ * for a referral this judge may not see and for a document not on its application, indistinguishably.
+ */
+export function previewJudicialDocument(referralId: string, documentId: string, config: ApiConfig): Promise<PreviewApiResult<DocumentPreview>> {
+  return preview(config, `${judicialReferralPath(referralId)}/documents/${encodeURIComponent(documentId)}/preview`);
+}
+
 async function download(config: ApiConfig, path: string): Promise<ApiResult<DocumentDownload>> {
   const sent = await send(config, "GET", path, undefined, "*/*", true);
   if (!sent.ok) return sent;
@@ -465,6 +513,98 @@ async function download(config: ApiConfig, path: string): Promise<ApiResult<Docu
       contentTypeOptions: response.headers.get("x-content-type-options")
     }
   };
+}
+
+async function preview(config: ApiConfig, path: string): Promise<PreviewApiResult<DocumentPreview>> {
+  const timeoutMs = Math.min(config.timeoutMs ?? PREVIEW_TIMEOUT_MS, PREVIEW_TIMEOUT_MS);
+  // api answers every refusal as JSON even to this `Accept`, and it is the type the operation publishes.
+  const sent = await exchange({ ...config, timeoutMs }, "GET", path, undefined, "application/pdf", true, undefined, previewFailure);
+  if (!sent.ok) return sent;
+
+  const response = sent.response;
+  const contentLength = declaredLength(response.headers.get("content-length"));
+  const breach = !response.body
+    ? "returned no body"
+    : !isPdf(response.headers.get("content-type"))
+      ? "returned a preview that is not a PDF"
+      : contentLength !== null && contentLength > DOCUMENT_PREVIEW_LIMITS.maxOutputBytes
+        ? "returned a preview larger than the published limit"
+        : null;
+  if (breach !== null || response.body === null) {
+    // Released rather than left for the garbage collector, as `requestNoContent` does: undici holds the socket.
+    await response.body?.cancel().catch(() => {});
+    return { ok: false, error: { kind: "invalid-response", status: response.status, message: `GET ${path} ${breach}` } };
+  }
+
+  const body = capped(bounded(response.body, timeoutMs), DOCUMENT_PREVIEW_LIMITS.maxOutputBytes);
+  return {
+    ok: true,
+    data: {
+      body: Readable.fromWeb(body as NodeReadableStream<Uint8Array>),
+      contentType: "application/pdf",
+      contentLength,
+      contentDisposition: response.headers.get("content-disposition"),
+      contentSecurityPolicy: response.headers.get("content-security-policy"),
+      contentTypeOptions: response.headers.get("x-content-type-options")
+    }
+  };
+}
+
+/**
+ * A preview refusal is api's code only on the status api publishes it with; the same body on any other status, or
+ * a 429 or 503 without one (the abuse limiter, a proxy), is classified as every other failure is.
+ */
+async function previewFailure(response: Response): Promise<ApiError | PreviewRefusal> {
+  const payload = await readJsonOrNull(response);
+  const refusal = WIRE_SCHEMAS.DocumentPreviewError.safeParse(payload);
+  if (refusal.success && PREVIEW_REFUSAL_STATUS[refusal.data.code] === response.status) {
+    const { code } = refusal.data;
+    return { kind: "preview-refused", code, retryAfterSeconds: code === "PREVIEW_BUSY" ? retryAfterSeconds(response.headers.get("retry-after")) : null };
+  }
+  return classifyFailure(response, payload);
+}
+
+const PREVIEW_REFUSAL_STATUS: Readonly<Record<PreviewRefusalCode, number>> = {
+  PREVIEW_INVALID_DOCUMENT: 422,
+  PREVIEW_LIMIT_EXCEEDED: 422,
+  PREVIEW_UNAVAILABLE: 503,
+  PREVIEW_BUSY: 429
+};
+
+/** The media type alone, case-insensitively: parameters such as a charset do not make a PDF something else. */
+function isPdf(contentType: string | null): boolean {
+  return contentType?.split(";")[0].trim().toLowerCase() === "application/pdf";
+}
+
+/** undici has already refused a malformed `Content-Length`, so anything but digits here is simply absent. */
+function declaredLength(header: string | null): number | null {
+  const length = header !== null && /^\d+$/.test(header.trim()) ? Number(header.trim()) : Number.NaN;
+  return Number.isSafeInteger(length) ? length : null;
+}
+
+/**
+ * A body that errors once it exceeds `maxBytes`, rather than relaying a preview larger than api promises.
+ *
+ * An error and not an end-of-stream, for `bounded`'s reason: the 200 has gone out, and a PDF cut short is a broken
+ * document where an aborted transfer is an honest failure.
+ */
+function capped(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let received = 0;
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) return controller.close();
+      received += value.byteLength;
+      if (received > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new RangeError("deed-poll-api sent a preview larger than the published limit");
+      }
+      controller.enqueue(value);
+    },
+    cancel: (reason) => reader.cancel(reason)
+  });
 }
 
 /** Every supporting-document type, as api orders them. Read-only: api has no document-type writes. */
@@ -1037,15 +1177,16 @@ async function gazetteRequest<S extends z.ZodType>(
   return { ok: false, error: classifyFailure(response, payload) };
 }
 
-async function exchange(
+async function exchange<E = ApiError>(
   config: ApiConfig,
   method: string,
   path: string,
   body: unknown,
   accept: string,
   streaming = false,
-  headers?: Record<string, string>
-): Promise<SendResult> {
+  headers?: Record<string, string>,
+  readFailure: (response: Response) => Promise<E | ApiError> = failureFromResponse
+): Promise<SendResult<E>> {
   // Startup validates the app's URL; direct adapter consumers must receive the same protection.
   assertApiBaseUrl(config.baseUrl);
   if (!hasUsableSegments(path)) return { ok: false, error: { kind: "not-found", status: 404, message: UNUSABLE_SEGMENT_MESSAGE } };
@@ -1074,7 +1215,7 @@ async function exchange(
           ...(body !== undefined && !isForm ? { "content-type": "application/json" } : {})
         },
         body: isForm ? body : JSON.stringify(body),
-        signal: controller?.signal ?? AbortSignal.timeout(timeoutMs),
+        signal: withCallerSignal(controller?.signal ?? AbortSignal.timeout(timeoutMs), config.signal),
         // Never forward a token or request body to a redirect target, including an HTTP downgrade.
         redirect: "error"
       });
@@ -1083,13 +1224,22 @@ async function exchange(
     }
 
     // Keep a streaming failure-body read inside the cancellable timeout, before finally clears it.
-    if (!response.ok && streaming) return { ok: false, error: await failureFromResponse(response) };
+    if (!response.ok && streaming) return { ok: false, error: await readFailure(response) };
     return { ok: true, response };
   } finally {
     // Inside the `finally` so the failure body above is still read under the timeout: an unavailable api
     // often answers with a proxy's HTML, and reading that must not be the unbounded wait.
     clearTimeout(timer);
   }
+}
+
+/**
+ * The timeout's signal, joined to the caller's own when it has one, so a caller that has given up (a browser that
+ * closed the viewer while api was still converting) stops the call instead of leaving it to run to the timeout. An
+ * abort is reported as `timeout`: nobody is waiting for the answer, so which it was matters only to a log.
+ */
+function withCallerSignal(signal: AbortSignal, caller: AbortSignal | undefined): AbortSignal {
+  return caller === undefined ? signal : AbortSignal.any([signal, caller]);
 }
 
 /**
@@ -1205,6 +1355,8 @@ function mapResult<W, T>(result: ApiResult<W>, map: (value: W) => T): ApiResult<
 export interface ApiConfig {
   baseUrl: string;
   timeoutMs?: number;
+  /** The caller giving up — a closed browser request — which ends the call before its timeout does. */
+  signal?: AbortSignal;
   /**
    * The caller's IDAM access token. api authenticates every caseworker route and derives the audit name
    * and admin status from the token, so a call without one is a 401 — which is why this is not optional
@@ -1461,7 +1613,28 @@ export interface DocumentDownload {
   contentTypeOptions: string | null;
 }
 
-type SendResult = { ok: true; response: Response } | { ok: false; error: ApiError };
+type SendResult<E = ApiError> = { ok: true; response: Response } | { ok: false; error: E | ApiError };
+
+/** A document's preview: the download's shape, always a PDF, with the length api measured when it declared one. */
+export interface DocumentPreview extends DocumentDownload {
+  contentType: "application/pdf";
+  contentLength: number | null;
+}
+
+export type PreviewRefusalCode = WireDocumentPreviewError["code"];
+
+/**
+ * A preview api did not produce, by api's code. The original download is unaffected in every case, so a page offers
+ * it. `retryAfterSeconds` is set for `PREVIEW_BUSY` when api said how long to wait, and `null` otherwise. api's own
+ * sentence is not carried: the viewer has its own `en`/`cy` copy per code.
+ */
+export interface PreviewRefusal {
+  kind: "preview-refused";
+  code: PreviewRefusalCode;
+  retryAfterSeconds: number | null;
+}
+
+export type PreviewApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError | PreviewRefusal };
 
 /** History has no custom filter or sort. Its order and membership belong to api. */
 export interface GazetteNoticeHistoryQuery {

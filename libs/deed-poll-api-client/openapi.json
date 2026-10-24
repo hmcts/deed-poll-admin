@@ -418,6 +418,182 @@
         "tags": ["caseworker-document-controller"]
       }
     },
+    "/caseworker/cases/{id}/documents/{documentId}/preview": {
+      "get": {
+        "description": "A read-only rendition of the document as one complete PDF, for viewing in place; the original stays on /file, unchanged. PDF passes through after checks, JPEG and PNG become one page, a TIFF one page per frame in order (a JPEG-compressed TIFF, Compression 6 or 7, is deliberately not previewed and answers PREVIEW_INVALID_DOCUMENT), and DOCX is converted. Scoped to the case as /file is: 404 for another case's document, an unknown one, or one with no readable file. Recorded as DOCUMENT_PREVIEWED, not DOCUMENT_DOWNLOADED, once per request before the original is opened, and refused if that cannot be recorded. No range support: a Range header is ignored and the whole PDF is sent. A preview that is not produced is one of four fixed codes, and leaves /file working.",
+        "operationId": "previewCaseDocument",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": "The whole preview, a complete PDF. Never partial: a Range header is ignored.",
+            "headers": {
+              "Accept-Ranges": {
+                "description": "none: there is no range support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Disposition": {
+                "description": "inline, with the fixed filename document-preview.pdf.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "description": "The preview's measured length in bytes.",
+                "schema": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              },
+              "Content-Security-Policy": {
+                "description": "default-src 'none'; sandbox.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "nosniff.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "No such document in this scope, as /file answers: the usual error object."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewError"
+                }
+              }
+            },
+            "description": "The preview was not produced and the original download still works. PREVIEW_INVALID_DOCUMENT: This document cannot be previewed. Download the original instead. PREVIEW_LIMIT_EXCEEDED: This document is too large to preview. Download the original instead.",
+            "headers": {
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewError"
+                }
+              }
+            },
+            "description": "The preview was not produced and the original download still works. PREVIEW_BUSY: Too many previews are being prepared. Try again in a few seconds, or download the original.",
+            "headers": {
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Whole seconds to wait before trying again: 5 as configured, never more than 60.",
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "The document store would not return the original, as /file answers: the usual error object. Nothing was converted."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewError"
+                }
+              }
+            },
+            "description": "The preview was not produced and the original download still works. PREVIEW_UNAVAILABLE: A preview of this document is not available at the moment. Download the original instead.",
+            "headers": {
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Preview a supporting document as a PDF",
+        "tags": ["caseworker-document-controller"],
+        "x-document-preview-limits": {
+          "busyRetryAfterSeconds": 5,
+          "description": "Preview limits only: none changes upload acceptance or the original download. The budget covers conversion and rendering, but not a stalled read of the original, which keeps the document store's own timeouts as the download does. Conversions beyond the per-instance limit are refused with PREVIEW_BUSY, not queued; a PDF takes no conversion slot. Previews of any format beyond maxConcurrentPreviewsPerInstance, counted from the original's read until the response is written, are PREVIEW_BUSY too. Reaching any other limit is PREVIEW_LIMIT_EXCEEDED, never a truncated PDF. maxPages is enforced by the service only for the previews it builds (maxPagesEnforcedFor); a PDF or converted DOCX is served unparsed and uncounted, so the viewer must count its pages and refuse one over maxPages before rendering.",
+          "maxConcurrentConversionsPerInstance": 3,
+          "maxConcurrentPreviewsPerInstance": 8,
+          "maxFramePixels": 25000000,
+          "maxInputBytes": 26214400,
+          "maxOutputBytes": 52428800,
+          "maxPages": 100,
+          "maxPagesEnforcedByViewerFor": ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+          "maxPagesEnforcedFor": ["image/jpeg", "image/png", "image/tiff"],
+          "rangeRequests": "unsupported",
+          "requestBudgetSeconds": 25
+        }
+      }
+    },
     "/caseworker/cases/{id}/emails": {
       "get": {
         "operationId": "emails",
@@ -2207,6 +2383,182 @@
         "tags": ["judicial-referral-controller"]
       }
     },
+    "/judicial/referrals/{referralId}/documents/{documentId}/preview": {
+      "get": {
+        "description": "Requires the judicial role. The documentId is one of the referral's application.documents, and who may preview it is exactly who may download it from /file: any judge for an Open referral, the holder for a Claimed one and the directing judge for a Decided one. A read-only rendition as one complete PDF; the original stays on /file, unchanged. PDF passes through after checks, JPEG and PNG become one page, a TIFF one page per frame in order (a JPEG-compressed TIFF, Compression 6 or 7, is deliberately not previewed and answers PREVIEW_INVALID_DOCUMENT), and DOCX is converted. Recorded as DOCUMENT_PREVIEWED, not DOCUMENT_DOWNLOADED, once per request before the original is opened, and refused if that cannot be recorded. 404 for a referral this judge may not see, and for a document that is not this referral's case's or has no readable file. No range support: a Range header is ignored and the whole PDF is sent. A preview that is not produced is one of four fixed codes, and leaves /file working.",
+        "operationId": "previewReferralDocument",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": "The whole preview, a complete PDF. Never partial: a Range header is ignored.",
+            "headers": {
+              "Accept-Ranges": {
+                "description": "none: there is no range support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Disposition": {
+                "description": "inline, with the fixed filename document-preview.pdf.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "description": "The preview's measured length in bytes.",
+                "schema": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              },
+              "Content-Security-Policy": {
+                "description": "default-src 'none'; sandbox.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "nosniff.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "No such document in this scope, as /file answers: the usual error object."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewError"
+                }
+              }
+            },
+            "description": "The preview was not produced and the original download still works. PREVIEW_INVALID_DOCUMENT: This document cannot be previewed. Download the original instead. PREVIEW_LIMIT_EXCEEDED: This document is too large to preview. Download the original instead.",
+            "headers": {
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewError"
+                }
+              }
+            },
+            "description": "The preview was not produced and the original download still works. PREVIEW_BUSY: Too many previews are being prepared. Try again in a few seconds, or download the original.",
+            "headers": {
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Whole seconds to wait before trying again: 5 as configured, never more than 60.",
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "The document store would not return the original, as /file answers: the usual error object. Nothing was converted."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewError"
+                }
+              }
+            },
+            "description": "The preview was not produced and the original download still works. PREVIEW_UNAVAILABLE: A preview of this document is not available at the moment. Download the original instead.",
+            "headers": {
+              "Cache-Control": {
+                "description": "no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Preview one of the application's supporting documents as a PDF",
+        "tags": ["judicial-referral-controller"],
+        "x-document-preview-limits": {
+          "busyRetryAfterSeconds": 5,
+          "description": "Preview limits only: none changes upload acceptance or the original download. The budget covers conversion and rendering, but not a stalled read of the original, which keeps the document store's own timeouts as the download does. Conversions beyond the per-instance limit are refused with PREVIEW_BUSY, not queued; a PDF takes no conversion slot. Previews of any format beyond maxConcurrentPreviewsPerInstance, counted from the original's read until the response is written, are PREVIEW_BUSY too. Reaching any other limit is PREVIEW_LIMIT_EXCEEDED, never a truncated PDF. maxPages is enforced by the service only for the previews it builds (maxPagesEnforcedFor); a PDF or converted DOCX is served unparsed and uncounted, so the viewer must count its pages and refuse one over maxPages before rendering.",
+          "maxConcurrentConversionsPerInstance": 3,
+          "maxConcurrentPreviewsPerInstance": 8,
+          "maxFramePixels": 25000000,
+          "maxInputBytes": 26214400,
+          "maxOutputBytes": 52428800,
+          "maxPages": 100,
+          "maxPagesEnforcedByViewerFor": ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+          "maxPagesEnforcedFor": ["image/jpeg", "image/png", "image/tiff"],
+          "rangeRequests": "unsupported",
+          "requestBudgetSeconds": 25
+        }
+      }
+    },
     "/me": {
       "get": {
         "description": "Any authenticated caller may call this. staff and judicial say whether the caseworker and judicial areas admit the caller's roles, and capabilities lists what those roles grant. A caller with no deed-poll role gets staff false, judicial false and no capabilities, not 403: signed in, but no access. No identity is returned.",
@@ -3168,6 +3520,22 @@
           }
         },
         "required": ["declarant", "witnessAddress", "witnessName", "witnessOccupation"]
+      },
+      "DocumentPreviewError": {
+        "type": "object",
+        "description": "A document preview that was not produced. The original download is unaffected.",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The stable code to switch on.",
+            "enum": ["PREVIEW_INVALID_DOCUMENT", "PREVIEW_LIMIT_EXCEEDED", "PREVIEW_UNAVAILABLE", "PREVIEW_BUSY"]
+          },
+          "error": {
+            "type": "string",
+            "description": "A fixed sentence, safe to show. It never names the document or the converter."
+          }
+        },
+        "required": ["code", "error"]
       },
       "DocumentResponse": {
         "type": "object",

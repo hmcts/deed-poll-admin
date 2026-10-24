@@ -209,17 +209,17 @@ their own isolated ports and Redis database, following the existing Gazette conf
 `libs/deed-poll-api-client/src/api/{client.ts,wire.ts,contract.test.ts,client.test.ts}`,
 `libs/deed-poll-api-client/src/mock/` and the package exports.
 
-- [ ] Check the producer prerequisite; record API source/artifact SHAs and the execution/review baseline.
+- [x] Check the producer prerequisite; record API source/artifact SHAs and the execution/review baseline.
       Regenerate the consumer artifact using `SPEC-PROVENANCE.md`; explain only the two preview additions
       and their documented headers/errors/limits. Preserve unrelated contract changes already merged.
-- [ ] Add failing adapter/contract tests for caseworker and judicial preview streams, encoded IDs, caller
+- [x] Add failing adapter/contract tests for caseworker and judicial preview streams, encoded IDs, caller
       token propagation, MIME/header validation, byte limits, timeouts, cancellation and classified failures.
-- [ ] Add typed preview operations returning the existing streaming download shape where appropriate.
+- [x] Add typed preview operations returning the existing streaming download shape where appropriate.
       Configure preview-specific patience to cover the producer deadline without weakening ordinary calls.
-- [ ] Extend the mock with both scoped operations and genuine small PDF previews for each allowed original
+- [x] Extend the mock with both scoped operations and genuine small PDF previews for each allowed original
       MIME. Include a multi-page TIFF-equivalent preview and a multi-page DOCX-equivalent preview, with
       fixture provenance. Original `/file` responses retain original MIME/bytes. Model referral ownership.
-- [ ] Test wrong-case/referral/document access, missing files and converter failure against the mock; do not
+- [x] Test wrong-case/referral/document access, missing files and converter failure against the mock; do not
       stub `fetch` or disguise unsupported DOCX/TIFF as a successful empty PDF. Run Validation Commands.
 
 ### Task 2: Build the shared viewer context and navigation model
@@ -363,6 +363,21 @@ and this plan's Execution notes; update existing packaging/extractor tests if th
 Planning only, 23 October 2026. The approved static mock-up was browser-checked for interaction and layout.
 That is not implementation, real file conversion, an app test run or Ralphex execution. All task checkboxes
 are intentionally open. Append implementation evidence here; preserve earlier decisions and corrections.
+
+**Task 1, 2026-10-24.** Review base (worktree `feat/full-page-document-viewer` start) `05a99499d705b0137b5dfdb0b24cc809d9e6d6ff`,
+merge base with `origin/master` `300a189`. Producer: api PR #129 head `19bb0c2` (unmerged), artefact SHA-256
+`351b6047…afed45`, copied per `SPEC-PROVENANCE.md` and parsed equal to it; delta re-measured as exactly the two preview
+operations plus `DocumentPreviewError` (57 operations, 41 paths, 61 schemas). Adapter: `previewDocument` /
+`previewJudicialDocument` stream the download shape plus `contentLength`, send `Accept: application/pdf`, wait up to
+27 s (`PREVIEW_TIMEOUT_MS`, a ceiling that a configured timeout can only shorten), refuse a non-PDF or over-limit 200 as
+`invalid-response` and error a body that runs past `DOCUMENT_PREVIEW_LIMITS.maxOutputBytes`. A refusal is
+`{ kind: "preview-refused", code, retryAfterSeconds }` only when the code arrives on its published status. `ApiConfig`
+gained an optional caller `signal`. The mock builds real synthetic PDFs (`src/mock/document-preview.ts`, sources in
+`preview-sources.ts`): PDF passthrough, one page for JPEG/PNG, one per TIFF frame, three for DOCX; scenarios
+`preview-converter-unavailable` and `preview-busy`. A malformed `Content-Length` is refused by undici before the
+adapter sees it, so no branch handles one. Validation: `yarn lint` and `yarn build` clean; serial suite all green with
+no skips and the four Redis session suites run: deed-poll-api-client 1110, deed-poll 1479, app 2713, express-govuk-starter 132,
+cloud-native-platform 156, express-session-postgres 85, simple-router 45, express-session-redis 7.
 
 ## Post-Completion
 

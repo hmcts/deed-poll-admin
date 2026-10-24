@@ -1087,6 +1087,11 @@ export const GAZETTE_REFUSAL_CODE = [
   "CONFIRMATION_EXPIRED",
   "GAZETTE_UNAVAILABLE"
 ] as const;
+/**
+ * Why a document preview was not produced, in api's published order. Each arrives on one status only — 422 for the
+ * first two, 503 and 429 for the others — and in every case the original's `/file` download still works.
+ */
+export const DOCUMENT_PREVIEW_ERROR_CODE = ["PREVIEW_INVALID_DOCUMENT", "PREVIEW_LIMIT_EXCEEDED", "PREVIEW_UNAVAILABLE", "PREVIEW_BUSY"] as const;
 const gazetteMemberSchema = z.object({ caseId: z.string(), referenceNumber: z.string() });
 const gazetteStatusSchema = z.object({
   batchId: z.uuid(),
@@ -1141,6 +1146,9 @@ const gazetteErrorSchema = z.object({ code: z.enum(GAZETTE_REFUSAL_CODE), error:
  * A capability this build does not list is dropped rather than refused: api may ship one before admin is redeployed,
  * and rejecting the whole answer would sign every caller in with no access at all.
  */
+/** A preview that was not produced: a code to switch on and a fixed sentence that never names the document. */
+const documentPreviewErrorSchema = z.object({ code: z.enum(DOCUMENT_PREVIEW_ERROR_CODE), error: z.string() });
+
 const callerAccessSchema = z.object({
   staff: z.boolean(),
   judicial: z.boolean(),
@@ -1183,6 +1191,7 @@ export const WIRE_SCHEMAS = {
   SubmitGazetteRequest: submitGazetteSchema,
   Conflict: gazetteConflictSchema,
   GazetteError: gazetteErrorSchema,
+  DocumentPreviewError: documentPreviewErrorSchema,
   GazetteSettingsResponse: gazetteSettingsSchema,
   UpdateGazetteSettingsRequest: updateGazetteSettingsSchema,
   GazetteNoticeBatchResponse: gazetteNoticeBatchSchema,
@@ -1260,6 +1269,8 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   GazettePreviewResponse: ["recipientEmail", "recipientRevision", "caseCount", "adultCount", "minorCount", "cases", "selectionFingerprint", "expiresAt"],
   Conflict: ["caseId", "reason"],
   GazetteError: ["code", "error", "conflicts"],
+  // Both are required in api's record and the code is an enum, so neither can arrive null.
+  DocumentPreviewError: ["code", "error"],
   GazetteSettingsResponse: ["revision"],
   GazetteNoticeBatchResponse: ["caseCount", "referenceNumbers", "referencesTruncated"],
   GazetteNoticeHistoryResponse: ["batches", "page", "size", "total", "totalPages"],
@@ -1391,3 +1402,4 @@ export type WireGazetteMembers = z.infer<typeof gazetteMembersSchema>;
 export type WirePreviewGazette = z.input<typeof previewGazetteSchema>;
 export type WireSubmitGazette = z.input<typeof submitGazetteSchema>;
 export type WireGazetteError = z.infer<typeof gazetteErrorSchema>;
+export type WireDocumentPreviewError = z.infer<typeof documentPreviewErrorSchema>;
