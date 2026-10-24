@@ -285,17 +285,17 @@ prefer a narrowly scoped app-owned configuration rather than changing the vendor
 **Files:** viewer client modules/tests, `src/assets/css/components/_document-viewer.scss`,
 `src/assets/css/index.scss`, the shared template/content and browser fixtures.
 
-- [ ] Test and implement previous/next page, validated page jump, page totals and clickable actual thumbnails;
+- [x] Test and implement previous/next page, validated page jump, page totals and clickable actual thumbnails;
       enforce one-page and first/last boundaries without relying on disabled styling alone.
-- [ ] Add 25–300% zoom, percentage display, fit width, fit whole page and quarter-turn rotation. Respect
+- [x] Add 25–300% zoom, percentage display, fit width, fit whole page and quarter-turn rotation. Respect
       intrinsic rotation/aspect ratio and viewport/device-pixel changes without modifying original bytes.
-- [ ] Add the selector, Document N of M and separate previous/next document controls. Keep per-document page,
+- [x] Add the selector, Document N of M and separate previous/next document controls. Keep per-document page,
       zoom mode/value and rotation within the visit; clamp state when a newly loaded preview has fewer pages.
-- [ ] Preserve context on return/reopen and keep direct links/reloads safe. Capture only minimal scoped
+- [x] Preserve context on return/reopen and keep direct links/reloads safe. Capture only minimal scoped
       opener navigation state; preserve ordinary browser history and keep independent tabs independent.
-- [ ] Exercise rapid switching during fetch/render, restoring a prior document, destroyed workers and
+- [x] Exercise rapid switching during fetch/render, restoring a prior document, destroyed workers and
       predictable focus/status announcements. No old page may remain under the new document's heading.
-- [ ] Implement the approved responsive layout and thumbnail toggle using app-owned styles. Keep controls
+- [x] Implement the approved responsive layout and thumbnail toggle using app-owned styles. Keep controls
       available while scrolling and reachable by keyboard at narrow widths/200% browser zoom. Run Validation Commands.
 
 ### Task 6: Integrate every entry point, language and failure state
@@ -448,6 +448,46 @@ no `securitypolicyviolation`. Two pre-existing build defects seen, not changed: 
 `/@vite/client` without the middleware. Validation: lint and build clean; serial suite green, no skips, Redis suites
 ran: deed-poll-api-client 1110, deed-poll 1517, app 2878, express-govuk-starter 132, cloud-native-platform 156,
 express-session-postgres 85, simple-router 45, express-session-redis 7.
+
+**Task 5, 2026-10-24.** Controls live in `src/assets/js/document-viewer/viewer.ts`, and every rule they obey is in the
+DOM-free `presentation.ts` (61 tests): page clamping and a digits-only page jump (` 2 ` accepted; `2.5`, `1e0`,
+full-width digits and pages outside 1..N refused and the input restored), 25–300% zoom stepping to the next whole ten
+from whatever a fit gave, fit width / fit whole page (both clamped to the same range), quarter turns on top of the
+page's own `/Rotate`, the URL fragment (`#page=2&zoom=width|page|NN&rotate=0|90|180|270`, accepted only in exactly that
+shape and clamped once the real page count is known) and the history-state map. **Documents switch in place**:
+the selector form is intercepted and the no-JS neighbour links (`data-viewer-no-js`) are swapped for previous/next
+document buttons that are disabled at either end. Each `<option>` carries that document's server-built view, preview
+and download paths, format and "Document N of M" words, so the client composes no path. A switch updates the heading,
+`<title>`, format, download link and form action, empties the frame, then replaces the history entry's URL and loads
+the new preview through the existing generation loader. History never gains an entry. Per-document page/zoom/rotation
+lives in memory and in `history.state` as `[id, fragment]` pairs only, and in the open document's fragment, so a reload,
+a bookmark and browser Back from the case all restore it, and each tab keeps its own. Nothing is in local/session
+storage. **Opener position:** `Referrer-Policy: no-referrer` means the viewer cannot know its opener, so it does not
+guess. The return link stays the concrete `#documents` path, and ordinary browser Back restores the opener's scroll,
+because switching never adds history. Thumbnails are now buttons marked `aria-current="page"` (bold text and a 4px border,
+not colour alone). Page changes are announced in a visually hidden live region ("Page 2 of 3"), document changes as
+"name. Document N of M". A control disabled by its own press (last page, zoom limit, last document) hands focus to its
+partner, or to the `tabindex="-1"` heading. A fit redraws on a frame resize (`ResizeObserver`, `scrollbar-gutter:
+stable` against a scrollbar feedback loop) and on a device-pixel-ratio change (re-armed `matchMedia`). Content gained
+`pageTotal` / `pageStatus` with `{total}`/`{page}` placeholders (`cy` still mirrors `en`, Task 6). Styles
+(`_document-viewer.scss`): toolbar groups after the prototype, sticky from the tablet breakpoint; below it buttons keep
+their own width (GOV.UK makes them full width, which stacked twelve controls into a 480px sticky bar), the toolbar
+scrolls away, the frame is 55vh so toolbar and frame fit on screen together, and thumbnails start hidden (beside them a
+fitted page hit the 25% floor at 320px). The page frame is `tabindex="0"` so it scrolls from the keyboard.
+`src/assets/**` is excluded from `tsconfig.app.json`, so `yarn build` does not typecheck the client. The viewer
+modules were typechecked separately with a throwaway DOM-lib tsconfig: clean apart from the test files' Node imports.
+Browser (throwaway Playwright script, not committed; isolated mock :3218, app :3318 on Redis db 3, cached Chromium
+1248 symlink from Task 4): 37 checks passed against real PDF.js. They covered page buttons and boundaries, keyboard
+focus hand-off, refused jumps, thumbnails, zoom stepping and both limits, fit whole page inside the frame height, rotation
+of canvas and text layer, in-place switching with no old page under the new heading and an unchanged `history.length`,
+restore on return to a document, reload, the selector to a four-frame TIFF, a one-page PNG with all page controls disabled,
+fragment clamping and malformed-fragment rejection, a damaged preview disabling the controls, and rapid switching past
+two held previews ending on the last document only. They also covered the `#documents` return link, browser Back
+restoring zoom, 320px / 640×450 (200%) / 1024px layouts (no control off screen, no sideways scroll, sticky or fitting
+toolbar, thumbnail toggle), Tab order through the toolbar to the frame, and no CSP violations or console errors.
+Validation: lint and build clean; serial suite green, no skips, Redis suites ran: deed-poll-api-client 1110, deed-poll
+1517, app 2946, express-govuk-starter 132, cloud-native-platform 156, express-session-postgres 85, simple-router 45,
+express-session-redis 7.
 
 ## Post-Completion
 

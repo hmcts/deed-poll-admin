@@ -16,6 +16,12 @@ describe("document viewer content", () => {
     expect(en.documentPosition(2, 5)).toBe("Document 2 of 5");
   });
 
+  it("should leave the renderer placeholders for the numbers only it knows", () => {
+    expect(en.pageTotal).toContain("{total}");
+    expect(en.pageStatus).toContain("{page}");
+    expect(en.pageStatus).toContain("{total}");
+  });
+
   it("should offer the original download in every preview failure that concerns the document", () => {
     for (const key of ["unavailable", "tooLarge", "busy", "failed"] as const) {
       expect(en.messages[key]).toContain("download the original");

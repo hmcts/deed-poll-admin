@@ -1,6 +1,12 @@
 /*
  * The document viewer's page frame, its text layer and its thumbnails (`src/pages/document-viewer.njk`, drawn by
- * `src/assets/js/document-viewer/`). The toolbar and the responsive layout are plan Task 5's.
+ * `src/assets/js/document-viewer/`), its toolbar and its responsive layout, after the approved design
+ * (`docs/prototypes/document-viewer.html`) in GOV.UK type, spacing and colours.
+ *
+ * The page scrolls inside its own frame, which is a fixed share of the window's height so "Fit whole page" has a
+ * height to fit and reading a page never scrolls the toolbar away. From the tablet breakpoint the toolbar also
+ * sticks to the top of the window. Below it the controls wrap, the toolbar scrolls with the page and the frame is
+ * shorter, so the toolbar and frame fit on the screen together at a 320px width or a 200% browser zoom.
  *
  * `.textLayer` is PDF.js's own class, and its rules are the subset of PDF.js's `pdf_viewer.css` (6.4.299) that
  * positions the page's text exactly over the canvas, kept here rather than imported because the rest of that file
@@ -10,18 +16,131 @@
  */
 @use "govuk-frontend/dist/govuk/base" as *;
 
+.app-document-viewer__documents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: govuk-spacing(3);
+  align-items: flex-end;
+
+  .govuk-button,
+  .govuk-form-group {
+    margin-bottom: 0;
+  }
+}
+
+.app-document-viewer__selector {
+  display: flex;
+  flex: 0 1 36em;
+  gap: govuk-spacing(3);
+  align-items: flex-end;
+  min-width: 0;
+
+  .govuk-form-group {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .govuk-select {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+.app-document-viewer__position {
+  margin: 0;
+  padding-bottom: govuk-spacing(2);
+  color: $govuk-secondary-text-colour;
+}
+
+.app-document-viewer__document-links {
+  flex-basis: 100%;
+  margin-bottom: 0;
+}
+
+.app-document-viewer__toolbar {
+  display: flex;
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  flex-wrap: wrap;
+  gap: govuk-spacing(2) govuk-spacing(4);
+  align-items: center;
+  margin-top: govuk-spacing(4);
+  padding: govuk-spacing(2) govuk-spacing(3);
+  border-bottom: 1px solid $govuk-border-colour;
+  background-color: govuk-colour("light-grey");
+
+  // GOV.UK buttons go full width below the tablet breakpoint, which would stack twelve controls into a sticky bar
+  // taller than a phone's screen. At their own width they wrap a few to a line.
+  .govuk-button {
+    width: auto;
+    margin-bottom: 0;
+  }
+
+  // On a phone the wrapped toolbar is a third of the screen, too much to pin over the page. It scrolls away instead,
+  // and the frame below is sized so that the two fit on the screen together.
+  @include govuk-media-query($until: tablet) {
+    position: static;
+    padding: govuk-spacing(1) govuk-spacing(2);
+    gap: govuk-spacing(1) govuk-spacing(2);
+  }
+}
+
+.app-document-viewer__tool-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: govuk-spacing(1);
+  align-items: center;
+}
+
+.app-document-viewer__page-label,
+.app-document-viewer__page-total,
+.app-document-viewer__zoom-level {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.app-document-viewer__page-input {
+  width: 4em;
+  text-align: center;
+}
+
+.app-document-viewer__zoom-step {
+  min-width: 2.5em;
+}
+
+.app-document-viewer__zoom-level {
+  min-width: 3.5em;
+  text-align: center;
+}
+
 .app-document-viewer__body {
   display: flex;
   gap: govuk-spacing(3);
-  align-items: flex-start;
+  align-items: stretch;
+  height: 75vh;
+  min-height: 20em;
+
+  @include govuk-media-query($until: tablet) {
+    height: 55vh;
+    min-height: 15em;
+  }
 }
 
 .app-document-viewer__page {
+  box-sizing: border-box;
   flex: 1 1 auto;
   min-width: 0;
-  max-height: 80vh;
+  padding: govuk-spacing(3);
   overflow: auto;
+  // A scrollbar that comes and goes would change the width a fit is measured against, and so the fit, forever.
+  scrollbar-gutter: stable;
   background-color: govuk-colour("light-grey");
+
+  &:focus {
+    outline: $govuk-focus-width solid $govuk-focus-colour;
+    outline-offset: 0;
+  }
 }
 
 .app-document-viewer__sheet {
@@ -40,8 +159,12 @@
   flex: 0 0 auto;
   box-sizing: border-box;
   width: 160px;
-  max-height: 80vh;
   overflow: auto;
+  background-color: govuk-colour("light-grey");
+
+  @include govuk-media-query($until: tablet) {
+    width: 136px;
+  }
 }
 
 .app-document-viewer__thumbnail-list {
@@ -56,10 +179,39 @@
   text-align: center;
 }
 
+// The page on show is marked by `aria-current` and a thicker border, not by colour alone.
+.app-document-viewer__thumbnail-button {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: govuk-spacing(1);
+  border: 2px solid transparent;
+  background: none;
+  color: $govuk-text-colour;
+  cursor: pointer;
+
+  &:hover {
+    border-color: $govuk-border-colour;
+  }
+
+  &[aria-current="page"] {
+    border: 4px solid $govuk-link-colour;
+    padding: calc(#{govuk-spacing(1)} - 2px);
+    font-weight: $govuk-font-weight-bold;
+  }
+
+  &:focus {
+    outline: $govuk-focus-width solid $govuk-focus-colour;
+    outline-offset: 0;
+  }
+}
+
 .app-document-viewer__thumbnail-page {
   margin: 0 auto govuk-spacing(1);
   border: 1px solid $govuk-border-colour;
   width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
 
   canvas {
     display: block;

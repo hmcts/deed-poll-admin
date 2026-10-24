@@ -31,6 +31,9 @@ export const en = {
   previousPage: "Previous page",
   nextPage: "Next page",
   pageNumberLabel: "Page",
+  // `{total}` and `{page}` are filled in by the renderer, which knows the preview's page count only once it loads.
+  pageTotal: "of {total}",
+  pageStatus: "Page {page} of {total}",
   zoomLabel: "Zoom",
   zoomOut: "Zoom out",
   zoomIn: "Zoom in",

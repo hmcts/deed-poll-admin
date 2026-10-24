@@ -52,6 +52,24 @@ describe("showViewer", () => {
     });
   });
 
+  it("should give each document its own position, format and paths, for switching in place", () => {
+    const res = pageResponse();
+
+    showViewer(pageRequest(), res, caseViewerScope("case-1"), buildCaseViewerContext(aCase, "doc-a"));
+
+    expect(res.render.mock.calls[0][1].documents).toEqual([
+      expect.objectContaining({ id: "doc-a", isCurrent: true, positionText: "Document 1 of 3", formatText: "PDF document" }),
+      expect.objectContaining({
+        id: "doc/b",
+        isCurrent: false,
+        positionText: "Document 2 of 3",
+        formatText: "Word document",
+        previewPath: "/deed-polls/case-1/documents/doc%2Fb/preview"
+      }),
+      expect.objectContaining({ id: "doc-c", positionText: "Document 3 of 3", formatText: "" })
+    ]);
+  });
+
   it("should name no case reference and offer the way back to the referral for a judge", () => {
     const res = pageResponse();
 

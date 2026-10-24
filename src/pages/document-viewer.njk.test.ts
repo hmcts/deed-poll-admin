@@ -83,18 +83,64 @@ describe("document-viewer.njk", () => {
     expect(page).toMatch(/<form method="get" action="\/deed-polls\/case-1\/documents\/doc-c\/view"/);
     expect(page).toContain('name="document"');
     expect(page.match(/<option /g)).toHaveLength(3);
-    expect(page).toMatch(/<option value="doc-c" selected>Statement<\/option>/);
+    expect(page).toMatch(/<option value="doc-c" selected [^>]*>Statement<\/option>/);
     expect(page).toContain("Document 3 of 3");
   });
 
   it("should link the neighbouring documents and the original download as plain links, offering no next at the end", async () => {
     const page = await caseworkerPage("doc-c");
 
-    expect(page).toContain('href="/deed-polls/case-1/documents/doc-b/view"');
-    expect(page).toContain("Previous document");
-    expect(page).not.toContain("Next document");
+    expect(page).toMatch(
+      /<li data-viewer-no-js><a class="govuk-link" href="\/deed-polls\/case-1\/documents\/doc-b\/view" data-viewer-previous-document>Previous document<\/a><\/li>/
+    );
+    expect(page).not.toContain("data-viewer-next-document>");
     expect(page).toMatch(/href="\/deed-polls\/case-1\/documents\/doc-c\/download" download/);
     expect(page).toContain("Download original");
+  });
+
+  it("should give each option the paths and words the renderer needs to switch to that document in place", async () => {
+    const page = await caseworkerPage("doc-a");
+
+    expect(page).toContain('data-view-url="/deed-polls/case-1/documents/doc-b/view"');
+    expect(page).toContain('data-preview-url="/deed-polls/case-1/documents/doc-b/preview"');
+    expect(page).toContain('data-download-url="/deed-polls/case-1/documents/doc-b/download"');
+    expect(page).toContain('data-format="TIFF image" data-position="Document 2 of 3"');
+  });
+
+  it("should render the in-place document buttons hidden and disabled, for the renderer to show in place of the links", async () => {
+    const page = await caseworkerPage("doc-b");
+
+    expect(page).toMatch(/data-viewer-previous-document-button hidden disabled>Previous document</);
+    expect(page).toMatch(/data-viewer-next-document-button hidden disabled>Next document</);
+  });
+
+  it("should carry the page-count wording with placeholders for the renderer to fill", async () => {
+    const page = await caseworkerPage("doc-a");
+
+    expect(page).toContain('data-template-page-total="of {total}"');
+    expect(page).toContain('data-template-page-status="Page {page} of {total}"');
+    expect(page).toMatch(/role="status" aria-live="polite" data-viewer-announcement>/);
+  });
+
+  it("should keep a format row to fill when the open document's type is outside the allowlist", async () => {
+    vi.mocked(findDeedPoll).mockResolvedValue({
+      id: "case-1",
+      displayReference: "KBDP2026-00042",
+      notes: [],
+      witnesses: [],
+      documents: [...DOCUMENTS, { id: "doc-d", name: "Old scan", mimeType: "image/gif", hasFile: true }]
+    } as never);
+
+    const page = await caseworkerPage("doc-d");
+
+    expect(page).toMatch(/data-viewer-format-row hidden>/);
+    expect(page).toContain('data-format="" data-position="Document 4 of 4"');
+  });
+
+  it("should make the page frame focusable, so its scrolled page can be scrolled from the keyboard", async () => {
+    const page = await caseworkerPage("doc-a");
+
+    expect(page).toMatch(/aria-label="Document page" tabindex="0" data-viewer-page>/);
   });
 
   it("should keep the page controls separate from the document controls, hidden and disabled until a preview loads", async () => {

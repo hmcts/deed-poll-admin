@@ -35,6 +35,12 @@ export function showViewer(req: Request, res: Response, scope: ViewerScope, cont
     scope: context.scope,
     caseReference: context.caseReference,
     viewer: links,
+    // Each document's own position and format, so the renderer can switch documents in place with the same words.
+    documents: links.documents.map((document, index) => ({
+      ...document,
+      positionText: content.documentPosition(index + 1, context.total),
+      formatText: document.format ? content.formats[document.format] : ""
+    })),
     selectionParameter: SELECTION_PARAMETER,
     previewLimits: { maxPages: DOCUMENT_PREVIEW_LIMITS.maxPages, maxBytes: DOCUMENT_PREVIEW_LIMITS.maxOutputBytes },
     positionText: content.documentPosition(context.position, context.total),
