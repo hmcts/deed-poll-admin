@@ -16,6 +16,13 @@
  */
 @use "govuk-frontend/dist/govuk/base" as *;
 
+// The renderer shows and hides its controls with `hidden`, which the browser's own `display: none` loses to any
+// class that sets a display (`.govuk-button`, a summary row, the rules below), so **Try again** showed beside every
+// refusal. Found by `e2e-tests/tests/document-viewer.spec.ts`.
+.app-document-viewer [hidden] {
+  display: none !important;
+}
+
 .app-document-viewer__documents {
   display: flex;
   flex-wrap: wrap;

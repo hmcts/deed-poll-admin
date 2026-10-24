@@ -344,11 +344,17 @@ test("judge changes a direction they gave, then withdraws it and directs again",
   // The fee reference was seeded on the case; api's judicial view carries no payment data, so it is nowhere here.
   await expect(page.locator("body")).not.toContainText(seeded.feeReference);
 
-  const documentLink = page.getByRole("link", { name: "Birth certificate for the judge" });
-  const file = await page.request.get((await documentLink.getAttribute("href")) ?? "");
+  // The link opens the document viewer; the viewer's own journey is `document-viewer.spec.ts`, so this only follows
+  // its **Download original** to the bytes.
+  await page.getByRole("link", { name: "Birth certificate for the judge" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Birth certificate for the judge");
+  const original = page.getByRole("link", { name: "Download original" });
+  const file = await page.request.get((await original.getAttribute("href")) ?? "");
   expect(file.status()).toBe(200);
   expect(file.headers()["content-type"]).toContain("application/pdf");
+  expect(file.headers()["content-disposition"]).toMatch(/^attachment/);
   expect(file.headers()["x-content-type-options"]).toBe("nosniff");
+  await page.getByRole("link", { name: "Back to referral" }).click();
 
   await expect(directButton(page)).toHaveCount(0);
   await expectNoAccessibilityViolations(page);

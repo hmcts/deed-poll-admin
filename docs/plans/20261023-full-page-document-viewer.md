@@ -320,16 +320,16 @@ prefer a narrowly scoped app-owned configuration rather than changing the vendor
 **Files:** create `e2e-tests/tests/document-viewer.spec.ts`, an isolated viewer Playwright configuration
 following existing patterns, and synthetic fixtures in the client mock/test directories.
 
-- [ ] Build one complete caseworker journey and one complete judicial journey, following the repo's minimum
+- [x] Build one complete caseworker journey and one complete judicial journey, following the repo's minimum
       E2E-test rule. Include all five source types, actual multi-page PDF preview bytes, document switching,
       page jump/thumbnails, zoom/fit/rotation, preserved position, return navigation and original downloads.
-- [ ] Include keyboard use, axe checks, Welsh controls/counts, the existing session warning and a narrow
+- [x] Include keyboard use, axe checks, Welsh controls/counts, the existing session warning and a narrow
       viewport within those journeys. Assert behaviour, not exact colours, margins or font sizes.
-- [ ] Prove original DOCX/TIFF downloads have their original file type/bytes rather than preview PDFs.
+- [x] Prove original DOCX/TIFF downloads have their original file type/bytes rather than preview PDFs.
       Exercise permission/error/race matrices in focused integration tests rather than multiplying E2E journeys.
-- [ ] Run lint, production build, full serial suite, coverage and the isolated browser journeys. Capture
+- [x] Run lint, production build, full serial suite, coverage and the isolated browser journeys. Capture
       real test counts/skips and worker/CSP results; investigate new failures before moving on.
-- [ ] Verify all Acceptance Criteria against the implementation diff and prepare the review-base/handoff
+- [x] Verify all Acceptance Criteria against the implementation diff and prepare the review-base/handoff
       notes for Ralphex's subsequent review phases. Do not start those phases inside this task or claim
       that local/mock evidence establishes deployed converter acceptance.
 
@@ -520,6 +520,49 @@ download link (template and route tests from Task 3). Viewer client typechecked 
 clean. Validation: lint and build clean; serial suite green, no skips, Redis suites ran: deed-poll-api-client 1110,
 deed-poll 1520, app 2973, express-govuk-starter 132, cloud-native-platform 156, express-session-postgres 85,
 simple-router 45, express-session-redis 7.
+
+**Task 7, 2026-10-24.** `e2e-tests/tests/document-viewer.spec.ts`, two journeys, run by `yarn test:document-viewer`
+(`e2e-tests/playwright.document-viewer.config.ts`: fresh mock on 3219, app on 3319 through `yarn dev:app`, Redis
+6379 database 4, local IDAM on 5556; excluded from `yarn test:e2e` because it switches the mock's preview scenario).
+Fixtures are the mock's synthetic sources (`preview-sources.ts`, `syntheticPdf`), uploaded through the caseworker
+contract route: a 3-page PDF, JPEG, PNG, 4-frame TIFF, DOCX and a 101-page PDF. **Caseworker** (all five types):
+case tab to viewer, case reference, page buttons from the keyboard, typed and refused jumps, thumbnails with
+`aria-current`, zoom in, both fits, rotation into the fragment, in-place switching by button and selector with
+`history.length` unchanged, per-document state restored on return, the session warning over the viewer (the clock
+is Playwright's and `/session/status` is the one faked answer; **Stay signed in** is real and keeps the document),
+**Back to case** to `#documents`, browser Back to the same page, Welsh chrome and counts, a 320px viewport with no
+sideways scroll, and axe at five points. **Judge**: no case reference (decision 4), TIFF pages, keyboard switch with
+focus handed on, a DOCX under `preview-converter-unavailable` (decision 3: fixed sentence, no retry, no count, no
+canvas, original downloads), the 101-page PDF refused before any page draws, TIFF state kept, Welsh, 320px, **Back to
+referral** to `#documents`. **Download original** is compared byte for byte and by filename for TIFF, DOCX and PDF,
+so neither conversion's preview is what downloads. Each journey also asserts that PDF.js started its real worker from
+this app's origin and that the console shows no error other than the answered 422/503 resources, which is where a
+CSP refusal would appear: none. Result: 2 passed (about 18 s), cached Chromium 1248 symlink from Task 4.
+**Defect found and fixed:** `.govuk-button`'s `display` beat the `hidden` attribute, so **Try again** showed beside
+every refusal (and any hidden summary row or toolbar could too); one scoped `.app-document-viewer [hidden]` rule.
+**Second defect, outside the viewer:** the Welsh phase banner's feedback link failed axe's
+`label-content-name-mismatch` (WCAG 2.5.3) on every Welsh page, because its aria-label "Rhoi adborth am y dudalen hon"
+does not contain the visible "rhowch adborth". Changed to "Rhowch adborth am y dudalen hon" in `src/locales/cy.ts`
+and the translation request; **the Welsh language owner should confirm it**. The page's `html` keeps `lang="en"` in
+Welsh, app-wide and pre-existing; the journeys check the Welsh account navigation instead. `judicial.spec.ts`'s
+document check fetched the link's `href` expecting PDF bytes, which Task 6's links to the viewer broke; it now opens
+the viewer and follows **Download original** (attachment, PDF, nosniff). Run on the isolated stack it passes, but only
+with a temporary local narrowing of its `summaryRow` helper: **three `judicial.spec.ts` journeys already fail before
+reaching that code** because `summaryRow(page, "Status")` now also matches "Marital status" and the application's own
+Status row (the judicial application view of 2026-10-19 and the Status label of 2026-10-22). Not changed here; it
+needs its own fix. Validation: lint and build clean; serial suite green, no skips, Redis suites ran:
+deed-poll-api-client 1110, deed-poll 1520, app 2973, express-govuk-starter 132, cloud-native-platform 156,
+express-session-postgres 85, simple-router 45, express-session-redis 7. Coverage (lines): app 84.05%, deed-poll 87.56%,
+deed-poll-api-client 98.15%. `yarn welsh:check` 792 strings / 574 identical, unchanged from Task 6.
+**Acceptance criteria against the diff** (`05a9949..HEAD`): every document link opens the viewer (Task 6 inventory,
+both journeys); all five formats preview and originals download unchanged (byte comparisons above); counts and
+thumbnails come from the opened PDF (4 for the TIFF, 3 for the DOCX, empty when no preview); distinct page and
+document controls with per-document state and return links; both scopes keep independent binary authorization
+(route tests, Task 3) and api's audit split (no preview fetched for a download, Task 3); no-JS path (template and
+route tests); keyboard, screen-reader announcements, 320px, Welsh and the session warning exercised; containment,
+limits and stale-response cleanup (Tasks 3 to 5 and the 101-page journey). No OCR claim is made. **Handoff:** review
+base `05a99499d705b0137b5dfdb0b24cc809d9e6d6ff`; api dependency is unmerged PR #129 (`19bb0c2`). Local mock evidence
+does not establish deployed converter acceptance, which stays Post-Completion.
 
 ## Post-Completion
 

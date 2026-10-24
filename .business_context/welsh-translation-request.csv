@@ -56,7 +56,7 @@ src/locales,common.findOutAboutCallCharges,"Find out about call charges","Dargan
 src/locales,common.post,"Post","Post",YES,"Post",high,"Same word in Welsh for postal contact. Verify it is not being read as the English verb."
 src/locales,common.telephone,"Telephone","Ffôn",already translated,"",,""
 src/locales,common.warning,"Warning","Rhybudd",already translated,"",,""
-src/locales,feedback.ariaLabel,"Give feedback about this page","Rhoi adborth am y dudalen hon",already translated,"",,""
+src/locales,feedback.ariaLabel,"Give feedback about this page","Rhowch adborth am y dudalen hon",already translated,"",,""
 src/locales,feedback.link,"/feedback?page=","/feedback?page=",not prose,"",,""
 src/locales,feedback.part1,"This is a new service – ","Mae hwn yn wasanaeth newydd – ",already translated,"",,""
 src/locales,feedback.part2,"give feedback","rhowch adborth",already translated,"",,""
