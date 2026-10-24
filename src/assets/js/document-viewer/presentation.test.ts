@@ -77,9 +77,14 @@ describe("presentation", () => {
       expect(effectiveScale({ mode: "page" }, { width: 842, height: 595 }, { width: 421, height: 1000 })).toBe(0.5);
     });
 
-    it("should keep both fits inside 25–300%", () => {
+    it("should cap both fits at 300%", () => {
       expect(effectiveScale({ mode: "width" }, { width: 100, height: 100 }, { width: 1000, height: 1000 })).toBe(3);
-      expect(effectiveScale({ mode: "page" }, { width: 10_000, height: 10_000 }, { width: 100, height: 100 })).toBe(0.25);
+      expect(effectiveScale({ mode: "page" }, { width: 100, height: 100 }, { width: 1000, height: 1000 })).toBe(3);
+    });
+
+    it("should fit a page over four times the frame below the 25% zoom floor, so it is actually fitted", () => {
+      expect(effectiveScale({ mode: "width" }, { width: 10_000, height: 10_000 }, { width: 100, height: 1000 })).toBe(0.01);
+      expect(effectiveScale({ mode: "page" }, { width: 10_000, height: 10_000 }, { width: 1000, height: 100 })).toBe(0.01);
     });
 
     it("should use a chosen zoom whatever the frame, still inside the range", () => {
@@ -106,6 +111,11 @@ describe("presentation", () => {
     it("should stop at 25% and 300%", () => {
       expect(stepZoom(0.25, -1)).toEqual({ mode: "custom", scale: 0.25 });
       expect(stepZoom(3, 1)).toEqual({ mode: "custom", scale: 3 });
+    });
+
+    it("should zoom in from a fit below 25% to the floor, and refuse zooming further out", () => {
+      expect(stepZoom(0.1, 1)).toEqual({ mode: "custom", scale: 0.25 });
+      expect(canZoom(0.1, -1)).toBe(false);
     });
   });
 

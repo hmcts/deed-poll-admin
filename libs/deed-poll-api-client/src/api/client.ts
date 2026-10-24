@@ -517,6 +517,9 @@ async function download(config: ApiConfig, path: string): Promise<ApiResult<Docu
 
 async function preview(config: ApiConfig, path: string): Promise<PreviewApiResult<DocumentPreview>> {
   const timeoutMs = Math.min(config.timeoutMs ?? PREVIEW_TIMEOUT_MS, PREVIEW_TIMEOUT_MS);
+  // One deadline for headers and body together, unlike a download's per-read patience: a preview that kept
+  // trickling past the gateways' 30 s would be cut off by them rather than ended here (plan decision 2).
+  const deadline = performance.now() + timeoutMs;
   // api answers every refusal as JSON even to this `Accept`, and it is the type the operation publishes.
   const sent = await exchange({ ...config, timeoutMs }, "GET", path, undefined, "application/pdf", true, undefined, previewFailure);
   if (!sent.ok) return sent;
@@ -536,7 +539,7 @@ async function preview(config: ApiConfig, path: string): Promise<PreviewApiResul
     return { ok: false, error: { kind: "invalid-response", status: response.status, message: `GET ${path} ${breach}` } };
   }
 
-  const body = capped(bounded(response.body, timeoutMs), DOCUMENT_PREVIEW_LIMITS.maxOutputBytes);
+  const body = capped(bounded(response.body, timeoutMs, deadline), DOCUMENT_PREVIEW_LIMITS.maxOutputBytes);
   return {
     ok: true,
     data: {
@@ -1012,11 +1015,29 @@ function savedQueryPath(id: string): string {
  * `done`, and a body that merely ends leaves the route sending a short file under a 200 it has already
  * committed to — the silent truncation this whole arrangement exists to avoid. Erroring destroys the
  * response instead, so the browser sees an aborted transfer rather than a corrupt document.
+ *
+ * `deadline` (a `performance.now()` instant) additionally ends the transfer once reached, however steadily bytes
+ * arrive and whether or not the consumer is still reading; only the preview sets one.
  */
-function bounded(body: ReadableStream<Uint8Array>, timeoutMs: number): ReadableStream<Uint8Array> {
+function bounded(body: ReadableStream<Uint8Array>, timeoutMs: number, deadline = Number.POSITIVE_INFINITY): ReadableStream<Uint8Array> {
   const reader = body.getReader();
+  let expired = false;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
 
   return new ReadableStream<Uint8Array>({
+    start(controller) {
+      if (deadline === Number.POSITIVE_INFINITY) return;
+      // Armed once here rather than in `pull`, which a back-pressuring consumer stops calling: the deadline has to
+      // release api's socket whether or not anybody is asking for bytes at that moment.
+      deadlineTimer = setTimeout(
+        () => {
+          expired = true;
+          controller.error(new DOMException("deed-poll-api did not finish sending the preview in time", "TimeoutError"));
+          reader.cancel(new DOMException("timeout", "TimeoutError")).catch(() => {});
+        },
+        Math.max(0, deadline - performance.now())
+      );
+    },
     async pull(controller) {
       let stalled = false;
       const timer = setTimeout(() => {
@@ -1031,14 +1052,24 @@ function bounded(body: ReadableStream<Uint8Array>, timeoutMs: number): ReadableS
 
       try {
         const { done, value } = await reader.read();
+        // The deadline has already errored the stream, so neither a close nor an enqueue is possible.
+        if (expired) return;
         if (stalled) throw new DOMException("deed-poll-api stopped sending the document", "TimeoutError");
-        if (done) controller.close();
-        else controller.enqueue(value);
+        if (done) {
+          clearTimeout(deadlineTimer);
+          controller.close();
+        } else controller.enqueue(value);
+      } catch (error) {
+        clearTimeout(deadlineTimer);
+        throw error;
       } finally {
         clearTimeout(timer);
       }
     },
-    cancel: (reason) => reader.cancel(reason)
+    cancel: (reason) => {
+      clearTimeout(deadlineTimer);
+      return reader.cancel(reason);
+    }
   });
 }
 

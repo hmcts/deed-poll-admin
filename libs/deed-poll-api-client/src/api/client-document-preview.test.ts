@@ -434,6 +434,59 @@ describe("the preview's timeout and cancellation", () => {
       await silent.close();
     }
   });
+
+  it("should error a body that keeps trickling past the timeout, counted from the request rather than per read", async () => {
+    let trickle: NodeJS.Timeout | undefined;
+    const steady = await listen(
+      createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/pdf" });
+        res.write("%PDF-1.4\n");
+        trickle = setInterval(() => res.write("%\n"), 20);
+        res.once("close", () => clearInterval(trickle));
+      })
+    );
+
+    try {
+      const result = await previewDocument("case-1", "doc-1", { baseUrl: steady.url, timeoutMs: 300 });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) await expect(buffered(result.data.body)).rejects.toMatchObject({ name: "TimeoutError" });
+    } finally {
+      clearInterval(trickle);
+      steady.closeAllConnections();
+      await steady.close();
+    }
+  });
+
+  it("should release api's connection at the timeout even while nobody is reading the body", async () => {
+    const closed = Promise.withResolvers<void>();
+    let trickle: NodeJS.Timeout | undefined;
+    const steady = await listen(
+      createServer((req, res) => {
+        req.socket.once("close", () => closed.resolve());
+        res.writeHead(200, { "content-type": "application/pdf" });
+        res.write("%PDF-1.4\n");
+        trickle = setInterval(() => res.write("%\n"), 20);
+        res.once("close", () => clearInterval(trickle));
+      })
+    );
+
+    try {
+      const result = await previewDocument("case-1", "doc-1", { baseUrl: steady.url, timeoutMs: 300 });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const failed = new Promise((resolve) => result.data.body.once("error", resolve));
+
+      await closed.promise;
+
+      result.data.body.resume();
+      await expect(failed).resolves.toMatchObject({ name: "TimeoutError" });
+    } finally {
+      clearInterval(trickle);
+      steady.closeAllConnections();
+      await steady.close();
+    }
+  });
 });
 
 describe("cancelling a preview", () => {

@@ -40,17 +40,19 @@ export function canGoToPage(page: number, numPages: number): boolean {
 }
 
 /**
- * The scale a page of this (already rotated) size is drawn at in a frame of this size. Both fits are clamped to the
- * same 25–300% range as a chosen zoom, so a tiny image is not blown up to fill a wide screen.
+ * The scale a page of this (already rotated) size is drawn at in a frame of this size. Both fits share a chosen
+ * zoom's 300% ceiling, so a tiny image is not blown up to fill a wide screen, but not its 25% floor: a fit that
+ * stopped there would leave a page over four times the frame (a large scan or photo) partly off screen. Zoom out
+ * is simply unavailable below the floor, and zoom in steps up from wherever the fit landed.
  */
 export function effectiveScale(zoom: Zoom, page: Size, frame: Size): number {
   if (zoom.mode === "custom") return clampZoom(zoom.scale);
   if (page.width <= 0 || page.height <= 0 || frame.width <= 0) return 1;
 
   const toWidth = frame.width / page.width;
-  if (zoom.mode === "width" || frame.height <= 0) return clampZoom(toWidth);
+  if (zoom.mode === "width" || frame.height <= 0) return Math.min(MAX_ZOOM, toWidth);
 
-  return clampZoom(Math.min(toWidth, frame.height / page.height));
+  return Math.min(MAX_ZOOM, toWidth, frame.height / page.height);
 }
 
 /** The zoom after one press of zoom in (`1`) or out (`-1`) from the scale the page is shown at now. */

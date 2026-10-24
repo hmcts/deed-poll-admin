@@ -456,7 +456,7 @@ express-session-postgres 85, simple-router 45, express-session-redis 7.
 **Task 5, 2026-10-24.** Controls live in `src/assets/js/document-viewer/viewer.ts`, and every rule they obey is in the
 DOM-free `presentation.ts` (61 tests): page clamping and a digits-only page jump (` 2 ` accepted; `2.5`, `1e0`,
 full-width digits and pages outside 1..N refused and the input restored), 25–300% zoom stepping to the next whole ten
-from whatever a fit gave, fit width / fit whole page (both clamped to the same range), quarter turns on top of the
+from whatever a fit gave, fit width / fit whole page (capped at 300% but not floored at 25%, so a page over four times the frame still fits), quarter turns on top of the
 page's own `/Rotate`, the URL fragment (`#page=2&zoom=width|page|NN&rotate=0|90|180|270`, accepted only in exactly that
 shape and clamped once the real page count is known) and the history-state map. **Documents switch in place**:
 the selector form is intercepted and the no-JS neighbour links (`data-viewer-no-js`) are swapped for previous/next
