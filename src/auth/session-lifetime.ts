@@ -89,6 +89,8 @@ function timeLeft(timestamps: ReturnType<typeof sessionTimestamps>, now: number,
 }
 
 async function endTimedOutSession(req: Request, res: Response, reason: EndReason, limits: SessionLifetimeLimits): Promise<void> {
+  if (req.method === "GET" && isScriptFetch(req)) return refuseUntilNavigation(res);
+
   // A plain line, with no identity or token. The subject goes only in the event, which is read before the session
   // is regenerated so it carries the ended session's sid rather than the fresh one's.
   console.warn(`session ended: ${reason}`);
@@ -111,6 +113,25 @@ async function endTimedOutSession(req: Request, res: Response, reason: EndReason
   const away = await availableEndSessionUrl(idamSettings(), idToken, postLogoutPath);
   res.status(401);
   renderTimedOut(res, { unsaved: true, signInHref: away ?? "/login" });
+}
+
+/**
+ * A GET a script made (the document viewer's preview), not a navigation. Its `redirect: "manual"` fetch never follows a
+ * redirect to IDAM's end-session page, so ending the session here would leave IDAM's session standing and the
+ * reader's next sign-in silent. A browser sending no `Sec-Fetch-Mode` is treated as navigating, as before.
+ */
+function isScriptFetch(req: Request): boolean {
+  const mode = req.get("sec-fetch-mode");
+  return mode !== undefined && mode !== "navigate";
+}
+
+/**
+ * Refused, and the session left for the page's next navigation to end through IDAM with its destination kept, as
+ * `/session/status` leaves it. Nothing is served and no activity is recorded, so a session past its limit gains nothing.
+ */
+function refuseUntilNavigation(res: Response): void {
+  res.setHeader("Cache-Control", "no-store");
+  res.status(401).end();
 }
 
 type EndReason = "idle" | "absolute" | "untimed";

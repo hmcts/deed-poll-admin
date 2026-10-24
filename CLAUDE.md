@@ -654,7 +654,13 @@ span several files:
   `yarn test:e2e` because it switches the mock's preview scenario, which must never happen on a shared developer mock.
 - **A browser that goes away mid-preview is not an error.** `relayPreview` aborts api's read on the response's
   `close` and drops the failure that produces, which the adapter would otherwise report as an api timeout: the
-  loader aborts on every document switch. A refusal keeps api's own status, carried on `DocumentPreviewRefusedError`.
+  loader aborts on every document switch. A close after the headers have gone is cut off in `domainErrorHandler` (`res.destroy()`,
+  nothing logged for a premature close) and never passed on: the starter's handler would render over the sent headers
+  and throw outside any handler, taking the pod down.
+- **A preview fetch past a session limit is refused 401 and does not end the session.** The viewer's fetch never
+  follows a redirect, so ending it there would leave IDAM's session standing and "Sign in again" would sign the reader
+  straight back in. `sessionLifetime` leaves a non-navigating GET (`Sec-Fetch-Mode` present and not `navigate`) for
+  the next navigation, the sign-in link to `view`, to end through IDAM. A refusal keeps api's own status, carried on `DocumentPreviewRefusedError`.
 - **`download` (either scope) always answers `attachment`** through `sendDownload`, and its 404 is the shared "Page
   not found", not the referral-unavailable page. The `inline` rules in "Personas and role gating" are the legacy
   `file.ts` routes'.

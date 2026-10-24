@@ -59,7 +59,8 @@ export const en = {
   },
   // Offered beside `busy` and `failed` only: the other refusals give the same answer however often they are asked.
   tryAgain: "Try again",
-  // Beside `signedOut`. A link to this document's own view, which sends a signed-out reader through sign-in and back.
+  // Beside `signedOut`. A link to this document's own view: a navigation, so a timed-out session is ended through IDAM
+  // there before sign-in brings the reader back.
   signInAgain: "Sign in again",
   referralUnavailable: {
     title: "This referral is no longer available",

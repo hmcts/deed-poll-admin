@@ -43,7 +43,7 @@ function request(signedInSecondsAgo: number, path = "/deed-polls"): RequestDoubl
     authenticatedAt: now - signedInSecondsAgo,
     lastSeenAt: now - 10
   });
-  return { method: "GET", path, originalUrl: path, session, sessionStore: refreshCoordinatorDouble() } as unknown as RequestDouble;
+  return { method: "GET", path, originalUrl: path, session, sessionStore: refreshCoordinatorDouble(), get: () => undefined } as unknown as RequestDouble;
 }
 
 /** Runs the handlers in order, as Express would, stopping where one does not call `next`. */
