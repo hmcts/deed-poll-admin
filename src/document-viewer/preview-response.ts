@@ -18,22 +18,17 @@
  *   everywhere else: a 401 signs the session out and a 403 is logged as a refusal.
  *
  * **The browser going away cancels the read.** The route's signal aborts when the response closes unfinished, so a
- * reader switching documents mid-fetch stops api's conversion rather than leaving it to run out its budget.
+ * reader switching documents mid-fetch stops api's conversion rather than leaving it to run out its budget. The
+ * failure that abort produces is dropped rather than logged as an api timeout: nothing went wrong, and the viewer's
+ * loader aborts on every switch.
  */
 import { pipeline } from "node:stream";
-import { type DocumentPreview, DocumentPreviewRefusedError, NotFoundError, type PreviewRefusalCode } from "@hmcts/deed-poll";
+import { type DocumentPreview, DocumentPreviewRefusedError, NotFoundError } from "@hmcts/deed-poll";
 import type { NextFunction, Response } from "express";
 
 const PREVIEW_DISPOSITION = 'attachment; filename="preview.pdf"';
 const PREVIEW_POLICY = "default-src 'none'; sandbox";
 const DOCUMENT_UNAVAILABLE = "DOCUMENT_UNAVAILABLE";
-
-const STATUS_BY_CODE: Readonly<Record<PreviewRefusalCode, number>> = {
-  PREVIEW_INVALID_DOCUMENT: 422,
-  PREVIEW_LIMIT_EXCEEDED: 422,
-  PREVIEW_UNAVAILABLE: 503,
-  PREVIEW_BUSY: 429
-};
 
 export async function relayPreview(res: Response, next: NextFunction, read: (signal: AbortSignal) => Promise<DocumentPreview>): Promise<void> {
   const controller = new AbortController();
@@ -45,7 +40,9 @@ export async function relayPreview(res: Response, next: NextFunction, read: (sig
   try {
     preview = await read(controller.signal);
   } catch (error) {
-    if (error instanceof DocumentPreviewRefusedError) return refuse(res, STATUS_BY_CODE[error.code], error.code, error.retryAfterSeconds);
+    // The browser left, so there is nobody to answer, and the abort the adapter reports as a timeout is not api's.
+    if (controller.signal.aborted) return;
+    if (error instanceof DocumentPreviewRefusedError) return refuse(res, error.status, error.code, error.retryAfterSeconds);
     if (error instanceof NotFoundError) return refuse(res, 404, DOCUMENT_UNAVAILABLE, null);
 
     throw error;

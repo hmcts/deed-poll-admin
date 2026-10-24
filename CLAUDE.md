@@ -269,8 +269,8 @@ single file:
   open in the shared viewer (see "Document viewer" below); the original download, and the legacy
   `src/pages/judicial/referrals/[referralId]/documents/[documentId]/file.ts`, share
   `src/document-response.ts` with the caseworker route. Who may open one is api's visibility: any judge on `Open`,
-  the holder on `Claimed`, the director on `Decided`, nobody once closed. The same 404 covers each refusal and
-  renders the unavailable page. The relay keeps api's `inline` only for PDF, JPEG and PNG under a policy with
+  the holder on `Claimed`, the director on `Decided`, nobody once closed. On the legacy `file.ts` the same 404 covers
+  each refusal and renders the unavailable page, and its relay keeps api's `inline` only for PDF, JPEG and PNG under a policy with
   `default-src 'none'` and a bare `sandbox` (no `allow-*` token), and downloads everything else, filename kept; the
   caseworker upload page never renders api's 404 text, only its own sentence, logging api's through `forLog`
   (review findings R09 and R13, `docs/plans/completed/20261021-r09-r13-document-responses.md`).
@@ -642,11 +642,22 @@ span several files:
   **legacy** build in both the browser and the Node tests. `pdfjs-dist` is a devDependency because vite bundles it.
   Its data files are copied by `vite.build.ts` to `/assets/pdfjs/` (`PDFJS_ASSET_MOUNT`), which
   `src/document-viewer/pdfjs-assets.ts` serves in development; `pdfjs-assets.test.ts` pins both lists.
-- **`src/assets/**` is not typechecked by `yarn build`** (`tsconfig.app.json` excludes it), so the viewer client in
-  `src/assets/js/document-viewer/` is checked only by its tests. Its rules live in DOM-free `presentation.ts`.
+- **`src/assets/**` has its own type check, `tsconfig.assets.json`**, which `build:app` runs after
+  `tsconfig.app.json` (which excludes it), so a type error in a browser bundle fails the image build. No unit test
+  imports `viewer.ts`, `render-page.ts` or `thumbnails.ts`; their behaviour is covered only by
+  `yarn test:document-viewer`, which no pipeline stage runs. Keep rules in DOM-free `presentation.ts`, where tests reach them.
   Switching documents replaces history and never pushes, and per-document state lives only in memory,
   `history.state` and a validated fragment, never in storage. `viewer.test.ts` scans the sources for storage,
-  logging and session requests.
+  logging and requests, and allows a network call only in `fetch-preview.ts`.
+- **`yarn test:document-viewer` runs the viewer's browser journeys** (caseworker and judge, all five formats) against
+  a fresh mock on 3219 and this app on 3319, with Redis database 4 and local IDAM on 5556. It is kept out of
+  `yarn test:e2e` because it switches the mock's preview scenario, which must never happen on a shared developer mock.
+- **A browser that goes away mid-preview is not an error.** `relayPreview` aborts api's read on the response's
+  `close` and drops the failure that produces, which the adapter would otherwise report as an api timeout: the
+  loader aborts on every document switch. A refusal keeps api's own status, carried on `DocumentPreviewRefusedError`.
+- **`download` (either scope) always answers `attachment`** through `sendDownload`, and its 404 is the shared "Page
+  not found", not the referral-unavailable page. The `inline` rules in "Personas and role gating" are the legacy
+  `file.ts` routes'.
 - **Welsh:** `src/document-viewer` is on the extractor's `INCLUDE`, and `src/welsh-extractor.test.ts` compares every
   `en` key of `content.ts` with the extracted rows.
 

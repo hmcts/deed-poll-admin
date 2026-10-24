@@ -93,7 +93,7 @@ describe("relayPreview", () => {
     const res = streamResponse();
 
     await relayPreview(res, vi.fn(), async () => {
-      throw new DocumentPreviewRefusedError(code, null);
+      throw new DocumentPreviewRefusedError(code, status, null);
     });
 
     expect(res.statusCode).toBe(status);
@@ -105,7 +105,7 @@ describe("relayPreview", () => {
     const res = streamResponse();
 
     await relayPreview(res, vi.fn(), async () => {
-      throw new DocumentPreviewRefusedError("PREVIEW_BUSY", 7);
+      throw new DocumentPreviewRefusedError("PREVIEW_BUSY", 429, 7);
     });
 
     expect(res.headers["Retry-After"]).toBe("7");
@@ -136,18 +136,24 @@ describe("relayPreview", () => {
     }
   );
 
-  it("should cancel api's read when the browser goes away before the preview arrives", async () => {
+  it("should cancel api's read when the browser goes away, and not report the cancelled read as a failure", async () => {
     const res = streamResponse();
+    const next = vi.fn();
     let signal: AbortSignal | undefined;
 
-    const relay = relayPreview(res, vi.fn(), (given) => {
+    const relay = relayPreview(res, next, (given) => {
       signal = given;
-      return new Promise((_resolve, reject) => given.addEventListener("abort", () => reject(new Error("aborted"))));
+      return new Promise((_resolve, reject) =>
+        given.addEventListener("abort", () => reject(new Error("deed-poll-api call failed (timeout): document preview failed (timeout)")))
+      );
     });
     res.destroy();
 
-    await expect(relay).rejects.toThrow("aborted");
+    await expect(relay).resolves.toBeUndefined();
     expect(signal?.aborted).toBe(true);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.headers).toEqual({});
+    expect(res.sent).toBeUndefined();
   });
 
   it("should not cancel anything once the preview has been sent in full", async () => {

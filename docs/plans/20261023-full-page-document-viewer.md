@@ -364,6 +364,10 @@ Planning only, 23 October 2026. The approved static mock-up was browser-checked 
 That is not implementation, real file conversion, an app test run or Ralphex execution. All task checkboxes
 are intentionally open. Append implementation evidence here; preserve earlier decisions and corrections.
 
+**Status, 2026-10-24.** Tasks 1–8 are implemented and checked on `feat/full-page-document-viewer`; the review
+phases are running. api PR #129 is unmerged, and AAT and converter acceptance are outstanding (Post-Completion).
+The adapter's preview tests went into a new `src/api/client-document-preview.test.ts` rather than `client.test.ts`.
+
 **Task 1, 2026-10-24.** Review base (worktree `feat/full-page-document-viewer` start) `05a99499d705b0137b5dfdb0b24cc809d9e6d6ff`,
 merge base with `origin/master` `300a189`. Producer: api PR #129 head `19bb0c2` (unmerged), artefact SHA-256
 `351b6047…afed45`, copied per `SPEC-PROVENANCE.md` and parsed equal to it; delta re-measured as exactly the two preview

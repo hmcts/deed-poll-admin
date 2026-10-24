@@ -10,12 +10,13 @@
  * value that is not one of them (a forged id, a repeated or bracketed parameter) is refused with the same fixed
  * `NotFoundError` as an unknown selection, never substituted.
  */
-import { DOCUMENT_PREVIEW_LIMITS, type DocumentViewerContext, NotFoundError } from "@hmcts/deed-poll";
+import { DOCUMENT_PREVIEW_LIMITS, type DocumentViewerContext, documentInContext, NotFoundError } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { cy, en } from "./content.js";
 import { documentPaths, type ViewerScope, viewerLinks } from "./context.js";
 
 const SELECTION_PARAMETER = "document";
+// The same fixed refusal `documentInContext` gives an unknown id, for a value that is not one id at all.
 const NOT_IN_CONTEXT = "The selected document is not one of this context's documents";
 
 export function showViewer(req: Request, res: Response, scope: ViewerScope, context: DocumentViewerContext): void {
@@ -50,8 +51,7 @@ export function showViewer(req: Request, res: Response, scope: ViewerScope, cont
 }
 
 function selectedViewPath(scope: ViewerScope, context: DocumentViewerContext, selection: unknown): string {
-  const selected = typeof selection === "string" ? context.documents.find((document) => document.id === selection) : undefined;
-  if (!selected) throw new NotFoundError(NOT_IN_CONTEXT);
+  if (typeof selection !== "string") throw new NotFoundError(NOT_IN_CONTEXT);
 
-  return documentPaths(scope, selected.id).viewPath;
+  return documentPaths(scope, documentInContext(context, selection).id).viewPath;
 }

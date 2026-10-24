@@ -38,22 +38,26 @@ const FORMAT_BY_MIME_TYPE: ReadonlyMap<string, DocumentFormat> = new Map([
 const NOT_IN_CONTEXT = "The selected document is not one of this context's documents";
 
 export function buildCaseViewerContext(found: CaseDetail, documentId: string): DocumentViewerContext {
-  const documents = found.documents.filter((document) => document.hasFile).map(caseDocument);
+  const documents = found.documents.filter((document) => document.hasFile).map(viewerDocument);
 
   return withSelection({ scope: "caseworker", caseReference: found.displayReference ?? null }, documents, documentId);
 }
 
 export function buildReferralViewerContext(detail: JudicialReferralDetail, documentId: string): DocumentViewerContext {
-  const documents = (detail.application?.documents ?? []).map(referralDocument);
+  const documents = (detail.application?.documents ?? []).map(viewerDocument);
 
   return withSelection({ scope: "judicial", caseReference: null }, documents, documentId);
 }
 
-function caseDocument(document: Document): ViewerDocument {
-  return { id: document.id, name: document.name ?? NOT_PROVIDED, format: formatOf(document.mimeType) };
+/** The one document of `context` named `documentId`, or the same fixed refusal as an unknown selection. */
+export function documentInContext(context: Pick<DocumentViewerContext, "documents">, documentId: string): ViewerDocument {
+  const selected = context.documents.find((document) => document.id === documentId);
+  if (!selected) throw new NotFoundError(NOT_IN_CONTEXT);
+
+  return selected;
 }
 
-function referralDocument(document: JudicialDocument): ViewerDocument {
+function viewerDocument(document: Document | JudicialDocument): ViewerDocument {
   return { id: document.id, name: document.name ?? NOT_PROVIDED, format: formatOf(document.mimeType) };
 }
 
@@ -63,8 +67,7 @@ function formatOf(mimeType: string | null | undefined): DocumentFormat | null {
 }
 
 function withSelection(owner: Pick<DocumentViewerContext, "scope" | "caseReference">, documents: ViewerDocument[], documentId: string): DocumentViewerContext {
-  const index = documents.findIndex((document) => document.id === documentId);
-  if (index === -1) throw new NotFoundError(NOT_IN_CONTEXT);
+  const index = documents.indexOf(documentInContext({ documents }, documentId));
 
   return {
     ...owner,

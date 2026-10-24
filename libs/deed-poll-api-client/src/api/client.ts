@@ -541,11 +541,7 @@ async function preview(config: ApiConfig, path: string): Promise<PreviewApiResul
     ok: true,
     data: {
       body: Readable.fromWeb(body as NodeReadableStream<Uint8Array>),
-      contentType: "application/pdf",
-      contentLength,
-      contentDisposition: response.headers.get("content-disposition"),
-      contentSecurityPolicy: response.headers.get("content-security-policy"),
-      contentTypeOptions: response.headers.get("x-content-type-options")
+      contentLength
     }
   };
 }
@@ -559,7 +555,12 @@ async function previewFailure(response: Response): Promise<ApiError | PreviewRef
   const refusal = WIRE_SCHEMAS.DocumentPreviewError.safeParse(payload);
   if (refusal.success && PREVIEW_REFUSAL_STATUS[refusal.data.code] === response.status) {
     const { code } = refusal.data;
-    return { kind: "preview-refused", code, retryAfterSeconds: code === "PREVIEW_BUSY" ? retryAfterSeconds(response.headers.get("retry-after")) : null };
+    return {
+      kind: "preview-refused",
+      code,
+      status: response.status,
+      retryAfterSeconds: code === "PREVIEW_BUSY" ? retryAfterSeconds(response.headers.get("retry-after")) : null
+    };
   }
   return classifyFailure(response, payload);
 }
@@ -1615,9 +1616,12 @@ export interface DocumentDownload {
 
 type SendResult<E = ApiError> = { ok: true; response: Response } | { ok: false; error: E | ApiError };
 
-/** A document's preview: the download's shape, always a PDF, with the length api measured when it declared one. */
-export interface DocumentPreview extends DocumentDownload {
-  contentType: "application/pdf";
+/**
+ * A document's preview: always a PDF, with the length api measured when it declared one. None of api's headers is
+ * carried, because the relay answers with its own fixed containment and nothing of api's may loosen it.
+ */
+export interface DocumentPreview {
+  body: Readable;
   contentLength: number | null;
 }
 
@@ -1631,6 +1635,7 @@ export type PreviewRefusalCode = WireDocumentPreviewError["code"];
 export interface PreviewRefusal {
   kind: "preview-refused";
   code: PreviewRefusalCode;
+  status: number;
   retryAfterSeconds: number | null;
 }
 

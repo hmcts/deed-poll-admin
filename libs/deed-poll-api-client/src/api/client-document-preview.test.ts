@@ -64,11 +64,7 @@ describe("previewDocument against the mock", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const pdf = await buffered(result.data.body);
-    expect(result.data.contentType).toBe("application/pdf");
     expect(result.data.contentLength).toBe(pdf.length);
-    expect(result.data.contentDisposition).toBe('inline; filename="document-preview.pdf"');
-    expect(result.data.contentSecurityPolicy).toBe("default-src 'none'; sandbox");
-    expect(result.data.contentTypeOptions).toBe("nosniff");
     expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
     expect(pdfPages(pdf)).toBe(pages);
   });
@@ -112,7 +108,7 @@ describe("previewDocument against the mock", () => {
 
     const result = await previewDocument(caseId, documentId, config);
 
-    expect(result).toEqual({ ok: false, error: { kind: "preview-refused", code: "PREVIEW_INVALID_DOCUMENT", retryAfterSeconds: null } });
+    expect(result).toEqual({ ok: false, error: { kind: "preview-refused", code: "PREVIEW_INVALID_DOCUMENT", status: 422, retryAfterSeconds: null } });
   });
 
   it("should report a JPEG-compressed TIFF as invalid and a TIFF over the page limit as too large", async () => {
@@ -134,7 +130,7 @@ describe("previewDocument against the mock", () => {
     const original = await downloadDocument(caseId, documentId, config);
 
     // Never an empty PDF standing in for a conversion that did not happen.
-    expect(preview).toEqual({ ok: false, error: { kind: "preview-refused", code: "PREVIEW_UNAVAILABLE", retryAfterSeconds: null } });
+    expect(preview).toEqual({ ok: false, error: { kind: "preview-refused", code: "PREVIEW_UNAVAILABLE", status: 503, retryAfterSeconds: null } });
     expect(original.ok && (await buffered(original.data.body))).toEqual(DOCX_BYTES);
   });
 
@@ -144,7 +140,7 @@ describe("previewDocument against the mock", () => {
 
     const result = await previewDocument(caseId, documentId, config);
 
-    expect(result).toEqual({ ok: false, error: { kind: "preview-refused", code: "PREVIEW_BUSY", retryAfterSeconds: 5 } });
+    expect(result).toEqual({ ok: false, error: { kind: "preview-refused", code: "PREVIEW_BUSY", status: 429, retryAfterSeconds: 5 } });
   });
 
   it("should report api being unreachable as unavailable, not as a preview refusal", async () => {
@@ -292,7 +288,6 @@ describe("the preview response's contract", () => {
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;
-      expect(result.data.contentType).toBe("application/pdf");
       expect(result.data.contentLength).toBeNull();
       expect(pdfPages(await buffered(result.data.body))).toBe(1);
     } finally {
@@ -369,7 +364,7 @@ describe("the preview's failures", () => {
     try {
       const result = await previewDocument("case-1", "doc-1", { baseUrl: server.url });
 
-      expect(result).toEqual({ ok: false, error: { kind: "preview-refused", code: "PREVIEW_BUSY", retryAfterSeconds: null } });
+      expect(result).toEqual({ ok: false, error: { kind: "preview-refused", code: "PREVIEW_BUSY", status: 429, retryAfterSeconds: null } });
     } finally {
       await server.close();
     }

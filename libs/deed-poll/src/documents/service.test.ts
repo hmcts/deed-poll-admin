@@ -138,7 +138,10 @@ describe("documents/service", () => {
   });
 
   describe("previewDocument", () => {
-    const refused = (code: string, retryAfterSeconds: number | null) => ({ ok: false, error: { kind: "preview-refused", code, retryAfterSeconds } });
+    const refused = (code: string, status: number, retryAfterSeconds: number | null) => ({
+      ok: false,
+      error: { kind: "preview-refused", code, status, retryAfterSeconds }
+    });
 
     it("should ask api for the case's preview, not its original, with the caseworker's token and no pre-read", async () => {
       const preview = { body: "stream", contentType: "application/pdf", contentLength: 12 };
@@ -162,17 +165,17 @@ describe("documents/service", () => {
     });
 
     it.each([
-      ["PREVIEW_INVALID_DOCUMENT", null],
-      ["PREVIEW_LIMIT_EXCEEDED", null],
-      ["PREVIEW_UNAVAILABLE", null],
-      ["PREVIEW_BUSY", 30]
-    ])("should throw DocumentPreviewRefusedError for %s, keeping api's wait", async (code, retryAfterSeconds) => {
-      vi.mocked(apiPreviewDocument).mockResolvedValue(refused(code, retryAfterSeconds) as never);
+      ["PREVIEW_INVALID_DOCUMENT", 422, null],
+      ["PREVIEW_LIMIT_EXCEEDED", 422, null],
+      ["PREVIEW_UNAVAILABLE", 503, null],
+      ["PREVIEW_BUSY", 429, 30]
+    ])("should throw DocumentPreviewRefusedError for %s, keeping api's status and wait", async (code, status, retryAfterSeconds) => {
+      vi.mocked(apiPreviewDocument).mockResolvedValue(refused(code, status, retryAfterSeconds) as never);
 
       const error = await previewDocument("case-1", "doc-1", CALLER).catch((caught: unknown) => caught);
 
       expect(error).toBeInstanceOf(DocumentPreviewRefusedError);
-      expect(error).toMatchObject({ code, retryAfterSeconds, message: `Document preview was refused (${code})` });
+      expect(error).toMatchObject({ code, status, retryAfterSeconds, message: `Document preview was refused (${code})` });
     });
 
     it.each([

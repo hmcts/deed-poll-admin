@@ -210,20 +210,20 @@ describe("presentation", () => {
     const documents = [{ id: "a" }, { id: "b" }, { id: "c" }];
 
     it("should name the documents either side, in the context's order", () => {
-      expect(neighbours(documents, "b")).toEqual({ position: 2, previous: { id: "a" }, next: { id: "c" } });
+      expect(neighbours(documents, "b")).toEqual({ previous: { id: "a" }, next: { id: "c" } });
     });
 
     it("should offer no previous document on the first and no next on the last", () => {
-      expect(neighbours(documents, "a")).toMatchObject({ position: 1, previous: null });
-      expect(neighbours(documents, "c")).toMatchObject({ position: 3, next: null });
+      expect(neighbours(documents, "a")).toMatchObject({ previous: null });
+      expect(neighbours(documents, "c")).toMatchObject({ next: null });
     });
 
     it("should offer neither for the only document", () => {
-      expect(neighbours([{ id: "a" }], "a")).toEqual({ position: 1, previous: null, next: null });
+      expect(neighbours([{ id: "a" }], "a")).toEqual({ previous: null, next: null });
     });
 
     it("should offer nothing for a document outside the context", () => {
-      expect(neighbours(documents, "z")).toEqual({ position: 0, previous: null, next: null });
+      expect(neighbours(documents, "z")).toEqual({ previous: null, next: null });
     });
   });
 });

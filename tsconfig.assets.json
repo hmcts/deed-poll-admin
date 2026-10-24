@@ -1,0 +1,15 @@
+{
+  // The browser bundles' type check. `tsconfig.app.json` excludes `src/assets/**` because these are DOM code that vite
+  // bundles rather than server code `tsc` emits, and vite does not type-check. Without this project the document
+  // viewer's client, whose orchestration no unit test imports, was checked by nothing in the pipeline. `build:app`
+  // runs it, so a type error fails the image build. `vite/client` types the `?url` asset imports. The tests are left
+  // out, as `tsconfig.app.json` leaves the server's out: they run under Node and are not written to type-check.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"]
+  },
+  "include": ["src/assets/js/**/*.ts"],
+  "exclude": ["src/assets/js/**/*.test.ts"]
+}

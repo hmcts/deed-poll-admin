@@ -114,7 +114,7 @@ export async function callGazetteApi<T>(caller: Caller, call: (config: ApiConfig
 export async function callPreviewApi<T>(caller: Caller, call: (config: ApiConfig) => Promise<PreviewApiResult<T>>, signal?: AbortSignal): Promise<T> {
   const result = await call({ ...apiConfig(caller), signal });
   if (result.ok) return result.data;
-  if (result.error.kind === "preview-refused") throw new DocumentPreviewRefusedError(result.error.code, result.error.retryAfterSeconds);
+  if (result.error.kind === "preview-refused") throw new DocumentPreviewRefusedError(result.error.code, result.error.status, result.error.retryAfterSeconds);
 
   throw errorFor(withoutProse(result.error));
 }

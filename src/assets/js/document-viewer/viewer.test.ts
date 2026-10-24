@@ -22,6 +22,13 @@ describe("the document viewer's renderer modules", () => {
     expect(text).not.toMatch(/\/session\/|keep-alive|setInterval/);
   });
 
+  it.each(SOURCES.filter((source) => source.name !== "fetch-preview.ts").map((source) => [source.name, source.text]))(
+    "%s should make no request at all, leaving the preview's to fetch-preview.ts",
+    (_name, text) => {
+      expect(text).not.toMatch(/\bfetch\s*\(|=\s*fetch\b|XMLHttpRequest|WebSocket|EventSource|sendBeacon|setTimeout/);
+    }
+  );
+
   it.each(SOURCES.map((source) => [source.name, source.text]))("%s should store and log nothing", (_name, text) => {
     expect(text).not.toMatch(/localStorage|sessionStorage|indexedDB|document\.cookie|console\.|trackEvent|sendBeacon/);
   });

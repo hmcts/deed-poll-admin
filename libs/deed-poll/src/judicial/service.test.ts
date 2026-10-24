@@ -275,7 +275,7 @@ describe("judicial/service", () => {
     it("should throw DocumentPreviewRefusedError carrying api's code when the converter is unavailable", async () => {
       vi.mocked(previewJudicialDocument).mockResolvedValue({
         ok: false,
-        error: { kind: "preview-refused", code: "PREVIEW_UNAVAILABLE", retryAfterSeconds: null }
+        error: { kind: "preview-refused", code: "PREVIEW_UNAVAILABLE", status: 503, retryAfterSeconds: null }
       } as never);
 
       await expect(previewReferralDocument("ref-1", "doc-9", CALLER)).rejects.toMatchObject({

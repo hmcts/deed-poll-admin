@@ -1139,6 +1139,9 @@ const gazetteConflictSchema = z.object({
 });
 const gazetteErrorSchema = z.object({ code: z.enum(GAZETTE_REFUSAL_CODE), error: z.string(), conflicts: z.array(gazetteConflictSchema).optional() });
 
+/** A preview that was not produced: a code to switch on and a fixed sentence that never names the document. */
+const documentPreviewErrorSchema = z.object({ code: z.enum(DOCUMENT_PREVIEW_ERROR_CODE), error: z.string() });
+
 /**
  * `GET /me`: which staff areas admit the caller and what their roles grant. Both flags are Java primitives and
  * the list is a `List.copyOf`, so all three are strict. No identity, on purpose: admin has IDAM's.
@@ -1146,9 +1149,6 @@ const gazetteErrorSchema = z.object({ code: z.enum(GAZETTE_REFUSAL_CODE), error:
  * A capability this build does not list is dropped rather than refused: api may ship one before admin is redeployed,
  * and rejecting the whole answer would sign every caller in with no access at all.
  */
-/** A preview that was not produced: a code to switch on and a fixed sentence that never names the document. */
-const documentPreviewErrorSchema = z.object({ code: z.enum(DOCUMENT_PREVIEW_ERROR_CODE), error: z.string() });
-
 const callerAccessSchema = z.object({
   staff: z.boolean(),
   judicial: z.boolean(),

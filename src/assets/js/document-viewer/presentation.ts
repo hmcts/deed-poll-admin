@@ -122,9 +122,9 @@ export function presentationsForHistory(presentations: ReadonlyMap<string, Prese
 /** The documents either side of the current one, in the context's order, for the previous/next controls. */
 export function neighbours<T extends { id: string }>(documents: readonly T[], currentId: string): Neighbours<T> {
   const index = documents.findIndex((document) => document.id === currentId);
-  if (index < 0) return { position: 0, previous: null, next: null };
+  if (index < 0) return { previous: null, next: null };
 
-  return { position: index + 1, previous: documents[index - 1] ?? null, next: documents[index + 1] ?? null };
+  return { previous: documents[index - 1] ?? null, next: documents[index + 1] ?? null };
 }
 
 function clampZoom(scale: number): number {
@@ -159,7 +159,6 @@ export interface HistoryState {
 }
 
 export interface Neighbours<T> {
-  position: number;
   previous: T | null;
   next: T | null;
 }

@@ -60,14 +60,14 @@ const RETRYABLE: ReadonlySet<Exclude<LoadFailure, "stale">> = new Set(["busy", "
 /** GOV.UK Frontend's tablet breakpoint, 641px. */
 const TABLET_AND_WIDER = "(min-width: 40.0625em)";
 
-export function initDocumentViewer(root: HTMLElement): DocumentViewer | null {
+export function initDocumentViewer(root: HTMLElement): void {
   const controls = findControls(root);
   const previewUrl = root.dataset.previewUrl;
   const maxPages = Number(root.dataset.maxPages);
   const maxBytes = Number(root.dataset.maxBytes);
   const documents = controls ? documentsFrom(controls.select) : [];
   const first = documents.find((entry) => entry.previewUrl === previewUrl);
-  if (!controls || !first || !(maxPages > 0) || !(maxBytes > 0)) return null;
+  if (!controls || !first || !(maxPages > 0) || !(maxBytes > 0)) return;
 
   GlobalWorkerOptions.workerSrc = workerUrl;
   const { frame, status, announcement, thumbnailsRegion } = controls;
@@ -138,10 +138,10 @@ export function initDocumentViewer(root: HTMLElement): DocumentViewer | null {
     controls.rotate.disabled = !ready;
     controls.thumbnailsToggle.disabled = !ready;
 
-    const { previous, next, position } = neighbours(documents, current.id);
+    const { previous, next } = neighbours(documents, current.id);
     controls.previousDocument.disabled = previous === null;
     controls.nextDocument.disabled = next === null;
-    controls.position.textContent = current.position || String(position);
+    controls.position.textContent = current.position;
 
     keepFocus(focused, controls);
   };
@@ -336,7 +336,6 @@ export function initDocumentViewer(root: HTMLElement): DocumentViewer | null {
   });
 
   void load();
-  return { open: openDocument, goToPage, close: leave };
 }
 
 function findControls(root: HTMLElement): Controls | null {
@@ -502,11 +501,4 @@ interface Controls {
   thumbnailsToggle: HTMLButtonElement;
   noScriptLinks: HTMLElement[];
   thumbnailsShown: () => boolean;
-}
-
-/** What the viewer exposes to its caller, for a page that needs to drive it. */
-export interface DocumentViewer {
-  open(documentId: string): void;
-  goToPage(pageNumber: number): void;
-  close(): void;
 }
