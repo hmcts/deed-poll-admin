@@ -46,7 +46,7 @@ function filePathToUrlPath(filePath: string): string {
     .replace(/\/\([^)]+\)/g, "") // strip (group) segments from URL
     .replace(/\/index\.(ts|js)$/, "/") // remove the /index from paths
     .replace(/\.(ts|js)$/, "") // remove the .ts from the paths
-    .replace(/\[([a-zA-Z0-9_]+)\]/g, ":$1"); // convert [param] to :param
+    .replace(/\[(\w+)\]/g, ":$1"); // convert [param] to :param
 
   return normalizedPath !== "/" && normalizedPath.endsWith("/") ? normalizedPath.slice(0, -1) : normalizedPath;
 }

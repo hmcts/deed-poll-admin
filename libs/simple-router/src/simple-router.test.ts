@@ -1,24 +1,72 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import express from "express";
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as routeLoader from "./route-loader.js";
 import { createSimpleRouter } from "./simple-router.js";
 
 describe("simple-router", () => {
   let testDir: string;
+  let pendingLoads: Promise<unknown>[];
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `test-router-${Date.now()}`);
-    mkdirSync(testDir, { recursive: true });
+    testDir = mkdtempSync(join(tmpdir(), "test-router-"));
+    pendingLoads = [];
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.allSettled(pendingLoads);
+    vi.restoreAllMocks();
     rmSync(testDir, { recursive: true, force: true });
   });
 
   describe("createSimpleRouter", () => {
+    it.each([
+      { scenario: "route loading order", separateMounts: false, invalidFirst: false },
+      { scenario: "mount loading order", separateMounts: true, invalidFirst: false },
+      { scenario: "stopping before later routes after an invalid handler", separateMounts: false, invalidFirst: true },
+      { scenario: "stopping before later mounts after an invalid handler", separateMounts: true, invalidFirst: true }
+    ])("preserves $scenario", async ({ separateMounts, invalidFirst }) => {
+      const firstDir = join(testDir, "first");
+      const laterDir = separateMounts ? join(testDir, "later") : firstDir;
+      mkdirSync(firstDir, { recursive: true });
+      mkdirSync(laterDir, { recursive: true });
+      writeFileSync(join(testDir, "package.json"), '{"type":"module"}');
+      const validHandler = "export function GET(req, res) { res.end(); }";
+      writeFileSync(join(laterDir, "b.js"), validHandler);
+      writeFileSync(join(firstDir, "a.js"), invalidFirst ? "export const GET = 42;" : validHandler);
+
+      const events: string[] = [];
+      const loadRouteModule = routeLoader.loadRouteModule;
+      vi.spyOn(routeLoader, "loadRouteModule").mockImplementation((path) => {
+        events.push(`start:${basename(path)}`);
+        const load = loadRouteModule(path).then((module) => {
+          events.push(`end:${basename(path)}`);
+          return module;
+        });
+        pendingLoads.push(load);
+        return load;
+      });
+      const mounts = separateMounts
+        ? [
+            { path: firstDir, prefix: "/first" },
+            { path: laterDir, prefix: "/later" }
+          ]
+        : [{ path: firstDir }];
+
+      if (invalidFirst) {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        await expect(createSimpleRouter(...mounts)).rejects.toThrow("Invalid handler for method GET");
+        expect(events).toEqual(["start:a.js", "end:a.js"]);
+      } else {
+        const router = await createSimpleRouter(...mounts);
+        expect(events).toEqual(["start:a.js", "end:a.js", "start:b.js", "end:b.js"]);
+        expect(router.stack.map((layer) => layer.route?.path)).toEqual(separateMounts ? ["/first/a", "/later/b"] : ["/a", "/b"]);
+      }
+    });
+
     it("should throw if no mount specs provided", async () => {
       await expect(() => createSimpleRouter()).rejects.toThrow("At least one mount specification is required");
     });

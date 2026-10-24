@@ -48,6 +48,8 @@ export interface FieldDef {
   nullable?: boolean;
   /** Read-only on the form (disabled input); never written on save. */
   readOnly?: boolean;
+  /** Omit from staff details and edit forms while retaining the field catalogue. */
+  hidden?: boolean;
   /**
    * The column is NOT NULL with a database default, so an absent input must be
    * omitted from a patch rather than nulled. Set this on any field the api client
@@ -156,8 +158,8 @@ const APPLICATION_TAB: TabDef = {
         { name: "urgency", label: "Urgency", kind: "enum", enumSet: "urgency", notNullable: true, column: 2 },
         // free prose; the queryable fact is the `urgency` enum beside it
         { name: "urgencyreason", label: "Urgency reason", kind: "text", queryable: false, column: 2 },
-        // unique per case — a lookup, never a filter
-        { name: "onlineApplicationReference", label: "Online application reference", kind: "text", queryable: false, column: 2 },
+        // Retained for existing data, queries and emails; staff no longer need to see or enter it.
+        { name: "onlineApplicationReference", label: "Online application reference", kind: "text", queryable: false, hidden: true, column: 2 },
         // a records-management flag, not a caseworker's worklist
         { name: "retainPermanently", label: "Retain permanently", kind: "boolean", queryable: false, column: 2 },
         { name: "awaitingFurtherDocsInfo", label: "Awaiting further docs/info", kind: "date", column: 2 }
@@ -417,7 +419,7 @@ export const CASE_FIELD_TABS: TabDef[] = [
 ];
 
 /**
- * The tabs a caseworker **navigates and edits** — the catalogue above without the retired referral tab.
+ * The tabs a caseworker **navigates and edits** — the catalogue above without the retired referral tab or hidden fields.
  *
  * So the case detail page shows one referral tab rather than two (`detail-view.ts` iterates this list), the edit
  * form's tab strip does not offer the retired one, and `tabFor`/the POST guard in
@@ -427,7 +429,10 @@ export const CASE_FIELD_TABS: TabDef[] = [
  * Filtered rather than listed a second time, so a tab added to the catalogue reaches the form without a second
  * edit — the same derivation argument as `query-fields.ts`, one list further out.
  */
-export const FORM_TABS: TabDef[] = CASE_FIELD_TABS.filter((tab) => tab !== LEGACY_REFERRAL_TAB);
+export const FORM_TABS: TabDef[] = CASE_FIELD_TABS.filter((tab) => tab !== LEGACY_REFERRAL_TAB).map((tab) => ({
+  ...tab,
+  sections: tab.sections.map((section) => ({ ...section, fields: section.fields.filter((field) => !field.hidden) }))
+}));
 
 /**
  * Case properties api publishes and answers conditions on that have **no control on any form tab**.

@@ -22,6 +22,16 @@ const flatten = (tabs: ReturnType<typeof buildDetailTabs>) => {
   return out;
 };
 
+describe("hidden online application reference", () => {
+  it.each([DeedPollType.Adult, DeedPollType.Minor])("should omit an existing online reference from the %s case details", (type) => {
+    const tabs = buildDetailTabs({ type, onlineApplicationReference: "ONLINE-123" }, rulesFor(type), presentationFor({ type }));
+    const rows = flatten(tabs);
+
+    expect(Object.keys(rows)).not.toContain("Application › General › Online application reference");
+    expect(Object.values(rows)).not.toContain("ONLINE-123");
+  });
+});
+
 describe("formatValue", () => {
   const field = (over: Partial<FieldDef>): FieldDef => ({ name: "f", label: "F", kind: "text", ...over }) as FieldDef;
 
@@ -435,15 +445,7 @@ describe("buildDetailTabs — card columns", () => {
       "Type",
       "Marital status"
     ]);
-    expect(keys(c.right)).toEqual([
-      "Privacy",
-      "Status",
-      "Urgency",
-      "Urgency reason",
-      "Online application reference",
-      "Retain permanently",
-      "Awaiting further docs/info"
-    ]);
+    expect(keys(c.right)).toEqual(["Privacy", "Status", "Urgency", "Urgency reason", "Retain permanently", "Awaiting further docs/info"]);
   });
 
   const section = (label: string) =>

@@ -2,24 +2,24 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+const SUPPORTED_LOCALES = ["en", "cy"];
+
 export interface Translations {
   [locale: string]: any;
 }
 
 export async function loadTranslationsFromMultiplePaths(paths: string[]): Promise<Translations> {
   const allTranslations: Translations = {};
-  const supportedLocales = ["en", "cy"];
 
   // Initialize empty objects for each locale
-  for (const locale of supportedLocales) {
+  for (const locale of SUPPORTED_LOCALES) {
     allTranslations[locale] = {};
   }
 
-  // Load and merge translations from each path
-  for (const localePath of paths) {
-    const translations = await loadTranslations(localePath);
-
-    for (const locale of supportedLocales) {
+  // Imports overlap, but later declared paths must still override earlier ones.
+  const translationsByPath = await Promise.all(paths.map(loadTranslations));
+  for (const translations of translationsByPath) {
+    for (const locale of SUPPORTED_LOCALES) {
       if (translations[locale]) {
         allTranslations[locale] = {
           ...allTranslations[locale],
@@ -33,33 +33,8 @@ export async function loadTranslationsFromMultiplePaths(paths: string[]): Promis
 }
 
 export async function loadTranslations(localesPath: string): Promise<Translations> {
-  const translations: Translations = {};
-  const supportedLocales = ["en", "cy"];
-
-  for (const locale of supportedLocales) {
-    const tsFilePath = join(localesPath, `${locale}.ts`);
-    const jsFilePath = join(localesPath, `${locale}.js`);
-
-    // Check for .ts or .js file (compiled version)
-    const filePath = existsSync(jsFilePath) ? jsFilePath : tsFilePath;
-
-    if (existsSync(filePath)) {
-      try {
-        // Use file URL for dynamic import to work with absolute paths
-        const fileUrl = pathToFileURL(filePath).href;
-        const langContent = await import(fileUrl);
-        translations[locale] = langContent.content || langContent.default || {};
-      } catch (error) {
-        console.error(`Failed to load translations for ${locale}:`, error);
-        translations[locale] = {};
-      }
-    } else {
-      console.warn(`Translation file not found for ${locale}: ${filePath}`);
-      translations[locale] = {};
-    }
-  }
-
-  return translations;
+  const entries = await Promise.all(SUPPORTED_LOCALES.map(async (locale) => [locale, await loadLocale(localesPath, locale)] as const));
+  return Object.fromEntries(entries);
 }
 
 export function getTranslation(translations: Translations, key: string, locale: string, fallbackLocale = "en"): string {
@@ -85,4 +60,23 @@ export function getTranslation(translations: Translations, key: string, locale: 
   }
 
   return key;
+}
+
+async function loadLocale(localesPath: string, locale: string) {
+  const tsFilePath = join(localesPath, `${locale}.ts`);
+  const jsFilePath = join(localesPath, `${locale}.js`);
+  const filePath = existsSync(jsFilePath) ? jsFilePath : tsFilePath;
+
+  if (!existsSync(filePath)) {
+    console.warn(`Translation file not found for ${locale}: ${filePath}`);
+    return {};
+  }
+
+  try {
+    const langContent = await import(pathToFileURL(filePath).href);
+    return langContent.content || langContent.default || {};
+  } catch (error) {
+    console.error(`Failed to load translations for ${locale}:`, error);
+    return {};
+  }
 }
