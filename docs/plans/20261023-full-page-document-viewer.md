@@ -38,6 +38,27 @@ These supersede anything below that says otherwise. The companion api plan recor
    state with **Download original** still working. Take the number from the published `x-document-preview-limits`
    extension rather than restating it, and test it with a real PDF over the limit.
 
+8. **The api contract comes from unmerged api PR #129** (hmcts/deed-poll-api, branch
+   `feat/document-preview-rendering`, head `19bb0c2`). Steve, 2026-10-24: the pipeline is down out of hours, so the
+   admin side starts before #129 merges, as admin's earlier refresh from api `693c242` did. The artifact is already
+   generated, by `JAVA_TOOL_OPTIONS=-XX:UseSVE=0 TESTCONTAINERS_RYUK_DISABLED=true ./gradlew integration --tests
+   '*OpenAPIPublisherTest*' --no-watch-fs` in a clean api worktree at that commit, at
+   `/home/hmcts/.claude/jobs/c45dad71/tmp/openapi-pr129-19bb0c2.json` (raw SHA-256
+   `351b6047e653a7ddad987efcc496e6933e8a5a1672e25b9d10d5fe8143afed45`). **Do not run the api build from this
+   repository**: copy that file per `SPEC-PROVENANCE.md` (2-space JSON, then Biome), and record its provenance row
+   as depending on the unmerged PR, as the `693c242` row did. Its parsed delta against admin's current copy (api
+   `b335a72`) is exactly: two operations added, `GET /caseworker/cases/{id}/documents/{documentId}/preview` and
+   `GET /judicial/referrals/{referralId}/documents/{documentId}/preview`, and one schema added,
+   `DocumentPreviewError`; no other path, schema, component or top-level field changed. Re-measure and stop if
+   yours differs. The producer's limits are in its `x-document-preview-limits` extension; its behaviour is described
+   in api's `README.md` preview section and `docs/DOCUMENT-PREVIEW-SMOKE.md` (read them from that api worktree,
+   `/Users/steve.newman/Documents/GitHub/deed-poll-admin-workspace/cft-workspace/.worktrees/deed-poll-api-document-preview`,
+   read-only). Its preview error codes are `PREVIEW_INVALID_DOCUMENT` (422), `PREVIEW_LIMIT_EXCEEDED` (422),
+   `PREVIEW_UNAVAILABLE` (503) and `PREVIEW_BUSY` (429 with `Retry-After`); a client must send
+   `Accept: application/pdf` and read JSON error bodies. JPEG-compressed TIFFs and DOCX before Docmosis is
+   provisioned are normal `PREVIEW_INVALID_DOCUMENT` / `PREVIEW_UNAVAILABLE` outcomes that the viewer must show as
+   unavailable with **Download original**.
+
 ## Context
 
 Reviewed default-branch baselines:
