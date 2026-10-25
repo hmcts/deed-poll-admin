@@ -81,7 +81,7 @@ cached `chromium-1243` is already symlinked as `chromium-1248`. Do not try to do
 **Files:** `src/assets/js/document-viewer/pdf-document.ts`, the page/thumbnail renderer modules, their tests,
 `src/document-viewer/content.ts`, the viewer template, fixtures.
 
-- [ ] Record the execution baseline in the execution notes.
+- [x] Record the execution baseline in the execution notes.
 - [ ] Add the failing renderer test with the oversized-image fixture, then implement. Run focused tests and all
       Validation Commands, and record the results.
 
@@ -104,6 +104,51 @@ they describe viewer states, this plan.
 ## Execution notes
 
 (Record baseline, red/green evidence and final results here.)
+
+**Baseline:** `105e58ce3c7892d00dcffb59a468c7d2509c56da` (`docs: link the completed viewer plan from CLAUDE.md`).
+
+**Task 1 blocked (2026-10-25): `stopAtErrors` does not make a render reject in `pdfjs-dist` 6.4.299, so the plan's
+mechanism does not work as written. Nothing was committed apart from these notes; a decision is needed.**
+
+What the worker does is as the plan assumed. `buildPaintImageXObject` (`legacy/build/pdf.worker.mjs` ≈40137) weighs
+the image's *declared* `/Width × /Height` against `maxImageSize` before reading any of its data. With `ignoreErrors`
+(the default, `!stopAtErrors`, `pdf.mjs` 21764) it warns "Image exceeded maximum allowed size and was removed." and
+carries on. With `stopAtErrors` it throws, the XObject handler (≈40980) rethrows, and the page's operator list fails
+(`sink.error`, ≈71030). The same switch also governs undecodable inline images, colour spaces, shadings, patterns,
+ExtGState, font files, ToUnicode, `getTextContent` and sub-streams.
+
+The display side swallows that error. `Page.getOperatorList` sends `StartRenderPage` (≈65298) **before** it
+evaluates the content stream, so the render's `displayReadyCapability` has already resolved by then. When the
+stream then errors, `PDFPageProxy._pumpOperatorList` (`pdf.mjs` ≈22475) sets `operatorList.lastChunk = true` and calls
+`operatorListChanged()` on every render task. That draws what arrived and completes the render **successfully**
+(`InternalRenderTask._next` → `callback()` with no error). Only after that does it call
+`displayReadyCapability.reject(reason)`, which does nothing on a settled promise. `getOperatorList()` behaves the
+same way: its `opListReadCapability` resolves with the truncated list before the reject.
+
+Measured in Node with the plan's fixture: page 1 paints a 9,000-pixel-square image (81 MP) under its text, and page 2
+is text only. The image stream is one byte, which is enough because the check reads only the declared size.
+
+| | page 1 ops | page 1 render | page 2 |
+|---|---|---|---|
+| today (no `stopAtErrors`) | 9 (image dropped, text kept) | resolves | renders |
+| `stopAtErrors: true` | **0** (truncated at the image) | **resolves** | renders |
+
+So `stopAtErrors` alone makes the defect **worse**: everything after the first error is dropped too, and the
+page still reports success. The viewer cannot tell, because no public API exposes the error.
+
+Options for the decision:
+
+1. **Patch `pdfjs-dist`'s display layer** (`yarn patch`, same version): in `_pumpOperatorList`'s error path, when
+   `reason` is not an `AbortException`, fail each render task with it (`internalRenderTask.callback(reason)`)
+   instead of completing it. With `stopAtErrors` the page's render then rejects, and the per-page state can be built
+   as planned. It is small and testable with this fixture, but it is a patched dependency to carry through every
+   Renovate bump, and the plan currently rules out touching `pdfjs-dist`.
+2. **Reach into PDF.js internals** (`page._intentStates`, or wrapping `_pumpOperatorList`) to see the error.
+   Unpatched, but it relies on private API that can change in any release. Not recommended.
+3. **Raise it upstream** and keep today's behaviour until PDF.js rejects the render. The defect stays open
+   meanwhile.
+
+Recommendation: option 1, together with an upstream issue so the patch can be dropped later.
 
 ## Post-Completion
 
