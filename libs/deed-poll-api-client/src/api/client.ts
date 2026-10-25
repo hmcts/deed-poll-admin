@@ -174,7 +174,7 @@ const GAZETTE_SUBMIT_TIMEOUT_MS = 20_000;
  * conversion api would still finish must not be cut off here first, which the ten-second default would do to every
  * DOCX. And both Application Gateways end the request at 30 s (see `GAZETTE_SUBMIT_TIMEOUT_MS`), so waiting longer
  * would only swap this app's timeout for the gateway's error page. Never api's old 45 s (decision 2 of
- * `docs/plans/20261023-full-page-document-viewer.md`). A ceiling like the Gazette submit's: a configured timeout can
+ * `docs/plans/completed/20261023-full-page-document-viewer.md`). A ceiling like the Gazette submit's: a configured timeout can
  * only shorten it.
  */
 const PREVIEW_TIMEOUT_MS = 27_000;

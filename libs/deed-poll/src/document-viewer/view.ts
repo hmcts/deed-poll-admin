@@ -5,7 +5,7 @@
  * and never from a per-document read: the selector is navigation, not authorisation. Every preview and download is
  * api's own check against the caller's token, so a document listed here can still answer 404 when its bytes are
  * fetched, and the viewer says so for that document rather than trusting this list
- * (`docs/plans/20261023-full-page-document-viewer.md`, Development Approach 4).
+ * (`docs/plans/completed/20261023-full-page-document-viewer.md`, Development Approach 4).
  *
  * **api's order and api's membership.** The caseworker list is the case's documents with a file attached
  * (`hasFile`, the same fact the subgrid links on); the judicial list is `application.documents`, which api already

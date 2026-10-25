@@ -255,7 +255,7 @@ its own page, zoom and rotation during the visit, and **Back to case** or **Back
   or a test fixture. The mock's synthetic previews are built in `libs/deed-poll-api-client/src/mock/document-preview.ts`.
 
 The plan and its evidence are in
-[`docs/plans/20261023-full-page-document-viewer.md`](docs/plans/20261023-full-page-document-viewer.md).
+[`docs/plans/completed/20261023-full-page-document-viewer.md`](docs/plans/completed/20261023-full-page-document-viewer.md).
 
 ### Representative data in non-production environments
 

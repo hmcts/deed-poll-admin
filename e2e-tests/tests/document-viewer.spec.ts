@@ -1,5 +1,5 @@
 /**
- * The full-page document viewer, end to end in a browser — `docs/plans/20261023-full-page-document-viewer.md`.
+ * The full-page document viewer, end to end in a browser — `docs/plans/completed/20261023-full-page-document-viewer.md`.
  *
  * **Two tests, one per scope.** A caseworker reads every one of a case's five documents, one per allowed upload type,
  * and a judge reads a referral's. The keyboard, axe, Welsh, session-warning and narrow-viewport checks are made at

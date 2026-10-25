@@ -614,7 +614,7 @@ Search, email preview, email send and upload are limited per IDAM subject
 
 ## Document viewer
 
-Every document link opens one app-owned viewer (plan `docs/plans/20261023-full-page-document-viewer.md`). Facts that
+Every document link opens one app-owned viewer (plan `docs/plans/completed/20261023-full-page-document-viewer.md`). Facts that
 span several files:
 
 - **Two scoped route sets, never one generic URL.** `deed-polls/[id]/documents/[documentId]/` and

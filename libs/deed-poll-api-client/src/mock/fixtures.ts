@@ -42,7 +42,7 @@ export const MOCK_SCENARIOS = {
   "email-send-failure": { caseWrite: "accept", reachable: true, emailSend: "fail", documentPreview: "convert" },
   /**
    * Every DOCX preview answers 503 `PREVIEW_UNAVAILABLE`, as api does before Docmosis is provisioned (decision 3 of
-   * `docs/plans/20261023-full-page-document-viewer.md`) or while the converter is down. The other four formats are
+   * `docs/plans/completed/20261023-full-page-document-viewer.md`) or while the converter is down. The other four formats are
    * api's own work and still preview, and every original still downloads.
    */
   "preview-converter-unavailable": { caseWrite: "accept", reachable: true, emailSend: "accept", documentPreview: "converter-unavailable" },

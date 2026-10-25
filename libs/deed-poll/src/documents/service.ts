@@ -105,7 +105,7 @@ export function downloadDocument(deedPollId: string, id: string, caller: Caller)
  * A document's preview: always one PDF, whatever the original's type, still streaming.
  *
  * A separate operation from {@link downloadDocument} on purpose: api records a preview as `DOCUMENT_PREVIEWED` and a
- * download as `DOCUMENT_DOWNLOADED` (Decision 5 of `docs/plans/20261023-full-page-document-viewer.md`), so neither
+ * download as `DOCUMENT_DOWNLOADED` (Decision 5 of `docs/plans/completed/20261023-full-page-document-viewer.md`), so neither
  * may stand in for the other. A preview api did not produce is `DocumentPreviewRefusedError`; every other failure
  * is `callApi`'s. No pre-read: api checks the document belongs to the case.
  */
