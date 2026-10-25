@@ -644,9 +644,13 @@ span several files:
   `src/document-viewer/pdfjs-assets.ts` serves in development; `pdfjs-assets.test.ts` pins both lists.
 - **`pdfjs-dist` is patched, and a page it cannot draw in full is a page state, not a document state** (plan
   `docs/plans/completed/20261025-document-viewer-incomplete-pages.md`). Previews open with `stopAtErrors: true`, so an
-  image over `maxImageSize` fails the page rather than being silently left out. Unpatched, 6.4.299 still resolves that
+  image over `maxImageSize` fails the page rather than being silently left out. The switch is PDF.js's whole
+  `ignoreErrors`, not just the image check: an undecodable font, colour space, shading, pattern or ToUnicode map now
+  fails its page too, where it used to fall back and draw (Steve's decision; the plan's Task 1 notes list them). Unpatched, 6.4.299 still resolves that
   render with a truncated page, so `package.json` resolves `pdfjs-dist` through `.yarn/patches/` (committed; `.gitignore`
-  admits only that directory under `.yarn/`). `pdf-document.test.ts` fails if the patch is lost, which is what a version
+  admits only that directory under `.yarn/`). The patch does two things, both needed: it fails each pending render
+  task instead of completing it, and it drops the failed operator list from `_intentStates`, so drawing the page again
+  asks the worker rather than drawing a cached blank page. `pdf-document.test.ts` fails if the patch is lost, which is what a version
   bump does, and Renovate never automerges `pdfjs-dist`. Re-apply the patch to a new version with `yarn patch`, or drop it
   once upstream fixes the swallowed error (draft issue: `docs/pdfjs-render-error-upstream-issue.md`, not yet filed).
   `renderPage` answers `incomplete` with the canvas emptied, and the viewer shows the page's sentence with **Download
@@ -655,7 +659,8 @@ span several files:
 - **`src/assets/**` has its own type check, `tsconfig.assets.json`**, which `build:app` runs after
   `tsconfig.app.json` (which excludes it), so a type error in a browser bundle fails the image build. No unit test
   imports `viewer.ts` or `thumbnails.ts`; their behaviour is covered only by `yarn test:document-viewer`, which no
-  pipeline stage runs. `render-page.test.ts` drives `renderPage` against real PDF.js with a minimal DOM stand-in. Keep rules in DOM-free `presentation.ts`, where tests reach them.
+  pipeline stage runs. `render-page.test.ts` drives `renderPage` against real PDF.js with a minimal DOM stand-in. It and `pdf-document.test.ts` draw onto PDF.js's Node canvas, `@napi-rs/canvas`, which arrives only as an
+  optional dependency of `pdfjs-dist`, so an install that skips optional dependencies fails them. Keep rules in DOM-free `presentation.ts`, where tests reach them.
   Switching documents replaces history and never pushes, and per-document state lives only in memory,
   `history.state` and a validated fragment, never in storage. `viewer.test.ts` scans the sources for storage,
   logging and requests, and allows a network call only in `fetch-preview.ts`.

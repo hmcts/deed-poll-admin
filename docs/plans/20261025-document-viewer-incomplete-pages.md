@@ -235,7 +235,7 @@ Recommendation: option 1, together with an upstream issue so the patch can be dr
   --concurrency=1 --force` with `REDIS_URL=redis://127.0.0.1:6379`: 8/8 tasks; root 148 files / 2,999 tests,
   deed-poll 69 / 1,520, api client 17 / 1,112, starter 12 / 132, cloud-native-platform 13 / 156, session-postgres
   2 / 85, session-redis 1 / 7, simple-router 4 / 45; no failures, no skips.
-- **Commits.** Baseline `105e58c`; Task 1 `b6ff76b`; Task 2 is the commit that records these notes. Ready for the
+- **Commits.** Baseline `105e58c`; Task 1 `b6ff76b`; Task 2 `e6ac7dc`. Ready for the
   Ralphex review phases.
 
 ## Post-Completion

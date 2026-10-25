@@ -82,6 +82,17 @@ describe("renderPage", () => {
     expect(await draw(preview, 1).done).toBe("incomplete");
   });
 
+  it("should report a draw released before it finishes as cancelled, never as incomplete", async () => {
+    const preview = await open(oversized());
+
+    const ordinary = draw(preview, 2);
+    const failing = draw(preview, 1);
+    ordinary.release();
+    failing.release();
+
+    expect([await ordinary.done, await failing.done]).toEqual(["cancelled", "cancelled"]);
+  });
+
   it("should report a page the document does not have as failed, which is the document's state", async () => {
     const preview = await open(oversized());
 

@@ -256,7 +256,7 @@ its own page, zoom and rotation during the visit, and **Back to case** or **Back
   unavailable state above, which still covers a preview that cannot be opened at all. It relies on a patched
   `pdfjs-dist` (`.yarn/patches/`), because PDF.js 6.4.299 otherwise reports such a page as drawn; see
   [`docs/plans/completed/20261025-document-viewer-incomplete-pages.md`](docs/plans/completed/20261025-document-viewer-incomplete-pages.md).
-- **PDF.js.** `pdfjs-dist` is pinned and bundled by vite, and its worker is a hashed asset served from this app's
+- **PDF.js.** `pdfjs-dist` is pinned to 6.4.299 with a committed Yarn patch (`.yarn/patches/`, see above) and bundled by vite, and its worker is a hashed asset served from this app's
   origin. Its fonts, cmaps and the JavaScript image decoders are served under `/assets/pdfjs/`
   (`src/document-viewer/pdfjs-assets.ts`). It runs with WebAssembly, scripting, XFA and range requests turned off,
   so the CSP is unchanged. No CDN and no external viewer are used.

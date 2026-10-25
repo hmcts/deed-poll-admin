@@ -45,9 +45,10 @@ describe("PDF.js packaging", () => {
   // so a resolution naming one that is not there would fail every install.
   it("should resolve PDF.js through a patch file the repository carries", () => {
     const manifest = JSON.parse(readFileSync(root("package.json"), "utf8"));
-    const patch = PATCHED_PDFJS.exec(manifest.devDependencies["pdfjs-dist"])?.[2] ?? "";
+    const resolution = PATCHED_PDFJS.exec(manifest.devDependencies["pdfjs-dist"]);
 
-    expect(existsSync(root(patch))).toBe(true);
+    expect(resolution).not.toBeNull();
+    expect(existsSync(root(resolution?.[2] ?? "no-patch-named"))).toBe(true);
   });
 
   it("should copy the fallback decoders under the names the pinned worker imports", () => {
