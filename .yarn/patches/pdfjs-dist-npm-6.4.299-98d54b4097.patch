@@ -1,5 +1,5 @@
 diff --git a/build/pdf.mjs b/build/pdf.mjs
-index 3a5c6048d31f4b7246c654d7ac060ae9c4f0325d..3ca7eb9fea9fa95999b16ed71e38beb51efe87a9 100644
+index 3a5c6048d31f4b7246c654d7ac060ae9c4f0325d..4dcb77e585224dfecc1360e1d92ce91dd6a483e9 100644
 --- a/build/pdf.mjs
 +++ b/build/pdf.mjs
 @@ -16134,8 +16134,21 @@ class PDFPageProxy {
@@ -7,7 +7,7 @@ index 3a5c6048d31f4b7246c654d7ac060ae9c4f0325d..3ca7eb9fea9fa95999b16ed71e38beb5
          if (intentState.operatorList) {
            intentState.operatorList.lastChunk = true;
 +          // Patched (deed-poll-admin): a worker error other than an abort fails each render task instead of
-+          // completing it with the truncated operator list, so `stopAtErrors` reaches `RenderTask.promise`.
++          // completing it with the truncated operator list, so the worker's `ImageTooLargeError` reaches `RenderTask.promise`.
 +          // Unpatched, the render resolves first and the reject below lands on a settled promise. The failed
 +          // list is also dropped, so a later render of the page asks the worker again rather than drawing it.
 +          // See docs/pdfjs-render-error-upstream-issue.md in hmcts/deed-poll-admin.
@@ -25,8 +25,83 @@ index 3a5c6048d31f4b7246c654d7ac060ae9c4f0325d..3ca7eb9fea9fa95999b16ed71e38beb5
            }
            this.#tryCleanup();
          }
+diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
+index 94ed69bae5e58847c697d336920cf9643896fcbc..770567e8b547c91f949c82165ed56caae9e54f58 100644
+--- a/build/pdf.worker.mjs
++++ b/build/pdf.worker.mjs
+@@ -33990,6 +33990,10 @@ class TimeSlotManager {
+     this.checked = 0;
+   }
+ }
++// Patched (deed-poll-admin): an image over `maxImageSize` fails its page whatever `ignoreErrors` says, so a
++// viewer can say the page is incomplete rather than draw it without the image. Every other error keeps PDF.js's
++// fallbacks. See docs/pdfjs-render-error-upstream-issue.md in hmcts/deed-poll-admin.
++class ImageTooLargeError extends Error {}
+ class PartialEvaluator {
+   constructor({
+     xref,
+@@ -34287,12 +34291,7 @@ class PartialEvaluator {
+       return;
+     }
+     if (maxImageSize !== -1 && w * h > maxImageSize) {
+-      const msg = "Image exceeded maximum allowed size and was removed.";
+-      if (!ignoreErrors) {
+-        throw new Error(msg);
+-      }
+-      warn(msg);
+-      return;
++      throw new ImageTooLargeError("Image exceeded maximum allowed size and was removed.");
+     }
+     let optionalContent;
+     if (dict.has("OC")) {
+@@ -34553,7 +34552,7 @@ class PartialEvaluator {
+       if (reason instanceof AbortException) {
+         return;
+       }
+-      if (this.options.ignoreErrors) {
++      if (this.options.ignoreErrors && !(reason instanceof ImageTooLargeError)) {
+         warn(`handleTilingType - ignoring pattern: "${reason}".`);
+         return;
+       }
+@@ -35114,7 +35113,7 @@ class PartialEvaluator {
+               if (reason instanceof AbortException) {
+                 return;
+               }
+-              if (self.options.ignoreErrors) {
++              if (self.options.ignoreErrors && !(reason instanceof ImageTooLargeError)) {
+                 warn(`getOperatorList - ignoring XObject: "${reason}".`);
+                 return;
+               }
+@@ -35404,7 +35403,7 @@ class PartialEvaluator {
+               if (reason instanceof AbortException) {
+                 return;
+               }
+-              if (self.options.ignoreErrors) {
++              if (self.options.ignoreErrors && !(reason instanceof ImageTooLargeError)) {
+                 warn(`getOperatorList - ignoring ExtGState: "${reason}".`);
+                 return;
+               }
+@@ -35544,7 +35543,7 @@ class PartialEvaluator {
+       if (reason instanceof AbortException) {
+         return;
+       }
+-      if (this.options.ignoreErrors) {
++      if (this.options.ignoreErrors && !(reason instanceof ImageTooLargeError)) {
+         warn(`getOperatorList - ignoring errors during "${task.name}" ` + `task: "${reason}".`);
+         closePendingMarkedContentOPS();
+         closePendingRestoreOPS();
+@@ -59196,6 +59195,9 @@ class Page {
+     for (const annotation of annotations) {
+       if (intentAny || intentDisplay && annotation.mustBeViewed(annotationStorage, renderForms) && annotation.mustBeViewedWhenEditing(isEditing, modifiedIds) || intentPrint && annotation.mustBePrinted(annotationStorage)) {
+         opListPromises.push(annotation.getOperatorList(partialEvaluator, task, intent, annotationStorage).catch(reason => {
++          if (reason instanceof ImageTooLargeError) {
++            throw reason;
++          }
+           warn("getOperatorList - ignoring annotation data during " + `"${task.name}" task: "${reason}".`);
+           return {
+             opList: null,
 diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
-index 188020a36b70e5d86434f2e1c95804398d849d74..98e73ffe30f758f4d106185caca21a4ec2754155 100644
+index 188020a36b70e5d86434f2e1c95804398d849d74..12e7e5d22ee3a3a60f5dde7cb770617d702c789c 100644
 --- a/legacy/build/pdf.mjs
 +++ b/legacy/build/pdf.mjs
 @@ -22480,8 +22480,21 @@ class PDFPageProxy {
@@ -34,7 +109,7 @@ index 188020a36b70e5d86434f2e1c95804398d849d74..98e73ffe30f758f4d106185caca21a4e
          if (intentState.operatorList) {
            intentState.operatorList.lastChunk = true;
 +          // Patched (deed-poll-admin): a worker error other than an abort fails each render task instead of
-+          // completing it with the truncated operator list, so `stopAtErrors` reaches `RenderTask.promise`.
++          // completing it with the truncated operator list, so the worker's `ImageTooLargeError` reaches `RenderTask.promise`.
 +          // Unpatched, the render resolves first and the reject below lands on a settled promise. The failed
 +          // list is also dropped, so a later render of the page asks the worker again rather than drawing it.
 +          // See docs/pdfjs-render-error-upstream-issue.md in hmcts/deed-poll-admin.
@@ -52,3 +127,78 @@ index 188020a36b70e5d86434f2e1c95804398d849d74..98e73ffe30f758f4d106185caca21a4e
            }
            this.#tryCleanup();
          }
+diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
+index c9788fa9ec2bf915ca88d75eac11652e50ff6369..c866953e5a738814b82dbdd314686f3de945adbd 100644
+--- a/legacy/build/pdf.worker.mjs
++++ b/legacy/build/pdf.worker.mjs
+@@ -39853,6 +39853,10 @@ class TimeSlotManager {
+     this.checked = 0;
+   }
+ }
++// Patched (deed-poll-admin): an image over `maxImageSize` fails its page whatever `ignoreErrors` says, so a
++// viewer can say the page is incomplete rather than draw it without the image. Every other error keeps PDF.js's
++// fallbacks. See docs/pdfjs-render-error-upstream-issue.md in hmcts/deed-poll-admin.
++class ImageTooLargeError extends Error {}
+ class PartialEvaluator {
+   constructor({
+     xref,
+@@ -40150,12 +40154,7 @@ class PartialEvaluator {
+       return;
+     }
+     if (maxImageSize !== -1 && w * h > maxImageSize) {
+-      const msg = "Image exceeded maximum allowed size and was removed.";
+-      if (!ignoreErrors) {
+-        throw new Error(msg);
+-      }
+-      warn(msg);
+-      return;
++      throw new ImageTooLargeError("Image exceeded maximum allowed size and was removed.");
+     }
+     let optionalContent;
+     if (dict.has("OC")) {
+@@ -40416,7 +40415,7 @@ class PartialEvaluator {
+       if (reason instanceof AbortException) {
+         return;
+       }
+-      if (this.options.ignoreErrors) {
++      if (this.options.ignoreErrors && !(reason instanceof ImageTooLargeError)) {
+         warn(`handleTilingType - ignoring pattern: "${reason}".`);
+         return;
+       }
+@@ -40977,7 +40976,7 @@ class PartialEvaluator {
+               if (reason instanceof AbortException) {
+                 return;
+               }
+-              if (self.options.ignoreErrors) {
++              if (self.options.ignoreErrors && !(reason instanceof ImageTooLargeError)) {
+                 warn(`getOperatorList - ignoring XObject: "${reason}".`);
+                 return;
+               }
+@@ -41267,7 +41266,7 @@ class PartialEvaluator {
+               if (reason instanceof AbortException) {
+                 return;
+               }
+-              if (self.options.ignoreErrors) {
++              if (self.options.ignoreErrors && !(reason instanceof ImageTooLargeError)) {
+                 warn(`getOperatorList - ignoring ExtGState: "${reason}".`);
+                 return;
+               }
+@@ -41407,7 +41406,7 @@ class PartialEvaluator {
+       if (reason instanceof AbortException) {
+         return;
+       }
+-      if (this.options.ignoreErrors) {
++      if (this.options.ignoreErrors && !(reason instanceof ImageTooLargeError)) {
+         warn(`getOperatorList - ignoring errors during "${task.name}" ` + `task: "${reason}".`);
+         closePendingMarkedContentOPS();
+         closePendingRestoreOPS();
+@@ -65337,6 +65336,9 @@ class Page {
+     for (const annotation of annotations) {
+       if (intentAny || intentDisplay && annotation.mustBeViewed(annotationStorage, renderForms) && annotation.mustBeViewedWhenEditing(isEditing, modifiedIds) || intentPrint && annotation.mustBePrinted(annotationStorage)) {
+         opListPromises.push(annotation.getOperatorList(partialEvaluator, task, intent, annotationStorage).catch(reason => {
++          if (reason instanceof ImageTooLargeError) {
++            throw reason;
++          }
+           warn("getOperatorList - ignoring annotation data during " + `"${task.name}" task: "${reason}".`);
+           return {
+             opList: null,

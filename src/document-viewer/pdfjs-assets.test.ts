@@ -46,6 +46,16 @@ describe("PDF.js packaging", () => {
     expect(manifest.dependencies["pdfjs-dist"]).toBeUndefined();
   });
 
+  // The patch changes the unminified worker only, so a browser on the minified one would draw an oversized image's
+  // page without it and say nothing (docs/pdfjs-render-error-upstream-issue.md).
+  it("should give the browser the patched worker, the same file the Node tests run", () => {
+    const viewer = readFileSync(root("src/assets/js/document-viewer/viewer.ts"), "utf8");
+    const worker = readFileSync(root("node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"), "utf8");
+
+    expect([...viewer.matchAll(/from "(pdfjs-dist\/[^"]*worker[^"]*)"/g)].map((match) => match[1])).toEqual(["pdfjs-dist/legacy/build/pdf.worker.mjs?url"]);
+    expect(worker).toContain("class ImageTooLargeError extends Error {}");
+  });
+
   it("should copy the fallback decoders under the names the pinned worker imports", () => {
     const worker = readFileSync(root("node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"), "utf8");
     const named = [...worker.matchAll(/_noWasmFilename = "([^"]+)"/g)].map((match) => match[1]).sort();

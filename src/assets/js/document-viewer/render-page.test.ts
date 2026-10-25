@@ -61,6 +61,18 @@ describe("renderPage", () => {
     expect((page.element as unknown as FakeElement).children).toEqual([]);
   });
 
+  it("should report a page whose stamp paints an image over the size limit as incomplete too", async () => {
+    const preview = await open(testPdf([{ text: "Stamped", stamp: [9_000, 9_000] }]));
+
+    expect(await draw(preview, 1).done).toBe("incomplete");
+  });
+
+  it("should draw a page whose font is broken, because only an oversized image makes a page incomplete", async () => {
+    const preview = await open(testPdf([{ text: "Still readable", font: "emptyFontFile" }]));
+
+    expect(await draw(preview, 1).done).toBe("rendered");
+  });
+
   it("should still draw the next page of a document with an incomplete page", async () => {
     const preview = await open(oversized());
 

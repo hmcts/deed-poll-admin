@@ -5330,13 +5330,13 @@ __metadata:
 
 "pdfjs-dist@patch:pdfjs-dist@npm%3A6.4.299#~/.yarn/patches/pdfjs-dist-npm-6.4.299-98d54b4097.patch":
   version: 6.4.299
-  resolution: "pdfjs-dist@patch:pdfjs-dist@npm%3A6.4.299#~/.yarn/patches/pdfjs-dist-npm-6.4.299-98d54b4097.patch::version=6.4.299&hash=ce0398"
+  resolution: "pdfjs-dist@patch:pdfjs-dist@npm%3A6.4.299#~/.yarn/patches/pdfjs-dist-npm-6.4.299-98d54b4097.patch::version=6.4.299&hash=033058"
   dependencies:
     "@napi-rs/canvas": "npm:^1.0.10"
   dependenciesMeta:
     "@napi-rs/canvas":
       optional: true
-  checksum: 10c0/d65bf6d23e0e06acc9d204ca1b370fd2c2cfc8a06fcd360f7ba20c0e571873570994e455dc79e8c9d5b6daad1ef89362c3c3065eac3188dbb0ab0bf18331d6c9
+  checksum: 10c0/54f83870152dd4f695aca00047c3cc0d5fbb9592fd71edcb2306a218a07f06b8779c9792be2af0f0ba9f7d6b1d8a069bb35c2b0c73d10b075c3b73faec81f284
   languageName: node
   linkType: hard
 

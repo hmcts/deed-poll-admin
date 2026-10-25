@@ -89,8 +89,8 @@ builds over it. `npx playwright install` cannot download here; the cached `chrom
 `src/assets/js/document-viewer/pdf-document.ts`, `render-page.ts`, `thumbnails.ts`, their tests, `test-pdfs.ts`,
 fixtures.
 
-- [ ] Record the execution baseline in the execution notes.
-- [ ] Add the failing tests from the Development Approach, then narrow the patch and remove `stopAtErrors`. Run the
+- [x] Record the execution baseline in the execution notes.
+- [x] Add the failing tests from the Development Approach, then narrow the patch and remove `stopAtErrors`. Run the
       red check against the unpatched package, focused tests and all Validation Commands, and record the results.
 
 ### Task 2: Record and hand off
@@ -111,7 +111,49 @@ describe the viewer states, this plan.
 
 ## Execution notes
 
-(Record baseline, red/green evidence and final results here.)
+**Baseline:** `4f989fb160fa78e7548f9a91394920e529ee551d` (this branch's HEAD before Task 1).
+
+**Task 1.**
+
+- Fixtures (`test-pdfs.ts`, generated at test time, nothing on disk): `stamp` (a `/Stamp` annotation whose `/AP /N`
+  form XObject paints an image of the given declared size) and `font` (`emptyFontFile`: a TrueType font whose
+  `FontFile2` has no bytes; `malformedToUnicode`: Helvetica with a ToUnicode stream that `usecmap`s a CMap that does
+  not exist). `OBJECTS_PER_PAGE` went from 3 to 9, `null` where a page has no stamp or font.
+- Red before any change (old patch, `stopAtErrors: true`): `pdf-document.test.ts` 3 failed / 17 passed. The stamp
+  page resolved instead of rejecting, and both broken-font pages drew 0 of 14 glyphs. Both review defects reproduced.
+- With `stopAtErrors` removed and the old patch: both font tests passed; the 5 oversize tests failed, because
+  PDF.js's default `ignoreErrors` swallows the size check.
+- Worker patch (legacy and modern `pdf.worker.mjs`): a top-level `class ImageTooLargeError extends Error {}`;
+  `buildPaintImageXObject` always throws it for `w * h > maxImageSize`; it is rethrown, not ignored, at the five
+  catches it can pass through: the XObject `Do` catch, `getOperatorList`'s outer catch (inline images and nested form
+  XObjects), `handleTilingType` (images in a tiling pattern), the ExtGState catch (an SMask's form) and the
+  annotation operator-list catch. The display-side `_pumpOperatorList` hunk is unchanged apart from its comment.
+- **The browser now loads the unminified worker** (`viewer.ts`: `pdf.worker.mjs?url`, was `pdf.worker.min.mjs?url`).
+  The minified workers are a few lines of hundreds of kilobytes each, so patching them made a 4.5 MB patch file.
+  Now the browser runs the same file the Node tests do, which the old arrangement did not guarantee. Cost: 2.42 MB
+  against 1.32 MB raw, 514 KB against 392 KB gzipped, for one cached same-origin asset.
+  `pdfjs-assets.test.ts` pins the import and that the file carries the patch. The built
+  `dist/assets/assets/pdf.worker-<hash>.mjs` contains `ImageTooLargeError` (7 occurrences). The `.min.mjs` files are
+  unpatched and unused.
+- Patch regenerated with `yarn patch pdfjs-dist@npm:6.4.299` (original package) plus the old hunks, then
+  `yarn patch-commit`. Same file name, 9.8 KB; `package.json` unchanged; `yarn.lock` updated the resolution hash.
+  (`yarn patch --update` stacks a second patch over the first, so it was not used.)
+- Source check (6.4.299 legacy worker, read-only): every `ignoreErrors` catch was read. Fonts, ToUnicode,
+  CIDToGIDMap, encodings, colour spaces, shadings, marked content, text content, sub-streams and font paths cannot
+  carry an image error and keep their fallbacks. **One gap is left, and it is unchanged by this plan:**
+  `loadType3Data` evaluates each Type3 glyph with `ignoreErrors: false` and catches every error into an empty glyph,
+  and `loadFont` then wraps a Type3 load error in a plain `Error` and resolves an `ErrorFont`. So an oversized image
+  inside a Type3 glyph procedure is dropped silently, with or without `stopAtErrors`, as before. Not patched: it
+  would take two more hunks for a construct no scanner or converter produces. The stamp test covers the nested-form
+  path; the tiling-pattern and SMask rethrows are patched but not covered by a fixture.
+- Red against the unpatched package (patch reversed in `node_modules/pdfjs-dist` with `patch -R`, then re-applied):
+  `pdf-document`, `render-page` and `pdfjs-assets` tests: 7 failed / 27 passed. The failures were every oversize
+  guard (main content, stamp, repeat renders, `renderPage`'s incomplete states) and the worker-import guard. The
+  broken-font tests pass unpatched, as they should: they pin the absence of `stopAtErrors`.
+- Green: viewer and asset suites 229 passed; `yarn lint` clean (576 files); `yarn build` 8/8 tasks;
+  `yarn turbo test test:app --concurrency=1 --force` with `REDIS_URL` set: 8/8 tasks, 0 failed, 0 skipped (app
+  148 files / 3006 tests; deed-poll 1520; api-client 1112; cloud-native-platform 156; express-govuk-starter 132;
+  express-session-postgres 85; simple-router 45; express-session-redis 7).
 
 ## Post-Completion
 

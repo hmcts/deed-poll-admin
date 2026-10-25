@@ -6,12 +6,11 @@
  * Every draw can be cancelled, and `release` frees what it held (the canvas's backing store and the page's
  * parsed resources), so moving to another page or document never leaves a full-size page behind.
  *
- * **A page that cannot be drawn in full is `incomplete`, and shows nothing.** PDF.js opens the document with
- * `stopAtErrors` (`pdf-document.ts`), so an image over its size limit or an undecodable part fails the page's render
- * rather than being left out. The canvas and text layer are emptied at once, because what was drawn before the
- * failure would pass for the whole page. A text layer that fails counts too, since `stopAtErrors` covers a page's
- * fonts and ToUnicode maps as well: a picture with no readable text is not the page in full for a screen reader. A
- * page that cannot even be read is `failed`, which is the document's.
+ * **A page that cannot be drawn in full is `incomplete`, and shows nothing.** An image over PDF.js's size limit
+ * (`pdf-document.ts`) fails the page's render rather than being left out; every other fault keeps PDF.js's own
+ * fallback. The canvas and text layer are emptied at once, because what was drawn before the failure would pass for
+ * the whole page. A text layer that fails counts too: a picture with no readable text is not the page in full for a
+ * screen reader. A page that cannot even be read is `failed`, which is the document's.
  */
 import { AnnotationMode, type PDFDocumentProxy, type PDFPageProxy, RenderingCancelledException, TextLayer } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { canvasDensity, canvasSize } from "./page-geometry.js";

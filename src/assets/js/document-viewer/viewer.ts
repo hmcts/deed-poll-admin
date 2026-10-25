@@ -24,8 +24,9 @@
  */
 import { GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
 // The worker PDF.js was built with, emitted by vite as a hashed same-origin asset: CSP's `script-src 'self'`
-// covers it, and no CDN or blob URL is involved.
-import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
+// covers it, and no CDN or blob URL is involved. The unminified worker, because that is the file
+// `.yarn/patches/pdfjs-dist-*.patch` patches and the Node tests run (docs/pdfjs-render-error-upstream-issue.md).
+import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
 import { MAX_CANVAS_PIXELS } from "./page-geometry.js";
 import {
   canGoToPage,

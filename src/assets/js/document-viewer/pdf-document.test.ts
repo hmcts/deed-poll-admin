@@ -1,8 +1,8 @@
 import { fileURLToPath } from "node:url";
-import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { OPS, type PDFDocumentProxy, type PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { afterEach, describe, expect, it } from "vitest";
 import { type OpenedPreview, openPreview } from "./pdf-document.js";
-import { A4_LANDSCAPE, pagesSaying, testPdf } from "./test-pdfs.js";
+import { A4_LANDSCAPE, type BrokenFont, pagesSaying, testPdf } from "./test-pdfs.js";
 
 // PDF.js reads its standard fonts from the filesystem under Node, from the same package the build copies them from.
 const ASSET_PATH = fileURLToPath(new URL("../../../../node_modules/pdfjs-dist/", import.meta.url));
@@ -30,6 +30,12 @@ function render(preview: PDFDocumentProxy, page: PDFPageProxy): Promise<void> {
   const viewport = page.getViewport({ scale: 0.5 });
   const { canvas } = preview.canvasFactory.create(Math.ceil(viewport.width), Math.ceil(viewport.height)) as { canvas: HTMLCanvasElement };
   return page.render({ canvas, viewport }).promise;
+}
+
+/** How many glyphs the page's operator list draws: an empty substitute font draws none, whatever the text says. */
+async function glyphsDrawn(page: PDFPageProxy): Promise<number> {
+  const { fnArray, argsArray } = await page.getOperatorList();
+  return fnArray.reduce((count, fn, index) => (fn === OPS.showText ? count + (argsArray[index][0] as unknown[]).length : count), 0);
 }
 
 describe("openPreview", () => {
@@ -109,7 +115,7 @@ describe("openPreview", () => {
   it("should fail the render of a page whose image is over the size limit, and still draw the next page", async () => {
     const preview = document(await open(testPdf([{ text: "Oversized scan", image: [9_000, 9_000] }, { text: "Page 2 of 2" }])));
 
-    await expect(draw(preview, 1)).rejects.toThrow();
+    await expect(draw(preview, 1)).rejects.toThrow("Image exceeded maximum allowed size");
     await expect(draw(preview, 2)).resolves.toBeUndefined();
   });
 
@@ -123,6 +129,35 @@ describe("openPreview", () => {
 
     expect([...together, ...again].map((result) => result.status)).toEqual(["rejected", "rejected", "rejected"]);
   });
+
+  // The same guard for an image inside an annotation's appearance, which PDF.js otherwise drops with the whole
+  // annotation; the viewer draws annotations (`AnnotationMode.ENABLE`, the render's default).
+  it("should fail the render of a page whose stamp paints an image over the size limit, and still draw the next page", async () => {
+    const preview = document(await open(testPdf([{ text: "Stamped", stamp: [9_000, 9_000] }, { text: "Page 2 of 2" }])));
+
+    await expect(draw(preview, 1)).rejects.toThrow("Image exceeded maximum allowed size");
+    await expect(draw(preview, 2)).resolves.toBeUndefined();
+  });
+
+  it("should draw a page whose stamp paints an image within the size limit", async () => {
+    const preview = document(await open(testPdf([{ text: "Stamped", stamp: [2_000, 2_000] }])));
+
+    await expect(draw(preview, 1)).resolves.toBeUndefined();
+  });
+
+  // Only an oversized image fails a page. Every other fault keeps PDF.js's fallback, which `stopAtErrors` would turn
+  // into a font that draws nothing on a page that reports success.
+  it.each<BrokenFont>(["emptyFontFile", "malformedToUnicode"])(
+    "should draw a page whose font has a %s through PDF.js's fallback, text included",
+    async (font) => {
+      const preview = document(await open(testPdf([{ text: "Still readable", font }])));
+      const page = await preview.getPage(1);
+
+      await expect(render(preview, page)).resolves.toBeUndefined();
+      expect(await glyphsDrawn(page)).toBe("Still readable".length);
+      expect((await page.getTextContent()).items.map((item) => ("str" in item ? item.str : ""))).toContain("Still readable");
+    }
+  );
 
   it("should draw a page whose image is within the size limit", async () => {
     const preview = document(await open(testPdf([{ text: "Ordinary scan", image: [4_960, 7_016] }])));

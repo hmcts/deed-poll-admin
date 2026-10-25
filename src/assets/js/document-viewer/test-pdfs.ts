@@ -19,15 +19,20 @@ export function testPdf(pages: readonly TestPage[], extras: PdfExtras = {}): Uin
     `<< /S /JavaScript /JS (${extras.openActionScript ?? ""}) >>`,
     "<< /FT /Tx /T (field) /V (Filled value) /Rect [72 120 300 150] /Subtype /Widget /Type /Annot >>",
     ...pages.flatMap((page, index) => {
+      const id = pageIds[index];
       const [width, height] = page.size ?? A4_PORTRAIT;
       const image = page.image ? "q 451 0 0 451 72 200 cm /Im1 Do Q " : "";
       const text = `${image}${page.text === undefined ? "" : `BT /F1 24 Tf 72 ${height - 96} Td (${page.text}) Tj ET`}`;
-      const xObjects = page.image ? `/XObject << /Im1 ${pageIds[index] + 2} 0 R >>` : "";
-      const annotations = extras.link || extras.formField ? `/Annots [${extras.link ? "4 0 R " : ""}${extras.formField ? "6 0 R" : ""}]` : "";
+      const xObjects = page.image ? `/XObject << /Im1 ${id + 2} 0 R >>` : "";
+      const font = page.font ? `${id + 6} 0 R` : "3 0 R";
+      const pageAnnotations = [extras.link ? "4 0 R" : "", extras.formField ? "6 0 R" : "", page.stamp ? `${id + 3} 0 R` : ""].filter(Boolean);
+      const annotations = pageAnnotations.length > 0 ? `/Annots [${pageAnnotations.join(" ")}]` : "";
       return [
-        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] ${page.rotate ? `/Rotate ${page.rotate}` : ""} ${annotations} /Resources << /Font << /F1 3 0 R >> ${xObjects} >> /Contents ${pageIds[index] + 1} 0 R >>`,
-        `<< /Length ${text.length} >>\nstream\n${text}\nendstream`,
-        page.image ? imageXObject(page.image) : "null"
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] ${page.rotate ? `/Rotate ${page.rotate}` : ""} ${annotations} /Resources << /Font << /F1 ${font} >> ${xObjects} >> /Contents ${id + 1} 0 R >>`,
+        stream("", text),
+        page.image ? imageXObject(page.image) : "null",
+        ...(page.stamp ? stampObjects(id, page.stamp) : ["null", "null", "null"]),
+        ...(page.font ? fontObjects(id, page.font) : ["null", "null", "null"])
       ];
     })
   ];
@@ -51,7 +56,40 @@ export function testPdf(pages: readonly TestPage[], extras: PdfExtras = {}): Uin
  * `maxImageSize` before reading any of its data, so one byte is enough to stand for a scan of any size.
  */
 function imageXObject([width, height]: readonly [number, number]): string {
-  return `<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 1 >>\nstream\n\u0000\nendstream`;
+  return stream(`/Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceGray /BitsPerComponent 8`, "\u0000");
+}
+
+/** A rubber stamp whose appearance paints an image, as a signature or an "approved" stamp does. */
+function stampObjects(id: number, image: readonly [number, number]): string[] {
+  return [
+    `<< /Type /Annot /Subtype /Stamp /F 4 /Rect [72 400 272 600] /AP << /N ${id + 4} 0 R >> >>`,
+    stream(`/Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /XObject << /Im1 ${id + 5} 0 R >> >>`, "q 200 0 0 200 0 0 cm /Im1 Do Q"),
+    imageXObject(image)
+  ];
+}
+
+/**
+ * The page's font, broken in the given way: `emptyFontFile` embeds a TrueType program of no bytes, and
+ * `malformedToUnicode` gives Helvetica a ToUnicode map building on a CMap that does not exist. PDF.js reads past
+ * either with a substitute, so the text still shows.
+ */
+function fontObjects(id: number, broken: BrokenFont): string[] {
+  if (broken === "malformedToUnicode") {
+    return [
+      `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode ${id + 7} 0 R >>`,
+      stream("", "/CIDInit /ProcSet findresource begin 12 dict begin begincmap /Not-A-Real-CMap usecmap endcmap end end"),
+      "null"
+    ];
+  }
+  return [
+    `<< /Type /Font /Subtype /TrueType /BaseFont /EmptyEmbedded /Encoding /WinAnsiEncoding /FontDescriptor ${id + 7} 0 R >>`,
+    `<< /Type /FontDescriptor /FontName /EmptyEmbedded /Flags 32 /FontBBox [0 -200 1000 800] /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile2 ${id + 8} 0 R >>`,
+    stream("", "")
+  ];
+}
+
+function stream(dictionary: string, content: string): string {
+  return `<< ${dictionary} /Length ${content.length} >>\nstream\n${content}\nendstream`;
 }
 
 /** `count` portrait pages, each saying which page it is. */
@@ -63,8 +101,8 @@ export const A4_PORTRAIT = [595, 842] as const;
 export const A4_LANDSCAPE = [842, 595] as const;
 
 const FIRST_PAGE_ID = 7;
-/** The page, its content stream, and its image or `null`. */
-const OBJECTS_PER_PAGE = 3;
+/** The page, its content stream, its image, its stamp's three objects and its font's three, each `null` if absent. */
+const OBJECTS_PER_PAGE = 9;
 
 export interface TestPage {
   text?: string;
@@ -72,7 +110,13 @@ export interface TestPage {
   rotate?: 90 | 180 | 270;
   /** An image of this declared size in pixels, drawn under the page's text. */
   image?: readonly [number, number];
+  /** A stamp annotation whose appearance paints an image of this declared size in pixels. */
+  stamp?: readonly [number, number];
+  /** The page's text is set in a font broken this way. */
+  font?: BrokenFont;
 }
+
+export type BrokenFont = "emptyFontFile" | "malformedToUnicode";
 
 export interface PdfExtras {
   /** A document-level script run on open by a viewer that executes scripts. */
