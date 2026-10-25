@@ -641,7 +641,8 @@ span several files:
   `'wasm-unsafe-eval'`. Also off: scripting, XFA, the annotation layer and range or streamed loading. It is the
   **legacy** build in both the browser and the Node tests. `pdfjs-dist` is a devDependency because vite bundles it.
   Its data files are copied by `vite.build.ts` to `/assets/pdfjs/` (`PDFJS_ASSET_MOUNT`), which
-  `src/document-viewer/pdfjs-assets.ts` serves in development; `pdfjs-assets.test.ts` pins both lists.
+  `src/document-viewer/pdfjs-assets.ts` serves in development; `pdfjs-assets.test.ts` pins both lists, and that
+  `package.json` resolves `pdfjs-dist` through a patch file that exists.
 - **`pdfjs-dist` is patched, and a page it cannot draw in full is a page state, not a document state** (plan
   `docs/plans/completed/20261025-document-viewer-incomplete-pages.md`). Previews open with `stopAtErrors: true`, so an
   image over `maxImageSize` fails the page rather than being silently left out. The switch is PDF.js's whole
@@ -650,7 +651,7 @@ span several files:
   render with a truncated page, so `package.json` resolves `pdfjs-dist` through `.yarn/patches/` (committed; `.gitignore`
   admits only that directory under `.yarn/`). The patch does two things, both needed: it fails each pending render
   task instead of completing it, and it drops the failed operator list from `_intentStates`, so drawing the page again
-  asks the worker rather than drawing a cached blank page. `pdf-document.test.ts` fails if the patch is lost, which is what a version
+  asks the worker rather than drawing a cached blank page. `pdf-document.test.ts` fails if the patch's behaviour is lost, which is what a version
   bump does, and Renovate never automerges `pdfjs-dist`. Re-apply the patch to a new version with `yarn patch`, or drop it
   once upstream fixes the swallowed error (draft issue: `docs/pdfjs-render-error-upstream-issue.md`, not yet filed).
   `renderPage` answers `incomplete` with the canvas emptied, and the viewer shows the page's sentence with **Download

@@ -292,12 +292,19 @@ test("judge reads a referral's documents, sees unavailable, oversized and partly
   await expect(pageNumber(page)).toHaveValue("1");
   await expect(documentPage.getByText(PAGE_INCOMPLETE, { exact: true })).toBeVisible();
   await expect(documentPage.locator("canvas")).toHaveCount(0);
+  // Zoom still works on that page, and the page still says so.
+  const incompleteZoom = await zoomLevel(page).textContent();
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await expect(zoomLevel(page)).not.toHaveText(incompleteZoom ?? "");
+  await expect(documentPage.getByText(PAGE_INCOMPLETE, { exact: true })).toBeVisible();
 
   // ── the TIFF kept its place, and its original is the TIFF, not the preview ─────────────────────────────────
   await page.getByLabel("Document", { exact: true }).selectOption({ label: SCAN.name });
   await page.getByRole("button", { name: "Open document" }).click();
   await expectPages(page, 4);
   await expect(pageNumber(page)).toHaveValue("2");
+  await expect(documentPage.getByText(PAGE_INCOMPLETE, { exact: true })).toBeHidden();
+  await expect(documentPage.getByRole("link", { name: "Download original" })).toBeHidden();
   await expectOriginal(page, SCAN);
 
   // ── Welsh, then back to the referral's documents ─────────────────────────────────────────────────────────

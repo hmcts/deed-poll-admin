@@ -237,6 +237,12 @@ Recommendation: option 1, together with an upstream issue so the patch can be dr
   2 / 85, session-redis 1 / 7, simple-router 4 / 45; no failures, no skips.
 - **Commits.** Baseline `105e58c`; Task 1 `b6ff76b`; Task 2 `e6ac7dc`. Ready for the
   Ralphex review phases.
+- **Review phase (2026-10-25).** `b743cb0`: CLAUDE.md records that `stopAtErrors` is the whole of `ignoreErrors` and
+  that `@napi-rs/canvas` is an optional dependency, and the patch-resolution check now requires the patch file. The
+  next iteration's fixes: a redraw of the same page (resize, zoom, density) no longer re-announces its sentence, a
+  failed text layer is documented as incomplete, the overlapping-render guard test renders twice in one tick, the
+  browser journey zooms on the incomplete page and checks the next document hides the page-level link, and the
+  patch's removal steps are listed in full.
 
 ## Post-Completion
 

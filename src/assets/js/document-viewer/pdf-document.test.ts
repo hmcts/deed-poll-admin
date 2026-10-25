@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { afterEach, describe, expect, it } from "vitest";
 import { type OpenedPreview, openPreview } from "./pdf-document.js";
 import { A4_LANDSCAPE, pagesSaying, testPdf } from "./test-pdfs.js";
@@ -23,10 +23,13 @@ function document(result: OpenedPreview) {
 
 /** Draws one page onto a canvas from PDF.js's own Node factory, as the viewer draws onto a browser canvas. */
 async function draw(preview: PDFDocumentProxy, pageNumber: number): Promise<void> {
-  const page = await preview.getPage(pageNumber);
+  await render(preview, await preview.getPage(pageNumber));
+}
+
+function render(preview: PDFDocumentProxy, page: PDFPageProxy): Promise<void> {
   const viewport = page.getViewport({ scale: 0.5 });
   const { canvas } = preview.canvasFactory.create(Math.ceil(viewport.width), Math.ceil(viewport.height)) as { canvas: HTMLCanvasElement };
-  await page.render({ canvas, viewport }).promise;
+  return page.render({ canvas, viewport }).promise;
 }
 
 describe("openPreview", () => {
@@ -113,7 +116,9 @@ describe("openPreview", () => {
   it("should fail every later render of that page too, whether drawn again alone or twice at once", async () => {
     const preview = document(await open(testPdf([{ text: "Oversized scan", image: [9_000, 9_000] }])));
 
-    const together = await Promise.allSettled([draw(preview, 1), draw(preview, 1)]);
+    // Both started in one tick, so the second joins the first's pending operator list rather than starting after it.
+    const page = await preview.getPage(1);
+    const together = await Promise.allSettled([render(preview, page), render(preview, page)]);
     const again = await Promise.allSettled([draw(preview, 1)]);
 
     expect([...together, ...again].map((result) => result.status)).toEqual(["rejected", "rejected", "rejected"]);

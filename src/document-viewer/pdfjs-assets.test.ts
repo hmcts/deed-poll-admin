@@ -34,21 +34,16 @@ describe("pdfjsDevelopmentAssets", () => {
 });
 
 describe("PDF.js packaging", () => {
-  it("should pin PDF.js exactly, as a build-time dependency the production image does not install", () => {
-    const manifest = JSON.parse(readFileSync(root("package.json"), "utf8"));
-
-    expect(manifest.devDependencies["pdfjs-dist"]).toMatch(PATCHED_PDFJS);
-    expect(manifest.dependencies["pdfjs-dist"]).toBeUndefined();
-  });
-
   // The patch that makes a failed page render reject (docs/pdfjs-render-error-upstream-issue.md) is a committed file,
   // so a resolution naming one that is not there would fail every install.
-  it("should resolve PDF.js through a patch file the repository carries", () => {
+  it("should pin PDF.js exactly through a committed patch, as a build-time dependency the production image does not install", () => {
     const manifest = JSON.parse(readFileSync(root("package.json"), "utf8"));
-    const resolution = PATCHED_PDFJS.exec(manifest.devDependencies["pdfjs-dist"]);
 
-    expect(resolution).not.toBeNull();
-    expect(existsSync(root(resolution?.[2] ?? "no-patch-named"))).toBe(true);
+    const resolution = PATCHED_PDFJS.exec(manifest.devDependencies["pdfjs-dist"]);
+    if (!resolution) throw new Error(`pdfjs-dist is not resolved through a patch: ${manifest.devDependencies["pdfjs-dist"]}`);
+
+    expect(existsSync(root(resolution[2]))).toBe(true);
+    expect(manifest.dependencies["pdfjs-dist"]).toBeUndefined();
   });
 
   it("should copy the fallback decoders under the names the pinned worker imports", () => {

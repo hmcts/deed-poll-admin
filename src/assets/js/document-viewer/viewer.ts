@@ -87,6 +87,7 @@ export function initDocumentViewer(root: HTMLElement): void {
   let thumbnails: Thumbnails | null = null;
   let shownScale: number | null = null;
   let drawnFrame: Size | null = null;
+  let drawnPage: number | null = null;
 
   const presentation = (): Presentation => presentations.get(current.id) ?? DEFAULT_PRESENTATION;
 
@@ -108,6 +109,7 @@ export function initDocumentViewer(root: HTMLElement): void {
     controls.pageDownload.hidden = true;
   };
 
+  // Settled only by a change, so a redraw of the same page (a resize, a zoom) does not announce its sentence again.
   const showIncomplete = (incomplete: boolean) => {
     if (incomplete === !controls.pageDownload.hidden) return;
     say(incomplete ? (root.dataset.messagePageIncomplete ?? "") : "");
@@ -126,6 +128,7 @@ export function initDocumentViewer(root: HTMLElement): void {
     thumbnailsRegion.hidden = true;
     shownScale = null;
     drawnFrame = null;
+    drawnPage = null;
   };
 
   const sync = () => {
@@ -163,7 +166,7 @@ export function initDocumentViewer(root: HTMLElement): void {
     const shown = clampPresentation(presentation(), showing.numPages);
 
     page?.release();
-    showIncomplete(false);
+    if (shown.page !== drawnPage) showIncomplete(false);
     const available = innerSize(frame);
     let scale: number | null = null;
     const drawing = renderPage(showing.document, {
@@ -189,13 +192,12 @@ export function initDocumentViewer(root: HTMLElement): void {
       fail("unavailable");
       return;
     }
-    if (outcome === "incomplete") {
-      drawing.release();
-      showIncomplete(true);
-    }
+    if (outcome === "incomplete") drawing.release();
     if (outcome === "rendered" || outcome === "incomplete") {
+      showIncomplete(outcome === "incomplete");
       shownScale = scale;
       drawnFrame = available;
+      drawnPage = shown.page;
       sync();
     }
   };

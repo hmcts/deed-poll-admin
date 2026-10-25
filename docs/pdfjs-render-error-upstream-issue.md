@@ -2,7 +2,9 @@
 
 **Status: drafted, not filed.** Filing it on [mozilla/pdf.js](https://github.com/mozilla/pdf.js/issues) is an external
 action for Steve to take or approve. Once it is filed, add its link here. Once a release fixes it, drop
-`.yarn/patches/pdfjs-dist-npm-6.4.299-*.patch` and the `pdfjs-dist` rule in `.github/renovate.json`.
+`.yarn/patches/pdfjs-dist-npm-6.4.299-*.patch`, restore a plain `pdfjs-dist` version in `package.json` (`yarn install`
+rewrites `yarn.lock`), and remove the patch-resolution check in `src/document-viewer/pdfjs-assets.test.ts`, the
+`.yarn/patches/` exception in `.gitignore` and the `pdfjs-dist` rule in `.github/renovate.json`.
 
 Why this repository carries the patch: the document viewer opens every preview with `stopAtErrors: true`, so that a
 page PDF.js cannot draw in full says so rather than showing part of itself as if it were complete (plan
