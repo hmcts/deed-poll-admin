@@ -82,6 +82,21 @@ cut off at the image, so the text after it is missing too, and the caller has no
 - The truncated list also stays cached in `_intentStates`, so a later render of the same page (a zoom, a rotation)
   draws it again and resolves, even after the first render has been made to reject.
 
+## Known limitations of our local patch
+
+Our patch fails a page when `buildPaintImageXObject` refuses an image over `maxImageSize`, and rethrows that from the
+annotation operator-list catch. Three paths still drop an oversized image silently in 6.4.299, and we have not patched
+them:
+
+1. An image's own `/SMask` or `/Mask` stream is constructed directly as a `PDFImage` without the size check, and a
+   decode failure there is swallowed.
+2. For a JPX image, `PDFImage` replaces the dictionary's `/Width`/`/Height` with the codestream's dimensions after the
+   size check has passed, without checking `maxImageSize` again.
+3. `loadType3Data` catches every glyph error, our dedicated one included, and substitutes an empty glyph.
+
+An upstream fix that reports these as render failures (or exposes them through a public API) would let us drop the
+patch entirely.
+
 ## Suggested fix
 
 In `_pumpOperatorList`'s rejection handler, when `reason` is not an `AbortException`, fail each pending

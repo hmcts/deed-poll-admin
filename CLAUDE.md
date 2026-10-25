@@ -662,8 +662,14 @@ span several files:
   and Renovate never automerges `pdfjs-dist`. Re-apply the patch to a new version with `yarn patch` on the original
   package (not `--update`, which stacks a second patch). An upstream fix for the swallowed error (draft issue:
   `docs/pdfjs-render-error-upstream-issue.md`, not yet filed) retires only the display hunks; the worker hunks are
-  this app's own and stay. One gap is known and left: an oversized image
-  inside a Type3 glyph is still dropped silently, because PDF.js catches every Type3 glyph error itself.
+  this app's own and stay. **Three gaps are known and left** (Steve,
+  2026-10-25: patching further into PDF.js costs more than the rare cases are worth). An oversized image can still be
+  dropped silently when it is (1) an image's own `/SMask` or `/Mask` stream, which PDF.js builds as a `PDFImage`
+  without the size check and whose decode failure it swallows; (2) a JPEG 2000 (JPX) image whose codestream is larger
+  than its declared `/Width × /Height`, because PDF.js replaces the declared size after the check; or (3) inside a
+  Type3 glyph, because PDF.js catches every Type3 glyph error itself. Each needs an exotic or crafted PDF over 64
+  megapixels. The viewer's footer therefore says it is a preview and points to **Download original** for anything that
+  looks missing; do not reword it into a promise of completeness.
   `renderPage` answers `incomplete` with the canvas emptied, and the viewer shows the page's sentence with **Download
   original** while every control keeps working; a thumbnail gets a grey placeholder. A page that cannot be read at all
   is still `failed`, the document's unavailable state. Never remove `maxImageSize`.

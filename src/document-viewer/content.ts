@@ -26,7 +26,9 @@ export const en = {
   previousDocument: "Previous document",
   nextDocument: "Next document",
   downloadOriginal: "Download original",
-  previewNotice: "Preview only — the original document is unchanged",
+  // A preview cannot promise to show everything (see "Document viewer" in CLAUDE.md for the known gaps), so the
+  // notice tells the reader where the definitive copy is.
+  previewNotice: "This is a preview. If anything looks missing or unclear, download the original.",
   pageNavigationLabel: "Page navigation",
   previousPage: "Previous page",
   nextPage: "Next page",
