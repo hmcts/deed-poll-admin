@@ -17,6 +17,28 @@ completely fails loudly, and show a fixed, localized per-page message such as "T
 Download the original to see it." with **Download original** available. Other pages of the same document stay
 viewable. Do not remove `maxImageSize` (that would push unbounded decoded images into the browser's memory).
 
+## Decision 2 (Steve, 2026-10-25): patch pdfjs-dist's display layer
+
+Task 1's first attempt found that `stopAtErrors` alone does not make a render reject in `pdfjs-dist` 6.4.299: the
+display side completes the render successfully with a truncated operator list, which is worse than today (see the
+Task 1 notes below). Steve chose **option 1**:
+
+- **Patch `pdfjs-dist` with `yarn patch`, same version (6.4.299).** In `PDFPageProxy._pumpOperatorList`'s error
+  path, when `reason` is not an `AbortException` (or `RenderingCancelledException`), fail each pending render task
+  with it (`internalRenderTask.callback(reason)`, or the equivalent the source supports) instead of completing it, in
+  **both** the legacy and modern builds the app or its tests load. Keep the patch minimal and commented with a link to
+  the upstream issue text. Commit the `.yarn/patches/` file and the `package.json`/`yarn.lock` resolution Yarn writes.
+  This plan's "no new dependency" stands; the "do not touch `pdfjs-dist`" rule is lifted for this patch only.
+- **A guard test** that fails if the patch is lost, for example after a Renovate bump that changes the version and so
+  drops the patch: load the oversized-image fixture with the real `pdfjs-dist` under `stopAtErrors` and assert the page
+  render **rejects** (and page 2 still renders). It must fail against the unpatched package.
+- **Renovate:** add a `.github/renovate.json` package rule for `pdfjs-dist` so a bump is not automerged, with a
+  description saying the patch must be re-applied or dropped once upstream fixes the swallowed error.
+- **Upstream issue text, drafted not filed:** write it to `docs/pdfjs-render-error-upstream-issue.md` (title, version,
+  minimal reproduction using the fixture, the source locations from the Task 1 notes, expected vs actual). Filing it
+  on GitHub is an external action Steve takes or approves separately.
+- Then implement the per-page state as the Development Approach describes, on top of the patched behaviour.
+
 ## Context
 
 Branch `feat/full-page-document-viewer`. Read `CLAUDE.md`, `.claude/rules/frontend.md`, `testing.md`,
