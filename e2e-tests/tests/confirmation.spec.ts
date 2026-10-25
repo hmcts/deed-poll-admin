@@ -518,12 +518,21 @@ function caseHeaderLink(page: Page): Locator {
  * elsewhere on the same page.
  */
 function summaryRow(page: Page, key: string): Locator {
-  return page.locator(".govuk-summary-list__row", { hasText: key });
+  // An anchored match on the key cell: `hasText` alone is a case-insensitive substring, so "Status" would also
+  // answer to "Marital status" and to the application's own Status row.
+  const keyCell = page.locator(".govuk-summary-list__key").filter({ hasText: exactText(key) });
+
+  return page.locator(".govuk-summary-list__row").filter({ has: keyCell });
+}
+
+/** The whole of a cell's text, so a key never matches another key that merely contains it. */
+function exactText(text: string): RegExp {
+  return new RegExp(`^\\s*${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
 }
 
 /** The case header's own summary list, which is a separate list from any tab's. */
 function caseHeaderRow(page: Page, key: string): Locator {
-  return page.locator(".govuk-summary-list__row", { hasText: key }).first();
+  return summaryRow(page, key).first();
 }
 
 /** A column of the list table, by its heading — which is how "this tab has a Waiting column" is asked. */
