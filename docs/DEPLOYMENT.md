@@ -279,6 +279,7 @@ Deploy that api change before this one, or every preview fails and only **Downlo
   inside both Application Gateways' 30 s `request_timeout`. `DEED_POLL_API_TIMEOUT_MS` can only shorten it.
 - **Assets.** The PDF.js worker, fonts, cmaps and image decoders are built into `dist/assets/` and served from the
   pod. Nothing is fetched from a CDN, and the CSP needs no new host, no `unsafe-eval` and no `wasm-unsafe-eval`.
+  The worker is PDF.js's unminified (patched) legacy build, about 514 KB gzipped, because the minified one is unpatched.
 - **AAT acceptance is still to do and cannot come from the mock:** synthetic documents of every type, including a
   multi-page TIFF and a court-generated DOCX, checked for pagination and fonts, original downloads checked for
   equality, staff and judicial refusals checked, and converter outage checked. See the plan's Post-Completion.

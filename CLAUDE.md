@@ -643,17 +643,25 @@ span several files:
   Its data files are copied by `vite.build.ts` to `/assets/pdfjs/` (`PDFJS_ASSET_MOUNT`), which
   `src/document-viewer/pdfjs-assets.ts` serves in development; `pdfjs-assets.test.ts` pins both lists, and that
   `package.json` resolves `pdfjs-dist` through a patch file that exists.
-- **`pdfjs-dist` is patched, and a page it cannot draw in full is a page state, not a document state** (plan
-  `docs/plans/completed/20261025-document-viewer-incomplete-pages.md`). Previews open with `stopAtErrors: true`, so an
-  image over `maxImageSize` fails the page rather than being silently left out. The switch is PDF.js's whole
-  `ignoreErrors`, not just the image check: an undecodable font, colour space, shading, pattern or ToUnicode map now
-  fails its page too, where it used to fall back and draw (Steve's decision; the plan's Task 1 notes list them). Unpatched, 6.4.299 still resolves that
-  render with a truncated page, so `package.json` resolves `pdfjs-dist` through `.yarn/patches/` (committed; `.gitignore`
-  admits only that directory under `.yarn/`). The patch does two things, both needed: it fails each pending render
-  task instead of completing it, and it drops the failed operator list from `_intentStates`, so drawing the page again
-  asks the worker rather than drawing a cached blank page. `pdf-document.test.ts` fails if the patch's behaviour is lost, which is what a version
-  bump does, and Renovate never automerges `pdfjs-dist`. Re-apply the patch to a new version with `yarn patch`, or drop it
-  once upstream fixes the swallowed error (draft issue: `docs/pdfjs-render-error-upstream-issue.md`, not yet filed).
+- **`pdfjs-dist` is patched, and a page it cannot draw in full is a page state, not a document state** (plans
+  `docs/plans/completed/20261025-document-viewer-incomplete-pages.md` and
+  `docs/plans/completed/20261025-document-viewer-oversized-image-only.md`). **Only an oversized image fails a page**:
+  an image whose declared size is over `maxImageSize` makes the patched worker throw its own `ImageTooLargeError`
+  whatever `ignoreErrors` says, and the patch rethrows it at each catch it passes through (the XObject `Do`, nested
+  form XObjects and inline images, tiling patterns, an ExtGState SMask and an annotation's appearance stream).
+  **`stopAtErrors` is deliberately off.** It is PDF.js's whole `ignoreErrors`, so it also failed or silently emptied
+  pages for a broken font, ToUnicode map, colour space, shading or pattern, where PDF.js falls back and draws: an
+  empty `FontFile2` drew none of its text. Do not turn it back on to catch some other fault; patch that fault's check
+  instead. On the display side the patch fails each pending render task instead of completing it with the truncated
+  operator list, and drops the failed list from `_intentStates`, so drawing the page again asks the worker rather
+  than drawing a cached blank page. Unpatched, 6.4.299 draws the page without the image and resolves.
+  `package.json` resolves `pdfjs-dist` through `.yarn/patches/` (committed; `.gitignore` admits only that directory
+  under `.yarn/`), and the browser loads the **unminified** legacy worker (`pdf.worker.mjs?url`) because the minified
+  files are unpatched. `pdf-document.test.ts` fails if the patch's behaviour is lost, which is what a version bump does,
+  and Renovate never automerges `pdfjs-dist`. Re-apply the patch to a new version with `yarn patch` on the original
+  package (not `--update`, which stacks a second patch), or drop it once upstream fixes the swallowed error (draft
+  issue: `docs/pdfjs-render-error-upstream-issue.md`, not yet filed). One gap is known and left: an oversized image
+  inside a Type3 glyph is still dropped silently, because PDF.js catches every Type3 glyph error itself.
   `renderPage` answers `incomplete` with the canvas emptied, and the viewer shows the page's sentence with **Download
   original** while every control keeps working; a thumbnail gets a grey placeholder. A page that cannot be read at all
   is still `failed`, the document's unavailable state. Never remove `maxImageSize`.

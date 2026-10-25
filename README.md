@@ -248,14 +248,17 @@ its own page, zoom and rotation during the visit, and **Back to case** or **Back
   `PREVIEW_UNAVAILABLE`, `PREVIEW_BUSY`) and a missing document each get a fixed sentence in the viewer, and the
   download keeps working. **Try again** appears only for busy and failed previews, and **Sign in again** only when
   the session has ended. A DOCX before the converter is provisioned is the `PREVIEW_UNAVAILABLE` state (decision 3).
-- **A page that cannot be drawn in full.** A preview that opens but has a page PDF.js cannot draw completely (for
-  example a scan whose embedded image is over the viewer's 64-megapixel `maxImageSize`) shows that page as "This page
+- **A page that cannot be drawn in full.** A preview that opens but has a page holding an image over the viewer's
+  64-megapixel `maxImageSize` (for example a very large scan, in the page or in a stamp or signature) shows that page as "This page
   could not be shown in full. Download the original to see it." with a **Download original** link, and nothing of the
   page is left drawn. Its thumbnail is a grey placeholder. The other pages, page controls, zoom, rotation and document
   switching keep working, and returning to the page tries it again. This is a page state, not the document-level
   unavailable state above, which still covers a preview that cannot be opened at all. It relies on a patched
-  `pdfjs-dist` (`.yarn/patches/`), because PDF.js 6.4.299 otherwise reports such a page as drawn; see
-  [`docs/plans/completed/20261025-document-viewer-incomplete-pages.md`](docs/plans/completed/20261025-document-viewer-incomplete-pages.md).
+  `pdfjs-dist` (`.yarn/patches/`), because PDF.js 6.4.299 otherwise draws such a page without the image and reports it
+  as drawn. Only an oversized image does this: any other fault, such as a broken embedded font, keeps PDF.js's own
+  fallback and draws as before. See
+  [`docs/plans/completed/20261025-document-viewer-incomplete-pages.md`](docs/plans/completed/20261025-document-viewer-incomplete-pages.md)
+  and [`docs/plans/completed/20261025-document-viewer-oversized-image-only.md`](docs/plans/completed/20261025-document-viewer-oversized-image-only.md).
 - **PDF.js.** `pdfjs-dist` is pinned to 6.4.299 with a committed Yarn patch (`.yarn/patches/`, see above) and bundled by vite, and its worker is a hashed asset served from this app's
   origin. Its fonts, cmaps and the JavaScript image decoders are served under `/assets/pdfjs/`
   (`src/document-viewer/pdfjs-assets.ts`). It runs with WebAssembly, scripting, XFA and range requests turned off,

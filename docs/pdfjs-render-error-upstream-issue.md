@@ -6,10 +6,25 @@ action for Steve to take or approve. Once it is filed, add its link here. Once a
 rewrites `yarn.lock`), and remove the patch-resolution check in `src/document-viewer/pdfjs-assets.test.ts`, the
 `.yarn/patches/` exception in `.gitignore` and the `pdfjs-dist` rule in `.github/renovate.json`.
 
-Why this repository carries the patch: the document viewer opens every preview with `stopAtErrors: true`, so that a
-page PDF.js cannot draw in full says so rather than showing part of itself as if it were complete (plan
-`docs/plans/completed/20261025-document-viewer-incomplete-pages.md`). Unpatched, that state is never reached. The
-guard is `src/assets/js/document-viewer/pdf-document.test.ts`, which fails against the unpatched package.
+Why this repository carries the patch: the document viewer fails a page whose image is over `maxImageSize`, so that
+the page says it could not be shown in full rather than showing itself without the image as if it were complete
+(plans `docs/plans/completed/20261025-document-viewer-incomplete-pages.md` and
+`docs/plans/completed/20261025-document-viewer-oversized-image-only.md`). It does **not** use `stopAtErrors`: that
+option is all of `ignoreErrors`, so it also turned a broken font or ToUnicode map, which PDF.js otherwise draws through
+a fallback, into a page with its text missing, and an annotation's error into a silently absent stamp. The patch has
+two parts:
+
+- **Worker (downstream only, not part of this issue).** `buildPaintImageXObject` throws a dedicated
+  `ImageTooLargeError` for an oversized image whatever `ignoreErrors` says, and the catches it can pass through (the
+  XObject `Do`, `getOperatorList`'s outer catch, `handleTilingType`, the ExtGState SMask and the annotation
+  operator-list catch) rethrow it instead of ignoring it. Every other error keeps PDF.js's fallbacks. An upstream
+  equivalent would be an option to treat an oversized image as a page error; it is not proposed here. An oversized
+  image inside a Type3 glyph is still dropped, because `loadType3Data` catches every glyph error.
+- **Display (the bug below).** Once the worker's operator list fails, the render must reject. Unpatched it resolves,
+  which is the issue this draft describes, reproduced with upstream's own `stopAtErrors`.
+
+The guard is `src/assets/js/document-viewer/pdf-document.test.ts`, which fails against the unpatched package. Because
+only the unminified workers are patched, the viewer loads `legacy/build/pdf.worker.mjs`, not `pdf.worker.min.mjs`.
 
 ---
 
@@ -84,4 +99,5 @@ if (failed && this._intentStates.get(cacheKey) === intentState) {
 }
 ```
 
-Without `stopAtErrors` nothing changes, because the worker does not error for the cases it ignores.
+Without `stopAtErrors` nothing changes, because the worker does not error for the cases it ignores. Downstream, the same
+handler is what turns the worker's `ImageTooLargeError` into a rejected render with `stopAtErrors` off.

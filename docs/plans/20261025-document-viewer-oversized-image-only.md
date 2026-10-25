@@ -98,7 +98,7 @@ fixtures.
 **Files:** `CLAUDE.md`, `docs/pdfjs-render-error-upstream-issue.md`, `README.md`/`docs/DEPLOYMENT.md` where they
 describe the viewer states, this plan.
 
-- [ ] Update the docs as described. Run `yarn test:document-viewer`, `yarn welsh:check` and all Validation Commands;
+- [x] Update the docs as described. Run `yarn test:document-viewer`, `yarn welsh:check` and all Validation Commands;
       record final commits and counts, and hand off to the Ralphex review phases.
 
 ## Acceptance Criteria
@@ -154,6 +154,24 @@ describe the viewer states, this plan.
   `yarn turbo test test:app --concurrency=1 --force` with `REDIS_URL` set: 8/8 tasks, 0 failed, 0 skipped (app
   148 files / 3006 tests; deed-poll 1520; api-client 1112; cloud-native-platform 156; express-govuk-starter 132;
   express-session-postgres 85; simple-router 45; express-session-redis 7).
+
+**Task 2.**
+
+- Docs: `CLAUDE.md`'s "Document viewer" bullet on the patch now says only an oversized image fails a page, lists the
+  catches the worker patch rethrows at, why `stopAtErrors` is deliberately off, the unminified worker, `yarn patch` on
+  the original package rather than `--update`, and the Type3 gap. `README.md`'s incomplete-page entry names the
+  oversized image (page content or a stamp/signature) as the only trigger and links both plans.
+  `docs/DEPLOYMENT.md`'s Assets entry notes the unminified worker's size. `docs/pdfjs-render-error-upstream-issue.md`
+  now describes the two-part patch: the worker hunks are downstream only, and the issue itself (display side,
+  reproduced with upstream `stopAtErrors`) is unchanged. Still not filed.
+- `yarn lint` clean (576 files); `yarn build` 8/8; `yarn turbo test test:app --concurrency=1 --force` with
+  `REDIS_URL` set: 8/8 tasks, 0 failed, 0 skipped (app 148 files / 3006 tests; deed-poll 1520; api-client 1112;
+  cloud-native-platform 156; express-govuk-starter 132; express-session-postgres 85; simple-router 45;
+  express-session-redis 7).
+- `yarn test:document-viewer`: 2 passed (caseworker and judge journeys), 0 skipped. Only GOV.UK Frontend's
+  `mid-grey` deprecation warnings in the web-server output.
+- `yarn welsh:check`: 793 strings, 575 still identical in cy (568 prose, 7 not prose), unchanged by this plan.
+- Final commits: `c14cd8d` (Task 1) and this task's docs commit. Ready for the Ralphex review phases.
 
 ## Post-Completion
 
