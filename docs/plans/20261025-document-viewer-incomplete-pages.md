@@ -112,10 +112,10 @@ cached `chromium-1243` is already symlinked as `chromium-1248`. Do not try to do
 **Files:** `e2e-tests/tests/document-viewer.spec.ts`, mock preview fixtures, `README.md`/`docs/DEPLOYMENT.md` where
 they describe viewer states, this plan.
 
-- [ ] Extend the existing journeys as described, run `yarn test:document-viewer` and `yarn welsh:check`, and record
+- [x] Extend the existing journeys as described, run `yarn test:document-viewer` and `yarn welsh:check`, and record
       both. Document the new state beside the existing ones. **Reference this plan by its `docs/plans/completed/`
       path**, since that is where it will be once the run ends.
-- [ ] Run all Validation Commands; record final commits and counts, and hand off to the Ralphex review phases.
+- [x] Run all Validation Commands; record final commits and counts, and hand off to the Ralphex review phases.
 
 ## Acceptance Criteria
 
@@ -212,6 +212,31 @@ Recommendation: option 1, together with an upstream issue so the patch can be dr
   identical in cy (568 prose, 7 not prose), against 792 / 574 / 567 / 7 without the change: exactly the new
   sentence, which is also the one new row in `.business_context/welsh-translation-request.csv`.
 - **Not run here:** `yarn test:document-viewer` (Task 2).
+
+**Task 2 done (2026-10-25).**
+
+- **Browser check.** The judge's journey in `e2e-tests/tests/document-viewer.spec.ts` (not a new journey) gained a
+  fifth document, "High resolution scan": `testPdf` with page 1 painting a 9,000-pixel-square image (81 MP, over the
+  64 MP `maxImageSize`) and page 2 text only. The mock previews a PDF as its stored bytes, so no mock change was
+  needed. The journey sees page 1's sentence in the document page region with no canvas and no text layer, a grey
+  placeholder for thumbnail 1 and a drawn thumbnail 2, passes axe, downloads the original from the page-level
+  **Download original** (bytes and filename), moves to page 2 and sees it drawn with the sentence and link hidden, and
+  returns to page 1 through its thumbnail to find it refused again rather than a cached blank page. `expectOriginal`
+  takes an optional scope, because on that page two **Download original** links are visible.
+- **Red.** With `stopAtErrors: false` (rebuilt, then restored) the judge's journey failed at the sentence
+  (`toBeVisible`: element not found) and the caseworker's passed.
+- **`yarn test:document-viewer`:** 2 passed, no skips (caseworker 7.3 s, judge 3.2 s).
+- **`yarn welsh:check`:** exits 1 by design; 793 strings, 575 identical in cy (568 prose, 7 not prose), the same as
+  after Task 1: the browser check adds no strings.
+- **Docs.** README's document viewer section has a bullet for the page state beside the existing errors, linking this
+  plan's `docs/plans/completed/` path, and its `yarn test:document-viewer` paragraph names the new document.
+  `docs/DEPLOYMENT.md` describes no viewer states, so it is unchanged.
+- **Validation.** `yarn lint`: 576 files, no fixes. `yarn build`: 8/8 tasks. `yarn turbo test test:app
+  --concurrency=1 --force` with `REDIS_URL=redis://127.0.0.1:6379`: 8/8 tasks; root 148 files / 2,999 tests,
+  deed-poll 69 / 1,520, api client 17 / 1,112, starter 12 / 132, cloud-native-platform 13 / 156, session-postgres
+  2 / 85, session-redis 1 / 7, simple-router 4 / 45; no failures, no skips.
+- **Commits.** Baseline `105e58c`; Task 1 `b6ff76b`; Task 2 is the commit that records these notes. Ready for the
+  Ralphex review phases.
 
 ## Post-Completion
 

@@ -220,7 +220,8 @@ These local checks use the mock and never send a real Notify email.
 For the document viewer journeys (`yarn test:document-viewer`), prepare the same way: `yarn build`, the IDAM
 simulator seeded with `yarn idam:users`, and Redis on 6379. The suite starts its own app on 3319 and a fresh mock on
 3219, uses Redis database 4, and is kept out of `yarn test:e2e` because it switches the mock's preview scenario. It
-runs one caseworker and one judicial journey over all five file types (see below).
+runs one caseworker and one judicial journey over all five file types, including a PDF with a page too large to
+draw in full (see below).
 
 There are no database commands: this repo has no database.
 
@@ -247,6 +248,14 @@ its own page, zoom and rotation during the visit, and **Back to case** or **Back
   `PREVIEW_UNAVAILABLE`, `PREVIEW_BUSY`) and a missing document each get a fixed sentence in the viewer, and the
   download keeps working. **Try again** appears only for busy and failed previews, and **Sign in again** only when
   the session has ended. A DOCX before the converter is provisioned is the `PREVIEW_UNAVAILABLE` state (decision 3).
+- **A page that cannot be drawn in full.** A preview that opens but has a page PDF.js cannot draw completely (for
+  example a scan whose embedded image is over the viewer's 64-megapixel `maxImageSize`) shows that page as "This page
+  could not be shown in full. Download the original to see it." with a **Download original** link, and nothing of the
+  page is left drawn. Its thumbnail is a grey placeholder. The other pages, page controls, zoom, rotation and document
+  switching keep working, and returning to the page tries it again. This is a page state, not the document-level
+  unavailable state above, which still covers a preview that cannot be opened at all. It relies on a patched
+  `pdfjs-dist` (`.yarn/patches/`), because PDF.js 6.4.299 otherwise reports such a page as drawn; see
+  [`docs/plans/completed/20261025-document-viewer-incomplete-pages.md`](docs/plans/completed/20261025-document-viewer-incomplete-pages.md).
 - **PDF.js.** `pdfjs-dist` is pinned and bundled by vite, and its worker is a hashed asset served from this app's
   origin. Its fonts, cmaps and the JavaScript image decoders are served under `/assets/pdfjs/`
   (`src/document-viewer/pdfjs-assets.ts`). It runs with WebAssembly, scripting, XFA and range requests turned off,

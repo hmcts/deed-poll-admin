@@ -10,7 +10,10 @@
  * **What only a browser can show here:** that real PDF.js and its real worker draw the preview api sends, with page
  * counts and thumbnails taken from the preview's bytes; that documents switch in place with each one's page, zoom
  * and rotation kept and no history entry added; and that **Download original** saves the original's bytes and
- * name, not the preview's PDF, for the two formats whose preview is a conversion (DOCX and TIFF).
+ * name, not the preview's PDF, for the two formats whose preview is a conversion (DOCX and TIFF). And that a page
+ * PDF.js cannot draw in full, an embedded image over `maxImageSize`, says so beside **Download original** while the
+ * document's other pages still draw (`docs/plans/completed/20261025-document-viewer-incomplete-pages.md`), which needs
+ * the patched `pdfjs-dist` running in a real browser and its worker.
  *
  * Every file is synthetic (`libs/deed-poll-api-client/src/mock/preview-sources.ts` and `syntheticPdf`), uploaded
  * through the mock's caseworker contract route as an office would attach it. Run with `yarn test:document-viewer`.
@@ -20,6 +23,7 @@ import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, expect, type Locator, type Page, test } from "@playwright/test";
 import { syntheticPdf } from "../../libs/deed-poll-api-client/src/mock/document-preview.js";
 import { DOCX_BYTES, JPEG_BYTES, PNG_BYTES, tiff } from "../../libs/deed-poll-api-client/src/mock/preview-sources.js";
+import { testPdf } from "../../src/assets/js/document-viewer/test-pdfs.js";
 import { CASEWORKER_EMAIL, signInAsCaseworker, signInAsJudge } from "./idam-session.js";
 
 const MOCK = "http://localhost:3219";
@@ -33,6 +37,15 @@ const BILL = { name: "Utility bill", file: "bill.png", mimeType: "image/png", by
 const SCAN = { name: "Four page scan", file: "scan-pages.tif", mimeType: "image/tiff", bytes: tiff(4) };
 const LETTER = { name: "Supporting letter", file: "letter.docx", mimeType: DOCX_MIME_TYPE, bytes: DOCX_BYTES };
 const BUNDLE = { name: "Oversized bundle", file: "bundle.pdf", mimeType: "application/pdf", bytes: syntheticPdf(101, "Bundle page") };
+// Page 1 paints an 81-megapixel image, over the viewer's 64-megapixel `maxImageSize`; page 2 is text only. The mock
+// previews a PDF as its stored bytes, so this is exactly what PDF.js is given.
+const LARGE_SCAN = {
+  name: "High resolution scan",
+  file: "large-scan.pdf",
+  mimeType: "application/pdf",
+  bytes: Buffer.from(testPdf([{ text: "Large scan page 1", image: [9000, 9000] }, { text: "Large scan page 2" }]))
+};
+const PAGE_INCOMPLETE = "This page could not be shown in full. Download the original to see it.";
 // What each journey's page logged and which workers it started, checked once the journey ends.
 const pageHealth = new WeakMap<Page, { errors: string[]; workers: string[] }>();
 
@@ -204,10 +217,10 @@ test("caseworker reads every format of a case's documents, keeping each one's pl
   await accessible(page);
 });
 
-test("judge reads a referral's documents, sees an unavailable and an oversized preview, and returns to the referral", async ({ page, request }) => {
+test("judge reads a referral's documents, sees unavailable, oversized and partly drawable previews, and returns to the referral", async ({ page, request }) => {
   test.slow();
   const { caseId, referralId } = await seedReferral(request);
-  for (const document of [STATEMENT, SCAN, LETTER, BUNDLE]) await upload(request, caseId, document);
+  for (const document of [STATEMENT, SCAN, LETTER, BUNDLE, LARGE_SCAN]) await upload(request, caseId, document);
   // Decision 3's phased release: before the DOCX converter is provisioned api answers a DOCX preview 503.
   await scenario(request, "preview-converter-unavailable");
   await signInAsJudge(page);
@@ -216,7 +229,7 @@ test("judge reads a referral's documents, sees an unavailable and an oversized p
   await page.getByRole("link", { name: SCAN.name, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/judicial/referrals/${referralId}/documents/[^/]+/view`));
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(SCAN.name);
-  await expect(page.getByText("Document 2 of 4", { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 2 of 5", { exact: true })).toBeVisible();
   // Decision 4: the judicial view carries no case reference.
   await expect(page.getByText("Case reference", { exact: true })).toHaveCount(0);
   await expectPages(page, 4);
@@ -253,6 +266,33 @@ test("judge reads a referral's documents, sees an unavailable and an oversized p
   await expect(page.locator("canvas")).toHaveCount(0);
   await expect(page.locator("#viewer-page-total")).toHaveText("");
 
+  // ── a page PDF.js cannot draw in full says so, offers the original, and the next page still draws ──────────
+  await page.getByRole("button", { name: "Next document" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(LARGE_SCAN.name);
+  await expect(page.locator("#viewer-page-total")).toHaveText("of 2");
+  const documentPage = page.getByRole("region", { name: "Document page" });
+  await expect(documentPage.getByText(PAGE_INCOMPLETE, { exact: true })).toBeVisible();
+  // Nothing of the page is left drawn: not its text, not a partial canvas.
+  await expect(documentPage.locator("canvas")).toHaveCount(0);
+  await expect(page.locator(".textLayer")).toHaveCount(0);
+  await expect(thumbnails(page)).toHaveCount(2);
+  await expect(thumbnails(page).nth(0).locator(".app-document-viewer__thumbnail-placeholder")).toHaveCount(1);
+  await expect(thumbnails(page).nth(1).locator("canvas")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Next page" })).toBeEnabled();
+  await accessible(page);
+  await expectOriginal(page, LARGE_SCAN, documentPage);
+  await page.getByRole("button", { name: "Next page" }).click();
+  await expect(pageNumber(page)).toHaveValue("2");
+  await expectPages(page, 2);
+  await expect(page.locator(".textLayer")).toContainText("Large scan page 2");
+  await expect(documentPage.getByText(PAGE_INCOMPLETE, { exact: true })).toBeHidden();
+  await expect(documentPage.getByRole("link", { name: "Download original" })).toBeHidden();
+  // Back to page 1 asks PDF.js again, and it fails again rather than drawing a cached, truncated page.
+  await thumbnails(page).nth(0).click();
+  await expect(pageNumber(page)).toHaveValue("1");
+  await expect(documentPage.getByText(PAGE_INCOMPLETE, { exact: true })).toBeVisible();
+  await expect(documentPage.locator("canvas")).toHaveCount(0);
+
   // ── the TIFF kept its place, and its original is the TIFF, not the preview ─────────────────────────────────
   await page.getByLabel("Document", { exact: true }).selectOption({ label: SCAN.name });
   await page.getByRole("button", { name: "Open document" }).click();
@@ -263,7 +303,7 @@ test("judge reads a referral's documents, sees an unavailable and an oversized p
   // ── Welsh, then back to the referral's documents ─────────────────────────────────────────────────────────
   await page.locator(".language").click();
   await expect(page.getByRole("navigation", { name: "Cyfrif" })).toBeVisible();
-  await expect(page.getByText("Document 2 of 4", { exact: true })).toBeVisible();
+  await expect(page.getByText("Document 2 of 5", { exact: true })).toBeVisible();
   await expectPages(page, 4);
   await accessible(page);
   await page.locator(".language").click();
@@ -283,8 +323,8 @@ async function expectPages(page: Page, total: number): Promise<void> {
 }
 
 /** **Download original** saves the stored bytes under the uploaded name, whatever the preview was. */
-async function expectOriginal(page: Page, document: { file: string; bytes: Buffer }): Promise<void> {
-  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "Download original" }).click()]);
+async function expectOriginal(page: Page, document: { file: string; bytes: Buffer }, within: Page | Locator = page): Promise<void> {
+  const [download] = await Promise.all([page.waitForEvent("download"), within.getByRole("link", { name: "Download original" }).click()]);
   expect(download.suggestedFilename()).toBe(document.file);
   expect(Buffer.compare(await readFile((await download.path()) ?? ""), document.bytes)).toBe(0);
 }
