@@ -55,7 +55,9 @@ export const en = {
     busy: "Previews are busy at the moment. Try again shortly, or download the original.",
     signedOut: "You have been signed out. Sign in again to view this document.",
     forbidden: "You do not have permission to view this document.",
-    failed: "The preview could not be loaded. Try again, or download the original."
+    failed: "The preview could not be loaded. Try again, or download the original.",
+    // One page of a preview that otherwise opened, for example a scan too large to draw. The other pages still show.
+    pageIncomplete: "This page could not be shown in full. Download the original to see it."
   },
   // Offered beside `busy` and `failed` only: the other refusals give the same answer however often they are asked.
   tryAgain: "Try again",

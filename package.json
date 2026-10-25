@@ -84,7 +84,7 @@
     "@vitest/coverage-v8": "4.1.12",
     "@vitest/ui": "4.1.12",
     "js-yaml": "5.5.0",
-    "pdfjs-dist": "6.4.299",
+    "pdfjs-dist": "patch:pdfjs-dist@npm%3A6.4.299#~/.yarn/patches/pdfjs-dist-npm-6.4.299-98d54b4097.patch",
     "sass": "1.106.1",
     "supertest": "7.3.1",
     "tsx": "4.23.15",

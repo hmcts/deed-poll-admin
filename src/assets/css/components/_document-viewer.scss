@@ -225,6 +225,17 @@
   }
 }
 
+// Stands in for a page that could not be drawn in full: the thumbnail's size, with nothing of the page on it.
+.app-document-viewer__thumbnail-placeholder {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 120px;
+  margin: 0 auto govuk-spacing(1);
+  border: 1px solid $govuk-border-colour;
+  background-color: govuk-colour("mid-grey");
+}
+
 .app-document-viewer__thumbnail-label {
   display: block;
   margin: 0;

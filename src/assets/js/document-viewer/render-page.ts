@@ -5,6 +5,11 @@
  *
  * Every draw can be cancelled, and `release` frees what it held (the canvas's backing store and the page's
  * parsed resources), so moving to another page or document never leaves a full-size page behind.
+ *
+ * **A page that cannot be drawn in full is `incomplete`, and shows nothing.** PDF.js opens the document with
+ * `stopAtErrors` (`pdf-document.ts`), so an image over its size limit or an undecodable part fails the page's render
+ * rather than being left out. The canvas and text layer are emptied at once, because what was drawn before the
+ * failure would pass for the whole page. A page that cannot even be read is `failed`, which is the document's.
  */
 import { AnnotationMode, type PDFDocumentProxy, type PDFPageProxy, RenderingCancelledException, TextLayer } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { canvasDensity, canvasSize } from "./page-geometry.js";
@@ -19,11 +24,13 @@ export function renderPage(document: PDFDocumentProxy, request: PageRequest): Re
   let cancelled = false;
   let cancelTasks = () => {};
   let cleanup = () => {};
+  let read = false;
 
   const done = (async (): Promise<RenderOutcome> => {
     try {
       const page = await document.getPage(request.pageNumber);
       cleanup = () => void page.cleanup();
+      read = true;
       if (cancelled) return "cancelled";
 
       const rotation = (page.rotate + request.rotation) % 360;
@@ -53,7 +60,12 @@ export function renderPage(document: PDFDocumentProxy, request: PageRequest): Re
       await Promise.all([drawing.promise, textLayer?.render()]);
       return cancelled ? "cancelled" : "rendered";
     } catch (error) {
-      return cancelled || error instanceof RenderingCancelledException ? "cancelled" : "failed";
+      if (cancelled || error instanceof RenderingCancelledException) return "cancelled";
+      if (!read) return "failed";
+      cancelTasks();
+      emptyCanvas(canvas);
+      sheet.replaceChildren();
+      return "incomplete";
     }
   })();
 
@@ -64,12 +76,16 @@ export function renderPage(document: PDFDocumentProxy, request: PageRequest): Re
       cancelled = true;
       cancelTasks();
       cleanup();
-      // A zero-sized canvas gives its backing store back at once rather than when it is collected.
-      canvas.width = 0;
-      canvas.height = 0;
+      emptyCanvas(canvas);
       sheet.remove();
     }
   };
+}
+
+// A zero-sized canvas gives its backing store back at once rather than when it is collected, and shows nothing.
+function emptyCanvas(canvas: HTMLCanvasElement): void {
+  canvas.width = 0;
+  canvas.height = 0;
 }
 
 function textLayerFor(page: PDFPageProxy, sheet: HTMLElement, viewport: ReturnType<PDFPageProxy["getViewport"]>): TextLayer {
@@ -80,7 +96,7 @@ function textLayerFor(page: PDFPageProxy, sheet: HTMLElement, viewport: ReturnTy
   return new TextLayer({ textContentSource: page.streamTextContent(), container, viewport });
 }
 
-export type RenderOutcome = "rendered" | "cancelled" | "failed";
+export type RenderOutcome = "rendered" | "cancelled" | "incomplete" | "failed";
 
 export interface PageRequest {
   pageNumber: number;

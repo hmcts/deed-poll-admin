@@ -642,10 +642,20 @@ span several files:
   **legacy** build in both the browser and the Node tests. `pdfjs-dist` is a devDependency because vite bundles it.
   Its data files are copied by `vite.build.ts` to `/assets/pdfjs/` (`PDFJS_ASSET_MOUNT`), which
   `src/document-viewer/pdfjs-assets.ts` serves in development; `pdfjs-assets.test.ts` pins both lists.
+- **`pdfjs-dist` is patched, and a page it cannot draw in full is a page state, not a document state** (plan
+  `docs/plans/completed/20261025-document-viewer-incomplete-pages.md`). Previews open with `stopAtErrors: true`, so an
+  image over `maxImageSize` fails the page rather than being silently left out. Unpatched, 6.4.299 still resolves that
+  render with a truncated page, so `package.json` resolves `pdfjs-dist` through `.yarn/patches/` (committed; `.gitignore`
+  admits only that directory under `.yarn/`). `pdf-document.test.ts` fails if the patch is lost, which is what a version
+  bump does, and Renovate never automerges `pdfjs-dist`. Re-apply the patch to a new version with `yarn patch`, or drop it
+  once upstream fixes the swallowed error (draft issue: `docs/pdfjs-render-error-upstream-issue.md`, not yet filed).
+  `renderPage` answers `incomplete` with the canvas emptied, and the viewer shows the page's sentence with **Download
+  original** while every control keeps working; a thumbnail gets a grey placeholder. A page that cannot be read at all
+  is still `failed`, the document's unavailable state. Never remove `maxImageSize`.
 - **`src/assets/**` has its own type check, `tsconfig.assets.json`**, which `build:app` runs after
   `tsconfig.app.json` (which excludes it), so a type error in a browser bundle fails the image build. No unit test
-  imports `viewer.ts`, `render-page.ts` or `thumbnails.ts`; their behaviour is covered only by
-  `yarn test:document-viewer`, which no pipeline stage runs. Keep rules in DOM-free `presentation.ts`, where tests reach them.
+  imports `viewer.ts` or `thumbnails.ts`; their behaviour is covered only by `yarn test:document-viewer`, which no
+  pipeline stage runs. `render-page.test.ts` drives `renderPage` against real PDF.js with a minimal DOM stand-in. Keep rules in DOM-free `presentation.ts`, where tests reach them.
   Switching documents replaces history and never pushes, and per-document state lives only in memory,
   `history.state` and a validated fragment, never in storage. `viewer.test.ts` scans the sources for storage,
   logging and requests, and allows a network call only in `fetch-preview.ts`.

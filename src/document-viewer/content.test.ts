@@ -22,6 +22,10 @@ describe("document viewer content", () => {
     expect(en.pageStatus).toContain("{total}");
   });
 
+  it("should send the reader to the original for a page that could not be shown in full", () => {
+    expect(en.messages.pageIncomplete).toBe("This page could not be shown in full. Download the original to see it.");
+  });
+
   it("should offer the original download in every preview failure that concerns the document", () => {
     for (const key of ["unavailable", "tooLarge", "busy", "failed"] as const) {
       expect(en.messages[key]).toContain("download the original");

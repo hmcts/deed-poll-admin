@@ -5,7 +5,7 @@
  */
 
 export function testPdf(pages: readonly TestPage[], extras: PdfExtras = {}): Uint8Array<ArrayBuffer> {
-  const pageIds = pages.map((_, index) => FIRST_PAGE_ID + index * 2);
+  const pageIds = pages.map((_, index) => FIRST_PAGE_ID + index * OBJECTS_PER_PAGE);
   const catalog = [
     "/Type /Catalog /Pages 2 0 R",
     extras.openActionScript ? "/OpenAction 5 0 R" : "",
@@ -20,11 +20,14 @@ export function testPdf(pages: readonly TestPage[], extras: PdfExtras = {}): Uin
     "<< /FT /Tx /T (field) /V (Filled value) /Rect [72 120 300 150] /Subtype /Widget /Type /Annot >>",
     ...pages.flatMap((page, index) => {
       const [width, height] = page.size ?? A4_PORTRAIT;
-      const text = page.text === undefined ? "" : `BT /F1 24 Tf 72 ${height - 96} Td (${page.text}) Tj ET`;
+      const image = page.image ? "q 451 0 0 451 72 200 cm /Im1 Do Q " : "";
+      const text = `${image}${page.text === undefined ? "" : `BT /F1 24 Tf 72 ${height - 96} Td (${page.text}) Tj ET`}`;
+      const xObjects = page.image ? `/XObject << /Im1 ${pageIds[index] + 2} 0 R >>` : "";
       const annotations = extras.link || extras.formField ? `/Annots [${extras.link ? "4 0 R " : ""}${extras.formField ? "6 0 R" : ""}]` : "";
       return [
-        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] ${page.rotate ? `/Rotate ${page.rotate}` : ""} ${annotations} /Resources << /Font << /F1 3 0 R >> >> /Contents ${pageIds[index] + 1} 0 R >>`,
-        `<< /Length ${text.length} >>\nstream\n${text}\nendstream`
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] ${page.rotate ? `/Rotate ${page.rotate}` : ""} ${annotations} /Resources << /Font << /F1 3 0 R >> ${xObjects} >> /Contents ${pageIds[index] + 1} 0 R >>`,
+        `<< /Length ${text.length} >>\nstream\n${text}\nendstream`,
+        page.image ? imageXObject(page.image) : "null"
       ];
     })
   ];
@@ -43,6 +46,14 @@ export function testPdf(pages: readonly TestPage[], extras: PdfExtras = {}): Uin
   return new TextEncoder().encode(body);
 }
 
+/**
+ * A one-byte grey image declaring the given size. PDF.js weighs an image's declared `/Width` and `/Height` against
+ * `maxImageSize` before reading any of its data, so one byte is enough to stand for a scan of any size.
+ */
+function imageXObject([width, height]: readonly [number, number]): string {
+  return `<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 1 >>\nstream\n\u0000\nendstream`;
+}
+
 /** `count` portrait pages, each saying which page it is. */
 export function pagesSaying(count: number): TestPage[] {
   return Array.from({ length: count }, (_, index) => ({ text: `Page ${index + 1} of ${count}` }));
@@ -52,11 +63,15 @@ export const A4_PORTRAIT = [595, 842] as const;
 export const A4_LANDSCAPE = [842, 595] as const;
 
 const FIRST_PAGE_ID = 7;
+/** The page, its content stream, and its image or `null`. */
+const OBJECTS_PER_PAGE = 3;
 
 export interface TestPage {
   text?: string;
   size?: readonly [number, number];
   rotate?: 90 | 180 | 270;
+  /** An image of this declared size in pixels, drawn under the page's text. */
+  image?: readonly [number, number];
 }
 
 export interface PdfExtras {

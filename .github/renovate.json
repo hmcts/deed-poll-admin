@@ -51,6 +51,11 @@
       "allowedVersions": "<7"
     },
     {
+      "description": "Never automerge pdfjs-dist: package.json resolves it through .yarn/patches/pdfjs-dist-npm-6.4.299-*.patch, which makes a failed page render reject (docs/pdfjs-render-error-upstream-issue.md). A bump drops the patch, and src/assets/js/document-viewer/pdf-document.test.ts then fails. Re-apply the patch to the new version, or drop it once upstream rejects the render itself",
+      "matchPackageNames": ["pdfjs-dist"],
+      "automerge": false
+    },
+    {
       "description": "Group all Node.js version updates",
       "groupName": "Node.js version",
       "matchPackageNames": ["node"],

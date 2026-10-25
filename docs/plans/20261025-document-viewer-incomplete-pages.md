@@ -104,7 +104,7 @@ cached `chromium-1243` is already symlinked as `chromium-1248`. Do not try to do
 `src/document-viewer/content.ts`, the viewer template, fixtures.
 
 - [x] Record the execution baseline in the execution notes.
-- [ ] Add the failing renderer test with the oversized-image fixture, then implement. Run focused tests and all
+- [x] Add the failing renderer test with the oversized-image fixture, then implement. Run focused tests and all
       Validation Commands, and record the results.
 
 ### Task 2: Browser evidence and hand off
@@ -171,6 +171,47 @@ Options for the decision:
    meanwhile.
 
 Recommendation: option 1, together with an upstream issue so the patch can be dropped later.
+
+**Task 1 done (2026-10-25), on Decision 2.**
+
+- **Fixture.** `test-pdfs.ts` gained `image: [width, height]` on a page: a one-byte `/DeviceGray` image XObject
+  declaring that size, painted under the page's text. Generated in the test, nothing checked in. Each page now owns
+  three objects (page, content, image or `null`).
+- **Red.** With the fixture (page 1: 9,000 square, page 2: text), `pdf-document.test.ts`'s new guard failed with
+  "promise resolved instead of rejecting", both before and after adding `stopAtErrors: true`, which confirms the
+  Task 1 notes against the unpatched package.
+- **Patch.** `yarn patch` on `pdfjs-dist@npm:6.4.299`, applied to `build/pdf.mjs` and `legacy/build/pdf.mjs` (the
+  minified builds are not loaded by the app or its tests). In `_pumpOperatorList`'s rejection handler a reason that is
+  not an `AbortException` now calls `cancel(reason)` on each `InternalRenderTask` (rejecting its promise and
+  releasing the canvas) instead of `operatorListChanged()`. A second red test found that the truncated operator list
+  stayed cached in `_intentStates`, so drawing the page again (zoom, rotate, return, or its thumbnail) resolved
+  blank; the patch therefore also deletes the failed intent state, so a later render asks the worker again and fails
+  again. Committed as `.yarn/patches/pdfjs-dist-npm-6.4.299-98d54b4097.patch` with the `package.json`/`yarn.lock`
+  resolution. `.gitignore` now ignores `.yarn/*` except `.yarn/patches/`. `pdfjs-assets.test.ts` pins the
+  resolution as the patch protocol over an exact version, and checks that the patch file exists.
+- **Renovate.** A `pdfjs-dist` rule with `automerge: false`, its description saying the patch must be re-applied or
+  dropped.
+- **Upstream text.** `docs/pdfjs-render-error-upstream-issue.md`, drafted, **not filed**.
+- **Per-page state.** `stopAtErrors: true` in `pdf-document.ts` (`maxImageSize` and every other option kept).
+  `renderPage` answers `incomplete` when the render rejects after the page was read, with the canvas zero-sized and
+  the sheet emptied; a page that cannot be read stays `failed` (the document's unavailable state). The viewer
+  releases the page, puts `messages.pageIncomplete` in the existing `role="status"` region and shows a new hidden
+  `data-viewer-page-download` link (the scoped download path, updated on document switch). It keeps `opened`, so
+  page navigation, zoom, rotation, thumbnails and document switching keep working, and the next draw clears the
+  state. A thumbnail that is incomplete gets a grey `app-document-viewer__thumbnail-placeholder`.
+- **Tests.** `render-page.test.ts` (new) drives `renderPage` against real PDF.js and the fixture with a minimal DOM
+  stand-in whose canvas is PDF.js's Node canvas: ordinary page rendered, oversized page `incomplete` with a 0×0 canvas
+  and empty sheet, the next page still rendered, the same page `incomplete` again when redrawn, a missing page
+  `failed`. Two of its tests fail with the pre-change `render-page.ts`. `pdf-document.test.ts`: oversized render
+  rejects and page 2 renders; repeated and concurrent renders of the page all reject; a 4,960 × 7,016 image (A4 at
+  600 dpi) still draws. Content and template tests cover the sentence and the hidden link.
+- **Validation.** `yarn lint`: 576 files, no fixes. `yarn build`: 8/8 tasks. `yarn turbo test test:app
+  --concurrency=1 --force` with `REDIS_URL=redis://127.0.0.1:6379`: 8/8 tasks; root 148 files / 2,999 tests,
+  deed-poll 69 / 1,520, api client 17 / 1,112, starter 12 / 132, cloud-native-platform 13 / 156, session-postgres
+  2 / 85, session-redis 1 / 7, simple-router 4 / 45; no failures, no skips. `yarn welsh:check`: 793 strings, 575
+  identical in cy (568 prose, 7 not prose), against 792 / 574 / 567 / 7 without the change: exactly the new
+  sentence, which is also the one new row in `.business_context/welsh-translation-request.csv`.
+- **Not run here:** `yarn test:document-viewer` (Task 2).
 
 ## Post-Completion
 

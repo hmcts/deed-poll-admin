@@ -23,7 +23,8 @@
   data-message-busy="{{ messages.busy }}"
   data-message-signed-out="{{ messages.signedOut }}"
   data-message-forbidden="{{ messages.forbidden }}"
-  data-message-failed="{{ messages.failed }}">
+  data-message-failed="{{ messages.failed }}"
+  data-message-page-incomplete="{{ messages.pageIncomplete }}">
 
   <h1 class="govuk-heading-l app-document-viewer__title" tabindex="-1" data-viewer-title>{{ viewer.current.name }}</h1>
 
@@ -110,6 +111,7 @@
       {# Shown by the renderer beside the status it suits, never both at once and never without JavaScript. #}
       <button type="button" class="govuk-button govuk-button--secondary" data-viewer-retry hidden>{{ tryAgain }}</button>
       <p class="govuk-body" data-viewer-sign-in hidden><a class="govuk-link" href="{{ viewer.current.viewPath }}">{{ signInAgain }}</a></p>
+      <p class="govuk-body" data-viewer-page-download hidden><a class="govuk-link" href="{{ viewer.current.downloadPath }}" download>{{ downloadOriginal }}</a></p>
     </section>
   </div>
 </div>

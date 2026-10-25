@@ -8,6 +8,8 @@
  *
  * Each thumbnail is a button that goes to its page, so it works from the keyboard as well as the pointer, and the
  * page on show is marked `aria-current` rather than by its border alone.
+ *
+ * A page that cannot be drawn in full (`render-page.ts`) gets a plain grey placeholder, never part of a page.
  */
 import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { THUMBNAIL_MAX_PIXELS, THUMBNAIL_WIDTH } from "./page-geometry.js";
@@ -60,6 +62,7 @@ export function createThumbnails(container: HTMLElement, document: PDFDocumentPr
     if (destroyed) return;
     if (outcome === "rendered") rendered.push(drawing);
     else drawing.release();
+    if (outcome === "incomplete") entries[pageNumber - 1].button.prepend(placeholder());
     void drawNext();
   }
 
@@ -86,6 +89,13 @@ export function createThumbnails(container: HTMLElement, document: PDFDocumentPr
       container.replaceChildren();
     }
   };
+}
+
+function placeholder(): HTMLElement {
+  const element = window.document.createElement("span");
+  element.className = "app-document-viewer__thumbnail-placeholder";
+  element.setAttribute("aria-hidden", "true");
+  return element;
 }
 
 function thumbnailEntry(pageNumber: number, label: string): ThumbnailEntry {

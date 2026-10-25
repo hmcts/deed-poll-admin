@@ -3609,7 +3609,7 @@ __metadata:
     multer: "npm:2.4.0"
     nunjucks: "npm:3.2.4"
     openid-client: "npm:6.8.8"
-    pdfjs-dist: "npm:6.4.299"
+    pdfjs-dist: "patch:pdfjs-dist@npm%3A6.4.299#~/.yarn/patches/pdfjs-dist-npm-6.4.299-98d54b4097.patch"
     redis: "npm:6.3.0"
     sass: "npm:1.106.1"
     supertest: "npm:7.3.1"
@@ -5325,6 +5325,18 @@ __metadata:
     "@napi-rs/canvas":
       optional: true
   checksum: 10c0/f64c9bfda0838a2aba815b2083a1273df4611c749532a959296501270c589cb813c48429a8730a5ca033244d3dd8176c305c6241c8f6d9ebce069d9a9dba3e67
+  languageName: node
+  linkType: hard
+
+"pdfjs-dist@patch:pdfjs-dist@npm%3A6.4.299#~/.yarn/patches/pdfjs-dist-npm-6.4.299-98d54b4097.patch":
+  version: 6.4.299
+  resolution: "pdfjs-dist@patch:pdfjs-dist@npm%3A6.4.299#~/.yarn/patches/pdfjs-dist-npm-6.4.299-98d54b4097.patch::version=6.4.299&hash=ce0398"
+  dependencies:
+    "@napi-rs/canvas": "npm:^1.0.10"
+  dependenciesMeta:
+    "@napi-rs/canvas":
+      optional: true
+  checksum: 10c0/d65bf6d23e0e06acc9d204ca1b370fd2c2cfc8a06fcd360f7ba20c0e571873570994e455dc79e8c9d5b6daad1ef89362c3c3065eac3188dbb0ab0bf18331d6c9
   languageName: node
   linkType: hard
 

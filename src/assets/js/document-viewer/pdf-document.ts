@@ -20,9 +20,11 @@ import { getDocument, type PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.
 /** Where the build copies PDF.js's data files (`vite.build.ts`); `src/app.ts` serves the same paths in development. */
 export const PDFJS_ASSET_PATH = "/assets/pdfjs/";
 
-// A decoded image over 64 megapixels (8,000 square) is left out of the page rather than decoded, so a compressed
-// image cannot unpack into gigabytes in the worker. That is well above api's own `maxFramePixels` (25 megapixels)
-// and an A4 scan at 600 dpi (35 megapixels), so only a PDF original carrying a larger image is affected.
+// An image over 64 megapixels (8,000 square) is never decoded, so a compressed image cannot unpack into gigabytes in
+// the worker. That is well above api's own `maxFramePixels` (25 megapixels) and an A4 scan at 600 dpi (35
+// megapixels), so only a PDF original carrying a larger image is affected. With `stopAtErrors` such a page fails to
+// render rather than being drawn without the image, and the viewer says it could not be shown in full; that
+// rejection depends on `.yarn/patches/pdfjs-dist-*.patch` (docs/pdfjs-render-error-upstream-issue.md).
 const MAX_IMAGE_PIXELS = 64_000_000;
 
 export async function openPreview(bytes: Uint8Array, options: OpenPreviewOptions): Promise<OpenedPreview> {
@@ -53,6 +55,7 @@ function previewParameters(bytes: Uint8Array, assetPath: string) {
     enableXfa: false,
     useWasm: false,
     maxImageSize: MAX_IMAGE_PIXELS,
+    stopAtErrors: true,
     standardFontDataUrl: `${assetPath}standard_fonts/`,
     cMapUrl: `${assetPath}cmaps/`,
     wasmUrl: `${assetPath}wasm/`,

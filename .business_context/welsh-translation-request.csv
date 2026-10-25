@@ -20,6 +20,7 @@ src/document-viewer/content.ts,messages.busy,"Previews are busy at the moment. T
 src/document-viewer/content.ts,messages.failed,"The preview could not be loaded. Try again, or download the original.","The preview could not be loaded. Try again, or download the original.",YES,"",,""
 src/document-viewer/content.ts,messages.forbidden,"You do not have permission to view this document.","You do not have permission to view this document.",YES,"",,""
 src/document-viewer/content.ts,messages.loading,"Loading the preview.","Loading the preview.",YES,"",,""
+src/document-viewer/content.ts,messages.pageIncomplete,"This page could not be shown in full. Download the original to see it.","This page could not be shown in full. Download the original to see it.",YES,"",,""
 src/document-viewer/content.ts,messages.signedOut,"You have been signed out. Sign in again to view this document.","You have been signed out. Sign in again to view this document.",YES,"",,""
 src/document-viewer/content.ts,messages.tooLarge,"This document is too large to preview. You can still download the original.","This document is too large to preview. You can still download the original.",YES,"",,""
 src/document-viewer/content.ts,messages.unavailable,"A preview of this document is not available. You can still download the original.","A preview of this document is not available. You can still download the original.",YES,"",,""

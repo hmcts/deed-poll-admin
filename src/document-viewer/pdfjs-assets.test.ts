@@ -1,9 +1,12 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import express from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { PDFJS_ASSET_PATH } from "../assets/js/document-viewer/pdf-document.js";
 import { PDFJS_ASSET_MOUNT, pdfjsDevelopmentAssets } from "./pdfjs-assets.js";
+
+// Yarn's patch protocol over an exact version: `patch:pdfjs-dist@npm%3A<version>#~/.yarn/patches/<file>`.
+const PATCHED_PDFJS = /^patch:pdfjs-dist@npm%3A(\d+\.\d+\.\d+)#~\/(\.yarn\/patches\/pdfjs-dist-npm-\1-[0-9a-f]+\.patch)$/;
 
 const root = (file: string) => new URL(`../../${file}`, import.meta.url);
 const app = express().use(PDFJS_ASSET_MOUNT, pdfjsDevelopmentAssets());
@@ -34,8 +37,17 @@ describe("PDF.js packaging", () => {
   it("should pin PDF.js exactly, as a build-time dependency the production image does not install", () => {
     const manifest = JSON.parse(readFileSync(root("package.json"), "utf8"));
 
-    expect(manifest.devDependencies["pdfjs-dist"]).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(manifest.devDependencies["pdfjs-dist"]).toMatch(PATCHED_PDFJS);
     expect(manifest.dependencies["pdfjs-dist"]).toBeUndefined();
+  });
+
+  // The patch that makes a failed page render reject (docs/pdfjs-render-error-upstream-issue.md) is a committed file,
+  // so a resolution naming one that is not there would fail every install.
+  it("should resolve PDF.js through a patch file the repository carries", () => {
+    const manifest = JSON.parse(readFileSync(root("package.json"), "utf8"));
+    const patch = PATCHED_PDFJS.exec(manifest.devDependencies["pdfjs-dist"])?.[2] ?? "";
+
+    expect(existsSync(root(patch))).toBe(true);
   });
 
   it("should copy the fallback decoders under the names the pinned worker imports", () => {

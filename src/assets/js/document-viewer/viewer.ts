@@ -15,6 +15,10 @@
  * finds the reader where they were, and another tab keeps its own place. Nothing about a document's content or name
  * is written anywhere.
  *
+ * **One page that cannot be drawn in full is that page's state, not the document's** (`render-page.ts`). The frame
+ * says so with **Download original** beside it, and every control stays usable, so the reader can move to the next
+ * page, which draws as usual.
+ *
  * Leaving the page aborts the request and destroys the document and its worker; a page restored from the
  * back-forward cache loads its preview again rather than showing a canvas whose document is gone.
  */
@@ -101,6 +105,13 @@ export function initDocumentViewer(root: HTMLElement): void {
     say(root.dataset[MESSAGE_KEYS[reason]] ?? "");
     controls.retry.hidden = !RETRYABLE.has(reason);
     controls.signIn.hidden = reason !== "signedOut";
+    controls.pageDownload.hidden = true;
+  };
+
+  const showIncomplete = (incomplete: boolean) => {
+    if (incomplete === !controls.pageDownload.hidden) return;
+    say(incomplete ? (root.dataset.messagePageIncomplete ?? "") : "");
+    controls.pageDownload.hidden = !incomplete;
   };
 
   const announce = (text: string) => {
@@ -152,6 +163,7 @@ export function initDocumentViewer(root: HTMLElement): void {
     const shown = clampPresentation(presentation(), showing.numPages);
 
     page?.release();
+    showIncomplete(false);
     const available = innerSize(frame);
     let scale: number | null = null;
     const drawing = renderPage(showing.document, {
@@ -177,7 +189,11 @@ export function initDocumentViewer(root: HTMLElement): void {
       fail("unavailable");
       return;
     }
-    if (outcome === "rendered") {
+    if (outcome === "incomplete") {
+      drawing.release();
+      showIncomplete(true);
+    }
+    if (outcome === "rendered" || outcome === "incomplete") {
       shownScale = scale;
       drawnFrame = available;
       sync();
@@ -207,6 +223,7 @@ export function initDocumentViewer(root: HTMLElement): void {
     sync();
     controls.retry.hidden = true;
     controls.signIn.hidden = true;
+    controls.pageDownload.hidden = true;
     say(root.dataset.messageLoading ?? "");
 
     const result = await loader.load(entry.previewUrl);
@@ -244,6 +261,7 @@ export function initDocumentViewer(root: HTMLElement): void {
     controls.format.textContent = entry.format;
     controls.formatRow.hidden = entry.format === "";
     controls.download.setAttribute("href", entry.downloadUrl);
+    controls.pageDownload.querySelector("a")?.setAttribute("href", entry.downloadUrl);
     controls.signIn.querySelector("a")?.setAttribute("href", entry.viewUrl);
     controls.selector.setAttribute("action", entry.viewUrl);
     controls.select.value = entry.id;
@@ -345,6 +363,7 @@ function findControls(root: HTMLElement): Controls | null {
     status: one<HTMLElement>("[data-viewer-status]"),
     retry: one<HTMLButtonElement>("[data-viewer-retry]"),
     signIn: one<HTMLElement>("[data-viewer-sign-in]"),
+    pageDownload: one<HTMLElement>("[data-viewer-page-download]"),
     announcement: one<HTMLElement>("[data-viewer-announcement]"),
     thumbnailsRegion: one<HTMLElement>("[data-viewer-thumbnails]"),
     toolbar: one<HTMLElement>("[data-viewer-toolbar]"),
@@ -476,6 +495,7 @@ interface Controls {
   status: HTMLElement;
   retry: HTMLButtonElement;
   signIn: HTMLElement;
+  pageDownload: HTMLElement;
   announcement: HTMLElement;
   thumbnailsRegion: HTMLElement;
   toolbar: HTMLElement;

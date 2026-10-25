@@ -1,0 +1,54 @@
+diff --git a/build/pdf.mjs b/build/pdf.mjs
+index 3a5c6048d31f4b7246c654d7ac060ae9c4f0325d..3ca7eb9fea9fa95999b16ed71e38beb51efe87a9 100644
+--- a/build/pdf.mjs
++++ b/build/pdf.mjs
+@@ -16134,8 +16134,21 @@ class PDFPageProxy {
+         }
+         if (intentState.operatorList) {
+           intentState.operatorList.lastChunk = true;
++          // Patched (deed-poll-admin): a worker error other than an abort fails each render task instead of
++          // completing it with the truncated operator list, so `stopAtErrors` reaches `RenderTask.promise`.
++          // Unpatched, the render resolves first and the reject below lands on a settled promise. The failed
++          // list is also dropped, so a later render of the page asks the worker again rather than drawing it.
++          // See docs/pdfjs-render-error-upstream-issue.md in hmcts/deed-poll-admin.
++          const failed = !(reason instanceof AbortException);
+           for (const internalRenderTask of intentState.renderTasks) {
+-            internalRenderTask.operatorListChanged();
++            if (!failed) {
++              internalRenderTask.operatorListChanged();
++            } else if (internalRenderTask instanceof InternalRenderTask) {
++              internalRenderTask.cancel(reason);
++            }
++          }
++          if (failed && this._intentStates.get(cacheKey) === intentState) {
++            this._intentStates.delete(cacheKey);
+           }
+           this.#tryCleanup();
+         }
+diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
+index 188020a36b70e5d86434f2e1c95804398d849d74..98e73ffe30f758f4d106185caca21a4ec2754155 100644
+--- a/legacy/build/pdf.mjs
++++ b/legacy/build/pdf.mjs
+@@ -22480,8 +22480,21 @@ class PDFPageProxy {
+         }
+         if (intentState.operatorList) {
+           intentState.operatorList.lastChunk = true;
++          // Patched (deed-poll-admin): a worker error other than an abort fails each render task instead of
++          // completing it with the truncated operator list, so `stopAtErrors` reaches `RenderTask.promise`.
++          // Unpatched, the render resolves first and the reject below lands on a settled promise. The failed
++          // list is also dropped, so a later render of the page asks the worker again rather than drawing it.
++          // See docs/pdfjs-render-error-upstream-issue.md in hmcts/deed-poll-admin.
++          const failed = !(reason instanceof AbortException);
+           for (const internalRenderTask of intentState.renderTasks) {
+-            internalRenderTask.operatorListChanged();
++            if (!failed) {
++              internalRenderTask.operatorListChanged();
++            } else if (internalRenderTask instanceof InternalRenderTask) {
++              internalRenderTask.cancel(reason);
++            }
++          }
++          if (failed && this._intentStates.get(cacheKey) === intentState) {
++            this._intentStates.delete(cacheKey);
+           }
+           this.#tryCleanup();
+         }

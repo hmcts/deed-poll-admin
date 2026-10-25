@@ -35,8 +35,9 @@ lcov.info
 # Turborepo
 .turbo/
 
-# Yarn
-.yarn/
+# Yarn. Patches are committed: `package.json` resolves pdfjs-dist through one.
+.yarn/*
+!.yarn/patches/
 
 # macOS
 .DS_Store

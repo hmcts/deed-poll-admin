@@ -178,6 +178,15 @@ describe("document-viewer.njk", () => {
     expect(page).toContain('data-viewer-sign-in hidden><a class="govuk-link" href="/deed-polls/case-1/documents/doc-a/view">Sign in again</a>');
   });
 
+  it("should carry the incomplete-page sentence, and render its Download original link hidden, to this document's download", async () => {
+    const page = await caseworkerPage("doc-a");
+
+    expect(page).toContain('data-message-page-incomplete="This page could not be shown in full. Download the original to see it."');
+    expect(page).toContain(
+      'data-viewer-page-download hidden><a class="govuk-link" href="/deed-polls/case-1/documents/doc-a/download" download>Download original</a>'
+    );
+  });
+
   it("should keep the signed-in session warning, and add no keep-alive of its own", async () => {
     const res = pageResponse();
     await caseView(pageRequest({ params: { id: "case-1", documentId: "doc-a" } }), res);

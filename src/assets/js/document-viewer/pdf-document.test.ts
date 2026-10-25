@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { afterEach, describe, expect, it } from "vitest";
 import { type OpenedPreview, openPreview } from "./pdf-document.js";
 import { A4_LANDSCAPE, pagesSaying, testPdf } from "./test-pdfs.js";
@@ -18,6 +19,14 @@ async function open(bytes: Uint8Array, signal = new AbortController().signal): P
 function document(result: OpenedPreview) {
   if (!result.ok) throw new Error(`expected an opened preview, got ${result.reason}`);
   return result.document;
+}
+
+/** Draws one page onto a canvas from PDF.js's own Node factory, as the viewer draws onto a browser canvas. */
+async function draw(preview: PDFDocumentProxy, pageNumber: number): Promise<void> {
+  const page = await preview.getPage(pageNumber);
+  const viewport = page.getViewport({ scale: 0.5 });
+  const { canvas } = preview.canvasFactory.create(Math.ceil(viewport.width), Math.ceil(viewport.height)) as { canvas: HTMLCanvasElement };
+  await page.render({ canvas, viewport }).promise;
 }
 
 describe("openPreview", () => {
@@ -89,6 +98,31 @@ describe("openPreview", () => {
     await (await preview.getPage(1)).getOperatorList();
 
     expect(Reflect.get(globalThis, marker)).toBeUndefined();
+  });
+
+  // The guard for `.yarn/patches/pdfjs-dist-*.patch`: unpatched, PDF.js 6.4.299 completes this render successfully with
+  // the page cut off at the image, so a Renovate bump that drops the patch fails here rather than in front of a judge.
+  // See docs/pdfjs-render-error-upstream-issue.md.
+  it("should fail the render of a page whose image is over the size limit, and still draw the next page", async () => {
+    const preview = document(await open(testPdf([{ text: "Oversized scan", image: [9_000, 9_000] }, { text: "Page 2 of 2" }])));
+
+    await expect(draw(preview, 1)).rejects.toThrow();
+    await expect(draw(preview, 2)).resolves.toBeUndefined();
+  });
+
+  it("should fail every later render of that page too, whether drawn again alone or twice at once", async () => {
+    const preview = document(await open(testPdf([{ text: "Oversized scan", image: [9_000, 9_000] }])));
+
+    const together = await Promise.allSettled([draw(preview, 1), draw(preview, 1)]);
+    const again = await Promise.allSettled([draw(preview, 1)]);
+
+    expect([...together, ...again].map((result) => result.status)).toEqual(["rejected", "rejected", "rejected"]);
+  });
+
+  it("should draw a page whose image is within the size limit", async () => {
+    const preview = document(await open(testPdf([{ text: "Ordinary scan", image: [4_960, 7_016] }])));
+
+    await expect(draw(preview, 1)).resolves.toBeUndefined();
   });
 
   it("should report bytes that are not a PDF as damaged", async () => {
