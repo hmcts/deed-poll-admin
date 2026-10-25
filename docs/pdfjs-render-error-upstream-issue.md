@@ -1,10 +1,13 @@
 # Draft upstream issue: `stopAtErrors` does not reject `RenderTask.promise`
 
 **Status: drafted, not filed.** Filing it on [mozilla/pdf.js](https://github.com/mozilla/pdf.js/issues) is an external
-action for Steve to take or approve. Once it is filed, add its link here. Once a release fixes it, drop
-`.yarn/patches/pdfjs-dist-npm-6.4.299-*.patch`, restore a plain `pdfjs-dist` version in `package.json` (`yarn install`
-rewrites `yarn.lock`), and remove the patch-resolution check in `src/document-viewer/pdfjs-assets.test.ts`, the
-`.yarn/patches/` exception in `.gitignore` and the `pdfjs-dist` rule in `.github/renovate.json`.
+action for Steve to take or approve. Once it is filed, add its link here. Once a release fixes it, re-apply the patch
+to that release with `yarn patch` without the display hunks (`build/pdf.mjs`, `legacy/build/pdf.mjs`). The worker
+hunks stay: they are this app's own, below, and dropping the whole patch would bring back an oversized image left out
+of a page that reports itself drawn. Only if PDF.js also gains its own way to fail a page for an oversized image can
+the patch go entirely, with a plain `pdfjs-dist` version in `package.json` (`yarn install` rewrites `yarn.lock`), and
+the patch-resolution and worker-import checks in `src/document-viewer/pdfjs-assets.test.ts`, the `.yarn/patches/`
+exception in `.gitignore` and the `pdfjs-dist` rule in `.github/renovate.json` removed with it.
 
 Why this repository carries the patch: the document viewer fails a page whose image is over `maxImageSize`, so that
 the page says it could not be shown in full rather than showing itself without the image as if it were complete
@@ -17,7 +20,8 @@ two parts:
 - **Worker (downstream only, not part of this issue).** `buildPaintImageXObject` throws a dedicated
   `ImageTooLargeError` for an oversized image whatever `ignoreErrors` says, and the catches it can pass through (the
   XObject `Do`, `getOperatorList`'s outer catch, `handleTilingType`, the ExtGState SMask and the annotation
-  operator-list catch) rethrow it instead of ignoring it. Every other error keeps PDF.js's fallbacks. An upstream
+  operator-list catch) rethrow it instead of ignoring it. An annotation whose appearance fails also resets its streams,
+  which PDF.js otherwise does only on success, so drawing the page again does not read an emptied appearance. Every other error keeps PDF.js's fallbacks. An upstream
   equivalent would be an option to treat an oversized image as a page error; it is not proposed here. An oversized
   image inside a Type3 glyph is still dropped, because `loadType3Data` catches every glyph error.
 - **Display (the bug below).** Once the worker's operator list fails, the render must reject. Unpatched it resolves,

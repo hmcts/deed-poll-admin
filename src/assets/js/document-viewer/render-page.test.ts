@@ -67,7 +67,7 @@ describe("renderPage", () => {
     expect(await draw(preview, 1).done).toBe("incomplete");
   });
 
-  it("should draw a page whose font is broken, because only an oversized image makes a page incomplete", async () => {
+  it("should report a page whose font is broken as rendered, not incomplete, because only an oversized image fails a page", async () => {
     const preview = await open(testPdf([{ text: "Still readable", font: "emptyFontFile" }]));
 
     expect(await draw(preview, 1).done).toBe("rendered");
@@ -86,6 +86,18 @@ describe("renderPage", () => {
 
   it("should report the same page incomplete when it is drawn again, as a zoom or a return to it does", async () => {
     const preview = await open(oversized());
+
+    const first = draw(preview, 1);
+    await first.done;
+    first.release();
+
+    expect(await draw(preview, 1).done).toBe("incomplete");
+  });
+
+  // PDF.js resets an annotation's streams only after a successful read, so unpatched the second draw read an emptied
+  // appearance and drew the page without its stamp as if complete.
+  it("should report a page whose stamp is over the size limit incomplete when it is drawn again too", async () => {
+    const preview = await open(testPdf([{ text: "Stamped", stamp: [9_000, 9_000] }]));
 
     const first = draw(preview, 1);
     await first.done;

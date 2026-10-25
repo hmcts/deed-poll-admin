@@ -654,13 +654,15 @@ span several files:
   empty `FontFile2` drew none of its text. Do not turn it back on to catch some other fault; patch that fault's check
   instead. On the display side the patch fails each pending render task instead of completing it with the truncated
   operator list, and drops the failed list from `_intentStates`, so drawing the page again asks the worker rather
-  than drawing a cached blank page. Unpatched, 6.4.299 draws the page without the image and resolves.
+  than drawing a cached blank page; the worker resets an annotation's streams even when its appearance fails, or the
+  next draw would read an emptied appearance and draw the page without its stamp as if complete. Unpatched, 6.4.299 draws the page without the image and resolves.
   `package.json` resolves `pdfjs-dist` through `.yarn/patches/` (committed; `.gitignore` admits only that directory
   under `.yarn/`), and the browser loads the **unminified** legacy worker (`pdf.worker.mjs?url`) because the minified
   files are unpatched. `pdf-document.test.ts` fails if the patch's behaviour is lost, which is what a version bump does,
   and Renovate never automerges `pdfjs-dist`. Re-apply the patch to a new version with `yarn patch` on the original
-  package (not `--update`, which stacks a second patch), or drop it once upstream fixes the swallowed error (draft
-  issue: `docs/pdfjs-render-error-upstream-issue.md`, not yet filed). One gap is known and left: an oversized image
+  package (not `--update`, which stacks a second patch). An upstream fix for the swallowed error (draft issue:
+  `docs/pdfjs-render-error-upstream-issue.md`, not yet filed) retires only the display hunks; the worker hunks are
+  this app's own and stay. One gap is known and left: an oversized image
   inside a Type3 glyph is still dropped silently, because PDF.js catches every Type3 glyph error itself.
   `renderPage` answers `incomplete` with the canvas emptied, and the viewer shows the page's sentence with **Download
   original** while every control keeps working; a thumbnail gets a grey placeholder. A page that cannot be read at all

@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { OPS, type PDFDocumentProxy, type PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { afterEach, describe, expect, it } from "vitest";
 import { type OpenedPreview, openPreview } from "./pdf-document.js";
-import { A4_LANDSCAPE, type BrokenFont, pagesSaying, testPdf } from "./test-pdfs.js";
+import { A4_LANDSCAPE, type BrokenFont, type ImageRoute, pagesSaying, testPdf } from "./test-pdfs.js";
 
 // PDF.js reads its standard fonts from the filesystem under Node, from the same package the build copies them from.
 const ASSET_PATH = fileURLToPath(new URL("../../../../node_modules/pdfjs-dist/", import.meta.url));
@@ -138,6 +138,28 @@ describe("openPreview", () => {
     await expect(draw(preview, 1)).rejects.toThrow("Image exceeded maximum allowed size");
     await expect(draw(preview, 2)).resolves.toBeUndefined();
   });
+
+  it("should fail every later render of a page whose stamp paints an image over the size limit", async () => {
+    const preview = document(await open(testPdf([{ text: "Stamped", stamp: [9_000, 9_000] }])));
+
+    const first = await Promise.allSettled([draw(preview, 1)]);
+    const again = await Promise.allSettled([draw(preview, 1)]);
+
+    expect([...first, ...again].map((result) => result.status)).toEqual(["rejected", "rejected"]);
+  });
+
+  // Each route is its own catch in PDF.js's evaluator, so each is its own hunk of the patch to lose on a re-apply.
+  it.each<ImageRoute>(["form", "pattern", "softMask", "inline"])(
+    "should fail every render of a page whose image over the size limit arrives by %s, and draw one within it",
+    async (via) => {
+      const oversized = document(await open(testPdf([{ text: "Routed", imageVia: { via, image: [9_000, 9_000] } }])));
+      const ordinary = document(await open(testPdf([{ text: "Routed", imageVia: { via, image: [100, 100] } }])));
+
+      await expect(draw(oversized, 1)).rejects.toThrow("Image exceeded maximum allowed size");
+      await expect(draw(oversized, 1)).rejects.toThrow("Image exceeded maximum allowed size");
+      await expect(draw(ordinary, 1)).resolves.toBeUndefined();
+    }
+  );
 
   it("should draw a page whose stamp paints an image within the size limit", async () => {
     const preview = document(await open(testPdf([{ text: "Stamped", stamp: [2_000, 2_000] }])));
