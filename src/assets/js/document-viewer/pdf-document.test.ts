@@ -1,8 +1,14 @@
 import { fileURLToPath } from "node:url";
-import { OPS, type PDFDocumentProxy, type PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
-import { afterEach, describe, expect, it } from "vitest";
+import { getDocument, OPS, type PDFDocumentProxy, type PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { type OpenedPreview, openPreview } from "./pdf-document.js";
 import { A4_LANDSCAPE, type BrokenFont, type ImageRoute, pagesSaying, testPdf } from "./test-pdfs.js";
+
+// The real `getDocument` behind a spy, so every test still opens with PDF.js and one can read the options it was given.
+vi.mock("pdfjs-dist/legacy/build/pdf.mjs", async (importOriginal) => {
+  const pdfjs = await importOriginal<typeof import("pdfjs-dist/legacy/build/pdf.mjs")>();
+  return { ...pdfjs, getDocument: vi.fn(pdfjs.getDocument) };
+});
 
 // PDF.js reads its standard fonts from the filesystem under Node, from the same package the build copies them from.
 const ASSET_PATH = fileURLToPath(new URL("../../../../node_modules/pdfjs-dist/", import.meta.url));
@@ -212,6 +218,24 @@ describe("openPreview", () => {
     controller.abort();
 
     expect(await pending).toEqual({ ok: false, reason: "aborted" });
+  });
+
+  // Each of these is a containment decision, not a tuning knob (see pdf-document.ts), and none changes what a test PDF
+  // draws, so only reading the options catches one being flipped. WebAssembly on would also need `'wasm-unsafe-eval'`.
+  it("should open every preview from its bytes alone, with XFA and WebAssembly off", async () => {
+    await open(testPdf(pagesSaying(1)));
+
+    expect(vi.mocked(getDocument)).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        // PDF.js transfers the buffer to its worker, so the bytes themselves are detached by now.
+        data: expect.any(Uint8Array),
+        disableRange: true,
+        disableStream: true,
+        disableAutoFetch: true,
+        enableXfa: false,
+        useWasm: false
+      })
+    );
   });
 
   it("should leave no page readable once the preview is closed", async () => {
