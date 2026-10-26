@@ -20,9 +20,7 @@ initSessionTimeout();
 // The document viewer's renderer, imported only where there is a viewer, so PDF.js is its own chunk and no other
 // page fetches it. The chunk is same-origin, which is all the CSP's `script-src 'self'` asks of a dynamic import.
 const documentViewer = document.querySelector<HTMLElement>('[data-module="app-document-viewer"]');
-if (documentViewer) {
-  void import("./document-viewer/viewer.js").then(({ initDocumentViewer }) => initDocumentViewer(documentViewer));
-}
+const viewerModule = documentViewer ? import("./document-viewer/viewer.js") : null;
 
 const config = {
   userPreferences: {
@@ -88,3 +86,9 @@ cookieManager.on("CookieBannerAction", (eventData: any) => {
 });
 
 cookieManager.init(config);
+
+// Cookie controls initialise before a renderer download can suspend this module.
+if (viewerModule && documentViewer) {
+  const { initDocumentViewer } = await viewerModule;
+  initDocumentViewer(documentViewer);
+}
