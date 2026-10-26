@@ -38,7 +38,7 @@ export async function seedCases(
   // Authorisation failures must happen before any case is created, including the separate judicial credential.
   read(await listCases({ size: 1 }, config), "caseworker preflight");
   if (!options.deferJudicial) read(await getJudicialMyReferrals({ size: 1 }, judge), "judicial preflight");
-  for (const item of dataset) await seedCase(item);
+  for (const item of dataset) await seedCase(item); // NOSONAR typescript:S9382 - case writes share one pending journal; Steve accepted 2026-10-26
   journal.caseworkerComplete = true;
   journal.deferredJudicial = deferredJudicial;
   journal.complete = deferredJudicial.length === 0;
@@ -50,9 +50,9 @@ export async function seedCases(
     const key = item.marker;
     const id = await createSeedCase(item);
     for (const [index, witness] of item.witnesses.entries()) {
-      await step(`${key}/witness/${index}`, () => createWitness(id, witness, config));
+      await step(`${key}/witness/${index}`, () => createWitness(id, witness, config)); // NOSONAR typescript:S9382 - child writes share one pending journal; Steve accepted 2026-10-26
     }
-    for (const [index, note] of item.notes.entries()) await step(`${key}/note/${index}`, () => createNote(id, note, config));
+    for (const [index, note] of item.notes.entries()) await step(`${key}/note/${index}`, () => createNote(id, note, config)); // NOSONAR typescript:S9382 - child writes share one pending journal; Steve accepted 2026-10-26
     if (item.referral) await seedReferral(item.referral, key, id);
     if (Object.keys(item.progress).length) await step(`${key}/progress`, () => patchCase(id, item.progress, config));
     await verifyCase(item, id);

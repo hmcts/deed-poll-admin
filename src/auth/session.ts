@@ -539,7 +539,7 @@ async function saveReconciled(req: Request, change: (session: DeedPollSession | 
     } catch (error) {
       if (!(error instanceof SessionWriteRefusedError) || error.reason !== "conflict" || attempt >= RECONCILE_ATTEMPTS) throw error;
     }
-    await reload(req);
+    await reload(req); // NOSONAR typescript:S9382 - reload precedes the next save attempt; Steve accepted 2026-10-26
   }
 }
 

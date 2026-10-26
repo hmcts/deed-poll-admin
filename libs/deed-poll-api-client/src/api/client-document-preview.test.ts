@@ -388,19 +388,34 @@ describe("the preview's timeout and cancellation", () => {
   });
 
   it("should wait longer than the JSON default for api to finish a conversion", async () => {
-    const slow = await listen(
-      createServer((_req, res) => {
-        setTimeout(() => sendPdf(res, syntheticPdf(1, "Page")), 12_000);
-      })
-    );
+    vi.restoreAllMocks();
+    // Advance the deadline only after real HTTP reaches api, rather than racing socket I/O against 27 ms.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    const timeout = vi.spyOn(globalThis, "setTimeout");
+    const received = Promise.withResolvers<ServerResponse>();
+    const slow = await listen(createServer((_req, res) => received.resolve(res)));
 
     try {
-      const result = await previewDocument("case-1", "doc-1", { baseUrl: slow.url });
+      let settled = false;
+      const pending = previewDocument("case-1", "doc-1", { baseUrl: slow.url }).then((result) => {
+        settled = true;
+        return result;
+      });
+      const response = await received.promise;
+
+      await vi.advanceTimersByTimeAsync(DEFAULT_TIMEOUT_MS + 1);
+
+      expect(settled).toBe(false);
+      expect(timeout).toHaveBeenCalledWith(expect.any(Function), PREVIEW_TIMEOUT_MS);
+      sendPdf(response, syntheticPdf(1, "Page"));
+      const result = await pending;
 
       expect(result.ok).toBe(true);
       if (result.ok) await buffered(result.data.body);
-      expect(armed).toContain(PREVIEW_TIMEOUT_MS);
     } finally {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+      slow.closeAllConnections();
       await slow.close();
     }
   });
