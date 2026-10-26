@@ -1685,7 +1685,7 @@ export type Capability = CallerAccess["capabilities"][number];
 export type GazetteSettings = WireGazetteSettings;
 export type UpdateGazetteSettings = WireUpdateGazetteSettings;
 
-export { GAZETTE_RECIPIENT_EMAIL_PATTERN } from "./wire.js";
+export { GAZETTE_RECIPIENT_EMAIL_PATTERN, validateGazetteRecipientEmail } from "./gazette-recipient-email.js";
 
 export type GazettePreview = WireGazettePreview;
 export type GazetteStatus = WireGazetteStatus;
