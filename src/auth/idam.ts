@@ -99,7 +99,7 @@ export async function idamConfiguration(config: IdamConfig): Promise<client.Conf
       // `/login` 500s against the local simulator until this is granted. The allowlist behind
       // `plainHttpPermitted` lives in the domain library rather than here because the same decision used
       // to be read the opposite way — reject rather than permit — by the deleted `apps/api`.
-      ...(plainHttpPermitted() ? { execute: [client.allowInsecureRequests] } : {})
+      ...(plainHttpPermitted() ? { execute: [client.allowInsecureRequests] } : {}) // NOSONAR typescript:S1874 - development/test HTTP simulator; Steve accepted 2026-10-26
     });
     discovered = attempt;
     // Registered before any caller awaits, so the entry is released before a caller sees the rejection.
