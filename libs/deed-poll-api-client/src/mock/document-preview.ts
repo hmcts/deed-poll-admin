@@ -46,18 +46,8 @@ export function buildDocumentPreview(mimeType: string, bytes: Buffer, mode: Docu
   if (mimeType === "image/png") {
     return hasPrefix(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) ? built(1, "PNG", A4_LANDSCAPE) : refused("PREVIEW_INVALID_DOCUMENT");
   }
-  if (mimeType === "image/tiff") {
-    const frames = tiffFrames(bytes);
-    if (frames === "invalid") return refused("PREVIEW_INVALID_DOCUMENT");
-    if (frames > DOCUMENT_PREVIEW_LIMITS.maxPages) return refused("PREVIEW_LIMIT_EXCEEDED");
-    return built(frames, "TIFF frame", A4_LANDSCAPE);
-  }
-  if (mimeType === DOCX_MIME_TYPE) {
-    // The package check comes first, as api's does: a malformed DOCX is never sent to the converter.
-    if (!hasPrefix(bytes, [0x50, 0x4b, 0x03, 0x04])) return refused("PREVIEW_INVALID_DOCUMENT");
-    if (mode === "converter-unavailable") return refused("PREVIEW_UNAVAILABLE");
-    return built(DOCX_PREVIEW_PAGES, "DOCX page", A4_PORTRAIT);
-  }
+  if (mimeType === "image/tiff") return previewTiff(bytes);
+  if (mimeType === DOCX_MIME_TYPE) return previewDocx(bytes, mode);
 
   // A stored type with no preview, such as a legacy `.doc`.
   return refused("PREVIEW_INVALID_DOCUMENT");
@@ -69,9 +59,10 @@ export function buildDocumentPreview(mimeType: string, bytes: Buffer, mode: Docu
  */
 export function syntheticPdf(pages: number, label: string, size: readonly [number, number] = A4_PORTRAIT): Buffer {
   const pageIds = Array.from({ length: pages }, (_, index) => 4 + index * 2);
+  const pageReferences = pageIds.map((id) => `${id} 0 R`).join(" ");
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pages} >>`,
+    `<< /Type /Pages /Kids [${pageReferences}] /Count ${pages} >>`,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     ...pageIds.flatMap((id, index) => {
       const text = `BT /F1 24 Tf 72 ${size[1] - 96} Td (Mock preview: ${label} ${index + 1} of ${pages}) Tj ET`;
@@ -94,6 +85,20 @@ export function syntheticPdf(pages: number, label: string, size: readonly [numbe
   body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
 
   return Buffer.from(body, "latin1");
+}
+
+function previewTiff(bytes: Buffer): PreviewOutcome {
+  const frames = tiffFrames(bytes);
+  if (frames === "invalid") return refused("PREVIEW_INVALID_DOCUMENT");
+  if (frames > DOCUMENT_PREVIEW_LIMITS.maxPages) return refused("PREVIEW_LIMIT_EXCEEDED");
+  return built(frames, "TIFF frame", A4_LANDSCAPE);
+}
+
+function previewDocx(bytes: Buffer, mode: DocumentPreviewMode): PreviewOutcome {
+  // The package check comes first, as api's does: a malformed DOCX is never sent to the converter.
+  if (!hasPrefix(bytes, [0x50, 0x4b, 0x03, 0x04])) return refused("PREVIEW_INVALID_DOCUMENT");
+  if (mode === "converter-unavailable") return refused("PREVIEW_UNAVAILABLE");
+  return built(DOCX_PREVIEW_PAGES, "DOCX page", A4_PORTRAIT);
 }
 
 function refused(code: PreviewRefusalCode): PreviewOutcome {
@@ -134,14 +139,19 @@ function tiffFrames(bytes: Buffer): number | "invalid" {
     const entries = short(offset);
     const next = offset + 2 + entries * 12;
     if (entries === 0 || next + 4 > bytes.length) return "invalid";
-    for (let entry = 0; entry < entries; entry++) {
-      const at = offset + 2 + entry * 12;
-      if (short(at) === TIFF_COMPRESSION_TAG && TIFF_JPEG_COMPRESSION.has(short(at + 8))) return "invalid";
-    }
+    if (hasJpegCompression(offset, entries, short)) return "invalid";
     offset = long(next);
   }
 
   return seen.size === 0 ? "invalid" : seen.size;
+}
+
+function hasJpegCompression(offset: number, entries: number, short: (at: number) => number): boolean {
+  for (let entry = 0; entry < entries; entry++) {
+    const at = offset + 2 + entry * 12;
+    if (short(at) === TIFF_COMPRESSION_TAG && TIFF_JPEG_COMPRESSION.has(short(at + 8))) return true;
+  }
+  return false;
 }
 
 export type DocumentPreviewMode = "convert" | "converter-unavailable" | "busy";
