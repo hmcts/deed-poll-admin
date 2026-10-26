@@ -521,18 +521,12 @@ async function preview(config: ApiConfig, path: string): Promise<PreviewApiResul
   // trickling past the gateways' 30 s would be cut off by them rather than ended here (plan decision 2).
   const deadline = performance.now() + timeoutMs;
   // api answers every refusal as JSON even to this `Accept`, and it is the type the operation publishes.
-  const sent = await exchange({ ...config, timeoutMs }, "GET", path, undefined, "application/pdf", true, undefined, previewFailure);
+  const sent = await exchange({ ...config, timeoutMs }, "GET", path, undefined, "application/pdf", { streaming: true, readFailure: previewFailure });
   if (!sent.ok) return sent;
 
   const response = sent.response;
   const contentLength = declaredLength(response.headers.get("content-length"));
-  const breach = !response.body
-    ? "returned no body"
-    : !isPdf(response.headers.get("content-type"))
-      ? "returned a preview that is not a PDF"
-      : contentLength !== null && contentLength > DOCUMENT_PREVIEW_LIMITS.maxOutputBytes
-        ? "returned a preview larger than the published limit"
-        : null;
+  const breach = previewBreach(response, contentLength);
   if (breach !== null || response.body === null) {
     // Released rather than left for the garbage collector, as `requestNoContent` does: undici holds the socket.
     await response.body?.cancel().catch(() => {});
@@ -547,6 +541,13 @@ async function preview(config: ApiConfig, path: string): Promise<PreviewApiResul
       contentLength
     }
   };
+}
+
+function previewBreach(response: Response, contentLength: number | null): string | null {
+  if (!response.body) return "returned no body";
+  if (!isPdf(response.headers.get("content-type"))) return "returned a preview that is not a PDF";
+  if (contentLength !== null && contentLength > DOCUMENT_PREVIEW_LIMITS.maxOutputBytes) return "returned a preview larger than the published limit";
+  return null;
 }
 
 /**
@@ -1182,7 +1183,7 @@ async function send(
   streaming = false,
   headers?: Record<string, string>
 ): Promise<SendResult> {
-  const result = await exchange(config, method, path, body, accept, streaming, headers);
+  const result = await exchange(config, method, path, body, accept, { streaming, headers });
   if (!result.ok || result.response.ok) return result;
   return { ok: false, error: await failureFromResponse(result.response) };
 }
@@ -1194,7 +1195,7 @@ async function gazetteRequest<S extends z.ZodType>(
   body: unknown,
   key?: string
 ): Promise<GazetteApiResult<z.infer<S>>> {
-  const result = await exchange(config, "POST", path, body, "application/json", false, key === undefined ? undefined : { "idempotency-key": key });
+  const result = await exchange(config, "POST", path, body, "application/json", { headers: key === undefined ? undefined : { "idempotency-key": key } });
   if (!result.ok) return result;
   const response = result.response;
   if (response.ok) return parseResponse(response, schema, "POST", path);
@@ -1215,9 +1216,7 @@ async function exchange<E = ApiError>(
   path: string,
   body: unknown,
   accept: string,
-  streaming = false,
-  headers?: Record<string, string>,
-  readFailure: (response: Response) => Promise<E | ApiError> = failureFromResponse
+  { streaming = false, headers, readFailure = failureFromResponse }: ExchangeOptions<E> = {}
 ): Promise<SendResult<E>> {
   // Startup validates the app's URL; direct adapter consumers must receive the same protection.
   assertApiBaseUrl(config.baseUrl);
@@ -1646,6 +1645,12 @@ export interface DocumentDownload {
 }
 
 type SendResult<E = ApiError> = { ok: true; response: Response } | { ok: false; error: E | ApiError };
+
+interface ExchangeOptions<E = ApiError> {
+  streaming?: boolean;
+  headers?: Record<string, string>;
+  readFailure?: (response: Response) => Promise<E | ApiError>;
+}
 
 /**
  * A document's preview: always a PDF, with the length api measured when it declared one. None of api's headers is
