@@ -90,6 +90,50 @@ describe("buildDocumentPreview", () => {
     expect(outcome.ok && pdfPages(outcome.pdf)).toBe(100);
   });
 
+  it.each([false, true])("should refuse malformed TIFF directories with bigEndian=%s", (bigEndian) => {
+    const writeShort = (bytes: Buffer, value: number, at: number) => (bigEndian ? bytes.writeUInt16BE(value, at) : bytes.writeUInt16LE(value, at));
+    const writeLong = (bytes: Buffer, value: number, at: number) => (bigEndian ? bytes.writeUInt32BE(value, at) : bytes.writeUInt32LE(value, at));
+    const changed = (change: (bytes: Buffer) => void) => {
+      const bytes = tiff(1, { bigEndian });
+      change(bytes);
+      return bytes;
+    };
+    const invalid = [
+      changed((bytes) => bytes.write("XX", 0, "latin1")),
+      changed((bytes) => writeShort(bytes, 43, 2)),
+      changed((bytes) => writeLong(bytes, 0, 4)),
+      changed((bytes) => writeLong(bytes, bytes.length - 1, 4)),
+      changed((bytes) => writeShort(bytes, 0, 8)),
+      changed((bytes) => writeShort(bytes, 2, 8)),
+      tiff(1, { bigEndian }).subarray(0, 25),
+      tiff(2, { bigEndian, loop: true }),
+      tiff(1, { bigEndian, compression: 6 }),
+      tiff(1, { bigEndian, compression: 7 })
+    ];
+
+    for (const bytes of invalid) {
+      expect(buildDocumentPreview("image/tiff", bytes, "convert")).toEqual({
+        ok: false,
+        code: "PREVIEW_INVALID_DOCUMENT",
+        ...PREVIEW_REFUSALS.PREVIEW_INVALID_DOCUMENT
+      });
+    }
+  });
+
+  it("should validate the first over-limit TIFF frame before refusing its page count", () => {
+    const bytes = tiff(101);
+    bytes.writeUInt16LE(7, 8 + 100 * 18 + 10);
+
+    expect(buildDocumentPreview("image/tiff", bytes, "convert")).toMatchObject({ ok: false, code: "PREVIEW_INVALID_DOCUMENT" });
+  });
+
+  it("should stop inspecting TIFF directories after the first over-limit frame", () => {
+    const bytes = tiff(101);
+    bytes.writeUInt32LE(0xffffffff, bytes.length - 4);
+
+    expect(buildDocumentPreview("image/tiff", bytes, "convert")).toMatchObject({ ok: false, code: "PREVIEW_LIMIT_EXCEEDED" });
+  });
+
   it("should refuse only the DOCX when the converter is unavailable", () => {
     const docx = buildDocumentPreview(DOCX, DOCX_BYTES, "converter-unavailable");
     const tiffPreview = buildDocumentPreview("image/tiff", tiff(2), "converter-unavailable");
