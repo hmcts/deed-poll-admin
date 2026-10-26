@@ -1,4 +1,4 @@
-import { GAZETTE_RECIPIENT_EMAIL_PATTERN } from "@hmcts/deed-poll-api-client";
+import { validateGazetteRecipientEmail } from "@hmcts/deed-poll-api-client";
 import { z } from "zod";
 
 export function gazetteSettingsFormSchema(messages: { required: string; invalid: string; reload: string }) {
@@ -8,7 +8,7 @@ export function gazetteSettingsFormSchema(messages: { required: string; invalid:
       .trim()
       .min(1, messages.required)
       .max(254, messages.invalid)
-      .regex(new RegExp(GAZETTE_RECIPIENT_EMAIL_PATTERN), messages.invalid)
+      .superRefine((email, context) => validateGazetteRecipientEmail(email, context, messages.invalid))
       .refine((email) => email.indexOf("@") <= 64, messages.invalid),
     revision: z
       .string({ error: messages.reload })
