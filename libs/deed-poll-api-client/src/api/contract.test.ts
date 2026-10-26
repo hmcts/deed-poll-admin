@@ -13,8 +13,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
+import { DOCUMENT_PREVIEW_LIMITS } from "./client.js";
 import deferredContract from "./deferred-contract.json";
-import { CAPABILITY, GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, WIRE_SCHEMAS } from "./wire.js";
+import { CAPABILITY, DOCUMENT_PREVIEW_ERROR_CODE, GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, WIRE_SCHEMAS } from "./wire.js";
 
 const SPEC_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../openapi.json");
 const spec = JSON.parse(readFileSync(SPEC_PATH, "utf8")) as OpenApiSpec;
@@ -63,6 +64,7 @@ const IMPLEMENTED_OPERATIONS = [
   "POST /caseworker/cases/{id}/emails/{template}/preview",
   "POST /caseworker/cases/{id}/documents",
   "GET /caseworker/cases/{id}/documents/{documentId}/file",
+  "GET /caseworker/cases/{id}/documents/{documentId}/preview",
   "GET /caseworker/cases/{id}/referrals",
   "POST /caseworker/cases/{id}/referrals",
   "GET /caseworker/cases/{id}/referrals/{referralId}",
@@ -87,6 +89,7 @@ const IMPLEMENTED_OPERATIONS = [
   "PUT /judicial/referrals/{referralId}/direction",
   "POST /judicial/referrals/{referralId}/direction/withdraw",
   "GET /judicial/referrals/{referralId}/documents/{documentId}/file",
+  "GET /judicial/referrals/{referralId}/documents/{documentId}/preview",
   "GET /me"
 ];
 
@@ -197,6 +200,65 @@ describe("openapi.json and the wire schemas", () => {
     });
   });
 
+  /**
+   * The two preview operations (api PR #129): what the adapter relies on and what the viewer will. Read from both
+   * operations, because a refresh that changed one and not the other would make the judicial viewer different.
+   */
+  describe("the document previews", () => {
+    const previews = [
+      spec.paths["/caseworker/cases/{id}/documents/{documentId}/preview"]?.get,
+      spec.paths["/judicial/referrals/{referralId}/documents/{documentId}/preview"]?.get
+    ];
+
+    it("should publish both, as complete PDFs with the download's containment headers and no ranges", () => {
+      for (const operation of previews) {
+        const ok = operation?.responses?.["200"] as { content?: Record<string, unknown>; headers?: Record<string, unknown> } | undefined;
+        expect(Object.keys(ok?.content ?? {})).toEqual(["application/pdf"]);
+        expect(Object.keys(ok?.headers ?? {}).sort()).toEqual([
+          "Accept-Ranges",
+          "Cache-Control",
+          "Content-Disposition",
+          "Content-Length",
+          "Content-Security-Policy",
+          "X-Content-Type-Options"
+        ]);
+        expect(operation?.["x-document-preview-limits"]?.rangeRequests).toBe("unsupported");
+      }
+    });
+
+    it("should publish each refusal code on exactly the status the adapter accepts it from", () => {
+      const codesByStatus = (operation: OpenApiOperation | undefined) =>
+        Object.fromEntries(
+          ["422", "429", "503"].map((status) => {
+            const response = operation?.responses?.[status] as { description?: string; content?: Record<string, { schema?: { $ref?: string } }> };
+            expect(response.content?.["application/json"]?.schema?.$ref).toBe("#/components/schemas/DocumentPreviewError");
+            return [status, DOCUMENT_PREVIEW_ERROR_CODE.filter((code) => response.description?.includes(code))];
+          })
+        );
+
+      for (const operation of previews) {
+        expect(codesByStatus(operation)).toEqual({
+          "422": ["PREVIEW_INVALID_DOCUMENT", "PREVIEW_LIMIT_EXCEEDED"],
+          "429": ["PREVIEW_BUSY"],
+          "503": ["PREVIEW_UNAVAILABLE"]
+        });
+        expect(Object.keys((operation?.responses?.["429"] as { headers?: object } | undefined)?.headers ?? {})).toContain("Retry-After");
+      }
+      expect(spec.components.schemas.DocumentPreviewError.properties?.code?.enum).toEqual([...DOCUMENT_PREVIEW_ERROR_CODE]);
+    });
+
+    it("should agree with the published limits the adapter and the viewer enforce", () => {
+      for (const operation of previews) {
+        const limits = operation?.["x-document-preview-limits"];
+        expect(limits?.maxOutputBytes).toBe(DOCUMENT_PREVIEW_LIMITS.maxOutputBytes);
+        expect(limits?.maxPages).toBe(DOCUMENT_PREVIEW_LIMITS.maxPages);
+        // The adapter's 27 s wait is chosen against these two: above api's budget, below the gateways' 30 s.
+        expect(limits?.requestBudgetSeconds).toBe(25);
+        expect(limits?.maxPagesEnforcedByViewerFor).toEqual(["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]);
+      }
+    });
+  });
+
   it("should describe exactly the registered and explicitly deferred operations", () => {
     const inSpec = Object.entries(spec.paths)
       .flatMap(([route, methods]) => Object.keys(methods).map((method) => `${method.toUpperCase()} ${route}`))
@@ -221,11 +283,13 @@ describe("openapi.json and the wire schemas", () => {
 
   it("should publish api's 429 on exactly the six rate-limited operations", () => {
     // api#113's limits. Admin classifies a 429 as `rate-limited`; a refresh that drops one, or adds one elsewhere,
-    // changes which actions can show the too-many-requests page.
+    // changes which actions can show the too-many-requests page. The two previews' 429 is `PREVIEW_BUSY`, a pod
+    // with no permit free rather than the caller's limit, and is pinned with them above.
     const limited = Object.entries(spec.paths)
       .flatMap(([route, methods]) =>
         Object.entries(methods)
           .filter(([, operation]) => (operation as { responses?: Record<string, unknown> }).responses?.["429"] !== undefined)
+          .filter(([, operation]) => (operation as OpenApiOperation)["x-document-preview-limits"] === undefined)
           .map(([method]) => `${method.toUpperCase()} ${route}`)
       )
       .sort();
@@ -566,6 +630,14 @@ interface OpenApiSpec {
  */
 interface OpenApiOperation {
   description?: string;
+  /** Only on the two document previews. */
+  "x-document-preview-limits"?: {
+    maxOutputBytes?: number;
+    maxPages?: number;
+    requestBudgetSeconds?: number;
+    rangeRequests?: string;
+    maxPagesEnforcedByViewerFor?: string[];
+  };
   responses?: Record<string, unknown>;
   /** Present only where an operation overrides the global requirement, as `GET /` does with `[]`. */
   security?: Record<string, string[]>[];

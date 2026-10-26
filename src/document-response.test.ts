@@ -8,7 +8,7 @@ import { PassThrough } from "node:stream";
 import type { DocumentDownload } from "@hmcts/deed-poll";
 import type { Response } from "express";
 import { describe, expect, it, vi } from "vitest";
-import { sendDocument } from "./document-response.js";
+import { sendDocument, sendDownload } from "./document-response.js";
 
 const INERT_POLICY = "default-src 'none'; sandbox";
 
@@ -98,6 +98,50 @@ describe("sendDocument", () => {
 });
 
 /** api's answer for a PDF today: rendered in place, under a policy that lets it reach nothing. */
+describe("sendDownload", () => {
+  it("should turn api's inline disposition into an attachment, keeping the original's filename", () => {
+    const res = streamResponse();
+
+    sendDownload(download(), res, vi.fn());
+
+    expect(res.headers["Content-Disposition"]).toBe('attachment; filename="deed poll.pdf"');
+  });
+
+  it("should keep api's original type, policy, nosniff and no-store", () => {
+    const docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const res = streamResponse();
+
+    sendDownload(download({ contentType: docx, contentDisposition: 'attachment; filename="statement.docx"' }), res, vi.fn());
+
+    expect(res.headers).toEqual({
+      "Content-Type": docx,
+      "Content-Disposition": 'attachment; filename="statement.docx"',
+      "Content-Security-Policy": INERT_POLICY,
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "no-store"
+    });
+  });
+
+  it("should download under the fallback name when api names no disposition", () => {
+    const res = streamResponse();
+
+    sendDownload(download({ contentDisposition: null }), res, vi.fn());
+
+    expect(res.headers["Content-Disposition"]).toBe('attachment; filename="document"');
+  });
+
+  it("should relay the original's bytes unchanged", async () => {
+    const original = download({ contentType: "image/tiff" });
+    const res = streamResponse();
+
+    sendDownload(original, res, vi.fn());
+    (original.body as PassThrough).end(Buffer.from([0x49, 0x49, 0x2a, 0x00]));
+
+    await new Promise((resolve) => res.on("finish", resolve));
+    expect(res.read()).toEqual(Buffer.from([0x49, 0x49, 0x2a, 0x00]));
+  });
+});
+
 function download(overrides: Partial<DocumentDownload> = {}): DocumentDownload {
   return {
     body: new PassThrough(),

@@ -266,10 +266,11 @@ single file:
   `libs/deed-poll/src/judicial/view.ts` builds the read-only "Application" section from that type alone, listing its
   fields in `APPLICATION_SECTIONS` and borrowing only labels and formatting from the caseworker metadata. Do not
   import the caseworker view model: the judge's page must not grow a field because the caseworker's did. Documents
-  download through `src/pages/judicial/referrals/[referralId]/documents/[documentId]/file.ts`, which shares
+  open in the shared viewer (see "Document viewer" below); the original download, and the legacy
+  `src/pages/judicial/referrals/[referralId]/documents/[documentId]/file.ts`, share
   `src/document-response.ts` with the caseworker route. Who may open one is api's visibility: any judge on `Open`,
-  the holder on `Claimed`, the director on `Decided`, nobody once closed. The same 404 covers each refusal and
-  renders the unavailable page. The relay keeps api's `inline` only for PDF, JPEG and PNG under a policy with
+  the holder on `Claimed`, the director on `Decided`, nobody once closed. On the legacy `file.ts` the same 404 covers
+  each refusal and renders the unavailable page, and its relay keeps api's `inline` only for PDF, JPEG and PNG under a policy with
   `default-src 'none'` and a bare `sandbox` (no `allow-*` token), and downloads everything else, filename kept; the
   caseworker upload page never renders api's 404 text, only its own sentence, logging api's through `forLog`
   (review findings R09 and R13, `docs/plans/completed/20261021-r09-r13-document-responses.md`).
@@ -610,6 +611,93 @@ Search, email preview, email send and upload are limited per IDAM subject
 - **Gazette's 429 stays an unknown outcome.** `callGazetteApi` turns it into `GazetteOutcomeUnknownError`, not
   `TooManyRequestsError`, because only a published Gazette refusal proves nothing was admitted under the request's
   key. The Gazette batch page is not limited here; api limits it.
+
+## Document viewer
+
+Every document link opens one app-owned viewer (plan `docs/plans/completed/20261023-full-page-document-viewer.md`). Facts that
+span several files:
+
+- **Two scoped route sets, never one generic URL.** `deed-polls/[id]/documents/[documentId]/` and
+  `judicial/referrals/[referralId]/documents/[documentId]/` each have `view`, `preview` and `download`, and a
+  judicial URL never carries a case id. Each route builds its paths with `caseViewerScope`/`referralViewerScope` and
+  `documentPaths` (`src/document-viewer/context.ts`) **before any read**. The return link is that scope's fixed
+  `#documents` anchor and never a `returnTo`. The legacy `file.ts` routes stay for existing consumers.
+- **The view reads its context once, and each binary request is authorised on its own.** The selector, title and
+  return link come from the one case or referral read (`libs/deed-poll/src/document-viewer/view.ts`, api's order).
+  `preview` and `download` read nothing first, and nothing loads every document to fill the selector. A preview 404
+  is `{ code: "DOCUMENT_UNAVAILABLE" }` inside the viewer, never the referral-unavailable page; a referral 404 on
+  `view` is that page.
+- **api's preview refusals are typed, and their prose never travels.** `callPreviewApi`
+  (`libs/deed-poll/src/api/deed-poll-api.ts`) maps the four codes to `DocumentPreviewRefusedError` only on their
+  published status. It replaces api's message with `document preview failed (<kind> <status>)`, because api's prose
+  can hold a converter's words or a file name. The relay (`src/document-viewer/preview-response.ts`) answers a
+  fixed `preview.pdf` attachment under `default-src 'none'; sandbox`, and the shell's CSP is the app's own, not the
+  binary's.
+- **The limits are the producer's, restated once.** `DOCUMENT_PREVIEW_LIMITS` and `PREVIEW_TIMEOUT_MS` (27 s, a ceiling
+  `DEED_POLL_API_TIMEOUT_MS` can only shorten) are in the api client, and `contract.test.ts` pins the limits to
+  `openapi.json`. The page passes them to the browser as `data-max-bytes`/`data-max-pages`; do not restate them in
+  the client.
+- **PDF.js runs with WebAssembly off (`useWasm: false`) so the CSP stays unchanged.** Turning it on needs
+  `'wasm-unsafe-eval'`. Also off: scripting, XFA, the annotation layer and range or streamed loading. It is the
+  **legacy** build in both the browser and the Node tests. `pdfjs-dist` is a devDependency because vite bundles it.
+  Its data files are copied by `vite.build.ts` to `/assets/pdfjs/` (`PDFJS_ASSET_MOUNT`), which
+  `src/document-viewer/pdfjs-assets.ts` serves in development; `pdfjs-assets.test.ts` pins both lists, and that
+  `package.json` resolves `pdfjs-dist` through a patch file that exists.
+- **`pdfjs-dist` is patched, and a page it cannot draw in full is a page state, not a document state** (plans
+  `docs/plans/completed/20261025-document-viewer-incomplete-pages.md` and
+  `docs/plans/completed/20261025-document-viewer-oversized-image-only.md`). **Only an oversized image fails a page**:
+  an image whose declared size is over `maxImageSize` makes the patched worker throw its own `ImageTooLargeError`
+  whatever `ignoreErrors` says, and the patch rethrows it at each catch it passes through (the XObject `Do`, nested
+  form XObjects and inline images, tiling patterns, an ExtGState SMask and an annotation's appearance stream).
+  **`stopAtErrors` is deliberately off.** It is PDF.js's whole `ignoreErrors`, so it also failed or silently emptied
+  pages for a broken font, ToUnicode map, colour space, shading or pattern, where PDF.js falls back and draws: an
+  empty `FontFile2` drew none of its text. Do not turn it back on to catch some other fault; patch that fault's check
+  instead. On the display side the patch fails each pending render task instead of completing it with the truncated
+  operator list, and drops the failed list from `_intentStates`, so drawing the page again asks the worker rather
+  than drawing a cached blank page; the worker resets an annotation's streams even when its appearance fails, or the
+  next draw would read an emptied appearance and draw the page without its stamp as if complete. Unpatched, 6.4.299 draws the page without the image and resolves.
+  `package.json` resolves `pdfjs-dist` through `.yarn/patches/` (committed; `.gitignore` admits only that directory
+  under `.yarn/`), and the browser loads the **unminified** legacy worker (`pdf.worker.mjs?url`) because the minified
+  files are unpatched. `pdf-document.test.ts` fails if the patch's behaviour is lost, which is what a version bump does,
+  and Renovate never automerges `pdfjs-dist`. Re-apply the patch to a new version with `yarn patch` on the original
+  package (not `--update`, which stacks a second patch). An upstream fix for the swallowed error (draft issue:
+  `docs/pdfjs-render-error-upstream-issue.md`, not yet filed) retires only the display hunks; the worker hunks are
+  this app's own and stay. **Three gaps are known and left** (Steve,
+  2026-10-25: patching further into PDF.js costs more than the rare cases are worth). An oversized image can still be
+  dropped silently when it is (1) an image's own `/SMask` or `/Mask` stream, which PDF.js builds as a `PDFImage`
+  without the size check and whose decode failure it swallows; (2) a JPEG 2000 (JPX) image whose codestream is larger
+  than its declared `/Width × /Height`, because PDF.js replaces the declared size after the check; or (3) inside a
+  Type3 glyph, because PDF.js catches every Type3 glyph error itself. Each needs an exotic or crafted PDF over 64
+  megapixels. The viewer's footer therefore says it is a preview and points to **Download original** for anything that
+  looks missing; do not reword it into a promise of completeness.
+  `renderPage` answers `incomplete` with the canvas emptied, and the viewer shows the page's sentence with **Download
+  original** while every control keeps working; a thumbnail gets a grey placeholder. A page that cannot be read at all
+  is still `failed`, the document's unavailable state. Never remove `maxImageSize`.
+- **`src/assets/**` has its own type check, `tsconfig.assets.json`**, which `build:app` runs after
+  `tsconfig.app.json` (which excludes it), so a type error in a browser bundle fails the image build. No unit test
+  imports `viewer.ts` or `thumbnails.ts`; their behaviour is covered only by `yarn test:document-viewer`, which no
+  pipeline stage runs. `render-page.test.ts` drives `renderPage` against real PDF.js with a minimal DOM stand-in. It and `pdf-document.test.ts` draw onto PDF.js's Node canvas, `@napi-rs/canvas`, which arrives only as an
+  optional dependency of `pdfjs-dist`, so an install that skips optional dependencies fails them. Keep rules in DOM-free `presentation.ts`, where tests reach them.
+  Switching documents replaces history and never pushes, and per-document state lives only in memory,
+  `history.state` and a validated fragment, never in storage. `viewer.test.ts` scans the sources for storage,
+  logging and requests, and allows a network call only in `fetch-preview.ts`.
+- **`yarn test:document-viewer` runs the viewer's browser journeys** (caseworker and judge, all five formats) against
+  a fresh mock on 3219 and this app on 3319, with Redis database 4 and local IDAM on 5556. It is kept out of
+  `yarn test:e2e` because it switches the mock's preview scenario, which must never happen on a shared developer mock.
+- **A browser that goes away mid-preview is not an error.** `relayPreview` aborts api's read on the response's
+  `close` and drops the failure that produces, which the adapter would otherwise report as an api timeout: the
+  loader aborts on every document switch. A close after the headers have gone is cut off in `domainErrorHandler` (`res.destroy()`,
+  nothing logged for a premature close) and never passed on: the starter's handler would render over the sent headers
+  and throw outside any handler, taking the pod down.
+- **A preview fetch past a session limit is refused 401 and does not end the session.** The viewer's fetch never
+  follows a redirect, so ending it there would leave IDAM's session standing and "Sign in again" would sign the reader
+  straight back in. `sessionLifetime` leaves a non-navigating GET (`Sec-Fetch-Mode` present and not `navigate`) for
+  the next navigation, the sign-in link to `view`, to end through IDAM. A refusal keeps api's own status, carried on `DocumentPreviewRefusedError`.
+- **`download` (either scope) always answers `attachment`** through `sendDownload`, and its 404 is the shared "Page
+  not found", not the referral-unavailable page. The `inline` rules in "Personas and role gating" are the legacy
+  `file.ts` routes'.
+- **Welsh:** `src/document-viewer` is on the extractor's `INCLUDE`, and `src/welsh-extractor.test.ts` compares every
+  `en` key of `content.ts` with the extracted rows.
 
 ## Redirect paths
 

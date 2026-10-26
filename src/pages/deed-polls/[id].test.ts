@@ -561,6 +561,19 @@ describe("case detail page", () => {
     expect(model.documents).toEqual([]);
   });
 
+  // Built here with the viewer's path helpers rather than in the template (CLAUDE.md "Redirect paths").
+  it("should open each document in the case's viewer, encoding the document id", async () => {
+    const document = { id: "doc/1", name: "Deed.pdf", documentType: null, direction: null, createdOn: null, hasFile: true };
+    vi.mocked(findDeedPoll).mockResolvedValue({ ...found, documents: [document] } as never);
+    const res = response();
+
+    await GET(request(), res);
+
+    expect(res.render.mock.calls[0][1].documents).toEqual([
+      expect.objectContaining({ name: "Deed.pdf", downloadable: true, viewHref: "/deed-polls/case-1/documents/doc%2F1/view" })
+    ]);
+  });
+
   it("passes a referrals view model built from the second call, formatted rather than raw", async () => {
     // Referrals are the one subgrid whose rows are not on the case payload, so the tab is only ever as
     // populated as this call makes it — and the labels are the view model's, not the template's.

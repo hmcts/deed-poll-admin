@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -19,3 +21,33 @@ describe("the Welsh string extractor", () => {
     expect(run.stdout).toMatch(/^\d+ strings, \d+ still identical in cy/m);
   });
 });
+
+/**
+ * The viewer's words live outside `src/pages`, in the one content module both scopes' viewer renders, so they reach
+ * the translation request only because the module's directory is on `INCLUDE`. Every key `en` holds must arrive,
+ * the page-count sentences and the function-shaped "Document N of M" included.
+ */
+describe("the Welsh string extractor and the document viewer", () => {
+  it("should collect every label, message and count sentence of the viewer's content", async () => {
+    const { en } = await import("./document-viewer/content.js");
+    const directory = mkdtempSync(path.join(tmpdir(), "welsh-extract-"));
+    const out = path.join(directory, "request.csv");
+
+    const run = spawnSync(process.execPath, ["scripts/extract-welsh-strings.mjs", `--out=${out}`], { cwd: ROOT, encoding: "utf8" });
+    const collected = readFileSync(out, "utf8")
+      .split("\n")
+      .filter((line) => line.startsWith("src/document-viewer/content.ts,"))
+      .map((line) => line.split(",")[1]);
+    rmSync(directory, { recursive: true, force: true });
+
+    expect(run.status).toBe(0);
+    expect(collected.sort()).toEqual(keysOf(en).sort());
+    expect(collected).toEqual(expect.arrayContaining(["documentPosition", "pageTotal", "pageStatus", "messages.tooLarge", "tryAgain"]));
+  });
+});
+
+function keysOf(content: Record<string, unknown>, prefix = ""): string[] {
+  return Object.entries(content).flatMap(([key, value]) =>
+    typeof value === "object" && value !== null ? keysOf(value as Record<string, unknown>, `${prefix}${key}.`) : [`${prefix}${key}`]
+  );
+}

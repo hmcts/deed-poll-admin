@@ -7,10 +7,12 @@ import {
   getJudicialPool,
   getJudicialReferral,
   listReferrals,
+  previewJudicialDocument,
   reviseDirection,
   withdrawDirection
 } from "@hmcts/deed-poll-api-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DocumentPreviewRefusedError } from "../document-viewer/errors.js";
 import { ConflictError, InvalidInputError, NotFoundError } from "../errors.js";
 import {
   changeDirection,
@@ -19,6 +21,7 @@ import {
   getReferral,
   listMyReferrals,
   listPool,
+  previewReferralDocument,
   recordDirection,
   withdrawOwnDirection
 } from "./service.js";
@@ -37,6 +40,7 @@ vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
   reviseDirection: vi.fn(),
   withdrawDirection: vi.fn(),
   downloadJudicialDocument: vi.fn(),
+  previewJudicialDocument: vi.fn(),
   listReferrals: vi.fn(),
   getCase: vi.fn()
 }));
@@ -245,6 +249,41 @@ describe("judicial/service", () => {
       vi.mocked(downloadJudicialDocument).mockResolvedValue(notFound as never);
 
       await expect(downloadReferralDocument("ref-1", "doc-9", CALLER)).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
+  describe("previewReferralDocument", () => {
+    it("should ask for the preview under the referral alone, with the judge's token and the caller's signal", async () => {
+      const preview = { body: "stream", contentType: "application/pdf", contentLength: 10 };
+      const signal = new AbortController().signal;
+      vi.mocked(previewJudicialDocument).mockResolvedValue(ok(preview) as never);
+
+      const result = await previewReferralDocument("ref-1", "doc-9", CALLER, signal);
+
+      expect(result).toEqual(preview);
+      expect(previewJudicialDocument).toHaveBeenCalledWith("ref-1", "doc-9", expect.objectContaining({ accessToken: "judge-token", signal }));
+      expect(downloadJudicialDocument).not.toHaveBeenCalled();
+      expect(getCase).not.toHaveBeenCalled();
+    });
+
+    it("should throw NotFoundError for a document this judge may not preview", async () => {
+      vi.mocked(previewJudicialDocument).mockResolvedValue(notFound as never);
+
+      await expect(previewReferralDocument("ref-1", "doc-9", CALLER)).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    it("should throw DocumentPreviewRefusedError carrying api's code when the converter is unavailable", async () => {
+      vi.mocked(previewJudicialDocument).mockResolvedValue({
+        ok: false,
+        error: { kind: "preview-refused", code: "PREVIEW_UNAVAILABLE", status: 503, retryAfterSeconds: null }
+      } as never);
+
+      await expect(previewReferralDocument("ref-1", "doc-9", CALLER)).rejects.toMatchObject({
+        name: "DocumentPreviewRefusedError",
+        code: "PREVIEW_UNAVAILABLE",
+        retryAfterSeconds: null
+      });
+      await expect(previewReferralDocument("ref-1", "doc-9", CALLER)).rejects.toBeInstanceOf(DocumentPreviewRefusedError);
     });
   });
 
