@@ -20,7 +20,7 @@
 // class that sets a display (`.govuk-button`, a summary row, the rules below), so **Try again** showed beside every
 // refusal. Found by `e2e-tests/tests/document-viewer.spec.ts`.
 .app-document-viewer [hidden] {
-  display: none !important;
+  display: none;
 }
 
 .app-document-viewer__documents {
