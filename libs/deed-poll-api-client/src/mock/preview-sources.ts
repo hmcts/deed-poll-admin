@@ -20,6 +20,7 @@ export const DOCX_BYTES = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06,
 export function tiff(frames: number, options: { bigEndian?: boolean; compression?: number; loop?: boolean } = {}): Buffer {
   const { bigEndian = false, compression = 1, loop = false } = options;
   const directory = 2 + 12 + 4;
+  const finalOffset = loop ? 8 : 0;
   const bytes = Buffer.alloc(8 + frames * directory);
   const short = (value: number, at: number) => (bigEndian ? bytes.writeUInt16BE(value, at) : bytes.writeUInt16LE(value, at));
   const long = (value: number, at: number) => (bigEndian ? bytes.writeUInt32BE(value, at) : bytes.writeUInt32LE(value, at));
@@ -36,7 +37,7 @@ export function tiff(frames: number, options: { bigEndian?: boolean; compression
     long(1, at + 6);
     short(compression, at + 10);
     const last = frame === frames - 1;
-    long(last ? (loop ? 8 : 0) : at + directory, at + 14);
+    long(last ? finalOffset : at + directory, at + 14);
   }
 
   return bytes;
