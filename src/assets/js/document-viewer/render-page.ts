@@ -30,7 +30,9 @@ export function renderPage(document: PDFDocumentProxy, request: PageRequest): Re
   const done = (async (): Promise<RenderOutcome> => {
     try {
       const page = await document.getPage(request.pageNumber);
-      cleanup = () => void page.cleanup();
+      cleanup = () => {
+        page.cleanup();
+      };
       read = true;
       if (cancelled) return "cancelled";
 
