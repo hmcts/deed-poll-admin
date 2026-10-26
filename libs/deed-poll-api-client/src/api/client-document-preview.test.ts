@@ -250,6 +250,7 @@ describe("the preview response's contract", () => {
   it.each([
     ["not a PDF", { "content-type": "text/html" }, "is not a PDF"],
     ["missing its type", {}, "is not a PDF"],
+    ["not a PDF and larger than the limit", { "content-type": "text/html", "x-declared": String(DOCUMENT_PREVIEW_LIMITS.maxOutputBytes + 1) }, "is not a PDF"],
     [
       "larger than the limit",
       { "content-type": "application/pdf", "x-declared": String(DOCUMENT_PREVIEW_LIMITS.maxOutputBytes + 1) },
@@ -271,6 +272,26 @@ describe("the preview response's contract", () => {
       expect(result).toMatchObject({ ok: false, error: { kind: "invalid-response", message: expect.stringContaining(message) } });
     } finally {
       server.closeAllConnections();
+      await server.close();
+    }
+  });
+
+  it("should report a missing body before checking its type or declared size", async () => {
+    const server = await listen(
+      createServer((_req, res) => {
+        res.writeHead(204, { "content-type": "text/html", "content-length": String(DOCUMENT_PREVIEW_LIMITS.maxOutputBytes + 1) });
+        res.end();
+      })
+    );
+
+    try {
+      const result = await previewDocument("case-1", "doc-1", { baseUrl: server.url });
+
+      expect(result).toEqual({
+        ok: false,
+        error: { kind: "invalid-response", status: 204, message: "GET /caseworker/cases/case-1/documents/doc-1/preview returned no body" }
+      });
+    } finally {
       await server.close();
     }
   });
