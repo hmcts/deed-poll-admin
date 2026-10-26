@@ -57,7 +57,7 @@ export const content: Translations = {
     part1: "Mae hwn yn wasanaeth newydd – ",
     part2: "rhowch adborth",
     part3: " i'n helpu i'w wella.",
-    ariaLabel: "Rhoi adborth am y dudalen hon",
+    ariaLabel: "Rhowch adborth am y dudalen hon",
     link: "/feedback?page="
   },
   common: {

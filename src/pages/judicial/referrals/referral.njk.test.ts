@@ -149,14 +149,20 @@ describe("judicial referral template", () => {
   });
 
   // The href is the handler's, built with the path helpers (CLAUDE.md "Redirect paths"); the template only prints it.
-  it("should link each document's name to the judicial download route, with its type, upload date and size", async () => {
+  it("should link each document's name to the judicial viewer, with its type, upload date and size", async () => {
     const html = await render(detail());
 
-    expect(html).toContain('<a class="govuk-link" href="/judicial/referrals/ref-1/documents/doc-1/file">birth-certificate.pdf</a>');
+    expect(html).toContain('<a class="govuk-link" href="/judicial/referrals/ref-1/documents/doc-1/view">birth-certificate.pdf</a>');
     expect(html).toContain("Birth certificate");
     expect(html).toContain("2 September 2026");
     expect(html).toContain("240 KB");
     expect(html).not.toContain("/deed-polls");
+  });
+
+  it("should mark the documents list as the viewer's way back", async () => {
+    const html = await render(detail());
+
+    expect(html).toContain('<h3 class="govuk-heading-s" id="documents">');
   });
 
   it("should say no documents have been added rather than rendering an empty table", async () => {

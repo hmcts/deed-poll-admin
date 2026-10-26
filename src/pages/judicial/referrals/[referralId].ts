@@ -30,8 +30,8 @@
 import { buildJudicialReferral, getReferral, NotFoundError } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../auth/current-user.js";
+import { documentPaths, referralViewerScope } from "../../../document-viewer/context.js";
 import { referralPath } from "../../../judicial-referral-path.js";
-import { pathSegment } from "../../../path-segment.js";
 
 const POOL_PATH = "/judicial/referrals";
 
@@ -203,10 +203,10 @@ export const GET = async (req: Request, res: Response) => {
     // Both built here rather than in the template, so the one path shape lives in one place — and so the
     // direction page's URL is stated by the page that offers it rather than assembled from fragments.
     claimHref: `${href}/claim`,
-    // Each document's download route, built from api's id with the path helper rather than in the template.
+    // Each document opens the full-page viewer, built with the viewer's own helpers rather than in the template.
     documents: (view.application?.documents ?? []).map((document) => ({
       ...document,
-      href: `${href}/documents/${pathSegment(document.id, "Document id")}/file`
+      href: documentPaths(referralViewerScope(referralId), document.id).viewPath
     })),
     directionHref: `${href}/direction`,
     changeHref: `${href}/direction?change=1`,

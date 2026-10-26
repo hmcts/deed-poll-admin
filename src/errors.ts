@@ -23,10 +23,15 @@ import { forLog } from "./for-log.js";
 
 export function domainErrorHandler(): ErrorRequestHandler {
   return (err: Error, req: Request, res: Response, next: NextFunction) => {
-    // Past the point of changing the status, so let Express abort rather than attempt a second set
-    // of headers. Relevant here because the document download route streams.
+    // Past the point of changing the status, so the response is cut off here rather than passed on: the starter's
+    // handler would render a 500 over a streamed document's headers and throw `ERR_HTTP_HEADERS_SENT` outside any
+    // handler, taking the pod with it. A reader closing a preview or download mid-body is routine, not a failure.
     if (res.headersSent) {
-      return next(err);
+      if ((err as NodeJS.ErrnoException).code !== "ERR_STREAM_PREMATURE_CLOSE") {
+        console.error(`response failed after its headers were sent: ${forLog(err.message)}`);
+      }
+      res.destroy();
+      return;
     }
 
     if (err instanceof NotFoundError) {

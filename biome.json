@@ -21,7 +21,8 @@
       "!**/build",
       "!**/node_modules",
       "!**/.turbo",
-      "!**/generated"
+      "!**/generated",
+      "!docs/prototypes"
     ]
   },
   "formatter": {

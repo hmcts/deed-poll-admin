@@ -51,6 +51,11 @@
       "allowedVersions": "<7"
     },
     {
+      "description": "Never automerge pdfjs-dist: package.json resolves it through .yarn/patches/pdfjs-dist-npm-6.4.299-*.patch, which fails a page holding an image over maxImageSize (worker) and makes that render reject (display) (docs/pdfjs-render-error-upstream-issue.md). A bump drops the patch, and src/assets/js/document-viewer/pdf-document.test.ts then fails. Re-apply the patch to the new version with yarn patch on the original package; only the display hunks can go once upstream rejects the render itself",
+      "matchPackageNames": ["pdfjs-dist"],
+      "automerge": false
+    },
+    {
       "description": "Group all Node.js version updates",
       "groupName": "Node.js version",
       "matchPackageNames": ["node"],

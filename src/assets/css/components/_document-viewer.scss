@@ -1,0 +1,311 @@
+/*
+ * The document viewer's page frame, its text layer and its thumbnails (`src/pages/document-viewer.njk`, drawn by
+ * `src/assets/js/document-viewer/`), its toolbar and its responsive layout, after the approved design
+ * (`docs/prototypes/document-viewer.html`) in GOV.UK type, spacing and colours.
+ *
+ * The page scrolls inside its own frame, which is a fixed share of the window's height so "Fit whole page" has a
+ * height to fit and reading a page never scrolls the toolbar away. From the tablet breakpoint the toolbar also
+ * sticks to the top of the window. Below it the controls wrap, the toolbar scrolls with the page and the frame is
+ * shorter, so the toolbar and frame fit on the screen together at a 320px width or a 200% browser zoom.
+ *
+ * `.textLayer` is PDF.js's own class, and its rules are the subset of PDF.js's `pdf_viewer.css` (6.4.299) that
+ * positions the page's text exactly over the canvas, kept here rather than imported because the rest of that file
+ * styles a viewer this app does not use. The text is transparent: it is there to be read aloud and selected.
+ *
+ * `base` and not `index`, so this file gets the settings, tools and helpers and emits only the rules below.
+ */
+@use "govuk-frontend/dist/govuk/base" as *;
+
+// The renderer shows and hides its controls with `hidden`, which the browser's own `display: none` loses to any
+// class that sets a display (`.govuk-button`, a summary row, the rules below), so **Try again** showed beside every
+// refusal. Found by `e2e-tests/tests/document-viewer.spec.ts`.
+.app-document-viewer [hidden] {
+  display: none !important;
+}
+
+.app-document-viewer__documents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: govuk-spacing(3);
+  align-items: flex-end;
+
+  .govuk-button,
+  .govuk-form-group {
+    margin-bottom: 0;
+  }
+}
+
+.app-document-viewer__selector {
+  display: flex;
+  flex: 0 1 36em;
+  gap: govuk-spacing(3);
+  align-items: flex-end;
+  min-width: 0;
+
+  .govuk-form-group {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .govuk-select {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+.app-document-viewer__position {
+  margin: 0;
+  padding-bottom: govuk-spacing(2);
+  color: $govuk-secondary-text-colour;
+}
+
+.app-document-viewer__document-links {
+  flex-basis: 100%;
+  margin-bottom: 0;
+}
+
+.app-document-viewer__toolbar {
+  display: flex;
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  flex-wrap: wrap;
+  gap: govuk-spacing(2) govuk-spacing(4);
+  align-items: center;
+  margin-top: govuk-spacing(4);
+  padding: govuk-spacing(2) govuk-spacing(3);
+  border-bottom: 1px solid $govuk-border-colour;
+  background-color: govuk-colour("light-grey");
+
+  // GOV.UK buttons go full width below the tablet breakpoint, which would stack twelve controls into a sticky bar
+  // taller than a phone's screen. At their own width they wrap a few to a line.
+  .govuk-button {
+    width: auto;
+    margin-bottom: 0;
+  }
+
+  // On a phone the wrapped toolbar is a third of the screen, too much to pin over the page. It scrolls away instead,
+  // and the frame below is sized so that the two fit on the screen together.
+  @include govuk-media-query($until: tablet) {
+    position: static;
+    padding: govuk-spacing(1) govuk-spacing(2);
+    gap: govuk-spacing(1) govuk-spacing(2);
+  }
+}
+
+.app-document-viewer__tool-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: govuk-spacing(1);
+  align-items: center;
+}
+
+.app-document-viewer__page-label,
+.app-document-viewer__page-total,
+.app-document-viewer__zoom-level {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.app-document-viewer__page-input {
+  width: 4em;
+  text-align: center;
+}
+
+.app-document-viewer__zoom-step {
+  min-width: 2.5em;
+}
+
+.app-document-viewer__zoom-level {
+  min-width: 3.5em;
+  text-align: center;
+}
+
+.app-document-viewer__body {
+  display: flex;
+  gap: govuk-spacing(3);
+  align-items: stretch;
+  height: 75vh;
+  min-height: 20em;
+
+  @include govuk-media-query($until: tablet) {
+    height: 55vh;
+    min-height: 15em;
+  }
+}
+
+.app-document-viewer__page {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: govuk-spacing(3);
+  overflow: auto;
+  // A scrollbar that comes and goes would change the width a fit is measured against, and so the fit, forever.
+  scrollbar-gutter: stable;
+  background-color: govuk-colour("light-grey");
+
+  &:focus {
+    outline: $govuk-focus-width solid $govuk-focus-colour;
+    outline-offset: 0;
+  }
+}
+
+.app-document-viewer__sheet {
+  position: relative;
+  margin: 0 auto;
+  width: fit-content;
+  background-color: govuk-colour("white");
+
+  canvas {
+    display: block;
+  }
+}
+
+// A fixed width, so the page's fit to width is measured against the space it will keep once the thumbnails draw.
+.app-document-viewer__thumbnails {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 160px;
+  overflow: auto;
+  background-color: govuk-colour("light-grey");
+
+  @include govuk-media-query($until: tablet) {
+    width: 136px;
+  }
+}
+
+.app-document-viewer__thumbnail-list {
+  margin: 0;
+  padding: govuk-spacing(1);
+  list-style: none;
+}
+
+.app-document-viewer__thumbnail {
+  min-height: 120px;
+  margin-bottom: govuk-spacing(2);
+  text-align: center;
+}
+
+// The page on show is marked by `aria-current` and a thicker border, not by colour alone.
+.app-document-viewer__thumbnail-button {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: govuk-spacing(1);
+  border: 2px solid transparent;
+  background: none;
+  color: $govuk-text-colour;
+  cursor: pointer;
+
+  &:hover {
+    border-color: $govuk-border-colour;
+  }
+
+  &[aria-current="page"] {
+    border: 4px solid $govuk-link-colour;
+    padding: calc(#{govuk-spacing(1)} - 2px);
+    font-weight: $govuk-font-weight-bold;
+  }
+
+  &:focus {
+    outline: $govuk-focus-width solid $govuk-focus-colour;
+    outline-offset: 0;
+  }
+}
+
+.app-document-viewer__thumbnail-page {
+  margin: 0 auto govuk-spacing(1);
+  border: 1px solid $govuk-border-colour;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+
+  canvas {
+    display: block;
+  }
+}
+
+// Stands in for a page that could not be drawn in full: the thumbnail's size, with nothing of the page on it.
+.app-document-viewer__thumbnail-placeholder {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 120px;
+  margin: 0 auto govuk-spacing(1);
+  border: 1px solid $govuk-border-colour;
+  background-color: govuk-colour("mid-grey");
+}
+
+.app-document-viewer__thumbnail-label {
+  display: block;
+  margin: 0;
+}
+
+.textLayer {
+  --min-font-size: 1;
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  --total-scale-factor: var(--scale-factor);
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+
+  &[data-main-rotation="90"] {
+    transform: rotate(90deg) translateY(-100%);
+  }
+
+  &[data-main-rotation="180"] {
+    transform: rotate(180deg) translate(-100%, -100%);
+  }
+
+  &[data-main-rotation="270"] {
+    transform: rotate(270deg) translateX(-100%);
+  }
+
+  :is(span, br) {
+    position: absolute;
+    color: transparent;
+    white-space: pre;
+    cursor: text;
+    transform-origin: 0% 0%;
+    user-select: text;
+  }
+
+  > :not(.markedContent),
+  .markedContent span:not(.markedContent) {
+    --font-height: 0;
+    --scale-x: 1;
+    --rotate: 0deg;
+    z-index: 1;
+    font-size: calc(var(--text-scale-factor) * var(--font-height));
+    transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+  }
+
+  .markedContent {
+    display: contents;
+  }
+
+  ::selection {
+    background: rgba(0, 0, 255, 0.25);
+  }
+
+  .endOfContent {
+    display: block;
+    position: absolute;
+    inset: 100% 0 0;
+    z-index: 0;
+    cursor: default;
+    user-select: none;
+  }
+}

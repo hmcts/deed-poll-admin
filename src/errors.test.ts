@@ -10,9 +10,16 @@
  * deliberate mismatch a later reader "corrects". The 403 status still discloses the area (review finding R14).
  */
 import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { type AddressInfo, connect } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PassThrough, pipeline } from "node:stream";
 import { ACCESS_GAZETTE, ConflictError, ForbiddenError, InvalidInputError, NotFoundError, TooManyRequestsError, UnauthorizedError } from "@hmcts/deed-poll";
 import { trackEvent } from "@hmcts-cft/cloud-native-platform";
+import { errorHandler } from "@hmcts-cft/express-govuk-starter";
 import express, { type NextFunction } from "express";
+import nunjucks from "nunjucks";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { requireCapability, requireJudicial } from "./auth/require-role.js";
@@ -376,15 +383,68 @@ describe("domainErrorHandler", () => {
 
   // The document download route streams, so by the time it fails the status is already on the wire. Attempting a
   // second set of headers would throw inside the error handler itself.
-  it("should hand a failure back to Express untouched once the response has begun", () => {
-    const error = new NotFoundError("Document d-1 not found");
-    const res = pageResponse();
-    (res as { headersSent: boolean }).headersSent = true;
+  // Passed on, the starter's handler would render over the sent headers and throw outside any handler.
+  it("should cut the response off and log, rather than pass on, a failure once the response has begun", () => {
+    const error = new Error("api's body failed mid-stream");
+    const res = Object.assign(pageResponse(), { headersSent: true, destroy: vi.fn() });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     domainErrorHandler()(error, REQUEST, res, next);
 
-    expect(next).toHaveBeenCalledWith(error);
+    expect(res.destroy).toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
     expect(res.render).not.toHaveBeenCalled();
     expect(res.status).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith("response failed after its headers were sent: api's body failed mid-stream");
+    consoleError.mockRestore();
+  });
+
+  it("should survive a browser closing a streamed response mid-body, with the starter's renderer behind it", async () => {
+    const body = new PassThrough();
+    const reached = Promise.withResolvers<void>();
+    const views = mkdtempSync(join(tmpdir(), "views-"));
+    mkdirSync(join(views, "errors"));
+    writeFileSync(join(views, "errors", "500.njk"), "500");
+    const app = express();
+    nunjucks.configure(views, { express: app });
+    app.set("view engine", "njk");
+    app.get("/stream", (_req, res, next) => {
+      res.setHeader("Content-Type", "application/pdf");
+      res.flushHeaders();
+      body.write("%PDF-");
+      reached.resolve();
+      pipeline(body, res, (error) => {
+        if (error) next(error);
+      });
+    });
+    app.use(domainErrorHandler());
+    // The starter's real handler: its render would answer over the sent headers and throw outside any handler.
+    app.use(errorHandler());
+    const server = app.listen(0);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const socket = connect((server.address() as AddressInfo).port, "127.0.0.1");
+    socket.write("GET /stream HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    await reached.promise;
+    const closed = new Promise((resolve) => body.once("close", resolve));
+    socket.destroy();
+    await closed;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  it("should log nothing when the browser closed a streamed response before its end", () => {
+    const error = Object.assign(new Error("Premature close"), { code: "ERR_STREAM_PREMATURE_CLOSE" });
+    const res = Object.assign(pageResponse(), { headersSent: true, destroy: vi.fn() });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    domainErrorHandler()(error, REQUEST, res, next);
+
+    expect(res.destroy).toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });

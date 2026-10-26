@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Document viewer — Deed poll design prototype</title>
+  <style>
+    :root{font-family:Arial,Helvetica,sans-serif;color:#0b0c0c;background:#fff;font-size:17px;--blue:#1d70b8;--border:#b1b4b6;--grey:#f3f2f1}
+    *{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button,select,a,input{outline-offset:2px}button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid #ffdd00;box-shadow:0 0 0 5px #0b0c0c}
+    button{cursor:pointer;background:#fff;border:1px solid #6f777b;border-radius:2px;padding:9px 12px;color:#0b0c0c;min-height:40px;white-space:nowrap}button:hover:not(:disabled){background:#e8eef3;border-color:#0b0c0c}button:disabled{cursor:default;color:#6f777b;background:#f3f2f1;border-color:#ccc}a{color:var(--blue);text-underline-offset:3px}a:hover{color:#003078;text-decoration-thickness:3px}[hidden]{display:none!important}
+    .shell{height:100dvh;display:flex;flex-direction:column}.service-header{background:#0b0c0c;color:white;border-bottom:5px solid var(--blue);padding:14px 28px;display:flex;align-items:center;gap:28px}.brand{font-size:23px;font-weight:bold;letter-spacing:1px}.service-name{font-size:20px}.prototype{padding:8px 28px;border-bottom:1px solid #ddd;font-size:14px;background:#fafafa;display:flex;align-items:center;justify-content:space-between;gap:12px}.badge{display:inline-block;padding:3px 6px;background:#e2eefa;color:#144e81;font-weight:bold;letter-spacing:.8px;font-size:12px;margin-right:8px}.context-control{display:flex;gap:8px;align-items:center}.context-control select{font-size:14px;padding:3px 6px;border:1px solid #888;background:white}
+    .viewer{display:flex;flex-direction:column;flex:1;min-height:0}.document-heading{padding:17px 28px 18px;background:#fff}.heading-top{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-bottom:15px}.back{font-size:16px}.back:before{content:'‹';display:inline-block;margin-right:8px;font-size:22px;vertical-align:-1px}.heading-title{display:flex;justify-content:space-between;align-items:flex-end;gap:20px}h1{font-size:28px;line-height:1.15;margin:0 0 8px;overflow-wrap:anywhere}.caption{margin:0;color:#505a5f;font-size:16px}.reference{font-size:16px;white-space:nowrap;color:#505a5f}.reference strong{display:block;color:#0b0c0c;font-weight:normal;margin-top:4px}
+    .document-navigation{display:flex;gap:14px;align-items:flex-end;padding:14px 28px;border-top:1px solid #ddd;border-bottom:1px solid var(--border);background:#fff}.document-picker{flex:1;max-width:560px}.document-picker label{display:block;font-size:14px;font-weight:bold;margin-bottom:6px}.document-picker select{width:100%;height:42px;background:white;border:2px solid #0b0c0c;padding:5px 32px 5px 10px}.document-count{font-size:14px;color:#505a5f;margin-left:auto;padding-bottom:11px;white-space:nowrap}
+    .toolbar{padding:10px 28px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--border);background:var(--grey)}.tool-group{display:flex;align-items:center;gap:7px}.tool-group+.tool-group{border-left:1px solid #c7c9cb;padding-left:18px}.page-label{font-size:15px;margin:0 2px 0 5px;white-space:nowrap}.page-input{width:50px;height:40px;border:2px solid #0b0c0c;text-align:center;background:white}.page-input::-webkit-inner-spin-button{-webkit-appearance:none}.total-pages{font-size:15px;white-space:nowrap;margin-right:5px}.zoom-value{min-width:52px;display:inline-block;text-align:center;font-size:15px}.zoom-step{font-size:21px;line-height:1;width:40px;padding:8px 0}.toolbar button{font-size:15px}.toolbar .zoom-step{font-size:21px}.pressed{background:#dbe8f1;border-color:#144e81}.workspace{display:flex;flex:1;min-height:0;background:#e7e9eb}
+    .thumbnails{width:158px;flex-shrink:0;overflow:auto;background:#f3f2f1;border-right:1px solid var(--border);padding:15px 16px}.thumbnails h2{font-size:15px;font-weight:normal;margin:0 0 14px;color:#505a5f}.thumbnail{display:block;width:100%;border:2px solid transparent;padding:6px;margin:0 0 13px;background:transparent}.thumbnail:hover:not(:disabled){background:#e4e8eb;border-color:#6f777b}.thumbnail[aria-current=page]{border:3px solid var(--blue);background:#e5eff7;padding:5px}.mini-page{display:block;background:white;border:1px solid #c0c4c6;height:109px;width:76px;margin:0 auto 7px;padding:16px 9px;box-shadow:0 2px 3px #0001}.mini-heading{display:block;width:40px;height:4px;background:#525a60;margin-bottom:12px}.mini-line{display:block;height:2px;background:#bec3c6;margin:0 0 6px}.mini-line:nth-child(3n){width:70%}.thumbnail-label{font-size:14px}.stage{position:relative;flex:1;min-width:0;overflow:auto;padding:30px 36px;scrollbar-gutter:stable}.paper-space{position:relative;margin:0 auto;flex-shrink:0}.paper{position:absolute;left:0;top:0;width:760px;height:1075px;padding:66px 70px;background:#fff;box-shadow:0 2px 9px #0003;transform-origin:top left;color:#1c2329;overflow:hidden}.paper h2{font-family:Georgia,serif;font-weight:normal;font-size:28px;line-height:1.3;margin:20px 0 32px}.paper p{font-family:Georgia,serif;font-size:17px;line-height:1.65}.paper .sample-mark{font:12px Arial;letter-spacing:2px;color:#666;text-transform:uppercase}.paper .paper-heading{font:bold 14px Arial;letter-spacing:1px;border-bottom:2px solid #1c2329;padding:0 0 18px;margin:0}.paper .field-label{font:bold 13px Arial;margin-top:28px;color:#505a5f}.paper .field-value{font:20px Georgia;margin:8px 0;padding-bottom:13px;border-bottom:1px solid #aaa}.paper .paper-foot{position:absolute;bottom:42px;left:70px;right:70px;font:12px Arial;border-top:1px solid #c5c5c5;padding-top:12px;color:#666;display:flex;justify-content:space-between}.paper .rule{height:1px;background:#c7c7c7;margin:29px 0}.paper .scanned-frame{border:2px solid #93989a;padding:28px;margin-top:30px;background:#fbfaf7;min-height:580px}.paper .seal{width:110px;height:110px;margin:45px auto 15px;border:3px double #969da2;border-radius:50%;display:flex;align-items:center;justify-content:center;text-align:center;font:12px Arial;letter-spacing:1px;color:#727d85;transform:rotate(-11deg)}.paper .image-frame{height:590px;margin-top:30px;background:#f1f0eb;padding:35px;border:1px solid #ccc;transform:rotate(-1deg)}.paper .image-frame h2{font:bold 25px Arial;letter-spacing:1px}.paper .image-frame p{font:17px Arial;line-height:1.8}.paper .muted-line{height:7px;background:#d8d8d3;margin:21px 0;width:90%}.paper .muted-line:nth-child(2n){width:65%}.footer-status{padding:7px 28px;border-top:1px solid var(--border);font-size:13px;color:#505a5f;background:#fff;display:flex;justify-content:space-between;gap:12px}.toast{position:fixed;right:25px;bottom:45px;max-width:390px;background:#0b0c0c;color:#fff;padding:16px 20px;box-shadow:0 2px 10px #0003;z-index:10;font-size:15px}
+    .referral{overflow:auto;padding:32px 28px;max-width:1000px;width:100%;margin:0 auto}.referral h1{font-size:36px;margin:25px 0 15px}.referral h2{font-size:23px;margin:30px 0 15px}.referral .summary{border-top:1px solid #b1b4b6}.summary div{display:flex;gap:30px;padding:14px 0;border-bottom:1px solid #b1b4b6}.summary dt{font-weight:bold;width:190px}.summary dd{margin:0}.referral table{border-collapse:collapse;width:100%}.referral th,.referral td{border-bottom:1px solid #b1b4b6;text-align:left;padding:15px 15px 15px 0;font-size:17px}.referral .hint{color:#505a5f;line-height:1.5}.tag{background:#cce2d8;padding:5px 8px;color:#005a30;font-size:16px;font-weight:bold}
+    @media(min-width:1450px){.stage{padding-left:70px;padding-right:70px}}@media(max-width:1000px){.document-count{display:none}.toolbar{gap:9px}.tool-group+.tool-group{padding-left:10px}.thumbnails{width:126px;padding:15px 8px}.toolbar button{padding:9px}.service-header{gap:18px}.heading-title h1{font-size:25px}}
+    @media(max-width:720px){.service-header{padding:12px 16px}.brand{font-size:18px}.service-name{font-size:16px}.prototype{padding:7px 16px;align-items:flex-start}.prototype-note{max-width:160px;line-height:1.5}.context-control{flex-direction:column;align-items:flex-start;gap:2px}.document-heading{padding:14px 16px}.heading-title{display:block}.reference{margin-top:10px}.reference strong{display:inline;margin-left:7px}.document-navigation{padding:12px 16px;flex-wrap:wrap;gap:8px}.document-picker{max-width:none;flex-basis:100%;order:-1}.document-navigation button{flex:1;font-size:14px}.toolbar{padding:9px 16px}.tool-group{flex-wrap:wrap}.tool-group+.tool-group{border-left:0;padding-left:0}.thumbnails{width:100px}.mini-page{width:59px;height:83px;padding:11px 6px}.mini-heading{width:30px}.stage{padding:18px 15px}.footer-status{padding:7px 16px}.footer-status span:last-child{display:none}.heading-top{gap:10px}.heading-top button{font-size:14px;padding:8px}.referral{padding:20px 16px}.referral h1{font-size:29px}.referral td,.referral th{font-size:15px}.summary dt{width:140px}.thumbnail-label{font-size:13px}}
+    @media(prefers-reduced-motion:no-preference){.toast{animation:appear .15s ease-out}@keyframes appear{from{transform:translateY(8px);opacity:0}to{transform:translateY(0);opacity:1}}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header class="service-header"><span class="brand">HMCTS</span><span class="service-name">Manage deed poll applications</span></header>
+  <div class="prototype">
+    <div class="prototype-note"><span class="badge">PROTOTYPE</span>Sample documents only</div>
+    <div class="context-control"><label for="journey">Review journey</label><select id="journey"><option value="judicial">Judge / master</option><option value="caseworker">Caseworker</option></select></div>
+  </div>
+  <main id="viewer" class="viewer" aria-label="Document viewer">
+    <div class="document-heading">
+      <div class="heading-top"><a class="back" id="back-link" href="#referral">Back to referral</a><button id="download" type="button">Download original</button></div>
+      <div class="heading-title"><div><h1 id="document-title" tabindex="-1">Application form.pdf</h1><p class="caption" id="format-label">PDF document</p></div><div class="reference">Case reference<strong>KBDP2026-XXXXX</strong></div></div>
+    </div>
+    <nav class="document-navigation" aria-label="Choose a document">
+      <button type="button" id="previous-document">Previous document</button>
+      <div class="document-picker"><label for="document-select">Document</label><select id="document-select"></select></div>
+      <button type="button" id="next-document">Next document</button>
+      <span id="document-count" class="document-count">Document 1 of 5</span>
+    </nav>
+    <div class="toolbar" role="group" aria-label="Document controls">
+      <div class="tool-group"><button type="button" id="thumbnails-toggle" aria-expanded="true" aria-controls="thumbnails">Hide thumbnails</button></div>
+      <div class="tool-group" role="group" aria-label="Page navigation"><button type="button" id="previous-page">Previous page</button><label for="page-number" class="page-label">Page</label><input class="page-input" id="page-number" type="number" min="1" value="1" inputmode="numeric"><span id="page-total" class="total-pages">of 4</span><button type="button" id="next-page">Next page</button></div>
+      <div class="tool-group" role="group" aria-label="Zoom"><button type="button" class="zoom-step" id="zoom-out" aria-label="Zoom out">−</button><output id="zoom-value" class="zoom-value" aria-label="Zoom level">100%</output><button type="button" class="zoom-step" id="zoom-in" aria-label="Zoom in">+</button><button type="button" id="fit-width">Fit to width</button><button type="button" id="fit-page">Fit whole page</button></div>
+      <div class="tool-group"><button type="button" id="rotate">Rotate 90°</button></div>
+    </div>
+    <div class="workspace">
+      <nav class="thumbnails" id="thumbnails" aria-label="Page thumbnails"><h2>Pages</h2><div id="thumbnail-list"></div></nav>
+      <section class="stage" id="stage" aria-label="Document page" tabindex="0"><div class="paper-space" id="paper-space"><article class="paper" id="paper"></article></div></section>
+    </div>
+    <div class="footer-status"><span id="viewer-status" role="status" aria-live="polite">Showing page 1 of 4</span><span>Preview only — the original document is unchanged</span></div>
+  </main>
+  <main class="referral" id="referral" hidden>
+    <p class="caption">KBDP2026-XXXXX</p><h1 id="return-title" tabindex="-1">Referral details</h1>
+    <p class="hint">This sample screen shows where the viewer returns you. Reopen a document to try keeping your place.</p>
+    <dl class="summary"><div><dt>Status</dt><dd><span class="tag">Claimed</span></dd></div><div><dt>Reason for referral</dt><dd>Supporting documents for review</dd></div><div><dt>Application</dt><dd>Sample deed poll application</dd></div></dl>
+    <h2>Supporting documents</h2><table><thead><tr><th scope="col">Document</th><th scope="col">File type</th></tr></thead><tbody id="return-document-list"></tbody></table>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script>
+  const documents = [
+    {name:'Application form.pdf',kind:'PDF document',pages:4,type:'pdf',title:'Application to enrol a change of name',section:'Application form'},
+    {name:'Supporting statement.docx',kind:'Word document preview',pages:3,type:'word',title:'Supporting statement',section:'Statement of the applicant'},
+    {name:'Birth certificate.tiff',kind:'Multi-page TIFF preview',pages:2,type:'tiff',title:'Certified copy of an entry',section:'Birth certificate'},
+    {name:'Proof of address.jpg',kind:'JPEG image',pages:1,type:'image',title:'Proof of address',section:'Supporting document'},
+    {name:'Supporting image.png',kind:'PNG image',pages:1,type:'image',title:'Supporting image',section:'Supporting document'}
+  ];
+  const positions = documents.map(() => ({page:1,zoom:1,mode:'width',rotation:0}));
+  let selected = 0;
+  let thumbnailsVisible = true;
+  let toastTimer;
+  const $ = id => document.getElementById(id);
+  const current = () => positions[selected];
+  const text = (tag,content,classes) => {const el=document.createElement(tag);el.textContent=content;if(classes)el.className=classes;return el;};
+
+  documents.forEach((doc,index) => {
+    const option=document.createElement('option');option.value=String(index);option.textContent=`${index+1}. ${doc.name}`;$('document-select').append(option);
+    const row=document.createElement('tr');const cell=document.createElement('td');const link=document.createElement('a');link.href='#viewer';link.textContent=doc.name;link.addEventListener('click',event => {event.preventDefault();openDocument(index,true);});cell.append(link);row.append(cell,text('td',doc.kind));$('return-document-list').append(row);
+  });
+
+  function renderPaper() {
+    const doc=documents[selected];const state=current();const paper=$('paper');paper.replaceChildren();
+    paper.append(text('p','SAMPLE DOCUMENT · DESIGN PROTOTYPE','sample-mark'),text('p',doc.section.toUpperCase(),'paper-heading'),text('h2',doc.title));
+    if(doc.type==='image') {
+      const image=document.createElement('div');image.className='image-frame';image.append(text('h2',selected===3?'SAMPLE ADDRESS RECORD':'SAMPLE SUPPORTING IMAGE'),text('p','This is an illustrative image for reviewing the viewer design.'));
+      for(let i=0;i<9;i++)image.append(text('div','','muted-line'));paper.append(image);
+    } else if(doc.type==='tiff') {
+      const scan=document.createElement('div');scan.className='scanned-frame';scan.append(text('p',`Illustrative scan — page ${state.page}`,'sample-mark'),text('h2',state.page===1?'Certificate details':'Additional information'));
+      for(const [label,value] of [['Document reference','SAMPLE / 00000'],['Name','Example applicant'],['Record','Illustrative record only']])scan.append(text('p',label,'field-label'),text('p',value,'field-value'));
+      scan.append(text('div','SAMPLE\nDOCUMENT','seal'));paper.append(scan);
+    } else if(doc.type==='word') {
+      paper.append(text('p',`Section ${state.page} of ${doc.pages}`,'sample-mark'));
+      for(let i=0;i<5;i++)paper.append(text('p',`${state.page}.${i+1}  This sample paragraph represents a supporting statement. The preview lets the reviewer read the document, move between pages and adjust the view while keeping the original file available to download.`));
+      paper.append(text('p','Signed: Example applicant','field-value'));
+    } else if(state.page===1) {
+      paper.append(text('p','Please review the application and its supporting documents. All information on these sample pages is fictional.'));
+      for(const [label,value] of [['Applicant','Example applicant'],['Type of application','Change of name by deed poll'],['Supporting information','See accompanying statement and documents']])paper.append(text('p',label,'field-label'),text('p',value,'field-value'));
+    } else {
+      paper.append(text('p',`Part ${state.page}: ${['','', 'Declarations and supporting evidence','Further information','Statement of truth'][state.page] || 'Application details'}`,'field-label'));
+      for(let i=0;i<5;i++)paper.append(text('p','This illustrative page shows how a multi-page document will appear inside the service. Page navigation, zoom, rotation and document selection remain available above the preview.'));
+    }
+    const foot=document.createElement('div');foot.className='paper-foot';foot.append(text('span','Illustrative document — no real case data'),text('span',`${state.page} / ${doc.pages}`));paper.append(foot);
+  }
+
+  function renderThumbnails() {
+    $('thumbnail-list').replaceChildren();
+    for(let page=1;page<=documents[selected].pages;page++) {
+      const button=document.createElement('button');button.type='button';button.className='thumbnail';button.setAttribute('aria-label',`Go to page ${page}`);button.dataset.page=String(page);
+      if(page===current().page)button.setAttribute('aria-current','page');
+      const mini=document.createElement('span');mini.className='mini-page';mini.setAttribute('aria-hidden','true');mini.append(text('span','','mini-heading'));for(let line=0;line<7;line++)mini.append(text('span','','mini-line'));
+      button.append(mini,text('span',`Page ${page}`,'thumbnail-label'));button.addEventListener('click',()=>setPage(page));$('thumbnail-list').append(button);
+    }
+  }
+
+  function applyZoom() {
+    const state=current();const swapped=state.rotation%180!==0;const width=swapped?1075:760;const height=swapped?760:1075;const stage=$('stage');const padding=window.innerWidth<=720?30:72;
+    if(state.mode==='width')state.zoom=Math.min(3,Math.max(.25,(stage.clientWidth-padding)/width));
+    if(state.mode==='page')state.zoom=Math.min(3,Math.max(.25,Math.min((stage.clientWidth-padding)/width,(stage.clientHeight-58)/height)));
+    const scale=state.zoom;const offsets={0:[0,0],90:[1075*scale,0],180:[760*scale,1075*scale],270:[0,760*scale]};const [x,y]=offsets[state.rotation];
+    $('paper-space').style.width=`${width*scale}px`;$('paper-space').style.height=`${height*scale}px`;$('paper').style.transform=`translate(${x}px,${y}px) rotate(${state.rotation}deg) scale(${scale})`;
+    $('zoom-value').textContent=`${Math.round(scale*100)}%`;$('zoom-out').disabled=scale<=.25;$('zoom-in').disabled=scale>=3;
+    $('fit-width').classList.toggle('pressed',state.mode==='width');$('fit-page').classList.toggle('pressed',state.mode==='page');$('fit-width').setAttribute('aria-pressed',String(state.mode==='width'));$('fit-page').setAttribute('aria-pressed',String(state.mode==='page'));
+  }
+
+  function render() {
+    const doc=documents[selected];const state=current();$('document-title').textContent=doc.name;$('format-label').textContent=doc.kind;$('document-select').value=String(selected);$('document-count').textContent=`Document ${selected+1} of ${documents.length}`;
+    $('previous-document').disabled=selected===0;$('next-document').disabled=selected===documents.length-1;$('previous-page').disabled=state.page===1;$('next-page').disabled=state.page===doc.pages;
+    $('page-number').value=String(state.page);$('page-number').max=String(doc.pages);$('page-total').textContent=`of ${doc.pages}`;$('viewer-status').textContent=`Document ${selected+1} of ${documents.length} · Showing page ${state.page} of ${doc.pages}`;
+    renderPaper();renderThumbnails();applyZoom();
+  }
+
+  function openDocument(index,focus=false) {
+    selected=index;$('referral').hidden=true;$('viewer').hidden=false;render();$('stage').scrollTop=0;if(focus)$('document-title').focus({preventScroll:true});
+  }
+  function setPage(page) {current().page=Math.max(1,Math.min(documents[selected].pages,page));render();$('stage').scrollTop=0;}
+  $('document-select').addEventListener('change',event=>openDocument(Number(event.target.value)));
+  $('previous-document').addEventListener('click',()=>openDocument(selected-1));$('next-document').addEventListener('click',()=>openDocument(selected+1));
+  $('previous-page').addEventListener('click',()=>setPage(current().page-1));$('next-page').addEventListener('click',()=>setPage(current().page+1));
+  $('page-number').addEventListener('change',event=>{const page=Number(event.target.value);setPage(Number.isInteger(page)?page:current().page);});
+  for(const [id,delta] of [['zoom-out',-.1],['zoom-in',.1]])$(id).addEventListener('click',()=>{current().mode='custom';current().zoom=Math.max(.25,Math.min(3,Math.round((current().zoom+delta)*100)/100));applyZoom();});
+  $('fit-width').addEventListener('click',()=>{current().mode='width';applyZoom();});$('fit-page').addEventListener('click',()=>{current().mode='page';applyZoom();});
+  $('rotate').addEventListener('click',()=>{current().rotation=(current().rotation+90)%360;applyZoom();});
+  $('thumbnails-toggle').addEventListener('click',()=>{thumbnailsVisible=!thumbnailsVisible;$('thumbnails').hidden=!thumbnailsVisible;$('thumbnails-toggle').textContent=thumbnailsVisible?'Hide thumbnails':'Show thumbnails';$('thumbnails-toggle').setAttribute('aria-expanded',String(thumbnailsVisible));requestAnimationFrame(applyZoom);});
+  $('back-link').addEventListener('click',event=>{event.preventDefault();$('viewer').hidden=true;$('referral').hidden=false;$('return-title').focus({preventScroll:true});});
+  $('journey').addEventListener('change',()=>{const staff=$('journey').value==='caseworker';$('back-link').textContent=staff?'Back to case':'Back to referral';$('return-title').textContent=staff?'Application details':'Referral details';});
+  $('download').addEventListener('click',()=>{clearTimeout(toastTimer);$('toast').textContent='This prototype contains sample pages only. In the app, this downloads the original '+documents[selected].name.split('.').pop().toUpperCase()+' file.';$('toast').hidden=false;toastTimer=setTimeout(()=>$('toast').hidden=true,5500);});
+  new ResizeObserver(()=>{if(!$('viewer').hidden)applyZoom();}).observe($('stage'));
+  openDocument(0);
+</script>
+</body>
+</html>

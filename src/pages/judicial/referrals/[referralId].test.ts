@@ -103,7 +103,7 @@ describe("the judicial referral page", () => {
   });
 
   // Built here with the path helpers rather than in the template (CLAUDE.md "Redirect paths").
-  it("should build each document's download link under the referral, encoding the document id", async () => {
+  it("should open each document in the viewer under the referral, encoding the document id", async () => {
     vi.mocked(getReferral).mockResolvedValue(
       detail({ application: { ...detail().application, documents: [{ id: "doc/1", name: "a.pdf" }] } as JudicialReferralDetail["application"] }) as never
     );
@@ -112,7 +112,7 @@ describe("the judicial referral page", () => {
     await GET(request(), res);
 
     expect(res.render.mock.calls[0][1].documents).toEqual([
-      expect.objectContaining({ name: "a.pdf", href: "/judicial/referrals/ref-1/documents/doc%2F1/file" })
+      expect.objectContaining({ name: "a.pdf", href: "/judicial/referrals/ref-1/documents/doc%2F1/view" })
     ]);
   });
 

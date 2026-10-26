@@ -169,7 +169,7 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   await expect(page.locator("body")).not.toContainText(mine.feeReference);
 
   // The referral's own fields, and the application's timeline read-only beside them.
-  await expect(summaryRow(page, "Status")).toContainText("Open");
+  await expect(referralRow(page, "Status")).toContainText("Open");
   await expect(summaryRow(page, "Reasons for referral")).toContainText("Non-publication request");
   await expect(summaryRow(page, "Notes from the court")).toContainText("Please consider the applicant's circumstances.");
   await expect(summaryRow(page, "Reason for urgency")).toContainText("Hearing listed on Friday.");
@@ -199,7 +199,7 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   // The referral view re-reads it, so the state on screen is the one api has just published rather than one
   // assumed by the handler that did the claiming.
   await expect(page).toHaveURL(`${POOL_PATH}/${mine.referralId}`);
-  await expect(summaryRow(page, "Status")).toContainText("Claimed");
+  await expect(referralRow(page, "Status")).toContainText("Claimed");
   await expect(summaryRow(page, "Claimed")).toBeVisible();
   await expect(claimButton(page)).toHaveCount(0);
   await expect(directButton(page)).toBeVisible();
@@ -220,7 +220,7 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   await expect(reclaimRefusal).not.toContainText("already been claimed");
   await expect(reclaimRefusal).not.toContainText("another judge");
   // Still theirs, and still directable: the refusal is a correction to the request, not to the state below it.
-  await expect(summaryRow(page, "Status")).toContainText("Claimed");
+  await expect(referralRow(page, "Status")).toContainText("Claimed");
   await expect(directButton(page)).toBeVisible();
   await expectNoAccessibilityViolations(page);
 
@@ -286,7 +286,7 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   // `role="alert"` rather than the `region` a default notification banner carries: `govukNotificationBanner`
   // swaps the role for `type: "success"`, so the recorded direction is announced rather than merely present.
   await expect(page.getByRole("alert")).toContainText("Your direction has been recorded.");
-  await expect(summaryRow(page, "Status")).toContainText("Decided");
+  await expect(referralRow(page, "Status")).toContainText("Decided");
   await expect(page.getByRole("heading", { name: "Direction recorded" })).toBeVisible();
   await expect(summaryRow(page, "Decision")).toContainText("Rejected");
   await expect(summaryRow(page, "Directions")).toContainText("Approved on the papers. Publish in the usual way.");
@@ -339,16 +339,22 @@ test("judge changes a direction they gave, then withdraws it and directs again",
 
   // ── the decided referral: the application, its document, and the two controls ──────────────────────────────
   await page.goto(`${POOL_PATH}/${seeded.referralId}`);
-  await expect(summaryRow(page, "Status")).toContainText("Decided");
+  await expect(referralRow(page, "Status")).toContainText("Decided");
   await expect(summaryRow(page, "New surname")).toContainText("Nakamura");
   // The fee reference was seeded on the case; api's judicial view carries no payment data, so it is nowhere here.
   await expect(page.locator("body")).not.toContainText(seeded.feeReference);
 
-  const documentLink = page.getByRole("link", { name: "Birth certificate for the judge" });
-  const file = await page.request.get((await documentLink.getAttribute("href")) ?? "");
+  // The link opens the document viewer; the viewer's own journey is `document-viewer.spec.ts`, so this only follows
+  // its **Download original** to the bytes.
+  await page.getByRole("link", { name: "Birth certificate for the judge" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Birth certificate for the judge");
+  const original = page.getByRole("link", { name: "Download original" });
+  const file = await page.request.get((await original.getAttribute("href")) ?? "");
   expect(file.status()).toBe(200);
   expect(file.headers()["content-type"]).toContain("application/pdf");
+  expect(file.headers()["content-disposition"]).toMatch(/^attachment/);
   expect(file.headers()["x-content-type-options"]).toBe("nosniff");
+  await page.getByRole("link", { name: "Back to referral" }).click();
 
   await expect(directButton(page)).toHaveCount(0);
   await expectNoAccessibilityViolations(page);
@@ -370,7 +376,7 @@ test("judge changes a direction they gave, then withdraws it and directs again",
 
   await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}?direction=changed`);
   await expect(page.getByRole("alert")).toContainText("Your direction has been changed.");
-  await expect(summaryRow(page, "Status")).toContainText("Decided");
+  await expect(referralRow(page, "Status")).toContainText("Decided");
   await expect(summaryRow(page, "Directions")).toContainText("Further evidence of the change is needed.");
 
   // ── withdraw it: a confirmation, then the referral claimed by this judge and waiting for a new direction ────
@@ -383,7 +389,7 @@ test("judge changes a direction they gave, then withdraws it and directs again",
 
   await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}?direction=withdrawn`);
   await expect(page.getByRole("alert")).toContainText("Your direction has been withdrawn. Record a new direction.");
-  await expect(summaryRow(page, "Status")).toContainText("Claimed");
+  await expect(referralRow(page, "Status")).toContainText("Claimed");
   await expect(page.getByRole("link", { name: "Change your direction" })).toHaveCount(0);
 
   // ── and direct again, as for any claimed referral ───────────────────────────────────────────────────────────
@@ -394,7 +400,7 @@ test("judge changes a direction they gave, then withdraws it and directs again",
   await page.getByRole("button", { name: "Confirm and record the direction" }).click();
 
   await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}?direction=recorded`);
-  await expect(summaryRow(page, "Status")).toContainText("Decided");
+  await expect(referralRow(page, "Status")).toContainText("Decided");
   await expect(summaryRow(page, "Directions")).toContainText("Approved after reconsideration.");
 });
 
@@ -456,7 +462,7 @@ test.describe("across the two judicial lists and both personas", () => {
     await claimButton(page).click();
 
     await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}`);
-    await expect(summaryRow(page, "Status")).toContainText("Claimed");
+    await expect(referralRow(page, "Status")).toContainText("Claimed");
     // Decision 5, and the first half of the fix: the referral has left the pool, so the way back cannot be the
     // pool. The link is resolved from the state api published a moment ago, not from where the judge came from.
     await expect(page.getByRole("link", { name: "Back to My referrals" })).toBeVisible();
@@ -519,7 +525,7 @@ test.describe("across the two judicial lists and both personas", () => {
 
     await recovered.getByRole("link").click();
     await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}`);
-    await expect(summaryRow(page, "Status")).toContainText("Claimed");
+    await expect(referralRow(page, "Status")).toContainText("Claimed");
 
     // The direction, in the fewest steps that reach it: the form, the check step and the attestation are the
     // journey above's subject, and repeating their assertions here would pin them twice.
@@ -529,7 +535,7 @@ test.describe("across the two judicial lists and both personas", () => {
     await page.getByRole("button", { name: "Confirm and record the direction" }).click();
 
     await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}?direction=recorded`);
-    await expect(summaryRow(page, "Status")).toContainText("Decided");
+    await expect(referralRow(page, "Status")).toContainText("Decided");
     // Still the judge's own work until the office has acted on it, so the way back is still My referrals — the
     // state decides the destination, and `Decided` is on that list too.
     await page.getByRole("link", { name: "Back to My referrals" }).click();
@@ -828,7 +834,27 @@ function gazetteAnswer(page: Page, answer: string): Locator {
  * the referral view has both. Matching on the key makes each name mean one row.
  */
 function summaryRow(page: Page, key: string): Locator {
-  return page.locator(".govuk-summary-list__row").filter({ has: page.locator(".govuk-summary-list__key", { hasText: key }) });
+  // An anchored match on the key cell: `hasText` alone is a case-insensitive substring, so "Status" would also
+  // answer to "Marital status" and to the application's own Status row.
+  const keyCell = page.locator(".govuk-summary-list__key").filter({ hasText: exactText(key) });
+
+  return page.locator(".govuk-summary-list__row").filter({ has: keyCell });
+}
+
+/**
+ * A row of the referral's own summary list, the one under the "Referral" heading. Since the case's state was
+ * relabelled Status (2026-10-22), the judicial application section above it has a "Status" row of its own.
+ */
+function referralRow(page: Page, key: string): Locator {
+  const referralList = page.locator("xpath=//h2[normalize-space()='Referral']/following-sibling::dl[contains(@class,'govuk-summary-list')][1]");
+  const keyCell = page.locator(".govuk-summary-list__key").filter({ hasText: exactText(key) });
+
+  return referralList.locator(".govuk-summary-list__row").filter({ has: keyCell });
+}
+
+/** The whole of a cell's text, so a key never matches another key that merely contains it. */
+function exactText(text: string): RegExp {
+  return new RegExp(`^\\s*${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
 }
 
 /**

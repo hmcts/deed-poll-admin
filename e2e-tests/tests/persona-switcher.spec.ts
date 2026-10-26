@@ -123,7 +123,7 @@ test("one tester works as a caseworker, a judge, a Team leader and a Delivery Ma
   // chrome had just offered.
   const own = await page.goto(`${POOL_PATH}/${seeded.ownReferralId}`);
   expect(own?.status()).toBe(200);
-  await expect(summaryRow(page, "Status")).toContainText("Claimed");
+  await expect(referralRow(page, "Status")).toContainText("Claimed");
   await expect(page.getByRole("button", { name: "Record a direction" })).toBeVisible();
   await expectNoAccessibilityViolations(page);
 
@@ -360,13 +360,19 @@ function deleteNote(page: Page): Locator {
 }
 
 /**
- * A `govukSummaryList` row, addressed by its **key** rather than by its text.
- *
- * Scoped to the key cell and not to the row: `hasText` is a case-insensitive substring over the whole row, so
- * a row whose *value* is the tag "Claimed" answers to a key of "Claimed" — and the referral view has both.
+ * A row of the referral's own summary list, the one under the "Referral" heading. Since the case's state was
+ * relabelled Status (2026-10-22), the judicial application section above it has a "Status" row of its own.
  */
-function summaryRow(page: Page, key: string): Locator {
-  return page.locator(".govuk-summary-list__row").filter({ has: page.locator(".govuk-summary-list__key", { hasText: key }) });
+function referralRow(page: Page, key: string): Locator {
+  const referralList = page.locator("xpath=//h2[normalize-space()='Referral']/following-sibling::dl[contains(@class,'govuk-summary-list')][1]");
+  const keyCell = page.locator(".govuk-summary-list__key").filter({ hasText: exactText(key) });
+
+  return referralList.locator(".govuk-summary-list__row").filter({ has: keyCell });
+}
+
+/** The whole of a cell's text, so a key never matches another key that merely contains it. */
+function exactText(text: string): RegExp {
+  return new RegExp(`^\\s*${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
 }
 
 /**

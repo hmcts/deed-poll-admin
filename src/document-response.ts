@@ -62,6 +62,17 @@ export function sendDocument(download: DocumentDownload, res: Response, next: Ne
 }
 
 /**
+ * The viewer's **Download original**: api's original bytes, type and filename, always as an attachment.
+ *
+ * Its own export rather than a flag on {@link sendDocument}, because the legacy `/file` routes keep api's inline
+ * rendering for their existing consumers while this one never renders in place, whatever api or a proxy says. api's
+ * policy and nosniff still travel, so a downgrade here only ever tightens.
+ */
+export function sendDownload(download: DocumentDownload, res: Response, next: NextFunction): void {
+  sendDocument({ ...download, contentDisposition: asAttachment(download.contentDisposition) }, res, next);
+}
+
+/**
  * api's disposition, but never `inline` unless both the content and the policy make an inline render safe.
  *
  * The two headers are one decision — see the note at the top of this file. api pairs them today, so this
@@ -120,4 +131,12 @@ function isInertPolicy(contentSecurityPolicy: string | null): boolean {
     defaultSources.length > 0 &&
     defaultSources.every(([, ...sources]) => sources.length === 1 && sources[0] === "'none'")
   );
+}
+
+/** api's disposition parameters (its filename) under `attachment`; none stays none, which already downloads. */
+function asAttachment(contentDisposition: string | null): string | null {
+  if (!contentDisposition) return null;
+  const [, ...params] = contentDisposition.split(";");
+
+  return ["attachment", ...params].join(";");
 }

@@ -259,8 +259,30 @@ database to connect to: that is api's, along with the schema and the Flyway migr
 |---|---|
 | **api deployed to the target environment** | **Outstanding.** api's own `docs/plans/jenkins-pipeline-cutover.md` is what makes this true; until it lands, a deployed pod's readiness probe reports DOWN and Kubernetes keeps it out of the Service. That is the intended behaviour — a pod that cannot reach api cannot serve a single case page |
 | `DEED_POLL_API_URL` | Set in `charts/deed-poll-admin/values.yaml` to `http://deed-poll-api-{env}.service.core-compute-{env}.internal` — the CNP internal host of api's `charts/deed-poll-api`, cluster-internal and cleartext, not an ingress. Preview overrides it to AAT's, because api's preview deploys are per-PR hosts with no stable name |
-| `DEED_POLL_API_TIMEOUT_MS` | Optional, and when set it overrides every call's timeout except the Gazette submit and its status-check replay, which it can only shorten. Unset, each call keeps its own: 10 s for JSON calls, 60 s for uploads (`UPLOAD_TIMEOUT_MS`), and for the Gazette submit what is left of a 25 s budget from the request's arrival, capped at 20 s (`GAZETTE_SUBMIT_TIMEOUT_MS`, findings R03 and R03b). A value below 20 s turns a slow but successful Gazette send back into an unknown outcome; a value above 20 s does not lengthen it. An unparseable value falls back to those per-call defaults rather than becoming `NaN`. The readiness probe does **not** use it: `HEALTH_PROBE_TIMEOUT_MS` is fixed at 2s, because a probe must answer on its own terms |
+| `DEED_POLL_API_TIMEOUT_MS` | Optional, and when set it overrides every call's timeout except the Gazette submit, its status-check replay and the document preview, which it can only shorten. Unset, each call keeps its own: 10 s for JSON calls, 60 s for uploads (`UPLOAD_TIMEOUT_MS`), 27 s for a document preview (`PREVIEW_TIMEOUT_MS`, above api's 25 s conversion budget and inside the gateways' 30 s), and for the Gazette submit what is left of a 25 s budget from the request's arrival, capped at 20 s (`GAZETTE_SUBMIT_TIMEOUT_MS`, findings R03 and R03b). A value below 20 s turns a slow but successful Gazette send back into an unknown outcome; a value above 20 s does not lengthen it. An unparseable value falls back to those per-call defaults rather than becoming `NaN`. The readiness probe does **not** use it: `HEALTH_PROBE_TIMEOUT_MS` is fixed at 2s, because a probe must answer on its own terms |
 | **An S2S credential** | **Nothing to add, and adding one would be wrong.** api authenticates a *forwarded IDAM access token* and nothing else — see its `SecurityConfiguration`, an OAuth2 resource server with no `ServiceAuthorization` filter, and `openapi.json`, whose only security scheme is `bearerAuth`. The caseworker's own token, held in this app's session, is the whole credential. If api ever adds S2S, the answer is a token provider minting one per call against `service-auth-provider-api`, plus an S2S microservice name registered for **this app**; it is not a static secret in the vault. `deed-poll-web/docs/external-dependencies.md` tracks the same requirement for the other frontend |
+
+### Document previews
+
+The document viewer (see the README) renders the PDF that api's
+`GET /caseworker/cases/{id}/documents/{documentId}/preview` and
+`GET /judicial/referrals/{referralId}/documents/{documentId}/preview` return. **Both are outstanding:** they are api
+PR #129 (`19bb0c2`, unmerged when this app's viewer was built), and the adapter's spec copy is taken from that PR.
+Deploy that api change before this one, or every preview fails and only **Download original** works.
+
+- **DOCX needs api's Docmosis Tornado converter**, provisioned through the infrastructure repositories with its
+  credentials held by api. This app holds no converter credential and needs no new secret. Until the converter is
+  there, api answers a DOCX preview with 503 `PREVIEW_UNAVAILABLE`, and the viewer shows its fixed
+  preview-unavailable sentence with the original still downloadable. PDF, JPEG, PNG and TIFF previews can be
+  released before it (decision 3 of the plan).
+- **Timeout.** A preview waits up to 27 s (`PREVIEW_TIMEOUT_MS` in the api client), just above api's 25 s budget and
+  inside both Application Gateways' 30 s `request_timeout`. `DEED_POLL_API_TIMEOUT_MS` can only shorten it.
+- **Assets.** The PDF.js worker, fonts, cmaps and image decoders are built into `dist/assets/` and served from the
+  pod. Nothing is fetched from a CDN, and the CSP needs no new host, no `unsafe-eval` and no `wasm-unsafe-eval`.
+  The worker is PDF.js's unminified (patched) legacy build, about 514 KB gzipped, because the minified one is unpatched.
+- **AAT acceptance is still to do and cannot come from the mock:** synthetic documents of every type, including a
+  multi-page TIFF and a court-generated DOCX, checked for pagination and fonts, original downloads checked for
+  equality, staff and judicial refusals checked, and converter outage checked. See the plan's Post-Completion.
 
 ### Gazette send timeout follow-up
 

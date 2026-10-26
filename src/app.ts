@@ -20,6 +20,7 @@ import { requireSameOrigin } from "./auth/same-origin.js";
 import { assertRedisUrl, assertSessionSecret, assertSessionTimeouts, sessionCookieName, sessionStoreTtl } from "./auth/session.js";
 import { sessionLifetime } from "./auth/session-lifetime.js";
 import { assertIdamSettings, idamSettings } from "./auth/settings.js";
+import { PDFJS_ASSET_MOUNT, pdfjsDevelopmentAssets } from "./document-viewer/pdfjs-assets.js";
 import { domainErrorHandler } from "./errors.js";
 import { createRateLimiter, rateLimitSettings } from "./rate-limit/limiter.js";
 import { mountAbuseLimits } from "./rate-limit/routes.js";
@@ -195,6 +196,7 @@ export async function createApp(): Promise<Express> {
     },
     assetOptions
   });
+  if (isDev) app.use(PDFJS_ASSET_MOUNT, pdfjsDevelopmentAssets());
 
   configureCookieManager(app, {
     categories: {

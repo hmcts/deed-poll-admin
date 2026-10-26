@@ -755,3 +755,29 @@ describe("case detail template — the awaiting-confirmation notice", () => {
     expect(rendered).not.toContain("Awaiting the applicant&#39;s response");
   });
 });
+
+describe("case detail template — the documents tab", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NODE_ENV = "test";
+    vi.mocked(findCaseEmails).mockResolvedValue(CASE_EMAILS as never);
+  });
+
+  const DOCUMENT = { id: "doc-1", name: "Generated deed.pdf", documentType: { name: "Deed" }, direction: null, createdOn: null, hasFile: true };
+
+  it("should open an attached document in the case's viewer, not the legacy file route, as the panel the viewer returns to", async () => {
+    const rendered = await page([], { ...found, documents: [DOCUMENT] });
+
+    const panel = panelFor(rendered, "documents");
+    expect(panel).toContain('<a class="govuk-link" href="/deed-polls/case-1/documents/doc-1/view">Generated deed.pdf</a>');
+    expect(rendered).not.toContain("/documents/doc-1/file");
+  });
+
+  it("should not link a document whose file has not arrived", async () => {
+    const rendered = await page([], { ...found, documents: [{ ...DOCUMENT, hasFile: false }] });
+
+    const panel = panelFor(rendered, "documents");
+    expect(panel).toContain("Generated deed.pdf");
+    expect(panel).not.toContain("/documents/doc-1/");
+  });
+});

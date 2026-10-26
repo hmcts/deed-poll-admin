@@ -215,6 +215,7 @@ export type ResponseDouble = Response & {
   redirect: ReturnType<typeof vi.fn>;
   status: ReturnType<typeof vi.fn>;
   setHeader: ReturnType<typeof vi.fn>;
+  end: ReturnType<typeof vi.fn>;
 };
 
 export function pageResponse(): ResponseDouble {
@@ -223,6 +224,7 @@ export function pageResponse(): ResponseDouble {
     redirect: vi.fn(),
     status: vi.fn(),
     setHeader: vi.fn(),
+    end: vi.fn(),
     locals: {}
   } as unknown as ResponseDouble;
   res.status.mockReturnValue(res);

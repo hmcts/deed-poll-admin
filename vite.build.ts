@@ -9,6 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const assetsPath = path.join(__dirname, "src", "assets");
+const PDFJS_ASSET_DIRECTORIES = ["standard_fonts", "cmaps"];
 
 function getEntries(assetsPath: string): Record<string, string> {
   const entries: Record<string, string> = {};
@@ -67,6 +68,12 @@ const baseConfig: UserConfig = {
     preserveSymlinks: true
   },
   publicDir: false,
+  // An asset a script imports by URL (the document viewer's PDF.js worker) is emitted under `dist/assets/assets/`,
+  // which `/assets` serves as `/assets/assets/`. With the default base of `/` its URL would be `/assets/…` and 404,
+  // so built URLs are resolved relative to the chunk that imports them instead. Development is unaffected.
+  experimental: {
+    renderBuiltUrl: () => ({ relative: true })
+  },
   plugins: [
     viteStaticCopy({
       targets: [
@@ -106,6 +113,20 @@ const baseConfig: UserConfig = {
         {
           src: "src/assets/images/**/*",
           dest: "images",
+          rename: { stripBase: true }
+        },
+        // The document viewer's PDF.js data, served from this app under `/assets/pdfjs/` (`PDFJS_ASSET_PATH` in
+        // `src/assets/js/document-viewer/pdf-document.ts`; `src/app.ts` serves the same paths in development).
+        // Only the plain-JavaScript image decoders are copied from `wasm/`: the viewer sets `useWasm: false`
+        // because WebAssembly would need `'wasm-unsafe-eval'` in the CSP, and the scripting engine is never used.
+        ...PDFJS_ASSET_DIRECTORIES.map((directory) => ({
+          src: `node_modules/pdfjs-dist/${directory}/*`,
+          dest: `pdfjs/${directory}`,
+          rename: { stripBase: true }
+        })),
+        {
+          src: ["node_modules/pdfjs-dist/wasm/*_nowasm_fallback.js", "node_modules/pdfjs-dist/wasm/LICENSE_*"],
+          dest: "pdfjs/wasm",
           rename: { stripBase: true }
         }
       ]

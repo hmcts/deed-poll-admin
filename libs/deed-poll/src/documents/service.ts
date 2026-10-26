@@ -18,13 +18,15 @@
  */
 import {
   downloadDocument as apiDownloadDocument,
+  previewDocument as apiPreviewDocument,
   uploadDocument as apiUploadDocument,
   type Document,
   type DocumentDirection,
   type DocumentDownload,
+  type DocumentPreview,
   getCase
 } from "@hmcts/deed-poll-api-client";
-import { type Caller, callApi } from "../api/deed-poll-api.js";
+import { type Caller, callApi, callPreviewApi } from "../api/deed-poll-api.js";
 import { InvalidInputError, NotFoundError } from "../errors.js";
 import { UPLOAD_FILE_FIELD } from "./upload-policy.js";
 
@@ -99,8 +101,20 @@ export function downloadDocument(deedPollId: string, id: string, caller: Caller)
   return callApi(caller, (config) => apiDownloadDocument(deedPollId, id, config));
 }
 
+/**
+ * A document's preview: always one PDF, whatever the original's type, still streaming.
+ *
+ * A separate operation from {@link downloadDocument} on purpose: api records a preview as `DOCUMENT_PREVIEWED` and a
+ * download as `DOCUMENT_DOWNLOADED` (Decision 5 of `docs/plans/completed/20261023-full-page-document-viewer.md`), so neither
+ * may stand in for the other. A preview api did not produce is `DocumentPreviewRefusedError`; every other failure
+ * is `callApi`'s. No pre-read: api checks the document belongs to the case.
+ */
+export function previewDocument(deedPollId: string, id: string, caller: Caller, signal?: AbortSignal): Promise<DocumentPreview> {
+  return callPreviewApi(caller, (config) => apiPreviewDocument(deedPollId, id, config), signal);
+}
+
 // Both download routes relay this through one module, so the app names the type it is handed.
-export type { DocumentDownload };
+export type { DocumentDownload, DocumentPreview };
 
 /**
  * The parts of an uploaded file this domain needs.
