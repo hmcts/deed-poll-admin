@@ -77,17 +77,23 @@ const baseConfig: UserConfig = {
   plugins: [
     viteStaticCopy({
       targets: [
+        // `stripBase` on each GOV.UK Frontend target: without it vite-plugin-static-copy keeps the matched path under
+        // `dest`, so the fonts landed at `fonts/node_modules/govuk-frontend/dist/govuk/assets/fonts/` and every page's
+        // `/assets/fonts/…`, crest, favicon and `/assets/manifest.json` requests answered 404.
         {
           src: "node_modules/govuk-frontend/dist/govuk/assets/fonts/*",
-          dest: "fonts"
+          dest: "fonts",
+          rename: { stripBase: true }
         },
         {
           src: "node_modules/govuk-frontend/dist/govuk/assets/images/*",
-          dest: "images"
+          dest: "images",
+          rename: { stripBase: true }
         },
         {
           src: "node_modules/govuk-frontend/dist/govuk/assets/manifest.json",
-          dest: "."
+          dest: ".",
+          rename: { stripBase: true }
         },
         // **The output path this produces is not what the `rename` below reads as, and it works anyway.**
         // Every template lands doubly nested — `dist/pages/src/pages/deed-polls/deed-polls/index.njk` —
