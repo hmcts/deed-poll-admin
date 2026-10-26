@@ -211,7 +211,7 @@ export class GuardedSessionStore extends Store {
       if (claimed === -1) return { outcome: "missing" };
       if (claimed !== 0) return { outcome: "conflict" };
       if (Date.now() >= deadline) return { outcome: "busy" };
-      await new Promise((resolve) => setTimeout(resolve, REFRESH_POLL_MS));
+      await new Promise((resolve) => setTimeout(resolve, REFRESH_POLL_MS)); // NOSONAR typescript:S9382 - each retry follows its claim result and delay; Steve accepted 2026-10-26
     }
   }
 

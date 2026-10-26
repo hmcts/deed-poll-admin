@@ -72,7 +72,7 @@ export function initDocumentViewer(root: HTMLElement): void {
   const maxBytes = Number(root.dataset.maxBytes);
   const documents = controls ? documentsFrom(controls.select) : [];
   const first = documents.find((entry) => entry.previewUrl === previewUrl);
-  if (!controls || !first || !(maxPages > 0) || !(maxBytes > 0)) return;
+  if (!controls || !first || Number.isNaN(maxPages) || maxPages <= 0 || Number.isNaN(maxBytes) || maxBytes <= 0) return;
 
   GlobalWorkerOptions.workerSrc = workerUrl;
   const { frame, status, announcement, thumbnailsRegion } = controls;
@@ -391,7 +391,7 @@ function findControls(root: HTMLElement): Controls | null {
     rotate: one<HTMLButtonElement>("[data-viewer-rotate]"),
     thumbnailsToggle: one<HTMLButtonElement>("[data-viewer-thumbnails-toggle]")
   };
-  if (Object.values(found).some((element) => element === null)) return null;
+  if (Object.values(found).includes(null)) return null;
 
   const controls = found as { [K in keyof typeof found]: NonNullable<(typeof found)[K]> };
   return {

@@ -11,9 +11,10 @@ export function testPdf(pages: readonly TestPage[], extras: PdfExtras = {}): Uin
     extras.openActionScript ? "/OpenAction 5 0 R" : "",
     extras.formField ? "/AcroForm << /Fields [6 0 R] >>" : ""
   ];
+  const pageReferences = pageIds.map((id) => `${id} 0 R`).join(" ");
   const objects = [
     `<< ${catalog.filter(Boolean).join(" ")} >>`,
-    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pages.length} >>`,
+    `<< /Type /Pages /Kids [${pageReferences}] /Count ${pages.length} >>`,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     "<< /Type /Annot /Subtype /Link /Rect [72 72 300 100] /A << /S /URI /URI (https://example.invalid/) >> >>",
     `<< /S /JavaScript /JS (${extras.openActionScript ?? ""}) >>`,
@@ -23,14 +24,16 @@ export function testPdf(pages: readonly TestPage[], extras: PdfExtras = {}): Uin
       const [width, height] = page.size ?? A4_PORTRAIT;
       const image = page.image ? "q 451 0 0 451 72 200 cm /Im1 Do Q " : "";
       const routed = page.imageVia ? ROUTED_CONTENT[page.imageVia.via](page.imageVia.image) : "";
-      const text = `${image}${routed}${page.text === undefined ? "" : `BT /F1 24 Tf 72 ${height - 96} Td (${page.text}) Tj ET`}`;
+      const pageText = page.text === undefined ? "" : `BT /F1 24 Tf 72 ${height - 96} Td (${page.text}) Tj ET`;
+      const text = `${image}${routed}${pageText}`;
       const xObjects = page.image ? `/XObject << /Im1 ${id + 2} 0 R >>` : "";
       const routedResources = page.imageVia ? ROUTED_RESOURCES[page.imageVia.via](id) : "";
       const font = page.font ? `${id + 6} 0 R` : "3 0 R";
       const pageAnnotations = [extras.link ? "4 0 R" : "", extras.formField ? "6 0 R" : "", page.stamp ? `${id + 3} 0 R` : ""].filter(Boolean);
       const annotations = pageAnnotations.length > 0 ? `/Annots [${pageAnnotations.join(" ")}]` : "";
+      const rotation = page.rotate ? `/Rotate ${page.rotate}` : "";
       return [
-        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] ${page.rotate ? `/Rotate ${page.rotate}` : ""} ${annotations} /Resources << /Font << /F1 ${font} >> ${xObjects} ${routedResources} >> /Contents ${id + 1} 0 R >>`,
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] ${rotation} ${annotations} /Resources << /Font << /F1 ${font} >> ${xObjects} ${routedResources} >> /Contents ${id + 1} 0 R >>`,
         stream("", text),
         page.image ? imageXObject(page.image) : "null",
         ...(page.stamp ? stampObjects(id, page.stamp) : ["null", "null", "null"]),
