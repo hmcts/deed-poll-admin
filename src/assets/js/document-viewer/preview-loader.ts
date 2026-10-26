@@ -6,7 +6,7 @@
  * it. So a slow preview that finishes after the caseworker has moved on is destroyed rather than drawn under the
  * newer document's name, and a tab holds one parsed document at most.
  */
-import { type FetchPreviewOptions, fetchPreview, type PreviewFailure } from "./fetch-preview.js";
+import { fetchPreview, type PreviewFailure } from "./fetch-preview.js";
 import { type OpenedPreview, openPreview } from "./pdf-document.js";
 
 export function createPreviewLoader(options: PreviewLoaderOptions): PreviewLoader {
@@ -69,5 +69,5 @@ export interface PreviewLoaderOptions {
   maxBytes: number;
   maxPages: number;
   assetPath?: string;
-  fetchImpl?: FetchPreviewOptions["fetchImpl"];
+  fetchImpl?: typeof fetch;
 }
