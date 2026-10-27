@@ -68,7 +68,9 @@ nodejs:
     # the environment segment from its host, hence the conditional; every other environment names its own, so no
     # non-production pod links to production XUI. XUI checks the staff-admin role itself, so this is only a link.
     # `src/deployment-chart.test.ts` renders it for every environment.
-    XUI_STAFF_ADMIN_URL: '{{ if eq .Values.global.environment "prod" }}https://manage-case.platform.hmcts.net/staff{{ else }}https://manage-case.{{ .Values.global.environment }}.platform.hmcts.net/staff{{ end }}'
+    # The literal is in backticks, not double quotes: the nodejs chart renders each value as `tpl ($val | quote)`,
+    # so a double quote inside the template is escaped to `\"` before tpl parses it and helm fails ("unexpected \").
+    XUI_STAFF_ADMIN_URL: '{{ if eq .Values.global.environment `prod` }}https://manage-case.platform.hmcts.net/staff{{ else }}https://manage-case.{{ .Values.global.environment }}.platform.hmcts.net/staff{{ end }}'
     IDAM_ISSUER_URL: https://hmcts-access.{{ .Values.global.environment }}.platform.hmcts.net/o
     IDAM_CLIENT_ID: deed-poll-admin
     IDAM_SCOPE: openid profile roles offline_access
