@@ -87,7 +87,7 @@ const en = {
   decisionLegend: "What is your direction on this application?",
   // Says what the two words commit to. "Approved"/"Rejected" are api's members and the case's own vocabulary,
   // so they are not re-worded here — the hint is where the meaning goes.
-  decisionHint: "This is recorded against the application as the judicial decision.",
+  decisionHint: "This is recorded against the application as the Master’s decision.",
   directionsLabel: "Directions (optional)",
   // api's `directionsText` is not required, so the label says so rather than leaving a judge to discover it by
   // being refused. The Gazette question is asked separately below, and the hint says so: a comment about

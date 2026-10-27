@@ -49,15 +49,15 @@ import { pathSegment } from "../../../../path-segment.js";
 const FIELD_ORDER = ["reasons", "notes", "urgency", "urgencyReason"];
 
 const en = {
-  title: "Refer this case to the judiciary",
-  heading: "Refer this case to the judiciary",
+  title: "Refer this case to a Master",
+  heading: "Refer this case to a Master",
   reasonsLegend: "Why are you referring this case?",
   reasonsHint: "Select all that apply.",
   notesLabel: "Give the other reason",
-  notesHint: "Explain why this case needs to go to the judiciary.",
+  notesHint: "Explain why this case needs to go to a Master.",
   urgencyLegend: "How urgent is this referral?",
   urgencyReasonLabel: "Why is this referral urgent?",
-  urgencyReasonHint: "For example, a hearing date or a deadline the judiciary needs to know about.",
+  urgencyReasonHint: "For example, a hearing date or a deadline the Master needs to know about.",
   submit: "Raise referral",
   cancel: "Cancel",
   errorSummaryTitle: "There is a problem",

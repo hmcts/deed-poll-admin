@@ -109,8 +109,8 @@ const en = {
   referralAwaitingConfirmation: "Awaiting the applicant's response",
   // The row's own notice that the judge changed or withdrew their direction, from api's `directionChangedAt`. The
   // same sentence as the referral page's, which is where the case note api wrote is one click nearer.
-  directionChangedFor: (changedOn: string) => `The judge changed this direction on ${changedOn}.`,
-  raiseReferral: "Refer this case to the judiciary",
+  directionChangedFor: (changedOn: string) => `The Master changed this direction on ${changedOn}.`,
+  raiseReferral: "Refer this case to a Master",
   viewReferralHint: "view this referral",
   // Decision 9: the previous system recorded no reasons, so a migrated referral has none and says which it is.
   migratedReferral: "Migrated from the previous system",
@@ -124,9 +124,9 @@ const en = {
   // `referralsUnavailable` says nothing was read, while this says a referral was read and could not be
   // understood.
   liveReferralMessages: {
-    withJudiciary: "This case is with the judiciary. Withdraw the open referral before raising another.",
+    withJudiciary: "This case is with a Master. Withdraw the open referral before raising another.",
     directionReceived:
-      "The judiciary has returned a direction on this case. Carry out the direction, make any case updates it requires, and mark the referral as actioned before raising another.",
+      "A Master has returned a direction on this case. Carry out the direction, make any case updates it requires, and mark the referral as actioned before raising another.",
     stateUnknown: "This case has a referral whose status could not be read, so no further referral can be raised yet. Try again shortly."
   },
   // The retired "Refer to Master" record, above the live history on the same panel. Its own heading and a
@@ -139,7 +139,7 @@ const en = {
   // The referrals read failed. Worded so it cannot be read as "this case has no referrals" — the whole point
   // of the degraded state is that the panel is not making a claim about the case. See the docblock.
   referralsUnavailable:
-    "Referral information could not be loaded, so this tab cannot say whether the case is with the judiciary. The rest of the case is shown as normal. Try again shortly.",
+    "Referral information could not be loaded, so this tab cannot say whether the case is with a Master. The rest of the case is shown as normal. Try again shortly.",
   // GOV.UK's own fallback for the warning icon, which is decorative and needs a text equivalent.
   warningIcon: "Warning",
   emailColumns: ["Email", "Created", "Status"],

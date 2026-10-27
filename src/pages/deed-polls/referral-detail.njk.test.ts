@@ -125,17 +125,17 @@ describe("referral view template", () => {
 
     expect(rendered).toMatch(/govuk-tag[^"]*govuk-tag--blue/);
     // The caseworker's label, not api's member: the tag says where the referral is, not what its enum is called.
-    expect(rendered).toContain("Awaiting a judge");
+    expect(rendered).toContain("Awaiting a Master");
     // Decision 3: which status this is. The case header carries one of its own and a direction does not set it.
     expect(rendered).toContain("Referral status");
-    expect(rendered).toContain("Waiting for a judge to claim");
+    expect(rendered).toContain("Waiting for a Master to claim");
   });
 
   it("should leave the meaning out rather than explain a status it cannot read", async () => {
     const rendered = await page({ ...REFERRAL, state: null });
 
     expect(rendered).toContain("Not recorded");
-    expect(rendered).not.toContain("Waiting for a judge to claim");
+    expect(rendered).not.toContain("Waiting for a Master to claim");
     // And neither control, which is the reversal Task 1 made: "not terminal" is no longer evidence of anything.
     expect(rendered).not.toContain("/withdraw");
     expect(rendered).not.toContain("/close");
@@ -144,14 +144,14 @@ describe("referral view template", () => {
   it("should show the claim in the progress section once a judge has picked the referral up", async () => {
     const rendered = await page({ ...REFERRAL, state: "Claimed", claimedBy: "A Judge", claimedAt: new Date("2026-05-14T09:00:00Z") });
 
-    expect(rendered).toContain("Claimed by the judiciary");
+    expect(rendered).toContain("Claimed by a Master");
     expect(rendered).toContain("A Judge, 14 May 2026 at 10:00am");
   });
 
   it("should show no claim row on a referral nobody has picked up, rather than a placeholder for one", async () => {
     const rendered = await page(REFERRAL);
 
-    expect(rendered).not.toContain("Claimed by the judiciary");
+    expect(rendered).not.toContain("Claimed by a Master");
   });
 
   it("should offer withdraw as a form posting to the withdraw route, because it changes something", async () => {
@@ -192,7 +192,7 @@ describe("referral view template", () => {
   it("should show the whole returned direction, naming the judge who decided it", async () => {
     const rendered = await page({ ...REFERRAL, ...DIRECTED, modifiedBy: "A Caseworker" });
 
-    expect(rendered).toContain("Direction from the judiciary");
+    expect(rendered).toContain("Direction from the Master");
     expect(rendered).toContain("Approved");
     expect(rendered).toContain("Serve the notice on the second respondent.");
     expect(rendered).toContain("Published in the Gazette");
@@ -203,7 +203,7 @@ describe("referral view template", () => {
   it("should say as inset text when the judge changed the direction", async () => {
     const rendered = await page({ ...REFERRAL, ...DIRECTED, directionChangedAt: new Date("2026-10-19T09:30:00Z") });
 
-    expect(rendered).toMatch(/<div class="govuk-inset-text">\s*The judge changed this direction on 19 October 2026 at 10:30am\.\s*<\/div>/);
+    expect(rendered).toMatch(/<div class="govuk-inset-text">\s*The Master changed this direction on 19 October 2026 at 10:30am\.\s*<\/div>/);
   });
 
   it("should still say the direction changed once a withdrawal has left no direction on the referral", async () => {
@@ -215,21 +215,21 @@ describe("referral view template", () => {
       directionChangedAt: new Date("2026-10-19T09:30:00Z")
     });
 
-    expect(rendered).not.toContain("Direction from the judiciary");
-    expect(rendered).toContain("The judge changed this direction on 19 October 2026 at 10:30am.");
+    expect(rendered).not.toContain("Direction from the Master");
+    expect(rendered).toContain("The Master changed this direction on 19 October 2026 at 10:30am.");
   });
 
   it("should show no change notice on a direction that stands as first given", async () => {
     const rendered = await page({ ...REFERRAL, ...DIRECTED });
 
-    expect(rendered).not.toContain("The judge changed this direction");
+    expect(rendered).not.toContain("The Master changed this direction");
     expect(rendered).not.toContain("govuk-inset-text");
   });
 
   it("should show no direction section on a referral the judiciary has not answered", async () => {
     const rendered = await page(REFERRAL);
 
-    expect(rendered).not.toContain("Direction from the judiciary");
+    expect(rendered).not.toContain("Direction from the Master");
   });
 
   it("should say the Gazette answer was not recorded rather than printing No for a direction that gave none", async () => {

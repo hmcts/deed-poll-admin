@@ -94,7 +94,7 @@ describe("mark a direction as actioned", () => {
       await GET(request(), res);
 
       const content = res.render.mock.calls[0][1].en;
-      expect(content.confirmingDirection).toContain("carried out the judicial direction");
+      expect(content.confirmingDirection).toContain("carried out the Master’s direction");
       expect(content.confirmingUpdates).toContain("updates the application needs");
       expect(content.confirmingWorklist).toContain("leave the list of returned directions");
     });

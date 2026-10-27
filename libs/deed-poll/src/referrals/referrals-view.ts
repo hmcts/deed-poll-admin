@@ -58,8 +58,8 @@ export const REFERRAL_URGENCY_LABEL: Record<Urgency, string> = {
  * every other map in this file. See `REFERRAL_STATE_MEANING` for the sentence that goes with each label.
  */
 export const REFERRAL_STATE_LABEL: Record<ReferralState, string> = {
-  Open: "Awaiting a judge",
-  Claimed: "With a judge",
+  Open: "Awaiting a Master",
+  Claimed: "With a Master",
   Decided: "Direction received",
   Closed: "Direction actioned",
   Withdrawn: "Withdrawn"
@@ -78,8 +78,8 @@ export const REFERRAL_STATE_LABEL: Record<ReferralState, string> = {
  * here is derived from or writes to `DeedPollState`.
  */
 export const REFERRAL_STATE_MEANING: Record<ReferralState, string> = {
-  Open: "Waiting for a judge to claim",
-  Claimed: "Being considered by the judiciary",
+  Open: "Waiting for a Master to claim",
+  Claimed: "Being considered by a Master",
   Decided: "Direction received — action needed",
   Closed: "Direction actioned",
   Withdrawn: "Withdrawn before a direction"

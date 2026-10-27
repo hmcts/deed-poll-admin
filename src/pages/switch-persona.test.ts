@@ -141,7 +141,7 @@ describe("the persona switch", () => {
 
     expect(loginAsPersona).toHaveBeenCalledWith(expect.objectContaining({ clientId: "deed-poll-admin" }), {
       id: "judge",
-      name: "Judge",
+      name: "Master",
       fixtureUsername: "judge@example.com",
       roleNames: [DEEDPOLL_JUDICIAL]
     });
@@ -364,7 +364,7 @@ describe("the persona switch", () => {
 
       await route.POST(signedInCaseworker(), res, vi.fn());
 
-      expect(res.render).toHaveBeenCalledWith("switch-persona", expect.objectContaining({ personaName: "Judge", reason: REASON }));
+      expect(res.render).toHaveBeenCalledWith("switch-persona", expect.objectContaining({ personaName: "Master", reason: REASON }));
       expect(res.redirect).not.toHaveBeenCalled();
     });
 
@@ -424,7 +424,7 @@ describe("the persona switch", () => {
      */
     it("should render the strip as it is after the attempt, not as it was before", async () => {
       const res = pageResponse();
-      res.locals.personaSwitcher = { personas: [{ id: "judge", name: "Judge", isCurrent: false, isAvailable: true }] };
+      res.locals.personaSwitcher = { personas: [{ id: "judge", name: "Master", isCurrent: false, isAvailable: true }] };
 
       await route.POST(signedInCaseworker(), res, vi.fn());
 

@@ -50,7 +50,7 @@ const SWITCHER = {
     { id: "caseworker", name: "Caseworker", isCurrent: true, isAvailable: true },
     { id: "team-leader", name: "Team leader", isCurrent: false, isAvailable: true },
     { id: "delivery-manager", name: "Delivery Manager", isCurrent: false, isAvailable: true },
-    { id: "judge", name: "Judge", isCurrent: false, isAvailable: true }
+    { id: "judge", name: "Master", isCurrent: false, isAvailable: true }
   ]
 };
 
@@ -119,7 +119,7 @@ describe("the app layout", () => {
   it("should name each button by its persona rather than by the action", () => {
     const html = environment.render("layouts/app.njk", { personaSwitcher: SWITCHER });
 
-    expect(html).toContain('<span class="govuk-visually-hidden">Switch to </span>Judge');
+    expect(html).toContain('<span class="govuk-visually-hidden">Switch to </span>Master');
   });
 
   // You cannot switch to who you already are, so the current persona is text. Stated in words and not by
@@ -146,13 +146,13 @@ describe("the app layout", () => {
           { id: "caseworker", name: "Caseworker", isCurrent: true, isAvailable: true },
           { id: "team-leader", name: "Team leader", isCurrent: false, isAvailable: true },
           { id: "delivery-manager", name: "Delivery Manager", isCurrent: false, isAvailable: true },
-          { id: "judge", name: "Judge", isCurrent: false, isAvailable: false, reason: "The judicial role does not exist here." }
+          { id: "judge", name: "Master", isCurrent: false, isAvailable: false, reason: "The judicial role does not exist here." }
         ]
       }
     });
 
-    expect(html).toContain("Judge (unavailable)");
-    expect(html).toContain("Judge: The judicial role does not exist here.");
+    expect(html).toContain("Master (unavailable)");
+    expect(html).toContain("Master: The judicial role does not exist here.");
     expect(html).not.toContain('value="judge"');
     // The personas that do work are untouched by another one's refusal.
     expect(html).toContain('name="persona" value="team-leader"');

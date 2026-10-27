@@ -119,7 +119,7 @@ export function buildPoolRows(referrals: JudicialReferralSummary[]): PoolRow[] {
  * What a judge reads where api publishes the state of a referral they hold.
  *
  * **Their own two words and not the caseworker's** (`referrals-admin-6` decision 2). `REFERRAL_STATE_LABEL` answers
- * a caseworker's question — "With a judge", "Direction received" — which is the wrong side of the same fact: a
+ * a caseworker's question — "With a Master", "Direction received" — which is the wrong side of the same fact: a
  * judge reading "Direction received" about their own claim would be told what the office is waiting for rather than
  * what they still owe. So `Claimed` is the work outstanding and `Decided` the work done, in that order.
  *
