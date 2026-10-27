@@ -1695,7 +1695,7 @@ describe("changing and withdrawing a direction", () => {
     expect(detail).toMatchObject({ state: "Decided", decision: "Rejected", publishToGazette: false, directionsText: "On reflection, no", decidedBy: JUDGE });
     expect(detail.directionChangedAt).toEqual(expect.any(String));
     expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).directionChangedAt).toBe(detail.directionChangedAt);
-    expect((await notesOn(caseId))[0].note).toMatch(/^Judicial direction revised for referral .*\. Decision: Rejected\. Publish to the London Gazette: No\./);
+    expect((await notesOn(caseId))[0].note).toMatch(/^Master’s direction revised for referral .*\. Decision: Rejected\. Publish to the London Gazette: No\./);
   });
 
   it("should refuse a change the wire schema rejects, as the first direction is refused", async () => {
@@ -1725,7 +1725,7 @@ describe("changing and withdrawing a direction", () => {
     });
     expect(detail.directionChangedAt).toEqual(expect.any(String));
     // Composed before the clear, so it names the direction that stopped being the answer.
-    expect((await notesOn(caseId))[0].note).toMatch(/^Judicial direction withdrawn for referral .*\. The withdrawn decision was: Approved\./);
+    expect((await notesOn(caseId))[0].note).toMatch(/^Master’s direction withdrawn for referral .*\. The withdrawn decision was: Approved\./);
     expect(await currentReferralState(caseId)).toBe("Claimed");
 
     const again = await post(`/judicial/referrals/${referralId}/direction`, { decision: "Rejected", publishToGazette: false }, as(JUDGE));
@@ -2095,11 +2095,11 @@ describe("the case notes a referral writes as it moves", () => {
 
     const raised = await raisedOn(caseId, referralId);
     expect(notes.map((note) => note.note)).toEqual([
-      `Judicial direction for referral raised on ${raised}, reasons: Minor, marked as actioned.`,
-      `Judicial direction recorded for referral raised on ${raised}, reasons: Minor.` +
+      `Master’s direction for referral raised on ${raised}, reasons: Minor, marked as actioned.`,
+      `Master’s direction recorded for referral raised on ${raised}, reasons: Minor.` +
         " Decision: Approved. Publish to the London Gazette: Yes. See the referral for the full direction.",
-      `Referral raised on ${raised}, reasons: Minor, claimed by the judiciary.`,
-      "Referred to the judiciary. Reasons: Minor."
+      `Referral raised on ${raised}, reasons: Minor, claimed by a Master.`,
+      "Referred to a Master. Reasons: Minor."
     ]);
   });
 
@@ -2112,8 +2112,8 @@ describe("the case notes a referral writes as it moves", () => {
 
     const raised = await raisedOn(caseId, referralId);
     expect((await notesOn(caseId)).map((note) => note.note)).toEqual([
-      `Referral to the judiciary withdrawn. It was raised on ${raised}, reasons: Minor, DomesticAbuse.`,
-      "Referred to the judiciary. Reasons: Minor, DomesticAbuse."
+      `Referral to a Master withdrawn. It was raised on ${raised}, reasons: Minor, DomesticAbuse.`,
+      "Referred to a Master. Reasons: Minor, DomesticAbuse."
     ]);
   });
 
@@ -2130,7 +2130,7 @@ describe("the case notes a referral writes as it moves", () => {
     // A line each rather than run into the sentence before with a full stop the composer would have to add:
     // theirs is prose they wrote, and one already ending in a stop would read as "Friday..".
     const [raised] = await notesOn(seeded.id);
-    expect(raised.note).toBe("Referred to the judiciary. Reasons: Other.\nMarked urgent: Hearing on Friday.\nNotes: Unusual circumstances");
+    expect(raised.note).toBe("Referred to a Master. Reasons: Other.\nMarked urgent: Hearing on Friday.\nNotes: Unusual circumstances");
   });
 
   it("should point at the referral for the full direction rather than copying it into the note", async () => {
@@ -2210,9 +2210,9 @@ describe("the case notes a referral writes as it moves", () => {
 
     expect(patched.status).toBe(200);
     expect((await notesOn(caseId)).map((note) => note.note)).toEqual([
-      expect.stringContaining("Referral to the judiciary withdrawn"),
+      expect.stringContaining("Referral to a Master withdrawn"),
       "Declarant called back",
-      "Referred to the judiciary. Reasons: Minor."
+      "Referred to a Master. Reasons: Minor."
     ]);
   });
 

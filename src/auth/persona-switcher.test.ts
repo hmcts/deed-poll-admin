@@ -115,7 +115,7 @@ describe("personaSwitcherLocals", () => {
         { id: "caseworker", name: "Caseworker", isCurrent: true },
         { id: "team-leader", name: "Team leader", isCurrent: false },
         { id: "delivery-manager", name: "Delivery Manager", isCurrent: false },
-        { id: "judge", name: "Judge", isCurrent: false }
+        { id: "judge", name: "Master", isCurrent: false }
       ]
     });
   });
@@ -127,7 +127,7 @@ describe("personaSwitcherLocals", () => {
 
     expect(view.personas.map((persona) => persona.id)).toEqual(PERSONAS.map((persona) => persona.id));
     expect(view.personas.filter((persona) => persona.isCurrent)).toEqual([
-      { id: "judge", name: "Judge", isCurrent: true, isAvailable: true, reason: undefined }
+      { id: "judge", name: "Master", isCurrent: true, isAvailable: true, reason: undefined }
     ]);
   });
 
@@ -267,7 +267,7 @@ describe("the seeded fixtures", () => {
  */
 describe("personaFor", () => {
   it("should resolve each offered persona by its id, with the roles that define it", () => {
-    expect(personaFor("judge")).toMatchObject({ name: "Judge", roleNames: [DEEDPOLL_JUDICIAL] });
+    expect(personaFor("judge")).toMatchObject({ name: "Master", roleNames: [DEEDPOLL_JUDICIAL] });
     expect(personaFor("team-leader")).toMatchObject({ name: "Team leader", roleNames: [DEEDPOLL_TEAM_LEADER] });
     expect(personaFor("delivery-manager")).toMatchObject({ name: "Delivery Manager", roleNames: [DEEDPOLL_DELIVERY_MANAGER] });
     expect(personaFor("caseworker")).toMatchObject({ name: "Caseworker", roleNames: [DEEDPOLL_CASEWORKER] });

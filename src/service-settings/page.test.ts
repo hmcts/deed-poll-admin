@@ -158,7 +158,7 @@ describe("process section POST", () => {
     [
       "both blank",
       { claimWindowHours: "", claimWindowMinutes: " " },
-      { windowError: "Enter how long a judge can hold a claimed referral" },
+      { windowError: "Enter how long a Master can hold a claimed referral" },
       "#claimWindowHours"
     ]
   ])("should refuse an invalid %s with no write, keeping the typed text and original revision", async (_name, input, errors, href) => {

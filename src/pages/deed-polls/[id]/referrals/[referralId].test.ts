@@ -92,7 +92,7 @@ describe("referral view page", () => {
 
     expect(res.render.mock.calls[0][0]).toBe("deed-polls/referral-detail");
     expect(res.render.mock.calls[0][1].case.displayReference).toBe("KBDP2026-00001");
-    expect(res.render.mock.calls[0][1].referral.state).toBe("Awaiting a judge");
+    expect(res.render.mock.calls[0][1].referral.state).toBe("Awaiting a Master");
   });
 
   it("should show the reasons as labels rather than api's enum members", async () => {
@@ -205,7 +205,7 @@ describe("referral view page", () => {
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].directionChanged).toBe("The judge changed this direction on 19 October 2026 at 10:30am.");
+    expect(res.render.mock.calls[0][1].directionChanged).toBe("The Master changed this direction on 19 October 2026 at 10:30am.");
   });
 
   it("should say nothing about a change on a direction that stands as first given", async () => {

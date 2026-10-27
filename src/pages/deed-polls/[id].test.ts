@@ -584,7 +584,7 @@ describe("case detail page", () => {
 
     const referrals = res.render.mock.calls[0][1].referrals;
     expect(referrals.count).toBe(1);
-    expect(referrals.rows[0]).toMatchObject({ id: "ref-1", state: "Awaiting a judge", reasons: ["Applicant is a minor"], urgency: "Standard" });
+    expect(referrals.rows[0]).toMatchObject({ id: "ref-1", state: "Awaiting a Master", reasons: ["Applicant is a minor"], urgency: "Standard" });
   });
 
   it("resolves the change notice for each referral whose direction the judge changed, keyed by its id", async () => {
@@ -596,7 +596,7 @@ describe("case detail page", () => {
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].directionChangedNotices).toEqual({ "ref-2": "The judge changed this direction on 19 October 2026 at 10:30am." });
+    expect(res.render.mock.calls[0][1].directionChangedNotices).toEqual({ "ref-2": "The Master changed this direction on 19 October 2026 at 10:30am." });
   });
 
   it("resolves no change notices when the referrals read failed", async () => {

@@ -35,7 +35,7 @@ const REFUSAL = {
   back: "Back",
   backLink: "/",
   guidance: "Use the persona switcher above to choose another, or carry on as the persona you are now.",
-  personaName: "Judge",
+  personaName: "Master",
   reason: "The caseworker-deedpoll-judicial role does not exist in this environment.",
   personaSwitcher: {
     tag: "Dev only",
@@ -48,7 +48,7 @@ const REFUSAL = {
       { id: "caseworker", name: "Caseworker", isCurrent: true, isAvailable: true },
       { id: "team-leader", name: "Team leader", isCurrent: false, isAvailable: true },
       { id: "delivery-manager", name: "Delivery Manager", isCurrent: false, isAvailable: true },
-      { id: "judge", name: "Judge", isCurrent: false, isAvailable: false, reason: "The caseworker-deedpoll-judicial role does not exist in this environment." }
+      { id: "judge", name: "Master", isCurrent: false, isAvailable: false, reason: "The caseworker-deedpoll-judicial role does not exist in this environment." }
     ]
   }
 };
@@ -58,7 +58,7 @@ describe("the persona refusal page", () => {
     const html = environment.render("switch-persona.njk", REFUSAL);
 
     expect(html).toContain("This persona is not available in this environment");
-    expect(html).toContain("Judge: The caseworker-deedpoll-judicial role does not exist in this environment.");
+    expect(html).toContain("Master: The caseworker-deedpoll-judicial role does not exist in this environment.");
     expect(html).toContain("Use the persona switcher above to choose another");
   });
 
@@ -78,6 +78,6 @@ describe("the persona refusal page", () => {
     const html = environment.render("switch-persona.njk", REFUSAL);
 
     expect(html).not.toContain('value="judge"');
-    expect(html).toContain("Judge (unavailable)");
+    expect(html).toContain("Master (unavailable)");
   });
 });

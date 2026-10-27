@@ -34,7 +34,7 @@ const en = {
   // Decision 3's label, as the referral page uses it: the case header carries a state of its own and this page
   // is about neither changing it nor reporting it.
   stateLabel: "Referral status",
-  directionHeading: "Direction from the judiciary",
+  directionHeading: "Direction from the Master",
   decisionLabel: "Decision",
   directionsLabel: "Directions",
   gazetteLabel: "Published in the Gazette",
@@ -47,7 +47,7 @@ const en = {
   gazetteNotRecorded: "Not recorded",
   // Decision 6: the three things the caseworker is confirming, said before the submit rather than after it.
   confirmingIntro: "By marking this referral as actioned you are confirming that:",
-  confirmingDirection: "you have carried out the judicial direction",
+  confirmingDirection: "you have carried out the Master’s direction",
   confirmingUpdates: "you have made any updates the application needs, including any dates",
   confirmingWorklist: "this referral will leave the list of returned directions waiting for action",
   // True because api publishes no re-open, and the second sentence is why that is not a loss: closing records
