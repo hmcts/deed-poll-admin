@@ -54,6 +54,7 @@ import {
   type WireJudicialWitness,
   type WireNote,
   type WirePreviewGazette,
+  type WireProcessSettings,
   type WireRecordConfirmation,
   type WireReferral,
   type WireReferralCreate,
@@ -64,6 +65,7 @@ import {
   type WireSentEmail,
   type WireSubmitGazette,
   type WireUpdateGazetteSettings,
+  type WireUpdateProcessSettings,
   type WireWitnessCreate,
   type WireWitnessUpdate
 } from "./wire.js";
@@ -268,6 +270,19 @@ export function getGazetteSettings(config: ApiConfig): Promise<ApiResult<Gazette
 export function updateGazetteSettings(input: UpdateGazetteSettings, config: ApiConfig): Promise<ApiResult<GazetteSettings>> {
   return request(config, "PUT", "/caseworker/gazette-settings", WIRE_SCHEMAS.GazetteSettingsResponse, {
     recipientEmail: input.recipientEmail,
+    revision: input.revision
+  });
+}
+
+/** Delivery Manager only (`MANAGE_PROCESS_CONFIG`). Revision 0 and null attribution mean never changed. */
+export function getProcessSettings(config: ApiConfig): Promise<ApiResult<ProcessSettings>> {
+  return request(config, "GET", "/caseworker/process-settings", WIRE_SCHEMAS.ProcessSettingsResponse);
+}
+
+/** A stale revision is a 409 even when the value already matches; an unchanged value at the current one is a no-op. */
+export function updateProcessSettings(input: UpdateProcessSettings, config: ApiConfig): Promise<ApiResult<ProcessSettings>> {
+  return request(config, "PUT", "/caseworker/process-settings", WIRE_SCHEMAS.ProcessSettingsResponse, {
+    referralClaimExpiryMinutes: input.referralClaimExpiryMinutes,
     revision: input.revision
   });
 }
@@ -1689,8 +1704,11 @@ export type CallerAccess = WireCallerAccess;
 export type Capability = CallerAccess["capabilities"][number];
 export type GazetteSettings = WireGazetteSettings;
 export type UpdateGazetteSettings = WireUpdateGazetteSettings;
+export type ProcessSettings = WireProcessSettings;
+export type UpdateProcessSettings = WireUpdateProcessSettings;
 
 export { GAZETTE_RECIPIENT_EMAIL_PATTERN, validateGazetteRecipientEmail } from "./gazette-recipient-email.js";
+export { PROCESS_SETTINGS_LIMITS } from "./wire.js";
 
 export type GazettePreview = WireGazettePreview;
 export type GazetteStatus = WireGazetteStatus;

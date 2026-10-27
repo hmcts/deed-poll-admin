@@ -233,9 +233,22 @@ the shared turbo cache; use `--force` (memory note "admin paths fall through to 
 **Files:** `libs/deed-poll-api-client/openapi.json`, `SPEC-PROVENANCE.md`, `src/api/client.ts`, `contract.test.ts` if
 it lists operations, the mock's routes and tests, `mock/caller-access.ts` and its test, `libs/deed-poll/src/auth/capabilities.ts`.
 
-- [ ] Record the execution baseline, and the api merge commit this refresh comes from.
-- [ ] Diff the api spec against admin's copy and record the full delta. Stop if it holds anything beyond process settings and the capability.
-- [ ] Add failing client and mock tests, implement, then run the focused tests and all Validation Commands, and record the results.
+- [x] Record the execution baseline, and the api merge commit this refresh comes from.
+- [x] Diff the api spec against admin's copy and record the full delta. Stop if it holds anything beyond process settings and the capability.
+- [x] Add failing client and mock tests, implement, then run the focused tests and all Validation Commands, and record the results.
+
+**Task 1 record (2026-10-27).** The branch already sat on `origin/master` `6962fca` (the plan commit on top), so no
+rebase was needed and the baseline counts above still held. api merge commit: `539da63` (PR #135), which also carries
+#130–#134. The spec regenerated from it in a clean detached worktree (raw SHA-256 `8607a02a…ebf8a`). Its parsed delta
+against admin's copy: `GET`/`PUT /caseworker/process-settings`, `ProcessSettingsResponse`,
+`UpdateProcessSettingsRequest`, and `MANAGE_PROCESS_CONFIG` added to `CallerAccessResponse`'s enum. Nothing else, so
+there was no stop condition. Recorded in `SPEC-PROVENANCE.md`. Added `getProcessSettings`/`updateProcessSettings`,
+`PROCESS_SETTINGS_LIMITS` (pinned to the spec), the mock routes (`src/mock/process-settings.ts`: api's key, bounds and
+revision checks in api's order, 409 before the no-op, reset with the fixtures), the Delivery Manager mock row, and the
+`MANAGE_PROCESS_CONFIG` domain constant. Validation: format and lint clean (582 files), build exit 0, audit has no
+suggestions. Full suite with `--force`, 8/8 tasks: app 3,042, deed-poll 1,552, deed-poll-api-client 1,192 (+33),
+express-govuk-starter 132, cloud-native-platform 156, express-session-postgres 85, simple-router 45,
+express-session-redis 7. The Redis suites ran.
 
 ### Task 2: Domain parsing and service
 

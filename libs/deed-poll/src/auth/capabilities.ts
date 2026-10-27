@@ -6,6 +6,7 @@ export const DELETE_WITNESS: Capability = "DELETE_WITNESS";
 export const MANAGE_SHARED_QUERIES: Capability = "MANAGE_SHARED_QUERIES";
 export const REPAIR_CCD: Capability = "REPAIR_CCD";
 export const ACCESS_GAZETTE: Capability = "ACCESS_GAZETTE";
+export const MANAGE_PROCESS_CONFIG: Capability = "MANAGE_PROCESS_CONFIG";
 
 /** No staff area, no judicial area, no capabilities: what every missing or malformed answer reads as. */
 export const NO_ACCESS: CallerAccess = Object.freeze({ staff: false, judicial: false, capabilities: Object.freeze([]) });

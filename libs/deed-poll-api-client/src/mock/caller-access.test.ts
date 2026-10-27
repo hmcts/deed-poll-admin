@@ -46,14 +46,14 @@ describe("GET /me on the mock", () => {
     {
       persona: "Delivery Manager",
       roles: ["caseworker-deedpoll-delivery-manager"],
-      expected: { staff: true, judicial: false, capabilities: [...CASEWORK, "ACCESS_GAZETTE"] }
+      expected: { staff: true, judicial: false, capabilities: [...CASEWORK, "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG"] }
     },
     { persona: "legacy admin", roles: ["caseworker-deedpoll-admin"], expected: { staff: true, judicial: false, capabilities: CASEWORK } },
     { persona: "judge", roles: ["caseworker-deedpoll-judicial"], expected: { staff: false, judicial: true, capabilities: [] } },
     {
       persona: "Delivery Manager who is also a judge",
       roles: ["caseworker-deedpoll-judicial", "caseworker-deedpoll-delivery-manager", "caseworker-deedpoll-admin"],
-      expected: { staff: true, judicial: true, capabilities: [...CASEWORK, "ACCESS_GAZETTE"] }
+      expected: { staff: true, judicial: true, capabilities: [...CASEWORK, "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG"] }
     },
     { persona: "no deed-poll role", roles: ["citizen"], expected: NO_ACCESS },
     { persona: "malformed roles", roles: "caseworker-deedpoll-delivery-manager", expected: NO_ACCESS }
