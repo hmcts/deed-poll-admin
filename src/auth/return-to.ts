@@ -10,8 +10,14 @@
  * parser treats `\` as `/` in a special scheme, so a browser resolves `/\evil.example` against this origin as
  * `https://evil.example` — and nothing downstream closes the hole: `res.redirect` puts the value through
  * `encodeurl`, which leaves `\` alone (0x5C sits inside its allowed `\x3F-\x5F` range). Checking only the second
- * character is enough, because that is the only position the parser reads as the start of an authority; a tab or
- * newline smuggled in to reach it is percent-encoded by `encodeurl` and so never reaches the parser as one.
+ * character is enough, because that is the only position the parser reads as the start of an authority.
+ *
+ * **A control character or a space is refused anywhere in the value**, because a browser strips tab, CR and LF
+ * from a URL before parsing it, so `/<tab>/evil.example` would reach the parser as `//evil.example`. Today
+ * `encodeurl` percent-encodes them first, but that is a property of one redirect implementation, and the check
+ * should not depend on every sink keeping it. No genuine path is refused: a request target cannot carry a raw
+ * space or control character (clients percent-encode them and Node answers 400), and every caller's value is a
+ * request target or was built from one.
  *
  * Every caller is a sink, and the callback is the worst: `login.ts` redirects an already-signed-in user
  * immediately, and `oauth2/callback.ts` sends them to `flow.returnTo` **after** a genuine IDAM sign-in, which is
@@ -24,8 +30,17 @@
  * the caseworker's list whenever they reached `/login` without a `returnTo`.
  */
 export function safeReturnTo(raw: unknown): string {
-  if (typeof raw !== "string" || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
+  if (typeof raw !== "string" || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\") || hasControlOrSpace(raw)) {
     return "/";
   }
   return raw;
+}
+
+/** C0 controls, space and DEL: what a browser strips from a URL, or a URL cannot carry raw. */
+function hasControlOrSpace(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x20 || code === 0x7f) return true;
+  }
+  return false;
 }

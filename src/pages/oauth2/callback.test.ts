@@ -77,7 +77,8 @@ describe("the IDAM callback", () => {
   it.each([
     ["an absolute URL", "https://evil.example"],
     ["a protocol-relative URL", "//evil.example"],
-    ["a backslash-relative URL", "/\\evil.example"]
+    ["a backslash-relative URL", "/\\evil.example"],
+    ["a tab-smuggled protocol-relative URL", "/\t/evil.example"]
   ])("should send the user to the root rather than to %s held in the flow", async (_label, returnTo) => {
     const res = pageResponse();
 
