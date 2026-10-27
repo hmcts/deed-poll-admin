@@ -1485,7 +1485,7 @@ describe("the judicial surface", () => {
     expect(result.data).toMatchObject({ page: 2, size: 1, total: 2, totalPages: 2 });
   });
 
-  it("should answer one referral with the narrow application view and the application's timeline", async () => {
+  it("should answer one referral with the narrow application view and no case notes", async () => {
     const id = await caseId({ newForename: "Jo", newSurname: "Bloggs" });
     await createNote(id, "Signature received", config);
     const referralId = await referralOn(id);
@@ -1495,10 +1495,8 @@ describe("the judicial surface", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.application).toMatchObject({ newForename: "Jo", newSurname: "Bloggs" });
-    // Newest first, and the raise's own note leads it: a referral writes onto the same timeline, which reaches a
-    // judge unfiltered. The wording is api's `ReferralNotes` and is pinned in `mock/server.test.ts`.
-    expect(result.data.caseNotes.map((note) => note.note)).toEqual([expect.stringContaining("Referred to the judiciary"), "Signature received"]);
-    expect(result.data.caseNotes[0]?.createdOn).toBeInstanceOf(Date);
+    // The case has two notes (the one above and the raise's own), and a Master is sent neither (2026-10-27).
+    expect(result.data).not.toHaveProperty("caseNotes");
   });
 
   it("should report not-found for a referral another judge holds, so no referral is discoverable", async () => {
@@ -1731,7 +1729,7 @@ describe("the judicial surface", () => {
     expect(!refusedClosed.ok && refusedClosed.error.kind).toBe("not-found");
   });
 
-  it("should list the application's witnesses and documents, and stream a document with api's headers", async () => {
+  it("should list the application's documents, and stream a document with api's headers", async () => {
     const id = await caseId();
     const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x00, 0xff]);
     const uploaded = await uploadDocument(id, { documentTypeId: DOCUMENT_TYPE_ID, name: "birth.pdf", mimeType: "application/pdf", bytes }, config);
@@ -1745,7 +1743,7 @@ describe("the judicial surface", () => {
       [uploaded.data.id, "Birth certificate", bytes.length]
     ]);
     expect(detail.ok && detail.data.application?.documents[0]?.uploadedOn).toBeInstanceOf(Date);
-    expect(detail.ok && detail.data.application?.witnesses).toEqual([]);
+    expect(detail.ok && detail.data.application).not.toHaveProperty("witnesses");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.contentType).toBe("application/pdf");

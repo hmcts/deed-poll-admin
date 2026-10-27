@@ -156,8 +156,9 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   await expect(page).toHaveURL(`${POOL_PATH}/${mine.referralId}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to the judiciary");
 
-  // The application — `JudicialApplicationView`, grouped and labelled as the caseworker detail page is.
-  await expect(summaryRow(page, "Display reference")).toContainText(mine.reference);
+  // The application — `JudicialApplicationView`, the one General section a Master asked for. The reference is the
+  // caption above the heading rather than a row in it.
+  await expect(page.locator(".govuk-caption-l")).toContainText(mine.reference);
   await expect(summaryRow(page, "Type")).toContainText("Adult");
   await expect(summaryRow(page, "Old surname")).toContainText("Kowalski");
   await expect(summaryRow(page, "New surname")).toContainText("Nakamura");
@@ -168,26 +169,18 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   // disclosure bug rather than a display one.
   await expect(page.locator("body")).not.toContainText(mine.feeReference);
 
-  // The referral's own fields, and the application's timeline read-only beside them.
+  // The referral's own fields after the application.
   await expect(referralRow(page, "Status")).toContainText("Open");
   await expect(summaryRow(page, "Reasons for referral")).toContainText("Non-publication request");
   await expect(summaryRow(page, "Notes from the court")).toContainText("Please consider the applicant's circumstances.");
   await expect(summaryRow(page, "Reason for urgency")).toContainText("Hearing listed on Friday.");
-  await expect(page.getByRole("heading", { name: "Case notes" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Supporting documents" })).toBeVisible();
 
-  // **Two entries, newest first, and only one of them was typed by anybody.** api writes a case note at each
-  // successful referral transition (`referrals-admin-5`), so the raise the office made is on the timeline above
-  // the note they wrote by hand — and both are attributed to the caseworker, which is why each entry is addressed
-  // by position rather than by its author: the same name now captions more than one.
-  const notes = caseNotes(page);
-  await expect(notes).toHaveCount(2);
-  await expect(notes.nth(0)).toContainText("Referred to the judiciary. Reasons: NonPublication.");
-  // The caseworker's own two sentences on their own lines, which is api's composer rather than this page's doing —
-  // and the reason a judge reading the timeline learns why the office called it urgent.
-  await expect(notes.nth(0)).toContainText("Marked urgent: Hearing listed on Friday.");
-  await expect(notes.nth(0)).toContainText(CASEWORKER_EMAIL);
-  await expect(notes.nth(1)).toContainText("Applicant asked for the hearing to be listed early.");
-  await expect(notes.nth(1)).toContainText(CASEWORKER_EMAIL);
+  // **No case notes, since the Master asked for them to go.** The case carries a note typed by the office, seeded so
+  // this has something real to fail against: neither it, its heading nor the caseworker who wrote it reaches the page.
+  await expect(page.getByRole("heading", { name: "Case notes" })).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("Applicant asked for the hearing to be listed early.");
+  await expect(page.locator("body")).not.toContainText(CASEWORKER_EMAIL);
   // A judge's writes are exactly claim and direct, so there is no note control — and no link to the case,
   // because api's judicial surface takes no case id and there is nowhere to link to.
   await expect(page.getByRole("button", { name: "Add a note" })).toHaveCount(0);
@@ -674,7 +667,7 @@ async function seedReferral(request: APIRequestContext, options: { reason: strin
   const caseId = (await created.json()).id;
 
   if (options.note) {
-    // Attributed to the caseworker, because the timeline is the office's record and the judge reads the author.
+    // A note the office typed, so the judicial screen's absence check has something real to fail against.
     const noted = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/notes`, {
       headers: bearer(CASEWORKER_EMAIL),
       data: { note: options.note }
@@ -857,20 +850,6 @@ function exactText(text: string): RegExp {
   return new RegExp(`^\\s*${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`);
 }
 
-/**
- * The read-only timeline's entries — a `<ul>` of prose with an attribution rather than a grid, so there are no
- * rows to address.
- *
- * Filtered by the caption each entry carries, because `ul.govuk-list` also matches the reasons list inside the
- * summary above it and the page gives neither list a name or an id to reach for.
- */
-function caseNotes(page: Page): Locator {
-  return page
-    .locator("ul.govuk-list")
-    .filter({ has: page.locator("p.govuk-caption-m") })
-    .locator("li");
-}
-
 function claimButton(page: Page): Locator {
   return page.getByRole("button", { name: "Claim this referral" });
 }
@@ -961,7 +940,7 @@ function formatTimestamp(raw: string): string {
  * and the "own session" would be the shared one — the exact bug that reasoning was earned by.
  *
  * **Both pages in the one signed-in context**, as `deed-polls.spec.ts` pairs the referral and its confirmation:
- * one login covers the pool and a referral still waiting in it, and the referral's own `cy` keys — the timeline's
+ * one login covers the pool and a referral still waiting in it, and the referral's own `cy` keys — the documents
  * heading among them — are otherwise checked by nothing.
  */
 async function expectWelshKeysResolve(browser: Browser, openReferralId: string): Promise<void> {
@@ -983,10 +962,8 @@ async function expectWelshKeysResolve(browser: Browser, openReferralId: string):
     await page.goto(`${POOL_PATH}/${openReferralId}?lng=cy`);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to the judiciary");
     await expect(summaryRow(page, "Reasons for referral")).toBeVisible();
-    // The timeline's heading, above entries whose prose is api's and needs no translation: the heading is the key
-    // that would empty the section without failing anything.
-    await expect(page.getByRole("heading", { name: "Case notes" })).toBeVisible();
-    await expect(caseNotes(page).nth(0)).toContainText("Referred to the judiciary.");
+    // The documents heading: the key that would empty the section without failing anything.
+    await expect(page.getByRole("heading", { name: "Supporting documents" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Claim this referral" })).toBeVisible();
   } finally {
     await context.close();
