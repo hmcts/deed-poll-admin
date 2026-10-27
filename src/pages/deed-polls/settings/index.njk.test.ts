@@ -94,6 +94,15 @@ describe("service settings page", () => {
     expect(process).toContain("A longer window does not return claims that have already gone back to the pool");
   });
 
+  it("should take the warning icon's hidden text from the page content, so Welsh can translate it", async () => {
+    const { model } = await render(GET);
+
+    const markup = environment.render("deed-polls/settings/index.njk", { ...(model.en as object), ...model, warningIcon: "ICON-MARKER" });
+
+    expect((model.en as Record<string, unknown>).warningIcon).toBe("Warning");
+    expect(form(markup, "/deed-polls/settings")).toContain("ICON-MARKER");
+  });
+
   it("should say the claim window has never been changed, with no last-changed line, when api reports no attribution", async () => {
     vi.mocked(findProcessSettings).mockResolvedValue({ referralClaimExpiryMinutes: 120, revision: 0, updatedBy: null, updatedAt: null });
 

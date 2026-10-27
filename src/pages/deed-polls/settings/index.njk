@@ -53,7 +53,7 @@
           {% if process.isNeverChanged %}<p class="govuk-body">{{ processNeverChanged }}</p>{% endif %}
           {{ lastChangedLine(process) }}
           {% if not process.reloadText %}
-            {{ govukWarningText({ text: processWarning, iconFallbackText: "Warning" }) }}
+            {{ govukWarningText({ text: processWarning, iconFallbackText: warningIcon }) }}
             {{ govukButton({ text: processSave }) }}
           {% endif %}
         </form>

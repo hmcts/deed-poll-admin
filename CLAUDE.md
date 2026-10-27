@@ -716,7 +716,9 @@ Facts that span several files:
 - **Two forms, two Saves, two revisions.** The process section posts to `/deed-polls/settings` and the Gazette section
   to `/deed-polls/settings/gazette-recipient`, each with only its own revision, so a conflict in one never touches the
   other's stored value. A browser submits only the form whose button was pressed, so unsaved edits in the other
-  section are lost, and the intro says "Save each section before you change another". The handler code is in
+  section are lost, and the intro says "Save each section before you change another". A refused Gazette save renders
+  at `/deed-polls/settings/gazette-recipient`, so that address also answers a `GET` with a 302 back to the page's
+  `#gazette-recipient`; without it the language link and a reload were a 404. The handler code is in
   `src/service-settings/` (every `.ts` under `src/pages` is a route). The submitted section is redrawn from the body
   with its **original** revision on a 400 or 409, never re-read; the other section is re-read and, if that read fails,
   degrades to a sentence with no form. A success is a 303 to `?saved=<section>#<section>`, and the banner shows even if

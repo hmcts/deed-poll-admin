@@ -19,6 +19,7 @@ export const en = {
   minutesLabel: "Minutes",
   processWarning:
     "Changes take effect immediately for every case. A judge’s claim that has been untouched for longer than the new window returns to the shared pool the next time any judge opens the referral pool or their own referrals, or claims a referral. A longer window does not return claims that have already gone back to the pool.",
+  warningIcon: "Warning",
   processNeverChanged: "The claim window has not been changed since the service started.",
   processSave: "Save claim window",
   processSaved: "Claim window saved.",
