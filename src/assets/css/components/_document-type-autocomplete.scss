@@ -1,0 +1,17 @@
+/*
+ * The upload form's document-type type-ahead (`src/assets/js/document-type-autocomplete.ts`).
+ *
+ * The widget's own stylesheet first. Then the error state: the widget's input does not carry the select's
+ * `govuk-select--error`, so a refused type would otherwise be the one field in an error group drawn without the red
+ * border. Inert elsewhere, since `autocomplete__input` exists only where the widget mounted.
+ */
+@use "govuk-frontend/dist/govuk/base" as *;
+@use "accessible-autocomplete/dist/accessible-autocomplete.min";
+
+.govuk-form-group--error .autocomplete__input {
+  border-color: $govuk-error-colour;
+
+  &:focus {
+    border-color: $govuk-input-border-colour;
+  }
+}
