@@ -331,6 +331,9 @@ const gates = vi.hoisted(() => ({
   gazette: function requireGazetteDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
+  settings: function requireSettingsDouble(_req: unknown, _res: unknown, next: () => void) {
+    next();
+  },
   judicial: function requireJudicialDouble(_req: unknown, _res: unknown, next: () => void) {
     next();
   },
@@ -356,7 +359,10 @@ const gates = vi.hoisted(() => ({
 }));
 
 vi.mock("./auth/require-auth.js", () => ({ requireAuth: () => gates.auth, isPublicPath: () => false }));
-vi.mock("./auth/require-role.js", () => ({ requireCapability: vi.fn(() => gates.gazette), requireJudicial: () => gates.judicial }));
+vi.mock("./auth/require-role.js", () => ({
+  requireCapability: vi.fn((capability: string) => (capability === "MANAGE_PROCESS_CONFIG" ? gates.settings : gates.gazette)),
+  requireJudicial: () => gates.judicial
+}));
 vi.mock("./auth/persona-switcher.js", () => ({ personaSwitcherLocals: () => gates.persona }));
 vi.mock("./auth/same-origin.js", () => ({ requireSameOrigin: () => gates.sameOrigin }));
 vi.mock("./auth/no-store.js", () => ({ noStore: () => gates.noStore }));
@@ -632,6 +638,37 @@ describe("createApp's Gazette gate", () => {
   });
 });
 
+describe("createApp's settings gate", () => {
+  it("should require MANAGE_PROCESS_CONFIG after authentication and before routing for every settings page", async () => {
+    const { requireCapability } = await import("./auth/require-role.js");
+    const { MANAGE_PROCESS_CONFIG } = await import("@hmcts/deed-poll");
+    mocks.redisClient.isReady = true;
+    const app = await createApp();
+    const stack = (app as unknown as { router: { stack: MountedLayer[] } }).router.stack;
+    const index = stack.findIndex((entry) => entry.handle === gates.settings);
+    const paths = judicialPagePaths("deed-polls/settings");
+
+    expect(requireCapability).toHaveBeenCalledWith(MANAGE_PROCESS_CONFIG);
+    expect(stack.filter((entry) => entry.handle === gates.settings)).toHaveLength(1);
+    expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.auth));
+    expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.persona));
+    expect(index).toBeLessThan(stack.findIndex((entry) => entry.handle === gates.router));
+    expect(paths).toEqual(expect.arrayContaining(["/deed-polls/settings", "/deed-polls/settings/gazette-recipient"]));
+    for (const url of [...paths, "/deed-polls/settings/future-page"]) {
+      expect(
+        stack[index].matchers.some((matches) => matches(url) !== false),
+        url
+      ).toBe(true);
+    }
+    for (const url of ["/deed-polls", "/deed-polls/abc", "/deed-polls/settings-other", "/deed-polls/gazette", "/login"]) {
+      expect(
+        stack[index].matchers.every((matches) => matches(url) === false),
+        url
+      ).toBe(true);
+    }
+  });
+});
+
 describe("createApp's no-store layer", () => {
   let stack: MountedLayer[];
 
@@ -737,6 +774,7 @@ describe("createApp's abuse limits", () => {
 
     expect(stack[upload]?.route?.stack).toHaveLength(2);
     expect(upload).toBeGreaterThan(stack.findIndex((layer) => layer.handle === gates.gazette));
+    expect(upload).toBeGreaterThan(stack.findIndex((layer) => layer.handle === gates.settings));
     expect(upload).toBeLessThan(stack.findIndex((layer) => layer.handle === gates.router));
   });
 });

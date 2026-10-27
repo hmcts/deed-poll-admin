@@ -1,5 +1,6 @@
 import { validateGazetteRecipientEmail } from "@hmcts/deed-poll-api-client";
 import { z } from "zod";
+import { settingsRevision } from "../schema-primitives.js";
 
 export function gazetteSettingsFormSchema(messages: { required: string; invalid: string; reload: string }) {
   return z.object({
@@ -10,10 +11,6 @@ export function gazetteSettingsFormSchema(messages: { required: string; invalid:
       .max(254, messages.invalid)
       .superRefine((email, context) => validateGazetteRecipientEmail(email, context, messages.invalid))
       .refine((email) => email.indexOf("@") <= 64, messages.invalid),
-    revision: z
-      .string({ error: messages.reload })
-      .regex(/^(0|[1-9]\d*)$/, messages.reload)
-      .transform(Number)
-      .refine((value) => Number.isSafeInteger(value) && value <= 2147483647, messages.reload)
+    revision: settingsRevision(messages.reload)
   });
 }

@@ -37,3 +37,15 @@ export const optionalTextMax = (max: number) => z.string().max(max).nullish();
 
 /** A multiselect option-set stored as int[]. Not nullable — the column defaults to []. */
 export const optionSetValues = z.array(z.int()).optional();
+
+/**
+ * A settings record's revision as the form carries it: canonical digits within api's int32. Any refusal means the
+ * page must be reloaded, so every issue carries the one reload message.
+ */
+export function settingsRevision(message: string) {
+  return z
+    .string({ error: message })
+    .regex(/^(0|[1-9]\d*)$/, message)
+    .transform(Number)
+    .refine((value) => value <= 2147483647, message);
+}

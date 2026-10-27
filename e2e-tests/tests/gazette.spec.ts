@@ -5,6 +5,7 @@ import { signInAsAdmin, signInAsCaseworker, signInAsDeliveryManager, signInAsJud
 const MOCK = "http://localhost:3216";
 const READY = "/deed-polls/gazette";
 const HISTORY = `${READY}/history`;
+const SETTINGS = "/deed-polls/settings";
 
 test("Delivery Manager follows the empty and populated Gazette worklist, application details and paginated history", async ({ page, request }) => {
   test.slow();
@@ -73,14 +74,24 @@ for (const [role, signIn] of [
   ["ordinary caseworker", signInAsCaseworker],
   ["judge", signInAsJudge]
 ] as const) {
-  test(`${role} sees no Gazette count or link and is refused all Gazette pages`, async ({ page }) => {
+  test(`${role} sees no Gazette count or settings links and is refused all Gazette and settings pages`, async ({ page }) => {
     await signIn(page);
     await page.goto("/deed-polls?filter=readyForPublication");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Deed poll cases");
     await expect(page.getByText("All applications", { exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.getByRole("link", { name: "View London Gazette applications" })).toHaveCount(0);
     await expect(page.getByText(/Applications ready for the London Gazette:/)).toHaveCount(0);
-    for (const path of [READY, HISTORY, `${READY}/settings`, `${READY}/batch`, `${READY}/requests`, `${READY}/requests/00000000-0000-4000-8000-000000000001`]) {
+    await expect(page.getByRole("link", { name: "Service settings" })).toHaveCount(0);
+    for (const path of [
+      SETTINGS,
+      `${SETTINGS}/gazette-recipient`,
+      READY,
+      HISTORY,
+      `${READY}/settings`,
+      `${READY}/batch`,
+      `${READY}/requests`,
+      `${READY}/requests/00000000-0000-4000-8000-000000000001`
+    ]) {
       const response = await page.goto(path);
       expect(response?.status()).toBe(403);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Page not found");
@@ -94,6 +105,7 @@ test("Delivery Manager sets and changes the Gazette recipient, with validation a
   await signInAsDeliveryManager(page);
   await page.goto(READY);
   await page.getByRole("link", { name: "London Gazette recipient", exact: true }).click();
+  await expect(page).toHaveURL(`${SETTINGS}#gazette-recipient`);
   await expect(page.getByText("The recipient email address has not been set.")).toBeVisible();
   await page.getByRole("button", { name: "Save recipient", exact: true }).click();
   await expect(page.getByRole("link", { name: "Enter the London Gazette recipient email address", exact: true })).toBeVisible();
@@ -104,7 +116,9 @@ test("Delivery Manager sets and changes the Gazette recipient, with validation a
   await expect(page.getByLabel("Recipient email address", { exact: true })).toHaveValue("gazette@example.com");
   await accessible(page);
   const stale = await context.newPage();
+  // The old address, kept as a redirect for anything that still links to it.
   await stale.goto(`${READY}/settings`);
+  await expect(stale).toHaveURL(`${SETTINGS}#gazette-recipient`);
   await page.getByLabel("Recipient email address", { exact: true }).fill("new-gazette@example.com");
   await page.getByRole("button", { name: "Save recipient", exact: true }).click();
   await stale.getByLabel("Recipient email address", { exact: true }).fill("stale@example.com");
@@ -113,8 +127,8 @@ test("Delivery Manager sets and changes the Gazette recipient, with validation a
   await expect(stale.getByRole("button", { name: "Save recipient", exact: true })).toHaveCount(0);
   await accessible(stale);
   await stale.close();
-  await page.goto(`${READY}/settings?lng=cy`);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Derbynnydd y London Gazette");
+  await page.goto(`${SETTINGS}?lng=cy`);
+  await expect(page.getByRole("heading", { level: 2, name: "Derbynnydd y London Gazette" })).toBeVisible();
   await expect(page.getByLabel("Cyfeiriad e-bost y derbynnydd", { exact: true })).toHaveValue("new-gazette@example.com");
   await accessible(page);
 });
@@ -231,7 +245,7 @@ test("Delivery Manager completes mandatory reviews and confirms Gazette requests
 }) => {
   test.slow();
   await signInAsDeliveryManager(page);
-  await page.goto(`${READY}/settings`);
+  await page.goto(SETTINGS);
   await page.getByLabel("Recipient email address", { exact: true }).fill("reviewed-gazette@example.com");
   await page.getByRole("button", { name: "Save recipient", exact: true }).click();
   const explanations = {

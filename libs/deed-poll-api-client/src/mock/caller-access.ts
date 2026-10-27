@@ -1,7 +1,7 @@
 /**
  * What each deed-poll role admits and grants, restated from api's `StaffArea` and `RoleCapabilities`.
  *
- * One table so that `GET /me` and the mock's Gazette gate cannot disagree, exactly as api computes both from
+ * One table so that `GET /me` and the mock's Gazette and process-settings gates cannot disagree, exactly as api computes both from
  * the same rule. `caller-access.test.ts` pins its capability names against `CallerAccessResponse`'s enum, so a
  * capability api adds fails there until this table knows about it.
  */
@@ -12,7 +12,7 @@ const TEAM_LEADER: readonly Capability[] = ["OVERRIDE_PRIVACY", "DELETE_NOTE", "
 export const ROLE_ACCESS: Readonly<Record<string, RoleAccess>> = {
   "caseworker-deedpoll": { area: "staff", capabilities: [] },
   "caseworker-deedpoll-team-leader": { area: "staff", capabilities: TEAM_LEADER },
-  "caseworker-deedpoll-delivery-manager": { area: "staff", capabilities: [...TEAM_LEADER, "ACCESS_GAZETTE"] },
+  "caseworker-deedpoll-delivery-manager": { area: "staff", capabilities: [...TEAM_LEADER, "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG"] },
   // Migration-only at api: Team leader's grants, never the Gazette.
   "caseworker-deedpoll-admin": { area: "staff", capabilities: TEAM_LEADER },
   "caseworker-deedpoll-judicial": { area: "judicial", capabilities: [] }

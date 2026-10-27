@@ -1,7 +1,9 @@
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: `${IMAGE_NAME}`, `${SERVICE_FQDN}` and
 // `values.${environment}.template.yaml` are what `envsubst` and `helmInstall` read out of the chart, so the
 // literal `${…}` in a plain string is the value under test rather than a template literal written by mistake.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { load as yamlLoad } from "js-yaml";
@@ -19,6 +21,9 @@ const CHART_DIR = path.join(APP_DIR, "../charts/deed-poll-admin");
 const VAULT = "deed-poll";
 const TEMPLATES = ["values.aat.template.yaml", "values.preview.template.yaml"];
 const PERSONA_SWITCHER_FLAG = "PERSONA_SWITCHER_ENABLED";
+const HAS_HELM = spawnSync("helm", ["version"]).status === 0;
+const PROD_XUI_STAFF_ADMIN = "https://manage-case.platform.hmcts.net/staff";
+const AAT_XUI_STAFF_ADMIN = "https://manage-case.aat.platform.hmcts.net/staff";
 
 describe("charts/deed-poll-admin", () => {
   it("should live at the path helmInstall requires, since it throws before it does anything else", () => {
@@ -355,10 +360,48 @@ describe("charts/deed-poll-admin", () => {
   });
 
   // Flux reconciles on the chart version, so a values.yaml change without a bump never deploys.
-  it("should carry the chart version that ships RATE_LIMIT_MODE", () => {
+  it("should carry the chart version that ships XUI_STAFF_ADMIN_URL", () => {
     const chart = yamlLoad(readFileSync(path.join(CHART_DIR, "Chart.yaml"), "utf8")) as { version: string };
 
-    expect(chart.version).toBe("0.0.4");
+    expect(chart.version).toBe("0.0.5");
+  });
+
+  it("should map XUI_STAFF_ADMIN_URL to the staff link, defaulting locally to AAT's XUI and never production's", () => {
+    const defaults = (JSON.parse(readFileSync(path.join(APP_DIR, "../config/default.json"), "utf8")) as { externalLinks: { xuiStaffAdmin: string } })
+      .externalLinks;
+
+    expect(readMapping().externalLinks?.xuiStaffAdmin).toBe("XUI_STAFF_ADMIN_URL");
+    expect(defaults.xuiStaffAdmin).toBe(AAT_XUI_STAFF_ADMIN);
+  });
+
+  it("should pin preview to AAT's XUI, as it pins AAT's api", () => {
+    expect(readValues("values.preview.template.yaml").nodejs.environment?.XUI_STAFF_ADMIN_URL).toBe(AAT_XUI_STAFF_ADMIN);
+  });
+
+  // `tpl` is what the nodejs base chart applies to each environment value, so a scratch chart applying it to the
+  // real values files renders exactly what a pod gets, without pulling the base chart.
+  describe.skipIf(!HAS_HELM)("the XUI staff administration address, rendered by helm", () => {
+    it.each([
+      ["aat", "https://manage-case.aat.platform.hmcts.net/staff"],
+      ["demo", "https://manage-case.demo.platform.hmcts.net/staff"],
+      ["ithc", "https://manage-case.ithc.platform.hmcts.net/staff"],
+      ["perftest", "https://manage-case.perftest.platform.hmcts.net/staff"],
+      ["prod", PROD_XUI_STAFF_ADMIN]
+    ])("should give %s %s", (environment, expected) => {
+      expect(renderEnvironment(environment).XUI_STAFF_ADMIN_URL).toBe(expected);
+    });
+
+    it.each(["aat", "preview"])("should give preview AAT's address whatever global.environment is (%s)", (environment) => {
+      expect(renderEnvironment(environment, "values.preview.template.yaml").XUI_STAFF_ADMIN_URL).toBe(AAT_XUI_STAFF_ADMIN);
+    });
+
+    it("should name production XUI from no non-production render", () => {
+      const renders = ["aat", "demo", "ithc", "perftest"]
+        .map((environment) => renderEnvironment(environment))
+        .concat(["aat", "preview"].map((environment) => renderEnvironment(environment, "values.preview.template.yaml")));
+
+      for (const rendered of renders) expect(rendered.XUI_STAFF_ADMIN_URL).not.toContain("manage-case.platform.hmcts.net");
+    });
   });
 
   it("should give the preview redis a probe budget that survives Dynatrace instrumentation", () => {
@@ -371,6 +414,25 @@ describe("charts/deed-poll-admin", () => {
     expect(master?.livenessProbe?.timeoutSeconds).toBeGreaterThanOrEqual(10);
   });
 });
+
+/** The pod environment helm renders for `global.environment`, with the template layered on `values.yaml` as helmInstall does. */
+function renderEnvironment(environment: string, template?: string): Record<string, string> {
+  const chart = mkdtempSync(path.join(tmpdir(), "chart-render-"));
+  try {
+    mkdirSync(path.join(chart, "templates"));
+    writeFileSync(path.join(chart, "Chart.yaml"), "apiVersion: v2\nname: render\nversion: 0.0.1\n");
+    writeFileSync(
+      path.join(chart, "templates/environment.yaml"),
+      "{{- range $key, $value := .Values.nodejs.environment }}\n{{ $key }}: {{ tpl (toString $value) $ | quote }}\n{{- end }}\n"
+    );
+    const files = ["values.yaml", ...(template ? [template] : [])].flatMap((file) => ["-f", path.join(CHART_DIR, file)]);
+    const run = spawnSync("helm", ["template", "render", chart, ...files, "--set", `global.environment=${environment}`], { encoding: "utf8" });
+    expect(run.status, run.stderr).toBe(0);
+    return yamlLoad(run.stdout) as Record<string, string>;
+  } finally {
+    rmSync(chart, { recursive: true, force: true });
+  }
+}
 
 function readValues(file: string): Values {
   return yamlLoad(readFileSync(path.join(CHART_DIR, file), "utf8")) as Values;
@@ -425,4 +487,5 @@ interface EnvironmentMapping {
   redis?: { plaintextPermitted?: unknown };
   session?: { idleTimeoutSeconds?: unknown; absoluteTimeoutSeconds?: unknown; timeoutLogoutPathRegistered?: unknown };
   rateLimit?: { mode?: unknown; buckets?: Record<string, unknown>; uploadInFlight?: unknown };
+  externalLinks?: { xuiStaffAdmin?: unknown };
 }

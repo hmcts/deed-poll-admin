@@ -160,6 +160,7 @@ import {
   type MockScenario
 } from "./fixtures.js";
 import { createGazetteRequests } from "./gazette-requests.js";
+import { createProcessSettings } from "./process-settings.js";
 
 /** Fixture-only batch input: full frozen membership, never a production send operation. */
 const SEEDABLE_GAZETTE_BATCH = z
@@ -304,6 +305,10 @@ function hasGazetteAccess(claims: { roles?: unknown }): boolean {
   return callerAccess(claims).capabilities.includes("ACCESS_GAZETTE");
 }
 
+function hasProcessConfigAccess(claims: { roles?: unknown }): boolean {
+  return callerAccess(claims).capabilities.includes("MANAGE_PROCESS_CONFIG");
+}
+
 /**
  * Build the mock. Nothing is listening until `listen` is called — `startMockApi` does that.
  *
@@ -319,6 +324,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     updatedBy: null
   };
   const gazetteRequests = createGazetteRequests();
+  const processSettings = createProcessSettings();
   const gazetteBatches = new Map<string, z.infer<typeof SEEDABLE_GAZETTE_BATCH>>();
   const savedQueries = new Map<string, MockSavedQuery>();
   /**
@@ -471,6 +477,16 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
         };
       }
       return send(res, 200, gazetteSettings);
+    }
+
+    if (pathname === "/caseworker/process-settings") {
+      const claims = await callerClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      if (!hasProcessConfigAccess(claims)) return send(res, 403, { error: "Delivery Manager role required" });
+      if (method === "GET") return send(res, 200, processSettings.read());
+      if (method !== "PUT") return send(res, 405, { error: "Method not allowed" });
+      const result = processSettings.update(await readJsonBody(req), typeof claims.name === "string" ? claims.name : "Delivery Manager");
+      return send(res, result.status, result.body);
     }
 
     if (
@@ -1664,6 +1680,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     cases.clear();
     gazetteBatches.clear();
     gazetteRequests.reset();
+    processSettings.reset();
     gazetteSettings = { recipientEmail: null, revision: 0, updatedAt: null, updatedBy: null };
     serials.clear();
     savedQueries.clear();
