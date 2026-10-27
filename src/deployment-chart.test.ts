@@ -423,7 +423,9 @@ function renderEnvironment(environment: string, template?: string): Record<strin
     writeFileSync(path.join(chart, "Chart.yaml"), "apiVersion: v2\nname: render\nversion: 0.0.1\n");
     writeFileSync(
       path.join(chart, "templates/environment.yaml"),
-      "{{- range $key, $value := .Values.nodejs.environment }}\n{{ $key }}: {{ tpl (toString $value) $ | quote }}\n{{- end }}\n"
+      // The chart library's own order (`_container.tpl`: `tpl ($val | quote) $`): quote, THEN render. Rendering first,
+      // as this once did, passed a value whose double-quoted literal the real chart cannot parse (admin master #222).
+      "{{- range $key, $value := .Values.nodejs.environment }}\n{{ $key }}: {{ tpl ($value | quote) $ }}\n{{- end }}\n"
     );
     const files = ["values.yaml", ...(template ? [template] : [])].flatMap((file) => ["-f", path.join(CHART_DIR, file)]);
     const run = spawnSync("helm", ["template", "render", chart, ...files, "--set", `global.environment=${environment}`], { encoding: "utf8" });
