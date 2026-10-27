@@ -37,8 +37,33 @@ export const REFERRAL_REASON_LABEL: Record<ReferralReason, string> = {
   NonPublication: "Non-publication request",
   DeclarantRequirementsNotMet: "Declarant requirements not met",
   SeparatedOrEstranged: "Separated or estranged",
-  Other: "Other"
+  Other: "Other",
+  // A minor's details, in the Masters' own words (Master Sullivan's feedback, Steve, 2026-10-27).
+  MinorTransgender: "Transgender",
+  MinorParentalConsent: "Have parental consent",
+  MinorNoParentalConsent: "Do not have parental consent",
+  MinorStepparentConsent: "Stepparent parental consent",
+  MinorNoStepparentConsent: "Do not have stepparent consent",
+  MinorCourtOrder: "Court Order",
+  MinorAged16Or17Consented: "16/17 year old applicant has consented",
+  MinorAged16Or17NotConsented: "16/17 year old applicant has not consented"
 };
+
+/**
+ * The reasons that refine `Minor` rather than stand beside it: offered beneath "Applicant is a minor" and read as
+ * part of it. api marks them `isMinorDetail()` but publishes no such flag, so the list is stated here, in api's order,
+ * and `referrals-view.test.ts` fails if a `Minor*` member reaches the client without being in it.
+ */
+export const MINOR_DETAIL_REASONS: readonly ReferralReason[] = [
+  "MinorTransgender",
+  "MinorParentalConsent",
+  "MinorNoParentalConsent",
+  "MinorStepparentConsent",
+  "MinorNoStepparentConsent",
+  "MinorCourtOrder",
+  "MinorAged16Or17Consented",
+  "MinorAged16Or17NotConsented"
+];
 
 /** A referral's own urgency. See the docblock for why `Normal` reads "Standard" here and "Normal" on a case. */
 export const REFERRAL_URGENCY_LABEL: Record<Urgency, string> = {
@@ -122,8 +147,16 @@ export const CONFIRMATION_OUTCOME_CHOICES: { value: ConfirmationOutcome; text: s
   text: CONFIRMATION_OUTCOME_LABEL[outcome]
 }));
 
-/** The reason checkboxes, in api's published order. Built from the member array, never typed out. */
-export const REFERRAL_REASON_CHOICES: { value: ReferralReason; text: string }[] = REFERRAL_REASON.map((reason) => ({
+/** The reason checkboxes, in api's published order, without the minor's details, which `Minor` reveals. */
+export const REFERRAL_REASON_CHOICES: { value: ReferralReason; text: string }[] = REFERRAL_REASON.filter(
+  (reason) => !MINOR_DETAIL_REASONS.includes(reason)
+).map((reason) => ({
+  value: reason,
+  text: REFERRAL_REASON_LABEL[reason]
+}));
+
+/** The minor's details, the checkboxes revealed beneath "Applicant is a minor". */
+export const MINOR_DETAIL_CHOICES: { value: ReferralReason; text: string }[] = MINOR_DETAIL_REASONS.map((reason) => ({
   value: reason,
   text: REFERRAL_REASON_LABEL[reason]
 }));
@@ -169,7 +202,7 @@ export function buildReferralDetail(referral: Referral): ReferralView {
     // read, and the page leaves the line out instead of explaining an unknown.
     stateMeaning: state ? REFERRAL_STATE_MEANING[state] : null,
     stateTagClasses: state ? REFERRAL_STATE_TAG[state] : "govuk-tag--grey",
-    reasons: referral.reasons.map(referralReasonLabel),
+    reasons: referralReasonLabels(referral.reasons),
     migrated: referral.migrated,
     notes: orPlaceholder(referral.notes, NOT_PROVIDED),
     urgency: referral.urgency ? REFERRAL_URGENCY_LABEL[referral.urgency] : NOT_PROVIDED,
@@ -259,6 +292,24 @@ export function unavailableReferralsView(): ReferralsView {
  */
 export function referralReasonLabel(reason: string): string {
   return Object.hasOwn(REFERRAL_REASON_LABEL, reason) ? REFERRAL_REASON_LABEL[reason as ReferralReason] : reason;
+}
+
+/**
+ * A referral's reasons as a reader sees them: one entry each, with a minor's details folded into "Applicant is a
+ * minor" — "Applicant is a minor: Transgender, Have parental consent" — because a detail standing alone in a list
+ * ("Court Order") does not say whose. In the stored order otherwise, so the list reads as the caseworker ticked it.
+ * A detail stored without `Minor`, which api refuses but an older row could hold, keeps its own entry rather than
+ * being dropped. Both personas read this, for `referralReasonLabel`'s reason.
+ */
+export function referralReasonLabels(reasons: readonly string[]): string[] {
+  const details = reasons.filter((reason) => MINOR_DETAIL_REASONS.includes(reason as ReferralReason));
+  const folded = reasons.includes("Minor") && details.length > 0;
+
+  return reasons
+    .filter((reason) => !(folded && details.includes(reason)))
+    .map((reason) =>
+      folded && reason === "Minor" ? `${referralReasonLabel(reason)}: ${details.map(referralReasonLabel).join(", ")}` : referralReasonLabel(reason)
+    );
 }
 
 /**

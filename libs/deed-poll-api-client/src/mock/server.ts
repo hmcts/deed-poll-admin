@@ -2824,9 +2824,26 @@ function referralConditionalErrors(body: { reasons: readonly string[]; notes?: s
   if (body.urgency === "Urgent" && !body.urgencyReason?.trim()) {
     errors.push({ field: "urgencyReason", message: "urgencyReason is required when urgency is Urgent" });
   }
+  // api#155's two rules on a minor's details, in its words. It accepts `Minor` alone for one release, so this does too.
+  const details = body.reasons.filter((reason) => reason.startsWith("Minor") && reason !== "Minor");
+  if (details.length > 0 && !body.reasons.includes("Minor")) {
+    errors.push({ field: "reasons", message: `reasons names a minor's detail (${details.join(", ")}) without Minor` });
+  }
+  for (const [first, second] of MOCK_CONTRADICTORY_MINOR_DETAILS) {
+    if (details.includes(first) && details.includes(second)) {
+      errors.push({ field: "reasons", message: `reasons cannot name both ${first} and ${second}` });
+    }
+  }
 
   return errors;
 }
+
+/** api's `ReferralSchemas.CONTRADICTORY_MINOR_DETAILS`. */
+const MOCK_CONTRADICTORY_MINOR_DETAILS = [
+  ["MinorParentalConsent", "MinorNoParentalConsent"],
+  ["MinorStepparentConsent", "MinorNoStepparentConsent"],
+  ["MinorAged16Or17Consented", "MinorAged16Or17NotConsented"]
+] as const;
 
 /**
  * The one slot api pre-populates, from the referral's direction. api's `EmailSlot.JUDGES_REASON`.

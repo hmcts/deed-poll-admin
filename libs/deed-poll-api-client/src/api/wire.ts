@@ -69,7 +69,24 @@ export const REFERRAL_STATE = ["Open", "Claimed", "Decided", "Closed", "Withdraw
  *
  * `Other` is the one member api pairs with a rule — it requires `notes` — and the rule is api's to enforce.
  */
-export const REFERRAL_REASON = ["Minor", "DomesticAbuse", "NonPublication", "DeclarantRequirementsNotMet", "SeparatedOrEstranged", "Other"] as const;
+// The `Minor*` members after `Other` are a minor's details (api#155, Master Sullivan's feedback, 2026-10-27): api
+// accepts one only beside `Minor`, and `../../../deed-poll/src/referrals/referrals-view.ts` nests them under it.
+export const REFERRAL_REASON = [
+  "Minor",
+  "DomesticAbuse",
+  "NonPublication",
+  "DeclarantRequirementsNotMet",
+  "SeparatedOrEstranged",
+  "Other",
+  "MinorTransgender",
+  "MinorParentalConsent",
+  "MinorNoParentalConsent",
+  "MinorStepparentConsent",
+  "MinorNoStepparentConsent",
+  "MinorCourtOrder",
+  "MinorAged16Or17Consented",
+  "MinorAged16Or17NotConsented"
+] as const;
 
 /**
  * What an applicant answered when asked whether they still want their deed enrolled, as api's

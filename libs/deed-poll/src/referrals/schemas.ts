@@ -38,6 +38,7 @@
  */
 import { CONFIRMATION_OUTCOME, REFERRAL_REASON, URGENCY } from "@hmcts/deed-poll-api-client";
 import { z } from "zod";
+import { MINOR_DETAIL_REASONS, REFERRAL_REASON_LABEL } from "./referrals-view.js";
 
 /** api's `CreateReferralRequest.notes` maxLength. */
 export const MAX_REFERRAL_NOTES = 1000;
@@ -50,6 +51,16 @@ export const MAX_REFERRAL_URGENCY_REASON = 500;
 
 /** The reason that pairs with a rule: ticking it makes `notes` mandatory, at api's end and here. */
 const REASON_REQUIRING_NOTES = "Other";
+
+/** The reason a minor's details refine — see `MINOR_DETAIL_REASONS`. */
+const MINOR_REASON = "Minor";
+
+/** The minor's details that cannot both be true, as the Masters listed them in pairs, and as api refuses them. */
+const CONTRADICTORY_MINOR_DETAILS = [
+  ["MinorParentalConsent", "MinorNoParentalConsent"],
+  ["MinorStepparentConsent", "MinorNoStepparentConsent"],
+  ["MinorAged16Or17Consented", "MinorAged16Or17NotConsented"]
+] as const;
 
 /** The urgency that pairs with a rule: choosing it makes `urgencyReason` mandatory. */
 const URGENCY_REQUIRING_REASON = "Urgent";
@@ -98,7 +109,39 @@ export const createReferralSchema = z
     if (referral.urgency === URGENCY_REQUIRING_REASON && !referral.urgencyReason) {
       ctx.addIssue({ code: "custom", path: ["urgencyReason"], message: "Enter why this referral is urgent" });
     }
+    for (const issue of minorDetailIssues(referral.reasons)) {
+      ctx.addIssue({ code: "custom", ...issue });
+    }
   });
+
+/**
+ * A minor's details beneath "Applicant is a minor" (Master Sullivan's feedback, Steve, 2026-10-27): at least one when
+ * the box is ticked, none without it, and never both halves of a pair. api refuses the last two and will refuse the
+ * first; this app asks first, so the caseworker sees the sentence beside the boxes rather than a refused write.
+ *
+ * The details are addressed to `minorDetails`, the revealed group's id, and a detail without `Minor` to `reasons`,
+ * because the group it was ticked in is hidden once "Applicant is a minor" is unticked.
+ */
+function minorDetailIssues(reasons: readonly string[]): { path: string[]; message: string }[] {
+  const details = reasons.filter((reason) => (MINOR_DETAIL_REASONS as readonly string[]).includes(reason));
+  const isMinor = reasons.includes(MINOR_REASON);
+  if (isMinor && details.length === 0) {
+    return [{ path: ["minorDetails"], message: "Select what applies to the minor's application" }];
+  }
+  if (!isMinor && details.length > 0) {
+    return [{ path: ["reasons"], message: "Select Applicant is a minor, or untick what applies to the minor's application" }];
+  }
+  const contradiction = CONTRADICTORY_MINOR_DETAILS.find(([first, second]) => details.includes(first) && details.includes(second));
+
+  return contradiction
+    ? [
+        {
+          path: ["minorDetails"],
+          message: `Select either ${REFERRAL_REASON_LABEL[contradiction[0]]} or ${REFERRAL_REASON_LABEL[contradiction[1]]}, not both`
+        }
+      ]
+    : [];
+}
 
 /**
  * The record-the-applicant's-response form: one answer, and the note that evidences it.

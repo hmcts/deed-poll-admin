@@ -137,11 +137,38 @@ describe("raise a referral template", () => {
     expect(page).toContain('href="#urgencyReason"');
   });
 
+  // Master Sullivan's feedback (Steve, 2026-10-27): the minor's details are revealed beneath "Applicant is a minor",
+  // posting api's one `reasons` field, with their own id for the error summary to link to.
+  it("should reveal a minor's details beneath Applicant is a minor, posting as reasons", async () => {
+    const res = pageResponse();
+
+    await GET(request(), res);
+    const page = html(res.render.mock.calls[0][1]);
+
+    expect(page).toContain("What applies to the minor&#39;s application?");
+    expect(page).toMatch(/<input[^>]*id="minorDetails"[^>]*name="reasons"[^>]*value="MinorTransgender"/);
+    expect(page).toContain("16/17 year old applicant has not consented");
+    expect(page.indexOf('value="Minor"')).toBeLessThan(page.indexOf('value="MinorTransgender"'));
+    expect(page.indexOf('value="MinorTransgender"')).toBeLessThan(page.indexOf('value="DomesticAbuse"'));
+  });
+
+  it("should put the minor's-details error beside the revealed boxes and keep what was ticked", async () => {
+    const res = pageResponse();
+
+    await POST(request({ reasons: ["Minor", "MinorParentalConsent", "MinorNoParentalConsent"], urgency: "Normal" }), res);
+    const page = html(res.render.mock.calls[0][1]);
+
+    expect(page).toContain('href="#minorDetails"');
+    expect(page).toContain("Select either Have parental consent or Do not have parental consent, not both");
+    expect(page).toMatch(/<input[^>]*value="MinorParentalConsent"[^>]*checked/);
+    expect(createReferral).not.toHaveBeenCalled();
+  });
+
   it("should render the already-open conflict as a summary message carrying a link to that referral", async () => {
     vi.mocked(createReferral).mockRejectedValue(new ConflictError("Case case-1 already has an open referral"));
     const res = pageResponse();
 
-    await POST(request({ reasons: ["Minor"], urgency: "Normal" }), res);
+    await POST(request({ reasons: ["DomesticAbuse"], urgency: "Normal" }), res);
     const page = html(res.render.mock.calls[0][1]);
 
     expect(page).toContain("This case already has an open referral.");

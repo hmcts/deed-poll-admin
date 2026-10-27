@@ -34,6 +34,7 @@ import {
   InvalidInputError,
   MAX_REFERRAL_NOTES,
   MAX_REFERRAL_URGENCY_REASON,
+  MINOR_DETAIL_CHOICES,
   REFERRAL_REASON_CHOICES,
   REFERRAL_URGENCY_CHOICES,
   zodErrorToFieldErrors
@@ -46,13 +47,17 @@ import { pathSegment } from "../../../../path-segment.js";
 
 // The order the controls appear in, so the error summary reads down the page rather than in whatever order
 // the issues arrived.
-const FIELD_ORDER = ["reasons", "notes", "urgency", "urgencyReason"];
+// `minorDetails` is the group revealed beneath "Applicant is a minor": its own place in the summary, posting `reasons`.
+const FIELD_ORDER = ["reasons", "minorDetails", "notes", "urgency", "urgencyReason"];
 
 const en = {
   title: "Refer this case to a Master",
   heading: "Refer this case to a Master",
   reasonsLegend: "Why are you referring this case?",
   reasonsHint: "Select all that apply.",
+  // Master Sullivan's feedback (Steve, 2026-10-27): what kind of minor's application this is.
+  minorDetailsLegend: "What applies to the minor's application?",
+  minorDetailsHint: "Select all that apply.",
   notesLabel: "Give the other reason",
   notesHint: "Explain why this case needs to go to a Master.",
   urgencyLegend: "How urgent is this referral?",
@@ -227,6 +232,7 @@ async function render(req: Request, res: Response, values: Record<string, unknow
     // Built here rather than in the template so the checked state is computed once, in something testable.
     // The labels are this repo's; the values are api's enum members and go on the wire unchanged.
     reasonItems: REFERRAL_REASON_CHOICES.map((choice) => ({ ...choice, checked: chosen.includes(choice.value) })),
+    minorDetailItems: MINOR_DETAIL_CHOICES.map((choice) => ({ ...choice, checked: chosen.includes(choice.value) })),
     urgencyItems: REFERRAL_URGENCY_CHOICES.map((choice) => ({ ...choice, checked: values.urgency === choice.value })),
     errors,
     errorList: summaryList(errors, formError),

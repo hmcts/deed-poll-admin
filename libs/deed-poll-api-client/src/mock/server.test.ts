@@ -1444,6 +1444,35 @@ describe("the case's awaitingConfirmationSince, and the worklist it feeds", () =
   });
 });
 
+describe("a minor's details on a raised referral", () => {
+  it("should accept the details beside Minor, and Minor alone, as api#155 does for its one release", async () => {
+    const withDetails = await post(`/caseworker/cases/${mock.seed({}).id}/referrals`, { reasons: ["Minor", "MinorTransgender", "MinorCourtOrder"] });
+    const alone = await post(`/caseworker/cases/${mock.seed({}).id}/referrals`, { reasons: ["Minor"] });
+
+    expect(withDetails.status).toBe(201);
+    expect((await withDetails.json()).reasons).toEqual(["Minor", "MinorTransgender", "MinorCourtOrder"]);
+    expect(alone.status).toBe(201);
+  });
+
+  it("should refuse a detail without Minor, in api's words", async () => {
+    const response = await post(`/caseworker/cases/${mock.seed({}).id}/referrals`, { reasons: ["DomesticAbuse", "MinorCourtOrder"] });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors).toEqual([{ field: "reasons", message: "reasons names a minor's detail (MinorCourtOrder) without Minor" }]);
+  });
+
+  it("should refuse both halves of a consent pair", async () => {
+    const response = await post(`/caseworker/cases/${mock.seed({}).id}/referrals`, {
+      reasons: ["Minor", "MinorStepparentConsent", "MinorNoStepparentConsent"]
+    });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors).toEqual([
+      { field: "reasons", message: "reasons cannot name both MinorStepparentConsent and MinorNoStepparentConsent" }
+    ]);
+  });
+});
+
 describe("the judicial referral routes", () => {
   it("should offer only Open referrals in the pool, since a claimed one is its holder's", async () => {
     const { referralId } = await referredCase();

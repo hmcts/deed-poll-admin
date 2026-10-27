@@ -5,6 +5,8 @@ import {
   buildReferralsView,
   CONFIRMATION_OUTCOME_CHOICES,
   CONFIRMATION_OUTCOME_LABEL,
+  MINOR_DETAIL_CHOICES,
+  MINOR_DETAIL_REASONS,
   REFERRAL_REASON_CHOICES,
   REFERRAL_REASON_LABEL,
   REFERRAL_STATE_LABEL,
@@ -12,6 +14,7 @@ import {
   REFERRAL_STATE_TAG,
   REFERRAL_URGENCY_CHOICES,
   REFERRAL_URGENCY_LABEL,
+  referralReasonLabels,
   unavailableReferralsView
 } from "./referrals-view.js";
 
@@ -81,9 +84,45 @@ describe("referrals/referrals-view", () => {
       expect(REFERRAL_URGENCY_LABEL.Normal).toBe("Standard");
     });
 
-    it("should offer the reason choices in api's published order, built from its member array", () => {
-      expect(REFERRAL_REASON_CHOICES.map((choice) => choice.value)).toEqual([...REFERRAL_REASON]);
+    it("should offer the reason choices in api's published order, built from its member array, less a minor's details", () => {
+      expect(REFERRAL_REASON_CHOICES.map((choice) => choice.value)).toEqual(REFERRAL_REASON.filter((reason) => !MINOR_DETAIL_REASONS.includes(reason)));
       expect(REFERRAL_REASON_CHOICES[0]).toEqual({ value: "Minor", text: "Applicant is a minor" });
+    });
+
+    // api marks its details `isMinorDetail()` but publishes no flag, so this is what catches a new one arriving
+    // as a top-level box: every `Minor*` member but `Minor` itself must be a detail here.
+    it("should treat every Minor* member api publishes as a minor's detail", () => {
+      expect([...MINOR_DETAIL_REASONS]).toEqual(REFERRAL_REASON.filter((reason) => reason.startsWith("Minor") && reason !== "Minor"));
+    });
+
+    it("should offer the minor's details in the Masters' own words", () => {
+      expect(MINOR_DETAIL_CHOICES.map((choice) => choice.text)).toEqual([
+        "Transgender",
+        "Have parental consent",
+        "Do not have parental consent",
+        "Stepparent parental consent",
+        "Do not have stepparent consent",
+        "Court Order",
+        "16/17 year old applicant has consented",
+        "16/17 year old applicant has not consented"
+      ]);
+    });
+
+    describe("referralReasonLabels", () => {
+      it("should fold a minor's details into Applicant is a minor, in the order they were ticked", () => {
+        expect(referralReasonLabels(["Minor", "MinorTransgender", "DomesticAbuse", "MinorParentalConsent"])).toEqual([
+          "Applicant is a minor: Transgender, Have parental consent",
+          "Domestic abuse considerations"
+        ]);
+      });
+
+      it("should leave Minor alone when it has no details, as a referral raised before them does", () => {
+        expect(referralReasonLabels(["Minor", "Other"])).toEqual(["Applicant is a minor", "Other"]);
+      });
+
+      it("should keep a detail stored without Minor as its own entry rather than drop it", () => {
+        expect(referralReasonLabels(["MinorCourtOrder"])).toEqual(["Court Order"]);
+      });
     });
 
     it("should offer the urgency choices in api's published order", () => {

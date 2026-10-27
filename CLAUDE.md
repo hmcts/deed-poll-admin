@@ -293,6 +293,15 @@ single file:
   pages relabel the row "Changes to the standard publications in the Gazette" but keep "Directions"; only the Master's
   own pages say "Directions/Reasons". The case's `publishToLondonGazette` (field rules, the Gazette ready list) is a
   different fact and is untouched.
+- **A minor's referral says what kind it is (Master Sullivan's feedback, Steve, 2026-10-27).** api#155 added eight
+  `Minor*` reason members; `MINOR_DETAIL_REASONS` in `libs/deed-poll/src/referrals/referrals-view.ts` lists them,
+  because api publishes no flag, and its test fails if a `Minor*` member arrives that is not in it. The raise form
+  offers them as checkboxes revealed beneath "Applicant is a minor" (`idPrefix` `minorDetails`, `name` `reasons`, so
+  they post as api's one field). `createReferralSchema` requires at least one when "Applicant is a minor" is ticked,
+  refuses one without it (addressed to `reasons`, because the revealed group is hidden then) and refuses both halves
+  of a consent pair. api accepts `Minor` alone for one release, so this form is the only place the "at least one"
+  rule holds until api's contract step. Every page reads reasons through `referralReasonLabels`, which folds the
+  details into "Applicant is a minor: Transgender, Have parental consent". Case notes still print api's raw names.
 - **The judge who gave a direction can change or withdraw it until the office closes the referral.** On a
   `Decided` referral (api shows it only to its director) the page links to `direction?change=1`, which reuses the
   direction form and check page, prefilled and worded as a change, and calls `reviseDirection` (`PUT`). It also
