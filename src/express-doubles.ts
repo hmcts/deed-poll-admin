@@ -18,6 +18,7 @@ import {
   currentUser,
   DELETE_NOTE,
   DELETE_WITNESS,
+  MANAGE_PROCESS_CONFIG,
   MANAGE_SHARED_QUERIES,
   OVERRIDE_PRIVACY,
   REPAIR_CCD
@@ -38,7 +39,7 @@ const CASEWORK = [OVERRIDE_PRIVACY, DELETE_NOTE, DELETE_WITNESS, MANAGE_SHARED_Q
  */
 export const PERSONA_ACCESS = {
   teamLeader: { staff: true, judicial: false, capabilities: CASEWORK },
-  deliveryManager: { staff: true, judicial: false, capabilities: [...CASEWORK, ACCESS_GAZETTE] },
+  deliveryManager: { staff: true, judicial: false, capabilities: [...CASEWORK, ACCESS_GAZETTE, MANAGE_PROCESS_CONFIG] },
   legacyAdmin: { staff: true, judicial: false, capabilities: CASEWORK },
   caseworker: { staff: true, judicial: false, capabilities: [] },
   judge: { staff: false, judicial: true, capabilities: [] },

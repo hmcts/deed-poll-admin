@@ -106,7 +106,15 @@ export const LIST_FILTER = ["all", "open", "received", "enroled", "returned", "a
  * Published on `CallerAccessResponse.capabilities`' array items, so the drift test's property enum comparison
  * does not reach it; `contract.test.ts` pins it against the items separately, order included.
  */
-export const CAPABILITY = ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD", "ACCESS_GAZETTE"] as const;
+export const CAPABILITY = [
+  "OVERRIDE_PRIVACY",
+  "DELETE_NOTE",
+  "DELETE_WITNESS",
+  "MANAGE_SHARED_QUERIES",
+  "REPAIR_CCD",
+  "ACCESS_GAZETTE",
+  "MANAGE_PROCESS_CONFIG"
+] as const;
 
 /** The two `sortDirection` tokens api matches exactly. A bare field with no direction means ascending. */
 export const SORT_DIRECTION = ["asc", "desc"] as const;
@@ -1058,6 +1066,30 @@ const updateGazetteSettingsSchema = z
   })
   .strict();
 
+/**
+ * The claim window api accepts, in whole minutes (30 minutes to 24 hours). `contract.test.ts` pins both to
+ * `UpdateProcessSettingsRequest` in `openapi.json`, so the settings form can refuse early without restating them.
+ */
+export const PROCESS_SETTINGS_LIMITS = { minClaimMinutes: 30, maxClaimMinutes: 1440 } as const;
+
+/**
+ * The Delivery Manager's process settings. Both ints are Java primitives on api's record, so neither arrives null.
+ * The response's bounds are not restated: a read must not fail because api widened what it stores.
+ */
+const processSettingsSchema = z.object({
+  referralClaimExpiryMinutes: z.number().int(),
+  revision: z.number().int().nonnegative(),
+  updatedAt: wireDateTime.nullish(),
+  updatedBy: z.string().nullish()
+});
+
+const updateProcessSettingsSchema = z
+  .object({
+    referralClaimExpiryMinutes: z.number().int().min(PROCESS_SETTINGS_LIMITS.minClaimMinutes).max(PROCESS_SETTINGS_LIMITS.maxClaimMinutes),
+    revision: z.number().int().nonnegative()
+  })
+  .strict();
+
 const gazetteNoticeBatchSchema = z.object({
   batchId: z.uuid().nullish(),
   sentAt: wireDateTime.nullish(),
@@ -1194,6 +1226,8 @@ export const WIRE_SCHEMAS = {
   DocumentPreviewError: documentPreviewErrorSchema,
   GazetteSettingsResponse: gazetteSettingsSchema,
   UpdateGazetteSettingsRequest: updateGazetteSettingsSchema,
+  ProcessSettingsResponse: processSettingsSchema,
+  UpdateProcessSettingsRequest: updateProcessSettingsSchema,
   GazetteNoticeBatchResponse: gazetteNoticeBatchSchema,
   GazetteNoticeHistoryResponse: gazetteNoticeHistorySchema,
   CaseListResponse: caseListSchema,
@@ -1272,6 +1306,7 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   // Both are required in api's record and the code is an enum, so neither can arrive null.
   DocumentPreviewError: ["code", "error"],
   GazetteSettingsResponse: ["revision"],
+  ProcessSettingsResponse: ["referralClaimExpiryMinutes", "revision"],
   GazetteNoticeBatchResponse: ["caseCount", "referenceNumbers", "referencesTruncated"],
   GazetteNoticeHistoryResponse: ["batches", "page", "size", "total", "totalPages"],
   // The four paging counts are `int`, `int`, `long` and `int` on api's record, so none can arrive null.
@@ -1394,6 +1429,8 @@ export type WireGazetteNoticeBatch = z.infer<typeof gazetteNoticeBatchSchema>;
 
 export type WireGazetteSettings = z.infer<typeof gazetteSettingsSchema>;
 export type WireUpdateGazetteSettings = z.infer<typeof updateGazetteSettingsSchema>;
+export type WireProcessSettings = z.infer<typeof processSettingsSchema>;
+export type WireUpdateProcessSettings = z.infer<typeof updateProcessSettingsSchema>;
 
 export type WireGazettePreview = z.infer<typeof gazettePreviewSchema>;
 export type WireGazetteStatus = z.infer<typeof gazetteStatusSchema>;

@@ -119,6 +119,7 @@ it("should present the actual recipient and group counts, require explicit confi
   expect(check.markup).toContain("gazette@example.com");
   expect(check.markup).toContain("FROZEN-001");
   expect(check.markup).toContain("One email will contain download links");
+  expect(check.markup).toContain('href="/deed-polls/settings#gazette-recipient" target="_blank" rel="noopener"');
   const missing = await render({ journey: check.journey, action: "send" });
   expect(missing.markup).toContain("Confirm the recipient and applications before sending");
   expect(sendGazetteSelection).not.toHaveBeenCalled();

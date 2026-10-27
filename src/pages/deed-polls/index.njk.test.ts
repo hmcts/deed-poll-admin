@@ -108,6 +108,17 @@ describe("deed-polls list template", () => {
     expect(markup).not.toContain("Try opening the ready list");
   });
 
+  it("should link a Delivery Manager to the service settings page", async () => {
+    const markup = await render({}, true);
+    expect(markup).toContain('<a class="govuk-link" href="/deed-polls/settings">Service settings</a>');
+  });
+
+  it("should not link anyone else to the service settings page", async () => {
+    const markup = await render();
+    expect(markup).not.toContain("/deed-polls/settings");
+    expect(markup).not.toContain("Service settings");
+  });
+
   it("should distinguish unavailable from zero while keeping the Gazette link", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(countGazetteReadyCases).mockRejectedValue(new Error("unavailable"));

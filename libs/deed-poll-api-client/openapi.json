@@ -1891,6 +1891,60 @@
         "tags": ["caseworker-gazette-settings-controller"]
       }
     },
+    "/caseworker/process-settings": {
+      "get": {
+        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). The referral claim window starts at 120 minutes, revision 0, with null attribution.",
+        "operationId": "getProcessSettings",
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessSettingsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Read the Delivery Manager's process settings",
+        "tags": ["caseworker-process-settings-controller"]
+      },
+      "put": {
+        "description": "Requires caseworker-deedpoll-delivery-manager (MANAGE_PROCESS_CONFIG). Supply the revision read with the form; a stale revision returns 409 with no change, even when the value already matches. A change increments revision, records attribution and is audited. Saving the current value at the current revision is a no-op. A new claim window applies to every live claim from the next judicial pool, My referrals or claim request; saving it releases nothing itself, and raising it never restores a claim already released.",
+        "operationId": "updateProcessSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProcessSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessSettingsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Update the Delivery Manager's process settings",
+        "tags": ["caseworker-process-settings-controller"]
+      }
+    },
     "/caseworker/saved-queries": {
       "get": {
         "operationId": "savedQueries",
@@ -2616,7 +2670,7 @@
             "description": "The caller's capabilities, in declaration order",
             "items": {
               "type": "string",
-              "enum": ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD", "ACCESS_GAZETTE"]
+              "enum": ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD", "ACCESS_GAZETTE", "MANAGE_PROCESS_CONFIG"]
             }
           },
           "judicial": {
@@ -4467,6 +4521,29 @@
         },
         "required": ["caseIds"]
       },
+      "ProcessSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "referralClaimExpiryMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How long a judge's untouched claim survives before it returns to the pool, in minutes.",
+            "maximum": 1440,
+            "minimum": 30
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updatedAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "updatedBy": {
+            "type": ["string", "null"]
+          }
+        }
+      },
       "RecordConfirmationRequest": {
         "additionalProperties": true,
         "description": "The applicant's answer to the Request confirmation to proceed email, as the caseworker who read their reply records it. Recording it does not move the case on: no date is set or cleared, and the caseworker then does whatever the process requires through the ordinary case edit. Idempotent by refusal rather than last-write-wins -- a second answer is a 409 naming what is already recorded and when, and an answer on a referral that was never asked to confirm is a 409 too. The referral comes from the path, and the recording caseworker and the date come from the token and the clock, so confirmationRecordedBy and confirmationReceivedAt are ignored rather than refused, as any unknown key is.",
@@ -5278,6 +5355,25 @@
             "minLength": 1
           }
         }
+      },
+      "UpdateProcessSettingsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "referralClaimExpiryMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How long a judge's untouched claim survives before it returns to the pool, in whole minutes, from 30 to 1440 (24 hours). Null, a fraction and a string are refused.",
+            "maximum": 1440,
+            "minimum": 30
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The revision returned by the settings read; stale values return 409.",
+            "minimum": 0
+          }
+        },
+        "required": ["referralClaimExpiryMinutes", "revision"]
       },
       "UpdateSavedQueryRequest": {
         "additionalProperties": true,
