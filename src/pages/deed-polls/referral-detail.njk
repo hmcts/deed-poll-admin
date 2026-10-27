@@ -178,7 +178,7 @@
     {% endif %}
 
     <p class="govuk-body">
-      <a class="govuk-link" href="/deed-polls/{{ case.id }}#referrals">{{ backToCase }}</a>
+      <a class="govuk-link" href="{{ case.id | casePath }}#referrals">{{ backToCase }}</a>
     </p>
   </div>
 </div>

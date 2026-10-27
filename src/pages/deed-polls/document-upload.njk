@@ -32,7 +32,7 @@
 
     {% if not hasTypes %}
       <p class="govuk-body">{{ noTypes }}</p>
-      <p class="govuk-body"><a class="govuk-link" href="/deed-polls/{{ case.id }}#documents">{{ cancel }}</a></p>
+      <p class="govuk-body"><a class="govuk-link" href="{{ case.id | casePath }}#documents">{{ cancel }}</a></p>
     {% else %}
       <form method="post" action="/deed-polls/{{ case.id }}/documents/upload" enctype="multipart/form-data" novalidate>
         {{ govukFileUpload({
@@ -78,7 +78,7 @@
         }) }}
 
         {{ govukButton({ text: submit }) }}
-        <a class="govuk-link govuk-!-margin-left-3" href="/deed-polls/{{ case.id }}#documents">{{ cancel }}</a>
+        <a class="govuk-link govuk-!-margin-left-3" href="{{ case.id | casePath }}#documents">{{ cancel }}</a>
       </form>
     {% endif %}
   </div>

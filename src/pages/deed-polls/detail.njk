@@ -127,7 +127,7 @@
               resolve a note. The hidden suffix keeps the link text meaningful out of context.
             #}
             {% set codeCell %}
-              <a class="govuk-link app-nowrap" href="/deed-polls/{{ case.id }}/notes/{{ n.id }}/edit">{{ n.code }}<span class="govuk-visually-hidden"> — {{ amendNoteHint }}</span></a>
+              <a class="govuk-link app-nowrap" href="{{ case.id | casePath }}/notes/{{ n.id | pathSegment }}/edit">{{ n.code }}<span class="govuk-visually-hidden"> — {{ amendNoteHint }}</span></a>
             {% endset %}
             {% set noteRows = (noteRows.push([
               { html: codeCell },
@@ -175,7 +175,7 @@
               rendering an anchor with nothing in it to click.
             #}
             <h3 class="govuk-heading-s">
-              <a class="govuk-link" href="/deed-polls/{{ case.id }}/witnesses/{{ w.id }}/edit">{{ w.witnessName or unnamedWitness }}<span class="govuk-visually-hidden"> — {{ amendWitnessHint }}</span></a>
+              <a class="govuk-link" href="{{ case.id | casePath }}/witnesses/{{ w.id | pathSegment }}/edit">{{ w.witnessName or unnamedWitness }}<span class="govuk-visually-hidden"> — {{ amendWitnessHint }}</span></a>
               {% if w.declarant %}{{ govukTag({ text: declarantTag, classes: "govuk-tag--blue" }) }}{% endif %}
             </h3>
             {#
@@ -255,7 +255,7 @@
           {% set referralRows = [] %}
           {% for r in referrals.rows %}
             {% set raisedCell %}
-              <a class="govuk-link app-nowrap" href="/deed-polls/{{ case.id }}/referrals/{{ r.id }}">{{ r.createdOn }}<span class="govuk-visually-hidden"> — {{ viewReferralHint }}</span></a><br>
+              <a class="govuk-link app-nowrap" href="{{ case.id | casePath }}/referrals/{{ r.id | pathSegment }}">{{ r.createdOn }}<span class="govuk-visually-hidden"> — {{ viewReferralHint }}</span></a><br>
               <span class="govuk-hint govuk-!-font-size-16 govuk-!-margin-bottom-0">{{ r.createdBy }}</span>
             {% endset %}
             {#
@@ -382,7 +382,7 @@
           {% set emailRows = [] %}
           {% for e in emails.rows %}
             {% set emailNameCell %}
-              <a class="govuk-link" href="/deed-polls/{{ case.id }}/emails/{{ e.id }}">{{ e.template }}<span class="govuk-visually-hidden"> — {{ viewEmailHint }}</span></a>
+              <a class="govuk-link" href="{{ case.id | casePath }}/emails/{{ e.id | pathSegment }}">{{ e.template }}<span class="govuk-visually-hidden"> — {{ viewEmailHint }}</span></a>
             {% endset %}
             {% set emailCreatedCell %}
               {{ e.sentOn }}<br>

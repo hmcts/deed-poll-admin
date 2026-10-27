@@ -21,6 +21,7 @@ import nunjucks from "nunjucks";
 import { describe, expect, it } from "vitest";
 import { content as cy } from "../../locales/cy.js";
 import { content as en } from "../../locales/en.js";
+import { addPathFilters } from "../../path-filters.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PAGES = path.join(HERE, "..");
@@ -35,6 +36,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 /** The strip as `personaSwitcherLocals()` builds it, spelled out here so this file tests the markup only. */
 const SWITCHER = {

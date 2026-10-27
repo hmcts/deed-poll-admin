@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import nunjucks from "nunjucks";
 import { describe, expect, it } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
+import { addPathFilters } from "../../path-filters.js";
 import { GET } from "./index.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -22,6 +23,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 /** The content pair first and the handler's own values over it, as `renderInterceptorMiddleware` merges them. */
 function html(overrides: Record<string, unknown> = {}): string {

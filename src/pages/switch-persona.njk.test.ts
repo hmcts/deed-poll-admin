@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import nunjucks from "nunjucks";
 import { describe, expect, it } from "vitest";
+import { addPathFilters } from "../path-filters.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STARTER_VIEWS = path.join(HERE, "../../libs/express-govuk-starter/src");
@@ -26,6 +27,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 /** The view model `switch-persona.ts` renders with, refusing the judge for the reason AAT actually gives. */
 const REFUSAL = {

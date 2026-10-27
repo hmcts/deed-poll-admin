@@ -118,7 +118,7 @@
 
       <div class="govuk-button-group">
         {{ govukButton({ text: submit }) }}
-        <a class="govuk-link" href="/deed-polls/{{ case.id }}#referrals">{{ cancel }}</a>
+        <a class="govuk-link" href="{{ case.id | casePath }}#referrals">{{ cancel }}</a>
       </div>
     </form>
   </div>

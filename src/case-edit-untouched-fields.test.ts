@@ -18,6 +18,7 @@ import nunjucks from "nunjucks";
 import supertest from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GET, POST } from "./pages/deed-polls/[id]/edit/[tab].js";
+import { addPathFilters } from "./path-filters.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
@@ -36,6 +37,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 // A Minor case, so every Application field renders, with both Application booleans and three declarations set.
 const STORED = {

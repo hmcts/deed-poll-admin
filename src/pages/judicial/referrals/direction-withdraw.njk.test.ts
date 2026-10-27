@@ -10,6 +10,7 @@ import type { JudicialReferralDetail } from "@hmcts/deed-poll-api-client";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { addPathFilters } from "../../../path-filters.js";
 import { GET } from "./[referralId]/withdraw.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -28,6 +29,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const decided = (): JudicialReferralDetail =>
   ({

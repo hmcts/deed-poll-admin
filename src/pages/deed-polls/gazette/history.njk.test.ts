@@ -4,6 +4,7 @@ import { findGazetteHistory } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { addPathFilters } from "../../../path-filters.js";
 import { GET } from "./history.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -21,6 +22,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 const BATCH = {
   sentAt: new Date("2026-01-02T09:30:00Z"),
   sentBy: "Admin One",

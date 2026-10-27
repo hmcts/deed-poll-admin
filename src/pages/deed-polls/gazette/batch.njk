@@ -36,7 +36,7 @@
           { key: { text: former }, value: { text: (record.oldForename or "") + " " + (record.oldMiddleName or "") + " " + (record.oldSurname or "") } },
           { key: { text: newName }, value: { text: (record.newForename or "") + " " + (record.newMiddleName or "") + " " + (record.newSurname or "") } }
         ] }) }}
-        <p class="govuk-body"><a class="govuk-link" href="/deed-polls/{{ record.id | urlencode }}" target="_blank" rel="noopener">{{ application }}</a></p>
+        <p class="govuk-body"><a class="govuk-link" href="{{ record.id | casePath }}" target="_blank" rel="noopener">{{ application }}</a></p>
         {{ govukCheckboxes({ name: "checks", idPrefix: "checks", fieldset: { legend: { text: checklist } }, items: checks, errorMessage: { text: errorText } if errorText }) }}
         {{ govukButton({ text: saveReview, name: "action", value: "save" }) }}
         {{ govukButton({ text: back, name: "action", value: "back", classes: "govuk-button--secondary" }) }}
