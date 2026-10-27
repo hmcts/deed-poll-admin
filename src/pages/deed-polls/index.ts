@@ -46,6 +46,7 @@ import {
   isBlankCondition,
   isReorderable,
   type ListFilter,
+  MANAGE_PROCESS_CONFIG,
   parseConditions,
   parsePage,
   parseSort,
@@ -95,6 +96,7 @@ const AWAITING_CONFIRMATION_PATH = `${LIST_PATH}${caseListSearch({ filter: AWAIT
 
 const en = {
   gazetteLink: "View London Gazette applications",
+  settingsLink: "Service settings",
   gazetteCountFor: (count: number) => `Applications ready for the London Gazette: ${count}`,
   gazetteUnavailable: "The number of applications ready for the London Gazette could not be loaded. Try opening the ready list.",
   title: "Deed poll cases",
@@ -267,6 +269,8 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
   // Counts are global, independent of the selected query. API publishes no combined summary;
   // the Gazette read is additive for Delivery Managers only and catches its own failures before the list finishes.
   const counts = worklistCounts(caller, can(userFromRequest(req), ACCESS_GAZETTE));
+  // From the session's capability alone: the link needs no api read, and the area gate decides entry.
+  const showSettings = can(userFromRequest(req), MANAGE_PROCESS_CONFIG);
 
   try {
     const results = await findDeedPolls({ filter: filter.key, q, conditions, sort: serialiseSort(sort), page }, caller);
@@ -283,6 +287,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
     return render(res, view, {
       savedQueries: await savedQueries,
       counts: await counts,
+      showSettings,
       cases: buildCaseList(results.cases),
       paging,
       rowErrors,
@@ -301,6 +306,7 @@ async function runQuery(req: Request, res: Response, view: ListView, rowErrors: 
     return render(res, view, {
       savedQueries: await savedQueries,
       counts: await counts,
+      showSettings,
       cases: [],
       paging: null,
       rowErrors: [...rowErrors, ...refusals.rows],
@@ -388,7 +394,7 @@ async function worklistCount(name: string, read: () => Promise<number>): Promise
   }
 }
 
-function render(res: Response, view: ListView, { savedQueries, counts, cases, paging, rowErrors, unaddressed, submitted }: ListRenderData) {
+function render(res: Response, view: ListView, { savedQueries, counts, showSettings, cases, paging, rowErrors, unaddressed, submitted }: ListRenderData) {
   // Resolved here as well as by the render interceptor, because the row builder needs the words before
   // the template does — the pattern `.claude/rules/frontend.md` gives for a schema's messages.
   const content = res.locals.locale === "cy" ? cy : en;
@@ -399,6 +405,7 @@ function render(res: Response, view: ListView, { savedQueries, counts, cases, pa
 
   res.render("deed-polls/index", {
     cases,
+    showSettings,
     showGazette: counts.gazette !== undefined,
     gazetteCount: counts.gazette === undefined || counts.gazette === null ? "" : content.gazetteCountFor(counts.gazette),
     gazetteFailed: counts.gazette === null,
@@ -619,6 +626,8 @@ interface ListView {
 interface ListRenderData {
   savedQueries: SavedQueryNavGroups;
   counts: WorklistCounts;
+  /** Whether the caller holds MANAGE_PROCESS_CONFIG, and so is offered the service settings link. */
+  showSettings: boolean;
   cases: CaseListRow[];
   paging: CaseListPaging | null;
   rowErrors: QueryRowError[];

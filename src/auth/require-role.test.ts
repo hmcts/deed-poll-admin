@@ -1,7 +1,7 @@
 /**
  * Both directions, because a gate tested only for who it admits is a gate that may admit everyone.
  */
-import { ACCESS_GAZETTE, ForbiddenError } from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, ForbiddenError, MANAGE_PROCESS_CONFIG } from "@hmcts/deed-poll";
 import type { NextFunction } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
@@ -156,6 +156,51 @@ describe("Gazette area access", () => {
     Object.assign(req, { method: "GET", path: url });
     const res = pageResponse();
     const gate = vi.fn(() => requireCapability(ACCESS_GAZETTE)(req, res, vi.fn()));
+    requireAuth()(req, res, gate);
+    expect(res.redirect).toHaveBeenCalledWith(`/login?returnTo=${encodeURIComponent(url)}`);
+    expect(gate).not.toHaveBeenCalled();
+  });
+});
+
+describe("Service settings area access", () => {
+  const paths = ["/deed-polls/settings", "/deed-polls/settings/gazette-recipient"];
+  it.each(["teamLeader", "legacyAdmin", "caseworker", "judge", "none"] as const)(
+    "should refuse every settings page and form to %s before any API call",
+    (persona) => {
+      for (const path of paths) {
+        for (const method of ["GET", "POST"]) {
+          const req = pageRequest({ persona, originalUrl: path });
+          Object.assign(req, { method, path });
+          const res = pageResponse();
+          const apiCall = vi.fn();
+          const next = vi.fn((error?: unknown) => {
+            if (!error) apiCall();
+          });
+          requireCapability(MANAGE_PROCESS_CONFIG)(req, res, next);
+          expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
+          expect(apiCall).not.toHaveBeenCalled();
+          expect(res.render).not.toHaveBeenCalled();
+        }
+      }
+    }
+  );
+  it.each([false, true])("should admit a Delivery Manager, with judicial %s", (judicial) => {
+    const next = vi.fn();
+    requireCapability(MANAGE_PROCESS_CONFIG)(pageRequest({ deliveryManager: true, judicial }), pageResponse(), next);
+    expect(next).toHaveBeenCalledExactlyOnceWith();
+  });
+  it("should mark its refusal as the role gate's and name the capability it wanted", () => {
+    const next = vi.fn();
+    requireCapability(MANAGE_PROCESS_CONFIG)(pageRequest({ persona: "teamLeader" }), pageResponse(), next);
+    const error = next.mock.calls[0][0] as ForbiddenError;
+    expect(error.reason).toBe("role");
+    expect(error.requiredCapability).toBe(MANAGE_PROCESS_CONFIG);
+  });
+  it.each(paths)("should redirect anonymous visitors to login for %s before checking capabilities", (url) => {
+    const req = pageRequest({ signedIn: false, originalUrl: url });
+    Object.assign(req, { method: "GET", path: url });
+    const res = pageResponse();
+    const gate = vi.fn(() => requireCapability(MANAGE_PROCESS_CONFIG)(req, res, vi.fn()));
     requireAuth()(req, res, gate);
     expect(res.redirect).toHaveBeenCalledWith(`/login?returnTo=${encodeURIComponent(url)}`);
     expect(gate).not.toHaveBeenCalled();

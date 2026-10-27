@@ -297,8 +297,26 @@ express-session-postgres 85, simple-router 45, express-session-redis 7. The Redi
 `src/pages/deed-polls/gazette/index.njk`, `src/pages/deed-polls/gazette/settings.ts` (now the redirect), delete
 `gazette/settings.njk` and its test, `e2e-tests/tests/gazette.spec.ts`.
 
-- [ ] Add failing gate, link and redirect tests.
-- [ ] Implement, run all Validation Commands and `yarn test:gazette`, and record the results.
+- [x] Add failing gate, link and redirect tests.
+- [x] Implement, run all Validation Commands and `yarn test:gazette`, and record the results.
+
+**Task 4 record (2026-10-27).** `app.ts` mounts `requireCapability(MANAGE_PROCESS_CONFIG)` on `/deed-polls/settings`
+beside the Gazette gate. `app.test.ts` reads `src/pages/deed-polls/settings/` off the filesystem and proves the mount
+covers it, sits after `requireAuth` and before the router, and misses `/deed-polls/settings-other`. Its
+`requireCapability` double now returns a separate layer per capability. `require-role.test.ts` refuses Team leader,
+legacy admin, caseworker, judge and no-access on both settings paths and methods. The case list shows "Service
+settings" from the session's capability alone (`showSettings`, no api read; `cy` spreads `en` as the rest of that
+page does). The Gazette index's link, and the batch page's new-tab link, which the plan did not list, now point to
+`/deed-polls/settings#gazette-recipient`. `gazette/settings.ts` is a `GET` 302 to there and publishes no `POST`. The old
+template and its test are deleted, because the new page's tests already cover its assertions, Welsh included.
+`gazette.spec.ts` uses the new page, checks the old address redirects, and adds both settings paths and the absent
+link to the four refused personas. Validation: format and lint clean (592 files), `yarn install --immutable` and
+build exit 0. **`yarn npm audit` did not run**: this environment's registry connection fails with
+`SELF_SIGNED_CERT_IN_CHAIN` (also with the system CA bundle), and no dependency changed in this task. Full suite with
+`--force`, 8/8 tasks: app 3,106 (+2 net: new tests, minus the deleted template test), deed-poll 1,604,
+deed-poll-api-client 1,192, express-govuk-starter 132, cloud-native-platform 156, express-session-postgres 85,
+simple-router 45, express-session-redis 7. The Redis suites ran. `yarn test:gazette` (private Redis on 6316, local
+IDAM on 5556 seeded with `yarn idam:users`): 8 passed.
 
 ### Task 5: The XUI link and the happy-path journey
 

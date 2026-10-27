@@ -113,6 +113,22 @@ describe("deed-polls list page", () => {
     });
   });
 
+  it("should offer the service settings link to a Delivery Manager without reading anything for it", async () => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ deliveryManager: true }), res);
+
+    expect(res.render.mock.calls[0][1]).toMatchObject({ showSettings: true });
+  });
+
+  it.each(["legacyAdmin", "teamLeader", "caseworker", "judge", "none"] as const)("should not offer the service settings link to %s", async (persona) => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ persona }), res);
+
+    expect(res.render.mock.calls[0][1]).toMatchObject({ showSettings: false });
+  });
+
   it("should degrade and log only the Gazette count when its read fails", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(countGazetteReadyCases).mockRejectedValue(new Error("unavailable"));
