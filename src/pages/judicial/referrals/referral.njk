@@ -7,7 +7,7 @@
 {% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
 
 {#
-  One referral, its application and its timeline — read-only apart from the controls a judge has.
+  One referral and its application — read-only apart from the controls a Master has.
 
   Three things this template deliberately does not have. No link to the case: api's judicial surface takes no
   case id, so there is nowhere to link to. No "add note" control: a judge's writes are exactly claim and direct.
@@ -42,8 +42,9 @@
 
     <h2 class="govuk-heading-m">{{ applicationHeading }}</h2>
     {#
-      Read-only, and built from the judicial view model alone: the sections are the caseworker page's groups and
-      labels, but no edit, upload, delete or email control is offered. Each document's href is the handler's.
+      Read-only, and built from the judicial view model alone. The Masters asked for this page's order (Master
+      Sullivan's feedback, 2026-10-27): the application's General fields, then the referral, then the supporting
+      documents. No witnesses, case notes or previous-system record, and no edit, upload, delete or email control.
     #}
     {% if referral.application %}
       {% for section in referral.application.sections %}
@@ -57,51 +58,6 @@
         {% endif %}
       {% endfor %}
 
-      {% if referral.application.previousReferral %}
-        {% set previousRows = [] %}
-        {% for row in referral.application.previousReferral.rows %}
-          {% set previousRows = (previousRows.push({ key: { text: row.key }, value: { text: row.value } }), previousRows) %}
-        {% endfor %}
-        <h3 class="govuk-heading-s">{{ previousReferralHeading }}</h3>
-        {{ govukSummaryList({ rows: previousRows }) }}
-      {% endif %}
-
-      <h3 class="govuk-heading-s">{{ witnessesHeading }}</h3>
-      {% if referral.application.witnesses.length %}
-        {% for witness in referral.application.witnesses %}
-          {{ govukSummaryList({
-            rows: [
-              { key: { text: witnessNameLabel }, value: { text: witness.name } },
-              { key: { text: witnessAddressLabel }, value: { text: witness.address } },
-              { key: { text: witnessOccupationLabel }, value: { text: witness.occupation } },
-              { key: { text: witnessDeclarantLabel }, value: { text: yes if witness.declarant else no } }
-            ]
-          }) }}
-        {% endfor %}
-      {% else %}
-        <p class="govuk-body">{{ witnessesEmpty }}</p>
-      {% endif %}
-
-      {# `documents` is the viewer's way back (`src/document-viewer/context.ts`), so a judge returns to this list. #}
-      <h3 class="govuk-heading-s" id="documents">{{ documentsHeading }}</h3>
-      {% if documents.length %}
-        {% set documentRows = [] %}
-        {% for document in documents %}
-          {% set nameCell %}<a class="govuk-link" href="{{ document.href }}">{{ document.name }}</a>{% endset %}
-          {% set documentRows = (documentRows.push([
-            { html: nameCell },
-            { text: document.type },
-            { text: document.uploadedOn },
-            { text: document.size }
-          ]), documentRows) %}
-        {% endfor %}
-        {{ govukTable({
-          head: [{ text: documentNameColumn }, { text: documentTypeColumn }, { text: documentUploadedColumn }, { text: documentSizeColumn }],
-          rows: documentRows
-        }) }}
-      {% else %}
-        <p class="govuk-body">{{ documentsEmpty }}</p>
-      {% endif %}
     {% else %}
       <p class="govuk-body">{{ applicationMissing }}</p>
     {% endif %}
@@ -128,8 +84,7 @@
       { key: { text: reasonsLabel }, value: { html: reasonsCell } },
       { key: { text: notesLabel }, value: { text: referral.notes } },
       { key: { text: urgencyLabel }, value: { html: urgencyCell } },
-      { key: { text: urgencyReasonLabel }, value: { text: referral.urgencyReason } },
-      { key: { text: waitingLabel }, value: { text: referral.waitingSince } }
+      { key: { text: urgencyReasonLabel }, value: { text: referral.urgencyReason } }
     ] %}
     {# Only once it is in this judge's hands — api's visibility means a claimed referral is theirs or invisible. #}
     {% if referral.claimedOn %}
@@ -137,6 +92,29 @@
     {% endif %}
 
     {{ govukSummaryList({ rows: referralRows }) }}
+
+    {% if referral.application %}
+      {# `documents` is the viewer's way back (`src/document-viewer/context.ts`), so a Master returns to this list. #}
+      <h2 class="govuk-heading-m" id="documents">{{ documentsHeading }}</h2>
+      {% if documents.length %}
+        {% set documentRows = [] %}
+        {% for document in documents %}
+          {% set nameCell %}<a class="govuk-link" href="{{ document.href }}">{{ document.name }}</a>{% endset %}
+          {% set documentRows = (documentRows.push([
+            { html: nameCell },
+            { text: document.type },
+            { text: document.uploadedOn },
+            { text: document.size }
+          ]), documentRows) %}
+        {% endfor %}
+        {{ govukTable({
+          head: [{ text: documentNameColumn }, { text: documentTypeColumn }, { text: documentUploadedColumn }, { text: documentSizeColumn }],
+          rows: documentRows
+        }) }}
+      {% else %}
+        <p class="govuk-body">{{ documentsEmpty }}</p>
+      {% endif %}
+    {% endif %}
 
     {#
       The direction already recorded, which is how a judge re-reads a referral they have decided. Absent until
@@ -161,23 +139,6 @@
       }) }}
     {% endif %}
 
-    {#
-      The application's timeline, read-only. A list rather than a table: each entry is a paragraph of prose with
-      an attribution, which is not a row of comparable cells.
-    #}
-    <h2 class="govuk-heading-m">{{ timelineHeading }}</h2>
-    {% if referral.caseNotes.length %}
-      <ul class="govuk-list">
-        {% for note in referral.caseNotes %}
-          <li class="govuk-!-margin-bottom-4">
-            <p class="govuk-body govuk-!-margin-bottom-1">{{ note.note }}</p>
-            <p class="govuk-caption-m">{{ note.createdBy }}, {{ note.createdOn }}</p>
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <p class="govuk-body">{{ timelineEmpty }}</p>
-    {% endif %}
 
     {#
       `preventDoubleClick` because the second of two rapid clicks is what the judge is left looking at: api records

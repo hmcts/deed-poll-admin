@@ -1,17 +1,16 @@
 /**
- * One referral as the judge who may see it reads it: the referral, the narrow application view, and the
- * application's timeline.
+ * One referral as the Master who may see it reads it: the referral and the narrow application view, with no case
+ * notes (Master Sullivan's feedback, 2026-10-27).
  *
- * **One call, and no second one is available even in principle.** api answers all three panels in one payload
- * (`JudicialReferralDetail` carries `application` and `caseNotes`), so re-reading either would be a round trip
+ * **One call, and no second one is available even in principle.** api answers the page in one payload
+ * (`JudicialReferralDetail` carries `application`), so re-reading it would be a round trip
  * for an answer already held — and there is no judicial route to read them from. There is also no case id to
  * read one with: api keys the whole judicial surface on the referral (`referrals-api-3` decision 2), so this
  * page cannot fetch the case even if a future field made it look worth doing.
  *
- * **It renders exactly what api sent.** The application is `JudicialApplicationView` — the case's details,
- * witnesses and documents — and the disclosure boundary that keeps payment and refund data off this screen is
- * api's own, not a filter here (api#118, decisions of 2026-10-19). Nothing is added, nothing is enriched, and the
- * application and its notes are read-only.
+ * **It renders exactly what api sent.** The application is `JudicialApplicationView` — the names, type, nationality, a
+ * minor's parents and the documents — and the disclosure boundary is api's own, not a filter here (narrowed in api
+ * on 2026-10-27). Nothing is added, nothing is enriched, and the application is read-only.
  *
  * **A 404 is "no longer available" and never "somebody else has it."** api's visibility answers 404
  * identically for a referral that was withdrawn, closed, claimed by another judge, or never existed
@@ -67,12 +66,6 @@ const en = {
   // expects, so it says what is true — the details were not sent — instead of showing a column of
   // placeholders, which would read as an application whose applicant has no name.
   applicationMissing: "The application details were not returned with this referral.",
-  witnessesHeading: "Witnesses",
-  witnessNameLabel: "Name",
-  witnessAddressLabel: "Address",
-  witnessOccupationLabel: "Occupation",
-  witnessDeclarantLabel: "Declarant",
-  witnessesEmpty: "No witnesses have been added to this application.",
   documentsHeading: "Supporting documents",
   documentNameColumn: "Document",
   documentTypeColumn: "Type",
@@ -81,14 +74,12 @@ const en = {
   // Said rather than an empty table: a table with a header row and no body reads as documents that failed to load.
   documentsEmpty: "No documents have been added to this application.",
   // The caseworker Referrals panel's heading for the same populated-only snapshot.
-  previousReferralHeading: "Previous system referral information",
   referralHeading: "Referral",
   stateLabel: "Status",
   reasonsLabel: "Reasons for referral",
   notesLabel: "Notes from the court",
   urgencyLabel: "Urgency",
   urgencyReasonLabel: "Reason for urgency",
-  waitingLabel: "Waiting since",
   claimedLabel: "Claimed",
   noneRecorded: "None recorded.",
   directionHeading: "Direction recorded",
@@ -101,10 +92,6 @@ const en = {
   // The third state of api's nullish `publishToGazette`, said rather than collapsed into "No": a direction it
   // recorded no answer for must not read as one directed against publication.
   gazetteNotRecorded: "Not recorded",
-  timelineHeading: "Case notes",
-  // The timeline is the office's record of the application, read-only here. Said rather than left blank,
-  // because an application with no notes and a notes panel that failed to arrive must not look alike.
-  timelineEmpty: "There are no notes on this application.",
   claim: "Claim this referral",
   // States what claiming commits the judge to, because it takes the referral out of a shared pool: the next
   // judge to look will not see it.

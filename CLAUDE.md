@@ -261,12 +261,18 @@ single file:
   bounce to the list would tell a judge somebody else has work that is in fact theirs. The pool therefore carries
   one refusal, not two. A caseworker's 409s are a different thing entirely (two caseworkers racing), which is why
   `referrals/new.ts` re-renders at 409 instead.
-- **Judges see the full application and its documents (business decision, 2026-10-19).** This replaces the
-  eight-field view of 2026-09-17. `application` on `GET /judicial/referrals/{id}` is api's `JudicialApplicationView`:
-  the details, witnesses and attached documents, with no payment, refund or fee data, and private cases in full.
-  `libs/deed-poll/src/judicial/view.ts` builds the read-only "Application" section from that type alone, listing its
-  fields in `APPLICATION_SECTIONS` and borrowing only labels and formatting from the caseworker metadata. Do not
-  import the caseworker view model: the judge's page must not grow a field because the caseworker's did. Documents
+- **Masters see only the fields they asked for (Master Sullivan's feedback, Steve, 2026-10-27).** This narrowed the
+  whole-application view of 2026-10-19, and Steve chose to narrow api's data too (api#153), not only this page.
+  `application` on `GET /judicial/referrals/{id}` is api's `JudicialApplicationView`: the reference (for captions), the
+  new and old names, type, nationality and section, `parents` (sent only for a minor's application) and the readable
+  documents. No witnesses, contact details, privacy, dates or previous-system fields, and **no `caseNotes`** on the
+  referral. The page reads top to bottom **General** (the eleven fields in `APPLICATION_SECTIONS`' order, "Minor’s
+  parents’ names" last and only on a minor's application), **Referral** (no "Waiting since") and **Supporting
+  documents**, then any recorded direction and the controls. `libs/deed-poll/src/judicial/view.ts` builds it from that
+  type alone, borrowing formatting and most labels from the caseworker metadata (`MASTER_LABELS` holds the Masters'
+  own). Do not import the caseworker view model: the Master's page must not grow a field because the caseworker's
+  did. **Deploy order:** this admin page before api#153, because the old admin pinned `witnesses` and `caseNotes` as
+  required and refuses the narrowed answer. Documents
   open in the shared viewer (see "Document viewer" below); the original download, and the legacy
   `src/pages/judicial/referrals/[referralId]/documents/[documentId]/file.ts`, share
   `src/document-response.ts` with the caseworker route. Who may open one is api's visibility: any judge on `Open`,

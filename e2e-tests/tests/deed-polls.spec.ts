@@ -708,12 +708,11 @@ test("caseworker actions a returned direction, and the returned-direction count 
   await expect(page.getByRole("button", { name: "Withdraw this referral" })).toHaveCount(0);
   await expectNoAccessibilityViolations(page);
 
-  // 6a. **The judge's half of the same timeline, read before the closure because that is the only window it
-  // exists in**: api answers the judicial surface 404 for a `Closed` referral, so a judge who came to it
-  // afterwards would see nothing at all. Three notes there and four here (the closure is the caseworker's), which
-  // is the asymmetry `referrals-admin-5` decision 1 rests on — the judge reads the same rows through
-  // `caseNotes` with no filter by origin or author.
-  await expectJudgeReadsLifecycleNotes(browser, referralId, directionOnlyFragment);
+  // 6a. **The Master's view of the same referral, read before the closure because that is the only window it
+  // exists in**: api answers the judicial surface 404 for a `Closed` referral. The lifecycle notes above are the
+  // office's alone since 2026-10-27 — the Master asked for case notes to leave their screen — so theirs carries the
+  // direction and none of them.
+  await expectMasterSeesDirectionWithoutNotes(browser, referralId, directionOnlyFragment);
 
   // 7. The confirmation, which is the one thing this journey adds that the withdrawal has no equivalent of: the
   // three assertions being made are on the page, above the direction they are about.
@@ -1966,63 +1965,34 @@ async function expectNotesWelshKeysResolve(browser: Browser, caseUrl: string): P
 }
 
 /**
- * The judge's view of a case's timeline, on the referral they decided.
+ * The Master's view of the referral they decided: the direction, and no case notes.
  *
  * **A context restoring `JUDGE_STORAGE_STATE` rather than a sign-in**, which is safe here and only here: this
- * reads and never asks for `?lng=cy`, so it writes nothing to the session `judicial.spec.ts` shares. A Welsh
- * check on this page would need a login of its own, and belongs in that file beside the pool's.
+ * reads and never asks for `?lng=cy`, so it writes nothing to the session `judicial.spec.ts` shares.
  *
- * **Three notes and not four**: the closure has not happened yet, and cannot have — api answers 404 on this
- * surface once it has, which is why the caller reads this before the closure rather than after it.
- *
- * `directionOnlyFragment` is a phrase from the direction's own text that no note should carry. The full direction
- * *is* on this page, in the section above the timeline, so the absence is asserted inside the note and not on the
- * page: that is the whole distinction the composer draws.
+ * api still writes a note at each transition — the caseworker's timeline above reads them — but the judicial
+ * projection carries none since 2026-10-27, so neither the heading nor any note's wording reaches this page.
+ * `directionOnlyFragment` is the direction's own text, which *is* here, in the direction section.
  */
-async function expectJudgeReadsLifecycleNotes(browser: Browser, referralId: string, directionOnlyFragment: string): Promise<void> {
+async function expectMasterSeesDirectionWithoutNotes(browser: Browser, referralId: string, directionOnlyFragment: string): Promise<void> {
   const context = await browser.newContext({ storageState: JUDGE_STORAGE_STATE });
 
   try {
     const page = await context.newPage();
     await page.goto(`/judicial/referrals/${referralId}`);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to a Master");
-    await expect(page.getByRole("heading", { name: "Case notes" })).toBeVisible();
-
-    // **Newest first, and this order is api's** — `caseNotes` comes off `NoteService.findNotes`, and
-    // `buildJudicialReferral` maps what it is given without sorting. The opposite end of the same asymmetry the
-    // caseworker's grid hides by sorting for itself.
-    const entries = judicialNotes(page);
-    await expect(entries).toHaveCount(3);
-    await expect(entries.nth(0)).toContainText("Master’s direction recorded for referral");
-    await expect(entries.nth(0)).toContainText("See the referral for the full direction.");
-    await expect(entries.nth(0)).not.toContainText(directionOnlyFragment);
-    await expect(entries.nth(0)).toContainText(JUDGE_EMAIL);
-    await expect(entries.nth(1)).toContainText("claimed by a Master.");
-    await expect(entries.nth(1)).toContainText(JUDGE_EMAIL);
-    // The caseworker's, unfiltered: a judge reads the office's own words about the referral they are answering,
-    // and the note names the reasons in api's members as every lifecycle note does.
-    await expect(entries.nth(2)).toContainText("Referred to a Master. Reasons: Minor.");
-    await expect(entries.nth(2)).toContainText(TEAM_LEADER_EMAIL);
-    // The full direction is still on the page the note points at — here, above the timeline.
     await expect(summaryRow(page, "Directions")).toContainText(directionOnlyFragment);
+
+    await expect(page.getByRole("heading", { name: "Case notes" })).toHaveCount(0);
+    const body = page.locator("body");
+    await expect(body).not.toContainText("Master’s direction recorded for referral");
+    await expect(body).not.toContainText("claimed by a Master.");
+    await expect(body).not.toContainText("Referred to a Master. Reasons:");
+    await expect(body).not.toContainText(TEAM_LEADER_EMAIL);
     await expectNoAccessibilityViolations(page);
   } finally {
     await context.close();
   }
-}
-
-/**
- * The read-only timeline's entries on a judicial referral — a `<ul>` of prose with an attribution rather than a
- * grid, so there are no rows to address.
- *
- * Filtered by the caption each entry carries, because `ul.govuk-list` also matches the reasons list inside the
- * summary above it and the page gives neither list a name or an id to reach for.
- */
-function judicialNotes(page: Page): Locator {
-  return page
-    .locator("ul.govuk-list")
-    .filter({ has: page.locator("p.govuk-caption-m") })
-    .locator("li");
 }
 
 function signatureRequested(page: Page): Locator {

@@ -2758,11 +2758,11 @@ function appendNote(record: MockCase, text: string, author: string): void {
  * A case's notes newest first — a sorted COPY, because the stored array is the chronology the case detail
  * publishes and reversing it in place would make one read's order depend on another having happened.
  *
- * **Two of the three note reads are newest-first and the third is not, which is api's shape rather than an
- * inconsistency here.** `GET …/notes` and a judge's `caseNotes` both come from
- * `NoteService.findNotes` — `findByDeedPollIdOrderByCreatedOnDesc` — while the `notes` on
- * `GET /caseworker/cases/{id}` come off the entity's `@OneToMany` with `@OrderBy("createdOn ASC")`, oldest
- * first. So `toDetail` deliberately does NOT call this: making all three newest-first would read as tidiness
+ * **One of the two note reads is newest-first and the other is not, which is api's shape rather than an
+ * inconsistency here.** `GET …/notes` comes from `NoteService.findNotes` — `findByDeedPollIdOrderByCreatedOnDesc` —
+ * while the `notes` on `GET /caseworker/cases/{id}` come off the entity's `@OneToMany` with
+ * `@OrderBy("createdOn ASC")`, oldest first. (A Master's referral carried a third, newest-first copy until
+ * 2026-10-27.) So `toDetail` deliberately does NOT call this: making both newest-first would read as tidiness
  * and be the drift this mock exists to prevent. (`referrals-admin-5`'s decision 2 asked for all three; api's
  * source says otherwise and api is the authority. The app's own grid sorts what it is given —
  * `buildNotesView` — so no page depends on either order.)
@@ -3141,12 +3141,12 @@ function toWireJudicialSummary(referral: MockReferral): unknown {
 }
 
 /**
- * One referral as the judge who may see it reads it: the referral, the application with its witnesses and
- * readable documents, and the application's timeline.
+ * One referral as the Master who may see it reads it: the referral and the application with its readable documents.
+ * No case notes since 2026-10-27 (Master Sullivan's feedback), as api.
  *
  * `application` is api's `JudicialApplicationView` written out field by field, and deliberately not a projection
- * of the case — no payment, refund or fee field, and no case id: api's own `NamespaceSeparationSecurityTest` asserts the two records are unrelated, because the
- * failure it guards against is a field added to the caseworker response silently appearing on a judge's screen.
+ * of the case: api's own `NamespaceSeparationSecurityTest` asserts the two records are unrelated, because the
+ * failure it guards against is a field added to the caseworker response silently appearing on a Master's screen.
  * Spreading the case here would be exactly that failure.
  */
 function toWireJudicialDetail(record: MockCase, referral: MockReferral): unknown {
@@ -3160,67 +3160,29 @@ function toWireJudicialDetail(record: MockCase, referral: MockReferral): unknown
     decisionDate: iso(referral.decisionDate),
     decidedBy: referral.decidedBy ?? null,
     directionChangedAt: iso(referral.directionChangedAt),
-    application: toWireJudicialApplication(record),
-    // The same timeline the caseworker surface publishes, narrowed to the three fields a judge is shown: no
-    // id, because no judicial route accepts one, and no amendment audit trail. Newest first, because api builds
-    // it from `NoteService.findNotes` — the same read `GET …/notes` uses, not the case detail's association.
-    caseNotes: newestFirst(record.notes).map((note) => ({ note: note.note, createdBy: note.createdBy ?? null, createdOn: iso(note.createdOn) }))
+    application: toWireJudicialApplication(record)
   };
 }
+
+/** The two case types api's `DeedPollValidation.isMinor` names: the only applications whose parents a Master sees. */
+const MINOR_TYPES: ReadonlySet<string> = new Set(["Minor", "MinorTransgender"]);
 
 function toWireJudicialApplication(record: MockCase): unknown {
   return {
     displayReference: record.displayReference ?? null,
-    type: record.type ?? null,
-    state: record.state,
-    privacy: record.privacy ?? null,
-    urgency: record.urgency ?? null,
-    urgencyreason: record.urgencyreason ?? null,
-    inPerson: record.inPerson ?? null,
-    maritalStatus: record.maritalStatus ?? null,
-    oldForename: record.oldForename ?? null,
-    oldMiddleName: record.oldMiddleName ?? null,
-    oldSurname: record.oldSurname ?? null,
     newForename: record.newForename ?? null,
     newMiddleName: record.newMiddleName ?? null,
     newSurname: record.newSurname ?? null,
-    applicantBuildingNoName: record.applicantBuildingNoName ?? null,
-    applicantEmail: record.applicantEmail ?? null,
-    applicantTelephone: record.applicantTelephone ?? null,
-    applicantTownCity: record.applicantTownCity ?? null,
-    applicantPostcode: record.applicantPostcode ?? null,
-    representativeName: record.representativeName ?? null,
-    representativeBuildingNoName: record.representativeBuildingNoName ?? null,
-    representativeCompany: record.representativeCompany ?? null,
-    representativeEmail: record.representativeEmail ?? null,
-    representativeTelephone: record.representativeTelephone ?? null,
-    representativeTownCity: record.representativeTownCity ?? null,
-    representativePostcode: record.representativePostcode ?? null,
-    ageOfMinor: record.ageOfMinor ?? null,
-    ageOfMinorMonths: record.ageOfMinorMonths ?? null,
-    minorDateOfBirth: iso(record.minorDateOfBirth),
-    parents: record.parents ?? null,
+    oldForename: record.oldForename ?? null,
+    oldMiddleName: record.oldMiddleName ?? null,
+    oldSurname: record.oldSurname ?? null,
+    type: record.type ?? null,
     nationality: record.nationality ?? null,
     nationalitySection: record.nationalitySection ?? null,
     nationalitySectionOther: record.nationalitySectionOther ?? null,
-    dateOfDeclaration: iso(record.dateOfDeclaration),
-    dateOfApplication: iso(record.dateOfApplication),
-    dateReceived: iso(record.dateReceived),
-    awaitingFurtherDocsInfo: iso(record.awaitingFurtherDocsInfo),
-    referToMasterChoice: record.referToMasterChoice ?? null,
-    masterName: record.masterName ?? null,
-    masterDirections: record.masterDirections ?? null,
-    masterDecision: record.masterDecision ?? null,
-    masterDateOfDecision: iso(record.masterDateOfDecision),
-    dateDecisionDirectionsReceived: iso(record.dateDecisionDirectionsReceived),
-    referralNotes: record.referralNotes ?? null,
-    witnesses: record.witnesses.map((witness) => ({
-      witnessName: witness.witnessName ?? null,
-      witnessAddress: witness.witnessAddress ?? null,
-      witnessOccupation: witness.witnessOccupation ?? null,
-      declarant: witness.declarant
-    })),
-    // Only documents with a file, as api lists only readable ones: every row a judge sees can be opened.
+    // api sends the parents only on a minor's application, whatever the row holds.
+    parents: record.type && MINOR_TYPES.has(record.type) ? (record.parents ?? null) : null,
+    // Only documents with a file, as api lists only readable ones: every row a Master sees can be opened.
     documents: record.documents
       .filter((document) => document.bytes.length > 0)
       .map((document) => ({

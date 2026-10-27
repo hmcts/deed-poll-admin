@@ -592,7 +592,7 @@ describe("openapi.json and the wire schemas", () => {
     const judicial = Object.entries(spec.components.schemas).filter(([name]) => name.startsWith("Judicial"));
 
     // Counted, so a judicial schema api adds is swept by the loop below rather than silently missed by it.
-    expect(judicial).toHaveLength(9);
+    expect(judicial).toHaveLength(7);
     for (const [name, schema] of judicial) {
       for (const property of Object.keys(schema.properties ?? {})) {
         expect(property, `${name}.${property}`).not.toMatch(/^(claimedById|decidedById|ownerId|subject|userId)$/);
@@ -600,16 +600,19 @@ describe("openapi.json and the wire schemas", () => {
     }
   });
 
-  it("should publish the judicial application view with no payment, refund, fee or case id", () => {
-    // api#118's decision: a judge sees the whole application except the money. The set comparison above would
-    // pass a field api added at both ends, so the exclusion is asserted by name against the document.
+  it("should publish the judicial application view with no payment, refund, fee, case id, contact or witness", () => {
+    // Narrowed in api on 2026-10-27 (Master Sullivan's feedback): a Master sees the names, type, nationality, a
+    // minor's parents and the documents. The set comparison above would pass a field api added at both ends, so the
+    // exclusions are asserted by name against the document.
     const view = Object.keys(spec.components.schemas.JudicialApplicationView.properties ?? {});
 
     for (const property of view) {
-      expect(property).not.toMatch(/^(id|caseId|referencenumber)$|fee|payment|refund|onlineApplicationReference/i);
+      expect(property).not.toMatch(
+        /^(id|caseId|referencenumber|witnesses|privacy|state)$|fee|payment|refund|onlineApplicationReference|applicant|representative/i
+      );
     }
     expect(spec.components.schemas.JudicialApplicationView.properties?.documents?.items?.$ref).toBe("#/components/schemas/JudicialDocument");
-    expect(spec.components.schemas.JudicialApplicationView.properties?.witnesses?.items?.$ref).toBe("#/components/schemas/JudicialWitness");
+    expect(spec.components.schemas.JudicialReferralDetail.properties).not.toHaveProperty("caseNotes");
   });
 
   it("should give the personal list the pool's envelope and the pool's row", () => {

@@ -1488,7 +1488,7 @@ describe("the judicial referral routes", () => {
     }
   });
 
-  it("should answer a referral with the application view and the timeline, and no payment, refund or fee field", async () => {
+  it("should answer a referral with the narrow application view, and no notes, contact, payment, refund or fee field", async () => {
     const seeded = mock.seed({
       displayReference: "KBDP2026-00001",
       type: "Adult",
@@ -1508,17 +1508,29 @@ describe("the judicial referral routes", () => {
 
     // Exactly api's `JudicialApplicationView`, so the wire schema parses it and nothing else rides along.
     expect(Object.keys(detail.application).sort()).toEqual(Object.keys(WIRE_SCHEMAS.JudicialApplicationView.shape).sort());
-    expect(detail.application).toMatchObject({ displayReference: "KBDP2026-00001", newForename: "Jo", privacy: "Private", applicantEmail: "jo@example.com" });
+    expect(detail.application).toMatchObject({ displayReference: "KBDP2026-00001", newForename: "Jo" });
     expect(WIRE_SCHEMAS.JudicialReferralDetail.safeParse(detail).success).toBe(true);
-    for (const leaked of ["FEE-1", "REF-1", "ONLINE-1"]) expect(JSON.stringify(detail)).not.toContain(leaked);
-    // Newest first, so the note the raise wrote leads and the caseworker's own follows — the timeline reaches a
-    // judge unfiltered, which is asserted properly in "the case notes a referral writes as it moves".
-    expect(detail.caseNotes).toEqual([
-      { note: expect.stringContaining("Referred to a Master"), createdBy: MOCK_CASEWORKER, createdOn: expect.any(String) },
-      { note: "Chased the declarant", createdBy: MOCK_CASEWORKER, createdOn: expect.any(String) }
-    ]);
+    for (const leaked of ["FEE-1", "REF-1", "ONLINE-1", "jo@example.com", "Private", "Chased the declarant"]) {
+      expect(JSON.stringify(detail)).not.toContain(leaked);
+    }
+    expect(detail).not.toHaveProperty("caseNotes");
     // No case id anywhere on the response: a judge must not be able to name an application.
     expect(JSON.stringify(detail)).not.toContain(seeded.id);
+  });
+
+  it.each([
+    ["Minor", "Jane and Paul Bloggs"],
+    ["MinorTransgender", "Jane and Paul Bloggs"],
+    ["Adult", null],
+    ["AdultTransgender", null],
+    ["DeedOfRelinquishment", null]
+  ] as const)("should send a %s application's parents as %s, as api's minor rule does", async (type, parents) => {
+    const seeded = mock.seed({ type, parents: "Jane and Paul Bloggs" });
+    const created = await (await post(`/caseworker/cases/${seeded.id}/referrals`, { reasons: ["Minor"] })).json();
+
+    const detail = await (await fetch(`${mock.url}/judicial/referrals/${created.id}`, { headers: as("judge@example.com") })).json();
+
+    expect(detail.application.parents).toBe(parents);
   });
 
   it("should claim a referral out of the pool, recording the holder from the token", async () => {
@@ -1731,13 +1743,14 @@ describe("changing and withdrawing a direction", () => {
   });
 });
 
-describe("a judge's view of the application's witnesses and documents", () => {
-  it("should list the witnesses without ids, and only the documents that have a file", async () => {
+describe("a Master's view of the application's documents", () => {
+  it("should list only the documents that have a file, and none of the witnesses", async () => {
     const { referralId, readable } = judicialCaseWithDocuments();
 
     const application = (await get(`/judicial/referrals/${referralId}`, as(JUDGE))).application;
 
-    expect(application.witnesses).toEqual([{ witnessName: "A Witness", witnessAddress: "1 Road", witnessOccupation: "Baker", declarant: true }]);
+    // The case has a witness; a Master is sent none (Master Sullivan's feedback, 2026-10-27).
+    expect(application).not.toHaveProperty("witnesses");
     expect(application.documents).toEqual([
       {
         id: readable,
@@ -2167,7 +2180,7 @@ describe("the case notes a referral writes as it moves", () => {
     expect(await notesOn(other.id)).toEqual([]);
   });
 
-  it("should show a judge the same generated events as the caseworker, and leave the stored order alone", async () => {
+  it("should write the generated events to the caseworker's timeline only, and leave the stored order alone", async () => {
     const { caseId, referralId } = await referredCase();
     await post(`/judicial/referrals/${referralId}/claim`, undefined, as(JUDGE));
 
@@ -2175,9 +2188,10 @@ describe("the case notes a referral writes as it moves", () => {
     const listed = await notesOn(caseId);
     const detail = await get(`/caseworker/cases/${caseId}`);
 
-    // No filter by origin, author or anything else on the judicial projection: a note a referral wrote reaches
-    // a judge by construction, which is what makes the two timelines one.
-    expect(judicial.caseNotes).toEqual(listed.map((note) => ({ note: note.note, createdBy: note.createdBy, createdOn: note.createdOn })));
+    // The raise and the claim each wrote a note, and a Master is sent neither: no timeline on the judicial
+    // projection since 2026-10-27.
+    expect(listed).toHaveLength(2);
+    expect(judicial).not.toHaveProperty("caseNotes");
     // The case detail publishes the stored array, which api orders ascending — the same notes the other way
     // round rather than a second timeline. Sorting in place would have made this the same order as above.
     expect(detail.notes.map((note: { note: string }) => note.note)).toEqual([...listed].reverse().map((note) => note.note));

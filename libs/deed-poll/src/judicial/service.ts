@@ -9,7 +9,7 @@
  * application, and resolves the case at its own end. So none of these takes a `deedPollId`, there is no
  * judicial equivalent of `findDeedPoll`, and a page that wanted one has nothing to call: the application a judge
  * sees arrives inside `getReferral` as `application`, a projection of its own (`JudicialApplicationView`: the
- * details, witnesses and attached documents, no payment or refund data) that is deliberately not a subset of the
+ * names, type, nationality, a minor's parents and the attached documents) that is deliberately not a subset of the
  * caseworker case — api's own architecture test asserts the two records are
  * unrelated, because the failure it guards against is a field added to the caseworker response appearing on a
  * judge's screen. Enriching this data with any other call would be that failure, reintroduced here.
@@ -103,12 +103,12 @@ export function listMyReferrals(paging: JudicialPoolQuery, caller: Caller): Prom
 }
 
 /**
- * One referral as the judge who may see it reads it: the referral, the narrow application view and the
- * application's timeline, in one call because they are one screen.
+ * One referral as the Master who may see it reads it: the referral and the narrow application view, in one call
+ * because they are one screen. No case notes since 2026-10-27.
  *
- * **One call and no second one is available even in principle.** `application` and `caseNotes` arrive on this
- * payload, so re-reading either would be a round trip for an answer already held — and there is no judicial
- * route to read them from anyway. The notes are read-only here: a judge's writes are exactly claim and direct.
+ * **One call and no second one is available even in principle.** `application` arrives on this payload, so
+ * re-reading it would be a round trip for an answer already held — and there is no judicial route to read it from
+ * anyway. A Master's writes are exactly claim and direct.
  */
 export function getReferral(referralId: string, caller: Caller): Promise<JudicialReferralDetail> {
   return callApi(caller, (config) => getJudicialReferral(referralId, config));

@@ -44,14 +44,12 @@ import {
   type WireGazetteSettings,
   type WireGazetteStatus,
   type WireJudicialApplicationView,
-  type WireJudicialCaseNote,
   type WireJudicialDirection,
   type WireJudicialDocument,
   type WireJudicialMyReferrals,
   type WireJudicialPool,
   type WireJudicialReferralDetail,
   type WireJudicialReferralSummary,
-  type WireJudicialWitness,
   type WireNote,
   type WirePreviewGazette,
   type WireProcessSettings,
@@ -1503,9 +1501,7 @@ export type JudicialMyReferrals = WireJudicialMyReferrals;
 export type JudicialReferralSummary = WireJudicialReferralSummary;
 export type JudicialReferralDetail = WireJudicialReferralDetail;
 export type JudicialApplicationView = WireJudicialApplicationView;
-export type JudicialWitness = WireJudicialWitness;
 export type JudicialDocument = WireJudicialDocument;
-export type JudicialCaseNote = WireJudicialCaseNote;
 export type JudicialDirection = WireJudicialDirection;
 /**
  * The email types, which are one payload's parts rather than five endpoints' worth: `CaseEmails` is what the tab
