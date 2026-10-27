@@ -74,14 +74,18 @@ describe("Gazette recipient email contract", () => {
     if (!actual.success && !expected.success) expect(actual.error.issues).toEqual(expected.error.issues);
   });
 
-  it("should agree with the published pattern on every UTF-16 code unit inside each address part", () => {
-    for (let code = 0; code <= 0xffff; code++) {
-      const character = String.fromCharCode(code);
-      for (const recipientEmail of [`a${character}b@c.d`, `a@b${character}c.d`]) {
-        expect(schema.safeParse({ recipientEmail, revision: 0 }).success, JSON.stringify(recipientEmail)).toBe(publishedPattern.test(recipientEmail));
+  // Keep the exhaustive corpus, but bound each case's work under coverage on a shared CI worker.
+  it.each(Array.from({ length: 16 }, (_, block) => [block * 0x1000, (block + 1) * 0x1000 - 1]))(
+    "should agree with the published pattern on UTF-16 code units %i to %i inside each address part",
+    (first, last) => {
+      for (let code = first; code <= last; code++) {
+        const character = String.fromCharCode(code);
+        for (const recipientEmail of [`a${character}b@c.d`, `a@b${character}c.d`]) {
+          expect(schema.safeParse({ recipientEmail, revision: 0 }).success, JSON.stringify(recipientEmail)).toBe(publishedPattern.test(recipientEmail));
+        }
       }
     }
-  }, 15_000);
+  );
 
   it("should preserve parsing and complete errors for a deterministic corpus of near-valid addresses", () => {
     let state = 20261024;
