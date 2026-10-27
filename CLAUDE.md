@@ -301,7 +301,9 @@ single file:
   refuses one without it (addressed to `reasons`, because the revealed group is hidden then) and refuses both halves
   of a consent pair. api accepts `Minor` alone for one release, so this form is the only place the "at least one"
   rule holds until api's contract step. Every page reads reasons through `referralReasonLabels`, which folds the
-  details into "Applicant is a minor: Transgender, Have parental consent". Case notes still print api's raw names.
+  details into "Applicant is a minor: Transgender, Have parental consent". Since api#155 the case notes api writes use
+  the same words (its `ReferralReason.label()`, semicolons between reasons), and the mock's `REASON_NOTE_LABEL`
+  restates them; change a label here, in api and in the mock together. Older notes keep api's raw names.
 - **The judge who gave a direction can change or withdraw it until the office closes the referral.** On a
   `Decided` referral (api shows it only to its director) the page links to `direction?change=1`, which reuses the
   direction form and check page, prefilled and worded as a change, and calls `reviseDirection` (`PUT`). It also

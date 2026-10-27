@@ -483,10 +483,10 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   // a case may carry several over its life and "referral withdrawn" in a grid of thirty notes does not say which.
   const noteRows = notes.locator("tbody tr");
   await expect(noteRows.nth(0)).toContainText("Referral to a Master withdrawn. It was raised on");
-  await expect(noteRows.nth(0)).toContainText("reasons: Minor, MinorTransgender, MinorParentalConsent, Other.");
+  await expect(noteRows.nth(0)).toContainText("reasons: Applicant is a minor: Transgender, Have parental consent; Other.");
   // The reasons are api's stored members here rather than the caseworker's labels — the prose is api's
   // (`ReferralNotes`), so "Minor" and not "Applicant is a minor". Reworded there, not here.
-  await expect(noteRows.nth(1)).toContainText("Referred to a Master. Reasons: Minor, MinorTransgender, MinorParentalConsent, Other.");
+  await expect(noteRows.nth(1)).toContainText("Referred to a Master. Reasons: Applicant is a minor: Transgender, Have parental consent; Other.");
   await expect(noteRows.nth(1)).toContainText("Notes: The declarant is abroad until June.");
   // The value left inside the closed urgency reveal reached neither the referral nor its note: the same
   // assertion as "Not provided" above, one layer further on, and the note is where a discarded answer would
@@ -808,7 +808,7 @@ test("caseworker actions a returned direction, and the returned-direction count 
   await expect(noteRows.nth(1)).toContainText(JUDGE_EMAIL);
   await expect(noteRows.nth(2)).toContainText("claimed by a Master.");
   await expect(noteRows.nth(2)).toContainText(JUDGE_EMAIL);
-  await expect(noteRows.nth(3)).toContainText("Referred to a Master. Reasons: Minor, MinorCourtOrder.");
+  await expect(noteRows.nth(3)).toContainText("Referred to a Master. Reasons: Applicant is a minor: Court Order.");
   await expect(noteRows.nth(3)).toContainText(TEAM_LEADER_EMAIL);
 
   // **The direction is summarised in the note and kept whole on the referral**, which is the pair that makes the
