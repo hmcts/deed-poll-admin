@@ -351,5 +351,20 @@ IDAM on 5556 seeded with `yarn idam:users`): 9 passed, the new journey included.
 **Files:** `CLAUDE.md` (capability table, a short "Delivery Manager settings" section: the area gate, two forms and
 two revisions, the Gazette section's second capability, the redirect), `README.md` if it lists pages.
 
-- [ ] Update the docs.
-- [ ] Run all Validation Commands one final time, with `yarn build --force` as well, so nothing is cached. Record which turbo tasks were cached and which executed, and the per-package counts against the baseline. Run `yarn format` before each commit. Confirm `git status` is clean apart from the task commits.
+- [x] Update the docs.
+- [x] Run all Validation Commands one final time, with `yarn build --force` as well, so nothing is cached. Record which turbo tasks were cached and which executed, and the per-package counts against the baseline. Run `yarn format` before each commit. Confirm `git status` is clean apart from the task commits.
+
+**Task 6 record (2026-10-27).** `CLAUDE.md`: the capability table gains a "Process settings" column (Delivery Manager
+only); a new "Delivery Manager settings" section covers the area gate and its filesystem test, the link appearing
+within one token lifetime, the two forms and revisions, the digits-only parser, the Gazette section's second
+capability, the per-environment XUI link and its `helm`-dependent render tests, and the pending Welsh; the Gazette
+paragraph now names the new section and the old address's redirect; `yarn test:gazette` is nine journeys.
+`README.md`: the Gazette paragraph points at the new section, a new paragraph describes the page and its deploy
+prerequisite, and the journey count is nine. Final validation: `yarn install --immutable` exit 0, `yarn format` no
+fixes, lint clean (593 files). `yarn build --force`: 8/8 tasks executed, 0 cached. Full suite with `--force`, 8/8
+executed, 0 cached: app 3,119 (baseline 3,042, +77), deed-poll 1,604 (1,552, +52), deed-poll-api-client 1,192
+(1,159, +33), express-govuk-starter 132, cloud-native-platform 156, express-session-postgres 85, simple-router 45,
+express-session-redis 7, all unchanged; 0 failed. The Redis suites ran. `yarn welsh:check`: 817 strings, 600
+identical (exit 1 by design). **`yarn npm audit` still fails** with `SELF_SIGNED_CERT_IN_CHAIN` in this environment,
+as in Tasks 4 and 5, and no dependency changed after Task 1, where it ran clean. `git status` clean apart from the
+task commits.
