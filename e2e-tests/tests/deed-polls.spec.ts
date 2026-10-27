@@ -1344,6 +1344,45 @@ test("caseworker searches the list by name, and is taken to the case when the te
  * No axe check here: `AxeBuilder` injects a script to run, so there is nothing for it to run in. The
  * accessibility of this same markup is checked by the journey above, which renders it from the server too.
  */
+/**
+ * The upload form's document type is a type-ahead, and the type submitted is the one on screen.
+ *
+ * The plain select underneath is still what is posted, so the journey ends where it always did: a document on the
+ * case under the chosen type. The middle step is the one the enhancement adds a rule for. A type picked and then
+ * typed over must not be sent, so the form is refused against the type field rather than filing the document under
+ * a type the caseworker could no longer see. The file input is never repopulated, so it is chosen again.
+ */
+test("caseworker finds a document type by typing part of its name, and files the document under it", async ({ page, request }) => {
+  const seeded = await seedCaseToAction(request);
+  const file = { name: "passport.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n%%EOF\n") };
+  const documentType = page.getByRole("combobox", { name: "Document type" });
+
+  await page.goto(`/deed-polls/${seeded.id}/documents/upload`);
+
+  await documentType.fill("birth");
+  await page.getByRole("option", { name: "Birth certificate" }).click();
+  await expect(documentType).toHaveValue("Birth certificate");
+  await documentType.fill("Not a type");
+  await page.getByLabel("Choose a file").setInputFiles(file);
+  await page.getByRole("button", { name: "Upload" }).click();
+
+  await expect(page.locator(".govuk-error-summary")).toBeVisible();
+  await expect(page.locator("#documentTypeId-error")).toBeVisible();
+  await expectNoAccessibilityViolations(page);
+
+  await documentType.fill("pass");
+  await expect(page.getByRole("option")).toHaveText(["Passport"]);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(documentType).toHaveValue("Passport");
+  await page.getByLabel("Choose a file").setInputFiles(file);
+  await page.getByRole("button", { name: "Upload" }).click();
+
+  await expect(page).toHaveURL(`/deed-polls/${seeded.id}#documents`);
+  await expect(page.locator("#documents")).toContainText("passport.pdf");
+  await expect(page.locator("#documents")).toContainText("Passport");
+});
+
 test.describe("with JavaScript disabled", () => {
   test.use({ javaScriptEnabled: false });
 

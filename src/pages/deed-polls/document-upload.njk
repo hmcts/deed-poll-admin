@@ -15,6 +15,9 @@
   The file input is never repopulated on a re-render — browsers do not allow it — so a rejected upload
   always costs the file selection. The type, name and direction choices are replayed, which is what a
   redirect with `?error=` could not do.
+
+  The type select is enhanced into a type-ahead by `src/assets/js/document-type-autocomplete.ts`; it stays the
+  submitted control, so with no script this is the page as it always was.
 #}
 {% block content %}
 <div class="govuk-grid-row">
@@ -49,6 +52,7 @@
           label: { text: typeLabel },
           items: documentTypes,
           value: values.documentTypeId,
+          attributes: { "data-module": "app-document-type-autocomplete" },
           errorMessage: { text: errorMessage } if errorField == "documentTypeId"
         }) }}
 

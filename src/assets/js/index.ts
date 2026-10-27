@@ -1,5 +1,6 @@
 import cookieManager from "@hmcts/cookie-manager";
 import { initAll } from "govuk-frontend";
+import { initDocumentTypeAutocomplete } from "./document-type-autocomplete.js";
 import { initQueryBuilder } from "./query-builder.js";
 import { initSessionTimeout } from "./session-timeout.js";
 
@@ -13,6 +14,10 @@ initAll();
 // After `initAll`, because the controls it swaps in are built to match components that have already
 // initialised. A no-op on every page but the case list.
 initQueryBuilder();
+
+// The upload form's document-type type-ahead, through this bundle for the query builder's reason, and after `initAll`
+// for the same one. A no-op on every page but the upload form.
+initDocumentTypeAutocomplete();
 
 // The session timeout warning. A no-op on pages without a signed-in session, which carry no dialog.
 initSessionTimeout();
