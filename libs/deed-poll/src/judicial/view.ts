@@ -9,8 +9,8 @@
  * added to one of them and not noticed on the other.
  *
  * **Nothing here enriches, filters or re-orders.** api sends the judge's own application projection
- * (`JudicialApplicationView`: the application's details, witnesses and attached documents, with no payment,
- * refund or fee data — the 2026-10-19 decisions that replaced the eight-field view) and a pool already ordered
+ * (`JudicialApplicationView`: the names, type, nationality, a minor's parents and the attached documents — narrowed
+ * in api on 2026-10-27 from the 2026-10-19 whole-application view) and a pool already ordered
  * urgent-first then longest-waiting. So this file formats exactly what arrived: no second call, no local sort,
  * no field the DTO does not carry. Private cases arrive in full because api decided they should; the disclosure
  * boundary is api's rather than this app's, and a client filter would be a second opinion about a question api's
@@ -24,11 +24,9 @@
  */
 import {
   type JudicialApplicationView,
-  type JudicialCaseNote,
   type JudicialDocument,
   type JudicialReferralDetail,
   type JudicialReferralSummary,
-  type JudicialWitness,
   MASTER_DECISION
 } from "@hmcts/deed-poll-api-client";
 import { formatTimestamp, NOT_RECORDED } from "../deed-poll/case-header.js";
@@ -37,59 +35,41 @@ import { formatValue, NOT_PROVIDED } from "../deed-poll/detail-view.js";
 import { MASTER_DECISION_LABEL } from "../deed-poll/enums/dynamics-values.js";
 import type { MasterDecision } from "../deed-poll/enums/option-sets.js";
 import { FIELD_BY_NAME, type FieldDef } from "../deed-poll/form-fields.js";
-import { buildLegacyReferralView, type LegacyReferralView } from "../referrals/legacy-referral-view.js";
 import { REFERRAL_STATE_TAG, REFERRAL_URGENCY_LABEL, referralReasonLabel } from "../referrals/referrals-view.js";
 
 /**
- * The application's case fields, grouped under the caseworker detail page's section names and in its order.
+ * The application's case fields a Master sees, in the order the Masters asked for them (Master Sullivan's feedback,
+ * Steve, 2026-10-27): one "General" group, names first.
  *
  * **Typed on `JudicialApplicationView` and listed here, never derived from `FORM_TABS`**, so the judicial page
  * cannot grow a field because the caseworker one did: a name api's judicial view does not carry is a compile
- * error. Only the labels and the formatting come from the caseworker's metadata (`FIELD_BY_NAME`, `formatValue`),
- * so one value reads the same on both pages. The seven previous-system referral fields are not here: they are a
- * populated-only snapshot, as on the caseworker's Referrals panel — see `buildLegacyReferralView`.
+ * error. Only the formatting comes from the caseworker's metadata (`FIELD_BY_NAME`, `formatValue`), and the labels
+ * too except where the Masters asked for their own (`MASTER_LABELS`).
  */
 const APPLICATION_SECTIONS: { label: string; fields: ApplicationField[] }[] = [
   {
     label: "General",
     fields: [
-      "displayReference",
-      "dateOfApplication",
-      "inPerson",
-      "dateReceived",
+      "newForename",
+      "newMiddleName",
+      "newSurname",
+      "oldForename",
+      "oldMiddleName",
+      "oldSurname",
       "type",
-      "maritalStatus",
-      "minorDateOfBirth",
-      "ageOfMinor",
-      "ageOfMinorMonths",
-      "parents",
-      "privacy",
-      "state",
-      "urgency",
-      "urgencyreason",
-      "awaitingFurtherDocsInfo"
+      "nationality",
+      "nationalitySection",
+      "nationalitySectionOther",
+      "parents"
     ]
-  },
-  { label: "Names", fields: ["newForename", "newMiddleName", "newSurname", "oldForename", "oldMiddleName", "oldSurname"] },
-  {
-    label: "Applicant address and contact details",
-    fields: ["applicantBuildingNoName", "applicantTownCity", "applicantPostcode", "applicantEmail", "applicantTelephone"]
-  },
-  {
-    label: "Representative address and contact details",
-    fields: [
-      "representativeName",
-      "representativeCompany",
-      "representativeEmail",
-      "representativeTelephone",
-      "representativeBuildingNoName",
-      "representativeTownCity",
-      "representativePostcode"
-    ]
-  },
-  { label: "Nationality", fields: ["nationality", "nationalitySection", "nationalitySectionOther"] },
-  { label: "Declarations", fields: ["dateOfDeclaration"] }
+  }
 ];
+
+/**
+ * Labels the Masters asked for in their own words. `parents` is shown only on a minor's application (the caseworker
+ * field rules hide it on every other type, and api sends it only for a minor), so it says whose parents they are.
+ */
+const MASTER_LABELS: Partial<Record<ApplicationField, string>> = { parents: "Minor’s parents’ names" };
 
 /** A document's upload date is a date, as the caseworker's "Added" column is, and not a timestamp. */
 const UPLOADED_FIELD: FieldDef = { name: "uploadedOn", label: "Uploaded", kind: "date" };
@@ -185,7 +165,8 @@ export function buildMyReferralRows(referrals: JudicialReferralSummary[]): MyRef
 }
 
 /**
- * One referral, its application and its timeline — one payload, one screen.
+ * One referral and its application — one payload, one screen. No timeline since 2026-10-27: the Masters asked not to
+ * see the case notes, and api no longer sends them.
  *
  * **`claimable`, `directable` and `changeable` govern which control is offered and nothing else.** api re-checks
  * each and answers 409, so these are the cases a judge can see are pointless before the click; every other outcome
@@ -220,30 +201,26 @@ export function buildJudicialReferral(detail: JudicialReferralDetail): JudicialR
     urgency: detail.urgency ? REFERRAL_URGENCY_LABEL[detail.urgency] : NOT_PROVIDED,
     isUrgent: detail.urgency === "Urgent",
     urgencyReason: orPlaceholder(detail.urgencyReason),
-    waitingSince: formatTimestamp(detail.createdOn),
     claimedOn: detail.claimedAt === null || detail.claimedAt === undefined ? null : formatTimestamp(detail.claimedAt),
     claimable: detail.state === "Open",
     directable: detail.state === "Claimed",
     changeable: detail.state === "Decided",
     isOnMyList: isMyListState(detail.state),
     application: buildApplicationView(detail.application),
-    caseNotes: (detail.caseNotes ?? []).map(buildNoteRow),
     direction: buildDirectionView(detail)
   };
 }
 
 /**
- * The application as a judge reads it: its case fields in the caseworker page's groups, its witnesses, its
- * documents and the previous system's referral record.
+ * The application as a Master reads it: the General fields in `APPLICATION_SECTIONS`' order, and its documents.
  *
- * **What a judge may see is api's decision, not a filter here.** `JudicialApplicationView` carries no payment,
- * refund or fee field and no case id (api#118, confirmed 2026-10-19), so there is nothing to withhold and nothing
- * withheld — a private case renders in full. Every field is listed in `APPLICATION_SECTIONS`, which is the one
- * edit a field api adds to the view needs.
+ * **What a Master may see is api's decision, not a filter here.** `JudicialApplicationView` carries only those
+ * fields (narrowed in api on 2026-10-27), so there is nothing to withhold and nothing withheld.
  *
  * Rows the application's type does not use are dropped by the same `getFieldRules` matrix the caseworker forms
- * apply, so an adult's application has no minor rows; an empty value keeps its row as "Not provided", which is
- * the caseworker detail card's rule too.
+ * apply, which is what keeps "Minor's parents' names" off an adult's application, and the old names and nationality
+ * off a relinquishment; an empty value keeps its row as "Not provided", which is the caseworker detail card's rule
+ * too.
  *
  * `null` when api sent no application at all. A referral is always about one, so this is a shape the type
  * permits rather than a state anyone expects — and the page says so instead of rendering a column of
@@ -257,25 +234,16 @@ function buildApplicationView(application: JudicialApplicationView | null | unde
     label: section.label,
     rows: section.fields
       .filter((name) => rules[name]?.visible !== false)
-      .map((name) => ({ key: FIELD_BY_NAME[name].label, value: formatValue(FIELD_BY_NAME[name], application[name]) }))
+      .map((name) => ({
+        key: MASTER_LABELS[name] ?? FIELD_BY_NAME[name].label,
+        value: formatValue(FIELD_BY_NAME[name], application[name])
+      }))
   }));
 
   return {
     reference: orPlaceholder(application.displayReference, NOT_RECORDED),
     sections,
-    witnesses: application.witnesses.map(buildWitnessRow),
-    documents: application.documents.map(buildDocumentRow),
-    previousReferral: buildLegacyReferralView(application)
-  };
-}
-
-/** One witness, read-only. api's judicial witness has no id, so there is nothing to link to. */
-function buildWitnessRow(witness: JudicialWitness): JudicialWitnessRow {
-  return {
-    name: orPlaceholder(witness.witnessName),
-    address: orPlaceholder(witness.witnessAddress),
-    occupation: orPlaceholder(witness.witnessOccupation),
-    declarant: witness.declarant
+    documents: application.documents.map(buildDocumentRow)
   };
 }
 
@@ -302,24 +270,6 @@ function formatSize(sizeBytes: number | null | undefined): string {
   if (sizeBytes < MEGABYTE) return `${Math.round(sizeBytes / KILOBYTE)} KB`;
 
   return `${(sizeBytes / MEGABYTE).toFixed(1)} MB`;
-}
-
-/**
- * One note from the application's timeline, read-only.
- *
- * Narrower than the caseworker's note row and without its short code, because no judicial route takes a note
- * id: there is nothing to link to, and a judge authors no note directly — api's judicial writes are exactly
- * claim and direct. **They do reach this timeline, though**: since api's lifecycle notes a claim and a
- * direction each append a note credited to the judge who made it (`ReferralNotes`), so a judge's own name
- * appears on rows here — read-only like every other row, and with no control to amend one.
- * An unattributed note still renders; the author placeholder says which of the two is missing.
- */
-function buildNoteRow(note: JudicialCaseNote): JudicialNoteRow {
-  return {
-    note: note.note,
-    createdBy: orPlaceholder(note.createdBy, NOT_RECORDED),
-    createdOn: formatTimestamp(note.createdOn)
-  };
 }
 
 /**
@@ -418,24 +368,13 @@ export interface ApplicationView {
   /** For the page's caption, and the direction pages'. */
   reference: string;
   sections: ApplicationSection[];
-  witnesses: JudicialWitnessRow[];
   documents: JudicialDocumentRow[];
-  /** The previous system's referral record, or `null` when it holds nothing. */
-  previousReferral: LegacyReferralView | null;
 }
 
 /** One group of case fields, under the caseworker detail page's section name. */
 export interface ApplicationSection {
   label: string;
   rows: { key: string; value: string }[];
-}
-
-/** One witness. `declarant` stays a boolean so the page's own `en`/`cy` owns "Yes" and "No". */
-export interface JudicialWitnessRow {
-  name: string;
-  address: string;
-  occupation: string;
-  declarant: boolean;
 }
 
 /** One document. `id` is for the download link the page builds. */
@@ -447,13 +386,6 @@ export interface JudicialDocumentRow {
   size: string;
 }
 
-/** One note from the application's timeline, as a judge reads it: no id, no amend link. */
-export interface JudicialNoteRow {
-  note: string;
-  createdBy: string;
-  createdOn: string;
-}
-
 /** The direction recorded on a referral. `publishToGazette` is a boolean — see `buildDirectionView`. */
 export interface DirectionView {
   decision: string;
@@ -462,18 +394,17 @@ export interface DirectionView {
   decidedOn: string;
 }
 
-/** One referral as the judicial screens render it: the referral, its application, and its timeline. */
+/** One referral as the judicial screens render it: the referral and its application. */
 export interface JudicialReferralView {
   id: string;
   state: string;
   stateTagClasses: string;
   reasons: string[];
-  /** The referral's own free text — not the application's timeline, which is `caseNotes`. */
+  /** The referral's own free text for the Master — not the application's case notes, which a Master is not shown. */
   notes: string;
   urgency: string;
   isUrgent: boolean;
   urgencyReason: string;
-  waitingSince: string;
   /** When this judge picked it up, or `null` while it is still in the pool. */
   claimedOn: string | null;
   /** `Open`, so the claim control is offered. api re-checks and 409s regardless. */
@@ -489,11 +420,9 @@ export interface JudicialReferralView {
   isOnMyList: boolean;
   /** `null` only when api sent no application, which is a shape its type permits rather than a real state. */
   application: ApplicationView | null;
-  /** Read-only. A judge's writes are claim and direct; there is no add-note control on these screens. */
-  caseNotes: JudicialNoteRow[];
   /** The direction already recorded, or `null` for a referral still awaiting one. */
   direction: DirectionView | null;
 }
 
-/** A case field `JudicialApplicationView` carries — every property but the two collections. */
-type ApplicationField = Exclude<keyof JudicialApplicationView, "witnesses" | "documents">;
+/** A case field `JudicialApplicationView` carries — every property but the documents. */
+type ApplicationField = Exclude<keyof JudicialApplicationView, "documents">;

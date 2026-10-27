@@ -53,24 +53,19 @@ const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferr
     decidedBy: null,
     application: {
       displayReference: "KBDP2026-00001",
-      type: "Minor",
-      privacy: "Private",
-      oldForename: "John",
-      oldMiddleName: "Peter",
-      oldSurname: "Smith",
       newForename: "John",
       newMiddleName: "Peter",
       newSurname: "Smyth",
-      applicantTownCity: "Leeds",
-      representativeCompany: "Solicitors LLP",
+      oldForename: "John",
+      oldMiddleName: "Peter",
+      oldSurname: "Smith",
+      type: "Minor",
       nationality: "BritishCitizen",
-      dateOfDeclaration: new Date("2026-08-20T00:00:00Z"),
-      witnesses: [{ witnessName: "Mary Jones", witnessAddress: "1 High Street, Leeds", witnessOccupation: "Solicitor", declarant: true }],
+      parents: "Jane Smith and Paul Smith",
       documents: [
         { id: "doc-1", name: "birth-certificate.pdf", documentType: "Birth certificate", sizeBytes: 245_760, uploadedOn: new Date("2026-09-02T10:15:00Z") }
       ]
     },
-    caseNotes: [{ note: "Chased the declarant", createdBy: "A Caseworker", createdOn: new Date("2026-09-02T14:30:00Z") }],
     ...overrides
   }) as JudicialReferralDetail;
 
@@ -106,46 +101,31 @@ describe("judicial referral template", () => {
     expect(html).toMatch(/Old surname\s*<\/dt>\s*<dd[^>]*>\s*Smith/);
   });
 
-  // Decision 3: grouped and labelled like the caseworker detail page. The case is private, which changes nothing
-  // here — private cases show in full.
-  it("should render every group of the application's details, for a private case too", async () => {
+  // Master Sullivan's feedback (2026-10-27): General first, then the referral, then the supporting documents, and
+  // General holds the Masters' eleven fields in their order.
+  it("should show General, then the referral, then the supporting documents", async () => {
     const html = await render(detail());
 
-    for (const heading of [
-      "General",
-      "Names",
-      "Applicant address and contact details",
-      "Representative address and contact details",
-      "Nationality",
-      "Declarations"
-    ]) {
-      expect(html).toContain(`<h3 class="govuk-heading-s">${heading}</h3>`);
-    }
-    expect(html).toMatch(/Privacy\s*<\/dt>\s*<dd[^>]*>\s*Private/);
-    expect(html).toContain("Solicitors LLP");
+    const general = html.indexOf('<h3 class="govuk-heading-s">General</h3>');
+    const referral = html.indexOf('<h2 class="govuk-heading-m">Referral</h2>');
+    const documents = html.indexOf('<h2 class="govuk-heading-m" id="documents">Supporting documents</h2>');
+    expect(general).toBeGreaterThan(-1);
+    expect(referral).toBeGreaterThan(general);
+    expect(documents).toBeGreaterThan(referral);
+    expect(html).toMatch(/Minor’s parents’ names\s*<\/dt>\s*<dd[^>]*>\s*Jane Smith and Paul Smith/);
     expect(html).toContain("British Citizen");
-    expect(html).toContain("20 August 2026");
+  });
+
+  it("should show no witnesses, case notes, previous-system record or waiting time", async () => {
+    const html = await render(detail());
+
+    expect(html).not.toMatch(/Witnesses|Case notes|Previous system referral information|Waiting since/);
   });
 
   it("should show no payment, refund, fee or case-id label", async () => {
     const html = await render(detail());
 
     expect(html).not.toMatch(/payment|refund|fee reference|reference number|case id/i);
-  });
-
-  it("should list the application's witnesses", async () => {
-    const html = await render(detail());
-
-    expect(html).toContain("Witnesses");
-    expect(html).toContain("Mary Jones");
-    expect(html).toContain("1 High Street, Leeds");
-    expect(html).toMatch(/Declarant\s*<\/dt>\s*<dd[^>]*>\s*Yes/);
-  });
-
-  it("should say the application has no witnesses rather than rendering an empty list", async () => {
-    const html = await render(detail({ application: { ...detail().application, witnesses: [] } as JudicialReferralDetail["application"] }));
-
-    expect(html).toContain("No witnesses have been added to this application.");
   });
 
   // The href is the handler's, built with the path helpers (CLAUDE.md "Redirect paths"); the template only prints it.
@@ -162,7 +142,7 @@ describe("judicial referral template", () => {
   it("should mark the documents list as the viewer's way back", async () => {
     const html = await render(detail());
 
-    expect(html).toContain('<h3 class="govuk-heading-s" id="documents">');
+    expect(html).toContain('<h2 class="govuk-heading-m" id="documents">');
   });
 
   it("should say no documents have been added rather than rendering an empty table", async () => {
@@ -170,15 +150,6 @@ describe("judicial referral template", () => {
 
     expect(html).toContain("No documents have been added to this application");
     expect(html).not.toContain("govuk-table");
-  });
-
-  it("should show the previous system's referral record only when the application holds one", async () => {
-    const withRecord = await render(detail({ application: { ...detail().application, masterName: "Master Smith" } as JudicialReferralDetail["application"] }));
-    const without = await render(detail());
-
-    expect(withRecord).toContain("Previous system referral information");
-    expect(withRecord).toContain("Master Smith");
-    expect(without).not.toContain("Previous system referral information");
   });
 
   // Read-only: no edit, upload, delete or email control, and the claim is the page's only form.
@@ -201,13 +172,6 @@ describe("judicial referral template", () => {
 
     expect(html).toContain("govuk-tag--red");
     expect(html).toContain("Urgent");
-  });
-
-  it("should show the application's timeline with each note attributed", async () => {
-    const html = await render(detail());
-
-    expect(html).toContain("Chased the declarant");
-    expect(html).toContain("A Caseworker, 2 September 2026 at 3:30pm");
   });
 
   // A judge's writes are exactly claim and direct (api-3), so there is no note control to hide — and no link to
@@ -305,12 +269,6 @@ describe("judicial referral template", () => {
 
     expect(html).toContain("The application details were not returned with this referral");
     expect(html).not.toContain("Not provided");
-  });
-
-  it("should say the application has no notes rather than rendering an empty list", async () => {
-    const html = await render(detail({ caseNotes: [] }));
-
-    expect(html).toContain("There are no notes on this application");
   });
 
   it("should offer the way back to the pool from a referral still in it", async () => {

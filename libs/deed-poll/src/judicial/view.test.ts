@@ -33,63 +33,25 @@ const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferr
       newForename: "John",
       newMiddleName: "Peter",
       newSurname: "Smyth",
-      witnesses: [],
       documents: []
     },
-    caseNotes: [],
     ...overrides
   }) as JudicialReferralDetail;
 
-/** Every field `JudicialApplicationView` carries, populated — a minor's application, marked private. */
+/** Every field `JudicialApplicationView` carries, populated — a minor's application. */
 const FULL_APPLICATION: JudicialApplicationView = {
   displayReference: "KBDP2026-00001",
-  type: "Minor",
-  state: "ReferredToMaster",
-  privacy: "Private",
-  urgency: "Urgent",
-  urgencyreason: "Hearing on Friday",
-  inPerson: false,
-  maritalStatus: "Single",
-  oldForename: "John",
-  oldMiddleName: "Peter",
-  oldSurname: "Smith",
   newForename: "John",
   newMiddleName: "Peter",
   newSurname: "Smyth",
-  applicantBuildingNoName: "1",
-  applicantEmail: "applicant@example.com",
-  applicantTelephone: "01632 960001",
-  applicantTownCity: "Leeds",
-  applicantPostcode: "LS1 1AA",
-  representativeName: "A Solicitor",
-  representativeBuildingNoName: "2",
-  representativeCompany: "Solicitors LLP",
-  representativeEmail: "rep@example.com",
-  representativeTelephone: "01632 960002",
-  representativeTownCity: "York",
-  representativePostcode: "YO1 1AA",
-  ageOfMinor: 15,
-  ageOfMinorMonths: 6,
-  minorDateOfBirth: new Date("2011-03-14T00:00:00Z"),
-  parents: "Jane Smith and Paul Smith",
+  oldForename: "John",
+  oldMiddleName: "Peter",
+  oldSurname: "Smith",
+  type: "Minor",
   nationality: "BritishCitizen",
   nationalitySection: "Section1",
   nationalitySectionOther: null,
-  dateOfDeclaration: new Date("2026-08-20T00:00:00Z"),
-  dateOfApplication: new Date("2026-09-01T00:00:00Z"),
-  dateReceived: new Date("2026-09-02T00:00:00Z"),
-  awaitingFurtherDocsInfo: null,
-  referToMasterChoice: null,
-  masterName: null,
-  masterDirections: null,
-  masterDecision: null,
-  masterDateOfDecision: null,
-  dateDecisionDirectionsReceived: null,
-  referralNotes: null,
-  witnesses: [
-    { witnessName: "Mary Jones", witnessAddress: "1 High Street, Leeds", witnessOccupation: "Solicitor", declarant: true },
-    { witnessName: null, witnessAddress: null, witnessOccupation: null, declarant: false }
-  ],
+  parents: "Jane Smith and Paul Smith",
   documents: [
     {
       id: "doc-1",
@@ -252,78 +214,46 @@ describe("judicial/view", () => {
   });
 
   describe("buildJudicialReferral", () => {
-    it("should group the application's details under the caseworker detail page's section names", () => {
+    it("should show one General group, as the Masters asked", () => {
       const view = buildJudicialReferral(detail({ application: FULL_APPLICATION }));
 
-      expect(view.application?.sections.map((section) => section.label)).toEqual([
-        "General",
-        "Names",
-        "Applicant address and contact details",
-        "Representative address and contact details",
-        "Nationality",
-        "Declarations"
+      expect(view.application?.sections.map((section) => section.label)).toEqual(["General"]);
+    });
+
+    // Master Sullivan's feedback (2026-10-27): these eleven, in this order. The formatting is the caseworker page's
+    // own (`formatValue`), so a Master and a caseworker read the same words for the same value.
+    it("should list the Masters' fields in their order, formatted as the caseworker page formats them", () => {
+      const view = buildJudicialReferral(detail({ application: FULL_APPLICATION }));
+
+      expect(view.application?.sections[0].rows).toEqual([
+        { key: "New forename", value: "John" },
+        { key: "New middle name", value: "Peter" },
+        { key: "New surname", value: "Smyth" },
+        { key: "Old forename", value: "John" },
+        { key: "Old middle name", value: "Peter" },
+        { key: "Old surname", value: "Smith" },
+        { key: "Type", value: "Minor" },
+        { key: "Nationality", value: "British Citizen" },
+        { key: "Section", value: "Section 1" },
+        { key: "Section (other)", value: "Not provided" },
+        { key: "Minor’s parents’ names", value: "Jane Smith and Paul Smith" }
       ]);
     });
 
-    // The labels and the formatting are the caseworker page's own (`FIELD_BY_NAME` through `formatValue`), so a
-    // judge and a caseworker reading one case read the same words for the same value.
-    it("should label and format every field as the caseworker detail page does", () => {
-      const view = buildJudicialReferral(detail({ application: FULL_APPLICATION }));
-      const rows = Object.fromEntries((view.application?.sections ?? []).flatMap((section) => section.rows.map((row) => [row.key, row.value])));
-
-      expect(rows).toMatchObject({
-        "Display reference": "KBDP2026-00001",
-        "Date of application": "1 September 2026",
-        "In person": "No",
-        Type: "Minor",
-        "Marital status": "Single",
-        "Minor's date of birth": "14 March 2011",
-        "Age of minor years": "15",
-        "Age of minor months": "6",
-        Privacy: "Private",
-        Urgency: "Urgent",
-        "Urgency reason": "Hearing on Friday",
-        "New surname": "Smyth",
-        "Old surname": "Smith",
-        Nationality: "British Citizen",
-        Section: "Section 1",
-        "Date of declaration": "20 August 2026"
-      });
-    });
-
-    // 37 of `JudicialApplicationView`'s 46 properties are case fields; the other nine are the two collections
-    // and the seven previous-system referral fields, which have panels of their own. A field api adds to the
-    // view reaches this page only by an edit to `APPLICATION_SECTIONS`.
-    it("should render every case field the judicial view carries, for a minor's application", () => {
-      const view = buildJudicialReferral(detail({ application: FULL_APPLICATION }));
-
-      expect(view.application?.sections.flatMap((section) => section.rows)).toHaveLength(37);
-    });
-
-    // Decision: private cases show in full. Nothing here reads `privacy` other than to print it.
-    it("should render a private case in full rather than withholding any field", () => {
-      const normal = buildJudicialReferral(detail({ application: { ...FULL_APPLICATION, privacy: "Normal" } }));
-      const isPrivate = buildJudicialReferral(detail({ application: { ...FULL_APPLICATION, privacy: "Private" } }));
-
-      expect(isPrivate.application?.sections.flatMap((section) => section.rows.map((row) => row.key))).toEqual(
-        normal.application?.sections.flatMap((section) => section.rows.map((row) => row.key))
-      );
-    });
-
-    // The same per-type visibility the caseworker page applies, so an adult's application carries no minor rows.
-    it("should leave out the fields the application's type does not use", () => {
-      const view = buildJudicialReferral(detail({ application: { ...FULL_APPLICATION, type: "Adult" } }));
+    // The same per-type visibility the caseworker page applies, so an adult's application carries no parents row.
+    it("should show the minor's parents only on a minor's application", () => {
+      const view = buildJudicialReferral(detail({ application: { ...FULL_APPLICATION, type: "Adult", parents: null } }));
       const keys = view.application?.sections.flatMap((section) => section.rows.map((row) => row.key));
 
-      expect(keys).not.toContain("Minor's date of birth");
+      expect(keys).not.toContain("Minor’s parents’ names");
       expect(keys).not.toContain("Parents");
     });
 
-    it("should say a field api holds no value for was not provided, keeping its row", () => {
-      const view = buildJudicialReferral(detail({ application: { ...FULL_APPLICATION, representativeName: null } }));
-      const representative = view.application?.sections.find((section) => section.label === "Representative address and contact details");
+    it("should carry no reference, date, status, contact or witness row", () => {
+      const view = buildJudicialReferral(detail({ application: FULL_APPLICATION }));
+      const keys = (view.application?.sections ?? []).flatMap((section) => section.rows.map((row) => row.key)).join("|");
 
-      expect(representative?.rows).toContainEqual({ key: "Name", value: "Not provided" });
+      expect(keys).not.toMatch(/reference|date|in person|privacy|status|urgency|email|telephone|postcode|witness|declaration/i);
     });
 
     it("should carry no payment, refund, fee or case-id label", () => {
@@ -337,15 +267,6 @@ describe("judicial/view", () => {
       const view = buildJudicialReferral(detail({ application: FULL_APPLICATION }));
 
       expect(view.application?.reference).toBe("KBDP2026-00001");
-    });
-
-    it("should carry the witnesses as api sent them, with the declarant still a boolean", () => {
-      const view = buildJudicialReferral(detail({ application: FULL_APPLICATION }));
-
-      expect(view.application?.witnesses).toEqual([
-        { name: "Mary Jones", address: "1 High Street, Leeds", occupation: "Solicitor", declarant: true },
-        { name: "Not provided", address: "Not provided", occupation: "Not provided", declarant: false }
-      ]);
     });
 
     it("should carry each document's id, name, type, upload date and size", () => {
@@ -365,17 +286,6 @@ describe("judicial/view", () => {
       const view = buildJudicialReferral(detail({ application: { ...FULL_APPLICATION, documents: [{ id: "doc-1", sizeBytes }] } }));
 
       expect(view.application?.documents[0].size).toBe(size);
-    });
-
-    it("should carry the previous system's referral record only when it holds something", () => {
-      const withRecord = buildJudicialReferral(detail({ application: { ...FULL_APPLICATION, masterName: "Master Smith", masterDecision: "Approved" } }));
-      const without = buildJudicialReferral(detail({ application: FULL_APPLICATION }));
-
-      expect(withRecord.application?.previousReferral?.rows).toEqual([
-        { key: "Master name", value: "Master Smith" },
-        { key: "Master decision", value: "Approved" }
-      ]);
-      expect(without.application?.previousReferral).toBeNull();
     });
 
     // A referral is always about an application, so this is a shape the wire type permits rather than a
@@ -442,24 +352,12 @@ describe("judicial/view", () => {
       expect(view).toMatchObject({ state: "Claimed", stateTagClasses: "govuk-tag--purple" });
     });
 
-    it("should carry the application's timeline read-only, with no note id to link to", () => {
-      const view = buildJudicialReferral(
-        detail({ caseNotes: [{ note: "Chased the declarant", createdBy: "A Caseworker", createdOn: new Date("2026-09-02T14:30:00Z") }] })
-      );
+    it("should carry no case notes, witnesses or previous-system record, as the Masters asked", () => {
+      const view = buildJudicialReferral(detail({ application: FULL_APPLICATION }));
 
-      expect(view.caseNotes).toEqual([{ note: "Chased the declarant", createdBy: "A Caseworker", createdOn: "2 September 2026 at 3:30pm" }]);
-    });
-
-    it("should say an unattributed note was not recorded rather than dropping the note", () => {
-      const view = buildJudicialReferral(detail({ caseNotes: [{ note: "Migrated", createdBy: null, createdOn: null }] }));
-
-      expect(view.caseNotes).toEqual([{ note: "Migrated", createdBy: "Not recorded", createdOn: "Not recorded" }]);
-    });
-
-    it("should carry no timeline when api sent none", () => {
-      const view = buildJudicialReferral(detail({ caseNotes: undefined }));
-
-      expect(view.caseNotes).toEqual([]);
+      expect(view).not.toHaveProperty("caseNotes");
+      expect(view.application).not.toHaveProperty("witnesses");
+      expect(view.application).not.toHaveProperty("previousReferral");
     });
 
     it("should hold no direction while a referral is awaiting one", () => {
