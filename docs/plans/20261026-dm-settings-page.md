@@ -254,8 +254,19 @@ express-session-redis 7. The Redis suites ran.
 
 **Files:** `libs/deed-poll/src/settings/service.ts`, `schemas.ts`, their tests, and the package index exports.
 
-- [ ] Add failing tests for every boundary listed in the Development Approach and for the api error mapping.
-- [ ] Implement, run the focused tests and all Validation Commands, and record the results.
+- [x] Add failing tests for every boundary listed in the Development Approach and for the api error mapping.
+- [x] Implement, run the focused tests and all Validation Commands, and record the results.
+
+**Task 2 record (2026-10-27).** `libs/deed-poll/src/settings/`: `service.ts` (`findProcessSettings`,
+`saveProcessSettings` through `callApi`) and `schemas.ts` (`processSettingsFormSchema(messages)` with `hours`,
+`minutes`, `required`, `range` and `reload` messages). It reads `claimWindowHours`/`claimWindowMinutes` (trimmed, ASCII
+`^\d{1,4}$` or blank, hours 0–24, minutes 0–59) and `revision` into `{ referralClaimExpiryMinutes, revision }`. Issue
+paths are `claimWindowHours`, `claimWindowMinutes`, `claimWindow` (both blank, or a total outside
+`PROCESS_SETTINGS_LIMITS`; only checked once both inputs parse) and `revision`, so Task 3 maps each to its control.
+Both exported from the package index. Validation: format and lint clean (586 files), build exit 0, audit has no
+suggestions. Full suite with `--force`, 8/8 tasks: app 3,042, deed-poll 1,604 (+52), deed-poll-api-client 1,192,
+express-govuk-starter 132, cloud-native-platform 156, express-session-postgres 85, simple-router 45,
+express-session-redis 7. The Redis suites ran.
 
 ### Task 3: The page
 
