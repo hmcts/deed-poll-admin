@@ -131,6 +131,31 @@ describe("service settings page", () => {
     expect(markup).toContain("Save claim window");
   });
 
+  it("should link to XUI staff administration in a new tab, saying staff-admin access is needed", async () => {
+    const { markup } = await render(GET);
+
+    const section = markup.slice(markup.indexOf('id="staff-and-access"'));
+    expect(section).toContain("Staff and access");
+    expect(section).toContain("You need staff-admin access in Manage Case to do this.");
+    expect(section).toMatch(
+      /<a class="govuk-link" href="https:\/\/manage-case\.aat\.platform\.hmcts\.net\/staff" target="_blank" rel="noopener noreferrer">Manage staff in Manage Case \(opens in new tab\)<\/a>/
+    );
+  });
+
+  it("should keep the staff link when both sections fail to load, and for a Delivery Manager without ACCESS_GAZETTE", async () => {
+    vi.mocked(findProcessSettings).mockRejectedValue(new Error("down"));
+
+    const { markup } = await render(GET, { access: PROCESS_ONLY });
+
+    expect(markup).toContain('href="https://manage-case.aat.platform.hmcts.net/staff"');
+  });
+
+  it("should keep the staff link on a refused save", async () => {
+    const { markup } = await render(postProcess, { body: { claimWindowHours: "", claimWindowMinutes: "", revision: "4" } });
+
+    expect(markup).toContain('href="https://manage-case.aat.platform.hmcts.net/staff"');
+  });
+
   it.each([
     ["process-settings", "en", "Claim window saved."],
     ["gazette-recipient", "en", "Recipient email address saved."],

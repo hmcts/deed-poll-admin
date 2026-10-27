@@ -45,7 +45,10 @@ export const en = {
   gazetteReload: "Reload the settings before saving",
   gazetteConflict: "The recipient has changed since you opened this page. Reload the settings and check the current address before saving again.",
   gazetteReloadLink: "Reload recipient settings",
-  gazetteRefused: "The recipient could not be saved. Reload the settings and try again."
+  gazetteRefused: "The recipient could not be saved. Reload the settings and try again.",
+  staffHeading: "Staff and access",
+  staffIntro: "Add staff and change their access in Manage Case. You need staff-admin access in Manage Case to do this.",
+  staffLink: "Manage staff in Manage Case (opens in new tab)"
 };
 
 export const cy = {

@@ -6,7 +6,7 @@ export default defineConfig({
   // Each needs its own app: a fresh mock for Gazette (yarn test:gazette), a 330-second idle limit for the session
   // timeout (yarn test:session), a mock whose preview scenario can be switched for the document viewer
   // (yarn test:document-viewer).
-  testIgnore: /(gazette|session-timeout|document-viewer)\.spec\.ts/,
+  testIgnore: /(gazette|service-settings|session-timeout|document-viewer)\.spec\.ts/,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 4 : undefined,

@@ -323,8 +323,28 @@ IDAM on 5556 seeded with `yarn idam:users`): 8 passed.
 **Files:** `config/default.json`, `config/custom-environment-variables.json`, `charts/deed-poll-admin/values.yaml`,
 `values.preview.template.yaml`, `src/deployment-chart.test.ts`, the page's link test, a new e2e journey for the page.
 
-- [ ] Add failing tests for the link and for every environment's rendered address.
-- [ ] Implement and add the e2e journey. Run it, `yarn test:gazette` and all Validation Commands, and record the results.
+- [x] Add failing tests for the link and for every environment's rendered address.
+- [x] Implement and add the e2e journey. Run it, `yarn test:gazette` and all Validation Commands, and record the results.
+
+**Task 5 record (2026-10-27).** 79754fa's link never reached this branch, so `externalLinks.xuiStaffAdmin` is new:
+`XUI_STAFF_ADMIN_URL` in `custom-environment-variables.json`, AAT's address in `config/default.json`. `values.yaml`
+sets it with a `global.environment == "prod"` conditional that spells out both full addresses;
+`values.preview.template.yaml` pins AAT's. `Chart.yaml` goes to 0.0.5, because Flux reconciles on the chart version
+and the existing version test said so. `src/deployment-chart.test.ts` checks the mapping, the local default and the
+preview pin directly. It also renders the real values files through `helm template` with a scratch chart that applies
+`tpl` to each environment value, as the nodejs base chart does, so no base chart is pulled. That covers aat, demo,
+ithc, perftest and prod, preview under `aat` and `preview`, and no non-production render naming
+`manage-case.platform.hmcts.net`. **Those render tests skip without `helm`**, like the observe-check tests without
+`python3`, and nobody has confirmed the Jenkins agents have `helm` on the PATH. The page's "Staff and access"
+section (`id="staff-and-access"`) is drawn in every render path, a degraded or refused one included, with a
+new-tab link and copy saying staff-admin access in Manage Case is needed. Its copy is new, so `cy` mirrors it. The
+journey is `e2e-tests/tests/service-settings.spec.ts`. `yarn test:gazette`'s config runs it against its fresh mock,
+and the shared config ignores it, because the save is a write. Validation: format and lint clean (593 files),
+`yarn install --immutable` and build exit 0. **`yarn npm audit` still fails** with `SELF_SIGNED_CERT_IN_CHAIN`, as in
+Task 4, and no dependency changed. Full suite with `--force`, 8/8 tasks: app 3,119 (+13), deed-poll 1,604,
+deed-poll-api-client 1,192, express-govuk-starter 132, cloud-native-platform 156, express-session-postgres 85,
+simple-router 45, express-session-redis 7. The Redis suites ran. `yarn test:gazette` (private Redis on 6316, local
+IDAM on 5556 seeded with `yarn idam:users`): 9 passed, the new journey included.
 
 ### Task 6: Documentation and final verification
 

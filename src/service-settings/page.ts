@@ -21,6 +21,7 @@ import {
   saveProcessSettings,
   UnauthorizedError
 } from "@hmcts/deed-poll";
+import config from "config";
 import type { Request, Response } from "express";
 import { callerFromRequest, userFromRequest } from "../auth/current-user.js";
 import { forLog } from "../for-log.js";
@@ -135,6 +136,8 @@ async function render(req: Request, res: Response, status: number, given: { proc
     process,
     gazette,
     savedSection: saved === GAZETTE && !holdsGazette ? undefined : saved,
+    // XUI checks staff-admin itself, so this is a link and never a permission. Per environment from the chart.
+    xuiStaffAdminUrl: config.get<string>("externalLinks.xuiStaffAdmin"),
     errorList: errorList(process, gazette)
   });
 }
