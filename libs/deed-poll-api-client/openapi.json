@@ -3477,11 +3477,26 @@
           },
           "reasons": {
             "type": "array",
-            "description": "Why the case is being referred. At least one, de-duplicated, and stored in the order they are sent. Other requires notes.",
+            "description": "Why the case is being referred. At least one, de-duplicated, and stored in the order they are sent. Other requires notes. The Minor* details (MinorTransgender and the rest) say what kind of minor's application it is: each is accepted only beside Minor, and the three consent pairs (parental, stepparent, a 16 or 17 year old's own) cannot both be named.",
             "items": {
               "type": "string",
               "description": "Matched exactly, as the stored form is the wire form.",
-              "enum": ["Minor", "DomesticAbuse", "NonPublication", "DeclarantRequirementsNotMet", "SeparatedOrEstranged", "Other"]
+              "enum": [
+                "Minor",
+                "DomesticAbuse",
+                "NonPublication",
+                "DeclarantRequirementsNotMet",
+                "SeparatedOrEstranged",
+                "Other",
+                "MinorTransgender",
+                "MinorParentalConsent",
+                "MinorNoParentalConsent",
+                "MinorStepparentConsent",
+                "MinorNoStepparentConsent",
+                "MinorCourtOrder",
+                "MinorAged16Or17Consented",
+                "MinorAged16Or17NotConsented"
+              ]
             },
             "minItems": 1
           },

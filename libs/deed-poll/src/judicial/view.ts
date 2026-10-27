@@ -35,7 +35,7 @@ import { formatValue, NOT_PROVIDED } from "../deed-poll/detail-view.js";
 import { MASTER_DECISION_LABEL } from "../deed-poll/enums/dynamics-values.js";
 import type { MasterDecision } from "../deed-poll/enums/option-sets.js";
 import { FIELD_BY_NAME, type FieldDef } from "../deed-poll/form-fields.js";
-import { REFERRAL_STATE_TAG, REFERRAL_URGENCY_LABEL, referralReasonLabel } from "../referrals/referrals-view.js";
+import { REFERRAL_STATE_TAG, REFERRAL_URGENCY_LABEL, referralReasonLabels } from "../referrals/referrals-view.js";
 
 /**
  * The application's case fields a Master sees, in the order the Masters asked for them (Master Sullivan's feedback,
@@ -106,7 +106,7 @@ export const DIRECTION_DECISION_CHOICES: { value: MasterDecision; text: string }
 export function buildPoolRows(referrals: JudicialReferralSummary[]): PoolRow[] {
   return referrals.map((referral) => ({
     id: referral.id,
-    reasons: referral.reasons.map(referralReasonLabel),
+    reasons: referralReasonLabels(referral.reasons),
     urgency: referral.urgency ? REFERRAL_URGENCY_LABEL[referral.urgency] : NOT_PROVIDED,
     isUrgent: referral.urgency === "Urgent",
     // api's `createdOn`, formatted — not an age in days. The wait is what the pool is ordered by and a
@@ -155,7 +155,7 @@ export function buildMyReferralRows(referrals: JudicialReferralSummary[]): MyRef
     id: referral.id,
     status: myReferralStatus(referral.state),
     statusTagClasses: referral.state ? REFERRAL_STATE_TAG[referral.state] : "govuk-tag--grey",
-    reasons: referral.reasons.map(referralReasonLabel),
+    reasons: referralReasonLabels(referral.reasons),
     urgency: referral.urgency ? REFERRAL_URGENCY_LABEL[referral.urgency] : NOT_PROVIDED,
     isUrgent: referral.urgency === "Urgent",
     // The date the CASEWORKER raised it, which is what a judge is answering against — and formatted rather than
@@ -196,7 +196,7 @@ export function buildJudicialReferral(detail: JudicialReferralDetail): JudicialR
     // referral view. Absent means api published none, which is a claim about the read rather than the data.
     state: detail.state ?? NOT_RECORDED,
     stateTagClasses: detail.state ? REFERRAL_STATE_TAG[detail.state] : "govuk-tag--grey",
-    reasons: detail.reasons.map(referralReasonLabel),
+    reasons: referralReasonLabels(detail.reasons),
     notes: orPlaceholder(detail.notes),
     urgency: detail.urgency ? REFERRAL_URGENCY_LABEL[detail.urgency] : NOT_PROVIDED,
     isUrgent: detail.urgency === "Urgent",

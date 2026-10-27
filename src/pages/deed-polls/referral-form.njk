@@ -68,10 +68,27 @@
         }) }}
       {% endset %}
 
+      {#
+        A minor's details (Master Sullivan's feedback, 2026-10-27), revealed beneath "Applicant is a minor". Their own
+        id for the error summary to link to, but api's one `reasons` field, so they post beside the box they refine.
+      #}
+      {% set minorDetailsHtml %}
+        {{ govukCheckboxes({
+          idPrefix: "minorDetails",
+          name: "reasons",
+          fieldset: { legend: { text: minorDetailsLegend, classes: "govuk-fieldset__legend--s" } },
+          hint: { text: minorDetailsHint },
+          items: minorDetailItems,
+          errorMessage: { text: errors.minorDetails } if errors.minorDetails
+        }) }}
+      {% endset %}
+
       {% set reasonRows = [] %}
       {% for item in reasonItems %}
         {% if item.value == "Other" %}
           {% set reasonRows = (reasonRows.push({ value: item.value, text: item.text, checked: item.checked, conditional: { html: notesHtml } }), reasonRows) %}
+        {% elif item.value == "Minor" %}
+          {% set reasonRows = (reasonRows.push({ value: item.value, text: item.text, checked: item.checked, conditional: { html: minorDetailsHtml } }), reasonRows) %}
         {% else %}
           {% set reasonRows = (reasonRows.push({ value: item.value, text: item.text, checked: item.checked }), reasonRows) %}
         {% endif %}

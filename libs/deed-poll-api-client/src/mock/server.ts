@@ -2559,7 +2559,7 @@ function referralRaisedNote(referral: MockReferral): string {
   // Each piece of the caseworker's own text on its own line rather than run into the sentence before it with
   // a full stop this would have to add — api's reasoning: their text is prose they wrote, and one that
   // already ended in a stop would read as "Friday..".
-  const lines = [`Referred to a Master. Reasons: ${referral.reasons.join(", ")}.`];
+  const lines = [`Referred to a Master. Reasons: ${describedReasons(referral.reasons)}.`];
   if (referral.urgency === "Urgent" && referral.urgencyReason) lines.push(`Marked urgent: ${referral.urgencyReason}`);
   if (referral.notes) lines.push(`Notes: ${referral.notes}`);
 
@@ -2726,8 +2726,45 @@ function emailCouldNotBeSentNote(template: MockEmailTemplate): string {
  * the note is already under their case. A referral with no reasons is a backfilled one, so it says so rather
  * than trailing off; the raised note above has no such fallback, because api's does not.
  */
+/**
+ * api's `ReferralReason.label()`: each reason in the admin screens' words, which api's notes write since api#155
+ * (Steve, 2026-10-27). Restated here because the mock cannot import the domain's `REFERRAL_REASON_LABEL`; the two
+ * must say the same, and `server.test.ts` pins the folded sentence.
+ */
+const REASON_NOTE_LABEL: Record<string, string> = {
+  Minor: "Applicant is a minor",
+  DomesticAbuse: "Domestic abuse considerations",
+  NonPublication: "Non-publication request",
+  DeclarantRequirementsNotMet: "Declarant requirements not met",
+  SeparatedOrEstranged: "Separated or estranged",
+  Other: "Other",
+  MinorTransgender: "Transgender",
+  MinorParentalConsent: "Have parental consent",
+  MinorNoParentalConsent: "Do not have parental consent",
+  MinorStepparentConsent: "Stepparent parental consent",
+  MinorNoStepparentConsent: "Do not have stepparent consent",
+  MinorCourtOrder: "Court Order",
+  MinorAged16Or17Consented: "16/17 year old applicant has consented",
+  MinorAged16Or17NotConsented: "16/17 year old applicant has not consented"
+};
+
+/**
+ * api's `ReferralNotes.described`: a minor's details folded into `Minor`, semicolons between reasons, and an unknown
+ * stored name quoted as it stands.
+ */
+function describedReasons(reasons: readonly string[]): string {
+  const label = (name: string) => (Object.hasOwn(REASON_NOTE_LABEL, name) ? REASON_NOTE_LABEL[name] : name);
+  const details = reasons.filter((name) => name.startsWith("Minor") && name !== "Minor" && Object.hasOwn(REASON_NOTE_LABEL, name));
+  const folded = reasons.includes("Minor") && details.length > 0;
+
+  return reasons
+    .filter((name) => !(folded && details.includes(name)))
+    .map((name) => (folded && name === "Minor" ? `${label(name)}: ${details.map(label).join(", ")}` : label(name)))
+    .join("; ");
+}
+
 function identifiesReferral(referral: MockReferral): string {
-  const reasons = referral.reasons.length > 0 ? referral.reasons.join(", ") : "no reasons recorded";
+  const reasons = referral.reasons.length > 0 ? describedReasons(referral.reasons) : "no reasons recorded";
 
   return `raised on ${NOTE_DAY.format(referral.createdOn)}, reasons: ${reasons}`;
 }
@@ -2824,9 +2861,26 @@ function referralConditionalErrors(body: { reasons: readonly string[]; notes?: s
   if (body.urgency === "Urgent" && !body.urgencyReason?.trim()) {
     errors.push({ field: "urgencyReason", message: "urgencyReason is required when urgency is Urgent" });
   }
+  // api#155's two rules on a minor's details, in its words. It accepts `Minor` alone for one release, so this does too.
+  const details = body.reasons.filter((reason) => reason.startsWith("Minor") && reason !== "Minor");
+  if (details.length > 0 && !body.reasons.includes("Minor")) {
+    errors.push({ field: "reasons", message: `reasons names a minor's detail (${details.join(", ")}) without Minor` });
+  }
+  for (const [first, second] of MOCK_CONTRADICTORY_MINOR_DETAILS) {
+    if (details.includes(first) && details.includes(second)) {
+      errors.push({ field: "reasons", message: `reasons cannot name both ${first} and ${second}` });
+    }
+  }
 
   return errors;
 }
+
+/** api's `ReferralSchemas.CONTRADICTORY_MINOR_DETAILS`. */
+const MOCK_CONTRADICTORY_MINOR_DETAILS = [
+  ["MinorParentalConsent", "MinorNoParentalConsent"],
+  ["MinorStepparentConsent", "MinorNoStepparentConsent"],
+  ["MinorAged16Or17Consented", "MinorAged16Or17NotConsented"]
+] as const;
 
 /**
  * The one slot api pre-populates, from the referral's direction. api's `EmailSlot.JUDGES_REASON`.

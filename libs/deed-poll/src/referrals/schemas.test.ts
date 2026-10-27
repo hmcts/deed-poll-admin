@@ -4,19 +4,57 @@ import { zodErrorToFieldErrors } from "../errors.js";
 import { createReferralSchema, MAX_CONFIRMATION_NOTE, MAX_REFERRAL_NOTES, MAX_REFERRAL_URGENCY_REASON, recordConfirmationSchema } from "./schemas.js";
 
 describe("referrals/schemas", () => {
+  // Master Sullivan's feedback (Steve, 2026-10-27): what kind of minor's application this is, beneath "Applicant is a
+  // minor" — several may apply, at least one must, and a contradictory pair may not.
+  describe("createReferralSchema, a minor's details", () => {
+    const issues = (reasons: string[]) =>
+      createReferralSchema.safeParse({ reasons, urgency: "Normal" }).error?.issues.map((issue) => ({ path: issue.path, message: issue.message }));
+
+    it("should accept Applicant is a minor with the details that apply", () => {
+      const parsed = createReferralSchema.safeParse({ reasons: ["Minor", "MinorTransgender", "MinorParentalConsent"], urgency: "Normal" });
+
+      expect(parsed.data?.reasons).toEqual(["Minor", "MinorTransgender", "MinorParentalConsent"]);
+    });
+
+    it("should ask for a detail when Applicant is a minor is ticked alone, addressed to the revealed boxes", () => {
+      expect(issues(["Minor"])).toEqual([{ path: ["minorDetails"], message: "Select what applies to the minor's application" }]);
+    });
+
+    it("should refuse a detail without Applicant is a minor, addressed to the reasons, since the boxes are hidden", () => {
+      expect(issues(["DomesticAbuse", "MinorCourtOrder"])).toEqual([
+        { path: ["reasons"], message: "Select Applicant is a minor, or untick what applies to the minor's application" }
+      ]);
+    });
+
+    it.each([
+      ["MinorParentalConsent", "MinorNoParentalConsent", "Have parental consent", "Do not have parental consent"],
+      ["MinorStepparentConsent", "MinorNoStepparentConsent", "Stepparent parental consent", "Do not have stepparent consent"],
+      ["MinorAged16Or17Consented", "MinorAged16Or17NotConsented", "16/17 year old applicant has consented", "16/17 year old applicant has not consented"]
+    ])("should refuse both %s and %s, naming them in the Masters' words", (first, second, firstLabel, secondLabel) => {
+      expect(issues(["Minor", second, first])).toEqual([{ path: ["minorDetails"], message: `Select either ${firstLabel} or ${secondLabel}, not both` }]);
+    });
+  });
+
   describe("createReferralSchema", () => {
     it("should accept one reason and a standard urgency, which is the shortest valid referral", () => {
-      const parsed = createReferralSchema.safeParse({ reasons: ["Minor"], urgency: "Normal" });
+      const parsed = createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Normal" });
 
       expect(parsed.success).toBe(true);
-      expect(parsed.data).toEqual({ reasons: ["Minor"], urgency: "Normal", notes: undefined, urgencyReason: undefined });
+      expect(parsed.data).toEqual({ reasons: ["DomesticAbuse"], urgency: "Normal", notes: undefined, urgencyReason: undefined });
     });
 
     it("should accept every reason api publishes, so a member added at its end needs no edit here", () => {
-      const parsed = createReferralSchema.safeParse({ reasons: [...REFERRAL_REASON], urgency: "Normal", notes: "Several concerns" });
+      // Two passes, because one referral may not name both halves of a contradictory pair of a minor's details.
+      for (const left of [
+        ["MinorNoParentalConsent", "MinorNoStepparentConsent", "MinorAged16Or17NotConsented"],
+        ["MinorParentalConsent", "MinorStepparentConsent", "MinorAged16Or17Consented"]
+      ]) {
+        const reasons = REFERRAL_REASON.filter((reason) => !left.includes(reason));
+        const parsed = createReferralSchema.safeParse({ reasons, urgency: "Normal", notes: "Several concerns" });
 
-      expect(parsed.success).toBe(true);
-      expect(parsed.data?.reasons).toEqual([...REFERRAL_REASON]);
+        expect(parsed.success).toBe(true);
+        expect(parsed.data?.reasons).toEqual(reasons);
+      }
     });
 
     it("should reject a reason api does not publish", () => {
@@ -48,8 +86,8 @@ describe("referrals/schemas", () => {
     });
 
     it("should require notes when Other is ticked alongside another reason", () => {
-      expect(createReferralSchema.safeParse({ reasons: ["Minor", "Other"], urgency: "Normal" }).success).toBe(false);
-      expect(createReferralSchema.safeParse({ reasons: ["Minor", "Other"], urgency: "Normal", notes: "Something else" }).success).toBe(true);
+      expect(createReferralSchema.safeParse({ reasons: ["NonPublication", "Other"], urgency: "Normal" }).success).toBe(false);
+      expect(createReferralSchema.safeParse({ reasons: ["NonPublication", "Other"], urgency: "Normal", notes: "Something else" }).success).toBe(true);
     });
 
     it("should treat notes of only whitespace as absent, so it cannot satisfy the Other rule", () => {
@@ -60,49 +98,49 @@ describe("referrals/schemas", () => {
     });
 
     it("should accept notes without Other, because api takes them for any reason", () => {
-      expect(createReferralSchema.safeParse({ reasons: ["Minor"], urgency: "Normal", notes: "Born 2009" }).success).toBe(true);
+      expect(createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Normal", notes: "Born 2009" }).success).toBe(true);
     });
 
     it("should store the trimmed notes, so surrounding whitespace never reaches api", () => {
-      expect(createReferralSchema.safeParse({ reasons: ["Minor"], urgency: "Normal", notes: "  Born 2009  " }).data?.notes).toBe("Born 2009");
+      expect(createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Normal", notes: "  Born 2009  " }).data?.notes).toBe("Born 2009");
     });
 
     it("should turn blank notes into no notes, because api takes no null on a create", () => {
-      expect(createReferralSchema.safeParse({ reasons: ["Minor"], urgency: "Normal", notes: "" }).data?.notes).toBeUndefined();
+      expect(createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Normal", notes: "" }).data?.notes).toBeUndefined();
     });
 
     it("should refuse notes over api's published maximum", () => {
-      const parsed = createReferralSchema.safeParse({ reasons: ["Minor"], urgency: "Normal", notes: "n".repeat(MAX_REFERRAL_NOTES + 1) });
+      const parsed = createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Normal", notes: "n".repeat(MAX_REFERRAL_NOTES + 1) });
 
       expect(parsed.success).toBe(false);
       expect(parsed.error?.issues[0]).toMatchObject({ path: ["notes"], message: "Notes must be 1000 characters or fewer" });
     });
 
     it("should require a reason for urgency when Urgent is chosen, addressed to that textarea", () => {
-      const parsed = createReferralSchema.safeParse({ reasons: ["Minor"], urgency: "Urgent" });
+      const parsed = createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Urgent" });
 
       expect(parsed.success).toBe(false);
       expect(zodErrorToFieldErrors(parsed.error!)).toContainEqual({ field: "urgencyReason", message: "Enter why this referral is urgent" });
     });
 
     it("should accept Urgent once its reason is given", () => {
-      const parsed = createReferralSchema.safeParse({ reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Hearing on Friday" });
+      const parsed = createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Urgent", urgencyReason: "Hearing on Friday" });
 
       expect(parsed.success).toBe(true);
       expect(parsed.data?.urgencyReason).toBe("Hearing on Friday");
     });
 
     it("should treat a whitespace-only urgency reason as absent", () => {
-      expect(createReferralSchema.safeParse({ reasons: ["Minor"], urgency: "Urgent", urgencyReason: "  " }).success).toBe(false);
+      expect(createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Urgent", urgencyReason: "  " }).success).toBe(false);
     });
 
     it("should not require an urgency reason for a standard referral", () => {
-      expect(createReferralSchema.safeParse({ reasons: ["Minor"], urgency: "Normal" }).success).toBe(true);
+      expect(createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Normal" }).success).toBe(true);
     });
 
     it("should refuse an urgency reason over api's published maximum", () => {
       const parsed = createReferralSchema.safeParse({
-        reasons: ["Minor"],
+        reasons: ["DomesticAbuse"],
         urgency: "Urgent",
         urgencyReason: "u".repeat(MAX_REFERRAL_URGENCY_REASON + 1)
       });
@@ -112,7 +150,7 @@ describe("referrals/schemas", () => {
     });
 
     it("should reject a missing urgency, because the form always offers both radios", () => {
-      const parsed = createReferralSchema.safeParse({ reasons: ["Minor"] });
+      const parsed = createReferralSchema.safeParse({ reasons: ["DomesticAbuse"] });
 
       expect(parsed.success).toBe(false);
       expect(zodErrorToFieldErrors(parsed.error!)).toContainEqual({ field: "urgency", message: "Select how urgent this referral is" });
@@ -131,7 +169,7 @@ describe("referrals/schemas", () => {
     });
 
     it("should reject an urgency api does not publish", () => {
-      expect(createReferralSchema.safeParse({ reasons: ["Minor"], urgency: "Immediately" }).success).toBe(false);
+      expect(createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency: "Immediately" }).success).toBe(false);
     });
 
     it("should report both conditional failures at once, so a form failing two fields costs one submission", () => {
@@ -146,7 +184,7 @@ describe("referrals/schemas", () => {
 
     it("should accept every urgency api publishes, built from its array rather than restated", () => {
       for (const urgency of URGENCY) {
-        const parsed = createReferralSchema.safeParse({ reasons: ["Minor"], urgency, urgencyReason: "Hearing on Friday" });
+        const parsed = createReferralSchema.safeParse({ reasons: ["DomesticAbuse"], urgency, urgencyReason: "Hearing on Friday" });
 
         expect(parsed.success).toBe(true);
       }

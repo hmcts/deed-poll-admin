@@ -308,6 +308,8 @@ src/pages/deed-polls/[id]/referrals/new.ts,alreadyOpen,"This case already has an
 src/pages/deed-polls/[id]/referrals/new.ts,cancel,"Cancel","Cancel",YES,"Canslo",high,"Standard GOV.UK. ""Diddymu"" also appears in some services."
 src/pages/deed-polls/[id]/referrals/new.ts,errorSummaryTitle,"There is a problem","There is a problem",YES,"Mae problem",high,"The established GOV.UK error-summary title in Welsh. Do not expand to a fuller sentence."
 src/pages/deed-polls/[id]/referrals/new.ts,heading,"Refer this case to a Master","Refer this case to a Master",YES,"",,""
+src/pages/deed-polls/[id]/referrals/new.ts,minorDetailsHint,"Select all that apply.","Select all that apply.",YES,"",,""
+src/pages/deed-polls/[id]/referrals/new.ts,minorDetailsLegend,"What applies to the minor's application?","What applies to the minor's application?",YES,"",,""
 src/pages/deed-polls/[id]/referrals/new.ts,notesHint,"Explain why this case needs to go to a Master.","Explain why this case needs to go to a Master.",YES,"",,""
 src/pages/deed-polls/[id]/referrals/new.ts,notesLabel,"Give the other reason","Give the other reason",YES,"",,""
 src/pages/deed-polls/[id]/referrals/new.ts,reasonsHint,"Select all that apply.","Select all that apply.",YES,"",,""

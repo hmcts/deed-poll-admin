@@ -404,11 +404,18 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   await page.getByLabel("Standard", { exact: true }).check();
   await expect(page.getByLabel("Why is this referral urgent?")).toBeHidden();
   await page.getByLabel("Applicant is a minor").check();
+  // "Applicant is a minor" alone is refused: the Masters asked to be told what kind of minor's application it is
+  // (Master Sullivan's feedback, Steve, 2026-10-27), as options revealed beneath it.
+  await page.getByRole("button", { name: "Raise referral" }).click();
+  await expect(page.getByRole("link", { name: "Select what applies to the minor's application" })).toHaveAttribute("href", "#minorDetails");
+  await page.getByLabel("Transgender", { exact: true }).check();
+  await page.getByLabel("Have parental consent", { exact: true }).check();
   await page.getByRole("button", { name: "Raise referral" }).click();
 
   await expect(page).toHaveURL(`${caseUrl}#referrals`);
-  // The labels, not api's members — the wire values are api's and the words are this repo's.
-  await expect(referrals).toContainText("Applicant is a minor");
+  // The labels, not api's members — the wire values are api's and the words are this repo's — with the minor's
+  // details read as part of "Applicant is a minor" rather than as reasons of their own.
+  await expect(referrals).toContainText("Applicant is a minor: Transgender, Have parental consent");
   await expect(referrals).toContainText("Other");
   await expect(referrals).toContainText("Standard");
   // The caseworker's status label rather than api's member: the tag says where the referral is.
@@ -423,6 +430,7 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   // message with a link to the referral already open, not as an error page.
   await page.goto(`${caseUrl}/referrals/new`);
   await page.getByLabel("Applicant is a minor").check();
+  await page.getByLabel("Court Order", { exact: true }).check();
   await page.getByLabel("Standard", { exact: true }).check();
   await page.getByRole("button", { name: "Raise referral" }).click();
   await expect(page.getByRole("alert")).toContainText("This case already has an open referral.");
@@ -475,10 +483,10 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   // a case may carry several over its life and "referral withdrawn" in a grid of thirty notes does not say which.
   const noteRows = notes.locator("tbody tr");
   await expect(noteRows.nth(0)).toContainText("Referral to a Master withdrawn. It was raised on");
-  await expect(noteRows.nth(0)).toContainText("reasons: Minor, Other.");
+  await expect(noteRows.nth(0)).toContainText("reasons: Applicant is a minor: Transgender, Have parental consent; Other.");
   // The reasons are api's stored members here rather than the caseworker's labels — the prose is api's
   // (`ReferralNotes`), so "Minor" and not "Applicant is a minor". Reworded there, not here.
-  await expect(noteRows.nth(1)).toContainText("Referred to a Master. Reasons: Minor, Other.");
+  await expect(noteRows.nth(1)).toContainText("Referred to a Master. Reasons: Applicant is a minor: Transgender, Have parental consent; Other.");
   await expect(noteRows.nth(1)).toContainText("Notes: The declarant is abroad until June.");
   // The value left inside the closed urgency reveal reached neither the referral nor its note: the same
   // assertion as "Not provided" above, one layer further on, and the note is where a discarded answer would
@@ -640,6 +648,7 @@ test("caseworker actions a returned direction, and the returned-direction count 
   await page.getByRole("button", { name: "Refer this case to a Master" }).click();
   await expect(page).toHaveURL(`${caseUrl}/referrals/new`);
   await page.getByLabel("Applicant is a minor").check();
+  await page.getByLabel("Court Order", { exact: true }).check();
   await page.getByLabel("Standard", { exact: true }).check();
   await page.getByRole("button", { name: "Raise referral" }).click();
 
@@ -799,7 +808,7 @@ test("caseworker actions a returned direction, and the returned-direction count 
   await expect(noteRows.nth(1)).toContainText(JUDGE_EMAIL);
   await expect(noteRows.nth(2)).toContainText("claimed by a Master.");
   await expect(noteRows.nth(2)).toContainText(JUDGE_EMAIL);
-  await expect(noteRows.nth(3)).toContainText("Referred to a Master. Reasons: Minor.");
+  await expect(noteRows.nth(3)).toContainText("Referred to a Master. Reasons: Applicant is a minor: Court Order.");
   await expect(noteRows.nth(3)).toContainText(TEAM_LEADER_EMAIL);
 
   // **The direction is summarised in the note and kept whole on the referral**, which is the pair that makes the

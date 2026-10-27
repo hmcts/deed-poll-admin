@@ -1344,7 +1344,7 @@ describe("the case's awaitingConfirmationSince, and the worklist it feeds", () =
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/confirmation`, { outcome: "Confirmed", note: "Replied by email" }, as("Ada Caseworker"));
 
     const [latest] = await notesOn(caseId);
-    expect(latest.note).toContain("Applicant's confirmation recorded for referral raised on 1 March 2026, reasons: Minor");
+    expect(latest.note).toContain("Applicant's confirmation recorded for referral raised on 1 March 2026, reasons: Applicant is a minor");
     expect(latest.note).toContain("Asked on 21 March 2026");
     // The member alone does not say whether they wanted the deed enrolled or the fee back, so api spells it out.
     expect(latest.note).toContain("Answer: Confirmed -- the applicant wants the deed enrolled, knowing it will be published in the London Gazette");
@@ -1441,6 +1441,45 @@ describe("the case's awaitingConfirmationSince, and the worklist it feeds", () =
     const seeded = mock.seed(null);
 
     expect(await get(`/caseworker/cases/${seeded.id}`)).toHaveProperty("awaitingConfirmationSince", null);
+  });
+});
+
+describe("a minor's details on a raised referral", () => {
+  it("should accept the details beside Minor, and Minor alone, as api#155 does for its one release", async () => {
+    const withDetails = await post(`/caseworker/cases/${mock.seed({}).id}/referrals`, { reasons: ["Minor", "MinorTransgender", "MinorCourtOrder"] });
+    const alone = await post(`/caseworker/cases/${mock.seed({}).id}/referrals`, { reasons: ["Minor"] });
+
+    expect(withDetails.status).toBe(201);
+    expect((await withDetails.json()).reasons).toEqual(["Minor", "MinorTransgender", "MinorCourtOrder"]);
+    expect(alone.status).toBe(201);
+  });
+
+  it("should write the raise note in the screens' words, a minor's details folded into Applicant is a minor", async () => {
+    const caseId = mock.seed({}).id;
+
+    await post(`/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor", "MinorTransgender", "Other", "MinorParentalConsent"], notes: "See file" });
+
+    expect((await notesOn(caseId))[0].note).toBe(
+      "Referred to a Master. Reasons: Applicant is a minor: Transgender, Have parental consent; Other.\nNotes: See file"
+    );
+  });
+
+  it("should refuse a detail without Minor, in api's words", async () => {
+    const response = await post(`/caseworker/cases/${mock.seed({}).id}/referrals`, { reasons: ["DomesticAbuse", "MinorCourtOrder"] });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors).toEqual([{ field: "reasons", message: "reasons names a minor's detail (MinorCourtOrder) without Minor" }]);
+  });
+
+  it("should refuse both halves of a consent pair", async () => {
+    const response = await post(`/caseworker/cases/${mock.seed({}).id}/referrals`, {
+      reasons: ["Minor", "MinorStepparentConsent", "MinorNoStepparentConsent"]
+    });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors).toEqual([
+      { field: "reasons", message: "reasons cannot name both MinorStepparentConsent and MinorNoStepparentConsent" }
+    ]);
   });
 });
 
@@ -2154,11 +2193,11 @@ describe("the case notes a referral writes as it moves", () => {
 
     const raised = await raisedOn(caseId, referralId);
     expect(notes.map((note) => note.note)).toEqual([
-      `Master’s direction for referral raised on ${raised}, reasons: Minor, marked as actioned.`,
-      `Master’s direction recorded for referral raised on ${raised}, reasons: Minor.` +
+      `Master’s direction for referral raised on ${raised}, reasons: Applicant is a minor, marked as actioned.`,
+      `Master’s direction recorded for referral raised on ${raised}, reasons: Applicant is a minor.` +
         " Decision: Approved. Changes to standard publication in the Gazette: No. See the referral for the full direction.",
-      `Referral raised on ${raised}, reasons: Minor, claimed by a Master.`,
-      "Referred to a Master. Reasons: Minor."
+      `Referral raised on ${raised}, reasons: Applicant is a minor, claimed by a Master.`,
+      "Referred to a Master. Reasons: Applicant is a minor."
     ]);
   });
 
@@ -2171,8 +2210,8 @@ describe("the case notes a referral writes as it moves", () => {
 
     const raised = await raisedOn(caseId, referralId);
     expect((await notesOn(caseId)).map((note) => note.note)).toEqual([
-      `Referral to a Master withdrawn. It was raised on ${raised}, reasons: Minor, DomesticAbuse.`,
-      "Referred to a Master. Reasons: Minor, DomesticAbuse."
+      `Referral to a Master withdrawn. It was raised on ${raised}, reasons: Applicant is a minor; Domestic abuse considerations.`,
+      "Referred to a Master. Reasons: Applicant is a minor; Domestic abuse considerations."
     ]);
   });
 
@@ -2277,7 +2316,7 @@ describe("the case notes a referral writes as it moves", () => {
     expect((await notesOn(caseId)).map((note) => note.note)).toEqual([
       expect.stringContaining("Referral to a Master withdrawn"),
       "Declarant called back",
-      "Referred to a Master. Reasons: Minor."
+      "Referred to a Master. Reasons: Applicant is a minor."
     ]);
   });
 
