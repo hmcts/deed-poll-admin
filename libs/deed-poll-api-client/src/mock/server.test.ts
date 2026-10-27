@@ -1076,7 +1076,7 @@ describe("the referral routes", () => {
     const response = await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ state: "Closed", decision: "Approved", decidedBy: "judge@example.com", publishToGazette: true });
+    expect(await response.json()).toMatchObject({ state: "Closed", decision: "Approved", decidedBy: "judge@example.com", changesToStandardPublication: false });
   });
 
   it("should demand notes when Other is among the reasons, addressing the refusal to the field", async () => {
@@ -1143,7 +1143,7 @@ describe("the case's currentReferralState", () => {
     await post(`/judicial/referrals/${referralId}/claim`, undefined, as(judge));
     seen.push(await currentReferralState(caseId));
 
-    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(judge));
+    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, as(judge));
     seen.push(await currentReferralState(caseId));
 
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`);
@@ -1555,7 +1555,7 @@ describe("the judicial referral routes", () => {
 
     const response = await post(
       `/judicial/referrals/${referralId}/direction`,
-      { decision: "Rejected", publishToGazette: false, directionsText: "  Not satisfied  ", decidedBy: "somebody else" },
+      { decision: "Rejected", changesToStandardPublication: true, directionsText: "  Not satisfied  ", decidedBy: "somebody else" },
       as("judge@example.com")
     );
 
@@ -1563,7 +1563,7 @@ describe("the judicial referral routes", () => {
     expect(await response.json()).toMatchObject({
       state: "Decided",
       decision: "Rejected",
-      publishToGazette: false,
+      changesToStandardPublication: true,
       directionsText: "Not satisfied",
       // From the token and the clock, never from the payload — which is why the body above could not claim it.
       decidedBy: "judge@example.com",
@@ -1576,7 +1576,11 @@ describe("the judicial referral routes", () => {
     // is a conflict rather than the 404 an invisible referral gets.
     const { referralId } = await referredCase();
 
-    const response = await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as("judge@example.com"));
+    const response = await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Approved", changesToStandardPublication: false },
+      as("judge@example.com")
+    );
 
     expect(response.status).toBe(409);
   });
@@ -1584,7 +1588,11 @@ describe("the judicial referral routes", () => {
   it("should answer 404 rather than 409 for a direction on another judge's claim, so neither learns of the other", async () => {
     const { referralId } = await claimedReferral("another@example.com");
 
-    const response = await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as("judge@example.com"));
+    const response = await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Approved", changesToStandardPublication: false },
+      as("judge@example.com")
+    );
 
     expect(response.status).toBe(404);
   });
@@ -1595,7 +1603,46 @@ describe("the judicial referral routes", () => {
     const response = await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved" }, as("judge@example.com"));
 
     expect(response.status).toBe(400);
-    expect((await response.json()).errors[0].field).toBe("publishToGazette");
+    expect((await response.json()).errors[0].field).toBe("changesToStandardPublication");
+  });
+
+  it.each([
+    ["absent", undefined],
+    ["blank", "   "]
+  ])("should refuse changes to the standard publication with %s directions, as api's rule does, and record nothing", async (_, directionsText) => {
+    const { caseId, referralId } = await claimedReferral(JUDGE);
+
+    const response = await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Approved", changesToStandardPublication: true, directionsText },
+      as(JUDGE)
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors).toEqual([{ field: "directionsText", message: expect.stringContaining("changes to the standard publication") }]);
+    expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).state).toBe("Claimed");
+  });
+
+  it("should refuse a change to the standard publication with no directions on a revision too", async () => {
+    const { referralId } = await decidedReferral(JUDGE);
+
+    const response = await change("PUT", `/judicial/referrals/${referralId}/direction`, JUDGE, { decision: "Approved", changesToStandardPublication: true });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors[0].field).toBe("directionsText");
+  });
+
+  it("should publish api's deprecated publishToGazette as the answer inverted, on both surfaces", async () => {
+    const { caseId, referralId } = await claimedReferral(JUDGE);
+
+    const response = await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Approved", changesToStandardPublication: true, directionsText: "Publish the last name only" },
+      as(JUDGE)
+    );
+
+    expect(await response.json()).toMatchObject({ changesToStandardPublication: true, publishToGazette: false });
+    expect(await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).toMatchObject({ changesToStandardPublication: true, publishToGazette: false });
   });
 
   it.each([
@@ -1686,16 +1733,24 @@ describe("changing and withdrawing a direction", () => {
 
     const response = await change("PUT", `/judicial/referrals/${referralId}/direction`, JUDGE, {
       decision: "Rejected",
-      publishToGazette: false,
+      changesToStandardPublication: true,
       directionsText: "  On reflection, no  "
     });
 
     expect(response.status).toBe(200);
     const detail = await response.json();
-    expect(detail).toMatchObject({ state: "Decided", decision: "Rejected", publishToGazette: false, directionsText: "On reflection, no", decidedBy: JUDGE });
+    expect(detail).toMatchObject({
+      state: "Decided",
+      decision: "Rejected",
+      changesToStandardPublication: true,
+      directionsText: "On reflection, no",
+      decidedBy: JUDGE
+    });
     expect(detail.directionChangedAt).toEqual(expect.any(String));
     expect((await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).directionChangedAt).toBe(detail.directionChangedAt);
-    expect((await notesOn(caseId))[0].note).toMatch(/^Master’s direction revised for referral .*\. Decision: Rejected\. Publish to the London Gazette: No\./);
+    expect((await notesOn(caseId))[0].note).toMatch(
+      /^Master’s direction revised for referral .*\. Decision: Rejected\. Changes to standard publication in the Gazette: Yes\./
+    );
   });
 
   it("should refuse a change the wire schema rejects, as the first direction is refused", async () => {
@@ -1704,7 +1759,7 @@ describe("changing and withdrawing a direction", () => {
     const response = await change("PUT", `/judicial/referrals/${referralId}/direction`, JUDGE, { decision: "Approved" });
 
     expect(response.status).toBe(400);
-    expect((await response.json()).errors[0].field).toBe("publishToGazette");
+    expect((await response.json()).errors[0].field).toBe("changesToStandardPublication");
   });
 
   it("should withdraw a direction back to the same judge's claim, cleared, so they can direct again", async () => {
@@ -1719,7 +1774,7 @@ describe("changing and withdrawing a direction", () => {
       claimedBy: JUDGE,
       decision: null,
       directionsText: null,
-      publishToGazette: null,
+      changesToStandardPublication: null,
       decisionDate: null,
       decidedBy: null
     });
@@ -1728,7 +1783,11 @@ describe("changing and withdrawing a direction", () => {
     expect((await notesOn(caseId))[0].note).toMatch(/^Master’s direction withdrawn for referral .*\. The withdrawn decision was: Approved\./);
     expect(await currentReferralState(caseId)).toBe("Claimed");
 
-    const again = await post(`/judicial/referrals/${referralId}/direction`, { decision: "Rejected", publishToGazette: false }, as(JUDGE));
+    const again = await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Rejected", changesToStandardPublication: true, directionsText: "Do not publish" },
+      as(JUDGE)
+    );
 
     expect(again.status).toBe(200);
     // Never cleared by directing again: it is a fact about the referral's history.
@@ -2033,7 +2092,7 @@ describe("a judge's own referrals", () => {
     const holder = asPerson(JUDGE_NAME, JUDGE_SUBJECT);
     const { caseId, referralId } = await referredCase();
     await post(`/judicial/referrals/${referralId}/claim`, undefined, holder);
-    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, holder);
+    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, holder);
 
     const caseworkerView = await get(`/caseworker/cases/${caseId}/referrals/${referralId}`);
     const judicialView = await get(`/judicial/referrals/${referralId}`, holder);
@@ -2067,7 +2126,7 @@ describe("the case notes a referral writes as it moves", () => {
     const { caseId, referralId } = await referredCase({ reasons: ["Minor"] }, CASEWORKER);
 
     await post(`/judicial/referrals/${referralId}/claim`, undefined, as(JUDGE));
-    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(JUDGE));
+    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, as(JUDGE));
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`, undefined, as(OFFICE));
 
     const notes = await notesOn(caseId);
@@ -2088,7 +2147,7 @@ describe("the case notes a referral writes as it moves", () => {
     // case that has been to the judiciary and back reads what happened, latest first.
     const { caseId, referralId } = await referredCase({ reasons: ["Minor"] });
     await post(`/judicial/referrals/${referralId}/claim`, undefined, as(JUDGE));
-    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(JUDGE));
+    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, as(JUDGE));
     await post(`/caseworker/cases/${caseId}/referrals/${referralId}/closure`);
 
     const notes = await notesOn(caseId);
@@ -2097,7 +2156,7 @@ describe("the case notes a referral writes as it moves", () => {
     expect(notes.map((note) => note.note)).toEqual([
       `Master’s direction for referral raised on ${raised}, reasons: Minor, marked as actioned.`,
       `Master’s direction recorded for referral raised on ${raised}, reasons: Minor.` +
-        " Decision: Approved. Publish to the London Gazette: Yes. See the referral for the full direction.",
+        " Decision: Approved. Changes to standard publication in the Gazette: No. See the referral for the full direction.",
       `Referral raised on ${raised}, reasons: Minor, claimed by a Master.`,
       "Referred to a Master. Reasons: Minor."
     ]);
@@ -2139,13 +2198,17 @@ describe("the case notes a referral writes as it moves", () => {
     const { caseId, referralId } = await claimedReferral(JUDGE);
     const directions = "The applicant must file the missing evidence. ".repeat(80);
 
-    await post(`/judicial/referrals/${referralId}/direction`, { decision: "Rejected", publishToGazette: false, directionsText: directions }, as(JUDGE));
+    await post(
+      `/judicial/referrals/${referralId}/direction`,
+      { decision: "Rejected", changesToStandardPublication: true, directionsText: directions },
+      as(JUDGE)
+    );
 
     const [directed] = await notesOn(caseId);
     expect(directed.note).toContain("Decision: Rejected.");
     // Spelled out, never abbreviated to the presence of a word: publication names the applicant in a public
     // notice, so "not published" and "nothing recorded" must not read alike.
-    expect(directed.note).toContain("Publish to the London Gazette: No.");
+    expect(directed.note).toContain("Changes to standard publication in the Gazette: Yes.");
     expect(directed.note).toContain("See the referral for the full direction.");
     expect(directed.note).not.toContain("must file the missing evidence");
     expect(directed.note.length).toBeLessThanOrEqual(2000);
@@ -2159,7 +2222,9 @@ describe("the case notes a referral writes as it moves", () => {
 
     expect((await post(`/caseworker/cases/${caseId}/referrals/${referralId}/withdrawal`)).status).toBe(409);
     expect((await post(`/judicial/referrals/${referralId}/claim`, undefined, as(JUDGE))).status).toBe(409);
-    expect((await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(JUDGE))).status).toBe(409);
+    expect((await post(`/judicial/referrals/${referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, as(JUDGE))).status).toBe(
+      409
+    );
 
     expect(await notesOn(caseId)).toEqual(before);
   });
@@ -2596,13 +2661,18 @@ async function claimedReferral(judge: string): Promise<{ caseId: string; referra
 /** The same again, directed — the only state a caseworker may close from. */
 async function decidedReferral(judge: string): Promise<{ caseId: string; referralId: string }> {
   const claimed = await claimedReferral(judge);
-  await post(`/judicial/referrals/${claimed.referralId}/direction`, { decision: "Approved", publishToGazette: true }, as(judge));
+  await post(`/judicial/referrals/${claimed.referralId}/direction`, { decision: "Approved", changesToStandardPublication: false }, as(judge));
 
   return claimed;
 }
 
 /** A judicial write by `judge`, with a JSON body only when there is one — withdraw takes none. */
-function change(method: string, path: string, judge: string, body: unknown = { decision: "Rejected", publishToGazette: false }): Promise<Response> {
+function change(
+  method: string,
+  path: string,
+  judge: string,
+  body: unknown = { decision: "Rejected", changesToStandardPublication: true, directionsText: "Do not publish" }
+): Promise<Response> {
   return fetch(`${mock.url}${path}`, {
     method,
     headers: { "content-type": "application/json", ...as(judge) },
@@ -2725,7 +2795,7 @@ function referral(overrides: Partial<MockCase["referrals"][number]> = {}): MockC
     claimedAt: null,
     decision: null,
     directionsText: null,
-    publishToGazette: null,
+    changesToStandardPublication: null,
     decisionDate: null,
     decidedBy: null,
     decidedById: null,

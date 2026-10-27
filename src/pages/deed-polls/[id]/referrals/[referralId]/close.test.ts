@@ -30,7 +30,7 @@ const DECIDED = {
   claimedAt: new Date("2026-05-14T09:00:00Z"),
   decision: "Approved",
   directionsText: "Serve the notice on the second respondent.",
-  publishToGazette: true,
+  changesToStandardPublication: false,
   decisionDate: new Date("2026-05-15T10:30:00Z"),
   decidedBy: "A Judge",
   createdBy: "A Caseworker",
@@ -81,11 +81,11 @@ describe("mark a direction as actioned", () => {
       expect(res.render.mock.calls[0][1].referral.direction).toEqual({
         decision: "Approved",
         directionsText: "Serve the notice on the second respondent.",
-        publishToGazette: true,
+        changesToStandardPublication: false,
         decidedBy: "A Judge",
         decidedOn: "15 May 2026 at 11:30am"
       });
-      expect(res.render.mock.calls[0][1].gazetteAnswer).toBe("Yes");
+      expect(res.render.mock.calls[0][1].gazetteAnswer).toBe("No");
     });
 
     it("should state the three things being confirmed, including that the referral leaves the worklist", async () => {
@@ -102,18 +102,21 @@ describe("mark a direction as actioned", () => {
     it.each([
       // A direction with no further directions, and one that recorded no Gazette answer — the two nullable fields
       // that must not read as absent and "No" respectively.
-      { directionsText: null, publishToGazette: true, directions: "Not provided", gazette: "Yes" },
-      { directionsText: "Serve the notice.", publishToGazette: null, directions: "Serve the notice.", gazette: "Not recorded" },
-      { directionsText: "Serve the notice.", publishToGazette: false, directions: "Serve the notice.", gazette: "No" }
-    ])("should read directions as $directions and the Gazette answer as $gazette", async ({ directionsText, publishToGazette, directions, gazette }) => {
-      vi.mocked(findReferral).mockResolvedValue({ ...DECIDED, directionsText, publishToGazette } as never);
-      const res = response();
+      { directionsText: null, changesToStandardPublication: false, directions: "Not provided", gazette: "No" },
+      { directionsText: "Serve the notice.", changesToStandardPublication: null, directions: "Serve the notice.", gazette: "Not recorded" },
+      { directionsText: "Serve the notice.", changesToStandardPublication: true, directions: "Serve the notice.", gazette: "Yes" }
+    ])(
+      "should read directions as $directions and the Gazette answer as $gazette",
+      async ({ directionsText, changesToStandardPublication, directions, gazette }) => {
+        vi.mocked(findReferral).mockResolvedValue({ ...DECIDED, directionsText, changesToStandardPublication } as never);
+        const res = response();
 
-      await GET(request(), res);
+        await GET(request(), res);
 
-      expect(res.render.mock.calls[0][1].referral.direction.directionsText).toBe(directions);
-      expect(res.render.mock.calls[0][1].gazetteAnswer).toBe(gazette);
-    });
+        expect(res.render.mock.calls[0][1].referral.direction.directionsText).toBe(directions);
+        expect(res.render.mock.calls[0][1].gazetteAnswer).toBe(gazette);
+      }
+    );
 
     it("should post back to its own path and offer a cancel that goes to the referral", async () => {
       const res = response();

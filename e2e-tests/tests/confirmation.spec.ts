@@ -454,7 +454,7 @@ async function askApplicant(request: APIRequestContext, caseId: string, daysAgo:
 
   const directed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/direction`, {
     headers: judge,
-    data: { decision: "Rejected", publishToGazette: false, directionsText: JUDGES_REASON }
+    data: { decision: "Rejected", changesToStandardPublication: true, directionsText: JUDGES_REASON }
   });
   expect(directed.status(), await directed.text()).toBe(200);
 

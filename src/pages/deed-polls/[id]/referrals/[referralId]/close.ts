@@ -37,12 +37,12 @@ const en = {
   directionHeading: "Direction from the Master",
   decisionLabel: "Decision",
   directionsLabel: "Directions",
-  gazetteLabel: "Published in the Gazette",
+  gazetteLabel: "Changes to the standard publications in the Gazette",
   decidedByLabel: "Decided by",
   decidedLabel: "Decision date",
   yes: "Yes",
   no: "No",
-  // The third answer api's nullish `publishToGazette` has, said rather than collapsed onto "No" — see
+  // The third answer api's nullish `changesToStandardPublication` has, said rather than collapsed onto "No" — see
   // `gazetteAnswer`.
   gazetteNotRecorded: "Not recorded",
   // Decision 6: the three things the caseworker is confirming, said before the submit rather than after it.
@@ -82,7 +82,7 @@ export const GET = async (req: Request, res: Response) => {
     referral: view,
     // The boolean in this page's words, for the reason `../[referralId].ts` gives: a template ternary over a
     // nullish value prints "No" for a direction that recorded no answer.
-    gazetteAnswer: gazetteAnswer(view.direction?.publishToGazette, content),
+    gazetteAnswer: gazetteAnswer(view.direction?.changesToStandardPublication, content),
     closeHref: `${href}/close`,
     referralHref: href,
     en,
@@ -111,15 +111,15 @@ export const POST = async (req: Request, res: Response) => {
 };
 
 /**
- * The Gazette direction in words — three answers, because api's `publishToGazette` is nullish.
+ * The Gazette direction in words — three answers, because api's `changesToStandardPublication` is nullish.
  *
  * The third copy of this resolution in the app (`../[referralId].ts` and
  * `../../../../judicial/referrals/[referralId].ts` are the others) and deliberately not shared: the two words
  * are each page's `en`/`cy`, and a library that answered "Yes" would be the one string Welsh could not reach.
  */
-function gazetteAnswer(publishToGazette: boolean | null | undefined, content: typeof en): string {
-  if (publishToGazette === true) return content.yes;
-  if (publishToGazette === false) return content.no;
+function gazetteAnswer(changesToStandardPublication: boolean | null | undefined, content: typeof en): string {
+  if (changesToStandardPublication === true) return content.yes;
+  if (changesToStandardPublication === false) return content.no;
 
   return content.gazetteNotRecorded;
 }

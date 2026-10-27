@@ -2321,7 +2321,7 @@
         "tags": ["judicial-referral-controller"]
       },
       "put": {
-        "description": "Requires the judicial role. Permitted while the referral is Decided and this judge directed it, which is until the office closes it; a visible referral that is not their direction (the pool, or their own claim) is 409, and a closed one is 404. Takes the direction POST's body and refuses it in the same words (400). Replaces the decision, directionsText and publishToGazette, moves decisionDate to now, keeps decidedBy as first signed, and sets directionChangedAt. The original direction stays on the audit trail; the caseworker is told by a case note and directionChangedAt.",
+        "description": "Requires the judicial role. Permitted while the referral is Decided and this judge directed it, which is until the office closes it; a visible referral that is not their direction (the pool, or their own claim) is 409, and a closed one is 404. Takes the direction POST's body and refuses it in the same words (400). Replaces the decision, directionsText and changesToStandardPublication, moves decisionDate to now, keeps decidedBy as first signed, and sets directionChangedAt. The original direction stays on the audit trail; the caseworker is told by a case note and directionChangedAt.",
         "operationId": "reviseDirection",
         "parameters": [
           {
@@ -2364,7 +2364,7 @@
     },
     "/judicial/referrals/{referralId}/direction/withdraw": {
       "post": {
-        "description": "Requires the judicial role. No body. Permitted while the referral is Decided and this judge directed it; otherwise 409, or 404 once closed. The referral returns to Claimed, held by the same judge, with the decision, directionsText, publishToGazette, decisionDate and decidedBy cleared, and directionChangedAt set. The judge directs again with POST .../direction. A withdrawn direction is a live claim again: if the judge does not direct it within the claim's inactivity window, the inactivity sweep returns it to the shared pool, where any judge may claim it.",
+        "description": "Requires the judicial role. No body. Permitted while the referral is Decided and this judge directed it; otherwise 409, or 404 once closed. The referral returns to Claimed, held by the same judge, with the decision, directionsText, changesToStandardPublication, decisionDate and decidedBy cleared, and directionChangedAt set. The judge directs again with POST .../direction. A withdrawn direction is a live claim again: if the judge does not direct it within the claim's inactivity window, the inactivity sweep returns it to the shared pool, where any judge may claim it.",
         "operationId": "withdrawDirection",
         "parameters": [
           {
@@ -4106,6 +4106,10 @@
         "additionalProperties": true,
         "description": "A judge's direction on a referral, always complete -- there is no draft and no patch, because the check-your-answers page and the attestation are the admin's. POST records it on a referral this caller currently holds, so a referral withdrawn under them or taken back by the inactivity sweep is a 409 rather than a late direction on a referral that moved on. PUT replaces the whole of a direction this caller gave, while the referral is Decided and not yet closed, and is validated identically. The referral comes from the path and the case is resolved from it -- a judicial URL carries no case id -- and the state, decidedBy and decisionDate come from the transition, the token and the clock, so all of them are ignored rather than refused, as any unknown key is.",
         "properties": {
+          "changesToStandardPublication": {
+            "type": "boolean",
+            "description": "The Master's answer to \"Are there any changes to the standard publications in the Gazette?\": true for do not publish, or publish only as directionsText says; false for publish as standard. The judge's decision, never derived from a caseworker's referral reasons. A JSON boolean -- the string \"false\" is refused rather than coerced, because publication cannot be taken back. publishToGazette alone is accepted in its place for one release."
+          },
           "decision": {
             "type": "string",
             "description": "What the judge decided. Matched exactly, as the stored form is the wire form.",
@@ -4113,15 +4117,16 @@
           },
           "directionsText": {
             "type": "string",
-            "description": "What the judge directed. Optional: an approval that needs no comment is a real answer. Trimmed, and a whitespace-only value counts as none.",
+            "description": "What the judge directed. Optional on a standard publication: an approval that needs no comment is a real answer. Required when changesToStandardPublication is true, to say whether to publish nothing or what to publish. Trimmed, and a whitespace-only value counts as none.",
             "maxLength": 4000
           },
           "publishToGazette": {
             "type": "boolean",
-            "description": "Whether the change is to be published in the London Gazette. The judge's decision, never derived from a caseworker's referral reasons. A JSON boolean -- the string \"false\" is refused rather than coerced, because publication cannot be taken back."
+            "deprecated": true,
+            "description": "changesToStandardPublication inverted, under its name before 2026-10-27. Accepted for one release, and exempt from the directionsText requirement; sent beside changesToStandardPublication it must agree with it. Send changesToStandardPublication instead."
           }
         },
-        "required": ["decision", "publishToGazette"]
+        "required": ["changesToStandardPublication", "decision"]
       },
       "JudicialDocument": {
         "type": "object",
@@ -4213,6 +4218,10 @@
             "$ref": "#/components/schemas/JudicialApplicationView",
             "description": "The application behind the referral, resolved from it: the names, type, nationality, a minor's parents and its readable documents. Never a case id, contact details or case notes."
           },
+          "changesToStandardPublication": {
+            "type": ["boolean", "null"],
+            "description": "The Master's answer to \"Are there any changes to the standard publications in the Gazette?\": true for do not publish, or publish only as directionsText says; false for publish as standard; null until a direction exists."
+          },
           "claimedAt": {
             "type": "string",
             "format": "date-time"
@@ -4250,7 +4259,9 @@
             "type": "string"
           },
           "publishToGazette": {
-            "type": "boolean"
+            "type": ["boolean", "null"],
+            "deprecated": true,
+            "description": "changesToStandardPublication inverted, under the name it had before 2026-10-27. Kept for one release; read changesToStandardPublication."
           },
           "reasons": {
             "type": "array",
@@ -4409,6 +4420,10 @@
       "ReferralResponse": {
         "type": "object",
         "properties": {
+          "changesToStandardPublication": {
+            "type": ["boolean", "null"],
+            "description": "The Master's answer to \"Are there any changes to the standard publications in the Gazette?\": true for do not publish, or publish only as directionsText says; false for publish as standard; null until a direction exists."
+          },
           "claimedAt": {
             "type": "string",
             "format": "date-time"
@@ -4474,7 +4489,9 @@
             "type": "string"
           },
           "publishToGazette": {
-            "type": "boolean"
+            "type": ["boolean", "null"],
+            "deprecated": true,
+            "description": "changesToStandardPublication inverted, under the name it had before 2026-10-27. Kept for one release; read changesToStandardPublication."
           },
           "reasons": {
             "type": "array",

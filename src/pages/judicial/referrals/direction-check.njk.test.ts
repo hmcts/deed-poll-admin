@@ -47,7 +47,7 @@ const detail = (): JudicialReferralDetail =>
     claimedAt: new Date("2026-09-04T09:00:00Z"),
     decision: null,
     directionsText: null,
-    publishToGazette: null,
+    changesToStandardPublication: null,
     decisionDate: null,
     decidedBy: null,
     application: {
@@ -74,7 +74,7 @@ const renderCheck = async (body: Record<string, unknown>, query: Record<string, 
   return environment.render("judicial/referrals/direction-check.njk", { ...model.en, ...model });
 };
 
-const DIRECTION = { decision: "Approved", directionsText: "Grant the application.", publishToGazette: "false" };
+const DIRECTION = { decision: "Approved", directionsText: "Grant the application.", changesToStandardPublication: "false" };
 
 describe("direction check-your-answers template", () => {
   beforeEach(() => {
@@ -90,6 +90,15 @@ describe("direction check-your-answers template", () => {
     expect(html).toContain("No");
   });
 
+  // Master Sullivan's feedback (Steve, 2026-10-27): the Gazette answer before the directions or reasons, as the form
+  // asks them, because a Yes is what the text then explains.
+  it("should read the Gazette answer back before the directions or reasons", async () => {
+    const html = await renderCheck(DIRECTION);
+
+    expect(html.indexOf("Changes to the standard publications in the Gazette")).toBeLessThan(html.indexOf("Directions/Reasons"));
+    expect(html.indexOf("Directions/Reasons")).toBeGreaterThan(-1);
+  });
+
   it("should caption the page with the application being directed", async () => {
     const html = await renderCheck(DIRECTION);
 
@@ -97,9 +106,9 @@ describe("direction check-your-answers template", () => {
   });
 
   it("should say the Gazette answer in words rather than as a raw boolean", async () => {
-    const html = await renderCheck({ ...DIRECTION, publishToGazette: "true" });
+    const html = await renderCheck({ ...DIRECTION, changesToStandardPublication: "true" });
 
-    expect(html).toContain("Published in the Gazette");
+    expect(html).toContain("Changes to the standard publications in the Gazette");
     expect(html).toContain("Yes");
   });
 
@@ -118,7 +127,7 @@ describe("direction check-your-answers template", () => {
 
     expect(html).toContain('<input type="hidden" name="decision" value="Approved">');
     expect(html).toContain('<input type="hidden" name="directionsText" value="Grant the application.">');
-    expect(html).toContain('<input type="hidden" name="publishToGazette" value="false">');
+    expect(html).toContain('<input type="hidden" name="changesToStandardPublication" value="false">');
   });
 
   it("should post the confirm back to the direction route with the literal that records", async () => {
@@ -165,7 +174,7 @@ describe("direction check-your-answers template", () => {
 
   describe("when changing a direction", () => {
     beforeEach(() => {
-      vi.mocked(getReferral).mockResolvedValue({ ...detail(), state: "Decided", decision: "Approved", publishToGazette: false } as never);
+      vi.mocked(getReferral).mockResolvedValue({ ...detail(), state: "Decided", decision: "Approved", changesToStandardPublication: true } as never);
     });
 
     it("should say change in the heading, the declaration and the confirm, and that the earlier direction is kept", async () => {

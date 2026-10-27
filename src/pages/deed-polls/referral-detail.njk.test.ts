@@ -48,7 +48,7 @@ const REFERRAL = {
   claimedAt: null,
   decision: null,
   directionsText: null,
-  publishToGazette: null,
+  changesToStandardPublication: null,
   decisionDate: null,
   decidedBy: null,
   createdBy: "A Caseworker",
@@ -64,7 +64,7 @@ const DIRECTED = {
   claimedAt: new Date("2026-05-14T09:00:00Z"),
   decision: "Approved",
   directionsText: "Serve the notice on the second respondent.",
-  publishToGazette: true,
+  changesToStandardPublication: false,
   decisionDate: new Date("2026-05-15T10:30:00Z"),
   decidedBy: "A Judge"
 };
@@ -195,7 +195,7 @@ describe("referral view template", () => {
     expect(rendered).toContain("Direction from the Master");
     expect(rendered).toContain("Approved");
     expect(rendered).toContain("Serve the notice on the second respondent.");
-    expect(rendered).toContain("Published in the Gazette");
+    expect(rendered).toContain("Changes to the standard publications in the Gazette");
     expect(rendered).toContain("Decided by");
     expect(rendered).toContain("15 May 2026 at 11:30am");
   });
@@ -233,10 +233,10 @@ describe("referral view template", () => {
   });
 
   it("should say the Gazette answer was not recorded rather than printing No for a direction that gave none", async () => {
-    const rendered = await page({ ...REFERRAL, ...DIRECTED, publishToGazette: null });
+    const rendered = await page({ ...REFERRAL, ...DIRECTED, changesToStandardPublication: null });
 
-    expect(rendered).toContain("Published in the Gazette");
-    expect(rendered).toMatch(/Published in the Gazette[\s\S]*?Not recorded/);
+    expect(rendered).toContain("Changes to the standard publications in the Gazette");
+    expect(rendered).toMatch(/Changes to the standard publications in the Gazette[\s\S]*?Not recorded/);
   });
 
   it("should say a migrated referral came from the previous system rather than showing an empty reasons cell", async () => {

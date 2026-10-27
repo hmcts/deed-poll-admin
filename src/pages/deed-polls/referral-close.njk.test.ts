@@ -47,7 +47,7 @@ const DECIDED = {
   claimedAt: new Date("2026-05-14T09:00:00Z"),
   decision: "Approved",
   directionsText: "Serve the notice on the second respondent.",
-  publishToGazette: true,
+  changesToStandardPublication: false,
   decisionDate: new Date("2026-05-15T10:30:00Z"),
   decidedBy: "A Judge",
   createdBy: "A Caseworker",
@@ -101,15 +101,15 @@ describe("mark-as-actioned confirmation template", () => {
     expect(rendered).toContain("Direction from the Master");
     expect(rendered).toContain("Approved");
     expect(rendered).toContain("Serve the notice on the second respondent.");
-    expect(rendered).toMatch(/Published in the Gazette[\s\S]*?Yes/);
+    expect(rendered).toMatch(/Changes to the standard publications in the Gazette[\s\S]*?No/);
     expect(rendered).toContain("A Judge");
     expect(rendered).toContain("15 May 2026 at 11:30am");
   });
 
   it("should say the Gazette answer was not recorded rather than printing No for a direction that gave none", async () => {
-    const rendered = await page({ ...DECIDED, publishToGazette: null });
+    const rendered = await page({ ...DECIDED, changesToStandardPublication: null });
 
-    expect(rendered).toMatch(/Published in the Gazette[\s\S]*?Not recorded/);
+    expect(rendered).toMatch(/Changes to the standard publications in the Gazette[\s\S]*?Not recorded/);
   });
 
   it("should distinguish a direction with no further directions from one that was never given", async () => {

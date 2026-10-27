@@ -314,8 +314,11 @@ const documentSchema = z.object({
  * migrated referral** — the source store had no such field — which is what `migrated` explains, and never
  * null, because api builds it with `List.copyOf`.
  *
- * `publishToGazette` is nullable where `migrated` is not: api boxes it deliberately, because a referral with
- * no direction has not been asked the question and absent is not false.
+ * `changesToStandardPublication` is nullable where `migrated` is not: api boxes it deliberately, because a referral
+ * with no direction has not been asked the question and absent is not false. It is the Master's answer to "Are there
+ * any changes to the standard publications in the Gazette?" — true for do not publish, or publish only as
+ * `directionsText` says. **`publishToGazette` is the same answer inverted under its pre-2026-10-27 name**, published
+ * deprecated by api for one release: declared here because the contract is set-equal, and read by nothing.
  *
  * The four `confirmation*` fields are the applicant's answer to the *Request confirmation to proceed* email and
  * api's record of who transcribed it. All four are nullable and they move in pairs rather than independently:
@@ -336,6 +339,8 @@ const referralSchema = z.object({
   claimedAt: wireDateTime.nullish(),
   decision: z.enum(MASTER_DECISION).nullish(),
   directionsText: z.string().nullish(),
+  changesToStandardPublication: z.boolean().nullish(),
+  // Deprecated by api: `changesToStandardPublication` inverted, for one release. Read by nothing here.
   publishToGazette: z.boolean().nullish(),
   decisionDate: wireDateTime.nullish(),
   decidedBy: z.string().nullish(),
@@ -739,6 +744,8 @@ const judicialReferralDetailSchema = judicialReferralSummarySchema.extend({
   claimedAt: wireDateTime.nullish(),
   decision: z.enum(MASTER_DECISION).nullish(),
   directionsText: z.string().nullish(),
+  changesToStandardPublication: z.boolean().nullish(),
+  // Deprecated by api: `changesToStandardPublication` inverted, for one release. Read by nothing here.
   publishToGazette: z.boolean().nullish(),
   decisionDate: wireDateTime.nullish(),
   decidedBy: z.string().nullish(),
@@ -791,16 +798,19 @@ const judicialMyReferralsSchema = z.object({
 /**
  * The holding judge's direction on a referral, recorded once and complete — api has no draft and no patch.
  *
- * `publishToGazette` is a required JSON boolean and not a coerced string, which is api's own emphasis:
+ * `changesToStandardPublication` is a required JSON boolean and not a coerced string, which is api's own emphasis:
  * `"false"` is truthy in JavaScript, and publication cannot be taken back. Never derived from a
  * `NonPublication` referral reason — the caseworker's reason for referring is not the judge's decision.
+ * `publishToGazette`, its deprecated inverted predecessor, is declared for set-equality and never sent.
  *
- * `directionsText` is optional, because an approval that needs no comment is a real answer. The state, the
+ * `directionsText` is optional on a standard publication, because an approval that needs no comment is a real
+ * answer, and **required when there are changes** — api answers 400 on it otherwise. The state, the
  * decider and the decision date come from the transition, the token and api's clock, so none of them is here.
  */
 const judicialDirectionSchema = z.object({
   decision: z.enum(MASTER_DECISION),
-  publishToGazette: z.boolean(),
+  changesToStandardPublication: z.boolean(),
+  publishToGazette: z.boolean().optional(),
   directionsText: z.string().max(4000).optional()
 });
 
@@ -1271,8 +1281,8 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   // sends — empty for a query that narrows nothing, never null. `name` is NOT NULL in the schema.
   SavedQueryResponse: ["id", "name", "shared", "conditions", "selected", "editable"],
   // `migrated` is a `boolean` primitive on api's record and `reasons` a `List.copyOf` — empty for a migrated
-  // referral, never null. `publishToGazette` is a boxed `Boolean` and `decision` a nullable enum, so neither
-  // is here: a referral with no direction has not been asked either question.
+  // referral, never null. `changesToStandardPublication` is a boxed `Boolean` and `decision` a nullable enum, so
+  // neither is here: a referral with no direction has not been asked either question.
   ReferralResponse: ["id", "migrated", "reasons"],
   JudicialReferralSummary: ["id", "reasons"],
   // The summary's two and no more: `application` is not pinned, despite api always building one — a nested record

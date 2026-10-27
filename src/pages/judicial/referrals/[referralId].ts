@@ -84,12 +84,12 @@ const en = {
   noneRecorded: "None recorded.",
   directionHeading: "Direction recorded",
   decisionLabel: "Decision",
-  directionsLabel: "Directions",
-  gazetteLabel: "Published in the Gazette",
+  directionsLabel: "Directions/Reasons",
+  gazetteLabel: "Changes to the standard publications in the Gazette",
   decidedLabel: "Recorded",
   yes: "Yes",
   no: "No",
-  // The third state of api's nullish `publishToGazette`, said rather than collapsed into "No": a direction it
+  // The third state of api's nullish `changesToStandardPublication`, said rather than collapsed into "No": a direction it
   // recorded no answer for must not read as one directed against publication.
   gazetteNotRecorded: "Not recorded",
   claim: "Claim this referral",
@@ -186,7 +186,7 @@ export const GET = async (req: Request, res: Response) => {
     // The boolean as this page's words, resolved here because `buildDirectionView` deliberately leaves it a
     // boolean for the page's own `en`/`cy` to name — and because the three states are one decision worth
     // making somewhere testable rather than in a template ternary.
-    gazetteAnswer: gazetteAnswer(view.direction?.publishToGazette, content),
+    gazetteAnswer: gazetteAnswer(view.direction?.changesToStandardPublication, content),
     // Both built here rather than in the template, so the one path shape lives in one place — and so the
     // direction page's URL is stated by the page that offers it rather than assembled from fragments.
     claimHref: `${href}/claim`,
@@ -248,15 +248,15 @@ function refusal(query: Request["query"], content: typeof en): string {
 }
 
 /**
- * The Gazette direction in words — three answers, because api's `publishToGazette` is nullish.
+ * The Gazette direction in words — three answers, because api's `changesToStandardPublication` is nullish.
  *
  * A direction with no recorded answer says so. Collapsing `null` onto "No" would assert the judge directed
  * against publication, which is both a claim api never made and the one answer on this screen that cannot be
  * taken back.
  */
-function gazetteAnswer(publishToGazette: boolean | null | undefined, content: typeof en): string {
-  if (publishToGazette === true) return content.yes;
-  if (publishToGazette === false) return content.no;
+function gazetteAnswer(changesToStandardPublication: boolean | null | undefined, content: typeof en): string {
+  if (changesToStandardPublication === true) return content.yes;
+  if (changesToStandardPublication === false) return content.no;
 
   return content.gazetteNotRecorded;
 }

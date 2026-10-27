@@ -21,7 +21,7 @@ const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferr
     claimedAt: null,
     decision: null,
     directionsText: null,
-    publishToGazette: null,
+    changesToStandardPublication: null,
     decisionDate: null,
     decidedBy: null,
     application: {
@@ -367,14 +367,14 @@ describe("judicial/view", () => {
     });
 
     // Read back off api's own fields, which is how a judge re-reads a referral they have already directed.
-    // `publishToGazette` stays a boolean so the page's own en/cy owns "Yes" and "No".
+    // `changesToStandardPublication` stays a boolean so the page's own en/cy owns "Yes" and "No".
     it("should render the direction api recorded, keeping the Gazette answer a boolean", () => {
       const view = buildJudicialReferral(
         detail({
           state: "Decided",
           decision: "Approved",
           directionsText: "Satisfied the change is in the child's interests",
-          publishToGazette: false,
+          changesToStandardPublication: true,
           decisionDate: new Date("2026-09-05T16:05:00Z")
         })
       );
@@ -382,7 +382,7 @@ describe("judicial/view", () => {
       expect(view.direction).toEqual({
         decision: "Approved",
         directionsText: "Satisfied the change is in the child's interests",
-        publishToGazette: false,
+        changesToStandardPublication: true,
         decidedOn: "5 September 2026 at 5:05pm"
       });
     });
@@ -390,7 +390,7 @@ describe("judicial/view", () => {
     it("should say an approval carried no directions rather than leaving the row blank", () => {
       const view = buildJudicialReferral(detail({ state: "Decided", decision: "Approved", directionsText: null }));
 
-      expect(view.direction).toMatchObject({ directionsText: "Not provided", publishToGazette: null });
+      expect(view.direction).toMatchObject({ directionsText: "Not provided", changesToStandardPublication: null });
     });
   });
 });

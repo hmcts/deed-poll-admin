@@ -306,7 +306,7 @@ async function refuseApplication(request: APIRequestContext, caseId: string, rea
 
   const directed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/direction`, {
     headers: judge,
-    data: { decision: "Rejected", publishToGazette: false, directionsText: reason }
+    data: { decision: "Rejected", changesToStandardPublication: true, directionsText: reason }
   });
   expect(directed.status(), await directed.text()).toBe(200);
 }

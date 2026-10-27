@@ -43,6 +43,15 @@
         errorMessage: { text: errors.decision } if errors.decision
       }) }}
 
+      {{ govukRadios({
+        idPrefix: "changesToStandardPublication",
+        name: "changesToStandardPublication",
+        fieldset: { legend: { text: gazetteLegend, classes: "govuk-fieldset__legend--m" } },
+        hint: { text: gazetteHint },
+        items: gazetteItems,
+        errorMessage: { text: errors.changesToStandardPublication } if errors.changesToStandardPublication
+      }) }}
+
       {{ govukCharacterCount({
         id: "directionsText",
         name: "directionsText",
@@ -52,15 +61,6 @@
         label: { text: directionsLabel, classes: "govuk-label--m" },
         hint: { text: directionsHint },
         errorMessage: { text: errors.directionsText } if errors.directionsText
-      }) }}
-
-      {{ govukRadios({
-        idPrefix: "publishToGazette",
-        name: "publishToGazette",
-        fieldset: { legend: { text: gazetteLegend, classes: "govuk-fieldset__legend--m" } },
-        hint: { text: gazetteHint },
-        items: gazetteItems,
-        errorMessage: { text: errors.publishToGazette } if errors.publishToGazette
       }) }}
 
       <div class="govuk-button-group">

@@ -35,15 +35,15 @@
     {{ govukSummaryList({
       rows: [
         { key: { text: decisionLabel }, value: { text: answers.decision } },
-        { key: { text: directionsSummaryLabel }, value: { text: answers.directionsText if answers.directionsText else noneGiven } },
-        { key: { text: gazetteLabel }, value: { text: yes if answers.publishToGazette else no } }
+        { key: { text: gazetteLabel }, value: { text: yes if answers.changesToStandardPublication else no } },
+        { key: { text: directionsSummaryLabel }, value: { text: answers.directionsText if answers.directionsText else noneGiven } }
       ]
     }) }}
 
     <form method="post" action="{{ directionHref }}" novalidate>
       <input type="hidden" name="decision" value="{{ values.decision }}">
       <input type="hidden" name="directionsText" value="{{ values.directionsText }}">
-      <input type="hidden" name="publishToGazette" value="{{ values.publishToGazette }}">
+      <input type="hidden" name="changesToStandardPublication" value="{{ values.changesToStandardPublication }}">
 
       <p class="govuk-body">{{ declaration }}</p>
       <p class="govuk-body">{{ afterwards }}</p>

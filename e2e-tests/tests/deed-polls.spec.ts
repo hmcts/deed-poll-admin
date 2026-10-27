@@ -622,7 +622,7 @@ test("caseworker actions a returned direction, and the returned-direction count 
   const direction: JudicialDirection = {
     decision: "Approved",
     directionsText: "Approved. Enrol once the applicant has confirmed the spelling of the new surname.",
-    publishToGazette: true
+    changesToStandardPublication: false
   };
   // The part of the direction's own words that appears nowhere else, so "the lifecycle note summarised the
   // direction instead of copying it" can be asserted as an absence. Not the whole of `directionsText`: it opens
@@ -699,8 +699,9 @@ test("caseworker actions a returned direction, and the returned-direction count 
   await expect(page.getByRole("heading", { name: "Direction from the Master" })).toBeVisible();
   await expect(summaryRow(page, "Decision")).toContainText("Approved");
   await expect(summaryRow(page, "Directions")).toContainText(direction.directionsText);
-  // Yes because the judge answered yes — the third answer, "Not recorded", is the one a page test pins.
-  await expect(summaryRow(page, "Published in the Gazette")).toContainText("Yes");
+  // No because the Master answered no — a standard publication. The third answer, "Not recorded", is the one a
+  // page test pins.
+  await expect(summaryRow(page, "Changes to the standard publications in the Gazette")).toContainText("No");
   await expect(summaryRow(page, "Decided by")).toContainText(JUDGE_EMAIL);
   await expect(summaryRow(page, "Claimed by a Master")).toContainText(JUDGE_EMAIL);
   // 6. And no withdrawal, absent from the markup rather than disabled: api answers 409 with a sentence of its own
@@ -794,7 +795,7 @@ test("caseworker actions a returned direction, and the returned-direction count 
   await expect(noteRows.nth(1)).toContainText("Decision: Approved.");
   // Spelled out rather than abbreviated to the presence of a word: publication names the applicant in a public
   // notice, so "not published" and "nothing recorded" must not read alike.
-  await expect(noteRows.nth(1)).toContainText("Publish to the London Gazette: Yes.");
+  await expect(noteRows.nth(1)).toContainText("Changes to standard publication in the Gazette: No.");
   await expect(noteRows.nth(1)).toContainText(JUDGE_EMAIL);
   await expect(noteRows.nth(2)).toContainText("claimed by a Master.");
   await expect(noteRows.nth(2)).toContainText(JUDGE_EMAIL);
@@ -1751,7 +1752,7 @@ async function referTo(request: APIRequestContext, caseId: string, upTo: "Claime
   // `close` has not happened, which is the whole of "returned — action needed".
   const directed = await request.post(`${MOCK_API_URL}/judicial/referrals/${referralId}/direction`, {
     headers: bearer(SEED_JUDGE),
-    data: { decision: "Approved", publishToGazette: true }
+    data: { decision: "Approved", changesToStandardPublication: false }
   });
   expect(directed.status(), await directed.text()).toBe(200);
 }
@@ -1911,7 +1912,7 @@ async function expectReferralWelshKeysResolve(browser: Browser, referralUrl: str
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to a Master");
     await expect(page.getByRole("heading", { name: "Direction from the Master" })).toBeVisible();
     await expect(summaryRow(page, "Referral status")).toBeVisible();
-    await expect(summaryRow(page, "Published in the Gazette")).toBeVisible();
+    await expect(summaryRow(page, "Changes to the standard publications in the Gazette")).toBeVisible();
     await expect(page.getByRole("button", { name: "Mark direction as actioned" })).toBeVisible();
 
     await page.goto(`${referralUrl}/close?lng=cy`);
@@ -1981,7 +1982,7 @@ async function expectMasterSeesDirectionWithoutNotes(browser: Browser, referralI
     const page = await context.newPage();
     await page.goto(`/judicial/referrals/${referralId}`);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to a Master");
-    await expect(summaryRow(page, "Directions")).toContainText(directionOnlyFragment);
+    await expect(summaryRow(page, "Directions/Reasons")).toContainText(directionOnlyFragment);
 
     await expect(page.getByRole("heading", { name: "Case notes" })).toHaveCount(0);
     const body = page.locator("body");
@@ -2084,5 +2085,5 @@ async function expectNoAccessibilityViolations(page: Page, allowed: string[] = [
 interface JudicialDirection {
   decision: "Approved" | "Rejected";
   directionsText: string;
-  publishToGazette: boolean;
+  changesToStandardPublication: boolean;
 }
