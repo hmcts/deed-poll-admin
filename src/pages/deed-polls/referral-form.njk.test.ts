@@ -17,6 +17,7 @@ import { ConflictError, createReferral, findDeedPoll, findReferrals } from "@hmc
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
+import { addPathFilters } from "../../path-filters.js";
 import { GET, POST } from "./[id]/referrals/new.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -37,6 +38,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const found = { id: "case-1", displayReference: "KBDP2026-00001", notes: [], witnesses: [], documents: [] };
 

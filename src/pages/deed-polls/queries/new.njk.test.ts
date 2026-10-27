@@ -11,6 +11,7 @@ import { createSavedQuery, selectSavedQuery } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { addPathFilters } from "../../../path-filters.js";
 import { GET, POST } from "./new.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -30,6 +31,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const QUERY = { filter: "received", where: ["newSurname:contains:Smith"], sort: "dateReceived:desc" };
 

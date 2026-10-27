@@ -26,6 +26,7 @@ import {
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
+import { addPathFilters } from "../../path-filters.js";
 import { GET } from "./index.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => {
@@ -53,6 +54,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 /** One row, since the table — and so its sortable headers — renders only for a result set with rows in it. */
 const record = {

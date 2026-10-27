@@ -11,6 +11,7 @@ import { DOCUMENT_PREVIEW_LIMITS, findDeedPoll, getReferral } from "@hmcts/deed-
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
+import { addPathFilters } from "../path-filters.js";
 import { GET as caseView } from "./deed-polls/[id]/documents/[documentId]/view.js";
 import { GET as referralView } from "./judicial/referrals/[referralId]/documents/[documentId]/view.js";
 
@@ -31,6 +32,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const UNSAFE_NAME = '<script>alert("x")</script> & "quoted"';
 const DOCUMENTS = [

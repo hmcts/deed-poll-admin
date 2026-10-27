@@ -762,9 +762,10 @@ referral under a case, a saved query, a Gazette request, an email — goes throu
   a dot segment. Build the path **before** any write (and, on the judicial pages, before any read), so a refusal
   cannot follow a write. For an api-returned id (`created.id`, `referenceMatch`) build it after the response and
   never retry the write.
-- **Templates are not covered yet.** About 25 `.njk` hrefs still interpolate `{{ case.id }}` and child ids directly,
-  some with `| urlencode`; those ids come from api, and the sweep was deliberately kept to TypeScript. A new link
-  should be built in the handler with the helpers and passed in, rather than added to that list.
+- **Templates use the same helpers, as Nunjucks filters.** `{{ case.id | casePath }}`, `{{ row.id | referralPath }}`
+  and `{{ n.id | pathSegment }}` come from `src/path-filters.ts`, which `app.ts` and every template test register
+  (`addPathFilters(environment)`). Not `| urlencode`: it leaves dot segments alone. `src/template-hrefs.test.ts`
+  fails on any id interpolated into an href path without one of the three filters (a `#fragment` is exempt).
 - `gazette/batch.ts`'s 303 after a send keeps plain `encodeURIComponent`: it sits inside the outcome-unknown catch,
   so a refusal there would report a completed send as an unknown outcome.
 - `src/case-redirects.test.ts` drives the two reported handlers over HTTP. A URL-parsing client resolves `.`, `..`

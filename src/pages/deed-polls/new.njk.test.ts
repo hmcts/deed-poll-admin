@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import nunjucks from "nunjucks";
 import { describe, expect, it } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
+import { addPathFilters } from "../../path-filters.js";
 import { GET, POST } from "./new.js";
 
 const environment = nunjucks.configure(
@@ -13,6 +14,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const html = (model: Record<string, unknown>): string => environment.render("deed-polls/new.njk", { ...(model.en as object), ...model });
 

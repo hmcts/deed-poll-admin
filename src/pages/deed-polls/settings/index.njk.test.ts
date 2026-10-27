@@ -12,6 +12,7 @@ import {
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { addPathFilters } from "../../../path-filters.js";
 import { POST as postGazette } from "./gazette-recipient.js";
 import { GET, POST as postProcess } from "./index.js";
 
@@ -33,6 +34,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 const PROCESS = { referralClaimExpiryMinutes: 90, revision: 4, updatedBy: "<Dee>", updatedAt: new Date("2026-10-20T09:30:00Z") };
 const GAZETTE = { recipientEmail: "lg@example.com", revision: 2, updatedBy: "<Admin>", updatedAt: new Date("2026-10-08T10:00:00Z") };
 const PROCESS_ONLY = { staff: true, judicial: false, capabilities: [MANAGE_PROCESS_CONFIG] };

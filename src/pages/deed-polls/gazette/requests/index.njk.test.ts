@@ -4,6 +4,7 @@ import { ForbiddenError, findGazetteMembers, findGazetteRequests, findGazetteSta
 import nunjucks from "nunjucks";
 import { beforeEach, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../../express-doubles.js";
+import { addPathFilters } from "../../../../path-filters.js";
 import { GET as detail } from "./[batchId].js";
 import { GET as list } from "./index.js";
 
@@ -24,6 +25,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const ID = "00000000-0000-4000-8000-000000000001";
 const STATUS = {

@@ -97,7 +97,7 @@
     </form>
 
     <p class="govuk-body">
-      <a class="govuk-link" href="/deed-polls/{{ case.id }}#emails">{{ backToCase }}</a>
+      <a class="govuk-link" href="{{ case.id | casePath }}#emails">{{ backToCase }}</a>
     </p>
   </div>
 </div>

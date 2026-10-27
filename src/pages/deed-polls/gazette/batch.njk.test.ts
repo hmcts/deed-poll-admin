@@ -16,6 +16,7 @@ import {
 import nunjucks from "nunjucks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
+import { addPathFilters } from "../../../path-filters.js";
 import { GET, POST } from "./batch.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -37,6 +38,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const ID = "case-1";
 const BATCH_ID = "00000000-0000-4000-8000-000000000001";

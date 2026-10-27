@@ -10,6 +10,7 @@ import type { Request, Response } from "express";
 import nunjucks from "nunjucks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
+import { addPathFilters } from "../../path-filters.js";
 import { POST } from "./[id]/documents/upload.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
@@ -29,6 +30,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 
 const MARKER = "R13-MARKER-7f3a";
 const TYPE_ID = "07f3f0e0-0000-4000-8000-000000000000";

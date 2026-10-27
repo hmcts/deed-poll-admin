@@ -41,7 +41,7 @@
       }) }}
 
       {{ govukButton({ text: submit }) }}
-      <a class="govuk-link govuk-!-margin-left-3" href="/deed-polls/{{ case.id }}#notes">{{ cancel }}</a>
+      <a class="govuk-link govuk-!-margin-left-3" href="{{ case.id | casePath }}#notes">{{ cancel }}</a>
     </form>
   </div>
 </div>

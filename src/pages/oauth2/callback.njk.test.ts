@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import nunjucks from "nunjucks";
 import { describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
+import { addPathFilters } from "../../path-filters.js";
 import { GET } from "./callback.js";
 
 vi.mock("@hmcts-cft/cloud-native-platform", async (importOriginal) => ({
@@ -26,6 +27,7 @@ const environment = nunjucks.configure(
   ],
   { autoescape: true }
 );
+addPathFilters(environment);
 const FLOW = { codeVerifier: "a-verifier", state: "a-state", returnTo: "/deed-polls" };
 const MARKER = "MARKER-a1b2c3";
 

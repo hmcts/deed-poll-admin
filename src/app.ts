@@ -22,6 +22,7 @@ import { sessionLifetime } from "./auth/session-lifetime.js";
 import { assertIdamSettings, idamSettings } from "./auth/settings.js";
 import { PDFJS_ASSET_MOUNT, pdfjsDevelopmentAssets } from "./document-viewer/pdfjs-assets.js";
 import { domainErrorHandler } from "./errors.js";
+import { addPathFilters } from "./path-filters.js";
 import { createRateLimiter, rateLimitSettings } from "./rate-limit/limiter.js";
 import { mountAbuseLimits } from "./rate-limit/routes.js";
 import { uploadInFlightCap } from "./rate-limit/upload-in-flight.js";
@@ -189,13 +190,14 @@ export async function createApp(): Promise<Express> {
       }
     : { distPath: path.join(__dirname, "../dist") };
 
-  await configureGovuk(app, [__dirname], {
+  const views = await configureGovuk(app, [__dirname], {
     nunjucksGlobals: {
       appAssetPath: isDev ? "/src/assets" : "/assets",
       dynatrace: config.get("dynatrace")
     },
     assetOptions
   });
+  addPathFilters(views);
   if (isDev) app.use(PDFJS_ASSET_MOUNT, pdfjsDevelopmentAssets());
 
   configureCookieManager(app, {

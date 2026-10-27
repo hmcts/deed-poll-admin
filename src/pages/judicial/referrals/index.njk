@@ -50,7 +50,7 @@
           </ul>
         {% endset %}
         {% set actionCell %}
-          <a class="govuk-link" href="/judicial/referrals/{{ row.id | urlencode }}">{{ view }}<span class="govuk-visually-hidden"> {{ row.viewHint }}</span></a>
+          <a class="govuk-link" href="{{ row.id | referralPath }}">{{ view }}<span class="govuk-visually-hidden"> {{ row.viewHint }}</span></a>
         {% endset %}
         {% set tableRows = (tableRows.push([
           { html: urgencyCell },

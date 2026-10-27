@@ -382,7 +382,7 @@
   {% else %}
     {% set rows = [] %}
     {% for c in cases %}
-      {% set referenceCell %}<a class="govuk-link" href="/deed-polls/{{ c.id }}">{{ c.reference }}</a>{% endset %}
+      {% set referenceCell %}<a class="govuk-link" href="{{ c.id | casePath }}">{{ c.reference }}</a>{% endset %}
       {# The tag is a visual reinforcement of the text, never the only carrier of it. #}
       {% set privacyCell %}
         {% if c.isPrivate %}{{ govukTag({ text: c.privacy, classes: "govuk-tag--red" }) }}{% else %}{{ c.privacy }}{% endif %}

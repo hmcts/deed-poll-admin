@@ -19,7 +19,7 @@
           {% for reference in batch.referenceNumbers %}<li>{{ reference }}</li>{% endfor %}
         </ul>
         {% if batch.referencesTruncated %}<p class="govuk-body">{{ truncated }}</p>{% endif %}
-        {% if batch.batchId %}<p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette/requests/{{ batch.batchId | urlencode }}">{{ details }}</a></p>{% endif %}
+        {% if batch.batchId %}<p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette/requests/{{ batch.batchId | pathSegment }}">{{ details }}</a></p>{% endif %}
       {% endset %}
       {% set rows = (rows.push([
         { text: batch.sentAt }, { text: batch.sentBy }, { text: batch.caseCount }, { html: referenceCell }

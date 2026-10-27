@@ -147,7 +147,7 @@
       {% set witnessWarningHtml %}
         <p class="govuk-notification-banner__heading">{{ witnessWarning }}</p>
         <p class="govuk-body">
-          <a class="govuk-notification-banner__link" href="/deed-polls/{{ case.id }}#witnesses">{{ witnessWarningLink }}</a>
+          <a class="govuk-notification-banner__link" href="{{ case.id | casePath }}#witnesses">{{ witnessWarningLink }}</a>
         </p>
       {% endset %}
       {{ govukNotificationBanner({ titleText: bannerTitle, html: witnessWarningHtml, type: "important" }) }}
@@ -159,7 +159,7 @@
     {% if tab.subgrid %}
       <p class="govuk-body">
         {{ subgridIntro }}
-        <a class="govuk-link" href="/deed-polls/{{ case.id }}#{{ tab.id }}">{{ subgridLinkPrefix }} {{ tab.label }}</a>.
+        <a class="govuk-link" href="{{ case.id | casePath }}#{{ tab.id }}">{{ subgridLinkPrefix }} {{ tab.label }}</a>.
       </p>
     {% else %}
       <form method="post" action="/deed-polls/{{ case.id }}/edit/{{ tab.id }}" novalidate>
@@ -171,7 +171,7 @@
         {% endfor %}
 
         {{ govukButton({ text: save }) }}
-        <a class="govuk-link govuk-!-margin-left-3" href="/deed-polls/{{ case.id }}">{{ cancel }}</a>
+        <a class="govuk-link govuk-!-margin-left-3" href="{{ case.id | casePath }}">{{ cancel }}</a>
       </form>
     {% endif %}
   </div>
