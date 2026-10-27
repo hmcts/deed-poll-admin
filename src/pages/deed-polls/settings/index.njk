@@ -1,0 +1,95 @@
+{% extends "layouts/app.njk" %}
+{% from "govuk/components/input/macro.njk" import govukInput %}
+{% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
+{% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
+{% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
+
+{% macro lastChangedLine(section) %}
+  {% if section.updatedAt %}<p class="govuk-body">{{ lastChanged }} {{ section.updatedAt }} {{ by }} {{ section.updatedBy }}</p>{% endif %}
+{% endmacro %}
+
+{% block page_content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+    {% if errorList.length %}
+      {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
+    {% endif %}
+    {% if savedSection == "process-settings" %}
+      {{ govukNotificationBanner({ type: "success", titleText: successTitle, text: processSaved }) }}
+    {% elif savedSection == "gazette-recipient" %}
+      {{ govukNotificationBanner({ type: "success", titleText: successTitle, text: gazetteSaved }) }}
+    {% endif %}
+    <h1 class="govuk-heading-xl">{{ heading }}</h1>
+    <p class="govuk-body">{{ intro }}</p>
+
+    <section id="process-settings" class="govuk-!-margin-bottom-8">
+      {% if process.isAvailable %}
+        <form method="post" action="/deed-polls/settings" novalidate>
+          <input type="hidden" name="revision" value="{{ process.values.revision }}">
+          <div class="govuk-form-group{% if process.windowError %} govuk-form-group--error{% endif %}">
+            <fieldset class="govuk-fieldset" id="claim-window" aria-describedby="claim-window-hint{% if process.windowError %} claim-window-error{% endif %}">
+              <legend class="govuk-fieldset__legend govuk-fieldset__legend--m">
+                <h2 class="govuk-fieldset__heading">{{ processHeading }}</h2>
+              </legend>
+              <div id="claim-window-hint" class="govuk-hint">{{ processHint }}</div>
+              {% if process.windowError %}
+                <p id="claim-window-error" class="govuk-error-message"><span class="govuk-visually-hidden">Error:</span> {{ process.windowError }}</p>
+              {% endif %}
+              {{ govukInput({
+                id: "claimWindowHours", name: "claimWindowHours", inputmode: "numeric", spellcheck: false,
+                classes: "govuk-input--width-3" + (" govuk-input--error" if process.windowError else ""),
+                label: { text: hoursLabel }, value: process.values.hours,
+                errorMessage: { text: process.hoursError } if process.hoursError
+              }) }}
+              {{ govukInput({
+                id: "claimWindowMinutes", name: "claimWindowMinutes", inputmode: "numeric", spellcheck: false,
+                classes: "govuk-input--width-3" + (" govuk-input--error" if process.windowError else ""),
+                label: { text: minutesLabel }, value: process.values.minutes,
+                errorMessage: { text: process.minutesError } if process.minutesError
+              }) }}
+            </fieldset>
+          </div>
+          {{ lastChangedLine(process) }}
+          {% if not process.reloadText %}
+            {{ govukWarningText({ text: processWarning, iconFallbackText: "Warning" }) }}
+            {{ govukButton({ text: processSave }) }}
+          {% endif %}
+        </form>
+        {% if process.reloadText %}
+          <p class="govuk-body"><a id="reload-process-settings" class="govuk-link" href="/deed-polls/settings#process-settings">{{ processReloadLink }}</a></p>
+        {% endif %}
+      {% else %}
+        <h2 class="govuk-heading-m">{{ processHeading }}</h2>
+        <p class="govuk-body">{{ processUnavailable }}</p>
+      {% endif %}
+    </section>
+
+    {% if gazette %}
+      <section id="gazette-recipient" class="govuk-!-margin-bottom-8">
+        <h2 class="govuk-heading-m">{{ gazetteHeading }}</h2>
+        {% if gazette.isAvailable %}
+          <p class="govuk-body">{{ gazetteIntro }}</p>
+          {% if gazette.isUnset %}<p class="govuk-inset-text">{{ gazetteNotSet }}</p>{% endif %}
+          {{ lastChangedLine(gazette) }}
+          <form method="post" action="/deed-polls/settings/gazette-recipient" novalidate>
+            <input type="hidden" name="revision" value="{{ gazette.values.revision }}">
+            {{ govukInput({
+              id: "recipientEmail", name: "recipientEmail", type: "email", autocomplete: "email", spellcheck: false,
+              label: { text: gazetteEmailLabel }, hint: { text: gazetteHint }, value: gazette.values.recipientEmail,
+              errorMessage: { text: gazette.emailError } if gazette.emailError
+            }) }}
+            {% if not gazette.reloadText %}{{ govukButton({ text: gazetteSave }) }}{% endif %}
+          </form>
+          {% if gazette.reloadText %}
+            <p class="govuk-body"><a id="reload-gazette-recipient" class="govuk-link" href="/deed-polls/settings#gazette-recipient">{{ gazetteReloadLink }}</a></p>
+          {% endif %}
+        {% else %}
+          <p class="govuk-body">{{ gazetteUnavailable }}</p>
+        {% endif %}
+        <p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette">{{ gazetteBack }}</a></p>
+      </section>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

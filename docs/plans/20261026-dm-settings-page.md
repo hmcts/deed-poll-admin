@@ -273,8 +273,23 @@ express-session-redis 7. The Redis suites ran.
 **Files:** `src/pages/deed-polls/settings/index.ts`, `index.njk`, `gazette-recipient.ts` (the second POST), their tests,
 and the moved assertions from `gazette/settings.njk.test.ts`.
 
-- [ ] Add failing handler and template tests (both sections, both POSTs, the conflicts, the degraded Gazette read, the hidden Gazette section).
-- [ ] Implement, run the focused tests and all Validation Commands, and record the results.
+- [x] Add failing handler and template tests (both sections, both POSTs, the conflicts, the degraded Gazette read, the hidden Gazette section).
+- [x] Implement, run the focused tests and all Validation Commands, and record the results.
+
+**Task 3 record (2026-10-27).** Every `.ts` under `src/pages` is a route, so the shared handler code is in
+`src/service-settings/` (`page.ts`, `content.ts`), as the document viewer's is, and that directory is now on the
+Welsh extractor's `INCLUDE`. The routes are one-liners: `settings/index.ts` (`GET`, process `POST`) and
+`settings/gazette-recipient.ts` (Gazette `POST`, refusing a caller without `ACCESS_GAZETTE` with a `role`
+`ForbiddenError` before any read or write). One template, `settings/index.njk`. The submitted section is redrawn
+from the body with its original revision; the other is re-read and degrades to its sentence with no form. Each read
+degrades on any failure except api's 401, which still ends the session. Saves answer 303 to
+`?saved=<section>#<section>`. The Gazette copy and its Welsh moved into `content.ts`; new copy has `cy` mirroring
+`en` (`yarn welsh:check`: 832 strings, 596 identical, exit 1 by design). The test double's Delivery Manager gained
+`MANAGE_PROCESS_CONFIG`, mirroring api. **The "Staff and access" section is left to Task 5**, because its link comes
+from the config key that task adds. The old `gazette/settings.*` files are untouched until Task 4. Validation:
+format and lint clean (592 files), build exit 0, audit has no suggestions. Full suite with `--force`, 8/8 tasks:
+app 3,104 (+62), deed-poll 1,604, deed-poll-api-client 1,192, express-govuk-starter 132, cloud-native-platform 156,
+express-session-postgres 85, simple-router 45, express-session-redis 7. The Redis suites ran.
 
 ### Task 4: Gates, links and the old address
 
