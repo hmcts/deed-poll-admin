@@ -2346,10 +2346,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/govuk-frontend@npm:5.12.0":
-  version: 5.12.0
-  resolution: "@types/govuk-frontend@npm:5.12.0"
-  checksum: 10c0/536988bd79e1aede60fb3c8f8b7f7ca98efd5332c66b546b70c9cfa53fd502e9795d40c16b3d00d43683b4252096316c26d6d9e60805077051428f49c95282f5
+"@types/govuk-frontend@npm:6.0.0":
+  version: 6.0.0
+  resolution: "@types/govuk-frontend@npm:6.0.0"
+  checksum: 10c0/b373261ec3939d7b3569ea966f19ad0cd0f7766479e25e108d7e750ecd37afea17cbfa288edba2db1ccb564662188086af76ceeb27c6bdf3bf7bc9121d5711bf
   languageName: node
   linkType: hard
 
@@ -3334,7 +3334,7 @@ __metadata:
     "@types/cookie-parser": "npm:1.4.10"
     "@types/express": "npm:5.0.6"
     "@types/express-session": "npm:1.19.0"
-    "@types/govuk-frontend": "npm:5.12.0"
+    "@types/govuk-frontend": "npm:6.0.0"
     "@types/multer": "npm:2.3.0"
     "@types/node": "npm:24.19.2"
     "@types/nunjucks": "npm:3.2.6"
@@ -3347,7 +3347,7 @@ __metadata:
     express: "npm:5.3.0"
     express-session: "npm:1.19.0"
     glob: "npm:13.0.6"
-    govuk-frontend: "npm:6.5.0"
+    govuk-frontend: "npm:6.6.0"
     helmet: "npm:8.3.0"
     js-yaml: "npm:5.5.0"
     multer: "npm:2.5.0"
@@ -3944,10 +3944,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"govuk-frontend@npm:6.5.0":
-  version: 6.5.0
-  resolution: "govuk-frontend@npm:6.5.0"
-  checksum: 10c0/dad7f5a8fd6ecce9984779e972825bf9b24d1c00fd8ce7c26dbdfbe9673cdbad1ca72b567898f77bbcd9c0291ae0176c1ee2e5cb47f1181ba3edb4e8a09dd9ee
+"govuk-frontend@npm:6.6.0":
+  version: 6.6.0
+  resolution: "govuk-frontend@npm:6.6.0"
+  checksum: 10c0/7fb983ee21e97f19df9b980301a05e24a11f3301fcb8ecf5bc8f956b54bd61d55255b2c16fa9d60cf59fd984583b368e128075ea7348e74971e742adcc86a366
   languageName: node
   linkType: hard
 
