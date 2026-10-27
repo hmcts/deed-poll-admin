@@ -71,6 +71,7 @@ const INCLUDE = [
   path.join(ROOT, "src/pages/session-timed-out"),
   path.join(ROOT, "src/pages/signed-out"),
   path.join(ROOT, "src/document-viewer"),
+  path.join(ROOT, "src/service-settings"),
   path.join(ROOT, "src/locales")
 ];
 

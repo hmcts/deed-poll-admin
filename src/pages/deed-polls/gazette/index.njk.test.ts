@@ -68,6 +68,8 @@ describe("Gazette ready list", () => {
     expect(markup).toContain("Lovelace");
     expect(markup).toContain("1 March 2026");
     expect(markup).toContain('href="/deed-polls/gazette/history"');
+    expect(markup).toContain('href="/deed-polls/settings#gazette-recipient"');
+    expect(markup).not.toContain("/deed-polls/gazette/settings");
     expect(markup).toContain('href="/deed-polls"');
     expect(markup).toContain("Applications enrolled longest ago are first");
   });

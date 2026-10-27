@@ -29,24 +29,19 @@ const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferr
     decidedBy: null,
     application: {
       displayReference: "KBDP2026-00001",
-      type: "Minor",
-      privacy: "Private",
-      oldForename: "John",
-      oldMiddleName: "Peter",
-      oldSurname: "Smith",
       newForename: "John",
       newMiddleName: "Peter",
       newSurname: "Smyth",
-      applicantTownCity: "Leeds",
-      representativeCompany: "Solicitors LLP",
+      oldForename: "John",
+      oldMiddleName: "Peter",
+      oldSurname: "Smith",
+      type: "Minor",
       nationality: "BritishCitizen",
-      dateOfDeclaration: new Date("2026-08-20T00:00:00Z"),
-      witnesses: [{ witnessName: "Mary Jones", witnessAddress: "1 High Street, Leeds", witnessOccupation: "Solicitor", declarant: true }],
+      parents: "Jane Smith and Paul Smith",
       documents: [
         { id: "doc-1", name: "birth-certificate.pdf", documentType: "Birth certificate", sizeBytes: 245_760, uploadedOn: new Date("2026-09-02T10:15:00Z") }
       ]
     },
-    caseNotes: [{ note: "Chased the declarant", createdBy: "A Caseworker", createdOn: new Date("2026-09-02T14:30:00Z") }],
     ...overrides
   }) as JudicialReferralDetail;
 
@@ -98,8 +93,8 @@ describe("the judicial referral page", () => {
 
     const application = res.render.mock.calls[0][1].referral.application;
     expect(application.reference).toBe("KBDP2026-00001");
-    expect(application.sections.map((section: { label: string }) => section.label)).toContain("Names");
-    expect(application.witnesses).toEqual([{ name: "Mary Jones", address: "1 High Street, Leeds", occupation: "Solicitor", declarant: true }]);
+    expect(application.sections.map((section: { label: string }) => section.label)).toEqual(["General"]);
+    expect(application.sections[0].rows).toContainEqual({ key: "Minor’s parents’ names", value: "Jane Smith and Paul Smith" });
   });
 
   // Built here with the path helpers rather than in the template (CLAUDE.md "Redirect paths").
@@ -136,19 +131,18 @@ describe("the judicial referral page", () => {
       notes: "Applicant is 15",
       urgency: "Urgent",
       isUrgent: true,
-      urgencyReason: "Hearing on Friday",
-      waitingSince: "3 September 2026 at 9:44am"
+      urgencyReason: "Hearing on Friday"
     });
+    // "Waiting since" was removed from the Master's referral section (Master Sullivan's feedback, 2026-10-27).
+    expect(res.render.mock.calls[0][1].referral).not.toHaveProperty("waitingSince");
   });
 
-  it("should render the application's timeline read-only, with no note id to act on", async () => {
+  it("should render no case notes, which a Master is not sent", async () => {
     const res = pageResponse();
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].referral.caseNotes).toEqual([
-      { note: "Chased the declarant", createdBy: "A Caseworker", createdOn: "2 September 2026 at 3:30pm" }
-    ]);
+    expect(res.render.mock.calls[0][1].referral).not.toHaveProperty("caseNotes");
   });
 
   it("should offer the claim control on a pool referral and not the direction one", async () => {

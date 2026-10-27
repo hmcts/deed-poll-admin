@@ -1,7 +1,7 @@
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { ACCESS_GAZETTE, assertDeedPollApiSettings, deedPollApiStatus, plainHttpPermitted } from "@hmcts/deed-poll";
+import { ACCESS_GAZETTE, assertDeedPollApiSettings, deedPollApiStatus, MANAGE_PROCESS_CONFIG, plainHttpPermitted } from "@hmcts/deed-poll";
 import { type HealthStatus, healthcheck, monitoringMiddleware } from "@hmcts-cft/cloud-native-platform";
 import { configureCookieManager, configureGovuk, configureHelmet, configureNonce, errorHandler, notFoundHandler } from "@hmcts-cft/express-govuk-starter";
 import { expressSessionRedis } from "@hmcts-cft/express-session-redis";
@@ -246,6 +246,7 @@ export async function createApp(): Promise<Express> {
   // See ./auth/require-role.ts — and note that api gates the same routes itself; this is the UI boundary.
   app.use("/judicial", requireJudicial());
   app.use("/deed-polls/gazette", requireCapability(ACCESS_GAZETTE));
+  app.use("/deed-polls/settings", requireCapability(MANAGE_PROCESS_CONFIG));
 
   // After the gates, so a refused user is not counted, and before the router, so the cap and the limiter run
   // before the upload page's multipart parser. See ./rate-limit/routes.ts. api is authoritative; this is UX.

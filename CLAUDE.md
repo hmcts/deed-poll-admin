@@ -44,8 +44,9 @@ which is what master's `caseworker-deedpoll-admin` gate got wrong once api moved
 independent main-list count is requested only for callers holding `ACCESS_GAZETTE`; zero and unavailable
 both retain the area link. Ready reads forward only paging and `filter=readyForPublication`, never a
 sort or local membership predicate. History preserves API totals and the explicit truncation flag.
-The recipient editor at `/deed-polls/gazette/settings` uses API GET/PUT settings,
-forwards the original revision on save and preserves input on 400/409. A conflict
+The recipient editor is the "London Gazette recipient" section of `/deed-polls/settings` (see "Delivery Manager
+settings" below); `/deed-polls/gazette/settings` is now only a `GET` 302 to `/deed-polls/settings#gazette-recipient`.
+It uses API GET/PUT settings, forwards the original revision on save and preserves input on 400/409. A conflict
 requires a reload, never an automatic write with a fresh revision. Attribution comes
 from API; the page does not post it. The mock starts unset and resets settings with
 its other fixtures. Saving a setting sends no email.
@@ -80,7 +81,7 @@ pre-send phase that alone outlasts 30 s still ends on the gateway's page, having
 a 5 s floor nothing is sent: the confirm step or the recovery page re-renders with the same journey and key, saying
 nothing was sent or checked (`docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
 
-`yarn test:gazette` runs eight browser journeys against a fresh mock on 3216 and this app on 3316,
+`yarn test:gazette` runs nine browser journeys, the settings page's included, against a fresh mock on 3216 and this app on 3316,
 using Redis on 6316/database 1 and local IDAM on 5556. It is separate from `yarn test:e2e` because its
 empty-state check must never reset a shared developer mock. See README for prerequisites.
 The standalone mock resolves missing token roles from local IDAM userinfo (override with
@@ -260,12 +261,18 @@ single file:
   bounce to the list would tell a judge somebody else has work that is in fact theirs. The pool therefore carries
   one refusal, not two. A caseworker's 409s are a different thing entirely (two caseworkers racing), which is why
   `referrals/new.ts` re-renders at 409 instead.
-- **Judges see the full application and its documents (business decision, 2026-10-19).** This replaces the
-  eight-field view of 2026-09-17. `application` on `GET /judicial/referrals/{id}` is api's `JudicialApplicationView`:
-  the details, witnesses and attached documents, with no payment, refund or fee data, and private cases in full.
-  `libs/deed-poll/src/judicial/view.ts` builds the read-only "Application" section from that type alone, listing its
-  fields in `APPLICATION_SECTIONS` and borrowing only labels and formatting from the caseworker metadata. Do not
-  import the caseworker view model: the judge's page must not grow a field because the caseworker's did. Documents
+- **Masters see only the fields they asked for (Master Sullivan's feedback, Steve, 2026-10-27).** This narrowed the
+  whole-application view of 2026-10-19, and Steve chose to narrow api's data too (api#153), not only this page.
+  `application` on `GET /judicial/referrals/{id}` is api's `JudicialApplicationView`: the reference (for captions), the
+  new and old names, type, nationality and section, `parents` (sent only for a minor's application) and the readable
+  documents. No witnesses, contact details, privacy, dates or previous-system fields, and **no `caseNotes`** on the
+  referral. The page reads top to bottom **General** (the eleven fields in `APPLICATION_SECTIONS`' order, "Minor’s
+  parents’ names" last and only on a minor's application), **Referral** (no "Waiting since") and **Supporting
+  documents**, then any recorded direction and the controls. `libs/deed-poll/src/judicial/view.ts` builds it from that
+  type alone, borrowing formatting and most labels from the caseworker metadata (`MASTER_LABELS` holds the Masters'
+  own). Do not import the caseworker view model: the Master's page must not grow a field because the caseworker's
+  did. **Deploy order:** this admin page before api#153, because the old admin pinned `witnesses` and `caseNotes` as
+  required and refuses the narrowed answer. Documents
   open in the shared viewer (see "Document viewer" below); the original download, and the legacy
   `src/pages/judicial/referrals/[referralId]/documents/[documentId]/file.ts`, share
   `src/document-response.ts` with the caseworker route. Who may open one is api's visibility: any judge on `Open`,
@@ -329,13 +336,13 @@ The judicial gate still requires `judicial` in the `/me` answer.
 
 api owns the capability matrix (`RoleCapabilities.java`); the mock mirrors it, and admin holds no copy:
 
-| Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Gazette | Judicial |
-|---|---|---|---|
-| `caseworker-deedpoll` | No | No | No |
-| `caseworker-deedpoll-team-leader` | Yes | No | No |
-| `caseworker-deedpoll-delivery-manager` | Yes | Yes | No |
-| `caseworker-deedpoll-admin` (temporary compatibility) | Yes | No | No |
-| `caseworker-deedpoll-judicial` | No | No | Yes |
+| Role | Privacy override, note/witness deletion, shared-query management, CCD repair | Gazette | Process settings | Judicial |
+|---|---|---|---|---|
+| `caseworker-deedpoll` | No | No | No | No |
+| `caseworker-deedpoll-team-leader` | Yes | No | No | No |
+| `caseworker-deedpoll-delivery-manager` | Yes | Yes | Yes | No |
+| `caseworker-deedpoll-admin` (temporary compatibility) | Yes | No | No | No |
+| `caseworker-deedpoll-judicial` | No | No | No | Yes |
 
 `can(user, capability)` is the UI policy entry point (`libs/deed-poll/src/auth/capabilities.ts`); `staffAccess(user)`
 gives `{ staff, judicial }` for the future staff block, which this app does not yet enforce. CCD repair has no
@@ -698,6 +705,46 @@ span several files:
   `file.ts` routes'.
 - **Welsh:** `src/document-viewer` is on the extractor's `INCLUDE`, and `src/welsh-extractor.test.ts` compares every
   `en` key of `content.ts` with the extracted rows.
+
+## Delivery Manager settings
+
+`/deed-polls/settings` is where a Delivery Manager changes the service's process values while it runs (plan
+`docs/plans/20261026-dm-settings-page.md`). Phase 1 holds the referral claim window, the London Gazette recipient and
+a link to XUI staff administration. The other process values are later plans; add no field or placeholder for them.
+Facts that span several files:
+
+- **The area is gated once, on `MANAGE_PROCESS_CONFIG`.** `src/app.ts` mounts
+  `requireCapability(MANAGE_PROCESS_CONFIG)` on `/deed-polls/settings`, after `requireAuth`, beside the Gazette gate;
+  `src/app.test.ts` reads `src/pages/deed-polls/settings/` off the filesystem and fails if the mount stops covering a
+  page. Only Delivery Managers hold it. The case list's "Service settings" link is drawn from the session's capability
+  alone, with no api read. The capability arrives through `/me`, so an existing session gets the link within one token
+  lifetime, or at once on signing in again: a missing link straight after a deploy is that, not a failed deployment.
+- **Two forms, two Saves, two revisions.** The process section posts to `/deed-polls/settings` and the Gazette section
+  to `/deed-polls/settings/gazette-recipient`, each with only its own revision, so a conflict in one never touches the
+  other's stored value. A browser submits only the form whose button was pressed, so unsaved edits in the other
+  section are lost, and the intro says "Save each section before you change another". A refused Gazette save renders
+  at `/deed-polls/settings/gazette-recipient`, so that address also answers a `GET` with a 302 back to the page's
+  `#gazette-recipient`; without it the language link and a reload were a 404. The handler code is in
+  `src/service-settings/` (every `.ts` under `src/pages` is a route). The submitted section is redrawn from the body
+  with its **original** revision on a 400 or 409, never re-read; the other section is re-read and, if that read fails,
+  degrades to a sentence with no form. A success is a 303 to `?saved=<section>#<section>`, and the banner shows even if
+  the follow-up read fails.
+- **The claim window form is digits only and does not use `readNumericInput`.** `processSettingsFormSchema`
+  (`libs/deed-poll/src/settings/schemas.ts`) reads hours 0–24 and minutes 0–59 as trimmed `^\d{1,4}$` or blank, and
+  the total must sit within `PROCESS_SETTINGS_LIMITS` (30–1,440 minutes, pinned to `openapi.json`). Signs, decimals,
+  exponents and a missing control are refused. Do not swap in the case form's parser, which accepts `+2` and `2.0`.
+- **The Gazette section needs `ACCESS_GAZETTE` as well.** The area gate admits every Delivery Manager, so the section
+  is drawn and read only for holders, and its POST refuses anyone else with a `role` `ForbiddenError` before any read
+  or write, because api checks the same capability.
+- **The XUI link is per environment, from the chart, and is a link, never a permission.**
+  `externalLinks.xuiStaffAdmin` (`XUI_STAFF_ADMIN_URL`) is AAT's address in `config/default.json`; `values.yaml` drops
+  the environment segment only for `prod`, and preview pins AAT's. A non-production environment must never name
+  production XUI; `src/deployment-chart.test.ts` renders every environment through `helm template` to prove it, and
+  **those render tests skip without `helm`**. XUI checks `staff-admin` itself, which the copy says.
+- **The mock starts the claim window at 120 minutes, revision 0, with no attribution**, and resets it with its other
+  fixtures. That is the state in which the section says the window has never been changed. Saving sends no email.
+- **The page's Welsh is pending.** `src/service-settings` is on the extractor's `INCLUDE`; the new copy's `cy` mirrors
+  its `en`, so it adds to `yarn welsh:check`'s identical count.
 
 ## Redirect paths
 

@@ -3,6 +3,8 @@ import {
   countGazetteReadyCases,
   countReturnedForAction,
   findDeedPolls,
+  findGazetteSettings,
+  findProcessSettings,
   findSavedQueries,
   InvalidInputError,
   NotFoundError
@@ -23,6 +25,8 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   countGazetteReadyCases: vi.fn(),
   countReturnedForAction: vi.fn(),
   findDeedPolls: vi.fn(),
+  findGazetteSettings: vi.fn(),
+  findProcessSettings: vi.fn(),
   findSavedQueries: vi.fn()
 }));
 
@@ -111,6 +115,24 @@ describe("deed-polls list page", () => {
       gazetteFailed: false,
       gazetteCount: `Applications ready for the London Gazette: ${count}`
     });
+  });
+
+  it("should offer the service settings link to a Delivery Manager without reading anything for it", async () => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ deliveryManager: true }), res);
+
+    expect(res.render.mock.calls[0][1]).toMatchObject({ showSettings: true });
+    expect(findProcessSettings).not.toHaveBeenCalled();
+    expect(findGazetteSettings).not.toHaveBeenCalled();
+  });
+
+  it.each(["legacyAdmin", "teamLeader", "caseworker", "judge", "none"] as const)("should not offer the service settings link to %s", async (persona) => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ persona }), res);
+
+    expect(res.render.mock.calls[0][1]).toMatchObject({ showSettings: false });
   });
 
   it("should degrade and log only the Gazette count when its read fails", async () => {

@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
-import { DOCUMENT_PREVIEW_LIMITS } from "./client.js";
+import { DOCUMENT_PREVIEW_LIMITS, PROCESS_SETTINGS_LIMITS } from "./client.js";
 import deferredContract from "./deferred-contract.json";
 import { CAPABILITY, DOCUMENT_PREVIEW_ERROR_CODE, GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, WIRE_SCHEMAS } from "./wire.js";
 
@@ -45,6 +45,8 @@ const IMPLEMENTED_OPERATIONS = [
   "GET /caseworker/gazette-notices/{batchId}/cases",
   "GET /caseworker/gazette-settings",
   "PUT /caseworker/gazette-settings",
+  "GET /caseworker/process-settings",
+  "PUT /caseworker/process-settings",
   "POST /caseworker/cases",
   "GET /caseworker/cases/field-rules",
   "GET /caseworker/cases/{id}",
@@ -137,6 +139,36 @@ describe("openapi.json and the wire schemas", () => {
     expect(header).toMatchObject({ in: "header", required: true, schema: { type: "string" } });
     for (const field of ["idempotencyKey", "submittedById", "selectionFingerprint", "notificationId", "documentId"]) {
       expect(Object.keys(spec.components.schemas.GazetteStatusResponse.properties ?? {})).not.toContain(field);
+    }
+  });
+
+  it("should agree with the spec on the claim window's whole-minute bounds and the closed process settings write", () => {
+    const request = spec.components.schemas.UpdateProcessSettingsRequest;
+    expect(request.properties?.referralClaimExpiryMinutes).toMatchObject({
+      type: "integer",
+      minimum: PROCESS_SETTINGS_LIMITS.minClaimMinutes,
+      maximum: PROCESS_SETTINGS_LIMITS.maxClaimMinutes
+    });
+    expect(request.properties?.revision).toMatchObject({ type: "integer", minimum: 0 });
+    expect(request.required?.toSorted()).toEqual(["referralClaimExpiryMinutes", "revision"]);
+    expect(request.additionalProperties).toBe(false);
+    const write = WIRE_SCHEMAS.UpdateProcessSettingsRequest;
+    expect(write.safeParse({ referralClaimExpiryMinutes: 30, revision: 0 }).success).toBe(true);
+    expect(write.safeParse({ referralClaimExpiryMinutes: 1440, revision: 3 }).success).toBe(true);
+    for (const body of [
+      { referralClaimExpiryMinutes: 29, revision: 0 },
+      { referralClaimExpiryMinutes: 1441, revision: 0 },
+      { referralClaimExpiryMinutes: 90.5, revision: 0 },
+      { referralClaimExpiryMinutes: "90", revision: 0 },
+      { referralClaimExpiryMinutes: null, revision: 0 },
+      { referralClaimExpiryMinutes: 90, revision: -1 },
+      { referralClaimExpiryMinutes: 90 },
+      { referralClaimExpiryMinutes: 90, revision: 0, updatedBy: "forged" }
+    ]) {
+      expect(write.safeParse(body).success, JSON.stringify(body)).toBe(false);
+    }
+    for (const operation of [spec.paths["/caseworker/process-settings"].get, spec.paths["/caseworker/process-settings"].put]) {
+      expect(operation.responses).toMatchObject({ "200": { content: { "*/*": { schema: { $ref: "#/components/schemas/ProcessSettingsResponse" } } } } });
     }
   });
 
@@ -367,6 +399,7 @@ describe("openapi.json and the wire schemas", () => {
     // author happened to write, which is the drift this list exists to stop.
     const requests = [
       "UpdateGazetteSettingsRequest",
+      "UpdateProcessSettingsRequest",
       "PreviewGazetteRequest",
       "SubmitGazetteRequest",
       "CreateCaseRequest",
@@ -559,7 +592,7 @@ describe("openapi.json and the wire schemas", () => {
     const judicial = Object.entries(spec.components.schemas).filter(([name]) => name.startsWith("Judicial"));
 
     // Counted, so a judicial schema api adds is swept by the loop below rather than silently missed by it.
-    expect(judicial).toHaveLength(9);
+    expect(judicial).toHaveLength(7);
     for (const [name, schema] of judicial) {
       for (const property of Object.keys(schema.properties ?? {})) {
         expect(property, `${name}.${property}`).not.toMatch(/^(claimedById|decidedById|ownerId|subject|userId)$/);
@@ -567,16 +600,19 @@ describe("openapi.json and the wire schemas", () => {
     }
   });
 
-  it("should publish the judicial application view with no payment, refund, fee or case id", () => {
-    // api#118's decision: a judge sees the whole application except the money. The set comparison above would
-    // pass a field api added at both ends, so the exclusion is asserted by name against the document.
+  it("should publish the judicial application view with no payment, refund, fee, case id, contact or witness", () => {
+    // Narrowed in api on 2026-10-27 (Master Sullivan's feedback): a Master sees the names, type, nationality, a
+    // minor's parents and the documents. The set comparison above would pass a field api added at both ends, so the
+    // exclusions are asserted by name against the document.
     const view = Object.keys(spec.components.schemas.JudicialApplicationView.properties ?? {});
 
     for (const property of view) {
-      expect(property).not.toMatch(/^(id|caseId|referencenumber)$|fee|payment|refund|onlineApplicationReference/i);
+      expect(property).not.toMatch(
+        /^(id|caseId|referencenumber|witnesses|privacy|state)$|fee|payment|refund|onlineApplicationReference|applicant|representative/i
+      );
     }
     expect(spec.components.schemas.JudicialApplicationView.properties?.documents?.items?.$ref).toBe("#/components/schemas/JudicialDocument");
-    expect(spec.components.schemas.JudicialApplicationView.properties?.witnesses?.items?.$ref).toBe("#/components/schemas/JudicialWitness");
+    expect(spec.components.schemas.JudicialReferralDetail.properties).not.toHaveProperty("caseNotes");
   });
 
   it("should give the personal list the pool's envelope and the pool's row", () => {

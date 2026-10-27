@@ -106,7 +106,15 @@ export const LIST_FILTER = ["all", "open", "received", "enroled", "returned", "a
  * Published on `CallerAccessResponse.capabilities`' array items, so the drift test's property enum comparison
  * does not reach it; `contract.test.ts` pins it against the items separately, order included.
  */
-export const CAPABILITY = ["OVERRIDE_PRIVACY", "DELETE_NOTE", "DELETE_WITNESS", "MANAGE_SHARED_QUERIES", "REPAIR_CCD", "ACCESS_GAZETTE"] as const;
+export const CAPABILITY = [
+  "OVERRIDE_PRIVACY",
+  "DELETE_NOTE",
+  "DELETE_WITNESS",
+  "MANAGE_SHARED_QUERIES",
+  "REPAIR_CCD",
+  "ACCESS_GAZETTE",
+  "MANAGE_PROCESS_CONFIG"
+] as const;
 
 /** The two `sortDirection` tokens api matches exactly. A bare field with no direction means ascending. */
 export const SORT_DIRECTION = ["asc", "desc"] as const;
@@ -638,17 +646,6 @@ const updateSavedQuerySchema = z.object({
 });
 
 /**
- * One witness to the application, as a judge reads it. No id, because no judicial route accepts one, and no
- * audit columns.
- */
-const judicialWitnessSchema = z.object({
-  witnessName: z.string().nullish(),
-  witnessAddress: z.string().nullish(),
-  witnessOccupation: z.string().nullish(),
-  declarant: z.boolean()
-});
-
-/**
  * One supporting document a judge may open. api lists only documents with a readable file, so there is no
  * `hasFile`: every row is downloadable through `GET /judicial/referrals/{referralId}/documents/{id}/file`.
  *
@@ -667,88 +664,39 @@ const judicialDocumentSchema = z.object({
 });
 
 /**
- * The application behind a referral, as api's `/judicial/**` surface publishes it: its details, witnesses and
- * readable documents (api#118, superseding the eight-field `JudicialCaseView`), and deliberately not a case.
+ * The application behind a referral, as api's `/judicial/**` surface publishes it to a Master: the reference, the
+ * new and old names, the type, the nationality and section, a minor's parents and the readable documents (narrowed
+ * in api on 2026-10-27, Master Sullivan's feedback), and deliberately not a case.
  *
  * **Never modelled as a subset of the case schemas**, which is api's own rule — its
  * `NamespaceSeparationSecurityTest` asserts the two records are unrelated in bytecode, because the failure it
  * guards against is a field added to the caseworker response for a caseworker reason silently appearing here.
  * A separate schema means the same is true of this adapter: widening the judicial view is an edit to this
- * object, not a side effect of one to `savedCaseSchema`. That is why the fields are restated rather than
- * picked from `savedCaseSchema`, and why no payment, refund or fee field is here: api publishes none.
+ * object, not a side effect of one to `savedCaseSchema`.
  *
  * There is no case id, and that is api's decision 2 rather than an omission: the judicial surface is keyed on
- * the referral so a judge cannot name an application. `displayReference` is what a direction quotes and is not
- * an id api accepts anywhere.
+ * the referral so a Master cannot name an application. `displayReference` is what a direction quotes and is not
+ * an id api accepts anywhere. `parents` is null on any application that is not a minor's.
  */
 const judicialApplicationViewSchema = z.object({
   displayReference: z.string().nullish(),
-  type: z.enum(DEED_POLL_TYPE).nullish(),
-  state: z.enum(DEED_POLL_STATE).nullish(),
-  privacy: z.enum(PRIVACY).nullish(),
-  urgency: z.enum(URGENCY).nullish(),
-  urgencyreason: z.string().nullish(),
-  inPerson: z.boolean().nullish(),
-  maritalStatus: z.enum(MARITAL_STATUS).nullish(),
 
-  oldForename: z.string().nullish(),
-  oldMiddleName: z.string().nullish(),
-  oldSurname: z.string().nullish(),
   newForename: z.string().nullish(),
   newMiddleName: z.string().nullish(),
   newSurname: z.string().nullish(),
+  oldForename: z.string().nullish(),
+  oldMiddleName: z.string().nullish(),
+  oldSurname: z.string().nullish(),
 
-  applicantBuildingNoName: z.string().nullish(),
-  applicantEmail: z.string().nullish(),
-  applicantTelephone: z.string().nullish(),
-  applicantTownCity: z.string().nullish(),
-  applicantPostcode: z.string().nullish(),
-
-  representativeName: z.string().nullish(),
-  representativeBuildingNoName: z.string().nullish(),
-  representativeCompany: z.string().nullish(),
-  representativeEmail: z.string().nullish(),
-  representativeTelephone: z.string().nullish(),
-  representativeTownCity: z.string().nullish(),
-  representativePostcode: z.string().nullish(),
-
-  ageOfMinor: z.int().nullish(),
-  ageOfMinorMonths: z.int().nullish(),
-  minorDateOfBirth: wireDateTime.nullish(),
-  parents: z.string().nullish(),
+  type: z.enum(DEED_POLL_TYPE).nullish(),
 
   nationality: z.enum(NATIONALITY).nullish(),
   nationalitySection: z.enum(NATIONALITY_SECTION).nullish(),
   nationalitySectionOther: z.string().nullish(),
 
-  dateOfDeclaration: wireDateTime.nullish(),
-  dateOfApplication: wireDateTime.nullish(),
-  dateReceived: wireDateTime.nullish(),
-  awaitingFurtherDocsInfo: wireDateTime.nullish(),
+  parents: z.string().nullish(),
 
-  referToMasterChoice: z.enum(REFER_TO_MASTER).nullish(),
-  masterName: z.string().nullish(),
-  masterDirections: z.string().nullish(),
-  masterDecision: z.enum(MASTER_DECISION).nullish(),
-  masterDateOfDecision: wireDateTime.nullish(),
-  dateDecisionDirectionsReceived: wireDateTime.nullish(),
-  referralNotes: z.string().nullish(),
-
-  witnesses: z.array(judicialWitnessSchema),
   documents: z.array(judicialDocumentSchema)
-});
-
-/**
- * One note from the application's timeline, as a judge reads it.
- *
- * Narrower than `noteSchema`: no id, because no judicial route accepts one, and no `modifiedBy`/`modifiedOn`,
- * because the amendment audit trail is the office's record-keeping rather than the timeline. `createdBy` stays
- * — an unattributed timeline is one a judge cannot weigh.
- */
-const judicialCaseNoteSchema = z.object({
-  note: z.string(),
-  createdBy: z.string().nullish(),
-  createdOn: wireDateTime.nullish()
 });
 
 /**
@@ -773,15 +721,14 @@ const judicialReferralSummarySchema = z.object({
 });
 
 /**
- * One referral as the judge who may see it reads it: the referral, the narrow application view, and the
- * application's timeline — one response for what is one screen.
+ * One referral as the Master who may see it reads it: the referral and the narrow application view — one response
+ * for what is one screen. No case notes since 2026-10-27.
  *
  * Built by extending the pool row rather than restating its seven fields, as `caseDetailSchema` extends the
  * saved case, so the two cannot drift.
  *
- * `notes` is the referral's free text and `caseNotes` the application's timeline. Two different things with
- * confusable names, and both names are api's: renaming either here would make one disagree with the resource
- * it belongs to.
+ * `notes` is the referral's free text for the Master, api's name for it; it is not the application's case notes,
+ * which a Master is not sent.
  *
  * `claimedBy` and `decidedBy` can only ever name this caller or nobody — api's visibility admits an `Open`
  * referral, which has no holder, or a `Claimed`/`Decided` one only when the caller is the judge on it. So a
@@ -798,8 +745,7 @@ const judicialReferralDetailSchema = judicialReferralSummarySchema.extend({
   // When the judge last changed or withdrew their direction; null while it stands as first given. Never
   // cleared, because it is a fact about the referral's history.
   directionChangedAt: wireDateTime.nullish(),
-  application: judicialApplicationViewSchema.nullish(),
-  caseNotes: z.array(judicialCaseNoteSchema)
+  application: judicialApplicationViewSchema.nullish()
 });
 
 /**
@@ -1058,6 +1004,30 @@ const updateGazetteSettingsSchema = z
   })
   .strict();
 
+/**
+ * The claim window api accepts, in whole minutes (30 minutes to 24 hours). `contract.test.ts` pins both to
+ * `UpdateProcessSettingsRequest` in `openapi.json`, so the settings form can refuse early without restating them.
+ */
+export const PROCESS_SETTINGS_LIMITS = { minClaimMinutes: 30, maxClaimMinutes: 1440 } as const;
+
+/**
+ * The Delivery Manager's process settings. Both ints are Java primitives on api's record, so neither arrives null.
+ * The response's bounds are not restated: a read must not fail because api widened what it stores.
+ */
+const processSettingsSchema = z.object({
+  referralClaimExpiryMinutes: z.number().int(),
+  revision: z.number().int().nonnegative(),
+  updatedAt: wireDateTime.nullish(),
+  updatedBy: z.string().nullish()
+});
+
+const updateProcessSettingsSchema = z
+  .object({
+    referralClaimExpiryMinutes: z.number().int().min(PROCESS_SETTINGS_LIMITS.minClaimMinutes).max(PROCESS_SETTINGS_LIMITS.maxClaimMinutes),
+    revision: z.number().int().nonnegative()
+  })
+  .strict();
+
 const gazetteNoticeBatchSchema = z.object({
   batchId: z.uuid().nullish(),
   sentAt: wireDateTime.nullish(),
@@ -1194,6 +1164,8 @@ export const WIRE_SCHEMAS = {
   DocumentPreviewError: documentPreviewErrorSchema,
   GazetteSettingsResponse: gazetteSettingsSchema,
   UpdateGazetteSettingsRequest: updateGazetteSettingsSchema,
+  ProcessSettingsResponse: processSettingsSchema,
+  UpdateProcessSettingsRequest: updateProcessSettingsSchema,
   GazetteNoticeBatchResponse: gazetteNoticeBatchSchema,
   GazetteNoticeHistoryResponse: gazetteNoticeHistorySchema,
   CaseListResponse: caseListSchema,
@@ -1224,9 +1196,7 @@ export const WIRE_SCHEMAS = {
   JudicialReferralSummary: judicialReferralSummarySchema,
   JudicialReferralDetail: judicialReferralDetailSchema,
   JudicialApplicationView: judicialApplicationViewSchema,
-  JudicialWitness: judicialWitnessSchema,
   JudicialDocument: judicialDocumentSchema,
-  JudicialCaseNote: judicialCaseNoteSchema,
   CaseEmailsResponse: caseEmailsSchema,
   EmailTypeResponse: emailTypeSchema,
   EmailSlotResponse: emailSlotSchema,
@@ -1272,6 +1242,7 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   // Both are required in api's record and the code is an enum, so neither can arrive null.
   DocumentPreviewError: ["code", "error"],
   GazetteSettingsResponse: ["revision"],
+  ProcessSettingsResponse: ["referralClaimExpiryMinutes", "revision"],
   GazetteNoticeBatchResponse: ["caseCount", "referenceNumbers", "referencesTruncated"],
   GazetteNoticeHistoryResponse: ["batches", "page", "size", "total", "totalPages"],
   // The four paging counts are `int`, `int`, `long` and `int` on api's record, so none can arrive null.
@@ -1304,23 +1275,17 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   // is here: a referral with no direction has not been asked either question.
   ReferralResponse: ["id", "migrated", "reasons"],
   JudicialReferralSummary: ["id", "reasons"],
-  // `caseNotes` joins them: api builds it with `stream().toList()`, so an application with no notes arrives
-  // as `[]`. `application` does not, despite api always building one — a nested record is neither a
-  // primitive, a collection nor an id.
-  JudicialReferralDetail: ["id", "reasons", "caseNotes"],
+  // The summary's two and no more: `application` is not pinned, despite api always building one — a nested record
+  // is neither a primitive, a collection nor an id. (`caseNotes` was pinned here until api stopped sending it.)
+  JudicialReferralDetail: ["id", "reasons"],
   // `page`, `size` and `totalPages` are `int` and `total` is `long`, as `CaseListResponse`'s already are.
   JudicialPoolResponse: ["referrals", "page", "size", "total", "totalPages"],
   // The same five, because api's `ReferralWorkload` is the same record shape as `ReferralPool` — `List.copyOf`
   // rows and the four numbers. A judge holding nothing is `[]` and a total of zero, never a null list.
   JudicialMyReferralsResponse: ["referrals", "page", "size", "total", "totalPages"],
-  // `note` for the reason `NoteResponse.note` is pinned: the column is NOT NULL. No id, because no judicial
-  // route accepts one.
-  JudicialCaseNote: ["note"],
-  // The two lists and nothing else: api builds both with `toList()`, so an application with no witnesses or no
-  // readable documents arrives with `[]`. Every other field is a nullable column of the application.
-  JudicialApplicationView: ["witnesses", "documents"],
-  // `declarant` is a `boolean` primitive on api's record, as it is on `WitnessResponse`. No id to pin.
-  JudicialWitness: ["declarant"],
+  // The one list and nothing else: api builds it with `toList()`, so an application with no readable documents
+  // arrives with `[]`. Every other field is a nullable column of the application.
+  JudicialApplicationView: ["documents"],
   // `id` by choice, as `DocumentResponse.id` is: a row with no id is not one a page can link to.
   JudicialDocument: ["id"],
   // All three are `stream().toList()` at the source, so an empty one arrives as `[]`.
@@ -1372,9 +1337,7 @@ export type WireJudicialMyReferrals = z.infer<typeof judicialMyReferralsSchema>;
 export type WireJudicialReferralSummary = z.infer<typeof judicialReferralSummarySchema>;
 export type WireJudicialReferralDetail = z.infer<typeof judicialReferralDetailSchema>;
 export type WireJudicialApplicationView = z.infer<typeof judicialApplicationViewSchema>;
-export type WireJudicialWitness = z.infer<typeof judicialWitnessSchema>;
 export type WireJudicialDocument = z.infer<typeof judicialDocumentSchema>;
-export type WireJudicialCaseNote = z.infer<typeof judicialCaseNoteSchema>;
 export type WireJudicialDirection = z.input<typeof judicialDirectionSchema>;
 export type WireCaseEmails = z.infer<typeof caseEmailsSchema>;
 export type WireEmailType = z.infer<typeof emailTypeSchema>;
@@ -1394,6 +1357,8 @@ export type WireGazetteNoticeBatch = z.infer<typeof gazetteNoticeBatchSchema>;
 
 export type WireGazetteSettings = z.infer<typeof gazetteSettingsSchema>;
 export type WireUpdateGazetteSettings = z.infer<typeof updateGazetteSettingsSchema>;
+export type WireProcessSettings = z.infer<typeof processSettingsSchema>;
+export type WireUpdateProcessSettings = z.infer<typeof updateProcessSettingsSchema>;
 
 export type WireGazettePreview = z.infer<typeof gazettePreviewSchema>;
 export type WireGazetteStatus = z.infer<typeof gazetteStatusSchema>;

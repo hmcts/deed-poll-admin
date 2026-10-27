@@ -75,6 +75,8 @@ export * from "./saved-queries/schemas.js";
 export * from "./saved-queries/service.js";
 export * from "./saved-queries/view.js";
 export * from "./schema-primitives.js";
+export * from "./settings/schemas.js";
+export * from "./settings/service.js";
 export * from "./witnesses/delete-policy.js";
 export * from "./witnesses/enrolment-requirement.js";
 export * from "./witnesses/schemas.js";
