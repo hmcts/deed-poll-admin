@@ -109,7 +109,7 @@
       carries the ordinary "not provided" placeholder and the two states look different.
 
       `gazetteAnswer` is resolved by the handler rather than read off the model with a ternary here: api's
-      `publishToGazette` is nullish, so `{{ yes if … else no }}` would print "No" for a direction it recorded no
+      `changesToStandardPublication` is nullish, so `{{ yes if … else no }}` would print "No" for a direction it recorded no
       answer for, telling the caseworker the judge directed against publication.
 
       "Decided by" is the judicial author and stays that way after closure, which changes only the modifier

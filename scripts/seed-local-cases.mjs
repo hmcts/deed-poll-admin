@@ -301,7 +301,7 @@ async function refer(caseId, upTo, what) {
   await step("POST", `/judicial/referrals/${referral.id}/claim`, undefined, judge, `claim ${what}`);
   if (upTo === "Claimed") return referral.id;
 
-  await step("POST", `/judicial/referrals/${referral.id}/direction`, { decision: "Approved", publishToGazette: true }, judge, `direct ${what}`);
+  await step("POST", `/judicial/referrals/${referral.id}/direction`, { decision: "Approved", changesToStandardPublication: false }, judge, `direct ${what}`);
   if (upTo === "Decided") return referral.id;
 
   await step("POST", `/caseworker/cases/${caseId}/referrals/${referral.id}/closure`, undefined, {}, `close ${what}`);

@@ -24,7 +24,7 @@ const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferr
     claimedAt: null,
     decision: null,
     directionsText: null,
-    publishToGazette: null,
+    changesToStandardPublication: null,
     decisionDate: null,
     decidedBy: null,
     application: {
@@ -53,7 +53,7 @@ const decided = (): JudicialReferralDetail =>
     claimedAt: new Date("2026-09-03T09:00:00Z"),
     decision: "Approved",
     directionsText: "Grant the application",
-    publishToGazette: true,
+    changesToStandardPublication: false,
     decisionDate: new Date("2026-09-03T10:00:00Z"),
     decidedBy: "judge-1"
   } as Partial<JudicialReferralDetail>);

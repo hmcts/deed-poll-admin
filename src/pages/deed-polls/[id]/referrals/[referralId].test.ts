@@ -24,7 +24,7 @@ const DIRECTED = {
   claimedAt: new Date("2026-05-14T09:00:00Z"),
   decision: "Approved",
   directionsText: "Serve the notice on the second respondent.",
-  publishToGazette: true,
+  changesToStandardPublication: false,
   decisionDate: new Date("2026-05-15T10:30:00Z"),
   decidedBy: "A Judge"
 };
@@ -41,7 +41,7 @@ const REFERRAL = {
   claimedAt: null,
   decision: null,
   directionsText: null,
-  publishToGazette: null,
+  changesToStandardPublication: null,
   decisionDate: null,
   decidedBy: null,
   createdBy: "A Caseworker",
@@ -182,11 +182,11 @@ describe("referral view page", () => {
     expect(res.render.mock.calls[0][1].referral.direction).toEqual({
       decision: "Approved",
       directionsText: "Serve the notice on the second respondent.",
-      publishToGazette: true,
+      changesToStandardPublication: false,
       decidedBy: "A Judge",
       decidedOn: "15 May 2026 at 11:30am"
     });
-    expect(res.render.mock.calls[0][1].gazetteAnswer).toBe("Yes");
+    expect(res.render.mock.calls[0][1].gazetteAnswer).toBe("No");
   });
 
   it("should keep the direction readable after closure, since api preserves the judicial fields", async () => {
@@ -237,13 +237,13 @@ describe("referral view page", () => {
   });
 
   it.each([
-    { publishToGazette: true, answer: "Yes" },
-    { publishToGazette: false, answer: "No" },
-    // The third state said rather than collapsed: "No" would assert a direction against publication that the
-    // judge never gave.
-    { publishToGazette: null, answer: "Not recorded" }
-  ])("should read a publishToGazette of $publishToGazette as $answer", async ({ publishToGazette, answer }) => {
-    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED, publishToGazette } as never);
+    { changesToStandardPublication: false, answer: "No" },
+    { changesToStandardPublication: true, answer: "Yes" },
+    // The third state said rather than collapsed: "No" would assert a standard publication that the Master never
+    // directed.
+    { changesToStandardPublication: null, answer: "Not recorded" }
+  ])("should read a changesToStandardPublication of $changesToStandardPublication as $answer", async ({ changesToStandardPublication, answer }) => {
+    vi.mocked(findReferral).mockResolvedValue({ ...REFERRAL, ...DIRECTED, changesToStandardPublication } as never);
     const res = response();
 
     await GET(request(), res);

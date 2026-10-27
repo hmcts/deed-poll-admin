@@ -195,7 +195,7 @@ function seedReferral(
     },
     direction: {
       decision: rejected ? "Rejected" : "Approved",
-      publishToGazette: !typeIsPrivate,
+      changesToStandardPublication: typeIsPrivate,
       directionsText: rejected
         ? "Non-publication request refused in this synthetic scenario; ask whether the applicant wishes to proceed."
         : "Synthetic direction: the application may proceed subject to the usual signed evidence."

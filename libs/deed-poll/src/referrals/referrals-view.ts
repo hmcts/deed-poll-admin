@@ -302,7 +302,7 @@ function buildClaimView(referral: Referral): ReferralClaimView | null {
  * so this renders the ordinary "not provided" placeholder inside a section that is there; a referral with no
  * direction at all has no section. The two states say different things and must look different.
  *
- * **`publishToGazette` stays a boolean**, as `../judicial/view.ts` keeps it: null means the judge did not
+ * **`changesToStandardPublication` stays a boolean**, as `../judicial/view.ts` keeps it: null means the judge did not
  * answer, and turning that into "No" would record a decision nobody made. The two words belong to the page's
  * `en`/`cy`, not to a library.
  *
@@ -317,7 +317,7 @@ function buildDirectionView(referral: Referral): ReferralDirectionView | null {
   return {
     decision: referral.decision ? MASTER_DECISION_LABEL[referral.decision] : NOT_RECORDED,
     directionsText: orPlaceholder(referral.directionsText, NOT_PROVIDED),
-    publishToGazette: referral.publishToGazette ?? null,
+    changesToStandardPublication: referral.changesToStandardPublication ?? null,
     decidedBy: orPlaceholder(referral.decidedBy, NOT_RECORDED),
     decidedOn: formatTimestamp(referral.decisionDate)
   };
@@ -444,11 +444,11 @@ export interface ReferralClaimView {
   claimedOn: string;
 }
 
-/** The direction a judge returned. `publishToGazette` is a boolean — see `buildDirectionView`. */
+/** The direction a judge returned. `changesToStandardPublication` is a boolean — see `buildDirectionView`. */
 export interface ReferralDirectionView {
   decision: string;
   directionsText: string;
-  publishToGazette: boolean | null;
+  changesToStandardPublication: boolean | null;
   decidedBy: string;
   decidedOn: string;
 }

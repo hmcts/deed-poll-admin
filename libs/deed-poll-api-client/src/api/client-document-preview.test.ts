@@ -182,7 +182,7 @@ describe("previewJudicialDocument against the mock", () => {
     const { caseId, documentId } = await caseWithDocument("image/jpeg", JPEG_BYTES);
     const referralId = await referralOn(caseId);
     await claimJudicialReferral(referralId, judge(JUDGE));
-    await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+    await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
     await closeReferral(caseId, referralId, config);
 
     const result = await previewJudicialDocument(referralId, documentId, judge(JUDGE));

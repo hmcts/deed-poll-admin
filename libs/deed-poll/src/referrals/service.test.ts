@@ -202,7 +202,7 @@ describe("referrals/service", () => {
       state: "Closed",
       decision: "Approved",
       directionsText: "Enrol the deed.",
-      publishToGazette: true,
+      changesToStandardPublication: false,
       decidedBy: "A Judge",
       modifiedBy: "A Caseworker"
     };
@@ -226,7 +226,7 @@ describe("referrals/service", () => {
 
       const closed = await closeReferral("case-1", "ref-1", CALLER);
 
-      expect(closed).toMatchObject({ decision: "Approved", directionsText: "Enrol the deed.", publishToGazette: true, decidedBy: "A Judge" });
+      expect(closed).toMatchObject({ decision: "Approved", directionsText: "Enrol the deed.", changesToStandardPublication: false, decidedBy: "A Judge" });
     });
 
     it("should throw ConflictError when the referral is not Decided, which is api's rule to enforce", async () => {

@@ -38,7 +38,7 @@ const decided = (): JudicialReferralDetail =>
     reasons: ["Minor"],
     createdOn: new Date("2026-09-03T08:44:00Z"),
     decision: "Approved",
-    publishToGazette: true,
+    changesToStandardPublication: false,
     decisionDate: new Date("2026-09-05T16:05:00Z"),
     application: { displayReference: "KBDP2026-00001", type: "Adult", witnesses: [], documents: [] },
     caseNotes: []

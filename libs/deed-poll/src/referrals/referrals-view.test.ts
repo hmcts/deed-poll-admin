@@ -27,7 +27,7 @@ const REFERRAL: Referral = {
   claimedAt: null,
   decision: null,
   directionsText: null,
-  publishToGazette: null,
+  changesToStandardPublication: null,
   decisionDate: null,
   decidedBy: null,
   createdBy: "A Caseworker",
@@ -58,7 +58,7 @@ const DECIDED: Referral = {
   claimedAt: new Date("2026-05-15T08:44:00Z"),
   decision: "Approved",
   directionsText: "Enrol the deed once the fee is paid.",
-  publishToGazette: true,
+  changesToStandardPublication: false,
   decisionDate: new Date("2026-05-16T08:44:00Z"),
   decidedBy: "A Judge"
 };
@@ -234,7 +234,7 @@ describe("referrals/referrals-view", () => {
       expect(view.direction).toEqual({
         decision: "Approved",
         directionsText: "Enrol the deed once the fee is paid.",
-        publishToGazette: true,
+        changesToStandardPublication: false,
         decidedBy: "A Judge",
         decidedOn: "16 May 2026 at 9:44am"
       });
@@ -244,7 +244,7 @@ describe("referrals/referrals-view", () => {
       // Closing records that the office carried the direction out, not that it was undone.
       const view = buildReferralDetail({ ...DECIDED, state: "Closed", modifiedBy: "A Caseworker" });
 
-      expect(view.direction).toMatchObject({ decision: "Approved", decidedBy: "A Judge", publishToGazette: true });
+      expect(view.direction).toMatchObject({ decision: "Approved", decidedBy: "A Judge", changesToStandardPublication: false });
     });
 
     it("should name the deciding judge and never the last modifier, which closure changes", () => {
@@ -265,15 +265,15 @@ describe("referrals/referrals-view", () => {
     });
 
     it("should leave an unanswered Gazette question null rather than turning it into No", () => {
-      const view = buildReferralDetail({ ...DECIDED, publishToGazette: null });
+      const view = buildReferralDetail({ ...DECIDED, changesToStandardPublication: null });
 
-      expect(view.direction?.publishToGazette).toBeNull();
+      expect(view.direction?.changesToStandardPublication).toBeNull();
     });
 
     it("should carry an explicit No on the Gazette question as false, distinct from unanswered", () => {
-      const view = buildReferralDetail({ ...DECIDED, publishToGazette: false });
+      const view = buildReferralDetail({ ...DECIDED, changesToStandardPublication: false });
 
-      expect(view.direction?.publishToGazette).toBe(false);
+      expect(view.direction?.changesToStandardPublication).toBe(false);
     });
 
     it("should still render the direction section when the state says there is one but the fields did not arrive", () => {
@@ -284,7 +284,7 @@ describe("referrals/referrals-view", () => {
       expect(view.direction).toEqual({
         decision: "Not recorded",
         directionsText: "Not provided",
-        publishToGazette: null,
+        changesToStandardPublication: null,
         decidedBy: "Not recorded",
         decidedOn: "Not recorded"
       });

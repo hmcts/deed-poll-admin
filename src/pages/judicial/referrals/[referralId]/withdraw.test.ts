@@ -26,7 +26,7 @@ const decided = (overrides: Partial<JudicialReferralDetail> = {}): JudicialRefer
     claimedAt: new Date("2026-09-04T09:00:00Z"),
     decision: "Approved",
     directionsText: "Grant the application.",
-    publishToGazette: true,
+    changesToStandardPublication: false,
     decisionDate: new Date("2026-09-05T16:05:00Z"),
     decidedBy: "a-judge",
     application: { displayReference: "KBDP2026-00001", type: "Adult", witnesses: [], documents: [] },

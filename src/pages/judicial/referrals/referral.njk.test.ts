@@ -50,7 +50,7 @@ const detail = (overrides: Partial<JudicialReferralDetail> = {}): JudicialReferr
     claimedAt: null,
     decision: null,
     directionsText: null,
-    publishToGazette: null,
+    changesToStandardPublication: null,
     decisionDate: null,
     decidedBy: null,
     application: {
@@ -87,7 +87,8 @@ const render = async (referral: JudicialReferralDetail, query: Record<string, un
  * Read off the row rather than off the page because "No" is a substring of "Notes from the court", two rows
  * above it: a page-wide `toContain("No")` cannot tell a correct rendering of the boolean from an inverted one.
  */
-const gazetteRow = (html: string): string => html.match(/Published in the Gazette\s*<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1].trim() ?? "";
+const gazetteRow = (html: string): string =>
+  html.match(/Changes to the standard publications in the Gazette\s*<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1].trim() ?? "";
 
 describe("judicial referral template", () => {
   beforeEach(() => {
@@ -214,7 +215,9 @@ describe("judicial referral template", () => {
   });
 
   it("should offer change and withdraw links, and neither claim nor direct, on a referral this judge has directed", async () => {
-    const html = await render(detail({ state: "Decided", decision: "Approved", publishToGazette: true, decisionDate: new Date("2026-09-05T16:05:00Z") }));
+    const html = await render(
+      detail({ state: "Decided", decision: "Approved", changesToStandardPublication: false, decisionDate: new Date("2026-09-05T16:05:00Z") })
+    );
 
     expect(html).not.toContain("Claim this referral");
     expect(html).not.toContain("Record a direction");
@@ -236,7 +239,13 @@ describe("judicial referral template", () => {
   // template did with the boolean — including inverting it.
   it("should show the direction already recorded, with the Gazette answer in words", async () => {
     const html = await render(
-      detail({ state: "Decided", decision: "Approved", directionsText: "Satisfied", publishToGazette: false, decisionDate: new Date("2026-09-05T16:05:00Z") })
+      detail({
+        state: "Decided",
+        decision: "Approved",
+        directionsText: "Satisfied",
+        changesToStandardPublication: false,
+        decisionDate: new Date("2026-09-05T16:05:00Z")
+      })
     );
 
     expect(html).toContain("Direction recorded");
@@ -245,17 +254,27 @@ describe("judicial referral template", () => {
     expect(gazetteRow(html)).toBe("No");
   });
 
-  it("should show the Gazette answer as Yes when the judge directed publication", async () => {
-    const html = await render(detail({ state: "Decided", decision: "Approved", publishToGazette: true, decisionDate: new Date("2026-09-05T16:05:00Z") }));
+  it("should show the Gazette answer as Yes when the Master directed changes to the standard publication", async () => {
+    const html = await render(
+      detail({
+        state: "Decided",
+        decision: "Approved",
+        directionsText: "Publish the last name only",
+        changesToStandardPublication: true,
+        decisionDate: new Date("2026-09-05T16:05:00Z")
+      })
+    );
 
     expect(gazetteRow(html)).toBe("Yes");
   });
 
-  // api's `publishToGazette` is nullish and the panel is keyed on `decision`, so this shape is reachable. "No"
+  // api's `changesToStandardPublication` is nullish and the panel is keyed on `decision`, so this shape is reachable. "No"
   // here would tell the judge they directed against publication — a claim api never made, about the one answer
   // on this screen that cannot be taken back.
   it("should say the Gazette answer was not recorded rather than reading it as a No", async () => {
-    const html = await render(detail({ state: "Decided", decision: "Approved", publishToGazette: null, decisionDate: new Date("2026-09-05T16:05:00Z") }));
+    const html = await render(
+      detail({ state: "Decided", decision: "Approved", changesToStandardPublication: null, decisionDate: new Date("2026-09-05T16:05:00Z") })
+    );
 
     expect(gazetteRow(html)).toBe("Not recorded");
   });

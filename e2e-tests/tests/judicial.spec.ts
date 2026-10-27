@@ -235,19 +235,34 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   await expect(page.getByRole("alert")).toContainText("There is a problem");
   const decisionError = page.getByRole("link", { name: "Select whether the application is approved or rejected" });
   await expect(decisionError).toHaveAttribute("href", "#decision");
-  await expect(page.getByRole("link", { name: "Select whether this direction is published in the Gazette" })).toHaveAttribute("href", "#publishToGazette");
+  await expect(page.getByRole("link", { name: "Select whether there are any changes to the standard publications in the Gazette" })).toHaveAttribute(
+    "href",
+    "#changesToStandardPublication"
+  );
   // Still the form, not the check step: nothing can be attested to that has not been answered.
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Record a direction");
   await expectNoAccessibilityViolations(page);
 
-  await fillDirection(page, { decision: "Approved", directions: "Approved on the papers. Publish in the usual way.", gazette: "Yes" });
+  // Changes to the standard publication with nothing to say what they are: refused beside the textarea, because
+  // "Yes" alone does not tell the office whether to publish nothing or only the last name (Master Sullivan's
+  // feedback, Steve, 2026-10-27). The questions are asked in the Masters' order: decision, Gazette, then the text.
+  await fillDirection(page, { decision: "Approved", directions: "", gazette: "Yes" });
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("link", { name: "Enter the directions or reasons, saying what changes about the Gazette publication" })).toHaveAttribute(
+    "href",
+    "#directionsText"
+  );
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Record a direction");
+  await expectNoAccessibilityViolations(page);
+
+  await fillDirection(page, { decision: "Approved", directions: "Approved on the papers. Publish the last name only.", gazette: "Yes" });
   await page.getByRole("button", { name: "Continue" }).click();
 
   // Check your direction — the attestation step, and the answers read back in the judge's own words.
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Check your direction");
   await expect(summaryRow(page, "Decision")).toContainText("Approved");
-  await expect(summaryRow(page, "Directions")).toContainText("Approved on the papers. Publish in the usual way.");
-  await expect(summaryRow(page, "Published in the Gazette")).toContainText("Yes");
+  await expect(summaryRow(page, "Directions/Reasons")).toContainText("Approved on the papers. Publish the last name only.");
+  await expect(summaryRow(page, "Changes to the standard publications in the Gazette")).toContainText("Yes");
   // The declaration is above the submit and pressing the button is the attestation — the Design System's
   // check-answers pattern, not a tick box in front of a button that already confirms.
   await expect(page.getByText("By recording this direction you confirm it is your direction on this application.")).toBeVisible();
@@ -262,7 +277,7 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   await page.getByRole("button", { name: "Change your answers" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Record a direction");
   await expect(page.getByRole("radio", { name: "Approved" })).toBeChecked();
-  await expect(page.getByLabel("Directions (optional)")).toHaveValue("Approved on the papers. Publish in the usual way.");
+  await expect(page.getByLabel("Directions/Reasons")).toHaveValue("Approved on the papers. Publish the last name only.");
   await expect(gazetteAnswer(page, "Yes")).toBeChecked();
   await expect(page.getByRole("alert")).toHaveCount(0);
 
@@ -282,8 +297,8 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   await expect(referralRow(page, "Status")).toContainText("Decided");
   await expect(page.getByRole("heading", { name: "Direction recorded" })).toBeVisible();
   await expect(summaryRow(page, "Decision")).toContainText("Rejected");
-  await expect(summaryRow(page, "Directions")).toContainText("Approved on the papers. Publish in the usual way.");
-  await expect(summaryRow(page, "Published in the Gazette")).toContainText("Yes");
+  await expect(summaryRow(page, "Directions/Reasons")).toContainText("Approved on the papers. Publish the last name only.");
+  await expect(summaryRow(page, "Changes to the standard publications in the Gazette")).toContainText("Yes");
   // Neither control applies to a decided referral, and both are absent from the markup rather than disabled —
   // the shape every other refusal in this app takes.
   await expect(claimButton(page)).toHaveCount(0);
@@ -325,7 +340,7 @@ test("judge changes a direction they gave, then withdraws it and directs again",
   await page.goto(`${POOL_PATH}/${seeded.referralId}`);
   await claimButton(page).click();
   await directButton(page).click();
-  await fillDirection(page, { decision: "Approved", directions: "Approved on the papers.", gazette: "Yes" });
+  await fillDirection(page, { decision: "Approved", directions: "Approved on the papers.", gazette: "No" });
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Confirm and record the direction" }).click();
   await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}?direction=recorded`);
@@ -357,8 +372,8 @@ test("judge changes a direction they gave, then withdraws it and directs again",
   await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}/direction?change=1`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Change your direction");
   await expect(page.getByRole("radio", { name: "Approved" })).toBeChecked();
-  await expect(gazetteAnswer(page, "Yes")).toBeChecked();
-  await expect(page.getByLabel("Directions (optional)")).toHaveValue("Approved on the papers.");
+  await expect(gazetteAnswer(page, "No")).toBeChecked();
+  await expect(page.getByLabel("Directions/Reasons")).toHaveValue("Approved on the papers.");
 
   await fillDirection(page, { decision: "Rejected", directions: "Further evidence of the change is needed.", gazette: "No" });
   await page.getByRole("button", { name: "Continue" }).click();
@@ -370,7 +385,7 @@ test("judge changes a direction they gave, then withdraws it and directs again",
   await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}?direction=changed`);
   await expect(page.getByRole("alert")).toContainText("Your direction has been changed.");
   await expect(referralRow(page, "Status")).toContainText("Decided");
-  await expect(summaryRow(page, "Directions")).toContainText("Further evidence of the change is needed.");
+  await expect(summaryRow(page, "Directions/Reasons")).toContainText("Further evidence of the change is needed.");
 
   // ── withdraw it: a confirmation, then the referral claimed by this judge and waiting for a new direction ────
   await page.getByRole("link", { name: "Withdraw your direction" }).click();
@@ -388,13 +403,13 @@ test("judge changes a direction they gave, then withdraws it and directs again",
   // ── and direct again, as for any claimed referral ───────────────────────────────────────────────────────────
   await directButton(page).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Record a direction");
-  await fillDirection(page, { decision: "Approved", directions: "Approved after reconsideration.", gazette: "Yes" });
+  await fillDirection(page, { decision: "Approved", directions: "Approved after reconsideration.", gazette: "No" });
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Confirm and record the direction" }).click();
 
   await expect(page).toHaveURL(`${POOL_PATH}/${seeded.referralId}?direction=recorded`);
   await expect(referralRow(page, "Status")).toContainText("Decided");
-  await expect(summaryRow(page, "Directions")).toContainText("Approved after reconsideration.");
+  await expect(summaryRow(page, "Directions/Reasons")).toContainText("Approved after reconsideration.");
 });
 
 /**
@@ -523,7 +538,7 @@ test.describe("across the two judicial lists and both personas", () => {
     // The direction, in the fewest steps that reach it: the form, the check step and the attestation are the
     // journey above's subject, and repeating their assertions here would pin them twice.
     await directButton(page).click();
-    await fillDirection(page, { decision: "Approved", directions: "Approved on the papers.", gazette: "Yes" });
+    await fillDirection(page, { decision: "Approved", directions: "Approved on the papers.", gazette: "No" });
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("button", { name: "Confirm and record the direction" }).click();
 
@@ -798,11 +813,11 @@ function bearer(subject: string): Record<string, string> {
   return { authorization: `Bearer x.${claims}.signature` };
 }
 
-/** The three controls on the direction form. The radios are checked by their labels, which is how a judge does it. */
+/** The three controls on the direction form, in the order it asks them. The radios are checked by their labels. */
 async function fillDirection(page: Page, direction: { decision: string; directions: string; gazette: string }): Promise<void> {
   await page.getByRole("radio", { name: direction.decision }).check();
-  await page.getByLabel("Directions (optional)").fill(direction.directions);
   await gazetteAnswer(page, direction.gazette).check();
+  await page.getByLabel("Directions/Reasons").fill(direction.directions);
 }
 
 /**
@@ -812,7 +827,7 @@ async function fillDirection(page: Page, direction: { decision: string; directio
  * ambiguous the moment a second boolean question were added, and this is the answer that cannot be taken back.
  */
 function gazetteAnswer(page: Page, answer: string): Locator {
-  return page.getByRole("group", { name: "Should this deed poll be published in the Gazette?" }).getByRole("radio", { name: answer });
+  return page.getByRole("group", { name: "Are there any changes to the standard publications in the Gazette?" }).getByRole("radio", { name: answer });
 }
 
 /**

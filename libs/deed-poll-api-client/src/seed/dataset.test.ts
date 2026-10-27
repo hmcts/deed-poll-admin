@@ -55,7 +55,7 @@ describe("seed dataset scenarios", () => {
       },
       direction: {
         decision: "Approved",
-        publishToGazette: false,
+        changesToStandardPublication: true,
         directionsText: "Synthetic direction: the application may proceed subject to the usual signed evidence."
       }
     });
@@ -68,7 +68,7 @@ describe("seed dataset scenarios", () => {
       },
       direction: {
         decision: "Rejected",
-        publishToGazette: true,
+        changesToStandardPublication: false,
         directionsText: "Non-publication request refused in this synthetic scenario; ask whether the applicant wishes to proceed."
       }
     });

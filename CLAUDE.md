@@ -281,6 +281,18 @@ single file:
   `default-src 'none'` and a bare `sandbox` (no `allow-*` token), and downloads everything else, filename kept; the
   caseworker upload page never renders api's 404 text, only its own sentence, logging api's through `forLog`
   (review findings R09 and R13, `docs/plans/completed/20261021-r09-r13-document-responses.md`).
+- **The Master's Gazette answer is "changes to the standard publication", not "publish" (Master Sullivan's feedback,
+  Steve, 2026-10-27).** The direction form asks the decision, then "Are there any changes to the standard publications
+  in the Gazette?", then "Directions/Reasons", and the check page reads back in that order. Yes means do not publish,
+  or publish only as the directions say (the last name only, for example), so `directionSchema` requires
+  `directionsText` when the answer is Yes, as api does. The wire field is `changesToStandardPublication`; api#154
+  renamed its column and inverted every stored answer, and publishes the old `publishToGazette` (inverted, deprecated)
+  for one release. This app declares that name for the contract's set-equality and **never reads or sends it**
+  (`JudicialDirection` omits it), and the mock derives it rather than storing it. **Deploy order:** api#154 first,
+  then this app, then api's PR 3, which removes the alias, after which the spec refresh drops it here. The caseworker
+  pages relabel the row "Changes to the standard publications in the Gazette" but keep "Directions"; only the Master's
+  own pages say "Directions/Reasons". The case's `publishToLondonGazette` (field rules, the Gazette ready list) is a
+  different fact and is untouched.
 - **The judge who gave a direction can change or withdraw it until the office closes the referral.** On a
   `Decided` referral (api shows it only to its director) the page links to `direction?change=1`, which reuses the
   direction form and check page, prefilled and worded as a change, and calls `reviseDirection` (`PUT`). It also

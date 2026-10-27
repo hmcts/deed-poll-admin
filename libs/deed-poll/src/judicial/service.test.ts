@@ -47,7 +47,7 @@ vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
 
 const CALLER = { accessToken: "judge-token" };
 
-const DIRECTION = { decision: "Approved" as const, publishToGazette: true, directionsText: "Satisfied" };
+const DIRECTION = { decision: "Approved" as const, changesToStandardPublication: false, directionsText: "Satisfied" };
 
 const REFERRAL = {
   id: "ref-1",
@@ -367,12 +367,17 @@ describe("judicial/service", () => {
     it("should throw InvalidInputError carrying api's field errors when it refuses the direction", async () => {
       vi.mocked(directJudicialReferral).mockResolvedValue({
         ok: false,
-        error: { kind: "validation", status: 400, message: "Invalid request", fieldErrors: [{ field: "publishToGazette", message: "must not be null" }] }
+        error: {
+          kind: "validation",
+          status: 400,
+          message: "Invalid request",
+          fieldErrors: [{ field: "changesToStandardPublication", message: "must not be null" }]
+        }
       } as never);
 
       await expect(recordDirection("ref-1", DIRECTION, CALLER)).rejects.toBeInstanceOf(InvalidInputError);
       await expect(recordDirection("ref-1", DIRECTION, CALLER)).rejects.toMatchObject({
-        errors: [{ field: "publishToGazette", message: "must not be null" }]
+        errors: [{ field: "changesToStandardPublication", message: "must not be null" }]
       });
     });
   });

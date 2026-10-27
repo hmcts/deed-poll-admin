@@ -897,7 +897,7 @@ describe("referrals", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // The direction survives the close: closing records that the office actioned it, not that it is undone.
-    expect(result.data).toMatchObject({ state: "Closed", decision: "Approved", publishToGazette: true });
+    expect(result.data).toMatchObject({ state: "Closed", decision: "Approved", changesToStandardPublication: false });
     const after = await getCase(id, config);
     expect(after.ok && after.data.currentReferralState).toBeNull();
   });
@@ -1541,7 +1541,7 @@ describe("the judicial surface", () => {
 
     const result = await directJudicialReferral(
       referralId,
-      { decision: "Rejected", publishToGazette: false, directionsText: "Insufficient evidence" },
+      { decision: "Rejected", changesToStandardPublication: true, directionsText: "Insufficient evidence" },
       judge(JUDGE)
     );
 
@@ -1550,7 +1550,7 @@ describe("the judicial surface", () => {
     expect(result.data).toMatchObject({
       state: "Decided",
       decision: "Rejected",
-      publishToGazette: false,
+      changesToStandardPublication: true,
       directionsText: "Insufficient evidence",
       decidedBy: JUDGE
     });
@@ -1562,7 +1562,7 @@ describe("the judicial surface", () => {
     // conflict, not a 404.
     const referralId = await referralOn(await caseId());
 
-    const result = await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+    const result = await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -1575,7 +1575,7 @@ describe("the judicial surface", () => {
     const referralId = await referralOn(await caseId());
     await claimJudicialReferral(referralId, judge(JUDGE));
 
-    const result = await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judge(ANOTHER_JUDGE));
+    const result = await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(ANOTHER_JUDGE));
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -1586,7 +1586,7 @@ describe("the judicial surface", () => {
     const referralId = await referralOn(await caseId());
     await claimJudicialReferral(referralId, judge(JUDGE));
 
-    const result = await directJudicialReferral(referralId, { decision: "Maybe" as never, publishToGazette: true }, judge(JUDGE));
+    const result = await directJudicialReferral(referralId, { decision: "Maybe" as never, changesToStandardPublication: false }, judge(JUDGE));
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -1599,7 +1599,7 @@ describe("the judicial surface", () => {
     await claimJudicialReferral(claimed, judge(JUDGE));
     const decided = await referralOn(await caseId());
     await claimJudicialReferral(decided, judge(JUDGE));
-    await directJudicialReferral(decided, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+    await directJudicialReferral(decided, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
     // The two exclusions that make this a personal list rather than a second pool.
     const open = await referralOn(await caseId());
     const theirs = await referralOn(await caseId());
@@ -1668,14 +1668,18 @@ describe("the judicial surface", () => {
   it("should replace the direction this judge gave and say when it changed", async () => {
     const referralId = await decidedBy(JUDGE);
 
-    const result = await reviseDirection(referralId, { decision: "Rejected", publishToGazette: false, directionsText: "On reflection, no" }, judge(JUDGE));
+    const result = await reviseDirection(
+      referralId,
+      { decision: "Rejected", changesToStandardPublication: true, directionsText: "On reflection, no" },
+      judge(JUDGE)
+    );
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data).toMatchObject({
       state: "Decided",
       decision: "Rejected",
-      publishToGazette: false,
+      changesToStandardPublication: true,
       directionsText: "On reflection, no",
       decidedBy: JUDGE
     });
@@ -1686,7 +1690,7 @@ describe("the judicial surface", () => {
     const referralId = await referralOn(await caseId());
     await claimJudicialReferral(referralId, judge(JUDGE));
 
-    const result = await reviseDirection(referralId, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+    const result = await reviseDirection(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -1696,7 +1700,7 @@ describe("the judicial surface", () => {
   it("should report not-found for changing another judge's direction, not conflict", async () => {
     const referralId = await decidedBy(ANOTHER_JUDGE);
 
-    const result = await reviseDirection(referralId, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+    const result = await reviseDirection(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -1719,7 +1723,7 @@ describe("the judicial surface", () => {
     const closedCase = await caseId();
     const closed = await referralOn(closedCase);
     await claimJudicialReferral(closed, judge(JUDGE));
-    await directJudicialReferral(closed, { decision: "Approved", publishToGazette: true }, judge(JUDGE));
+    await directJudicialReferral(closed, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
     await closeReferral(closedCase, closed, config);
 
     const refusedOpen = await withdrawDirection(open, judge(JUDGE));
@@ -1793,7 +1797,7 @@ describe("the judicial surface", () => {
 async function decidedBy(judgeName: string): Promise<string> {
   const referralId = await referralOn(await caseId());
   await claimJudicialReferral(referralId, judge(judgeName));
-  await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judge(judgeName));
+  await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(judgeName));
 
   return referralId;
 }
@@ -2525,7 +2529,7 @@ function awaitingConfirmation(): { caseId: string; referralId: string } {
     claimedAt: new Date("2026-03-15T09:00:00"),
     decision: "Rejected",
     directionsText: JUDGES_REASON,
-    publishToGazette: false,
+    changesToStandardPublication: true,
     decisionDate: new Date("2026-03-18T09:00:00"),
     decidedBy: "judge.a@example.com",
     decidedById: "judge.a@example.com",
@@ -2564,7 +2568,7 @@ async function decidedReferral(): Promise<{ caseId: string; referralId: string }
 
   const claimed = await claimJudicialReferral(referralId, judgeConfig);
   if (!claimed.ok) throw new Error(`referral was not claimed: ${claimed.error.message}`);
-  const directed = await directJudicialReferral(referralId, { decision: "Approved", publishToGazette: true }, judgeConfig);
+  const directed = await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judgeConfig);
   if (!directed.ok) throw new Error(`referral was not directed: ${directed.error.message}`);
 
   return { caseId: id, referralId };
@@ -2584,7 +2588,11 @@ async function refusedCase(patch: Parameters<typeof createCase>[0] = {}): Promis
 
   const claimed = await claimJudicialReferral(referralId, judgeConfig);
   if (!claimed.ok) throw new Error(`referral was not claimed: ${claimed.error.message}`);
-  const directed = await directJudicialReferral(referralId, { decision: "Rejected", publishToGazette: false, directionsText: JUDGES_REASON }, judgeConfig);
+  const directed = await directJudicialReferral(
+    referralId,
+    { decision: "Rejected", changesToStandardPublication: true, directionsText: JUDGES_REASON },
+    judgeConfig
+  );
   if (!directed.ok) throw new Error(`referral was not directed: ${directed.error.message}`);
 
   return { caseId: id, referralId };

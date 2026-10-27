@@ -278,7 +278,7 @@ function formatSize(sizeBytes: number | null | undefined): string {
  * Keyed on `decision` being present rather than on `state === "Decided"`, so what is shown is what api sent:
  * the two agree, and when they disagree the field is the more specific answer.
  *
- * `publishToGazette` stays a boolean rather than becoming "Yes"/"No" here. Every other value on these models is
+ * `changesToStandardPublication` stays a boolean rather than becoming "Yes"/"No" here. Every other value on these models is
  * a display string, and this one is the exception because a page's own `en`/`cy` owns those two words — a
  * library that hard-coded "Yes" would be the one English string Welsh could not reach.
  */
@@ -288,7 +288,7 @@ function buildDirectionView(detail: JudicialReferralDetail): DirectionView | nul
   return {
     decision: MASTER_DECISION_LABEL[detail.decision],
     directionsText: orPlaceholder(detail.directionsText),
-    publishToGazette: detail.publishToGazette ?? null,
+    changesToStandardPublication: detail.changesToStandardPublication ?? null,
     decidedOn: formatTimestamp(detail.decisionDate)
   };
 }
@@ -386,11 +386,11 @@ export interface JudicialDocumentRow {
   size: string;
 }
 
-/** The direction recorded on a referral. `publishToGazette` is a boolean — see `buildDirectionView`. */
+/** The direction recorded on a referral. `changesToStandardPublication` is a boolean — see `buildDirectionView`. */
 export interface DirectionView {
   decision: string;
   directionsText: string;
-  publishToGazette: boolean | null;
+  changesToStandardPublication: boolean | null;
   decidedOn: string;
 }
 

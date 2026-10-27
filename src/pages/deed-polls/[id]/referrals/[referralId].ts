@@ -72,12 +72,12 @@ const en = {
   directionHeading: "Direction from the Master",
   decisionLabel: "Decision",
   directionsLabel: "Directions",
-  gazetteLabel: "Published in the Gazette",
+  gazetteLabel: "Changes to the standard publications in the Gazette",
   decidedByLabel: "Decided by",
   decidedLabel: "Decision date",
   yes: "Yes",
   no: "No",
-  // The third state of api's nullish `publishToGazette`, said rather than collapsed into "No": a direction it
+  // The third state of api's nullish `changesToStandardPublication`, said rather than collapsed into "No": a direction it
   // recorded no answer for must not read as one directed against publication.
   gazetteNotRecorded: "Not recorded",
   // api sets `directionChangedAt` when the judge changes or withdraws their direction, and writes the case note
@@ -151,7 +151,7 @@ export const GET = async (req: Request, res: Response) => {
     // The boolean as this page's words, resolved here because `buildDirectionView` deliberately leaves it a
     // boolean for the page's own `en`/`cy` to name — and because the three states are one decision worth
     // making somewhere testable rather than in a template ternary. Same shape as the judicial referral page.
-    gazetteAnswer: gazetteAnswer(view.direction?.publishToGazette, content),
+    gazetteAnswer: gazetteAnswer(view.direction?.changesToStandardPublication, content),
     // Resolved here because the sentence interpolates the date. Empty rather than null, so the template asks "is
     // there something to say".
     directionChanged: view.directionChangedOn === null ? "" : content.directionChangedFor(view.directionChangedOn),
@@ -202,14 +202,14 @@ function closeRefusal(state: string | null | undefined, content: typeof en): str
 }
 
 /**
- * The Gazette direction in words — three answers, because api's `publishToGazette` is nullish.
+ * The Gazette direction in words — three answers, because api's `changesToStandardPublication` is nullish.
  *
  * A direction with no recorded answer says so (decision 4). Collapsing `null` onto "No" would assert the judge
  * directed against publication, which is a claim api never made.
  */
-function gazetteAnswer(publishToGazette: boolean | null | undefined, content: typeof en): string {
-  if (publishToGazette === true) return content.yes;
-  if (publishToGazette === false) return content.no;
+function gazetteAnswer(changesToStandardPublication: boolean | null | undefined, content: typeof en): string {
+  if (changesToStandardPublication === true) return content.yes;
+  if (changesToStandardPublication === false) return content.no;
 
   return content.gazetteNotRecorded;
 }

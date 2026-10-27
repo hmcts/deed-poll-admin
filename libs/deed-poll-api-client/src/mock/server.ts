@@ -1094,7 +1094,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       claimedAt: null,
       decision: null,
       directionsText: null,
-      publishToGazette: null,
+      changesToStandardPublication: null,
       decisionDate: null,
       decidedBy: null,
       decidedById: null,
@@ -1418,6 +1418,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if (method === "POST" && action === "direction") {
       const parsed = WIRE_SCHEMAS.JudicialDirectionRequest.safeParse(await readJsonBody(req));
       if (!parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+      const missing = directionsMissing(parsed.data);
+      if (missing) return send(res, 400, missing);
 
       // Both halves, as api asks both: the state says a claim exists and the subject says whose. This is what
       // refuses a direction on a referral withdrawn under the judge who was reading it. The SUBJECT and not the
@@ -1431,7 +1433,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
         state: "Decided",
         decision: parsed.data.decision,
         directionsText: parsed.data.directionsText?.trim() || null,
-        publishToGazette: parsed.data.publishToGazette,
+        changesToStandardPublication: parsed.data.changesToStandardPublication,
         // From the clock and the token, never from the payload — api's rule, and the reason the direction body
         // carries neither.
         decisionDate: now,
@@ -1449,6 +1451,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     if ((method === "PUT" && action === "direction") || (method === "POST" && action === "direction/withdraw")) {
       const parsed = method === "PUT" ? WIRE_SCHEMAS.JudicialDirectionRequest.safeParse(await readJsonBody(req)) : null;
       if (parsed && !parsed.success) return send(res, 400, fieldErrorsFrom(parsed.error.issues));
+      const missing = parsed ? directionsMissing(parsed.data) : null;
+      if (missing) return send(res, 400, missing);
 
       // Visibility already admits a `Decided` referral only to the judge who directed it, so the state is the
       // whole of the check: a 409 here is the pool or the caller's own undirected claim, never someone else's.
@@ -1463,7 +1467,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
           state: "Decided",
           decision: parsed.data.decision,
           directionsText: parsed.data.directionsText?.trim() || null,
-          publishToGazette: parsed.data.publishToGazette,
+          changesToStandardPublication: parsed.data.changesToStandardPublication,
           decisionDate: now,
           directionChangedAt: now,
           modifiedOn: now
@@ -1477,7 +1481,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
           state: "Claimed",
           decision: null,
           directionsText: null,
-          publishToGazette: null,
+          changesToStandardPublication: null,
           decisionDate: null,
           decidedBy: null,
           decidedById: null,
@@ -2584,7 +2588,7 @@ function referralDirectedNote(referral: MockReferral): string {
   return (
     `Master’s direction recorded for referral ${identifiesReferral(referral)}.` +
     ` Decision: ${referral.decision ?? "not recorded"}.` +
-    ` Publish to the London Gazette: ${gazetteAnswer(referral.publishToGazette)}.` +
+    ` Changes to standard publication in the Gazette: ${gazetteAnswer(referral.changesToStandardPublication)}.` +
     " See the referral for the full direction."
   );
 }
@@ -2597,7 +2601,7 @@ function referralDirectionRevisedNote(referral: MockReferral): string {
   return (
     `Master’s direction revised for referral ${identifiesReferral(referral)}.` +
     ` Decision: ${referral.decision ?? "not recorded"}.` +
-    ` Publish to the London Gazette: ${gazetteAnswer(referral.publishToGazette)}.` +
+    ` Changes to standard publication in the Gazette: ${gazetteAnswer(referral.changesToStandardPublication)}.` +
     " See the referral for the full direction."
   );
 }
@@ -2607,7 +2611,7 @@ function referralDirectionWithdrawnNote(referral: MockReferral): string {
   return (
     `Master’s direction withdrawn for referral ${identifiesReferral(referral)}.` +
     ` The withdrawn decision was: ${referral.decision ?? "not recorded"}.` +
-    ` Publish to the London Gazette: ${gazetteAnswer(referral.publishToGazette)}.` +
+    ` Changes to standard publication in the Gazette: ${gazetteAnswer(referral.changesToStandardPublication)}.` +
     " The referral is back with the Master to direct again."
   );
 }
@@ -2732,13 +2736,33 @@ function identifiesReferral(referral: MockReferral): string {
  * The Gazette answer as Yes or No, or that it was never recorded.
  *
  * Spelled out and never abbreviated to the presence of a word, which is api's rule and its reason: publication
- * puts the applicant's former and new names in a public notice, so "not published" and "nothing recorded" must
+ * puts the applicant's former and new names in a public notice, so "no changes" and "nothing recorded" must
  * not read alike. Unreachable through the direction route, which stores both halves.
  */
-function gazetteAnswer(publish: boolean | null | undefined): string {
-  if (publish === null || publish === undefined) return "not recorded";
+function gazetteAnswer(changes: boolean | null | undefined): string {
+  if (changes === null || changes === undefined) return "not recorded";
 
-  return publish ? "Yes" : "No";
+  return changes ? "Yes" : "No";
+}
+
+/**
+ * api's directions rule (`ReferralSchemas.parseDirection`): changes to the standard publication need the text that
+ * says what they are. In api's words and on api's field, so a page's handling of the 400 is exercised as it will be
+ * against api. The mock takes only the new name, as api will once its one-release alias is removed.
+ */
+function directionsMissing(direction: { changesToStandardPublication: boolean; directionsText?: string }): unknown {
+  if (!direction.changesToStandardPublication || direction.directionsText?.trim()) return null;
+
+  return {
+    error: "Direction is not valid",
+    errors: [
+      {
+        field: "directionsText",
+        message:
+          "directionsText is required when there are changes to the standard publication in the Gazette: say whether to publish nothing, or what to publish"
+      }
+    ]
+  };
 }
 
 /**
@@ -3118,7 +3142,14 @@ function myReferralsOrder(left: MockReferral, right: MockReferral): number {
 function toWireReferral(referral: MockReferral): unknown {
   const { claimedById, decidedById, ...published } = referral;
 
-  return isoDates(published);
+  return isoDates({ ...published, publishToGazette: legacyPublishToGazette(referral) });
+}
+
+/** api's deprecated `publishToGazette`: the new answer inverted, null staying null, for its one release. */
+function legacyPublishToGazette(referral: MockReferral): boolean | null {
+  const changes = referral.changesToStandardPublication;
+
+  return changes === null || changes === undefined ? null : !changes;
 }
 
 /**
@@ -3156,7 +3187,8 @@ function toWireJudicialDetail(record: MockCase, referral: MockReferral): unknown
     claimedAt: iso(referral.claimedAt),
     decision: referral.decision ?? null,
     directionsText: referral.directionsText ?? null,
-    publishToGazette: referral.publishToGazette ?? null,
+    changesToStandardPublication: referral.changesToStandardPublication ?? null,
+    publishToGazette: legacyPublishToGazette(referral),
     decisionDate: iso(referral.decisionDate),
     decidedBy: referral.decidedBy ?? null,
     directionChangedAt: iso(referral.directionChangedAt),
@@ -3368,7 +3400,16 @@ type CaseState = NonNullable<WireSavedCase["state"]>;
  */
 type MockReferral = Omit<
   WireReferral,
-  "state" | "claimedAt" | "decisionDate" | "directionChangedAt" | "confirmationRequestedAt" | "confirmationReceivedAt" | "createdOn" | "modifiedOn"
+  | "state"
+  | "claimedAt"
+  | "decisionDate"
+  | "directionChangedAt"
+  | "confirmationRequestedAt"
+  | "confirmationReceivedAt"
+  | "createdOn"
+  | "modifiedOn"
+  // api's deprecated alias is derived on the way out (`legacyPublishToGazette`), never stored, as api's column is gone.
+  | "publishToGazette"
 > & {
   state: ReferralState;
   claimedAt: Date | null;

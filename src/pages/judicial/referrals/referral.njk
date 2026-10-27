@@ -122,7 +122,7 @@
       referral that had been through this page.
 
       `gazetteAnswer` is resolved by the handler rather than read off the model with a ternary here, and that is
-      not only convention: api's `publishToGazette` is nullish and this panel is keyed on `decision`, so it has
+      not only convention: api's `changesToStandardPublication` is nullish and this panel is keyed on `decision`, so it has
       three states. `{{ yes if … else no }}` would print "No" for a direction api recorded no answer for —
       telling the judge they directed against publication, which is the one answer on this screen that cannot be
       taken back.
@@ -132,8 +132,8 @@
       {{ govukSummaryList({
         rows: [
           { key: { text: decisionLabel }, value: { text: referral.direction.decision } },
-          { key: { text: directionsLabel }, value: { text: referral.direction.directionsText } },
           { key: { text: gazetteLabel }, value: { text: gazetteAnswer } },
+          { key: { text: directionsLabel }, value: { text: referral.direction.directionsText } },
           { key: { text: decidedLabel }, value: { text: referral.direction.decidedOn } }
         ]
       }) }}
