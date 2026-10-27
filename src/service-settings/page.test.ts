@@ -60,11 +60,27 @@ describe("service settings GET", () => {
     expect(model(res).process).toEqual({
       isAvailable: true,
       values: { hours: "2", minutes: "30", revision: "4" },
+      isNeverChanged: false,
       updatedBy: "Dee Manager",
       updatedAt: "20 October 2026 at 10:30"
     });
     expect(model(res).gazette).toMatchObject({ isAvailable: true, values: { recipientEmail: "lg@example.com", revision: "2" }, isUnset: false });
     expect(model(res).errorList).toEqual([]);
+  });
+
+  it("should say the claim window has never been changed when api reports no attribution", async () => {
+    vi.mocked(findProcessSettings).mockResolvedValue({ referralClaimExpiryMinutes: 120, revision: 0, updatedBy: null, updatedAt: null });
+    const res = pageResponse();
+
+    await showSettings(request(), res);
+
+    expect(model(res).process).toEqual({
+      isAvailable: true,
+      values: { hours: "2", minutes: "0", revision: "0" },
+      isNeverChanged: true,
+      updatedBy: undefined,
+      updatedAt: undefined
+    });
   });
 
   it("should neither read nor show the Gazette section when the caller does not hold ACCESS_GAZETTE", async () => {
@@ -310,6 +326,19 @@ describe("Gazette section POST", () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(model(res).gazette).toEqual({ isAvailable: true, values: body, isUnset: false, ...expected });
   });
+
+  it.each([new Error("unavailable"), new ForbiddenError("forbidden"), new UnauthorizedError("unauthorized")])(
+    "should propagate $name from the Gazette save unchanged without rendering",
+    async (error) => {
+      vi.mocked(saveGazetteSettings).mockRejectedValue(error);
+      const res = pageResponse();
+
+      await expect(saveGazetteSection(request({ body }), res)).rejects.toBe(error);
+
+      expect(res.render).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    }
+  );
 
   it("should degrade the process section with no form when its read fails after a refusal", async () => {
     vi.mocked(findProcessSettings).mockRejectedValue(new Error("down"));

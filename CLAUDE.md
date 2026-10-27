@@ -733,6 +733,8 @@ Facts that span several files:
   the environment segment only for `prod`, and preview pins AAT's. A non-production environment must never name
   production XUI; `src/deployment-chart.test.ts` renders every environment through `helm template` to prove it, and
   **those render tests skip without `helm`**. XUI checks `staff-admin` itself, which the copy says.
+- **The mock starts the claim window at 120 minutes, revision 0, with no attribution**, and resets it with its other
+  fixtures. That is the state in which the section says the window has never been changed. Saving sends no email.
 - **The page's Welsh is pending.** `src/service-settings` is on the extractor's `INCLUDE`; the new copy's `cy` mirrors
   its `en`, so it adds to `yarn welsh:check`'s identical count.
 

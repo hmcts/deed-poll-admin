@@ -94,6 +94,27 @@ describe("service settings page", () => {
     expect(process).toContain("A longer window does not return claims that have already gone back to the pool");
   });
 
+  it("should say the claim window has never been changed, with no last-changed line, when api reports no attribution", async () => {
+    vi.mocked(findProcessSettings).mockResolvedValue({ referralClaimExpiryMinutes: 120, revision: 0, updatedBy: null, updatedAt: null });
+
+    const { markup } = await render(GET);
+
+    const process = form(markup, "/deed-polls/settings");
+    expect(process).toContain("The claim window has not been changed since the service started.");
+    expect(process).not.toContain("Last changed");
+  });
+
+  it("should show the date alone when api names no one who changed it", async () => {
+    vi.mocked(findProcessSettings).mockResolvedValue({ ...PROCESS, updatedBy: null });
+
+    const { markup } = await render(GET);
+
+    const process = form(markup, "/deed-polls/settings");
+    expect(process).toContain("Last changed 20 October 2026 at 10:30</p>");
+    expect(process).not.toContain(" by ");
+    expect(process).not.toContain("has not been changed");
+  });
+
   it("should show the Gazette recipient form posting to its own address with its own revision", async () => {
     const { markup } = await render(GET);
 
@@ -216,6 +237,8 @@ describe("service settings page", () => {
       expect(process).toContain('name="revision" value="4"');
       expect(process).not.toContain("Save claim window");
       expect(markup).toContain('id="reload-process-settings"');
+      // The form posted to this address, so a link differing only by its fragment would scroll rather than reload.
+      expect(markup).toContain('href="/deed-polls/settings?reload=process-settings#process-settings"');
       expect(markup).not.toContain("private prose");
       expect(markup).toContain("Save recipient");
       expectSummaryLinksResolve(markup);
@@ -268,6 +291,37 @@ describe("service settings page", () => {
 
       expect(markup).toContain(message);
       expect(markup).toContain(save);
+      expectSummaryLinksResolve(markup);
+    });
+
+    it.each([
+      ["en", [{ field: "recipientEmail", message: "private prose" }], "Enter a valid email address, like name@example.com", "Save recipient"],
+      ["cy", [{ field: "recipientEmail", message: "private prose" }], "Rhowch gyfeiriad e-bost dilys, fel enw@enghraifft.com", "Cadw’r derbynnydd"]
+    ])("should show api's 400 on the recipient as its field error in %s and allow correction", async (locale, errors, message, save) => {
+      vi.mocked(saveGazetteSettings).mockRejectedValue(new InvalidInputError("private prose", errors));
+
+      const { markup } = await render(postGazette, { body: { recipientEmail: "lg@example.com", revision: "2" }, locale });
+
+      expect(markup).toContain(message);
+      expect(markup).toContain(save);
+      expect(markup).not.toContain('id="reload-gazette-recipient"');
+      expect(markup).not.toContain("private prose");
+      expectSummaryLinksResolve(markup);
+    });
+
+    it.each([
+      ["en", [], "The recipient could not be saved. Reload the settings and try again.", "Save recipient"],
+      ["en", [{ field: "revision", message: "private prose" }], "The recipient could not be saved. Reload the settings and try again.", "Save recipient"],
+      ["cy", [], "Ni ellid cadw’r derbynnydd. Ail-lwythwch y gosodiadau a rhowch gynnig arall arni.", "Cadw’r derbynnydd"]
+    ])("should offer only a reload on api's 400 naming no recipient field in %s (%j)", async (locale, errors, message, save) => {
+      vi.mocked(saveGazetteSettings).mockRejectedValue(new InvalidInputError("private prose", errors));
+
+      const { markup } = await render(postGazette, { body: { recipientEmail: "lg@example.com", revision: "2" }, locale });
+
+      expect(markup).toContain(message);
+      expect(markup).not.toContain(save);
+      expect(markup).toContain('id="reload-gazette-recipient"');
+      expect(markup).not.toContain("private prose");
       expectSummaryLinksResolve(markup);
     });
 

@@ -127,6 +127,31 @@ describe("process settings adapter and mock", () => {
     if (!allowed) expect(write).toMatchObject({ ok: false, error: { kind: "forbidden" } });
   });
 
+  it("should attribute a change to a Delivery Manager when the token carries no name", async () => {
+    // Arrange
+    const nameless = `x.${Buffer.from(JSON.stringify({ sub: "manager", roles: ["caseworker-deedpoll-delivery-manager"] })).toString("base64url")}.signature`;
+
+    // Act
+    const response = await put({ referralClaimExpiryMinutes: 45, revision: 0 }, nameless);
+
+    // Assert
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ revision: 1, updatedBy: "Delivery Manager" });
+  });
+
+  it("should answer 405 to a method other than GET or PUT, changing nothing", async () => {
+    // Act
+    const response = await fetch(`${mock.url}/caseworker/process-settings`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${DELIVERY_MANAGER}`, "content-type": "application/json" },
+      body: JSON.stringify({ referralClaimExpiryMinutes: 45, revision: 0 })
+    });
+
+    // Assert
+    expect(response.status).toBe(405);
+    expect(await getProcessSettings(config())).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 120, revision: 0 } });
+  });
+
   it("should reset to the seeded values with the mock's other fixtures", async () => {
     // Arrange
     await updateProcessSettings({ referralClaimExpiryMinutes: 600, revision: 0 }, config());

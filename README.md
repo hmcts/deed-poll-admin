@@ -211,8 +211,8 @@ and seed it with `yarn idam:users`. Then provide a separate Redis instance on po
 `docker run --rm -p 6316:6379 redis:8-alpine`). Run `yarn test:gazette` from this repository root.
 The suite starts/stops its own app on 3316 and fresh mock on 3216, uses Redis database 1, and refuses
 to reuse occupied app/mock ports. All nine journeys, the service settings journey included, sign in through IDAM and include axe checks; the Delivery Manager
-read and recipient-settings journeys also check Welsh. The dedicated config keeps the empty-state fixture out of the shared
-`yarn test:e2e` suite. It never resets an existing mock. These checks cover ready/history reads, recipient settings (including invalid and stale edits),
+read and recipient-settings journeys also check Welsh. The dedicated config keeps the empty-state fixture, and the settings journey's
+claim-window save, out of the shared `yarn test:e2e` suite. It never resets an existing mock. These checks cover ready/history reads, recipient settings (including invalid and stale edits),
 all request outcomes and complete legacy membership, with Welsh and axe checks;
 the mandatory review/send journey covers all five outcomes, lost responses and duplicate confirmation tabs.
 
@@ -292,7 +292,7 @@ needs `yarn idam:users` to have seeded the simulator, since the personas are fou
 
 Team leaders (`caseworker-deedpoll-team-leader`) can override privacy, delete notes/witnesses,
 manage shared queries and perform API CCD repair. Delivery Managers (`caseworker-deedpoll-delivery-manager`)
-have those capabilities plus Gazette access. Neither role grants judicial access. The temporary legacy
+have those capabilities plus Gazette access and the service settings page (`MANAGE_PROCESS_CONFIG`, `/deed-polls/settings`). Neither role grants judicial access. The temporary legacy
 admin role retains Team leader capabilities and cannot use Gazette; its seeded account is only for
 migration-refusal checks. Ordinary caseworker and judge permissions are unchanged.
 

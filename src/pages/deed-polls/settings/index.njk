@@ -6,7 +6,7 @@
 {% from "govuk/components/warning-text/macro.njk" import govukWarningText %}
 
 {% macro lastChangedLine(section) %}
-  {% if section.updatedAt %}<p class="govuk-body">{{ lastChanged }} {{ section.updatedAt }} {{ by }} {{ section.updatedBy }}</p>{% endif %}
+  {% if section.updatedAt %}<p class="govuk-body">{{ lastChanged }} {{ section.updatedAt }}{% if section.updatedBy %} {{ by }} {{ section.updatedBy }}{% endif %}</p>{% endif %}
 {% endmacro %}
 
 {% block page_content %}
@@ -50,6 +50,7 @@
               }) }}
             </fieldset>
           </div>
+          {% if process.isNeverChanged %}<p class="govuk-body">{{ processNeverChanged }}</p>{% endif %}
           {{ lastChangedLine(process) }}
           {% if not process.reloadText %}
             {{ govukWarningText({ text: processWarning, iconFallbackText: "Warning" }) }}
@@ -57,7 +58,8 @@
           {% endif %}
         </form>
         {% if process.reloadText %}
-          <p class="govuk-body"><a id="reload-process-settings" class="govuk-link" href="/deed-polls/settings#process-settings">{{ processReloadLink }}</a></p>
+          {# The form posts to /deed-polls/settings, so a link differing only by its fragment would scroll, not reload. #}
+          <p class="govuk-body"><a id="reload-process-settings" class="govuk-link" href="/deed-polls/settings?reload=process-settings#process-settings">{{ processReloadLink }}</a></p>
         {% endif %}
       {% else %}
         <h2 class="govuk-heading-m">{{ processHeading }}</h2>

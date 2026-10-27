@@ -1,5 +1,8 @@
 # Plan: the Delivery Manager settings page
 
+**Status (2026-10-27):** Tasks 1-6 implemented on `feat/dm-process-config`. The PR is not yet opened (item 8,
+Publishing), and `yarn npm audit` has not run since Task 1. Move this plan to `docs/plans/completed/` once it merges.
+
 ## Overview
 
 Steve asked on 2026-10-14 for a page where a Delivery Manager adjusts the service's business process values while

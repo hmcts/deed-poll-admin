@@ -3,6 +3,8 @@ import {
   countGazetteReadyCases,
   countReturnedForAction,
   findDeedPolls,
+  findGazetteSettings,
+  findProcessSettings,
   findSavedQueries,
   InvalidInputError,
   NotFoundError
@@ -23,6 +25,8 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   countGazetteReadyCases: vi.fn(),
   countReturnedForAction: vi.fn(),
   findDeedPolls: vi.fn(),
+  findGazetteSettings: vi.fn(),
+  findProcessSettings: vi.fn(),
   findSavedQueries: vi.fn()
 }));
 
@@ -119,6 +123,8 @@ describe("deed-polls list page", () => {
     await GET(pageRequest({ deliveryManager: true }), res);
 
     expect(res.render.mock.calls[0][1]).toMatchObject({ showSettings: true });
+    expect(findProcessSettings).not.toHaveBeenCalled();
+    expect(findGazetteSettings).not.toHaveBeenCalled();
   });
 
   it.each(["legacyAdmin", "teamLeader", "caseworker", "judge", "none"] as const)("should not offer the service settings link to %s", async (persona) => {

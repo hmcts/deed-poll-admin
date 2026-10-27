@@ -52,9 +52,10 @@ export async function saveProcessSection(req: Request, res: Response) {
     const process = processFailure(values, {
       hoursError: issue("claimWindowHours"),
       minutesError: issue("claimWindowMinutes"),
-      windowError: issue("claimWindow")
+      windowError: issue("claimWindow"),
+      reloadText: issue("revision")
     });
-    return render(req, res, 400, { process: issue("revision") ? { ...process, reloadText: content.processReload } : process });
+    return render(req, res, 400, { process });
   }
   try {
     await saveProcessSettings(parsed.data, callerFromRequest(req));
@@ -83,9 +84,8 @@ export async function saveGazetteSection(req: Request, res: Response) {
     body
   );
   if (!parsed.success) {
-    const emailError = parsed.error.issues.find((issue) => issue.path[0] === "recipientEmail")?.message;
-    const hasRevisionError = parsed.error.issues.some((issue) => issue.path[0] === "revision");
-    return render(req, res, 400, { gazette: gazetteFailure(values, { emailError, reloadText: hasRevisionError ? content.gazetteReload : undefined }) });
+    const issue = (path: string) => parsed.error.issues.find((each) => each.path[0] === path)?.message;
+    return render(req, res, 400, { gazette: gazetteFailure(values, { emailError: issue("recipientEmail"), reloadText: issue("revision") }) });
   }
   try {
     await saveGazetteSettings(parsed.data, callerFromRequest(req));
@@ -149,6 +149,7 @@ async function storedProcess(caller: Caller, locale: string): Promise<ProcessSec
   return {
     isAvailable: true,
     values: { hours: String(Math.floor(total / 60)), minutes: String(total % 60), revision: String(settings.revision) },
+    isNeverChanged: !settings.updatedAt,
     ...attribution(settings, locale)
   };
 }
@@ -226,6 +227,8 @@ interface SectionErrors {
 interface ProcessForm extends SectionErrors {
   isAvailable: true;
   values: ProcessValues;
+  /** Only a read can say so: a refused POST redraws from the body, which carries no attribution. */
+  isNeverChanged?: boolean;
   hoursError?: string;
   minutesError?: string;
   windowError?: string;

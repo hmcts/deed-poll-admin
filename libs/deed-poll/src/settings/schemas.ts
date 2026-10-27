@@ -1,5 +1,6 @@
 import { PROCESS_SETTINGS_LIMITS } from "@hmcts/deed-poll-api-client";
 import { z } from "zod";
+import { settingsRevision } from "../schema-primitives.js";
 
 // ASCII digits only, unlike the case form's `readNumericInput`: a sign, a fraction or an exponent is not a
 // spelling of a duration anyone types into an hours box (plan `docs/plans/20261026-dm-settings-page.md`).
@@ -16,11 +17,7 @@ export function processSettingsFormSchema(messages: ProcessSettingsFormMessages)
     .object({
       claimWindowHours: durationPart(MAX_HOURS, messages.hours),
       claimWindowMinutes: durationPart(MAX_MINUTES, messages.minutes),
-      revision: z
-        .string({ error: messages.reload })
-        .regex(/^(0|[1-9]\d*)$/, messages.reload)
-        .transform(Number)
-        .refine((value) => Number.isSafeInteger(value) && value <= 2147483647, messages.reload)
+      revision: settingsRevision(messages.reload)
     })
     .transform(({ claimWindowHours, claimWindowMinutes, revision }, context) => {
       if (claimWindowHours === null && claimWindowMinutes === null) {
