@@ -2555,7 +2555,7 @@ function referralRaisedNote(referral: MockReferral): string {
   // Each piece of the caseworker's own text on its own line rather than run into the sentence before it with
   // a full stop this would have to add — api's reasoning: their text is prose they wrote, and one that
   // already ended in a stop would read as "Friday..".
-  const lines = [`Referred to the judiciary. Reasons: ${referral.reasons.join(", ")}.`];
+  const lines = [`Referred to a Master. Reasons: ${referral.reasons.join(", ")}.`];
   if (referral.urgency === "Urgent" && referral.urgencyReason) lines.push(`Marked urgent: ${referral.urgencyReason}`);
   if (referral.notes) lines.push(`Notes: ${referral.notes}`);
 
@@ -2569,7 +2569,7 @@ function referralRaisedNote(referral: MockReferral): string {
  * them in the prose would put the same name in the grid twice.
  */
 function referralClaimedNote(referral: MockReferral): string {
-  return `Referral ${identifiesReferral(referral)}, claimed by the judiciary.`;
+  return `Referral ${identifiesReferral(referral)}, claimed by a Master.`;
 }
 
 /**
@@ -2582,7 +2582,7 @@ function referralClaimedNote(referral: MockReferral): string {
  */
 function referralDirectedNote(referral: MockReferral): string {
   return (
-    `Judicial direction recorded for referral ${identifiesReferral(referral)}.` +
+    `Master’s direction recorded for referral ${identifiesReferral(referral)}.` +
     ` Decision: ${referral.decision ?? "not recorded"}.` +
     ` Publish to the London Gazette: ${gazetteAnswer(referral.publishToGazette)}.` +
     " See the referral for the full direction."
@@ -2595,7 +2595,7 @@ function referralDirectedNote(referral: MockReferral): string {
  */
 function referralDirectionRevisedNote(referral: MockReferral): string {
   return (
-    `Judicial direction revised for referral ${identifiesReferral(referral)}.` +
+    `Master’s direction revised for referral ${identifiesReferral(referral)}.` +
     ` Decision: ${referral.decision ?? "not recorded"}.` +
     ` Publish to the London Gazette: ${gazetteAnswer(referral.publishToGazette)}.` +
     " See the referral for the full direction."
@@ -2605,16 +2605,16 @@ function referralDirectionRevisedNote(referral: MockReferral): string {
 /** The note for a judge withdrawing their direction to give a new one, composed before the direction is cleared. */
 function referralDirectionWithdrawnNote(referral: MockReferral): string {
   return (
-    `Judicial direction withdrawn for referral ${identifiesReferral(referral)}.` +
+    `Master’s direction withdrawn for referral ${identifiesReferral(referral)}.` +
     ` The withdrawn decision was: ${referral.decision ?? "not recorded"}.` +
     ` Publish to the London Gazette: ${gazetteAnswer(referral.publishToGazette)}.` +
-    " The referral is back with the judge to direct again."
+    " The referral is back with the Master to direct again."
   );
 }
 
 /** The note for the office acknowledging that a returned direction has been carried out. */
 function referralActionedNote(referral: MockReferral): string {
-  return `Judicial direction for referral ${identifiesReferral(referral)}, marked as actioned.`;
+  return `Master’s direction for referral ${identifiesReferral(referral)}, marked as actioned.`;
 }
 
 /**
@@ -2624,7 +2624,7 @@ function referralActionedNote(referral: MockReferral): string {
  * referrals over its life, and a bare "referral withdrawn" in a grid of thirty notes does not say which.
  */
 function referralWithdrawnNote(referral: MockReferral): string {
-  return `Referral to the judiciary withdrawn. It was ${identifiesReferral(referral)}.`;
+  return `Referral to a Master withdrawn. It was ${identifiesReferral(referral)}.`;
 }
 
 /**

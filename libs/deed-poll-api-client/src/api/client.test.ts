@@ -1497,7 +1497,7 @@ describe("the judicial surface", () => {
     expect(result.data.application).toMatchObject({ newForename: "Jo", newSurname: "Bloggs" });
     // Newest first, and the raise's own note leads it: a referral writes onto the same timeline, which reaches a
     // judge unfiltered. The wording is api's `ReferralNotes` and is pinned in `mock/server.test.ts`.
-    expect(result.data.caseNotes.map((note) => note.note)).toEqual([expect.stringContaining("Referred to the judiciary"), "Signature received"]);
+    expect(result.data.caseNotes.map((note) => note.note)).toEqual([expect.stringContaining("Referred to a Master"), "Signature received"]);
     expect(result.data.caseNotes[0]?.createdOn).toBeInstanceOf(Date);
   });
 

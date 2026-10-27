@@ -60,8 +60,8 @@ const DIRECTION_NOT_CHANGEABLE = "notchangeable";
 const CLAIM_HELD = "held";
 
 const en = {
-  title: "Referral to the judiciary",
-  heading: "Referral to the judiciary",
+  title: "Referral to a Master",
+  heading: "Referral to a Master",
   applicationHeading: "Application",
   // Shown when api sent no application on the referral. A shape its DTO permits rather than a state anyone
   // expects, so it says what is true — the details were not sent — instead of showing a column of

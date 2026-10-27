@@ -431,7 +431,7 @@ describe("referrals/referrals-view", () => {
       // renders is already display text, not the wire's members.
       expect(view.rows[0]).toMatchObject({
         id: "ref-1",
-        state: "Awaiting a judge",
+        state: "Awaiting a Master",
         reasons: ["Applicant is a minor", "Other"],
         urgency: "Urgent",
         canWithdraw: true,

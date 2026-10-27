@@ -96,7 +96,7 @@ describe("mark-as-actioned confirmation template", () => {
   it("should show the direction being confirmed in full", async () => {
     const rendered = await page();
 
-    expect(rendered).toContain("Direction from the judiciary");
+    expect(rendered).toContain("Direction from the Master");
     expect(rendered).toContain("Approved");
     expect(rendered).toContain("Serve the notice on the second respondent.");
     expect(rendered).toMatch(/Published in the Gazette[\s\S]*?Yes/);
@@ -113,7 +113,7 @@ describe("mark-as-actioned confirmation template", () => {
   it("should distinguish a direction with no further directions from one that was never given", async () => {
     const rendered = await page({ ...DECIDED, directionsText: null });
 
-    expect(rendered).toContain("Direction from the judiciary");
+    expect(rendered).toContain("Direction from the Master");
     expect(rendered).toMatch(/Directions[\s\S]*?Not provided/);
   });
 
@@ -121,7 +121,7 @@ describe("mark-as-actioned confirmation template", () => {
     const rendered = await page();
 
     expect(rendered).toContain("By marking this referral as actioned you are confirming that:");
-    expect(rendered).toContain("you have carried out the judicial direction");
+    expect(rendered).toContain("you have carried out the Master’s direction");
     expect(rendered).toContain("you have made any updates the application needs, including any dates");
     expect(rendered).toContain("this referral will leave the list of returned directions waiting for action");
     expect(rendered.indexOf("confirming that:")).toBeLessThan(rendered.indexOf("<form"));

@@ -282,7 +282,7 @@ single file:
   same judge with no direction, so the page offers the ordinary direction form again. A 409 on either redirects to
   the freshly read referral with a state-only sentence, and a 404 is the unavailable page. api writes the
   caseworker a case note, keeps the earlier direction on its audit trail and sets `directionChangedAt`. The
-  caseworker's referral page and the case page's referrals panel show "The judge changed this direction on {date}."
+  caseworker's referral page and the case page's referrals panel show "The Master changed this direction on {date}."
   as inset text from that flag. It sits outside the direction section because a withdrawal leaves no direction.
 - **A user holding both roles still has no link to `/judicial/**`.** There is judicial navigation now, but it is
   the two judicial lists' own (`src/pages/judicial/referrals/list-navigation.njk`) and it renders only on pages

@@ -68,7 +68,7 @@ test("one tester works as a caseworker, a judge, a Team leader and a Delivery Ma
 
   await expect(personaStrip(page)).toContainText("Dev only");
   await expect(currentPersona(page)).toHaveText("Caseworker (current)");
-  await expect(switchTo(page, "Judge")).toBeVisible();
+  await expect(switchTo(page, "Master")).toBeVisible();
   await expect(switchTo(page, "Team leader")).toBeVisible();
   await expect(switchTo(page, "Delivery Manager")).toBeVisible();
 
@@ -108,14 +108,14 @@ test("one tester works as a caseworker, a judge, a Team leader and a Delivery Ma
   await expect(personaStrip(page)).toHaveCount(0);
   await page.goto(CASE_LIST_PATH);
 
-  await switchTo(page, "Judge").click();
+  await switchTo(page, "Master").click();
 
   // `/` and not a list path (decision 8): the switch redirects there and `src/pages/index.ts` resolves the new
   // persona's home, so landing on the pool is the routing agreeing with the roles api has just derived.
   await expect(page).toHaveURL(POOL_PATH);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referrals for a direction");
   // Decision 7: the strip is on the judicial chrome as well, or the switch would be a trap door.
-  await expect(currentPersona(page)).toHaveText("Judge (current)");
+  await expect(currentPersona(page)).toHaveText("Master (current)");
 
   // **The assertion the whole plan turns on.** This referral was claimed by `judge@example.com` before any
   // switch happened, and api shows a claimed referral to its holder alone — resolved from the token. A role

@@ -265,7 +265,7 @@ describe("case detail template — the referrals tab", () => {
 
     const panel = referralsPanel(await page([changed]));
 
-    expect(panel).toMatch(/<div class="govuk-inset-text[^"]*">\s*The judge changed this direction on 19 October 2026 at 10:30am\.\s*<\/div>/);
+    expect(panel).toMatch(/<div class="govuk-inset-text[^"]*">\s*The Master changed this direction on 19 October 2026 at 10:30am\.\s*<\/div>/);
   });
 
   it("should put the change notice only on the referral whose direction changed", async () => {
@@ -274,14 +274,14 @@ describe("case detail template — the referrals tab", () => {
 
     const panel = referralsPanel(await page([changed, unchanged]));
 
-    expect(panel.match(/The judge changed this direction/g)).toHaveLength(1);
-    expect(panel.indexOf("The judge changed this direction")).toBeLessThan(panel.indexOf('href="/deed-polls/case-1/referrals/ref-1"'));
+    expect(panel.match(/The Master changed this direction/g)).toHaveLength(1);
+    expect(panel.indexOf("The Master changed this direction")).toBeLessThan(panel.indexOf('href="/deed-polls/case-1/referrals/ref-1"'));
   });
 
   it("should show no change notice on a referral whose direction stands as first given", async () => {
     const panel = referralsPanel(await page([{ ...REFERRAL, state: "Decided" }]));
 
-    expect(panel).not.toContain("The judge changed this direction");
+    expect(panel).not.toContain("The Master changed this direction");
   });
 
   it("should pluralise the count, since a case can be referred more than once", async () => {
@@ -295,7 +295,7 @@ describe("case detail template — the referrals tab", () => {
     const rendered = await page([]);
 
     expect(rendered).toContain('href="/deed-polls/case-1/referrals/new"');
-    expect(rendered).toContain("Refer this case to the judiciary");
+    expect(rendered).toContain("Refer this case to a Master");
     expect(rendered).toContain("None recorded.");
   });
 

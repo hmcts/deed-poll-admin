@@ -137,7 +137,7 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   const refusal = page.getByRole("alert");
   await expect(refusal).toContainText("This referral is no longer available. Choose another referral from the list.");
   await expect(refusal).not.toContainText(OTHER_JUDGE);
-  await expect(refusal).not.toContainText("another judge");
+  await expect(refusal).not.toContainText("another Master");
   await expectNoAccessibilityViolations(page);
 
   // And the stale link the judge may still be holding — a bookmark, or the back button — is its own page rather
@@ -154,7 +154,7 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   // On to one nobody has taken.
   await (await poolRow(page, request, mine.referralId)).getByRole("link").click();
   await expect(page).toHaveURL(`${POOL_PATH}/${mine.referralId}`);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to the judiciary");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to a Master");
 
   // The application — `JudicialApplicationView`, grouped and labelled as the caseworker detail page is.
   await expect(summaryRow(page, "Display reference")).toContainText(mine.reference);
@@ -181,7 +181,7 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   // by position rather than by its author: the same name now captions more than one.
   const notes = caseNotes(page);
   await expect(notes).toHaveCount(2);
-  await expect(notes.nth(0)).toContainText("Referred to the judiciary. Reasons: NonPublication.");
+  await expect(notes.nth(0)).toContainText("Referred to a Master. Reasons: NonPublication.");
   // The caseworker's own two sentences on their own lines, which is api's composer rather than this page's doing —
   // and the reason a judge reading the timeline learns why the office called it urgent.
   await expect(notes.nth(0)).toContainText("Marked urgent: Hearing listed on Friday.");
@@ -218,7 +218,7 @@ test("judge works the pool: opens a referral, is beaten to one, claims another a
   const reclaimRefusal = page.getByRole("alert");
   await expect(reclaimRefusal).toContainText("This referral is not waiting to be claimed.");
   await expect(reclaimRefusal).not.toContainText("already been claimed");
-  await expect(reclaimRefusal).not.toContainText("another judge");
+  await expect(reclaimRefusal).not.toContainText("another Master");
   // Still theirs, and still directable: the refusal is a correction to the request, not to the state below it.
   await expect(referralRow(page, "Status")).toContainText("Claimed");
   await expect(directButton(page)).toBeVisible();
@@ -489,7 +489,7 @@ test.describe("across the two judicial lists and both personas", () => {
     await expect(nav.getByRole("link")).toHaveCount(2);
 
     const claimed = await myReferralsRow(page, request, seeded.referralId);
-    // The judge's own two words, not the caseworker's "With a judge": what they still owe, and what they have
+    // The judge's own two words, not the caseworker's "With a Master": what they still owe, and what they have
     // answered. The urgency word is printed and not left to the tag colour.
     await expect(claimed).toContainText("Direction needed");
     await expect(claimed).toContainText("Urgent");
@@ -517,7 +517,7 @@ test.describe("across the two judicial lists and both personas", () => {
     // Decision 4 from the other side, on the one page it could have leaked onto: the navigation is local to the two
     // judicial lists, so a caseworker is offered no door the `/judicial/**` gate would then shut.
     await expect(page.locator(`a[href^="${POOL_PATH}"]`)).toHaveCount(0);
-    await switchTo(page, "Judge").click();
+    await switchTo(page, "Master").click();
     await expect(page).toHaveURL(POOL_PATH);
 
     const recovered = await myReferralsRow(page, request, seeded.referralId);
@@ -564,7 +564,7 @@ test.describe("across the two judicial lists and both personas", () => {
     await expect(page.getByRole("alert")).toContainText("The direction has been marked as actioned.");
 
     // ── back as the judge, and the row has gone ────────────────────────────────────────────────────────────────
-    await switchTo(page, "Judge").click();
+    await switchTo(page, "Master").click();
 
     for (let number = 1; number <= wasOnPage; number++) {
       await page.goto(`${MINE_PATH}?page=${number}`);
@@ -981,12 +981,12 @@ async function expectWelshKeysResolve(browser: Browser, openReferralId: string):
     await expect(page.locator(".language")).toContainText("English");
 
     await page.goto(`${POOL_PATH}/${openReferralId}?lng=cy`);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to the judiciary");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral to a Master");
     await expect(summaryRow(page, "Reasons for referral")).toBeVisible();
     // The timeline's heading, above entries whose prose is api's and needs no translation: the heading is the key
     // that would empty the section without failing anything.
     await expect(page.getByRole("heading", { name: "Case notes" })).toBeVisible();
-    await expect(caseNotes(page).nth(0)).toContainText("Referred to the judiciary.");
+    await expect(caseNotes(page).nth(0)).toContainText("Referred to a Master.");
     await expect(page.getByRole("button", { name: "Claim this referral" })).toBeVisible();
   } finally {
     await context.close();
