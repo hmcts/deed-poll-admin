@@ -11,7 +11,7 @@ import nunjucks from "nunjucks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../express-doubles.js";
 import { addPathFilters } from "../../path-filters.js";
-import { POST } from "./[id]/documents/upload.js";
+import { GET, POST } from "./[id]/documents/upload.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
@@ -65,6 +65,18 @@ describe("document upload template", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("should render the type as a plain select of every type, marked for the type-ahead to enhance", async () => {
+    const res = pageResponse();
+
+    await GET(pageRequest({ params: { id: "case-1" }, accessToken: "session-token" }) as unknown as Request, res as unknown as Response);
+    const page = html(res.render.mock.calls[0][1]);
+
+    // With no script this select is the whole control, so it must still hold the empty choice and every type.
+    expect(page).toMatch(/<select class="govuk-select" id="documentTypeId" name="documentTypeId"[^>]*data-module="app-document-type-autocomplete"/);
+    expect(page).toContain('<option value="">Choose a type</option>');
+    expect(page).toContain(`<option value="${TYPE_ID}">Birth certificate</option>`);
   });
 
   it("never renders api's 404 message for an unknown document type", async () => {

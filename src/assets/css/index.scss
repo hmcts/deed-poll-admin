@@ -26,6 +26,10 @@
 // viewer's template or its renderer emits.
 @use "components/document-viewer";
 
+// The upload form's document-type type-ahead, with the widget's own stylesheet. Inert elsewhere: every rule is scoped to
+// a class only the widget emits.
+@use "components/document-type-autocomplete";
+
 /*
  * Caseworker case-detail styles, ported from the prototype's app.css.
  *
