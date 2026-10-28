@@ -10,13 +10,13 @@
   One referral and its application — read-only apart from the controls a Master has.
 
   Three things this template deliberately does not have. No link to the case: api's judicial surface takes no
-  case id, so there is nowhere to link to. No "add note" control: a judge's writes are exactly claim and direct.
+  case id, so there is nowhere to link to. No "add note" control: a judge's writes are exactly direct, change and withdraw.
   And no field that is not on the view model — the application panel is `JudicialApplicationView` and nothing
   else, which is the disclosure boundary made visual.
 
-  The claim control is a form because it changes something; "Record a direction" is a link because it opens a
-  page, as are change and withdraw on a decided one. Each appears only in the state it belongs to, and api
-  re-checks every one regardless.
+  There is no claim since api D2: a referral reaches a Master by assignment. "Record a direction" is a link because
+  it opens a page, as are change and withdraw on a decided one. Each appears only in the state it belongs to, and
+  api re-checks every one regardless.
 #}
 {% block content %}
 <div class="govuk-grid-row">
@@ -25,9 +25,8 @@
     {#
       What a redirect sent the judge back with. A success banner for a recorded, changed or withdrawn direction — not a correction
       to anything on the page, which is what a banner is for — and an error summary for a write api refused
-      because of the state below: a direction on a referral no longer theirs, a claim on one already theirs, or a
-      change to a direction they have not given.
-      Both refusals are one `refused` key, since a judge arrives through one door or the other and never both.
+      because of the state below: a direction on a referral already directed, or a change to a direction they have
+      not given.
     #}
     {% if directionBanner %}
       {% set recordedHtml %}<p class="govuk-notification-banner__heading">{{ directionBanner }}</p>{% endset %}
@@ -86,9 +85,12 @@
       { key: { text: urgencyLabel }, value: { html: urgencyCell } },
       { key: { text: urgencyReasonLabel }, value: { text: referral.urgencyReason } }
     ] %}
-    {# Only once it is in this judge's hands — api's visibility means a claimed referral is theirs or invisible. #}
-    {% if referral.claimedOn %}
-      {% set referralRows = (referralRows.push({ key: { text: claimedLabel }, value: { text: referral.claimedOn } }), referralRows) %}
+    {# api's visibility means an assigned referral is this Master's or invisible, so "to you" is always true. #}
+    {% if referral.assignedOn %}
+      {% set referralRows = (referralRows.push({ key: { text: assignedLabel }, value: { text: referral.assignedOn } }), referralRows) %}
+    {% endif %}
+    {% if referral.directionDueBy %}
+      {% set referralRows = (referralRows.push({ key: { text: dueByLabel }, value: { text: referral.directionDueBy } }), referralRows) %}
     {% endif %}
 
     {{ govukSummaryList({ rows: referralRows }) }}
@@ -140,19 +142,7 @@
     {% endif %}
 
 
-    {#
-      `preventDoubleClick` because the second of two rapid clicks is what the judge is left looking at: api records
-      the first and 409s the second, so a claim that succeeded would render as "not waiting to be claimed". The
-      sentence stays true — it is theirs now — but it arrives in an error summary, which reads as a refusal. The
-      server side is the guard (api refuses, and the 409 lands on the referral rather than the pool); this only
-      stops the judge seeing the refusal in the first place, so the flow is unchanged without JavaScript.
-    #}
-    {% if referral.claimable %}
-      <form method="post" action="{{ claimHref }}" novalidate>
-        <p class="govuk-body">{{ claimHint }}</p>
-        {{ govukButton({ text: claim, preventDoubleClick: true }) }}
-      </form>
-    {% elif referral.directable %}
+    {% if referral.directable %}
       {{ govukButton({ text: direct, href: directionHref }) }}
     {% elif referral.changeable %}
       <ul class="govuk-list">
@@ -161,13 +151,9 @@
       </ul>
     {% endif %}
 
-    {#
-      Back to whichever list this referral is on — the shared pool while it is `Open`, My referrals once this judge
-      holds it or has directed it. Both the destination and the words come resolved from the state api sent, so
-      there is no ternary here and no `returnTo` in the URL to trust: see the handler's docblock.
-    #}
+    {# Always My referrals, the Master's only list: see the handler's docblock. #}
     <p class="govuk-body">
-      <a class="govuk-link" href="{{ backHref }}">{{ backLabel }}</a>
+      <a class="govuk-link" href="{{ backHref }}">{{ backToMine }}</a>
     </p>
   </div>
 </div>

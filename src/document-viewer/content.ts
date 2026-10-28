@@ -69,8 +69,8 @@ export const en = {
   referralUnavailable: {
     title: "This referral is no longer available",
     heading: "This referral is no longer available",
-    body: "This referral is no longer in the shared list. Choose another referral from the list.",
-    backToPool: "Back to referrals for a direction"
+    body: "Your referrals are listed on My referrals.",
+    backToMine: "Back to My referrals"
   }
 };
 

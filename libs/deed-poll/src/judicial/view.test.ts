@@ -1,6 +1,7 @@
 import { type JudicialApplicationView, type JudicialReferralDetail, type JudicialReferralSummary, MASTER_DECISION } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
-import { buildJudicialReferral, buildMyReferralRows, buildPoolRows, DIRECTION_DECISION_CHOICES } from "./view.js";
+import { referralReasonLabels } from "../referrals/referrals-view.js";
+import { buildJudicialReferral, buildMyReferralSections, DIRECTION_DECISION_CHOICES } from "./view.js";
 
 const summary = (overrides: Partial<JudicialReferralSummary> = {}): JudicialReferralSummary =>
   ({
@@ -67,149 +68,128 @@ const FULL_APPLICATION: JudicialApplicationView = {
 };
 
 describe("judicial/view", () => {
-  describe("buildPoolRows", () => {
-    it("should label each reason in the business's words, the same words the caseworker chose them by", () => {
-      const rows = buildPoolRows([summary({ reasons: ["Minor", "DomesticAbuse"] })]);
+  describe("buildMyReferralSections", () => {
+    // api's MINE_ORDER for one page: urgent undirected oldest first, the other undirected by day, then the directed
+    // by day. Three undirected days and two directed ones, with times either side of midnight in London.
+    const PAGE: JudicialReferralSummary[] = [
+      summary({
+        id: "urgent-1",
+        state: "Claimed",
+        urgency: "Urgent",
+        createdOn: new Date("2026-10-20T09:00:00Z"),
+        directionDueBy: new Date("2026-10-27T09:00:00Z")
+      }),
+      summary({
+        id: "urgent-2",
+        state: "Claimed",
+        urgency: "Urgent",
+        createdOn: new Date("2026-10-22T09:00:00Z"),
+        directionDueBy: new Date("2026-10-29T09:00:00Z")
+      }),
+      summary({ id: "await-1", state: "Claimed", createdOn: new Date("2026-10-19T08:00:00Z"), directionDueBy: new Date("2026-10-26T08:00:00Z") }),
+      summary({ id: "await-2", state: "Claimed", createdOn: new Date("2026-10-19T22:30:00Z"), directionDueBy: new Date("2026-10-26T22:30:00Z") }),
+      summary({ id: "await-3", state: "Claimed", createdOn: new Date("2026-10-21T10:00:00Z"), directionDueBy: new Date("2026-10-28T10:00:00Z") }),
+      summary({ id: "await-4", state: "Claimed", createdOn: new Date("2026-10-23T10:00:00Z"), directionDueBy: new Date("2026-10-30T10:00:00Z") }),
+      summary({
+        id: "directed-1",
+        state: "Decided",
+        urgency: "Urgent",
+        createdOn: new Date("2026-10-15T10:00:00Z"),
+        directionDueBy: new Date("2026-10-22T10:00:00Z")
+      }),
+      summary({ id: "directed-2", state: "Decided", createdOn: new Date("2026-10-16T10:00:00Z") }),
+      summary({ id: "directed-3", state: "Decided", createdOn: new Date("2026-10-16T12:00:00Z") })
+    ];
 
-      expect(rows[0].reasons).toEqual(["Applicant is a minor", "Domestic abuse considerations"]);
+    const ids = (rows: { id: string }[]) => rows.map((row) => row.id);
+
+    it("should put the urgent undirected referrals first, in api's order", () => {
+      const sections = buildMyReferralSections(PAGE);
+
+      expect(ids(sections.urgent)).toEqual(["urgent-1", "urgent-2"]);
     });
 
-    // api publishes the column as plain strings, so a backfilled row may hold a member the enum no longer
-    // lists. Printing it beats dropping it: a reason missing from a referral a judge is directing is worse
-    // than an unfamiliar word on it.
-    it("should print an unrecognised reason as api stored it", () => {
-      const rows = buildPoolRows([summary({ reasons: ["SomethingNew"] })]);
+    it("should group the other undirected referrals under one heading per London day, oldest day first", () => {
+      const sections = buildMyReferralSections(PAGE);
 
-      expect(rows[0].reasons).toEqual(["SomethingNew"]);
+      // 22:30 UTC on the 19th is 23:30 in London, still the 19th.
+      expect(sections.awaiting.map((group) => ({ day: group.day, ids: ids(group.rows) }))).toEqual([
+        { day: "19-10-26", ids: ["await-1", "await-2"] },
+        { day: "21-10-26", ids: ["await-3"] },
+        { day: "23-10-26", ids: ["await-4"] }
+      ]);
     });
 
-    it("should label a referral's Normal urgency 'Standard', as the business words it on a referral", () => {
-      const rows = buildPoolRows([summary({ urgency: "Normal" })]);
+    it("should group the directed referrals by day too, an urgent one among them rather than in Urgent", () => {
+      const sections = buildMyReferralSections(PAGE);
 
-      expect(rows[0]).toMatchObject({ urgency: "Standard", isUrgent: false });
+      expect(sections.directed.map((group) => ({ day: group.day, ids: ids(group.rows) }))).toEqual([
+        { day: "15-10-26", ids: ["directed-1"] },
+        { day: "16-10-26", ids: ["directed-2", "directed-3"] }
+      ]);
     });
 
-    it("should mark an urgent referral for the tag while still printing the word", () => {
-      const rows = buildPoolRows([summary({ urgency: "Urgent" })]);
+    it("should show each referral once", () => {
+      const sections = buildMyReferralSections(PAGE);
+      const all = [...sections.urgent, ...[...sections.awaiting, ...sections.directed].flatMap((group) => group.rows)];
 
-      expect(rows[0]).toMatchObject({ urgency: "Urgent", isUrgent: true });
+      expect(ids(all).sort()).toEqual(ids(PAGE).sort());
     });
 
-    it("should show the wait as the date api recorded, not an age in days", () => {
-      const rows = buildPoolRows([summary({ createdOn: new Date("2026-09-03T08:44:00Z") })]);
+    it("should read the day across midnight in London, not in UTC", () => {
+      // 23:30 UTC on 20 October is 00:30 on the 21st in London (BST).
+      const sections = buildMyReferralSections([summary({ id: "late", state: "Claimed", createdOn: new Date("2026-10-20T23:30:00Z") })]);
 
-      expect(rows[0].waitingSince).toBe("3 September 2026 at 9:44am");
+      expect(sections.awaiting[0].day).toBe("21-10-26");
     });
 
-    // The pool's order is api's — urgent first, then longest-waiting (decision 3). A row builder that
-    // sorted would be this app deciding the queue.
-    it("should keep api's order exactly", () => {
-      const rows = buildPoolRows([summary({ id: "urgent", urgency: "Urgent" }), summary({ id: "older", urgency: "Normal" })]);
+    // A day split by the page boundary: the second page starts mid-day, and grouping that page on its own gives it
+    // the day's heading again.
+    it("should repeat a day's heading on the next page when the page boundary splits the day", () => {
+      const firstPage = buildMyReferralSections(PAGE.slice(0, 4));
+      const secondPage = buildMyReferralSections(PAGE.slice(3));
 
-      expect(rows.map((row) => row.id)).toEqual(["urgent", "older"]);
+      expect(firstPage.awaiting.map((group) => group.day)).toEqual(["19-10-26"]);
+      expect(ids(firstPage.awaiting[0].rows)).toEqual(["await-1", "await-2"]);
+      expect(secondPage.awaiting.map((group) => group.day)).toEqual(["19-10-26", "21-10-26", "23-10-26"]);
+      expect(ids(secondPage.awaiting[0].rows)).toEqual(["await-2"]);
     });
 
-    // No case fields at all: api's pool row carries none, so there is nothing about the application for a
-    // page to render even by accident — decision 2, and the reason no judicial URL names a case.
-    it("should carry no application field, because the pool row is about the referral only", () => {
-      const rows = buildPoolRows([summary()]);
-
-      expect(Object.keys(rows[0])).toEqual(["id", "reasons", "urgency", "isUrgent", "waitingSince"]);
-    });
-
-    // The reason behind an urgency is on the referral view, not in the queue: the pool's four columns are what a
-    // judge chooses a row by, and a field the row carried but no template read would be a disclosure nobody had
-    // decided on, sitting one `{{ }}` away from the page.
-    it("should carry no urgency reason, because the pool has no column for one", () => {
-      const rows = buildPoolRows([summary({ urgencyReason: "Hearing on Friday" })]);
-
-      expect(rows[0]).not.toHaveProperty("urgencyReason");
-    });
-  });
-
-  describe("buildMyReferralRows", () => {
-    it("should word the two states as what the judge still owes and what they have answered", () => {
-      const rows = buildMyReferralRows([summary({ id: "claimed", state: "Claimed" }), summary({ id: "decided", state: "Decided" })]);
-
-      // The judge's side of the same fact, and deliberately not `REFERRAL_STATE_LABEL`'s: "Direction received"
-      // tells a caseworker there is something to carry out, which is the wrong sentence for the judge who wrote it.
-      expect(rows.map((row) => row.status)).toEqual(["Direction needed", "Direction recorded"]);
-    });
-
-    it("should carry a tag colour per state while still printing the status", () => {
-      const rows = buildMyReferralRows([summary({ state: "Claimed" }), summary({ state: "Decided" })]);
-
-      expect(rows[0]).toMatchObject({ status: "Direction needed", statusTagClasses: "govuk-tag--purple" });
-      expect(rows[1]).toMatchObject({ status: "Direction recorded", statusTagClasses: "govuk-tag--green" });
-    });
-
-    it.each([["Open"], ["Withdrawn"], ["Closed"], [null]] as const)("should not invent a judicial word for %s, which this list cannot contain", (state) => {
-      // api's membership rule is the two states above, so any of these is api contradicting its own filter. A
-      // wording for one would be a label for a row that must not exist, and api's raw member would put the wire's
-      // vocabulary on a judge's screen.
-      const rows = buildMyReferralRows([summary({ state })]);
-
-      expect(rows[0].status).toBe("Not recorded");
-    });
-
-    it("should label the reasons and the urgency in the same words the pool's rows use", () => {
-      const rows = buildMyReferralRows([summary({ reasons: ["Minor", "DomesticAbuse"], state: "Claimed", urgency: "Normal" })]);
-
-      // Shared maps, not a second wording: a judge reading one set of words in the pool and another on their own
-      // list would be reading two names for the reasons one caseworker picked.
-      expect(rows[0]).toMatchObject({
-        reasons: ["Applicant is a minor", "Domestic abuse considerations"],
-        urgency: "Standard",
-        isUrgent: false
-      });
-    });
-
-    it("should mark an urgent referral for the tag while still printing the word", () => {
-      const rows = buildMyReferralRows([summary({ state: "Claimed", urgency: "Urgent" })]);
-
-      expect(rows[0]).toMatchObject({ urgency: "Urgent", isUrgent: true });
-    });
-
-    it("should show the date the referral was raised, not an age in days", () => {
-      const rows = buildMyReferralRows([summary({ state: "Claimed", createdOn: new Date("2026-09-03T08:44:00Z") })]);
-
-      expect(rows[0].raisedOn).toBe("3 September 2026 at 9:44am");
-    });
-
-    it("should keep api's order exactly, because membership and order are both api's", () => {
-      // Decision 2: unfinished work first, then the pool's keys. A view model that sorted — by state, by date, by
-      // anything — would make the page disagree with its own pagination.
-      const rows = buildMyReferralRows([
-        summary({ id: "claimed-urgent", state: "Claimed", urgency: "Urgent" }),
-        summary({ id: "claimed-older", state: "Claimed" }),
-        summary({ id: "decided", state: "Decided" })
+    it("should not re-sort what api sent, so a broken run shows its day twice", () => {
+      const sections = buildMyReferralSections([
+        summary({ id: "b", state: "Claimed", createdOn: new Date("2026-10-21T10:00:00Z") }),
+        summary({ id: "a", state: "Claimed", createdOn: new Date("2026-10-19T10:00:00Z") }),
+        summary({ id: "c", state: "Claimed", createdOn: new Date("2026-10-21T11:00:00Z") })
       ]);
 
-      expect(rows.map((row) => row.id)).toEqual(["claimed-urgent", "claimed-older", "decided"]);
+      expect(sections.awaiting.map((group) => group.day)).toEqual(["21-10-26", "19-10-26", "21-10-26"]);
     });
 
-    it("should drop no row, because the list's membership is api's and not this app's", () => {
-      // The same rule from the other side: a row this app filtered out would be work a judge holds and cannot see.
-      const rows = buildMyReferralRows([
-        summary({ id: "a", state: "Claimed" }),
-        summary({ id: "b", state: "Decided" }),
-        summary({ id: "c", state: "Claimed" })
-      ]);
+    it("should give the referred date and the due date in dd-mm-yy, and no due date once directed", () => {
+      const sections = buildMyReferralSections(PAGE);
 
-      expect(rows.map((row) => row.id)).toEqual(["a", "b", "c"]);
+      expect(sections.urgent[0]).toEqual({ id: "urgent-1", reasons: ["Applicant is a minor"], referredOn: "20-10-26", directionDueBy: "27-10-26" });
+      expect(sections.directed[0].rows[0].directionDueBy).toBeNull();
     });
 
-    it("should carry no application field and no urgency reason, since the summary carries neither", () => {
-      // Decision 3, asserted as the exact key set: a field the row carried but no template read would still be a
-      // disclosure nobody had decided on, one `{{ }}` away from the page — and enriching one would mean a call per
-      // row over a worklist.
-      const rows = buildMyReferralRows([summary({ state: "Claimed", urgencyReason: "Hearing on Friday" })]);
+    it("should say the due date was not recorded when api sent none for an undirected referral", () => {
+      const sections = buildMyReferralSections([summary({ state: "Claimed", directionDueBy: null })]);
 
-      expect(Object.keys(rows[0])).toEqual(["id", "status", "statusTagClasses", "reasons", "urgency", "isUrgent", "raisedOn"]);
+      expect(sections.awaiting[0].rows[0].directionDueBy).toBe("Not recorded");
     });
 
-    it("should build nothing from an empty page, rather than a placeholder row", () => {
-      expect(buildMyReferralRows([])).toEqual([]);
+    it("should label the reasons in the business's words, the minor details folded in", () => {
+      const sections = buildMyReferralSections([summary({ state: "Claimed", reasons: ["Minor", "MinorTransgender", "DomesticAbuse"] })]);
+
+      expect(sections.awaiting[0].rows[0].reasons).toEqual(referralReasonLabels(["Minor", "MinorTransgender", "DomesticAbuse"]));
+    });
+
+    it("should be empty, with every section empty, when api sent no rows", () => {
+      expect(buildMyReferralSections([])).toEqual({ urgent: [], awaiting: [], directed: [], isEmpty: true });
+    });
+
+    it("should not be empty when any section has a row", () => {
+      expect(buildMyReferralSections([summary({ state: "Decided" })]).isEmpty).toBe(false);
     });
   });
 
@@ -296,54 +276,59 @@ describe("judicial/view", () => {
       expect(view.application).toBeNull();
     });
 
-    it("should offer the claim control on an Open referral and not the direction one", () => {
+    // There is no claim since api D2: a referral reaches a Master by assignment, and Open is visible to none.
+    it("should offer no control on an Open referral", () => {
       const view = buildJudicialReferral(detail({ state: "Open" }));
 
-      expect(view).toMatchObject({ claimable: true, directable: false, changeable: false });
+      expect(view).toMatchObject({ directable: false, changeable: false });
+      expect(view).not.toHaveProperty("claimable");
     });
 
-    // api's visibility admits a Claimed referral only to its holder, so Claimed means claimed by this
-    // judge and the state alone is the answer.
+    // api's visibility admits a Claimed referral only to the Master it is assigned to, so the state alone is the answer.
     it("should offer the direction control on a Claimed referral without asking who holds it", () => {
-      const view = buildJudicialReferral(detail({ state: "Claimed", claimedBy: null, claimedAt: new Date("2026-09-04T10:00:00Z") }));
+      const view = buildJudicialReferral(detail({ state: "Claimed", claimedBy: null, assignedAt: new Date("2026-09-04T10:00:00Z") }));
 
-      expect(view).toMatchObject({ claimable: false, directable: true, changeable: false, claimedOn: "4 September 2026 at 11:00am" });
+      expect(view).toMatchObject({ directable: true, changeable: false, assignedOn: "4 September 2026 at 11:00am" });
+    });
+
+    it("should fall back to the claim time for a referral claimed before assignment existed", () => {
+      const view = buildJudicialReferral(detail({ state: "Claimed", assignedAt: null, claimedAt: new Date("2026-09-04T10:00:00Z") }));
+
+      expect(view.assignedOn).toBe("4 September 2026 at 11:00am");
+    });
+
+    it("should carry no assignment time when api sent neither", () => {
+      expect(buildJudicialReferral(detail({ state: "Claimed" })).assignedOn).toBeNull();
+    });
+
+    it("should give the direction's due date while one is owed", () => {
+      const view = buildJudicialReferral(detail({ state: "Claimed", directionDueBy: new Date("2026-10-30T10:00:00Z") }));
+
+      expect(view.directionDueBy).toBe("30-10-26");
+    });
+
+    it.each([["Decided"], ["Closed"], ["Withdrawn"]] as const)("should give no due date on a %s referral", (state) => {
+      const view = buildJudicialReferral(detail({ state, directionDueBy: new Date("2026-10-30T10:00:00Z") }));
+
+      expect(view.directionDueBy).toBeNull();
+    });
+
+    it("should give no due date when api sent none", () => {
+      expect(buildJudicialReferral(detail({ state: "Claimed", directionDueBy: null })).directionDueBy).toBeNull();
     });
 
     // api's visibility admits a Decided referral only to the judge who directed it, so Decided means directed by
     // this judge, and that judge may change or withdraw the direction until the office closes the referral.
-    it("should offer change and withdraw on a Decided referral, and neither claim nor direct", () => {
+    it("should offer change and withdraw on a Decided referral, and not direct", () => {
       const view = buildJudicialReferral(detail({ state: "Decided" }));
 
-      expect(view).toMatchObject({ claimable: false, directable: false, changeable: true });
+      expect(view).toMatchObject({ directable: false, changeable: true });
     });
 
     it("should offer neither control when api published no state", () => {
       const view = buildJudicialReferral(detail({ state: null }));
 
-      expect(view).toMatchObject({ state: "Not recorded", claimable: false, directable: false, changeable: false, stateTagClasses: "govuk-tag--grey" });
-    });
-
-    // Decision 5: which list the referral is on, which is the way back to it. Keyed on the state api published
-    // rather than on where the judge came from, because claiming moves it from one list to the other.
-    it("should place an Open referral on the shared pool and not on the judge's own list", () => {
-      const view = buildJudicialReferral(detail({ state: "Open" }));
-
-      expect(view.isOnMyList).toBe(false);
-    });
-
-    it.each([["Claimed"], ["Decided"]] as const)("should place a %s referral on the judge's own list", (state) => {
-      const view = buildJudicialReferral(detail({ state }));
-
-      expect(view.isOnMyList).toBe(true);
-    });
-
-    // The same two states `buildMyReferralRows` words, from one predicate: a referral whose detail page links to a
-    // list that would not have it is the failure this plan exists to fix, arriving from the other direction.
-    it.each([["Withdrawn"], ["Closed"], [null]] as const)("should place a %s referral on neither judge's list", (state) => {
-      const view = buildJudicialReferral(detail({ state }));
-
-      expect(view.isOnMyList).toBe(false);
+      expect(view).toMatchObject({ state: "Not recorded", directable: false, changeable: false, stateTagClasses: "govuk-tag--grey" });
     });
 
     it("should tag the state so the lifecycle is scannable, with the word printed alongside", () => {

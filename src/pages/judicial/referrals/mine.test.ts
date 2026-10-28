@@ -70,7 +70,7 @@ describe("the judge's own referrals page", () => {
     await GET(request(), res);
 
     expect(res.render.mock.calls[0][0]).toBe("judicial/referrals/mine");
-    expect(listMyReferrals).toHaveBeenCalledWith({ page: undefined }, CALLER);
+    expect(listMyReferrals).toHaveBeenCalledWith({ page: undefined, size: 100 }, CALLER);
   });
 
   // Decision 1: ownership is api's, from the token's subject. A judge in the request would be a judge a judge
@@ -78,58 +78,80 @@ describe("the judge's own referrals page", () => {
   it("should send api nothing but a page, so whose list this is cannot be asked for", async () => {
     await GET(request({ page: "3", judge: "somebody.else@example.com", claimedBy: "somebody.else" }), pageResponse());
 
-    expect(listMyReferrals).toHaveBeenCalledWith({ page: 3 }, CALLER);
+    expect(listMyReferrals).toHaveBeenCalledWith({ page: 3, size: 100 }, CALLER);
   });
 
   it("should fall back to api's first page for a page number that names none", async () => {
     await GET(request({ page: "nonsense" }), pageResponse());
 
-    expect(listMyReferrals).toHaveBeenCalledWith({ page: undefined }, CALLER);
+    expect(listMyReferrals).toHaveBeenCalledWith({ page: undefined, size: 100 }, CALLER);
   });
 
-  // Decision 2: api orders the list — unfinished work first, then the pool's own keys — and this page does not
-  // regroup it by status or sort it by anything.
-  it("should render api's order exactly", async () => {
+  // api's `CasePaging.MAX_SIZE`, so a day's group is rarely split across pages.
+  it("should ask for the largest page api serves", async () => {
+    await GET(request(), pageResponse());
+
+    expect(vi.mocked(listMyReferrals).mock.calls[0][0].size).toBe(100);
+  });
+
+  // MINE_ORDER puts urgent undirected first, then undirected by date, then directed by date; the page reads its
+  // sections off that order rather than sorting.
+  it("should split api's page into the three sections, keeping api's order inside each", async () => {
     const referrals = [
-      referral({ id: "still-needed", state: "Claimed" }),
-      referral({ id: "answered", state: "Decided" }),
-      referral({ id: "also-needed", state: "Claimed" })
+      referral({ id: "urgent", urgency: "Urgent", createdOn: new Date("2026-10-20T09:00:00Z") }),
+      referral({ id: "await-a", createdOn: new Date("2026-10-19T09:00:00Z") }),
+      referral({ id: "await-b", createdOn: new Date("2026-10-19T10:00:00Z") }),
+      referral({ id: "await-c", createdOn: new Date("2026-10-21T09:00:00Z") }),
+      referral({ id: "directed", state: "Decided", createdOn: new Date("2026-10-16T09:00:00Z") })
     ];
-    vi.mocked(listMyReferrals).mockResolvedValue(mine({ referrals, total: 3 }) as never);
+    vi.mocked(listMyReferrals).mockResolvedValue(mine({ referrals, total: 5 }) as never);
     const res = pageResponse();
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].rows.map((row: { id: string }) => row.id)).toEqual(["still-needed", "answered", "also-needed"]);
+    const model = res.render.mock.calls[0][1];
+    const ids = (rows: { id: string }[]) => rows.map((row) => row.id);
+    expect(ids(model.urgent)).toEqual(["urgent"]);
+    expect(model.awaiting.map((group: { heading: string; rows: { id: string }[] }) => [group.heading, ids(group.rows)])).toEqual([
+      ["19-10-26 referrals", ["await-a", "await-b"]],
+      ["21-10-26 referrals", ["await-c"]]
+    ]);
+    expect(model.directed.map((group: { heading: string }) => group.heading)).toEqual(["16-10-26 referrals"]);
+    expect(model.isEmpty).toBe(false);
   });
 
-  it("should render each row's status, urgency, reasons and date, with a link qualified by both", async () => {
+  it("should resolve each row's dates and link hint into the page's words", async () => {
+    vi.mocked(listMyReferrals).mockResolvedValue(
+      mine({
+        referrals: [referral({ urgency: "Urgent", createdOn: new Date("2026-10-20T09:00:00Z"), directionDueBy: new Date("2026-10-27T09:00:00Z") })]
+      }) as never
+    );
     const res = pageResponse();
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].rows).toEqual([
+    expect(res.render.mock.calls[0][1].urgent).toEqual([
       {
         id: "ref-1",
-        status: "Direction needed",
-        statusTagClasses: "govuk-tag--purple",
         reasons: ["Applicant is a minor"],
-        urgency: "Standard",
-        isUrgent: false,
-        raisedOn: "3 September 2026 at 9:44am",
-        viewHint: "the referral referred on 3 September 2026 at 9:44am, Direction needed"
+        referredOn: "20-10-26",
+        directionDueBy: "27-10-26",
+        referredOnText: "Referred 20-10-26",
+        dueByText: "Direction due by 27-10-26",
+        viewHint: "the referral referred on 20-10-26: Applicant is a minor"
       }
     ]);
   });
 
-  // Decision 2's wording, and the half a judge reads about work they have already done.
-  it("should call a decided referral a recorded direction rather than the caseworker's words for it", async () => {
-    vi.mocked(listMyReferrals).mockResolvedValue(mine({ referrals: [referral({ state: "Decided" })] }) as never);
+  it("should give a directed row no due-date sentence", async () => {
+    vi.mocked(listMyReferrals).mockResolvedValue(
+      mine({ referrals: [referral({ state: "Decided", directionDueBy: new Date("2026-10-27T09:00:00Z") })] }) as never
+    );
     const res = pageResponse();
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].rows[0]).toMatchObject({ status: "Direction recorded", statusTagClasses: "govuk-tag--green" });
+    expect(res.render.mock.calls[0][1].directed[0].rows[0].dueByText).toBe("");
   });
 
   // Decision 3: the row is `JudicialReferralSummary` and there is nothing on the page to enrich it with.
@@ -138,29 +160,28 @@ describe("the judge's own referrals page", () => {
 
     await GET(request(), res);
 
-    expect(Object.keys(res.render.mock.calls[0][1].rows[0])).toEqual([
+    expect(Object.keys(res.render.mock.calls[0][1].awaiting[0].rows[0])).toEqual([
       "id",
-      "status",
-      "statusTagClasses",
       "reasons",
-      "urgency",
-      "isUrgent",
-      "raisedOn",
+      "referredOn",
+      "directionDueBy",
+      "referredOnText",
+      "dueByText",
       "viewHint"
     ]);
   });
 
   it("should state api's total rather than counting the rows on screen", async () => {
-    vi.mocked(listMyReferrals).mockResolvedValue(mine({ referrals: [referral(), referral({ id: "ref-2" })], total: 23, totalPages: 3 }) as never);
+    vi.mocked(listMyReferrals).mockResolvedValue(mine({ referrals: [referral(), referral({ id: "ref-2" })], size: 100, total: 230, totalPages: 3 }) as never);
     const res = pageResponse();
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].pagingSummary).toBe("1 to 10 of 23 referrals");
-    expect(res.render.mock.calls[0][1].paging).toMatchObject({ total: 23, totalPages: 3 });
+    expect(res.render.mock.calls[0][1].pagingSummary).toBe("1 to 100 of 230 referrals");
+    expect(res.render.mock.calls[0][1].paging).toMatchObject({ total: 230, totalPages: 3 });
   });
 
-  it("should page through its own path, not the pool's", async () => {
+  it("should page through its own path", async () => {
     vi.mocked(listMyReferrals).mockResolvedValue(mine({ page: 2, total: 23, totalPages: 3 }) as never);
     const res = pageResponse();
 
@@ -177,27 +198,7 @@ describe("the judge's own referrals page", () => {
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1]).toMatchObject({ rows: [], pagingSummary: "" });
-  });
-
-  it("should mark itself as the current judicial list", async () => {
-    const res = pageResponse();
-
-    await GET(request(), res);
-
-    expect(res.render.mock.calls[0][1].navCurrent).toBe("mine");
-  });
-
-  it("should name both judicial lists, so the pair cannot diverge", async () => {
-    const res = pageResponse();
-
-    await GET(request(), res);
-
-    expect(res.render.mock.calls[0][1].en.nav).toEqual({
-      label: "Referral lists",
-      pool: "Referrals for a direction",
-      mine: "My referrals"
-    });
+    expect(res.render.mock.calls[0][1]).toMatchObject({ urgent: [], awaiting: [], directed: [], isEmpty: true, pagingSummary: "" });
   });
 
   it("should carry both locales, so the list is bilingual like every other page", async () => {
@@ -216,7 +217,7 @@ describe("the judge's own referrals page", () => {
 
     await GET(request(), res);
 
-    expect(res.render.mock.calls[0][1].rows[0].viewHint).toBe("the referral referred on 3 September 2026 at 9:44am, Direction needed");
+    expect(res.render.mock.calls[0][1].awaiting[0].rows[0].viewHint).toBe("the referral referred on 03-09-26: Applicant is a minor");
   });
 
   // Decision 8: the list is the whole page, so an unreadable one is not a page. An empty "My referrals" would
@@ -282,6 +283,6 @@ describe("the /mine route", () => {
   it("should carry the page number through to api", async () => {
     await supertest(app).get("/judicial/referrals/mine?page=2");
 
-    expect(listMyReferrals).toHaveBeenCalledWith({ page: 2 }, CALLER);
+    expect(listMyReferrals).toHaveBeenCalledWith({ page: 2, size: 100 }, CALLER);
   });
 });

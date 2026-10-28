@@ -1,5 +1,4 @@
 import {
-  claimJudicialReferral,
   directJudicialReferral,
   downloadJudicialDocument,
   getCase,
@@ -16,11 +15,9 @@ import { DocumentPreviewRefusedError } from "../document-viewer/errors.js";
 import { ConflictError, InvalidInputError, NotFoundError } from "../errors.js";
 import {
   changeDirection,
-  claimReferral,
   downloadReferralDocument,
   getReferral,
   listMyReferrals,
-  listPool,
   previewReferralDocument,
   recordDirection,
   withdrawOwnDirection
@@ -35,7 +32,6 @@ vi.mock("@hmcts/deed-poll-api-client", async (importOriginal) => ({
   getJudicialPool: vi.fn(),
   getJudicialMyReferrals: vi.fn(),
   getJudicialReferral: vi.fn(),
-  claimJudicialReferral: vi.fn(),
   directJudicialReferral: vi.fn(),
   reviseDirection: vi.fn(),
   withdrawDirection: vi.fn(),
@@ -67,52 +63,6 @@ describe("judicial/service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.DEED_POLL_API_URL = "http://api.test";
-  });
-
-  describe("listPool", () => {
-    it("should return api's page of the pool untouched, carrying the judge's token", async () => {
-      const pool = {
-        referrals: [
-          { id: "urgent", urgency: "Urgent" },
-          { id: "old-normal", urgency: "Normal" }
-        ],
-        page: 1,
-        size: 10,
-        total: 11,
-        totalPages: 2
-      };
-      vi.mocked(getJudicialPool).mockResolvedValue(ok(pool) as never);
-
-      expect(await listPool({ page: 1 }, CALLER)).toEqual(pool);
-      expect(getJudicialPool).toHaveBeenCalledWith({ page: 1 }, expect.objectContaining({ baseUrl: "http://api.test", accessToken: "judge-token" }));
-    });
-
-    it("should pass the paging through as given, since the pool has no filter or sort to compose", async () => {
-      vi.mocked(getJudicialPool).mockResolvedValue(ok({ referrals: [], page: 2, size: 10, total: 0, totalPages: 0 }) as never);
-
-      await listPool({ page: 2, size: 10 }, CALLER);
-
-      // Exactly the two keys api's query takes: a `where` or a `sort` smuggled in here would be this app
-      // deciding the queue's order, which is api's (decision 3).
-      expect(Object.keys(vi.mocked(getJudicialPool).mock.calls[0][0])).toEqual(["page", "size"]);
-    });
-
-    it("should not re-sort or re-order api's answer, because the pool's order is api's", async () => {
-      // Newest first would be the case list's order and exactly the wrong one here: the point of the pool is
-      // that the longest-waiting urgent referral is the next one to read.
-      const referrals = [{ id: "urgent" }, { id: "old-normal" }, { id: "new-normal" }];
-      vi.mocked(getJudicialPool).mockResolvedValue(ok({ referrals, page: 1, size: 10, total: 3, totalPages: 1 }) as never);
-
-      const pool = await listPool({}, CALLER);
-
-      expect(pool.referrals.map((referral) => referral.id)).toEqual(["urgent", "old-normal", "new-normal"]);
-    });
-
-    it("should throw a plain Error naming api when it cannot be reached, which is a fault and not a state", async () => {
-      vi.mocked(getJudicialPool).mockResolvedValue({ ok: false, error: { kind: "unavailable", status: 0, message: "fetch failed" } } as never);
-
-      await expect(listPool({}, CALLER)).rejects.toThrow("deed-poll-api call failed (unavailable): fetch failed");
-    });
   });
 
   describe("listMyReferrals", () => {
@@ -154,12 +104,12 @@ describe("judicial/service", () => {
       expect(mine.referrals.map((referral) => referral.id)).toEqual(["claimed-urgent", "claimed-older", "decided"]);
     });
 
-    it("should read the personal list and never the pool, since they are two collections", async () => {
+    it("should read the personal list and never the deprecated pool, which nothing here calls", async () => {
       vi.mocked(getJudicialMyReferrals).mockResolvedValue(ok({ referrals: [], page: 1, size: 10, total: 0, totalPages: 0 }) as never);
 
       await listMyReferrals({}, CALLER);
 
-      // Decision 1 in one assertion: "mine" is a second API-backed collection, not the pool read and narrowed.
+      // api keeps the pool for one release, but it is always empty and a Master's work is this list alone.
       expect(getJudicialPool).not.toHaveBeenCalled();
     });
 
@@ -284,46 +234,6 @@ describe("judicial/service", () => {
         retryAfterSeconds: null
       });
       await expect(previewReferralDocument("ref-1", "doc-9", CALLER)).rejects.toBeInstanceOf(DocumentPreviewRefusedError);
-    });
-  });
-
-  describe("claimReferral", () => {
-    it("should post to the claim sub-resource with no body and return the claimed referral", async () => {
-      const claimed = { ...REFERRAL, state: "Claimed", claimedBy: "judge@example.com" };
-      vi.mocked(claimJudicialReferral).mockResolvedValue(ok(claimed) as never);
-
-      expect(await claimReferral("ref-1", CALLER)).toEqual(claimed);
-      expect(claimJudicialReferral).toHaveBeenCalledWith("ref-1", expect.objectContaining({ accessToken: "judge-token" }));
-      // No body: the holder comes from the token, so there is nothing for this app to send — and nothing it
-      // could send to claim a referral for somebody else.
-      expect(vi.mocked(claimJudicialReferral).mock.calls[0]).toHaveLength(2);
-    });
-
-    // Not "another judge got there first" — that is the 404 below. api checks visibility before state, so the
-    // only referral a judge can see and cannot claim is one they already hold or have already decided.
-    it("should throw ConflictError when the judge can see the referral but it is no longer Open", async () => {
-      vi.mocked(claimJudicialReferral).mockResolvedValue(conflict("Referral ref-1 is Claimed and can only be claimed while it is Open") as never);
-
-      await expect(claimReferral("ref-1", CALLER)).rejects.toBeInstanceOf(ConflictError);
-    });
-
-    it("should not check that the referral is still Open before claiming it, because the pool is shared", async () => {
-      // A pre-read would be a second round trip whose answer was stale by the time it arrived: only api can say
-      // whether the referral is still there, and it re-checks anyway.
-      vi.mocked(claimJudicialReferral).mockResolvedValue(ok({ ...REFERRAL, state: "Claimed" }) as never);
-
-      await claimReferral("ref-1", CALLER);
-
-      expect(getJudicialReferral).not.toHaveBeenCalled();
-      expect(getJudicialPool).not.toHaveBeenCalled();
-    });
-
-    // Including the commonest race there is: a referral another judge claimed a moment ago is invisible, so
-    // being beaten to it is this branch and not the conflict above.
-    it("should throw NotFoundError for a referral this judge may not see, which is what being beaten to one is", async () => {
-      vi.mocked(claimJudicialReferral).mockResolvedValue(notFound as never);
-
-      await expect(claimReferral("ref-1", CALLER)).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 

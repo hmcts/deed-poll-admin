@@ -33,11 +33,10 @@
  * journey arrives in the same mode, and its 409 has its own sentence on the referral: there is no direction from
  * this judge to change, which is a state and names no one. Any other value of the flag is a new direction.
  *
- * **The two refusals divide by visibility, exactly as claiming does.** api checks visibility before the hold,
- * so a referral taken out from under this judge — withdrawn, closed, or claimed by someone else — is a **404**
+ * **The two refusals divide by visibility.** api checks visibility before the hold,
+ * so a referral taken out from under this judge — withdrawn, closed, reassigned or returned to the office — is a **404**
  * and is rendered as decision 10's "no longer available", never as "somebody else has it". The **409** is the
- * narrower case of a referral they can still see but do not hold (it went back to the pool, or they have already
- * directed it), and that one names the state rather than a person. Reading the 409 as the only lapse would
+ * narrower case of a referral they can still see but do not hold (they have already directed it), and that one names the state rather than a person. Reading the 409 as the only lapse would
  * render the commonest lapse there is as a fault.
  */
 import {
@@ -61,7 +60,7 @@ import { callerFromRequest } from "../../../../auth/current-user.js";
 import { forLog } from "../../../../for-log.js";
 import { referralPath } from "../../../../judicial-referral-path.js";
 
-const POOL_PATH = "/judicial/referrals";
+const MINE_PATH = "/judicial/referrals/mine";
 
 /**
  * The submit that commits. Only this literal records anything — the other two steps render.
@@ -146,10 +145,9 @@ const changeCy = { ...changeEn };
 const unavailableEn = {
   title: "This referral is no longer available",
   heading: "This referral is no longer available",
-  body: "This referral is no longer in the shared list. Choose another referral from the list.",
-  // The pool, and named as the shared navigation names it — a refused read published no state to derive My
-  // referrals from, and it is a list this referral has left as well.
-  backToPool: "Back to referrals for a direction"
+  body: "Your referrals are listed on My referrals.",
+  // My referrals, the Master's only list since there is no pool: a refused read published no state to go by.
+  backToMine: "Back to My referrals"
 };
 
 const unavailableCy = { ...unavailableEn };
@@ -219,7 +217,7 @@ async function commitDirection(req: Request, res: Response, direction: Direction
     const commit = isChange ? changeDirection : recordDirection;
     await commit(req.params.referralId, direction, callerFromRequest(req));
   } catch (error) {
-    // Visible but not in this judge's hands — it went back to the pool, or they have already directed it; for a
+    // Visible but not in this judge's hands — they have already directed it; for a
     // change, there is no direction of theirs to replace. Their answers are gone with it, which is unavoidable:
     // the referral's state is what the page they land on shows.
     if (error instanceof ConflictError) {
@@ -443,7 +441,7 @@ function summaryList(errors: Record<string, string>, formError?: string): { text
 
 /** Decision 10's page, and the same template the referral view renders for an invisible referral. */
 function unavailable(res: Response) {
-  res.status(404).render("judicial/referrals/unavailable", { poolPath: POOL_PATH, en: unavailableEn, cy: unavailableCy });
+  res.status(404).render("judicial/referrals/unavailable", { myReferralsPath: MINE_PATH, en: unavailableEn, cy: unavailableCy });
 }
 
 function directionHref(referralId: string, isChange: boolean): string {

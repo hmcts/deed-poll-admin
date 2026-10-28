@@ -68,8 +68,8 @@ describe("withdraw direction template", () => {
   it("should say what withdrawing leaves the judge with, naming no other judge", async () => {
     const html = await renderPage();
 
-    expect(html).toContain("You&#39;ll need to give a new direction. Until you do, this referral stays claimed by you.");
-    expect(html).toContain("If it isn&#39;t directed, it may return to the shared list like any other claim.");
+    expect(html).toContain("You&#39;ll need to give a new direction. Until you do, this referral stays with you.");
+    expect(html).toContain("If it isn&#39;t directed in time, it goes back to the office to be assigned again.");
     expect(html).not.toMatch(/another judge|claimed by (?!you)/i);
   });
 

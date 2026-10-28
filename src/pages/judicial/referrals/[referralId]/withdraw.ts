@@ -2,7 +2,7 @@
  * Withdraw the direction this judge gave, so they can give a new one (plan decision 6).
  *
  * **A confirmation page and one write.** The `GET` says what withdrawing leaves — the referral stays claimed by this
- * judge, waiting for a new direction, and api's inactivity sweep may return it to the pool if none is given — and
+ * judge, waiting for a new direction, and api returns it to the office for assignment if none is given in time — and
  * the `POST` makes the one call. No body: api's sub-resource names the transition and the judge comes from the token.
  *
  * **The `GET` reads the referral, the `POST` reads nothing.** The read is the caption and the guard: a judge must see
@@ -20,13 +20,13 @@ import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
 import { referralPath } from "../../../../judicial-referral-path.js";
 
-const POOL_PATH = "/judicial/referrals";
+const MINE_PATH = "/judicial/referrals/mine";
 
 const en = {
   title: "Withdraw your direction",
   heading: "Withdraw your direction",
-  // Decision 6's wording. It says what is owed and what may happen to the claim, and names no other judge.
-  body: "You'll need to give a new direction. Until you do, this referral stays claimed by you. If it isn't directed, it may return to the shared list like any other claim.",
+  // Decision 6's wording, with assignment's consequence. It says what is owed and what happens if it is not given, and names no other judge.
+  body: "You'll need to give a new direction. Until you do, this referral stays with you. If it isn't directed in time, it goes back to the office to be assigned again.",
   withdraw: "Withdraw direction",
   cancel: "Cancel"
 };
@@ -38,8 +38,8 @@ const cy = { ...en };
 const unavailableEn = {
   title: "This referral is no longer available",
   heading: "This referral is no longer available",
-  body: "This referral is no longer in the shared list. Choose another referral from the list.",
-  backToPool: "Back to referrals for a direction"
+  body: "Your referrals are listed on My referrals.",
+  backToMine: "Back to My referrals"
 };
 
 const unavailableCy = { ...unavailableEn };
@@ -93,5 +93,5 @@ export const POST = async (req: Request, res: Response) => {
 
 /** Decision 10's page, and the same template the referral view renders for an invisible referral. */
 function unavailable(res: Response) {
-  res.status(404).render("judicial/referrals/unavailable", { poolPath: POOL_PATH, en: unavailableEn, cy: unavailableCy });
+  res.status(404).render("judicial/referrals/unavailable", { myReferralsPath: MINE_PATH, en: unavailableEn, cy: unavailableCy });
 }

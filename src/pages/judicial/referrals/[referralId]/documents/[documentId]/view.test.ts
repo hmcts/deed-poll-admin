@@ -60,7 +60,7 @@ describe("judicial document viewer route", () => {
 
     expect(res.status).toHaveBeenCalledWith(404);
     expect(res.render.mock.calls[0][0]).toBe("judicial/referrals/unavailable");
-    expect(res.render.mock.calls[0][1]).toMatchObject({ poolPath: "/judicial/referrals", en: { heading: "This referral is no longer available" } });
+    expect(res.render.mock.calls[0][1]).toMatchObject({ myReferralsPath: "/judicial/referrals/mine", en: { heading: "This referral is no longer available" } });
   });
 
   it("should call a document missing from a visible referral a missing document, not a lost referral", async () => {

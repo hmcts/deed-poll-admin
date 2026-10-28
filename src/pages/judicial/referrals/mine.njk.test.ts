@@ -3,7 +3,7 @@
  *
  * The model is `mine.test.ts`'s subject. What this file pins is what a model cannot: that each row links by its
  * referral id with an accessible name that distinguishes it, that the list carries **no** case data, that the
- * shared navigation marks this page as the current one, and that api's total is what appears on the page rather
+ * sections and day headings are drawn in order, and that api's total is what appears on the page rather
  * than the number of rows.
  */
 import path from "node:path";
@@ -64,36 +64,80 @@ describe("my referrals template", () => {
     const html = await render({ referrals: [referral()], total: 1, totalPages: 1 });
 
     expect(html).toContain('href="/judicial/referrals/ref-1"');
-    expect(html).toContain('<span class="govuk-visually-hidden"> the referral referred on 3 September 2026 at 9:44am, Direction needed</span>');
+    expect(html).toContain('<span class="govuk-visually-hidden"> the referral referred on 03-09-26: Applicant is a minor</span>');
   });
 
-  // Decision 2: the two states in the judge's own words, tagged. The word is printed, so the state is not
-  // carried by the tag's colour alone.
-  it("should print each status as well as tagging it", async () => {
-    const html = await render({ referrals: [referral(), referral({ id: "ref-2", state: "Decided" })], total: 2, totalPages: 1 });
+  it("should draw the three sections in order, each day under its own heading", async () => {
+    const html = await render({
+      referrals: [
+        referral({ id: "urgent", urgency: "Urgent", createdOn: new Date("2026-10-20T09:00:00Z"), directionDueBy: new Date("2026-10-27T09:00:00Z") }),
+        referral({ id: "await", createdOn: new Date("2026-10-21T09:00:00Z"), directionDueBy: new Date("2026-10-28T09:00:00Z") }),
+        referral({ id: "directed", state: "Decided", createdOn: new Date("2026-10-16T09:00:00Z") })
+      ],
+      total: 3,
+      totalPages: 1
+    });
 
-    expect(html).toContain("Direction needed");
-    expect(html).toContain("govuk-tag--purple");
-    expect(html).toContain("Direction recorded");
-    expect(html).toContain("govuk-tag--green");
+    const order = [
+      '<h2 class="govuk-heading-l">Urgent</h2>',
+      "Awaiting your direction",
+      "21-10-26 referrals",
+      "Directed, awaiting the office",
+      "16-10-26 referrals"
+    ];
+    const positions = order.map((text) => html.indexOf(text));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((left, right) => left - right));
   });
 
-  it("should show each row's reasons and the date the court referred it", async () => {
+  it("should show an urgent row's referred and due dates, and only the due date under a day's heading", async () => {
+    const html = await render({
+      referrals: [
+        referral({ id: "urgent", urgency: "Urgent", createdOn: new Date("2026-10-20T09:00:00Z"), directionDueBy: new Date("2026-10-27T09:00:00Z") }),
+        referral({ id: "await", createdOn: new Date("2026-10-21T09:00:00Z"), directionDueBy: new Date("2026-10-28T09:00:00Z") })
+      ],
+      total: 2,
+      totalPages: 1
+    });
+
+    expect(html).toContain("<li>Referred 20-10-26</li>");
+    expect(html).toContain("<li>Direction due by 27-10-26</li>");
+    expect(html).toContain("<li>Direction due by 28-10-26</li>");
+    expect(html).not.toContain("Referred 21-10-26");
+  });
+
+  it("should give a directed referral no due date and no dates column", async () => {
+    const html = await render({ referrals: [referral({ state: "Decided", directionDueBy: new Date("2026-10-27T09:00:00Z") })], total: 1, totalPages: 1 });
+
+    expect(html).not.toContain("Direction due by");
+    expect(html).not.toContain(">Dates<");
+  });
+
+  it("should draw no heading for an empty section", async () => {
+    const html = await render({ referrals: [referral({ state: "Decided" })], total: 1, totalPages: 1 });
+
+    expect(html).not.toContain(">Urgent</h2>");
+    expect(html).not.toContain("Awaiting your direction");
+    expect(html).toContain("Directed, awaiting the office");
+  });
+
+  it("should repeat a day's heading on a page that starts inside it", async () => {
+    const html = await render(
+      { referrals: [referral({ id: "second-half", createdOn: new Date("2026-10-19T15:00:00Z") })], page: 2, total: 101, totalPages: 2 },
+      { page: "2" }
+    );
+
+    expect(html).toContain('<h3 class="govuk-heading-m">19-10-26 referrals</h3>');
+  });
+
+  it("should show each row's reasons in the business's words", async () => {
     const html = await render({ referrals: [referral({ reasons: ["Minor", "Other"] })], total: 1, totalPages: 1 });
 
     expect(html).toContain("Applicant is a minor");
     expect(html).toContain("Other");
-    expect(html).toContain("3 September 2026 at 9:44am");
   });
 
-  it("should tag an urgent row while printing the word, so urgency is not colour alone", async () => {
-    const html = await render({ referrals: [referral({ urgency: "Urgent" })], total: 1, totalPages: 1 });
-
-    expect(html).toContain("govuk-tag--red");
-    expect(html).toContain("Urgent");
-  });
-
-  // Decision 3: the row is the pool's narrow summary, so there is no applicant, no case reference and nothing
+  // Decision 3: the row is the narrow summary, so there is no applicant, no case reference and nothing
   // caseworker-shaped to link to.
   it("should show nothing about the applications and offer no caseworker control", async () => {
     const html = await render({ referrals: [referral()], total: 1, totalPages: 1 });
@@ -102,10 +146,18 @@ describe("my referrals template", () => {
     expect(html).not.toMatch(/New case|Save this query|Filter cases/);
   });
 
-  it("should state api's total rather than the number of rows", async () => {
-    const html = await render({ referrals: [referral(), referral({ id: "ref-2" })], total: 23, totalPages: 3 });
+  // There is no pool, so there is nothing to claim and no list to navigate to.
+  it("should offer no claim and no link to the old pool", async () => {
+    const html = await render({ referrals: [referral()], total: 1, totalPages: 1 });
 
-    expect(html).toContain("1 to 10 of 23 referrals");
+    expect(html).not.toMatch(/claim/i);
+    expect(html).not.toContain('href="/judicial/referrals"');
+  });
+
+  it("should state api's total rather than the number of rows", async () => {
+    const html = await render({ referrals: [referral(), referral({ id: "ref-2" })], size: 100, total: 230, totalPages: 3 });
+
+    expect(html).toContain("1 to 100 of 230 referrals");
   });
 
   it("should page by URL through its own path when api says there is more than one page", async () => {
@@ -126,33 +178,16 @@ describe("my referrals template", () => {
   it("should say the judge holds nothing rather than rendering an empty table", async () => {
     const html = await render({ referrals: [], total: 0, totalPages: 0 });
 
-    expect(html).toContain("You have no referrals");
+    expect(html).toContain("You have no referrals. Referrals assigned to you appear here.");
     expect(html).not.toContain("govuk-table");
+    expect(html).not.toContain("govuk-heading-l");
   });
 
-  // Decision 4, and the whole reason this page exists: a claimed referral is only reachable from here, so the
-  // pair of lists must be navigable from both.
-  it("should render the shared navigation with this page marked as the current one", async () => {
-    const html = await render({ referrals: [referral()], total: 1, totalPages: 1 });
+  // Each table is captioned for anyone who reaches it by landmark, and the caption is its heading.
+  it("should caption each table with the heading it sits under", async () => {
+    const html = await render({ referrals: [referral({ createdOn: new Date("2026-10-21T09:00:00Z") })], total: 1, totalPages: 1 });
 
-    expect(html).toContain('<nav class="app-judicial-nav" aria-label="Referral lists">');
-    expect(html).toContain('href="/judicial/referrals"');
-    expect(html).toMatch(/href="\/judicial\/referrals\/mine" aria-current="page"/);
-    expect(html).toContain("app-judicial-nav__current");
-  });
-
-  it("should not mark the pool as current while it is not", async () => {
-    const html = await render({ referrals: [referral()], total: 1, totalPages: 1 });
-
-    expect(html).not.toMatch(/href="\/judicial\/referrals" aria-current/);
-  });
-
-  // The table is captioned for anyone who reaches it by landmark, and the caption is the heading rather than a
-  // second wording of it.
-  it("should caption the table without repeating the heading on screen", async () => {
-    const html = await render({ referrals: [referral()], total: 1, totalPages: 1 });
-
-    expect(html).toContain('<caption class="govuk-table__caption govuk-visually-hidden">My referrals</caption>');
+    expect(html).toContain('<caption class="govuk-table__caption govuk-visually-hidden">21-10-26 referrals</caption>');
   });
 
   // api allocates the ids, so this is belt-and-braces rather than a live threat — but the id is the one value on

@@ -182,8 +182,8 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Implement, run the per-task checks, and record the results.
 
 ### Task 3: The Master's side
-- [ ] Add failing tests for the redirect, the landing, the removed claim, and the grouped My referrals (including the page-boundary case).
-- [ ] Implement, delete the pool page and the claim route, run the per-task checks, and record the results.
+- [x] Add failing tests for the redirect, the landing, the removed claim, and the grouped My referrals (including the page-boundary case).
+- [x] Implement, delete the pool page and the claim route, run the per-task checks, and record the results.
 
 ### Task 4: e2e journeys
 - [ ] Rewrite the judicial journeys and update the deed-polls journeys as the Development Approach says; run them on the temporary private-port config; record the result; delete the config.
@@ -302,3 +302,33 @@ express-session-postgres 85, express-session-redis 7. (Da1's final note said app
   Task 4.
 - Per-task checks: format and lint clean, `yarn build --force` 8/8. deed-poll 1,737 (+26), app 3,305 (+48), all
   passing with Redis on 6379. api-client not touched. The extractor reads the new strings (checked with `--out`).
+
+**Task 3 (the Master's side).**
+- `/judicial/referrals` (`index.ts`) is a bare 302 to `/judicial/referrals/mine` that carries no query. Deleted:
+  `index.njk` and its test, `[referralId]/claim.ts` and its test, `buildPoolRows`/`PoolRow`, `listPool` and
+  `claimReferral` in the domain, the claim form and its copy. The adapter keeps api's deprecated pool and claim. `/`
+  sends a Master to `/judicial/referrals/mine`.
+- **One deviation:** `list-navigation.njk` and `_judicial-nav.scss` are deleted outright rather than reduced to the
+  one remaining entry, because a navigation with only one link, pointing at the page it sits on, does nothing.
+- My referrals: `buildMyReferralSections` (`libs/deed-poll/src/judicial/view.ts`) reads api's order into `urgent`
+  (`Claimed` and `Urgent`), `awaiting` and `directed` (anything not `Claimed`, matching the mock's `stateKey`), the last
+  two as runs of consecutive rows sharing `formatShortDate(createdOn)`, the day in London. It does not re-sort, so a
+  broken run would show its day twice, and a page starting mid-day repeats that day's heading with nothing extra to
+  arrange. The page asks for `size: 100`: `JudicialPoolQuery` publishes no bound, and 100 is api's
+  `CasePaging.MAX_SIZE`, where a larger size is clamped. The headings are "Urgent", "Awaiting your direction",
+  "Directed, awaiting the office" and "dd-mm-yy referrals". An urgent row shows "Referred dd-mm-yy"; an undirected
+  row shows "Direction due by dd-mm-yy" ("Not recorded" if api sends none); directed sections have no dates column.
+  `MY_REFERRAL_STATE_LABEL`, `buildMyReferralRows` and `isMyListState` are gone.
+- **One gap in the plan's row:** `JudicialReferralSummary` carries no case reference (decision 3), so rows show reasons,
+  dates and a "View" link whose hidden text names the referral date and the reasons.
+- The Master's referral page: no claim, "Assigned to you" (from `assignedAt`, falling back to `claimedAt`) and
+  "Direction due by" (only while `Claimed`) rows, and always "Back to My referrals". `claimable` and `isOnMyList` are
+  gone from the view model.
+- **Beyond the plan's list:** the shared "no longer available" page and its five callers (the referral, direction,
+  withdraw, legacy file and viewer routes) now link to My referrals (`myReferralsPath`, `backToMine`, "Your
+  referrals are listed on My referrals."). The withdraw page no longer promises a return to "the shared list"; it now
+  reads "this referral stays with you. If it isn't directed in time, it goes back to the office to be assigned again."
+- Per-task checks: format and lint clean, `yarn build --force` 8/8. deed-poll 1,721 (−16: pool and old-row tests out,
+  section tests in), app 3,264 (−41: the pool page's and the claim route's tests deleted), all passing with Redis on
+  6379. api-client not touched. The extractor reads the new strings; the CSV is left for Task 5's regeneration. The
+  e2e journeys still drive the pool and the claim, and are Task 4's.
