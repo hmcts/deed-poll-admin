@@ -1,11 +1,14 @@
-# Plan Db: assigning referrals, and the Master's pages without a pool
+# Plan Db1: assignment's contract and mock, assigning referrals, and the Master's pages without a pool
 
 ## Overview
 
-Master Sullivan's feedback, item D (Steve, 2026-10-27/28). Plan Da refreshed the contract, taught the mock item D and
-built the settings. This plan is the pages caseworkers and Masters use. **Read the api plans D1, D2 and D3
-(`../deed-poll-api-juniper-d/docs/plans/completed/20261028-d*.md`) and plan Da first**; D1's decision table is the
-specification. In short:
+Master Sullivan's feedback, item D (Steve, 2026-10-27/28). Plan Da1 refreshed the contract to api D1, taught the
+mock D1's rules and built the settings. **This plan runs once api D2 is finished, while api works on D3** (Steve,
+2026-10-28: split for speed). It first refreshes the contract to D2 and teaches the mock assignment, then builds the
+pages caseworkers and Masters use. **Read the api plans D1 and D2
+(`../deed-poll-api-juniper-d/docs/plans/completed/20261028-d1-*.md`, `-d2-*.md`), D3's Overview, and plan Da1
+first**; D1's decision table is the specification. D3 adds no HTTP operation, so D2's contract is the one the pages
+use. In short:
 
 1. **Raising a referral assigns it.** The raise form asks which Master, with each Master's room in the current
    window, and api refuses past the cap.
@@ -32,6 +35,23 @@ Read before changing anything:
 
 ## Development Approach
 
+0. **Contract and mock for assignment.**
+   - **Spec refresh.** The chain has generated api D2's document in a throwaway worktree: copy
+     `/tmp/juniper-340/spec-d2.json` into `openapi.json` as 2-space JSON, run Biome, check it parses equal, and record
+     a `SPEC-PROVENANCE.md` row from `/tmp/juniper-340/spec-d2.meta` (unmerged branch, commit, SHA-256, measured delta
+     against Da1's copy). Do not touch `../deed-poll-api-juniper-d`. Missing files: stop and say so.
+   - **Adapter.** `client.ts`/`wire.ts` for assignment: `masterId` on create, `PUT …/assignment`, the new
+     `ReferralResponse` and judicial fields, the Masters list's `window`, `cap` and `assignedInWindow`, the deprecated
+     pool and claim kept. `contract.test.ts` set-equal both ways.
+   - **The mock** mirrors D2 in api's words: `ReferralWindows.windowFor` as a small pure function with its own tests
+     (the same boundaries as api's), the cap (409 in api's words), assignment on create with `masterId`, `Open`
+     without it, reassignment, `directionDueBy`, the Masters list's window fields; `Open` invisible to judges, the
+     pool always empty, `MINE_ORDER` as D2 states it, linking's referral side, `unassignOverdue` on the mock's existing
+     triggers plus an explicit test hook; and a **test-only clock** so e2e journeys can make a referral overdue and
+     cross a window without waiting (follow how the mock exposes scenarios; keep it out of production code paths).
+   - **Seed data:** assign the seeded referrals to the seeded Masters instead of leaving them for claiming, keep the
+     seeder's read-back checks true, update its numbers and its `CLAUDE.md` line, and run it against a private-port
+     mock.
 1. **The raise form** gains "Which Master should this go to?" as radios, required and placed **last**, after
    urgency, because the caseworker decides who after deciding what. Each option is
    the Master's name with a hint: "3 of 10 referrals for this morning" (from `GET /caseworker/masters`' `window`, `cap`
@@ -94,7 +114,7 @@ Read before changing anything:
    any new page under `src/pages/judicial/`.
 8. **Docs.** Rewrite `CLAUDE.md`'s "Personas and role gating" bullets that describe the pool and claiming, add one for
    assignment and the Master's grouped page, and update the case-list counts text. Regenerate the Welsh CSV.
-9. **Out of scope:** the settings page (plan Da); api; Notify.
+9. **Out of scope:** the settings page (plan Da1); api; Notify.
 10. **Publishing:** local task commits only, no push and no PR.
 
 A private-port config for the changed journeys (Redis on 6316 via `docker run -d --rm --name d-redis -p 6316:6379
@@ -125,7 +145,10 @@ Run it with `cd e2e-tests && DEED_POLL_API_URL=http://localhost:3226 yarn playwr
 
 ## Validation Commands
 
-Run from the repository root before implementation and after each task:
+Run the full set from the repository root **twice only**: before implementation (the baseline) and in the final
+task. **After each other task**, run `yarn biome format --write .`, `yarn lint`, `yarn build --force` and only the
+touched packages' tests, with `REDIS_URL=redis://127.0.0.1:6379`. If one of those shows a failure outside the task,
+run the full suite then. The full set:
 
 ```bash
 yarn biome format --write .
@@ -138,25 +161,29 @@ Never quote bare `yarn test`. `yarn welsh:check` exits 1 by design and is not a 
 count, and distinguish baseline failures from regressions. The temporary Playwright config is untracked and must not
 be committed (Biome will flag its formatting; delete it before the final lint).
 
-**Baseline:** whatever plan Da finished on, recorded at execution time.
+**Baseline:** whatever plan Da1 finished on, recorded at execution time.
 
 Run every build and test command in the **foreground** and wait for it to finish. A backgrounded build ends the
 session, and the next one builds over it, wiping the results. Never move `dist` aside; use `--force`.
 
 ## Implementation Steps
 
-### Task 1: Raising with a Master
+### Task 0: Contract and mock for assignment
 - [ ] Record the execution baseline in the execution notes.
+- [ ] Copy the chain's D2 spec and record its provenance; add failing `client.test.ts`, `contract.test.ts` and mock tests for every assignment rule.
+- [ ] Implement the adapter, the mock, the clock hook and the seed, run the seeder on a private-port mock, run the per-task checks, and record the results.
+
+### Task 1: Raising with a Master
 - [ ] Add failing handler, schema and template tests for the Master radios, their hints, full and unavailable Masters, no Masters, a failed Masters read, and the cap 409.
-- [ ] Implement, run all Validation Commands, and record the results.
+- [ ] Implement, run the per-task checks, and record the results.
 
 ### Task 2: Assign and reassign, and the caseworker's words
 - [ ] Add failing tests for the assign page (GET, POST success, the three refusals), the links, the state labels and meanings, and the waiting-for-assignment count.
-- [ ] Implement, run all Validation Commands, and record the results.
+- [ ] Implement, run the per-task checks, and record the results.
 
 ### Task 3: The Master's side
 - [ ] Add failing tests for the redirect, the landing, the removed claim, and the grouped My referrals (including the page-boundary case).
-- [ ] Implement, delete the pool page and the claim route, run all Validation Commands, and record the results.
+- [ ] Implement, delete the pool page and the claim route, run the per-task checks, and record the results.
 
 ### Task 4: e2e journeys
 - [ ] Rewrite the judicial journeys and update the deed-polls journeys as the Development Approach says; run them on the temporary private-port config; record the result; delete the config.

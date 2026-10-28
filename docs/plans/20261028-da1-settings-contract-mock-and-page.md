@@ -1,4 +1,4 @@
-# Plan Da: item D's contract, mock and Delivery Manager settings
+# Plan Da1: item D's settings contract, mock and Delivery Manager settings
 
 ## Overview
 
@@ -8,12 +8,15 @@ raising them** instead of being claimed from a shared pool. api builds it in thr
 `docs/plans/completed/20261028-d1-…`, `-d2-…`, `-d3-…`). **Read all three api plans' Overviews and D1's decision table
 first**: they are the specification for this plan and the next. This plan is the admin foundation:
 
-1. **Refresh `libs/deed-poll-api-client/openapi.json`** from that api branch's head, and bring the adapter
-   (`client.ts`, `wire.ts`) and its contract test up to it.
-2. **Teach the in-memory mock** the whole of item D, so the pages in plan Db and the e2e journeys run against it.
+1. **Refresh `libs/deed-poll-api-client/openapi.json`** to **api D1's** finished contract (the Masters list, the
+   extended process settings, the bank holidays), and bring the adapter (`client.ts`, `wire.ts`) and its contract
+   test up to it.
+2. **Teach the in-memory mock D1's rules.**
 3. **The Delivery Manager settings page** grows the values D1 made settings, a Masters list and the bank holidays.
 
-Plan Db is the caseworker and Master pages. Nothing in this plan changes a page a caseworker or a Master sees.
+**Split for speed (Steve, 2026-10-28):** this plan runs **while api works on D2**, so it covers only what D1 built.
+Plan Db1 refreshes the contract again to D2, teaches the mock assignment, and builds the caseworker and Master pages.
+Nothing in this plan changes a page a caseworker or a Master sees.
 
 ## Context
 
@@ -32,36 +35,28 @@ Read before changing anything:
 
 ## Development Approach
 
-1. **Spec refresh.** In `../deed-poll-api-juniper-d` at its head commit, generate the document:
-   `export JAVA_TOOL_OPTIONS=-XX:UseSVE=0 TESTCONTAINERS_RYUK_DISABLED=true; OPENAPI_OUTPUT_PATH=/tmp/d-openapi.json
-   ./gradlew cleanIntegration integration --tests '*OpenAPIPublisherTest' --no-daemon --console=plain`. Write it as
-   2-space JSON into `libs/deed-poll-api-client/openapi.json`, run `yarn biome format --write .`, and check it parses
-   equal to the raw artefact. Record a new top row in `SPEC-PROVENANCE.md` (the api branch and commit, that it is an
-   **unmerged** branch, the raw SHA-256, the measured delta by parsed comparison) and relabel the old rows `Previous …`
-   as the file does. **Do not edit the api worktree.** If the api worktree is mid-build or dirty, stop and say so.
+1. **Spec refresh.** The overnight chain has already generated api D1's document for you, in a throwaway api
+   worktree, so nothing here touches the api worktree ralphex is using: copy `/tmp/juniper-340/spec-d1.json` into
+   `libs/deed-poll-api-client/openapi.json` as 2-space JSON, run `yarn biome format --write .`, and check it parses
+   equal to that file. `/tmp/juniper-340/spec-d1.meta` holds the api commit and the raw SHA-256. Record a new top
+   row in `SPEC-PROVENANCE.md` (api branch `feat/d-referral-assignment`, that commit, that it is an **unmerged**
+   branch, the SHA-256, the measured delta by parsed comparison) and relabel the old rows `Previous …` as the file
+   does. **Do not generate it yourself and do not touch `../deed-poll-api-juniper-d`.** If the two files are missing,
+   stop and say so.
 2. **Adapter.** Add every new operation to `client.ts` and its schema to `wire.ts` (the Masters list and its writes,
-   the bank holidays, assignment, the extended process settings and referral responses), following the existing
+   the bank holidays and the extended process settings), following the existing
    functions exactly (`ApiResult`, no throws, `hasUsableSegments` for path ids). The deprecated pool and claim
    operations stay. `contract.test.ts` must pass set-equal both ways; extend its pinned lists for the new required
    fields and bounds (as `PROCESS_SETTINGS_LIMITS` is pinned today, add the new bounds to it or beside it).
-3. **The mock.** Mirror api's D rules, in api's words, against the existing in-memory store:
+3. **The mock.** Mirror api D1's rules, in api's words, against the existing in-memory store:
    - The Masters list (create, update with revision, duplicate email 409, email change unlinks, unavailable), linking
      a judge whose token email matches an unlinked entry on their first judicial request, and the subject never in a
      response.
    - Process settings with the new fields, bounds, the ordering rule, old-shape PUTs, stale beats no-op.
-   - Bank holidays seeded 2026–2028 (the same dates api seeds; copy them from api's migration), add and remove.
-   - `ReferralWindows.windowFor` as a small pure function with its own tests (the same boundaries as api's), the cap
-     (409 in api's words), assignment on create with `masterId`, `Open` without it, reassignment, the new response
-     fields, `directionDueBy`, the Masters list's `window`, `cap` and `assignedInWindow`.
-   - The Master side: `Open` invisible to judges, the pool always empty, `MINE_ORDER` as D2 states it,
-     `unassignOverdue` on the same triggers the mock already uses for the lapse plus an explicit test hook to run it.
-   - A test-only way to set the mock's clock, if it has none, so e2e journeys can make a referral overdue and cross a
-     window without waiting. Follow how the mock already exposes scenarios (`scenario(...)` in the e2e helpers) and keep
-     it out of production code paths.
-   - **Seed data** (`yarn mock:seed` and `scripts/seed-local-cases.mjs`): seed three Masters (one unavailable, one
-     linked to the existing judge persona's email), assign the seeded referrals rather than leaving them for claiming,
-     and keep the seeder's read-back checks true (update its expected numbers and its CLAUDE.md line). Run it against a
-     private-port mock and record that it completes.
+   - Bank holidays seeded 2026–2028 (the same dates api seeds; copy them from api's V42 in
+     `../deed-poll-api-juniper-d/src/main/resources/db/migration/`, reading only), add and remove.
+   - **Seed data** (`yarn mock:seed`): seed three Masters (one unavailable, one with the judge persona's email so it
+     links on first sign-in). Keep the seeder's read-back checks true. Assignment of the seeded referrals is Db1's.
 4. **The settings page.** `/deed-polls/settings` gains sections, each its own form, Save and revision, after the
    existing two:
    - **"Referral process"**: replaces the "Referral claim window" section. Fields: the processing window in **days**
@@ -90,13 +85,17 @@ Read before changing anything:
    unavailable and add and remove a bank holiday, with an accessibility check on each new page. Run it with
    `yarn test:gazette`; it needs Redis on 6316 and local IDAM on 5556 (see README). If either is unavailable, say so in
    the execution notes rather than skipping silently.
-7. **Out of scope:** the raise form, reassignment, the Master's pages and every other caseworker page (plan Db); the
-   api branch; Notify.
+7. **Out of scope:** assignment in the adapter and the mock, the raise form, reassignment, the Master's pages and every
+   other caseworker page (plan Db1); the api branch; Notify.
 8. **Publishing:** local task commits only, no push and no PR.
 
 ## Validation Commands
 
-Run from the repository root before implementation and after each task:
+Run the full set from the repository root **twice only**: before implementation (the baseline) and in the final
+task. **After each other task**, run `yarn biome format --write .`, `yarn lint`, `yarn build --force` and only the
+touched packages' tests (for example `yarn workspace @hmcts/deed-poll-api-client vitest run`, `yarn workspace
+@hmcts/deed-poll vitest run`, and `yarn vitest run <paths>` for the app), with `REDIS_URL=redis://127.0.0.1:6379`.
+If one of those shows a failure outside the task, run the full suite then. The full set:
 
 ```bash
 yarn biome format --write .
@@ -121,12 +120,12 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 
 ### Task 1: Spec refresh and adapter
 - [ ] Record the execution baseline (commit, test counts) in the execution notes.
-- [ ] Generate the spec from the api D branch head, record its provenance, and add the adapter functions and schemas with failing `client.test.ts` and `contract.test.ts` cases first.
-- [ ] Implement, run all Validation Commands, and record the results.
+- [ ] Copy the chain's D1 spec, record its provenance, and add the adapter functions and schemas with failing `client.test.ts` and `contract.test.ts` cases first.
+- [ ] Implement, run the per-task checks, and record the results.
 
 ### Task 2: The mock
 - [ ] Add failing mock tests for every rule in the Development Approach.
-- [ ] Implement the mock, the clock hook and the seed data, run the seeder against a private-port mock, run all Validation Commands, and record the results.
+- [ ] Implement the mock rules and the seed data, run the seeder against a private-port mock, run the per-task checks, and record the results.
 
 ### Task 3: Settings: referral process
 - [ ] Add failing schema, handler and template tests.
@@ -134,7 +133,7 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 
 ### Task 4: Settings: Masters and bank holidays
 - [ ] Add failing schema, handler and template tests for both sections and the remove confirmation.
-- [ ] Implement, run all Validation Commands, and record the results.
+- [ ] Implement, run the per-task checks, and record the results.
 
 ### Task 5: e2e, documentation and final verification
 - [ ] Extend the settings e2e journey and run `yarn test:gazette`; record the result.
