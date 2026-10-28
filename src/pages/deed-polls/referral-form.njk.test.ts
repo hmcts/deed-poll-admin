@@ -258,6 +258,18 @@ describe("raise a referral template", () => {
     expect(page).not.toContain("Raise referral");
   });
 
+  it("should list the full Masters, say every one is full and offer no submit when nobody could be chosen", async () => {
+    vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: MASTERS.masters.map((master) => ({ ...master, assignedInWindow: 10 })) } as never);
+    const res = pageResponse();
+
+    await GET(request(), res);
+    const page = html(res.render.mock.calls[0][1]);
+
+    expect(page).toContain('name="masterId"');
+    expect(page).toContain("Every Master is full for this window, so this referral cannot be raised now.");
+    expect(page).not.toContain("Raise referral");
+  });
+
   it("should say the Masters could not be loaded, and offer no submit, when the list read fails", async () => {
     vi.mocked(findMasterChoices).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
     vi.spyOn(console, "error").mockImplementation(() => undefined);

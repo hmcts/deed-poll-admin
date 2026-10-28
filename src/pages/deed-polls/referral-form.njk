@@ -149,10 +149,13 @@
           items: masterItems,
           errorMessage: { text: errors.masterId } if errors.masterId
         }) }}
+        {% if isEveryMasterFull %}
+          <p class="govuk-body">{{ everyMasterFull }}</p>
+        {% endif %}
       {% endif %}
 
       <div class="govuk-button-group">
-        {% if not isMastersUnavailable and not hasNoMasters %}
+        {% if not isMastersUnavailable and not hasNoMasters and not isEveryMasterFull %}
           {{ govukButton({ text: submit }) }}
         {% endif %}
         <a class="govuk-link" href="{{ case.id | casePath }}#referrals">{{ cancel }}</a>

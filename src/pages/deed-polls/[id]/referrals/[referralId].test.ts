@@ -404,6 +404,15 @@ describe("referral view page", () => {
       expect(res.render.mock.calls[0][1].assigned).toBe("Referral assigned to Master Wren");
     });
 
+    it("should announce nothing rather than a placeholder name when the assigned Master has no name", async () => {
+      vi.mocked(findReferral).mockResolvedValue({ ...ASSIGNED, assignedMaster: { id: "master-1", name: null } } as never);
+      const res = response();
+
+      await GET(request({ assigned: "1" }), res);
+
+      expect(res.render.mock.calls[0][1].assigned).toBe("");
+    });
+
     it("should announce nothing without the flag", async () => {
       vi.mocked(findReferral).mockResolvedValue(ASSIGNED as never);
       const res = response();

@@ -556,6 +556,25 @@ describe("raise a referral page", () => {
       expect(res.render.mock.calls[0][1]).toMatchObject({ masterItems: [], hasNoMasters: true, isMastersUnavailable: false });
     });
 
+    it("should take the submit away when every available Master is full, still listing them", async () => {
+      vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: [{ ...MASTERS.masters[0], assignedInWindow: 10 }, MASTERS.masters[2]] } as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model).toMatchObject({ isEveryMasterFull: true, hasNoMasters: false, isMastersUnavailable: false });
+      expect(model.masterItems.map((item: { disabled: boolean }) => item.disabled)).toEqual([true, true]);
+    });
+
+    it("should keep the submit while any available Master has room", async () => {
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(res.render.mock.calls[0][1].isEveryMasterFull).toBe(false);
+    });
+
     it("should still draw the form, with the list's own failed state, when the Masters cannot be read", async () => {
       vi.mocked(findMasterChoices).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
       const error = vi.spyOn(console, "error").mockImplementation(() => undefined);

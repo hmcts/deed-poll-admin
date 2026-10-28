@@ -166,8 +166,11 @@ yarn mock:seed                  # Fill the running mock with cases: every tab, a
                                 # banner is non-zero; two of those also awaiting the applicant's
                                 # confirmation, so that banner and tab are non-empty as well), and three
                                 # Masters (Master Wren unavailable; Master Judge on the judge persona's
-                                # email, so it links on that persona's first judicial request). Resets the
-                                # store first; `--keep` adds to it and skips Masters already listed
+                                # email, so it links on that persona's first judicial request and finds
+                                # its two assigned referrals on My referrals; two more wait for
+                                # assignment; the directed ones are Master Sullivan's, linked to a seed
+                                # identity). Resets the store first; `--keep` adds to it and skips
+                                # Masters already listed
 ```
 
 The mock starts **empty**, so `yarn mock:seed` is what makes the list page, its filters and the dashboard's
@@ -204,7 +207,16 @@ the API's `GET /me`, so an existing session sees the link within one token lifet
 Deploy the API's D1 settings contract (Masters, bank holidays and the extended process settings) to every replica
 before this admin version; see [DEPLOYMENT.md](docs/DEPLOYMENT.md#what-a-deploy-of-this-app-needs-from-api). See
 [the settings plan](docs/plans/20261026-dm-settings-page.md) and
-[the Da1 plan](docs/plans/20261028-da1-settings-contract-mock-and-page.md).
+[the Da1 plan](docs/plans/completed/20261028-da1-settings-contract-mock-and-page.md).
+
+Raising a referral asks which Master it should go to, showing each available Master's referrals for the current
+window against the cap. A full Master is listed but cannot be chosen, and a Master who is unavailable is not offered.
+Any caseworker can assign a referral that is waiting for assignment, or reassign one to another Master, from the
+referral page or the case page's Referrals panel, and the case list counts the referrals waiting for assignment.
+Masters have no pool and claim nothing: `/judicial/referrals` redirects to **My referrals**, grouped into Urgent,
+Awaiting your direction and Directed, awaiting the office. Deploy api D2 to every replica before this admin version;
+see [DEPLOYMENT.md](docs/DEPLOYMENT.md#what-a-deploy-of-this-app-needs-from-api) and
+[the Db1 plan](docs/plans/20261028-db1-assignment-contract-mock-and-pages.md).
 
 The seed includes 26 ready cases, cases excluded by the publication/sent-date rules, and 26 frozen
 history batches. The newest batch has 101 cases and a sorted 100-reference preview. No email is sent.

@@ -150,6 +150,25 @@ describe("assign a referral page", () => {
       expect(model(res)).toMatchObject({ isMastersUnavailable: false, hasNoMasters: true });
     });
 
+    it("should take the submit away when every Master is full and none is the current one", async () => {
+      vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: [{ ...MASTERS.masters[0], assignedInWindow: 10 }, MASTERS.masters[1]] } as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(model(res)).toMatchObject({ isEveryMasterFull: true, hasNoMasters: false, isMastersUnavailable: false });
+    });
+
+    it("should keep the submit on a reassignment when every Master is full, because the current one can be chosen again", async () => {
+      vi.mocked(findReferral).mockResolvedValue(CLAIMED as never);
+      vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: [{ ...MASTERS.masters[0], assignedInWindow: 10 }, MASTERS.masters[1]] } as never);
+      const res = response();
+
+      await GET(request(), res);
+
+      expect(model(res).isEveryMasterFull).toBe(false);
+    });
+
     it("should let a 401 on the Masters list end the session rather than degrade", async () => {
       vi.mocked(findMasterChoices).mockRejectedValue(new UnauthorizedError("expired"));
 

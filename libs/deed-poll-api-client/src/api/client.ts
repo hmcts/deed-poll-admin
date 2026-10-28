@@ -55,7 +55,6 @@ import {
   type WireMaster,
   type WireMasterCreate,
   type WireMasterList,
-  type WireMasterListEntry,
   type WireMasterUpdate,
   type WireNote,
   type WirePreviewGazette,
@@ -117,9 +116,7 @@ export {
   REFERRAL_REASON,
   REFERRAL_STATE,
   SORT_DIRECTION,
-  URGENCY,
-  // The two referral window halves, for the raise and assign forms' "for this morning" hints (plan D2).
-  WINDOW_SLOT
+  URGENCY
 } from "./wire.js";
 
 /**
@@ -1788,8 +1785,6 @@ export type ProcessSettings = WireProcessSettings;
 export type UpdateProcessSettings = WireUpdateProcessSettings;
 export type Master = WireMaster;
 export type MasterList = WireMasterList;
-export type MasterListEntry = WireMasterListEntry;
-export type ReferralWindow = NonNullable<MasterList["window"]>;
 export type MasterCreate = WireMasterCreate;
 export type MasterUpdate = WireMasterUpdate;
 export type BankHoliday = WireBankHoliday;

@@ -35,7 +35,7 @@ async function main(): Promise<void> {
   });
   if (values.help) {
     console.log(
-      "seed:cases --environment <non-prod> --api-url <origin> --batch <unique-name> [--as-of YYYY-MM-DD] [--journal path] [--defer-judicial] [--apply]\nWithout --apply, prints the 30-case plan without network calls. Apply requires SEED_CASEWORKER_TOKEN, SEED_JUDGE_TOKEN and SEED_MASTER_ID (the judge's Masters-list id), or --create-test-users (Azure CLI + IDAM testing support). --defer-judicial needs only the caseworker/admin token and provisions only the admin fixture. Resume without this flag later to complete judicial actions. Optional: --client-id, --vault, --secret-name. Keep the journal to resume; production is refused."
+      "seed:cases --environment <non-prod> --api-url <origin> --batch <unique-name> [--as-of YYYY-MM-DD] [--journal path] [--defer-judicial] [--apply]\nWithout --apply, prints the 30-case plan without network calls. Apply requires SEED_CASEWORKER_TOKEN and SEED_JUDGE_TOKEN, or --create-test-users (Azure CLI + IDAM testing support), and SEED_MASTER_ID (the judge's Masters-list id) unless --defer-judicial. --defer-judicial needs only the caseworker/admin token and provisions only the admin fixture. Resume without this flag later to complete judicial actions. Optional: --client-id, --vault, --secret-name. Keep the journal to resume; production is refused."
     );
     return;
   }
@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   // The host alone: `seedTarget` has already refused credentials, but nothing on a command line belongs in a log whole.
   console.log(`${target.environment}: ${new URL(target.baseUrl).host}; batch ${journal.batch}; scenario date ${journal.asOf}`);
   if (options.deferJudicial)
-    console.log("Judicial claims, directions and their subsequent referral closures are deferred. Existing completed operations are preserved.");
+    console.log("Assignments, judicial directions and their subsequent referral closures are deferred. Existing completed operations are preserved.");
   console.table(
     dataset.map((item) => ({
       marker: item.marker,

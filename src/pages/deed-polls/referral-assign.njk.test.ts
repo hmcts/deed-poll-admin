@@ -138,4 +138,14 @@ describe("assign a referral template", () => {
     expect(rendered).toContain("There are no Masters to assign to. Ask a Delivery Manager to add one.");
     expect(rendered).not.toMatch(/<button[^>]*govuk-button/);
   });
+
+  it("should list the full Masters, say every one is full and offer no submit when nobody could be chosen", async () => {
+    vi.mocked(findMasterChoices).mockResolvedValue({ ...MASTERS, masters: MASTERS.masters.map((master) => ({ ...master, assignedInWindow: 10 })) } as never);
+
+    const rendered = await getPage();
+
+    expect(rendered).toContain('name="masterId"');
+    expect(rendered).toContain("Every Master is full for this window, so this referral cannot be assigned now.");
+    expect(rendered).not.toMatch(/<button[^>]*govuk-button/);
+  });
 });

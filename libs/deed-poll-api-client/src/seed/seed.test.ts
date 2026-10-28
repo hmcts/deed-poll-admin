@@ -142,6 +142,26 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
     await seedCases(journal, caseworkerCredentials, persist, report, { deferJudicial: true });
     expect(journal.complete).toBe(true);
   });
+  it("should resume a journal written before api D2, reading its claim steps as assignments already made", async () => {
+    mock = await startMockApi();
+    const credentials = await credentialsFor(mock);
+    const journal = newJournal(mock.url);
+    const persist = async () => {};
+    const report = () => {};
+    await seedCases(journal, credentials, persist, report);
+    // The journal an older seeder left: the same referrals, advanced by a claim rather than an assignment.
+    const assignSteps = Object.keys(journal.steps).filter((name) => name.endsWith("/assign"));
+    expect(assignSteps.length).toBeGreaterThan(0);
+    journal.steps = Object.fromEntries(Object.entries(journal.steps).map(([name, data]) => [name.replace(/\/assign$/, "/claim"), data]));
+    const requests = vi.spyOn(globalThis, "fetch");
+
+    await seedCases(journal, credentials, persist, report);
+    await seedCases(journal, { caseworkerToken: CASEWORKER }, persist, report, { deferJudicial: true });
+
+    expect(requests.mock.calls.some(([url]) => String(url).endsWith("/assignment"))).toBe(false);
+    expect(Object.keys(journal.steps).some((name) => name.endsWith("/assign"))).toBe(false);
+    expect(journal.complete).toBe(true);
+  });
   it("should still require a judicial token before any writes unless those actions are explicitly deferred", async () => {
     mock = await startMockApi();
     await expect(

@@ -65,6 +65,7 @@ const en = {
   afternoonOf: (date: string) => `the afternoon of ${date}`,
   noMasters: "There are no Masters to assign to. Ask a Delivery Manager to add one.",
   mastersUnavailable: "The list of Masters could not be loaded, so this referral cannot be assigned now. Try again later.",
+  everyMasterFull: "Every Master is full for this window, so this referral cannot be assigned now. Try again in the next window.",
   submit: "Assign referral",
   cancel: "Cancel",
   errorSummaryTitle: "There is a problem",
@@ -146,6 +147,7 @@ async function render(req: Request, res: Response, selectedId: string | undefine
   const currentMasterId = referral.assignedMaster?.id;
   const masters = mastersRead.status === "fulfilled" ? buildMasterChoices(mastersRead.value, selectedId ?? currentMasterId) : null;
   const isReassign = view.assignAction === "reassign";
+  const masterItems = masters ? masterRadioItems(masters, content, currentMasterId) : [];
 
   res.render("deed-polls/referral-assign", {
     case: caseRead.value,
@@ -155,9 +157,11 @@ async function render(req: Request, res: Response, selectedId: string | undefine
     heading: isReassign ? content.reassignHeading : content.heading,
     currentlyWith: isReassign ? currentlyWith(view, content) : "",
     restartsWindow: isReassign ? restartsWindow(view, content) : "",
-    masterItems: masters ? masterRadioItems(masters, content, currentMasterId) : [],
+    masterItems,
     isMastersUnavailable: masters === null,
     hasNoMasters: masters !== null && masters.choices.length === 0,
+    // The current Master's radio is never disabled, so this is only ever true when nobody could be chosen.
+    isEveryMasterFull: masterItems.length > 0 && masterItems.every((item) => item.disabled),
     action: `${href}/assign`,
     referralHref: href,
     errors,

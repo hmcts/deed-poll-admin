@@ -326,12 +326,13 @@ single file:
   than a refusal; it is `referrals-admin-3`'s flagged open question, and the fix if the business confirms such a
   user is a conditional link on the case list, not a change to the landing.
 - **Referrals are assigned, never claimed (Master Sullivan's feedback, item D; plan
-  `docs/plans/20261028-db1-assignment-contract-mock-and-pages.md`).** The raise form's last question is "Which Master
+  `docs/plans/20261028-db1-assignment-contract-mock-and-pages.md`).** **Deploy order:** api D2 on every replica first, because against D1 the
+  Masters read fails validation and no referral can be raised (`docs/DEPLOYMENT.md`). The raise form's last question is "Which Master
   should this go to?" (`masterId`, required here though api still accepts a raise without one for one release). The
   radios come from `GET /caseworker/masters`' envelope (`window`, `cap`, each Master's `assignedInWindow`) through
   `buildMasterChoices` (`libs/deed-poll/src/referrals/master-choices.ts`) and `src/master-radios.ts`: unavailable
-  Masters are not offered, a full one is listed disabled ("Full for this morning"), no Masters or a failed read draws
-  the form with its own sentence and no submit. api's cap 409 names `masterId`, which is how it is told from the
+  Masters are not offered, a full one is listed disabled ("Full for this morning"), no Masters, a failed read or every
+  selectable Master full draws the form with its own sentence and no submit. api's cap 409 names `masterId`, which is how it is told from the
   already-open-referral 409; it redraws beside the radios. Any caseworker assigns an `Open` referral or reassigns a
   `Claimed` one at `deed-polls/[id]/referrals/[referralId]/assign` (`PUT …/assignment`), linked from the referral page
   and the case page's panel; a 409 not naming `masterId` redirects to the fresh referral with a state sentence. The
@@ -750,7 +751,7 @@ span several files:
 ## Delivery Manager settings
 
 `/deed-polls/settings` is where a Delivery Manager changes the service's process values while it runs (plan
-`docs/plans/20261026-dm-settings-page.md`, extended for item D by `docs/plans/20261028-da1-settings-contract-mock-and-page.md`).
+`docs/plans/20261026-dm-settings-page.md`, extended for item D by `docs/plans/completed/20261028-da1-settings-contract-mock-and-page.md`).
 It holds, in order, the referral process, the London Gazette recipient, the Masters, the bank holidays and a link to
 XUI staff administration. Add no field or placeholder for a value api has not made a setting. **Deploy order:** api D1 (the
 Masters, the bank holidays and the extended process settings) on every replica first, then this app. Against an older

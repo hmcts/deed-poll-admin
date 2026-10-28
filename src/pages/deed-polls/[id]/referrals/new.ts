@@ -86,6 +86,7 @@ const en = {
   afternoonOf: (date: string) => `the afternoon of ${date}`,
   noMasters: "There are no Masters to assign to. Ask a Delivery Manager to add one.",
   mastersUnavailable: "The list of Masters could not be loaded, so this referral cannot be raised now. Try again later.",
+  everyMasterFull: "Every Master is full for this window, so this referral cannot be raised now. Try again in the next window.",
   submit: "Raise referral",
   cancel: "Cancel",
   errorSummaryTitle: "There is a problem",
@@ -263,6 +264,7 @@ async function render(req: Request, res: Response, values: Record<string, unknow
   const content = res.locals.locale === "cy" ? cy : en;
   const masters = mastersRead.status === "fulfilled" ? buildMasterChoices(mastersRead.value, values.masterId) : null;
   const chosen = Array.isArray(values.reasons) ? values.reasons : [];
+  const masterItems = masters ? masterRadioItems(masters, content) : [];
 
   res.render("deed-polls/referral-form", {
     case: found,
@@ -272,10 +274,12 @@ async function render(req: Request, res: Response, values: Record<string, unknow
     reasonItems: REFERRAL_REASON_CHOICES.map((choice) => ({ ...choice, checked: chosen.includes(choice.value) })),
     minorDetailItems: MINOR_DETAIL_CHOICES.map((choice) => ({ ...choice, checked: chosen.includes(choice.value) })),
     urgencyItems: REFERRAL_URGENCY_CHOICES.map((choice) => ({ ...choice, checked: values.urgency === choice.value })),
-    masterItems: masters ? masterRadioItems(masters, content) : [],
-    // Two states that each take the submit away, kept apart because they need different sentences.
+    masterItems,
+    // Three states that each take the submit away, kept apart because they need different sentences. Every Master
+    // full still lists them, so the caseworker sees who is full, but nothing they could choose would be sent.
     isMastersUnavailable: masters === null,
     hasNoMasters: masters !== null && masters.choices.length === 0,
+    isEveryMasterFull: masterItems.length > 0 && masterItems.every((item) => item.disabled),
     errors,
     errorList: summaryList(errors, formError),
     conflictHref,
