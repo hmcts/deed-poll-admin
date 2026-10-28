@@ -22,6 +22,7 @@ const PARAMS = { id: "case-1" };
 const CALLER = { accessToken: "session-token" };
 
 const COMPLETE = { reasons: ["DomesticAbuse"], urgency: "Normal" };
+const REASONS_REFUSED = "One or more of the reasons you selected could not be accepted. Check the reasons and try again.";
 
 /** An open referral as api publishes one, for the conflict path's link. */
 const OPEN_REFERRAL = {
@@ -363,7 +364,8 @@ describe("raise a referral page", () => {
       await POST(request(COMPLETE), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.render.mock.calls[0][1].errors.reasons).toBe("Minor cannot be combined with NonPublication");
+      expect(res.render.mock.calls[0][1].errors.reasons).toBe(REASONS_REFUSED);
+      expect(res.render.mock.calls[0][1].values.reasons).toEqual(COMPLETE.reasons);
       expect(res.redirect).not.toHaveBeenCalled();
     });
 
@@ -379,8 +381,24 @@ describe("raise a referral page", () => {
       await POST(request(COMPLETE), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.render.mock.calls[0][1].errors.reasons).toBe("Minor is not accepted on a migrated case");
-      expect(res.render.mock.calls[0][1].errorList).toEqual([{ text: "Minor is not accepted on a migrated case", href: "#reasons" }]);
+      expect(res.render.mock.calls[0][1].errors.reasons).toBe(REASONS_REFUSED);
+      expect(res.render.mock.calls[0][1].errorList).toEqual([{ text: REASONS_REFUSED, href: "#reasons" }]);
+    });
+
+    it("should show its own copy, not api's member names, when api refuses a reason this form offered", async () => {
+      // A deploy between the two halves of a change: this form offers a member the running api does not know yet.
+      const apiWording = "reasons names no referral reason: 'MinorNoStepparentConsent'. One of Minor, DomesticAbuse, Other";
+      vi.mocked(createReferral).mockRejectedValue(new InvalidInputError("Request body is not valid", [{ field: "reasons", message: apiWording }]));
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = response();
+
+      await POST(request(COMPLETE), res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.render.mock.calls[0][1].errorList).toEqual([{ text: REASONS_REFUSED, href: "#reasons" }]);
+      expect(JSON.stringify(res.render.mock.calls[0][1].errors)).not.toContain("MinorNoStepparentConsent");
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("MinorNoStepparentConsent"));
+      logged.mockRestore();
     });
 
     it("should show its own copy when api names a field this form has no control for", async () => {
