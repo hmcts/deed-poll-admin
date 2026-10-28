@@ -64,6 +64,10 @@ export function createBankHolidays() {
       holidays.set(date, name);
       return { status: 201, body: { date, name } };
     },
+    /** Whether a `yyyy-MM-dd` day is listed, for the referral windows' working days. */
+    has(date: string): boolean {
+      return holidays.has(date);
+    },
     /** True when the date was listed. A date that is not, or is not a calendar date, is api's 404. */
     remove(date: string): boolean {
       return isCalendarDate(date) && holidays.delete(date);

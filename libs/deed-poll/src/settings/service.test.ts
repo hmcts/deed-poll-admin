@@ -97,11 +97,14 @@ describe("settings/service", () => {
 
   describe("Masters", () => {
     it("should list the Masters with the caller's token", async () => {
-      vi.mocked(listMasters).mockResolvedValue({ ok: true, data: [MASTER] });
+      vi.mocked(listMasters).mockResolvedValue({
+        ok: true,
+        data: { masters: [{ ...MASTER, assignedInWindow: 0 }], window: { date: "2026-10-28", slot: "AM" }, cap: 10 }
+      });
 
       const result = await findMasters(CALLER);
 
-      expect(result).toEqual([MASTER]);
+      expect(result).toEqual([{ ...MASTER, assignedInWindow: 0 }]);
       expect(listMasters).toHaveBeenCalledWith(expect.objectContaining(CALLER));
     });
 

@@ -25,8 +25,9 @@ export function saveProcessSettings(input: UpdateProcessSettings, caller: Caller
   return callApi(caller, (config) => updateProcessSettings(input, config));
 }
 
-export function findMasters(caller: Caller): Promise<Master[]> {
-  return callApi(caller, (config) => listMasters(config));
+/** The Masters alone, for the settings page; api D2's window and cap beside them are the raise form's. */
+export async function findMasters(caller: Caller): Promise<Master[]> {
+  return (await callApi(caller, (config) => listMasters(config))).masters;
 }
 
 export function saveNewMaster(input: MasterCreate, caller: Caller): Promise<Master> {

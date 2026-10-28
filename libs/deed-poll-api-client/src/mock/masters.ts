@@ -17,8 +17,12 @@ const ALREADY_LINKED = "A judicial caller already linked to one Master has the e
  * and lower-cased so a duplicate is one in any case, a keyed patch at a revision whose stale check comes before the
  * no-op, and no delete. A changed email unlinks the entry. The linked IDAM subject is held here and never published,
  * as api's column is not, and a refusal never echoes the address.
+ *
+ * The referrals are the server's, so the referral side of linking and unlinking (plan D2) is its two callbacks:
+ * `linked` runs only when a link was written, as api's `attachToLinkedMaster` and `attachLegacyClaims` do, and
+ * `unlinked` when an email change cut a linked Master off, as `detachFromUnlinkedMaster` does.
  */
-export function createMasters() {
+export function createMasters(referrals: ReferralSide = { linked: () => {}, unlinked: () => {} }) {
   const masters = new Map<string, MockMaster>();
 
   return {
@@ -78,6 +82,7 @@ export function createMasters() {
 
       const updated: MockMaster = { ...master, ...next, revision: master.revision + 1, subject: emailChanged ? null : master.subject };
       masters.set(master.id, updated);
+      if (emailChanged && master.subject !== null) referrals.unlinked(master.id);
       return { status: 200, body: toWire(updated) };
     },
     /**
@@ -98,6 +103,15 @@ export function createMasters() {
         return;
       }
       masters.set(entry.id, { ...entry, subject: caller.subject });
+      referrals.linked(entry.id, caller.subject);
+    },
+    /**
+     * The Master a referral may be assigned to, or undefined for an id api would not find (not a UUID, or unknown).
+     * The subject is for the server to store on the referral and never to publish.
+     */
+    assignee(id: string): { id: string; name: string; available: boolean; subject: string | null } | undefined {
+      const master = UUID.test(id) ? masters.get(id.toLowerCase()) : undefined;
+      return master && { id: master.id, name: master.name, available: master.available, subject: master.subject };
     }
   };
 
@@ -154,6 +168,11 @@ interface MockMaster {
   revision: number;
   /** The linked IDAM subject, or null until the Master signs in. Never published. */
   subject: string | null;
+}
+
+interface ReferralSide {
+  linked(masterId: string, subject: string): void;
+  unlinked(masterId: string): void;
 }
 
 interface Reply {

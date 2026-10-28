@@ -6,13 +6,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { type ApiResult, DEED_POLL_STATE, getCase, listCases, listReferrals } from "../api/client.js";
 import { type RunningMockApi, startMockApi } from "../mock/server.js";
 import { seedDataset } from "./dataset.js";
-import { type SeedJournal, seedCases } from "./run.js";
+import { type SeedCredentials, type SeedJournal, seedCases } from "./run.js";
 import { seedJournalPath, seedTarget } from "./target.js";
 
 const DATE = "2026-10-02";
 const BATCH = "manual-test-01";
 const CASEWORKER = "mock-caseworker";
-const JUDGE = `x.${Buffer.from(JSON.stringify({ sub: "seed-judge" })).toString("base64url")}.signature`;
+/** The judge's Masters-list entry: since api D2 the seeder assigns referrals to it, and the judicial preflight links it. */
+const SEED_MASTER_EMAIL = "seed-judge@masters.test";
+const JUDGE = `x.${Buffer.from(JSON.stringify({ sub: "seed-judge", email: SEED_MASTER_EMAIL, roles: ["caseworker-deedpoll-judicial"] })).toString("base64url")}.signature`;
 const CREDENTIALS = { caseworkerToken: CASEWORKER, judgeToken: JUDGE };
 let mock: RunningMockApi | undefined;
 afterEach(async () => {
@@ -103,6 +105,7 @@ describe("representative dataset", () => {
 describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
   it("should seed and verify caseworker data without judicial requests, then resume those actions without duplicates", async () => {
     mock = await startMockApi();
+    const credentials = await credentialsFor(mock);
     const journal = newJournal(mock.url);
     const config = { baseUrl: mock.url, accessToken: CASEWORKER };
     const requests = vi.spyOn(globalThis, "fetch");
@@ -127,7 +130,7 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
     await seedCases(journal, caseworkerCredentials, persist, report, { deferJudicial: true });
     expect(journal.steps).toEqual(stepsBefore);
     expect(requests.mock.calls.some(([url]) => String(url).includes("/judicial/"))).toBe(false);
-    await seedCases(journal, CREDENTIALS, persist, report);
+    await seedCases(journal, credentials, persist, report);
     expect(journal.complete).toBe(true);
     expect(journal.deferredJudicial).toEqual([]);
     expect(journal.cases).toEqual(casesBefore);
@@ -153,12 +156,13 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
   });
   it("should create all states, preserve unrelated data and verify a repeat run without adding duplicates", async () => {
     mock = await startMockApi();
+    const credentials = await credentialsFor(mock);
     const existing = mock.seed({ newForename: "Existing", newSurname: "User" });
     const journal = newJournal(mock.url);
     const saved: SeedJournal[] = [];
     await seedCases(
       journal,
-      CREDENTIALS,
+      credentials,
       async () => {
         saved.push(structuredClone(journal));
       },
@@ -174,7 +178,7 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
     expect([...new Set(all.cases.map((row) => row.state))].sort()).toEqual([...DEED_POLL_STATE].sort());
     await seedCases(
       JSON.parse(JSON.stringify(journal)),
-      CREDENTIALS,
+      credentials,
       async () => {},
       () => {}
     );
@@ -182,7 +186,7 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
     await expect(
       seedCases(
         newJournal(mock.url),
-        CREDENTIALS,
+        credentials,
         async () => {},
         () => {}
       )
@@ -190,6 +194,7 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
   });
   it("should leave a lost create response pending and refuse to repeat it", async () => {
     mock = await startMockApi();
+    const credentials = await credentialsFor(mock);
     const destination = mock.url;
     const proxy = createServer(async (req, res) => {
       const chunks: Buffer[] = [];
@@ -215,7 +220,7 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
       await expect(
         seedCases(
           journal,
-          CREDENTIALS,
+          credentials,
           async () => {},
           () => {}
         )
@@ -225,7 +230,7 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
       await expect(
         seedCases(
           journal,
-          CREDENTIALS,
+          credentials,
           async () => {},
           () => {}
         )
@@ -237,6 +242,7 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
   });
   it("should refuse redirects rather than follow an explicitly selected API into another environment", async () => {
     mock = await startMockApi();
+    const credentials = await credentialsFor(mock);
     const destination = mock.url;
     let requests = 0;
     const redirect = createServer((_req, res) => {
@@ -251,7 +257,7 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
       await expect(
         seedCases(
           newJournal(`http://127.0.0.1:${address.port}`),
-          CREDENTIALS,
+          credentials,
           async () => {},
           () => {}
         )
@@ -267,7 +273,7 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
     await expect(
       seedCases(
         journal,
-        CREDENTIALS,
+        { ...CREDENTIALS, masterId: "unused" },
         async () => {},
         () => {}
       )
@@ -279,7 +285,7 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
     await expect(
       seedCases(
         journal,
-        CREDENTIALS,
+        { ...CREDENTIALS, masterId: "unused" },
         async () => {},
         () => {}
       )
@@ -289,11 +295,12 @@ describe("seed through the real adapter over HTTP", { timeout: 20_000 }, () => {
   });
   it("should persist a pending operation before writing so a lost checkpoint cannot silently duplicate data", async () => {
     mock = await startMockApi();
+    const credentials = await credentialsFor(mock);
     const journal = newJournal(mock.url);
     await expect(
       seedCases(
         journal,
-        CREDENTIALS,
+        credentials,
         async () => {
           throw new Error("Disk full");
         },
@@ -311,4 +318,16 @@ function newJournal(baseUrl: string): SeedJournal {
 function unwrap<T>(result: ApiResult<T>): T {
   if (!result.ok) throw new Error(result.error.kind);
   return result.data;
+}
+
+/** The fixture judge's Masters-list entry, added to this mock by a Delivery Manager, with credentials naming it. */
+async function credentialsFor(api: RunningMockApi): Promise<SeedCredentials> {
+  const manager = `x.${Buffer.from(JSON.stringify({ sub: "manager", roles: ["caseworker-deedpoll-delivery-manager"] })).toString("base64url")}.signature`;
+  const response = await fetch(`${api.url}/caseworker/masters`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${manager}`, "content-type": "application/json" },
+    body: JSON.stringify({ name: "Seed Judge", email: SEED_MASTER_EMAIL })
+  });
+  const { id } = (await response.json()) as { id: string };
+  return { ...CREDENTIALS, masterId: id };
 }

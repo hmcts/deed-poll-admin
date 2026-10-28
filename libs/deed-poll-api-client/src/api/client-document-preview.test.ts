@@ -10,15 +10,17 @@ import { DOCX_BYTES, JPEG_BYTES, PNG_BYTES, pdfPages, tiff } from "../mock/previ
 import { type RunningMockApi, startMockApi } from "../mock/server.js";
 import {
   type ApiConfig,
-  claimJudicialReferral,
   closeReferral,
   createCase,
+  createMaster,
   createReferral,
   DEFAULT_TIMEOUT_MS,
   DOCUMENT_PREVIEW_LIMITS,
   directJudicialReferral,
   downloadDocument,
   downloadJudicialDocument,
+  getJudicialMyReferrals,
+  listMasters,
   previewDocument,
   previewJudicialDocument,
   uploadDocument
@@ -154,21 +156,29 @@ describe("previewDocument against the mock", () => {
 });
 
 describe("previewJudicialDocument against the mock", () => {
-  it("should preview a document on an Open referral for any judge", async () => {
+  it("should preview a document on a referral assigned to this judge", async () => {
     const { caseId, documentId } = await caseWithDocument("image/tiff", tiff(2));
-    const referralId = await referralOn(caseId);
+    const referralId = await referralOn(caseId, JUDGE);
 
-    const result = await previewJudicialDocument(referralId, documentId, judge(ANOTHER_JUDGE));
+    const result = await previewJudicialDocument(referralId, documentId, judge(JUDGE));
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(pdfPages(await buffered(result.data.body))).toBe(2);
   });
 
-  it("should follow the referral's holder: the claimant may preview, another judge may not", async () => {
+  it("should refuse every judge a referral waiting for assignment", async () => {
     const { caseId, documentId } = await caseWithDocument("image/jpeg", JPEG_BYTES);
     const referralId = await referralOn(caseId);
-    await claimJudicialReferral(referralId, judge(JUDGE));
+
+    const result = await previewJudicialDocument(referralId, documentId, judge(JUDGE));
+
+    expect(result).toMatchObject({ ok: false, error: { kind: "not-found" } });
+  });
+
+  it("should follow the referral's Master: the assigned judge may preview, another judge may not", async () => {
+    const { caseId, documentId } = await caseWithDocument("image/jpeg", JPEG_BYTES);
+    const referralId = await referralOn(caseId, JUDGE);
 
     const holder = await previewJudicialDocument(referralId, documentId, judge(JUDGE));
     const other = await previewJudicialDocument(referralId, documentId, judge(ANOTHER_JUDGE));
@@ -180,8 +190,7 @@ describe("previewJudicialDocument against the mock", () => {
 
   it("should refuse every judge once the office closes the referral", async () => {
     const { caseId, documentId } = await caseWithDocument("image/jpeg", JPEG_BYTES);
-    const referralId = await referralOn(caseId);
-    await claimJudicialReferral(referralId, judge(JUDGE));
+    const referralId = await referralOn(caseId, JUDGE);
     await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
     await closeReferral(caseId, referralId, config);
 
@@ -192,7 +201,7 @@ describe("previewJudicialDocument against the mock", () => {
 
   it("should report not-found for a document that is not on the referral's application", async () => {
     const { documentId } = await caseWithDocument("image/png", PNG_BYTES);
-    const referralId = await referralOn(await newCase());
+    const referralId = await referralOn(await newCase(), JUDGE);
 
     const result = await previewJudicialDocument(referralId, documentId, judge(JUDGE));
 
@@ -201,7 +210,7 @@ describe("previewJudicialDocument against the mock", () => {
 
   it("should carry the converter's refusal on the judicial surface too, with the original still downloadable", async () => {
     const { caseId, documentId } = await caseWithDocument(DOCX, DOCX_BYTES);
-    const referralId = await referralOn(caseId);
+    const referralId = await referralOn(caseId, JUDGE);
     mock.setScenario("preview-converter-unavailable");
 
     const preview = await previewJudicialDocument(referralId, documentId, judge(JUDGE));
@@ -585,11 +594,31 @@ async function caseWithDocument(mimeType: string, bytes: Buffer, name = "documen
   return { caseId, documentId: uploaded.data.id };
 }
 
-async function referralOn(caseId: string): Promise<string> {
-  const created = await createReferral(caseId, { reasons: ["Minor"] }, config);
+/** A referral on the case, assigned to the Master entry for `subject` when one is named (api D2), else waiting. */
+async function referralOn(caseId: string, subject?: string): Promise<string> {
+  const masterId = subject === undefined ? undefined : await masterFor(subject);
+  const created = await createReferral(caseId, { reasons: ["Minor"], masterId }, config);
   if (!created.ok) throw new Error(`referral was not created: ${created.error.message}`);
 
   return created.data.id;
+}
+
+/** The Master entry for `subject`, created and linked by the judge's first judicial request on first use. */
+async function masterFor(subject: string): Promise<string> {
+  const email = `${subject.toLowerCase().replace(/[^a-z0-9]/g, "-")}@masters.test`;
+  const manager = { ...config, accessToken: token({ sub: "manager-1", roles: ["caseworker-deedpoll-delivery-manager"] }) };
+  const listed = await listMasters(manager);
+  const known = listed.ok ? listed.data.masters.find((master) => master.email === email) : undefined;
+  if (known) return known.id;
+  const created = await createMaster({ name: subject, email }, manager);
+  if (!created.ok) throw new Error(`Master was not created: ${created.error.message}`);
+  await getJudicialMyReferrals({}, { ...config, accessToken: token({ sub: subject, email, roles: ["caseworker-deedpoll-judicial"] }) });
+
+  return created.data.id;
+}
+
+function token(claims: Record<string, unknown>): string {
+  return `x.${Buffer.from(JSON.stringify(claims), "utf8").toString("base64url")}.signature`;
 }
 
 function judge(subject: string): ApiConfig {

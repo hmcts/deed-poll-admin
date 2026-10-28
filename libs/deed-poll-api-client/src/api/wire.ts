@@ -60,6 +60,9 @@ export const DOCUMENT_DIRECTION = ["Incoming", "Outgoing"] as const;
  */
 export const REFERRAL_STATE = ["Open", "Claimed", "Decided", "Closed", "Withdrawn"] as const;
 
+/** The morning or afternoon referral window of a working day, as api's `WindowSlot` declares it (plan D2). */
+export const WINDOW_SLOT = ["AM", "PM"] as const;
+
 /**
  * Why a case is referred to the judiciary, as api's `ReferralReason` declares it.
  *
@@ -319,6 +322,12 @@ const documentSchema = z.object({
   modifiedOn: wireDateTime.nullish()
 });
 
+/** The Master a referral is assigned to, as api's `AssignedMasterResponse`: the id and the name it was assigned under. */
+const assignedMasterSchema = z.object({
+  id: z.string(),
+  name: z.string().nullish()
+});
+
 /**
  * One referral of a case to the judiciary, as the caseworker surface publishes it.
  *
@@ -361,6 +370,14 @@ const referralSchema = z.object({
   // Set when the judge changes or withdraws their direction, and never cleared: the caseworker's cue that the
   // direction they may already have acted on is not the one first given.
   directionChangedAt: wireDateTime.nullish(),
+  // Plan D2: who it is assigned to (never the subject or the email), when, the window it counts towards for the
+  // cap, and when the Master's direction is due. `directionDueBy` is api's to compute from the processing window
+  // as it is set now, so nothing here adds the window to `assignedAt`.
+  assignedMaster: assignedMasterSchema.nullish(),
+  assignedAt: wireDateTime.nullish(),
+  windowDate: z.iso.date().nullish(),
+  windowSlot: z.enum(WINDOW_SLOT).nullish(),
+  directionDueBy: wireDateTime.nullish(),
   confirmationRequestedAt: wireDateTime.nullish(),
   confirmationOutcome: z.enum(CONFIRMATION_OUTCOME).nullish(),
   confirmationReceivedAt: wireDateTime.nullish(),
@@ -563,11 +580,13 @@ const updateWitnessSchema = createWitnessSchema.partial();
  * message against the field — a schema that refused the pair would be a second authority on a rule api
  * already enforces, and `deed-poll-validation.ts` is where this repo's copies of api's rules live.
  *
- * No `state`, no `migrated` and no assignee: the state of a new referral is always `Open`, there is no target
- * judge — who picks a referral up is a later transition — and api ignores all three rather than refusing them.
+ * No `state` and no `migrated`: the state comes from the assignment, and api ignores both rather than refusing them.
+ * `masterId` assigns the referral to that Master as it is raised (plan D2); without it the referral is `Open`,
+ * waiting for assignment. An unknown or unavailable Master is api's 400 on `masterId`, and the per-Master cap its 409.
  */
 const createReferralSchema = z.object({
   reasons: z.array(z.enum(REFERRAL_REASON)).min(1),
+  masterId: z.uuid().optional(),
   notes: z.string().max(1000).optional(),
   urgency: z.enum(URGENCY).optional(),
   urgencyReason: z.string().max(500).optional()
@@ -736,7 +755,10 @@ const judicialReferralSummarySchema = z.object({
   notes: z.string().nullish(),
   urgency: z.enum(URGENCY).nullish(),
   urgencyReason: z.string().nullish(),
-  createdOn: wireDateTime.nullish()
+  createdOn: wireDateTime.nullish(),
+  // Plan D2. `assignedAt` is null for a claim made before assignment existed; `directionDueBy` once directed.
+  assignedAt: wireDateTime.nullish(),
+  directionDueBy: wireDateTime.nullish()
 });
 
 /**
@@ -1121,6 +1143,41 @@ const updateMasterSchema = z
   .strict()
   .refine((patch) => patch.name !== undefined || patch.email !== undefined || patch.available !== undefined);
 
+/**
+ * One row of `GET /caseworker/masters` since plan D2: the Master and `assignedInWindow`, how many referrals they are
+ * assigned in the current window, against the envelope's cap. A `long` on api's record, so never null.
+ */
+const masterListEntrySchema = masterSchema.extend({
+  assignedInWindow: z.number().int().nonnegative()
+});
+
+/**
+ * A referral window, as api's `ReferralWindowResponse`: a working day in `Europe/London` and its morning or afternoon.
+ * `date` stays the `yyyy-MM-dd` string, as a bank holiday's does.
+ */
+const referralWindowSchema = z.object({
+  date: z.iso.date(),
+  slot: z.enum(WINDOW_SLOT)
+});
+
+/**
+ * The Masters list with the current window's load: every Master, the window a referral assigned now counts towards,
+ * and the per-Master cap. `window` is a nested record and so nullable, as `JudicialReferralDetail.application` is.
+ */
+const masterListSchema = z.object({
+  masters: z.array(masterListEntrySchema),
+  window: referralWindowSchema.nullish(),
+  cap: z.number().int()
+});
+
+/**
+ * Assign a referral to a Master, or move it to another (plan D2). Published `additionalProperties: true`, like every
+ * write body but the email ones, so not strict.
+ */
+const assignReferralSchema = z.object({
+  masterId: z.uuid()
+});
+
 /** The bank holiday name's bound, pinned to `CreateBankHolidayRequest` by `contract.test.ts`. */
 export const BANK_HOLIDAY_LIMITS = { maxNameLength: 200 } as const;
 
@@ -1279,6 +1336,11 @@ export const WIRE_SCHEMAS = {
   ProcessSettingsResponse: processSettingsSchema,
   UpdateProcessSettingsRequest: updateProcessSettingsSchema,
   MasterResponse: masterSchema,
+  MasterListEntryResponse: masterListEntrySchema,
+  MasterListResponse: masterListSchema,
+  ReferralWindowResponse: referralWindowSchema,
+  AssignedMasterResponse: assignedMasterSchema,
+  AssignReferralRequest: assignReferralSchema,
   CreateMasterRequest: createMasterSchema,
   UpdateMasterRequest: updateMasterSchema,
   BankHolidayResponse: bankHolidaySchema,
@@ -1361,6 +1423,13 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   GazetteSettingsResponse: ["revision"],
   ProcessSettingsResponse: ["referralClaimExpiryMinutes", "reminderIntervalHours", "masterWindowCap", "revision"],
   MasterResponse: ["id", "available", "linked", "revision"],
+  MasterListEntryResponse: ["id", "available", "linked", "revision", "assignedInWindow"],
+  // `cap` is an `int` and `masters` a `toList()`. `window` is a nested record, not pinned for `application`'s reason.
+  MasterListResponse: ["masters", "cap"],
+  // The window's day and slot are both set on every window api computes, and `date` is a key as a bank holiday's is.
+  ReferralWindowResponse: ["date", "slot"],
+  // `id` by choice, as every other id here is.
+  AssignedMasterResponse: ["id"],
   // `date` is the row's key, and the removal's path segment, so it is strict for the reason an id is.
   BankHolidayResponse: ["date"],
   GazetteNoticeBatchResponse: ["caseCount", "referenceNumbers", "referencesTruncated"],
@@ -1480,6 +1549,10 @@ export type WireUpdateGazetteSettings = z.infer<typeof updateGazetteSettingsSche
 export type WireProcessSettings = z.infer<typeof processSettingsSchema>;
 export type WireUpdateProcessSettings = z.infer<typeof updateProcessSettingsSchema>;
 export type WireMaster = z.infer<typeof masterSchema>;
+export type WireMasterListEntry = z.infer<typeof masterListEntrySchema>;
+export type WireMasterList = z.infer<typeof masterListSchema>;
+export type WireReferralWindow = z.infer<typeof referralWindowSchema>;
+export type WireAssignReferral = z.input<typeof assignReferralSchema>;
 export type WireMasterCreate = z.input<typeof createMasterSchema>;
 export type WireMasterUpdate = z.input<typeof updateMasterSchema>;
 export type WireBankHoliday = z.infer<typeof bankHolidaySchema>;

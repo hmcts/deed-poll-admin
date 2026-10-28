@@ -1018,8 +1018,14 @@
             },
             "description": "Created"
           },
+          "400": {
+            "description": "The body is not valid, each field's error named; or masterId names no Master, or one who is not available: \"Select a Master who is available\"."
+          },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "The case already has a referral that is not closed or withdrawn; or the Master already holds the per-Master cap for the current referral window, with an error on masterId: \"This Master already has 10 referrals for the morning of 28 October 2026. Choose another Master.\" The window is the morning or afternoon of a working day in Europe/London; outside the windows a referral counts towards the next one."
           }
         },
         "tags": ["caseworker-referral-controller"]
@@ -1059,6 +1065,61 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "tags": ["caseworker-referral-controller"]
+      }
+    },
+    "/caseworker/cases/{id}/referrals/{referralId}/assignment": {
+      "put": {
+        "operationId": "assign",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "referralId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignReferralRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "description": "masterId names no Master, or one who is not available: \"Select a Master who is available\"."
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "The referral is not waiting for a direction (it is Decided, Closed or Withdrawn); or the Master already holds the per-Master cap for the current referral window, with an error on masterId: \"This Master already has 10 referrals for the morning of 28 October 2026. Choose another Master.\" The window is the morning or afternoon of a working day in Europe/London; outside the windows a referral counts towards the next one."
           }
         },
         "tags": ["caseworker-referral-controller"]
@@ -1893,17 +1954,14 @@
     },
     "/caseworker/masters": {
       "get": {
-        "description": "Any deed poll staff role. Every Master, available or not, ordered by name and then id. linked says whether the Master has signed in and been linked to their IDAM account; the account itself is never published.",
+        "description": "Any deed poll staff role. Every Master, available or not, ordered by name and then id. linked says whether the Master has signed in and been linked to their IDAM account; the account itself is never published. window is the referral window a referral assigned now counts towards (Europe/London: today's morning or afternoon, or the next working day's morning outside the windows), cap is how many referrals one Master may be assigned per window, and each Master's assignedInWindow is their count in that window.",
         "operationId": "listMasters",
         "responses": {
           "200": {
             "content": {
               "*/*": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/MasterResponse"
-                  }
+                  "$ref": "#/components/schemas/MasterListResponse"
                 }
               }
             },
@@ -2321,6 +2379,8 @@
     },
     "/judicial/referrals": {
       "get": {
+        "deprecated": true,
+        "description": "Deprecated: referrals are assigned to a Master by the office, so no judge can see a referral waiting for assignment and this always answers an empty page, with a total of 0. Kept for one release for the admin that still calls it; a later release removes it. Use GET /judicial/referrals/mine.",
         "operationId": "pool",
         "parameters": [
           {
@@ -2355,6 +2415,7 @@
             "$ref": "#/components/responses/Forbidden"
           }
         },
+        "summary": "The former shared pool, now always empty",
         "tags": ["judicial-referral-controller"]
       }
     },
@@ -2399,7 +2460,7 @@
     },
     "/judicial/referrals/{referralId}": {
       "get": {
-        "description": "Requires the judicial role. The referral and the application as a Master sees it: the reference, the new and old names, the type, the nationality and section, a minor's parents, and the documents a download would serve. No case id, contact details, witnesses or case notes. Recorded as CASE_VIEWED. 404, in the words an unknown id gets, for a referral this judge may not see: one held or directed by another judge, and every referral once it is closed or withdrawn.",
+        "description": "Requires the judicial role. The referral and the application as a Master sees it: the reference, the new and old names, the type, the nationality and section, a minor's parents, and the documents a download would serve. No case id, contact details, witnesses or case notes. Recorded as CASE_VIEWED. 404, in the words an unknown id gets, for a referral this judge may not see: one waiting for assignment, one assigned to or directed by another judge, and every referral once it is closed or withdrawn. Opening it does not extend the processing window.",
         "operationId": "referral",
         "parameters": [
           {
@@ -2432,6 +2493,8 @@
     },
     "/judicial/referrals/{referralId}/claim": {
       "post": {
+        "deprecated": true,
+        "description": "Deprecated: referrals are assigned to a Master by the office. A referral waiting for assignment is visible to no judge, so this is 404 for it, and 409 for a referral already assigned to this judge. Kept for one release for the admin that still calls it; a later release removes it.",
         "operationId": "claim",
         "parameters": [
           {
@@ -2458,6 +2521,7 @@
             "$ref": "#/components/responses/Forbidden"
           }
         },
+        "summary": "Claim a referral from the former shared pool",
         "tags": ["judicial-referral-controller"]
       }
     },
@@ -2504,7 +2568,7 @@
         "tags": ["judicial-referral-controller"]
       },
       "put": {
-        "description": "Requires the judicial role. Permitted while the referral is Decided and this judge directed it, which is until the office closes it; a visible referral that is not their direction (the pool, or their own claim) is 409, and a closed one is 404. Takes the direction POST's body and refuses it in the same words (400). Replaces the decision, directionsText and changesToStandardPublication, moves decisionDate to now, keeps decidedBy as first signed, and sets directionChangedAt. The original direction stays on the audit trail; the caseworker is told by a case note and directionChangedAt.",
+        "description": "Requires the judicial role. Permitted while the referral is Decided and this judge directed it, which is until the office closes it; a visible referral that is not their direction (their own undirected one) is 409, and a closed one is 404. Takes the direction POST's body and refuses it in the same words (400). Replaces the decision, directionsText and changesToStandardPublication, moves decisionDate to now, keeps decidedBy as first signed, and sets directionChangedAt. The original direction stays on the audit trail; the caseworker is told by a case note and directionChangedAt.",
         "operationId": "reviseDirection",
         "parameters": [
           {
@@ -2547,7 +2611,7 @@
     },
     "/judicial/referrals/{referralId}/direction/withdraw": {
       "post": {
-        "description": "Requires the judicial role. No body. Permitted while the referral is Decided and this judge directed it; otherwise 409, or 404 once closed. The referral returns to Claimed, held by the same judge, with the decision, directionsText, changesToStandardPublication, decisionDate and decidedBy cleared, and directionChangedAt set. The judge directs again with POST .../direction. A withdrawn direction is a live claim again: if the judge does not direct it within the claim's inactivity window, the inactivity sweep returns it to the shared pool, where any judge may claim it.",
+        "description": "Requires the judicial role. No body. Permitted while the referral is Decided and this judge directed it; otherwise 409, or 404 once closed. The referral returns to Claimed, held by the same judge, with the decision, directionsText, changesToStandardPublication, decisionDate and decidedBy cleared, and directionChangedAt set. The judge directs again with POST .../direction. Withdrawing restarts the processing window: assignedAt becomes now, and directionDueBy moves with it. If the judge does not direct it within the window, it is returned to the office for assignment like any other.",
         "operationId": "withdrawDirection",
         "parameters": [
           {
@@ -2580,7 +2644,7 @@
     },
     "/judicial/referrals/{referralId}/documents/{documentId}/file": {
       "get": {
-        "description": "Requires the judicial role. The documentId is one of the referral's application.documents. Any judge may open the documents of an Open referral, the holder those of a Claimed one and the directing judge those of a Decided one. Recorded as DOCUMENT_DOWNLOADED before the file is opened, and refused if that cannot be recorded. Served with the caseworker download's headers: the recorded MIME type, its disposition and Cache-Control: no-store. 404 for a referral this judge may not see, and for a document that is not this referral's case's or has no readable file.",
+        "description": "Requires the judicial role. The documentId is one of the referral's application.documents. The assigned Master may open the documents of a Claimed referral and the directing judge those of a Decided one. Recorded as DOCUMENT_DOWNLOADED before the file is opened, and refused if that cannot be recorded. Served with the caseworker download's headers: the recorded MIME type, its disposition and Cache-Control: no-store. 404 for a referral this judge may not see, and for a document that is not this referral's case's or has no readable file.",
         "operationId": "document",
         "parameters": [
           {
@@ -2622,7 +2686,7 @@
     },
     "/judicial/referrals/{referralId}/documents/{documentId}/preview": {
       "get": {
-        "description": "Requires the judicial role. The documentId is one of the referral's application.documents, and who may preview it is exactly who may download it from /file: any judge for an Open referral, the holder for a Claimed one and the directing judge for a Decided one. A read-only rendition as one complete PDF; the original stays on /file, unchanged. PDF passes through after checks, JPEG and PNG become one page, a TIFF one page per frame in order (a JPEG-compressed TIFF, Compression 6 or 7, is deliberately not previewed and answers PREVIEW_INVALID_DOCUMENT), and DOCX is converted. Recorded as DOCUMENT_PREVIEWED, not DOCUMENT_DOWNLOADED, once per request before the original is opened, and refused if that cannot be recorded. 404 for a referral this judge may not see, and for a document that is not this referral's case's or has no readable file. No range support: a Range header is ignored and the whole PDF is sent. A preview that is not produced is one of four fixed codes, and leaves /file working.",
+        "description": "Requires the judicial role. The documentId is one of the referral's application.documents, and who may preview it is exactly who may download it from /file: the assigned Master for a Claimed referral and the directing judge for a Decided one. A read-only rendition as one complete PDF; the original stays on /file, unchanged. PDF passes through after checks, JPEG and PNG become one page, a TIFF one page per frame in order (a JPEG-compressed TIFF, Compression 6 or 7, is deliberately not previewed and answers PREVIEW_INVALID_DOCUMENT), and DOCX is converted. Recorded as DOCUMENT_PREVIEWED, not DOCUMENT_DOWNLOADED, once per request before the original is opened, and refused if that cannot be recorded. 404 for a referral this judge may not see, and for a document that is not this referral's case's or has no readable file. No range support: a Range header is ignored and the whole PDF is sent. A preview that is not produced is one of four fixed codes, and leaves /file working.",
         "operationId": "previewReferralDocument",
         "parameters": [
           {
@@ -2842,6 +2906,29 @@
             "items": {
               "$ref": "#/components/schemas/FieldError"
             }
+          }
+        }
+      },
+      "AssignReferralRequest": {
+        "additionalProperties": true,
+        "description": "Assigns the referral to a Master, or moves it to another. Any caseworker, while the referral is Open (waiting for assignment) or Claimed (waiting for a direction). The Master it already has is a no-op that records nothing. A reassignment restarts the Master's processing window, and the referral counts towards the new Master's cap in the current window.",
+        "properties": {
+          "masterId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The Masters-list entry to assign the referral to. An unknown or unavailable Master is a 400 on masterId: \"Select a Master who is available\"."
+          }
+        },
+        "required": ["masterId"]
+      },
+      "AssignedMasterResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
           }
         }
       },
@@ -3702,8 +3789,13 @@
       },
       "CreateReferralRequest": {
         "additionalProperties": true,
-        "description": "A referral of the case to the judiciary, raised unclaimed into the shared pool. reasons is the only field required outright; notes is required when Other is among them, and urgencyReason when urgency is Urgent. The case comes from the path, the state is always Open, and there is no target judge -- who picks a referral up is a later transition -- so state, migrated and any assignee are ignored rather than refused, as any unknown key is. A case may hold many referrals over its lifetime but only one that is not closed or withdrawn, so a second live referral is a 409 rather than a 400.",
+        "description": "A referral of the case to a Master, assigned to the one masterId names or, without it, waiting for assignment. reasons is the only field required outright; notes is required when Other is among them, and urgencyReason when urgency is Urgent. The case comes from the path and the state from the assignment, so state and migrated are ignored rather than refused, as any unknown key is. A case may hold many referrals over its lifetime but only one that is not closed or withdrawn, so a second live referral is a 409 rather than a 400. A refused assignment refuses the whole create, and nothing is written.",
         "properties": {
+          "masterId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The Masters-list entry to assign the referral to. Optional: without it the referral is created Open, waiting for a caseworker to assign it. An unknown or unavailable Master is a 400 on masterId: \"Select a Master who is available\"."
+          },
           "notes": {
             "type": "string",
             "description": "The single free-text field: the explanation Other requires and the general referral note at once, rather than two near-identical fields. Trimmed, and a whitespace-only value counts as none.",
@@ -4462,6 +4554,11 @@
             "$ref": "#/components/schemas/JudicialApplicationView",
             "description": "The application behind the referral, resolved from it: the names, type, nationality, a minor's parents and its readable documents. Never a case id, contact details or case notes."
           },
+          "assignedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the referral was assigned to this Master, which starts the processing window; null for a claim made before assignment existed."
+          },
           "changesToStandardPublication": {
             "type": ["boolean", "null"],
             "description": "The Master's answer to \"Are there any changes to the standard publications in the Gazette?\": true for do not publish, or publish only as directionsText says; false for publish as standard; null until a direction exists."
@@ -4492,6 +4589,11 @@
             "type": ["string", "null"],
             "format": "date-time",
             "description": "When the judge last revised or withdrew their direction, or null if it stands as first given. Set by both and never cleared: a fact about the referral's history, and the earlier direction is on the audit trail."
+          },
+          "directionDueBy": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the Master's direction is due: the processing window's start plus its length as configured now. Null once directed."
           },
           "directionsText": {
             "type": "string"
@@ -4524,9 +4626,19 @@
       "JudicialReferralSummary": {
         "type": "object",
         "properties": {
+          "assignedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the referral was assigned to this Master, which starts the processing window; null for a claim made before assignment existed."
+          },
           "createdOn": {
             "type": "string",
             "format": "date-time"
+          },
+          "directionDueBy": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the Master's direction is due: the processing window's start plus its length as configured now. Null once directed."
           },
           "id": {
             "type": "string"
@@ -4550,6 +4662,58 @@
           },
           "urgencyReason": {
             "type": "string"
+          }
+        }
+      },
+      "MasterListEntryResponse": {
+        "type": "object",
+        "properties": {
+          "assignedInWindow": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many referrals the Master is assigned in the current window, against the cap."
+          },
+          "available": {
+            "type": "boolean",
+            "description": "Whether the Master may be assigned referrals. A Master who leaves is marked unavailable rather than deleted."
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "linked": {
+            "type": "boolean",
+            "description": "Whether the Master has signed in and so been linked to their IDAM account, by email."
+          },
+          "name": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Supply it with a change; a stale revision returns 409."
+          }
+        }
+      },
+      "MasterListResponse": {
+        "type": "object",
+        "properties": {
+          "cap": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many referrals one Master may be assigned per referral window."
+          },
+          "masters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MasterListEntryResponse"
+            }
+          },
+          "window": {
+            "$ref": "#/components/schemas/ReferralWindowResponse",
+            "description": "The referral window a referral assigned now counts towards: today's morning or afternoon, or the next working day's morning outside the windows."
           }
         }
       },
@@ -4720,6 +4884,16 @@
       "ReferralResponse": {
         "type": "object",
         "properties": {
+          "assignedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the referral was last assigned, which starts the Master's processing window; a reassignment restarts it. Null when it is not assigned."
+          },
+          "assignedMaster": {
+            "type": "null",
+            "$ref": "#/components/schemas/AssignedMasterResponse",
+            "description": "The Masters-list entry the referral is assigned to, as its id and the name it was assigned under, or null: an Open referral is waiting for assignment, and a referral claimed before assignment existed has none until that Master is listed and signs in. Kept once directed."
+          },
           "changesToStandardPublication": {
             "type": ["boolean", "null"],
             "description": "The Master's answer to \"Are there any changes to the standard publications in the Gazette?\": true for do not publish, or publish only as directionsText says; false for publish as standard; null until a direction exists."
@@ -4769,6 +4943,11 @@
             "format": "date-time",
             "description": "When the judge last revised or withdrew their direction, or null if it stands as first given. Set by both and never cleared: a fact about the referral's history, and the earlier direction is on the audit trail."
           },
+          "directionDueBy": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the referral is unassigned and returned to the office if the Master has given no direction: the start of the processing window plus its length as currently set. Only while the referral is Claimed; null otherwise."
+          },
           "directionsText": {
             "type": "string"
           },
@@ -4804,6 +4983,29 @@
           },
           "urgencyReason": {
             "type": "string"
+          },
+          "windowDate": {
+            "type": ["string", "null"],
+            "format": "date",
+            "description": "The working day, in Europe/London, whose referral window the assignment counts towards for the per-Master cap. Null when it is not assigned."
+          },
+          "windowSlot": {
+            "type": ["string", "null"],
+            "description": "The morning (AM) or afternoon (PM) of windowDate. Null when it is not assigned.",
+            "enum": ["AM", "PM"]
+          }
+        }
+      },
+      "ReferralWindowResponse": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "slot": {
+            "type": "string",
+            "enum": ["AM", "PM"]
           }
         }
       },

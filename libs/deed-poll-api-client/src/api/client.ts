@@ -54,6 +54,8 @@ import {
   type WireJudicialReferralSummary,
   type WireMaster,
   type WireMasterCreate,
+  type WireMasterList,
+  type WireMasterListEntry,
   type WireMasterUpdate,
   type WireNote,
   type WirePreviewGazette,
@@ -115,7 +117,9 @@ export {
   REFERRAL_REASON,
   REFERRAL_STATE,
   SORT_DIRECTION,
-  URGENCY
+  URGENCY,
+  // The two referral window halves, for the raise and assign forms' "for this morning" hints (plan D2).
+  WINDOW_SLOT
 } from "./wire.js";
 
 /**
@@ -296,9 +300,13 @@ export function updateProcessSettings(input: UpdateProcessSettings, config: ApiC
   });
 }
 
-/** Every Master, available or not, in api's order (name, then id). Any staff role may read it. */
-export function listMasters(config: ApiConfig): Promise<ApiResult<Master[]>> {
-  return request(config, "GET", "/caseworker/masters", WIRE_SCHEMAS.MasterResponse.array());
+/**
+ * Every Master, available or not, in api's order (name, then id), with the current referral window's load since
+ * plan D2: the window a referral assigned now counts towards, the per-Master cap and each Master's
+ * `assignedInWindow`. Any staff role may read it.
+ */
+export function listMasters(config: ApiConfig): Promise<ApiResult<MasterList>> {
+  return request(config, "GET", "/caseworker/masters", WIRE_SCHEMAS.MasterListResponse);
 }
 
 /** Delivery Manager only. An email another Master holds, in any case, is a 409. */
@@ -703,7 +711,7 @@ export function getReferral(caseId: string, referralId: string, config: ApiConfi
 }
 
 /**
- * Raise a referral, unclaimed into the shared pool. 201.
+ * Raise a referral, assigned to the Master `masterId` names or, without one, waiting for assignment. 201.
  *
  * `conflict` when the case already has a referral that is neither closed nor withdrawn — api allows many
  * referrals over a case's life but only one live at a time, and it answers 409 rather than 400 because a
@@ -711,6 +719,19 @@ export function getReferral(caseId: string, referralId: string, config: ApiConfi
  */
 export function createReferral(caseId: string, referral: ReferralCreate, config: ApiConfig): Promise<ApiResult<Referral>> {
   return request(config, "POST", `/caseworker/cases/${encodeURIComponent(caseId)}/referrals`, WIRE_SCHEMAS.ReferralResponse, referral);
+}
+
+/**
+ * Assign a referral to a Master, or move it to another (plan D2): any caseworker, while it is `Open` (waiting for
+ * assignment) or `Claimed` (waiting for a direction). The Master it already has is a no-op 200. A reassignment
+ * restarts the Master's processing window.
+ *
+ * `validation` with an error on `masterId` for an unknown or unavailable Master. `conflict` for a referral no longer
+ * waiting for a direction, and also for a Master at the cap, which alone carries an error on `masterId`: that field
+ * is the one way to tell the two apart, never api's prose.
+ */
+export function assignReferral(caseId: string, referralId: string, masterId: string, config: ApiConfig): Promise<ApiResult<Referral>> {
+  return request(config, "PUT", `${referralPath(caseId, referralId)}/assignment`, WIRE_SCHEMAS.ReferralResponse, { masterId });
 }
 
 /**
@@ -897,8 +918,9 @@ export function deselectSavedQuery(id: string, config: ApiConfig): Promise<ApiRe
 }
 
 /**
- * One page of the shared judicial pool: the referrals waiting to be picked up, urgent first then
- * longest-waiting.
+ * One page of the former shared judicial pool. **Deprecated by api since plan D2**: referrals are assigned by the
+ * office, so this always answers an empty page with a total of 0. Kept for api's one deprecated release; nothing
+ * should call it now, and it goes with the operation.
  *
  * The five judicial operations are a sibling namespace to the caseworker surface rather than a section of it,
  * which is why none of them takes a case id: api keys the judicial surface on the referral so a judge cannot
@@ -922,8 +944,9 @@ export function getJudicialPool(query: JudicialPoolQuery, config: ApiConfig): Pr
 }
 
 /**
- * One page of the referrals this judge has in hand: the ones they are holding, and the directions the office has
- * not yet actioned.
+ * One page of the referrals this judge has in hand: the ones assigned to them, and the directions the office has
+ * not yet actioned. Since plan D2 in api's `MINE_ORDER`: undirected before directed, urgent first among the
+ * undirected only, then oldest first, then the id.
  *
  * **`/mine` is a literal path segment and not a query parameter, and that is the security decision.** A
  * `?claimedBy=` would make whose list this is something a caller types, and a judge who typed a colleague's would
@@ -958,8 +981,8 @@ export function getJudicialMyReferrals(query: JudicialPoolQuery, config: ApiConf
  * One referral as the judge who may see it reads it: the referral, the application with its witnesses and
  * documents, and the application's timeline, in one call because they are one screen.
  *
- * `not-found` for a referral this judge may not see — an `Open` one is visible to any of them, a claimed or
- * decided one only to its holder — and indistinguishable from an id that never existed, so no referral is
+ * `not-found` for a referral this judge may not see — since plan D2 an `Open` one (waiting for assignment) is
+ * visible to none of them, an assigned or decided one only to its Master — and indistinguishable from an id that never existed, so no referral is
  * discoverable by watching status codes.
  */
 export function getJudicialReferral(referralId: string, config: ApiConfig): Promise<ApiResult<JudicialReferralDetail>> {
@@ -967,6 +990,9 @@ export function getJudicialReferral(referralId: string, config: ApiConfig): Prom
 }
 
 /**
+ * **Deprecated by api since plan D2**, kept for its one release: an `Open` referral is now visible to no judge, so
+ * this is `not-found` for it, and `conflict` for one already assigned to this judge. Nothing should call it now.
+ *
  * Pick a referral up out of the pool. No body — the sub-resource names the transition and the holder comes
  * from the token.
  *
@@ -1761,6 +1787,9 @@ export type UpdateGazetteSettings = WireUpdateGazetteSettings;
 export type ProcessSettings = WireProcessSettings;
 export type UpdateProcessSettings = WireUpdateProcessSettings;
 export type Master = WireMaster;
+export type MasterList = WireMasterList;
+export type MasterListEntry = WireMasterListEntry;
+export type ReferralWindow = NonNullable<MasterList["window"]>;
 export type MasterCreate = WireMasterCreate;
 export type MasterUpdate = WireMasterUpdate;
 export type BankHoliday = WireBankHoliday;

@@ -1,7 +1,7 @@
 import {
   type ApiConfig,
   type ApiResult,
-  claimJudicialReferral,
+  assignReferral,
   closeReferral,
   createCase,
   createNote,
@@ -31,11 +31,14 @@ export async function seedCases(
   if (journal.pending) throw new Error(`Uncertain write ${journal.pending}: reconcile it with the API before resuming; it will not be sent twice.`);
   if (!credentials.caseworkerToken) throw new Error("A caseworker/admin access token is required.");
   if (!options.deferJudicial && !credentials.judgeToken) throw new Error("A judicial access token is required unless judicial actions are deferred.");
+  // Since api D2 a judge sees only what is assigned to their Masters-list entry, so the judicial actions need it.
+  if (!options.deferJudicial && !credentials.masterId) throw new Error("The judge's Masters-list id is required unless judicial actions are deferred.");
   const config: ApiConfig = { baseUrl: target.baseUrl, accessToken: credentials.caseworkerToken };
   const judge: ApiConfig = { ...config, accessToken: credentials.judgeToken };
   const dataset = seedDataset(journal.batch, journal.asOf);
   const deferredJudicial: string[] = [];
-  // Authorisation failures must happen before any case is created, including the separate judicial credential.
+  // Authorisation failures must happen before any case is created, including the separate judicial credential. The
+  // judicial preflight is also the judge's first judicial request, which links them to their Masters-list entry.
   read(await listCases({ size: 1 }, config), "caseworker preflight");
   if (!options.deferJudicial) read(await getJudicialMyReferrals({ size: 1 }, judge), "judicial preflight");
   for (const item of dataset) await seedCase(item); // NOSONAR typescript:S9382 - case writes share one pending journal; Steve accepted 2026-10-26
@@ -74,8 +77,10 @@ export async function seedCases(
 
   async function seedReferral(plan: NonNullable<SeedCase["referral"]>, key: string, id: string): Promise<void> {
     const referral = await step(`${key}/referral`, () => createReferral(id, plan.create, config));
-    if (!options.deferJudicial && ["Claimed", "Decided", "Closed"].includes(plan.state)) {
-      await step(`${key}/claim`, () => claimJudicialReferral(referral.id, judge));
+    // Raised waiting for assignment and then assigned as its own step, so a deferred run leaves it `Open` and the
+    // resumed run assigns it. A journal from before api D2 holds `/claim` instead, which `completedReferralState` reads.
+    if (!options.deferJudicial && !Object.hasOwn(journal.steps, `${key}/claim`) && ["Claimed", "Decided", "Closed"].includes(plan.state)) {
+      await step(`${key}/assign`, () => assignReferral(id, referral.id, credentials.masterId ?? "", config));
     }
     if (!options.deferJudicial && ["Decided", "Closed"].includes(plan.state)) {
       await step(`${key}/direction`, () => directJudicialReferral(referral.id, plan.direction, judge));
@@ -137,7 +142,7 @@ function completedReferralState(journal: SeedJournal, key: string): ReferralStat
   if (Object.hasOwn(journal.steps, `${key}/close`)) return "Closed";
   if (Object.hasOwn(journal.steps, `${key}/withdraw`)) return "Withdrawn";
   if (Object.hasOwn(journal.steps, `${key}/direction`)) return "Decided";
-  if (Object.hasOwn(journal.steps, `${key}/claim`)) return "Claimed";
+  if (Object.hasOwn(journal.steps, `${key}/assign`) || Object.hasOwn(journal.steps, `${key}/claim`)) return "Claimed";
   return "Open";
 }
 
@@ -162,4 +167,6 @@ export interface SeedJournal {
 export interface SeedCredentials {
   caseworkerToken: string;
   judgeToken?: string;
+  /** The judge's Masters-list entry, which the claimed and directed referrals are assigned to (api D2). */
+  masterId?: string;
 }

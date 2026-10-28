@@ -169,9 +169,9 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 ## Implementation Steps
 
 ### Task 0: Contract and mock for assignment
-- [ ] Record the execution baseline in the execution notes.
-- [ ] Copy the chain's D2 spec and record its provenance; add failing `client.test.ts`, `contract.test.ts` and mock tests for every assignment rule.
-- [ ] Implement the adapter, the mock, the clock hook and the seed, run the seeder on a private-port mock, run the per-task checks, and record the results.
+- [x] Record the execution baseline in the execution notes.
+- [x] Copy the chain's D2 spec and record its provenance; add failing `client.test.ts`, `contract.test.ts` and mock tests for every assignment rule.
+- [x] Implement the adapter, the mock, the clock hook and the seed, run the seeder on a private-port mock, run the per-task checks, and record the results.
 
 ### Task 1: Raising with a Master
 - [ ] Add failing handler, schema and template tests for the Master radios, their hints, full and unavailable Masters, no Masters, a failed Masters read, and the cap 409.
@@ -193,3 +193,58 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [ ] Run all Validation Commands once more with `--force`, record the counts against the baseline, and confirm `git status` is clean apart from the task commits.
 
 ## Execution notes
+
+**Baseline (2026-10-28, branch `feat/d-referral-assignment` at `4b5cfac`, Da1 complete).** Full set green: format
+and lint clean, `yarn build --force` 8/8, suite 8/8 with Redis on 6379 (the Redis suites ran). app 3,239,
+deed-poll 1,701, api-client 1,314, cloud-native-platform 156, express-govuk-starter 132, simple-router 45,
+express-session-postgres 85, express-session-redis 7. (Da1's final note said app 3,227; its review-fix commit added 12.)
+
+**Task 0 (contract and mock for assignment).**
+- `/tmp/juniper-340/spec-d2.json` at api `41b238d` copied, Biome-formatted and parsed equal to the raw file; its
+  SHA-256 matched `spec-d2.meta`. Delta: one operation (`PUT …/assignment`) and five schemas added, nothing removed;
+  66 operations, 47 paths, 71 schemas. New top row in `SPEC-PROVENANCE.md`, D1's relabelled `Previous …`.
+- **One part of the delta reached beyond the plan's list:** `GET /caseworker/masters` now answers an envelope
+  (`MasterListResponse {masters, window, cap}`) rather than the bare array Da1's settings page read. `listMasters`
+  returns the envelope, and `findMasters` (`libs/deed-poll/src/settings/service.ts`) returns its `masters`, so the
+  settings page is unchanged. Task 1 needs the window and the cap and should add its own read.
+- Adapter: `assignReferral(caseId, referralId, masterId)`; `masterId` on `CreateReferralRequest`; `ReferralResponse`
+  gains `assignedMaster`, `assignedAt`, `windowDate`, `windowSlot`, `directionDueBy`; the judicial summary/detail gain
+  `assignedAt`, `directionDueBy`; new `WINDOW_SLOT` export and the `MasterList`, `MasterListEntry`,
+  `ReferralWindow` types. Strictness: `MasterListEntryResponse` adds `assignedInWindow`; `MasterListResponse` pins
+  `masters` and `cap` (`window` is a nested record, nullable as `application` is); `ReferralWindowResponse` both
+  fields; `AssignedMasterResponse` `id`. The pool and claim stay, documented as deprecated. `contract.test.ts` pins
+  `masterId`, the assignment's responses, the envelope, both deprecations, and that no referral schema publishes a
+  Master's subject or email.
+- Mock: `referral-windows.ts` (`windowFor`, `isWeekdayNotIn`, api's `ReferralWindows` restated, with 19 boundary,
+  BST/GMT, weekend, bank holiday and Christmas-run tests). In `server.ts`, api's checking order and words for the
+  raise with `masterId` (400 `Select a Master who is available` on `masterId`, then the cap's 409 on `masterId`
+  naming the window, nothing written on either) and for `PUT …/assignment` (body, Master, state 409, same-Master
+  no-op, cap). Notes `assigned to` / `reassigned from … to …`. `directionDueBy` from `assignedAt` (or `claimedAt`)
+  plus the processing window as set now. The Masters list's `window`, `cap` and `assignedInWindow`. `Open` is
+  visible to no judge, the pool is always empty, and `MINE_ORDER` is D2's. Linking attaches the referral side
+  (`attachToLinkedMaster`, `attachLegacyClaims`), an email change detaches it, and withdrawing a direction restarts
+  the window and keeps the cap's. `unassignOverdue` runs on the pool, `/mine` and the deprecated claim (api's three
+  request-time triggers) and on `POST /__mock/referrals/unassign-overdue`, writing api's
+  `returned to the office for assignment` note as `# svc_HMCTS_LCPT_Dev`. **Test-only clock:** `POST /__mock/clock
+  {offsetMinutes}` moves the referral clock (raise, assignment, claim, direction, window, cutoff) from real time;
+  reset returns it to zero. It is under `/__mock`, which only the mock serves.
+- New `assignment.test.ts` (33 cases over HTTP). `masters.test.ts` reads the envelope. `client.test.ts`,
+  `client-document-preview.test.ts` and `server.test.ts` (256, rewritten by a fork of this session) now put referrals
+  in a judge's hands by assignment; the pool, claim and lapse tests are rewritten to D2's rules, none deleted.
+- **One change beyond the plan, needed to keep the suite green:** the real-api seeder (`yarn seed:cases`) claimed
+  from the pool, which D2 makes a 404, and its tests run on this mock. It now raises each referral waiting for
+  assignment and assigns it as its own `/assign` step to `SEED_MASTER_ID` (the judge's Masters-list entry, required
+  unless `--defer-judicial`, refused before any request or lock). The judicial preflight links the judge. A journal
+  with a pre-D2 `/claim` step still resumes. A full `--create-test-users` run now needs the generated judge's email
+  added as a Master first. `docs/SEED-DATA.md` says so.
+- Seed (`yarn mock:seed`): the Masters are added before the referral phase; the two `Claimed` referrals are raised
+  with Master Judge (the judge persona's email), the directed and closed ones with Master Sullivan, whose seed
+  identity it links and directs as, and two stay `Open`. New read-backs: 2 waiting for assignment, 2 with a Master,
+  and only Sullivan linked. I ran it against a private mock on 3241: exit 0, 57 cases, 9 referrals (4 Decided, 2 with
+  Master Judge, 2 waiting), 3 Masters. A judge token with `Judge@example.com` then linked Master Judge and listed its
+  two, each with `directionDueBy`. A `--keep` re-run exited 0 and added no Master. `CLAUDE.md`'s `mock:seed` line
+  updated.
+- Tests were written alongside the code rather than run failing first.
+- Per-task checks: format and lint clean, `yarn build --force` 8/8. api-client 1,391 (+77), deed-poll 1,701, app
+  3,239 (run because the mock changed under it), all passing with Redis on 6379. The e2e journeys that claim from
+  the pool will fail against this mock until Task 4.

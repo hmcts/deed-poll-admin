@@ -34,6 +34,7 @@ const ARGV = process.argv;
 const EXIT_CODE = process.exitCode;
 const FILENAME = seedJournalPath("aat", "cli-test");
 const CREDENTIALS = { caseworkerToken: "fixture-caseworker-token", judgeToken: "fixture-judge-token" };
+const MASTER_ID = "fixture-master-id";
 
 const JOURNAL = {
   version: 1,
@@ -53,6 +54,7 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.stubEnv("SEED_CASEWORKER_TOKEN", "");
   vi.stubEnv("SEED_JUDGE_TOKEN", "");
+  vi.stubEnv("SEED_MASTER_ID", MASTER_ID);
   process.exitCode = 0;
   mocks.readFile.mockRejectedValue(Object.assign(new Error("missing"), { code: "ENOENT" }));
   mocks.open.mockResolvedValue({ close: mocks.close });
@@ -109,9 +111,15 @@ it.each([false, true])("should provision under the lock, forward options and per
     filename: `${FILENAME}.accounts.json`,
     deferJudicial
   });
-  expect(mocks.seed).toHaveBeenCalledWith(expect.objectContaining({ batch: "cli-test", asOf: "2026-10-02" }), CREDENTIALS, expect.any(Function), console.log, {
-    deferJudicial
-  });
+  expect(mocks.seed).toHaveBeenCalledWith(
+    expect.objectContaining({ batch: "cli-test", asOf: "2026-10-02" }),
+    { ...CREDENTIALS, masterId: MASTER_ID },
+    expect.any(Function),
+    console.log,
+    {
+      deferJudicial
+    }
+  );
   const operations = [mocks.open, mocks.reachable, mocks.readSecret, mocks.accounts, mocks.seed, mocks.writeFile, mocks.rename, mocks.close, mocks.unlink];
   const order = operations.map((operation) => operation.mock.invocationCallOrder[0]);
   expect(order).toEqual([...order].sort((a, b) => a - b));
@@ -161,10 +169,25 @@ it("should use supplied credentials without provisioning", async () => {
   await run("--apply", "--defer-judicial");
 
   expect(process.exitCode).toBe(0);
-  expect(mocks.seed).toHaveBeenCalledWith(expect.anything(), { ...CREDENTIALS, judgeToken: "" }, expect.any(Function), console.log, { deferJudicial: true });
+  expect(mocks.seed).toHaveBeenCalledWith(expect.anything(), { ...CREDENTIALS, judgeToken: "", masterId: MASTER_ID }, expect.any(Function), console.log, {
+    deferJudicial: true
+  });
   expect(mocks.reachable).not.toHaveBeenCalled();
   expect(mocks.readSecret).not.toHaveBeenCalled();
   expect(mocks.accounts).not.toHaveBeenCalled();
+});
+
+it("should refuse judicial actions without the judge's Masters-list id before taking the lock", async () => {
+  vi.stubEnv("SEED_MASTER_ID", "");
+
+  await run("--apply", "--create-test-users");
+
+  expect(process.exitCode).toBe(1);
+  expect(console.error).toHaveBeenCalledExactlyOnceWith(
+    "Set SEED_MASTER_ID to the judge's Masters-list id (api D2 assigns referrals to it), or select --defer-judicial before --apply."
+  );
+  expect(mocks.open).not.toHaveBeenCalled();
+  expect(mocks.seed).not.toHaveBeenCalled();
 });
 
 it("should retain an existing journal's completed operations when resuming", async () => {

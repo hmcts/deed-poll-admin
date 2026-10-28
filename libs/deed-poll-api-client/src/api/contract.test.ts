@@ -79,6 +79,7 @@ const IMPLEMENTED_OPERATIONS = [
   "POST /caseworker/cases/{id}/referrals/{referralId}/withdrawal",
   "POST /caseworker/cases/{id}/referrals/{referralId}/closure",
   "POST /caseworker/cases/{id}/referrals/{referralId}/confirmation",
+  "PUT /caseworker/cases/{id}/referrals/{referralId}/assignment",
   "GET /caseworker/document-types",
   "GET /caseworker/saved-queries",
   "POST /caseworker/saved-queries",
@@ -264,6 +265,35 @@ describe("openapi.json and the wire schemas", () => {
     }
     expect(spec.paths["/caseworker/process-settings/bank-holidays"].post.responses?.["201"]).toBeDefined();
     expect(spec.paths["/caseworker/process-settings/bank-holidays/{date}"].delete.responses?.["204"]).toBeDefined();
+  });
+
+  it("should publish api D2's assignment: masterId on the raise, the assignment write and its refusals", () => {
+    expect(spec.components.schemas.CreateReferralRequest.properties?.masterId).toMatchObject({ type: "string", format: "uuid" });
+    expect(spec.components.schemas.CreateReferralRequest.required).toEqual(["reasons"]);
+    expect(spec.components.schemas.AssignReferralRequest.required).toEqual(["masterId"]);
+    expect(spec.components.schemas.AssignReferralRequest.additionalProperties).toBe(true);
+    const assign = spec.paths["/caseworker/cases/{id}/referrals/{referralId}/assignment"].put;
+    expect(Object.keys(assign.responses ?? {}).sort()).toEqual(["200", "400", "403", "409"]);
+    expect(spec.paths["/caseworker/cases/{id}/referrals"].post.responses?.["409"]).toBeDefined();
+    expect(spec.paths["/caseworker/masters"].get.responses?.["200"]).toMatchObject({
+      content: { "*/*": { schema: { $ref: "#/components/schemas/MasterListResponse" } } }
+    });
+    expect(WIRE_SCHEMAS.CreateReferralRequest.safeParse({ reasons: ["Minor"], masterId: "sullivan" }).success).toBe(false);
+    expect(WIRE_SCHEMAS.AssignReferralRequest.safeParse({}).success).toBe(false);
+  });
+
+  it("should mark the former pool and the claim deprecated, kept for api's one release", () => {
+    expect(spec.paths["/judicial/referrals"].get.deprecated).toBe(true);
+    expect(spec.paths["/judicial/referrals/{referralId}/claim"].post.deprecated).toBe(true);
+  });
+
+  it("should publish no Master's subject or email on a referral, only the entry's id and name", () => {
+    expect(Object.keys(spec.components.schemas.AssignedMasterResponse.properties ?? {}).sort()).toEqual(["id", "name"]);
+    for (const name of ["ReferralResponse", "JudicialReferralSummary", "JudicialReferralDetail"]) {
+      for (const field of ["assignedMasterId", "assignedMasterEmail", "claimedById"]) {
+        expect(Object.keys(spec.components.schemas[name].properties ?? {}), name).not.toContain(field);
+      }
+    }
   });
 
   it("should no longer declare api's retired publishToGazette alias on any referral schema", () => {
@@ -514,6 +544,7 @@ describe("openapi.json and the wire schemas", () => {
       "CreateSavedQueryRequest",
       "UpdateSavedQueryRequest",
       "CreateReferralRequest",
+      "AssignReferralRequest",
       "RecordConfirmationRequest",
       "JudicialDirectionRequest",
       "PreviewEmailRequest",
@@ -769,6 +800,8 @@ interface OpenApiSpec {
  */
 interface OpenApiOperation {
   description?: string;
+  /** api D2's former pool and claim, kept for one release. */
+  deprecated?: boolean;
   /** Only on the two document previews. */
   "x-document-preview-limits"?: {
     maxOutputBytes?: number;

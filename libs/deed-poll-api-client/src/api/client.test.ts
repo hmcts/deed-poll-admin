@@ -13,6 +13,7 @@ import { type MockCase, type RunningMockApi, startMockApi } from "../mock/server
 import {
   type ApiConfig,
   addBankHoliday,
+  assignReferral,
   checkApiReachable,
   claimJudicialReferral,
   closeReferral,
@@ -39,6 +40,7 @@ import {
   getJudicialPool,
   getJudicialReferral,
   getNote,
+  getProcessSettings,
   getReferral,
   getSavedQuery,
   getWitness,
@@ -63,6 +65,7 @@ import {
   sendEmail,
   submitGazetteNotice,
   updateMaster,
+  updateProcessSettings,
   updateWitness,
   uploadDocument,
   withdrawDirection,
@@ -271,10 +274,19 @@ describe("the Masters list", () => {
     const result = await listMasters(caseworker());
 
     // Assert
-    expect(result.ok && result.data.map((master) => [master.name, master.available])).toEqual([
-      ["Master Adams", true],
-      ["Master Wren", false]
+    expect(result.ok && result.data.masters.map((master) => [master.name, master.available, master.assignedInWindow])).toEqual([
+      ["Master Adams", true, 0],
+      ["Master Wren", false, 0]
     ]);
+  });
+
+  it("should carry the current referral window and the cap beside the Masters", async () => {
+    // Act
+    const result = await listMasters(caseworker());
+
+    // Assert
+    expect(result.ok && result.data.cap).toBe(10);
+    expect(result.ok && result.data.window).toEqual({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), slot: expect.stringMatching(/^(AM|PM)$/) });
   });
 
   it("should patch a Master at its revision and refuse the same revision again with a conflict", async () => {
@@ -892,6 +904,63 @@ describe("referrals", () => {
     // Normal rather than storing none.
     expect(result.data).toMatchObject({ state: "Open", reasons: ["Minor"], notes: "For the Master", urgency: "Normal", migrated: false, claimedBy: null });
     expect(result.data.createdOn).toBeInstanceOf(Date);
+  });
+
+  it("should raise a referral assigned to the Master it names, with when the direction is due", async () => {
+    const id = await caseId();
+    const masterId = await masterFor("judge.a@example.com");
+
+    const result = await createReferral(id, { reasons: ["Minor"], masterId }, config);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toMatchObject({ state: "Claimed", assignedMaster: { id: masterId, name: "judge.a@example.com" }, windowSlot: expect.any(String) });
+    expect(result.data.assignedAt).toBeInstanceOf(Date);
+    expect(result.data.directionDueBy).toBeInstanceOf(Date);
+    expect(result.data.windowDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("should report an unknown Master as a validation failure on masterId", async () => {
+    const result = await createReferral(await caseId(), { reasons: ["Minor"], masterId: "00000000-0000-4000-8000-000000000000" }, config);
+
+    expect(!result.ok && result.error.kind).toBe("validation");
+    expect(!result.ok && result.error.fieldErrors?.map((error) => error.field)).toEqual(["masterId"]);
+  });
+
+  it("should assign a referral waiting for assignment, and move it to another Master", async () => {
+    const id = await caseId();
+    const referralId = await referralOn(id);
+    const first = await masterFor("judge.a@example.com");
+    const second = await masterFor("judge.b@example.com");
+
+    const assigned = await assignReferral(id, referralId, first, config);
+    const moved = await assignReferral(id, referralId, second, config);
+
+    expect(assigned.ok && assigned.data).toMatchObject({ state: "Claimed", assignedMaster: { id: first } });
+    expect(moved.ok && moved.data).toMatchObject({ state: "Claimed", assignedMaster: { id: second }, claimedBy: "judge.b@example.com" });
+  });
+
+  it("should tell the cap's conflict from a state conflict by its field error on masterId", async () => {
+    const directed = await decidedReferral();
+    const manager = { ...config, accessToken: roleToken("manager-1", ["caseworker-deedpoll-delivery-manager"]) };
+    const settings = await getProcessSettings(manager);
+    if (!settings.ok) throw new Error("no settings");
+    await updateProcessSettings(
+      { referralClaimExpiryMinutes: settings.data.referralClaimExpiryMinutes, masterWindowCap: 1, revision: settings.data.revision },
+      manager
+    );
+    const masterId = await masterFor("judge.a@example.com");
+    await referralOn(await caseId(), { reasons: ["Minor"], masterId });
+    const id = await caseId();
+    const waiting = await referralOn(id);
+
+    const full = await assignReferral(id, waiting, masterId, config);
+    const notWaiting = await assignReferral(directed.caseId, directed.referralId, masterId, config);
+
+    expect(!full.ok && full.error.kind).toBe("conflict");
+    expect(!full.ok && full.error.fieldErrors?.map((error) => error.field)).toEqual(["masterId"]);
+    expect(!notWaiting.ok && notWaiting.error.kind).toBe("conflict");
+    expect(!notWaiting.ok && notWaiting.error.fieldErrors).toBeUndefined();
   });
 
   it("should list every referral a case has had, not only the live one, and read one back by id", async () => {
@@ -1576,36 +1645,20 @@ describe("the judicial surface", () => {
   const JUDGE = "judge.a@example.com";
   const ANOTHER_JUDGE = "judge.b@example.com";
 
-  it("should offer the Open referrals of every case in one shared pool, urgent first", async () => {
+  it("should answer the deprecated pool with an empty page, whatever is waiting for assignment", async () => {
     await referralOn(await caseId(), { reasons: ["Minor"] });
-    const urgent = await referralOn(await caseId(), { reasons: ["DomesticAbuse"], urgency: "Urgent", urgencyReason: "Risk to the applicant" });
+    await referralOn(await caseId(), await toMaster(JUDGE));
 
     const result = await getJudicialPool({}, judge(JUDGE));
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.data.referrals[0]?.id).toBe(urgent);
-    // Ten rather than the case list's twenty-five, and a page size rather than a cap — `total` says how much
-    // work is waiting behind the page.
-    expect(result.data).toMatchObject({ page: 1, size: 10, total: 2, totalPages: 1 });
-  });
-
-  it("should page the pool, reporting the whole pool's total rather than the page's", async () => {
-    await referralOn(await caseId());
-    await referralOn(await caseId());
-
-    const result = await getJudicialPool({ page: 2, size: 1 }, judge(JUDGE));
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.data.referrals).toHaveLength(1);
-    expect(result.data).toMatchObject({ page: 2, size: 1, total: 2, totalPages: 2 });
+    // api D2: referrals are assigned by the office, so the former pool is always empty.
+    expect(result).toEqual({ ok: true, data: { referrals: [], page: 1, size: 10, total: 0, totalPages: 0 } });
   });
 
   it("should answer one referral with the narrow application view and no case notes", async () => {
     const id = await caseId({ newForename: "Jo", newSurname: "Bloggs" });
     await createNote(id, "Signature received", config);
-    const referralId = await referralOn(id);
+    const referralId = await referralOn(id, await toMaster(JUDGE));
 
     const result = await getJudicialReferral(referralId, judge(JUDGE));
 
@@ -1617,8 +1670,7 @@ describe("the judicial surface", () => {
   });
 
   it("should report not-found for a referral another judge holds, so no referral is discoverable", async () => {
-    const referralId = await referralOn(await caseId());
-    await claimJudicialReferral(referralId, judge(JUDGE));
+    const referralId = await referralOn(await caseId(), await toMaster(JUDGE));
 
     const result = await getJudicialReferral(referralId, judge(ANOTHER_JUDGE));
 
@@ -1627,23 +1679,18 @@ describe("the judicial surface", () => {
     expect(result.error.kind).toBe("not-found");
   });
 
-  it("should claim a referral out of the pool, recording the holder from the token", async () => {
+  it("should report not-found for claiming a referral waiting for assignment, which no judge may see", async () => {
     const referralId = await referralOn(await caseId());
 
     const result = await claimJudicialReferral(referralId, judge(JUDGE));
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.data).toMatchObject({ state: "Claimed", claimedBy: JUDGE });
-    expect(result.data.claimedAt).toBeInstanceOf(Date);
-    // Out of the pool as well as claimed: the pool is what the other judges are shown.
-    const pool = await getJudicialPool({}, judge(ANOTHER_JUDGE));
-    expect(pool.ok && pool.data.referrals).toEqual([]);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("not-found");
   });
 
-  it("should report conflict when claiming a referral that is not Open, which is what a second judge gets", async () => {
-    const referralId = await referralOn(await caseId());
-    await claimJudicialReferral(referralId, judge(JUDGE));
+  it("should report conflict when claiming a referral already assigned to this judge, on the deprecated claim", async () => {
+    const referralId = await referralOn(await caseId(), await toMaster(JUDGE));
 
     const result = await claimJudicialReferral(referralId, judge(JUDGE));
 
@@ -1653,8 +1700,7 @@ describe("the judicial surface", () => {
   });
 
   it("should record a direction on a referral this judge holds, stamping the decision date and the decider", async () => {
-    const referralId = await referralOn(await caseId());
-    await claimJudicialReferral(referralId, judge(JUDGE));
+    const referralId = await referralOn(await caseId(), await toMaster(JUDGE));
 
     const result = await directJudicialReferral(
       referralId,
@@ -1674,10 +1720,9 @@ describe("the judicial surface", () => {
     expect(result.data.decisionDate).toBeInstanceOf(Date);
   });
 
-  it("should report conflict for a direction on a referral this judge can see but does not hold", async () => {
-    // An Open referral is in the pool, so it is visible — and directing one nobody has claimed is the
-    // conflict, not a 404.
-    const referralId = await referralOn(await caseId());
+  it("should report conflict for a second direction on a referral this judge has already directed", async () => {
+    // Visible, because they directed it, and no longer waiting for a direction: the conflict, not a 404.
+    const referralId = await decidedBy(JUDGE);
 
     const result = await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
 
@@ -1689,8 +1734,7 @@ describe("the judicial surface", () => {
   it("should report not-found for a direction on a referral claimed by another judge, not conflict", async () => {
     // The visibility check runs first, so a referral this judge may not see is absent rather than contested —
     // otherwise a 409 would tell them somebody else holds it.
-    const referralId = await referralOn(await caseId());
-    await claimJudicialReferral(referralId, judge(JUDGE));
+    const referralId = await referralOn(await caseId(), await toMaster(JUDGE));
 
     const result = await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(ANOTHER_JUDGE));
 
@@ -1700,8 +1744,7 @@ describe("the judicial surface", () => {
   });
 
   it("should report a decision api does not publish as a validation failure against the field", async () => {
-    const referralId = await referralOn(await caseId());
-    await claimJudicialReferral(referralId, judge(JUDGE));
+    const referralId = await referralOn(await caseId(), await toMaster(JUDGE));
 
     const result = await directJudicialReferral(referralId, { decision: "Maybe" as never, changesToStandardPublication: false }, judge(JUDGE));
 
@@ -1712,15 +1755,11 @@ describe("the judicial surface", () => {
   });
 
   it("should answer this judge's own claimed and decided referrals, and no other judge's", async () => {
-    const claimed = await referralOn(await caseId());
-    await claimJudicialReferral(claimed, judge(JUDGE));
-    const decided = await referralOn(await caseId());
-    await claimJudicialReferral(decided, judge(JUDGE));
-    await directJudicialReferral(decided, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
-    // The two exclusions that make this a personal list rather than a second pool.
+    const claimed = await referralOn(await caseId(), await toMaster(JUDGE));
+    const decided = await decidedBy(JUDGE);
+    // The two exclusions that make this a personal list: waiting for assignment, and another Master's.
     const open = await referralOn(await caseId());
-    const theirs = await referralOn(await caseId());
-    await claimJudicialReferral(theirs, judge(ANOTHER_JUDGE));
+    const theirs = await referralOn(await caseId(), await toMaster(ANOTHER_JUDGE));
 
     const result = await getJudicialMyReferrals({}, judge(JUDGE));
 
@@ -1735,8 +1774,8 @@ describe("the judicial surface", () => {
   it("should encode the page and the size on the literal path, and send neither when it asks for neither", async () => {
     // The whole operation this adapter contributes is a path and two parameters, so the path is what there is to
     // get wrong: `/judicial/referrals/mine` and never `/judicial/referrals?mine`, and never an owner parameter.
-    await claimJudicialReferral(await referralOn(await caseId()), judge(JUDGE));
-    await claimJudicialReferral(await referralOn(await caseId()), judge(JUDGE));
+    await referralOn(await caseId(), await toMaster(JUDGE));
+    await referralOn(await caseId(), await toMaster(JUDGE));
 
     const paged = await getJudicialMyReferrals({ page: 2, size: 1 }, judge(JUDGE));
     const unpaged = await getJudicialMyReferrals({}, judge(JUDGE));
@@ -1804,8 +1843,7 @@ describe("the judicial surface", () => {
   });
 
   it("should report conflict for changing a direction on a referral this judge holds but has not directed", async () => {
-    const referralId = await referralOn(await caseId());
-    await claimJudicialReferral(referralId, judge(JUDGE));
+    const referralId = await referralOn(await caseId(), await toMaster(JUDGE));
 
     const result = await reviseDirection(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
 
@@ -1836,10 +1874,9 @@ describe("the judicial surface", () => {
   });
 
   it("should report conflict for withdrawing a direction nobody has given, and not-found once the office closes it", async () => {
-    const open = await referralOn(await caseId());
+    const open = await referralOn(await caseId(), await toMaster(JUDGE));
     const closedCase = await caseId();
-    const closed = await referralOn(closedCase);
-    await claimJudicialReferral(closed, judge(JUDGE));
+    const closed = await referralOn(closedCase, await toMaster(JUDGE));
     await directJudicialReferral(closed, { decision: "Approved", changesToStandardPublication: false }, judge(JUDGE));
     await closeReferral(closedCase, closed, config);
 
@@ -1855,7 +1892,7 @@ describe("the judicial surface", () => {
     const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x00, 0xff]);
     const uploaded = await uploadDocument(id, { documentTypeId: DOCUMENT_TYPE_ID, name: "birth.pdf", mimeType: "application/pdf", bytes }, config);
     if (!uploaded.ok) throw new Error("document was not uploaded");
-    const referralId = await referralOn(id);
+    const referralId = await referralOn(id, await toMaster(JUDGE));
 
     const detail = await getJudicialReferral(referralId, judge(JUDGE));
     const result = await downloadJudicialDocument(referralId, uploaded.data.id, judge(JUDGE));
@@ -1882,8 +1919,7 @@ describe("the judicial surface", () => {
       config
     );
     if (!uploaded.ok) throw new Error("document was not uploaded");
-    const referralId = await referralOn(id);
-    await claimJudicialReferral(referralId, judge(ANOTHER_JUDGE));
+    const referralId = await referralOn(id, await toMaster(ANOTHER_JUDGE));
 
     const result = await downloadJudicialDocument(referralId, uploaded.data.id, judge(JUDGE));
 
@@ -1893,8 +1929,10 @@ describe("the judicial surface", () => {
   });
 
   it("should parse the rows into the same summary the pool publishes, dates included", async () => {
-    const referralId = await referralOn(await caseId(), { reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Risk to the applicant" });
-    await claimJudicialReferral(referralId, judge(JUDGE));
+    const referralId = await referralOn(
+      await caseId(),
+      await toMaster(JUDGE, { reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Risk to the applicant" })
+    );
 
     const result = await getJudicialMyReferrals({}, judge(JUDGE));
 
@@ -1904,16 +1942,18 @@ describe("the judicial surface", () => {
     expect(row).toMatchObject({ id: referralId, state: "Claimed", reasons: ["Minor"], urgency: "Urgent", urgencyReason: "Risk to the applicant" });
     // Converted from api's zoneless date-time, like every other row this adapter parses.
     expect(row?.createdOn).toBeInstanceOf(Date);
+    // api D2's two: when it was assigned, and when the direction is due.
+    expect(row?.assignedAt).toBeInstanceOf(Date);
+    expect(row?.directionDueBy).toBeInstanceOf(Date);
     // No application and no holder on a row: the personal list is the pool's summary, which carries neither.
     expect(row).not.toHaveProperty("application");
     expect(row).not.toHaveProperty("claimedBy");
   });
 });
 
-/** A referral on a fresh case, claimed and directed by `judgeName` — the only state a direction can change from. */
+/** A referral on a fresh case, assigned to and directed by `judgeName` — the only state a direction can change from. */
 async function decidedBy(judgeName: string): Promise<string> {
-  const referralId = await referralOn(await caseId());
-  await claimJudicialReferral(referralId, judge(judgeName));
+  const referralId = await referralOn(await caseId(), await toMaster(judgeName));
   await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judge(judgeName));
 
   return referralId;
@@ -2680,11 +2720,9 @@ async function referralOn(id: string, body: ReferralCreate = { reasons: ["Minor"
  */
 async function decidedReferral(): Promise<{ caseId: string; referralId: string }> {
   const id = await caseId();
-  const referralId = await referralOn(id);
+  const referralId = await referralOn(id, await toMaster("judge.a@example.com"));
   const judgeConfig = judge("judge.a@example.com");
 
-  const claimed = await claimJudicialReferral(referralId, judgeConfig);
-  if (!claimed.ok) throw new Error(`referral was not claimed: ${claimed.error.message}`);
   const directed = await directJudicialReferral(referralId, { decision: "Approved", changesToStandardPublication: false }, judgeConfig);
   if (!directed.ok) throw new Error(`referral was not directed: ${directed.error.message}`);
 
@@ -2700,11 +2738,9 @@ async function decidedReferral(): Promise<{ caseId: string; referralId: string }
  */
 async function refusedCase(patch: Parameters<typeof createCase>[0] = {}): Promise<{ caseId: string; referralId: string }> {
   const id = await caseId({ applicantEmail: "applicant@example.com", oldForename: "Sam", oldSurname: "Smith", ...patch });
-  const referralId = await referralOn(id);
+  const referralId = await referralOn(id, await toMaster("judge.a@example.com"));
   const judgeConfig = judge("judge.a@example.com");
 
-  const claimed = await claimJudicialReferral(referralId, judgeConfig);
-  if (!claimed.ok) throw new Error(`referral was not claimed: ${claimed.error.message}`);
   const directed = await directJudicialReferral(
     referralId,
     { decision: "Rejected", changesToStandardPublication: true, directionsText: JUDGES_REASON },
@@ -2713,6 +2749,30 @@ async function refusedCase(patch: Parameters<typeof createCase>[0] = {}): Promis
   if (!directed.ok) throw new Error(`referral was not directed: ${directed.error.message}`);
 
   return { caseId: id, referralId };
+}
+
+/**
+ * A referral body assigned to the Master entry for `subject`, created and linked on first use (api D2): a Master
+ * sees only what is assigned to them, so this is how a test puts a referral in a judge's hands now there is no claim.
+ * The entry is named after the subject, so `claimedBy` reads as it did when the judge claimed it.
+ */
+async function toMaster(subject: string, body: ReferralCreate = { reasons: ["Minor"] }): Promise<ReferralCreate> {
+  return { ...body, masterId: await masterFor(subject) };
+}
+
+async function masterFor(subject: string): Promise<string> {
+  const email = `${subject.toLowerCase().replace(/[^a-z0-9]/g, "-")}@masters.test`;
+  const manager = { ...config, accessToken: roleToken("manager-1", ["caseworker-deedpoll-delivery-manager"]) };
+  const listed = await listMasters(manager);
+  const known = listed.ok ? listed.data.masters.find((master) => master.email === email) : undefined;
+  if (known) return known.id;
+  const created = await createMaster({ name: subject, email }, manager);
+  if (!created.ok) throw new Error(`Master was not created: ${created.error.message}`);
+  // The Master's first judicial request links the entry to their subject, as api's `MasterLinking` does.
+  const linking = `x.${Buffer.from(JSON.stringify({ sub: subject, email, roles: ["caseworker-deedpoll-judicial"] })).toString("base64url")}.signature`;
+  await getJudicialMyReferrals({}, { ...config, accessToken: linking });
+
+  return created.data.id;
 }
 
 /**
