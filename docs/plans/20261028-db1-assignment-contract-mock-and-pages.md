@@ -189,8 +189,8 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Rewrite the judicial journeys and update the deed-polls journeys as the Development Approach says; run them on the temporary private-port config; record the result; delete the config.
 
 ### Task 5: Documentation and final verification
-- [ ] Update `CLAUDE.md` and regenerate the Welsh CSV with `yarn welsh:extract`.
-- [ ] Run all Validation Commands once more with `--force`, record the counts against the baseline, and confirm `git status` is clean apart from the task commits.
+- [x] Update `CLAUDE.md` and regenerate the Welsh CSV with `yarn welsh:extract`.
+- [x] Run all Validation Commands once more with `--force`, record the counts against the baseline, and confirm `git status` is clean apart from the task commits.
 
 ## Execution notes
 
@@ -368,3 +368,17 @@ express-session-postgres 85, express-session-redis 7. (Da1's final note said app
 - Results: the five changed specs on the temporary private-port config (mock 3226, app 3326, Redis 6316/2): **34
   passed**, setup included. `yarn test:document-viewer`: **2 passed**. The config was deleted and the Redis container
   stopped afterwards. Per-task checks: format and lint clean, `yarn build --force` 8/8; no package's unit tests changed.
+
+**Task 5 (documentation and final verification).**
+- `CLAUDE.md`: "Personas and role gating" now says a Master works My referrals with no pool or claim; the landing
+  bullet names `/judicial/referrals/mine`; the 409 bullet drops the claim; document visibility reads "no judge on
+  `Open`, the assigned Master on `Claimed`"; the dual-role bullet drops `list-navigation.njk`. The "pool is `Open`
+  only" bullet is replaced by two: assignment (raise with a Master, the cap 409 on `masterId`, the assign page, the
+  caseworker's state words) and the Master's sectioned My referrals. The worklist rule and the list page's counts
+  name the waiting-for-assignment count. The `mock:seed` line was already updated in Task 0.
+- `yarn welsh:extract` regenerated `.business_context/welsh-translation-request.csv` (the pool's and claim's rows out,
+  the raise form's, assign page's and My referrals' in).
+- Full set with `--force`: format and lint clean, `yarn build --force` 8/8, suite 8/8 with Redis on 6379. Against the
+  baseline: app 3,264 (+25), deed-poll 1,721 (+20), api-client 1,391 (+77), cloud-native-platform 156,
+  express-govuk-starter 132, simple-router 45, express-session-postgres 85, express-session-redis 7. No failures, so
+  none to tell apart from the baseline's. `git status` clean apart from this task's commit.

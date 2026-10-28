@@ -174,8 +174,9 @@ Three facts about the confirmation worklist that are not derivable from a single
   (`isReorderable` in `libs/deed-poll/src/deed-poll/list-sort.ts`), because a `sort` reaches it three other ways —
   the tab link carrying the previous tab's order, a sortable column header, a bookmarked URL — and api's default is
   only a default. So the worklist drops any `sort` it is asked for and renders its headings as plain text; leaving
-  the headers as links while dropping the order would be seven controls that do nothing. Returned-for-action is a `where` on
-  `currentReferralState`, because api publishes no tab for it. Do not convert one into the other, and do not
+  the headers as links while dropping the order would be seven controls that do nothing. Returned-for-action and waiting-for-assignment
+  (`currentReferralState:is:Open`, `referrals/waiting-for-assignment.ts`) are each a `where` on
+  `currentReferralState`, because api publishes no tab for either. Do not convert one into the other, and do not
   narrow either list here.
 - **A case can be waiting for the applicant with no case state saying so.** There is no ninth `DeedPollState`:
   the case still reads `Returned`, and `awaitingConfirmationSince` — recomputed by api from its referrals' two
@@ -217,8 +218,9 @@ of them:
 
 ## Personas and role gating
 
-**Four staff personas, one deployable.** Caseworkers, Team leaders and Delivery Managers work `/deed-polls/**`; a judge works `/judicial/**` — the
-shared referral pool, one referral, the claim, and the direction flow. Facts that are not derivable from a
+**Four staff personas, one deployable.** Caseworkers, Team leaders and Delivery Managers work `/deed-polls/**`; a judge (a Master) works `/judicial/**` —
+My referrals, one referral, and the direction flow. There is no pool and no claim since api D2: a caseworker assigns
+each referral to a Master. Facts that are not derivable from a
 single file:
 
 - **`/judicial` is gated on the area, not the page.** `src/app.ts` mounts `requireJudicial()`
@@ -251,8 +253,8 @@ single file:
   pins it to the `CallerAccessResponse` enum in `openapi.json`. `callerAccessFrom` drops unknown capability
   strings and turns a missing or malformed answer into no access, so an unlisted capability fails closed.
 - **`/` is where each persona's home is decided, and the only place it can be.** A judge's home is
-  `/judicial/referrals`, other staff land on `/deed-polls`. A judge who also has staff capabilities lands on the case list;
-  ordinary caseworker plus judicial still lands on the pool.
+  `/judicial/referrals/mine` (My referrals), other staff land on `/deed-polls`. A judge who also has staff capabilities
+  lands on the case list; ordinary caseworker plus judicial still lands on My referrals.
   `/login`'s `returnTo` fallback is therefore `/` and **not** a concrete list path: the `/me` answer does not
   exist until the token has been exchanged, so hard-coding `/deed-polls` there strands every judge on a list api answers
   403 to, with nothing in the logs to say why.
@@ -262,12 +264,10 @@ single file:
   implication the rule forbids.
 - **api checks visibility before state, so no 409 on the judicial surface can mean "somebody else has it".** By
   the time a 409 is possible the caller can already see the referral, which api's visibility narrows to their own:
-  a claim 409 means they hold it or have already directed it, a direction 409 means they can see it but do not
-  hold it. So both name a *state* ("not waiting to be claimed", "not waiting for a direction from you") and the
-  claim's 409 redirects to the **referral** rather than the pool — "This referral has already been claimed" plus a
-  bounce to the list would tell a judge somebody else has work that is in fact theirs. The pool therefore carries
-  one refusal, not two. A caseworker's 409s are a different thing entirely (two caseworkers racing), which is why
-  `referrals/new.ts` re-renders at 409 instead.
+  a direction 409 means they can see it but it is not waiting for a direction from them (they have already directed
+  it). So it names a *state* ("not waiting for a direction from you") and redirects to the **referral**, never to a
+  sentence about another holder. A caseworker's 409s are a different thing entirely (two caseworkers racing, or the
+  cap), which is why `referrals/new.ts` and the assign page re-render at 409 instead.
 - **Masters see only the fields they asked for (Master Sullivan's feedback, Steve, 2026-10-27).** This narrowed the
   whole-application view of 2026-10-19, and Steve chose to narrow api's data too (api#153), not only this page.
   `application` on `GET /judicial/referrals/{id}` is api's `JudicialApplicationView`: the reference (for captions), the
@@ -282,8 +282,8 @@ single file:
   required and refuses the narrowed answer. Documents
   open in the shared viewer (see "Document viewer" below); the original download, and the legacy
   `src/pages/judicial/referrals/[referralId]/documents/[documentId]/file.ts`, share
-  `src/document-response.ts` with the caseworker route. Who may open one is api's visibility: any judge on `Open`,
-  the holder on `Claimed`, the director on `Decided`, nobody once closed. On the legacy `file.ts` the same 404 covers
+  `src/document-response.ts` with the caseworker route. Who may open one is api's visibility: no judge on `Open`,
+  the assigned Master on `Claimed`, the director on `Decided`, nobody once closed. On the legacy `file.ts` the same 404 covers
   each refusal and renders the unavailable page, and its relay keeps api's `inline` only for PDF, JPEG and PNG under a policy with
   `default-src 'none'` and a bare `sandbox` (no `allow-*` token), and downloads everything else, filename kept; the
   caseworker upload page never renders api's 404 text, only its own sentence, logging api's through `forLog`
@@ -320,23 +320,34 @@ single file:
   caseworker a case note, keeps the earlier direction on its audit trail and sets `directionChangedAt`. The
   caseworker's referral page and the case page's referrals panel show "The Master changed this direction on {date}."
   as inset text from that flag. It sits outside the direction section because a withdrawal leaves no direction.
-- **A user holding both roles still has no link to `/judicial/**`.** There is judicial navigation now, but it is
-  the two judicial lists' own (`src/pages/judicial/referrals/list-navigation.njk`) and it renders only on pages
-  inside the area; the shared chrome renders no service-navigation, so the caseworker-first landing in
+- **A user holding both roles still has no link to `/judicial/**`.** The judicial area has one list, so it has no
+  navigation of its own (`list-navigation.njk` went with the pool), and the shared chrome renders no service-navigation, so the caseworker-first landing in
   `src/pages/index.ts` leaves such a user typing the URL. The gate admits them, so this is a missing route rather
   than a refusal; it is `referrals-admin-3`'s flagged open question, and the fix if the business confirms such a
   user is a conditional link on the case list, not a change to the landing.
-- **The pool is `Open` only, so claiming a referral takes the row off it — and onto `/judicial/referrals/mine`.**
-  api filters `GET /judicial/referrals` to `Open` (the plan's "plus the judge's own `Claimed`/`Decided`" describes
-  `referrals-admin-3` decision 3's *read* visibility, not its list), and `GET /judicial/referrals/mine` is the
-  second collection that answers for the judge's own `Claimed`/`Decided` work — added by api follow-up 6 and
-  consumed by `referrals-admin-6`. **Membership is api's answer about the token's IDAM subject**: do not derive
-  "mine" from rows previously seen, session state, browser history or `claimedBy` display text, and do not filter
-  or re-sort either list here. The states the personal list admits live in one predicate —
-  `isMyListState` in `libs/deed-poll/src/judicial/view.ts` — which is also what decides whether a referral's detail
-  page links back to the pool or to My referrals, so the two cannot drift into returning a judge to a list their
-  referral is not on. A lapsed claim is keyed on the state, not the holder: api's inactivity sweep makes the row
-  `Open` again and it leaves the personal list even though the name is still on it.
+- **Referrals are assigned, never claimed (Master Sullivan's feedback, item D; plan
+  `docs/plans/20261028-db1-assignment-contract-mock-and-pages.md`).** The raise form's last question is "Which Master
+  should this go to?" (`masterId`, required here though api still accepts a raise without one for one release). The
+  radios come from `GET /caseworker/masters`' envelope (`window`, `cap`, each Master's `assignedInWindow`) through
+  `buildMasterChoices` (`libs/deed-poll/src/referrals/master-choices.ts`) and `src/master-radios.ts`: unavailable
+  Masters are not offered, a full one is listed disabled ("Full for this morning"), no Masters or a failed read draws
+  the form with its own sentence and no submit. api's cap 409 names `masterId`, which is how it is told from the
+  already-open-referral 409; it redraws beside the radios. Any caseworker assigns an `Open` referral or reassigns a
+  `Claimed` one at `deed-polls/[id]/referrals/[referralId]/assign` (`PUT …/assignment`), linked from the referral page
+  and the case page's panel; a 409 not naming `masterId` redirects to the fresh referral with a state sentence. The
+  current Master stays selectable when full, because choosing them again is api's no-op. The Master's 7 days are read
+  off `directionDueBy` − `assignedAt`, never restated. To a caseworker `Open` reads "Waiting for assignment" and
+  `Claimed` "With {Master}" (`REFERRAL_STATE_LABEL`/`_MEANING` in `referrals-view.ts`); api's `unassignOverdue`
+  returns a referral not directed in time to `Open`.
+- **A Master has no pool: `/judicial/referrals` is a 302 to `/judicial/referrals/mine`.** api D2 keeps the deprecated
+  pool (always empty) and claim for one release, and nothing here calls either. **Membership is api's answer about
+  the token's IDAM subject**: do not derive "mine" from rows previously seen, session state or display text, and do
+  not filter or re-sort the list. `buildMyReferralSections` (`libs/deed-poll/src/judicial/view.ts`) reads api's
+  `MINE_ORDER` into **Urgent** (urgent `Claimed`, "Referred dd-mm-yy"), **Awaiting your direction** and **Directed,
+  awaiting the office**, the last two as runs of consecutive rows sharing a "dd-mm-yy referrals" day (`createdOn` in
+  `Europe/London`). It never re-sorts, so a page that starts mid-day repeats that day's heading. The page asks for
+  `size: 100`, api's `CasePaging.MAX_SIZE`, because `JudicialPoolQuery` publishes no bound. Every judicial page,
+  including the shared "no longer available" page, links back to My referrals.
 - **A new page area must be added to `scripts/extract-welsh-strings.mjs`'s `INCLUDE`.** The script's scope is a
   list of directories, so a page area that is not on it contributes nothing to
   `.business_context/welsh-translation-request.csv` and nothing to `yarn welsh:check` — with no failure anywhere,
@@ -1049,8 +1060,8 @@ Follow these strict naming conventions throughout the project:
   depend on the degraded call must render outside every branch of it**: the Referrals panel's "Previous system
   referral information" snapshot comes off the case, so nesting it inside the live-history branch would let a
   failed referrals read hide a historical record that was never at risk
-- **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its additive calls — the saved-query nav, the returned-for-action and awaiting-confirmation
-  counts, and the Delivery Manager-only Gazette count — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
+- **The list page is the same rule with a different mechanism.** `src/pages/deed-polls/index.ts` starts its additive calls — the saved-query nav, the returned-for-action, awaiting-confirmation and
+  waiting-for-assignment counts, and the Delivery Manager-only Gazette count — *before* the list read and awaits each inside a helper that catches everything, logs, and returns a sentinel
   (`[]`, `null`); only the list read is fatal. Reach for that shape on a page with one load-bearing call rather
   than `Promise.allSettled`, which is `[id].ts`'s answer to two load-bearing reads beside two additive ones. `worklistCount(name, read)` is the generalised
   degrade-and-log helper, and the counts are separate reads on purpose: a caseworker whose confirmation count
