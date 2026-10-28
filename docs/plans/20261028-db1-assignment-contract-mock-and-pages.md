@@ -174,8 +174,8 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Implement the adapter, the mock, the clock hook and the seed, run the seeder on a private-port mock, run the per-task checks, and record the results.
 
 ### Task 1: Raising with a Master
-- [ ] Add failing handler, schema and template tests for the Master radios, their hints, full and unavailable Masters, no Masters, a failed Masters read, and the cap 409.
-- [ ] Implement, run the per-task checks, and record the results.
+- [x] Add failing handler, schema and template tests for the Master radios, their hints, full and unavailable Masters, no Masters, a failed Masters read, and the cap 409.
+- [x] Implement, run the per-task checks, and record the results.
 
 ### Task 2: Assign and reassign, and the caseworker's words
 - [ ] Add failing tests for the assign page (GET, POST success, the three refusals), the links, the state labels and meanings, and the waiting-for-assignment count.
@@ -248,3 +248,21 @@ express-session-postgres 85, express-session-redis 7. (Da1's final note said app
 - Per-task checks: format and lint clean, `yarn build --force` 8/8. api-client 1,391 (+77), deed-poll 1,701, app
   3,239 (run because the mock changed under it), all passing with Redis on 6379. The e2e journeys that claim from
   the pool will fail against this mock until Task 4.
+
+**Task 1 (raising with a Master).**
+- `libs/deed-poll/src/referrals/master-choices.ts`: `findMasterChoices` (the whole `GET /caseworker/masters`
+  envelope) and `buildMasterChoices(list, selectedId, now)`, which keeps api's order, drops unavailable Masters,
+  marks one full at `assignedInWindow >= cap`, and gives the window as `{ slot, isToday, date: dd-mm-yy }`, "today"
+  read in `Europe/London`. Task 2's assign page can reuse both.
+- `createReferralSchema` requires `masterId` (a uuid; "Select which Master this referral should go to", added in the
+  `superRefine` so it shows beside the other unanswered questions). api still accepts a raise without one.
+- `referrals/new.ts`: the case and the Masters are read with `Promise.allSettled`; the case stays fatal, api's 401
+  on the Masters is rethrown, anything else logs `masters unavailable: …` and draws the form with its own sentence and
+  no submit. No available Master: "There are no Masters to assign to…" and no submit. The hints are the page's own
+  `en` functions ("3 of 10 referrals for this morning", "Full for the morning of 29-10-26", singular at a cap of 1,
+  and the bare count if api sends no window). `masterId` is last in `FIELD_ORDER`. A 409 whose `errors` names
+  `masterId` is the cap and redraws at 409 with api's sentence beside the radios and no open-referral read; any
+  other 409 is still the already-open one. api's 400 on `masterId` lands through the existing placement.
+- The Welsh extractor reads all the new strings, the three-argument function included (checked with `--out`).
+- Per-task checks: format and lint clean, `yarn build --force` 8/8. deed-poll 1,711 (+10), app 3,257 (+18), all
+  passing with Redis on 6379. api-client not touched.

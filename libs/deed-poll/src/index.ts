@@ -67,6 +67,7 @@ export * from "./notes/schemas.js";
 export * from "./notes/service.js";
 export * from "./referrals/awaiting-confirmation.js";
 export * from "./referrals/legacy-referral-view.js";
+export * from "./referrals/master-choices.js";
 export * from "./referrals/referrals-view.js";
 export * from "./referrals/returned-for-action.js";
 export * from "./referrals/schemas.js";

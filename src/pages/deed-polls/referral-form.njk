@@ -6,7 +6,7 @@
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
 
 {#
-  Raise-a-referral form. Two controls and two conditionally-revealed ones.
+  Raise-a-referral form. Three controls and two conditionally-revealed ones.
 
   The reasons are checkboxes because api takes several: a case can be with the judiciary for more than one
   thing at once, and forcing a single choice would make the caseworker pick which of two true reasons to
@@ -133,8 +133,28 @@
         errorMessage: { text: errors.urgency } if errors.urgency
       }) }}
 
+      {#
+        Which Master, last (plan Db1). Without a list to choose from there is no question and no submit: api would
+        take the referral with no Master, and it would wait for assignment rather than go to anyone.
+      #}
+      {% if isMastersUnavailable %}
+        <p class="govuk-body" id="masterId">{{ mastersUnavailable }}</p>
+      {% elif hasNoMasters %}
+        <p class="govuk-body" id="masterId">{{ noMasters }}</p>
+      {% else %}
+        {{ govukRadios({
+          idPrefix: "masterId",
+          name: "masterId",
+          fieldset: { legend: { text: masterLegend, classes: "govuk-fieldset__legend--m" } },
+          items: masterItems,
+          errorMessage: { text: errors.masterId } if errors.masterId
+        }) }}
+      {% endif %}
+
       <div class="govuk-button-group">
-        {{ govukButton({ text: submit }) }}
+        {% if not isMastersUnavailable and not hasNoMasters %}
+          {{ govukButton({ text: submit }) }}
+        {% endif %}
         <a class="govuk-link" href="{{ case.id | casePath }}#referrals">{{ cancel }}</a>
       </div>
     </form>
