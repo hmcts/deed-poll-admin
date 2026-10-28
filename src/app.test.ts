@@ -653,7 +653,16 @@ describe("createApp's settings gate", () => {
     expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.auth));
     expect(index).toBeGreaterThan(stack.findIndex((entry) => entry.handle === gates.persona));
     expect(index).toBeLessThan(stack.findIndex((entry) => entry.handle === gates.router));
-    expect(paths).toEqual(expect.arrayContaining(["/deed-polls/settings", "/deed-polls/settings/gazette-recipient"]));
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "/deed-polls/settings",
+        "/deed-polls/settings/gazette-recipient",
+        "/deed-polls/settings/masters",
+        "/deed-polls/settings/masters/a-sample-id",
+        "/deed-polls/settings/bank-holidays",
+        "/deed-polls/settings/bank-holidays/a-sample-id/remove"
+      ])
+    );
     for (const url of [...paths, "/deed-polls/settings/future-page"]) {
       expect(
         stack[index].matchers.some((matches) => matches(url) !== false),

@@ -289,6 +289,7 @@ describe("the Masters list", () => {
     // Assert
     expect(updated).toMatchObject({ ok: true, data: { available: false, revision: 1 } });
     expect(stale).toMatchObject({ ok: false, error: { kind: "conflict", status: 409 } });
+    expect(!stale.ok && stale.error.fieldErrors).toBeUndefined();
   });
 
   it("should classify a duplicate email in any case as a conflict", async () => {
@@ -300,6 +301,7 @@ describe("the Masters list", () => {
 
     // Assert
     expect(result).toMatchObject({ ok: false, error: { kind: "conflict", status: 409 } });
+    expect(!result.ok && result.error.fieldErrors?.map((error) => error.field)).toEqual(["email"]);
   });
 
   it("should classify an unknown Master as not found and a caseworker's write as forbidden", async () => {

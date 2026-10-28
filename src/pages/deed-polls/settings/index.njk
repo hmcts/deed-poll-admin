@@ -1,6 +1,8 @@
 {% extends "layouts/app.njk" %}
 {% from "govuk/components/input/macro.njk" import govukInput %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
+{% from "govuk/components/date-input/macro.njk" import govukDateInput %}
+{% from "govuk/components/table/macro.njk" import govukTable %}
 {% from "govuk/components/error-summary/macro.njk" import govukErrorSummary %}
 {% from "govuk/components/fieldset/macro.njk" import govukFieldset %}
 {% from "govuk/components/notification-banner/macro.njk" import govukNotificationBanner %}
@@ -41,10 +43,16 @@
     {% if errorList.length %}
       {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: errorList }) }}
     {% endif %}
-    {% if savedSection == "process-settings" %}
-      {{ govukNotificationBanner({ type: "success", titleText: successTitle, text: processSaved }) }}
-    {% elif savedSection == "gazette-recipient" %}
-      {{ govukNotificationBanner({ type: "success", titleText: successTitle, text: gazetteSaved }) }}
+    {% set savedTexts = {
+      "process-settings": processSaved,
+      "gazette-recipient": gazetteSaved,
+      "master-added": masterAdded,
+      "master-changed": masterChanged,
+      "bank-holiday-added": bankHolidayAdded,
+      "bank-holiday-removed": bankHolidayRemoved
+    } %}
+    {% if savedSection and savedTexts[savedSection] %}
+      {{ govukNotificationBanner({ type: "success", titleText: successTitle, text: savedTexts[savedSection] }) }}
     {% endif %}
     <h1 class="govuk-heading-xl">{{ heading }}</h1>
     <p class="govuk-body">{{ intro }}</p>
@@ -101,6 +109,97 @@
         <p class="govuk-body"><a class="govuk-link" href="/deed-polls/gazette">{{ gazetteBack }}</a></p>
       </section>
     {% endif %}
+
+    <section id="masters" class="govuk-!-margin-bottom-8">
+      <h2 class="govuk-heading-m">{{ mastersHeading }}</h2>
+      <p class="govuk-body">{{ mastersIntro }}</p>
+      {% if masters.isAvailable %}
+        {% if masters.rows.length %}
+          {% set masterRows = [] %}
+          {% for row in masters.rows %}
+            {% set masterRows = (masterRows.push([
+              { text: row.name },
+              { text: row.email },
+              { text: yes if row.isAvailable else no },
+              { text: yes if row.isLinked else no },
+              { html: '<a class="govuk-link" href="' + (row.changePath | escape) + '">' + (change | escape) + '<span class="govuk-visually-hidden"> ' + (row.name | escape) + '</span></a>' }
+            ]), masterRows) %}
+          {% endfor %}
+          {{ govukTable({
+            caption: mastersCaption, captionClasses: "govuk-visually-hidden",
+            head: [{ text: masterNameColumn }, { text: masterEmailColumn }, { text: masterAvailableColumn }, { text: masterLinkedColumn }, { html: '<span class="govuk-visually-hidden">' + (change | escape) + '</span>' }],
+            rows: masterRows
+          }) }}
+        {% else %}
+          <p class="govuk-body">{{ mastersEmpty }}</p>
+        {% endif %}
+      {% else %}
+        <p class="govuk-body">{{ mastersUnavailable }}</p>
+      {% endif %}
+      <h3 class="govuk-heading-s">{{ addMasterHeading }}</h3>
+      <p class="govuk-body">{{ addMasterHint }}</p>
+      <form method="post" action="/deed-polls/settings/masters" novalidate>
+        {{ govukInput({
+          id: "master-name", name: "name", autocomplete: "off", spellcheck: false,
+          label: { text: masterNameLabel }, value: masterAdd.values.name,
+          errorMessage: { text: masterAdd.errors.name } if masterAdd.errors.name
+        }) }}
+        {{ govukInput({
+          id: "master-email", name: "email", type: "email", autocomplete: "off", spellcheck: false,
+          label: { text: masterEmailLabel }, value: masterAdd.values.email,
+          errorMessage: { text: masterAdd.errors.email } if masterAdd.errors.email
+        }) }}
+        {% if masterAdd.refusedText %}<p class="govuk-error-message">{{ masterAdd.refusedText }}</p>{% endif %}
+        {{ govukButton({ text: addMasterSave, classes: "govuk-button--secondary" }) }}
+      </form>
+    </section>
+
+    <section id="bank-holidays" class="govuk-!-margin-bottom-8">
+      <h2 class="govuk-heading-m">{{ bankHolidaysHeading }}</h2>
+      <p class="govuk-body">{{ bankHolidaysIntro }}</p>
+      {% if bankHolidays.isAvailable %}
+        {% if bankHolidays.rows.length %}
+          {% set holidayRows = [] %}
+          {% for row in bankHolidays.rows %}
+            {% set holidayRows = (holidayRows.push([
+              { text: row.date },
+              { text: row.name },
+              { html: '<a class="govuk-link" href="' + (row.removePath | escape) + '">' + (remove | escape) + '<span class="govuk-visually-hidden"> ' + (row.name | escape) + ' ' + (row.date | escape) + '</span></a>' }
+            ]), holidayRows) %}
+          {% endfor %}
+          {{ govukTable({
+            caption: bankHolidaysCaption, captionClasses: "govuk-visually-hidden",
+            head: [{ text: bankHolidayDateColumn }, { text: bankHolidayNameColumn }, { html: '<span class="govuk-visually-hidden">' + (remove | escape) + '</span>' }],
+            rows: holidayRows
+          }) }}
+        {% else %}
+          <p class="govuk-body">{{ bankHolidaysEmpty }}</p>
+        {% endif %}
+      {% else %}
+        <p class="govuk-body">{{ bankHolidaysUnavailable }}</p>
+      {% endif %}
+      <h3 class="govuk-heading-s">{{ addBankHolidayHeading }}</h3>
+      <form method="post" action="/deed-polls/settings/bank-holidays" novalidate>
+        {{ govukDateInput({
+          id: "bank-holiday-date", namePrefix: "date",
+          fieldset: { legend: { text: bankHolidayDateLegend } },
+          hint: { text: bankHolidayDateHint },
+          errorMessage: { text: holidayAdd.errors.date } if holidayAdd.errors.date,
+          items: [
+            { name: "day", label: day, classes: "govuk-input--width-2" + (" govuk-input--error" if holidayAdd.errors.date else ""), value: holidayAdd.values.day },
+            { name: "month", label: month, classes: "govuk-input--width-2" + (" govuk-input--error" if holidayAdd.errors.date else ""), value: holidayAdd.values.month },
+            { name: "year", label: year, classes: "govuk-input--width-4" + (" govuk-input--error" if holidayAdd.errors.date else ""), value: holidayAdd.values.year }
+          ]
+        }) }}
+        {{ govukInput({
+          id: "bank-holiday-name", name: "name", autocomplete: "off",
+          label: { text: bankHolidayNameLabel }, hint: { text: bankHolidayNameHint }, value: holidayAdd.values.name,
+          errorMessage: { text: holidayAdd.errors.name } if holidayAdd.errors.name
+        }) }}
+        {% if holidayAdd.refusedText %}<p class="govuk-error-message">{{ holidayAdd.refusedText }}</p>{% endif %}
+        {{ govukButton({ text: addBankHolidaySave, classes: "govuk-button--secondary" }) }}
+      </form>
+    </section>
 
     <section id="staff-and-access">
       <h2 class="govuk-heading-m">{{ staffHeading }}</h2>

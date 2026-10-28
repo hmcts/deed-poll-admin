@@ -2,25 +2,35 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ConflictError,
+  findBankHolidays,
   findGazetteSettings,
+  findMasters,
   findProcessSettings,
   InvalidInputError,
   MANAGE_PROCESS_CONFIG,
+  saveBankHoliday,
   saveGazetteSettings,
+  saveNewMaster,
   saveProcessSettings
 } from "@hmcts/deed-poll";
 import nunjucks from "nunjucks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../../../express-doubles.js";
 import { addPathFilters } from "../../../path-filters.js";
+import { POST as postBankHoliday } from "./bank-holidays/index.js";
 import { POST as postGazette } from "./gazette-recipient.js";
 import { GET, POST as postProcess } from "./index.js";
+import { POST as postMaster } from "./masters/index.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  findBankHolidays: vi.fn(),
   findGazetteSettings: vi.fn(),
+  findMasters: vi.fn(),
   findProcessSettings: vi.fn(),
+  saveBankHoliday: vi.fn(),
   saveGazetteSettings: vi.fn(),
+  saveNewMaster: vi.fn(),
   saveProcessSettings: vi.fn()
 }));
 
@@ -66,6 +76,13 @@ beforeEach(() => {
   vi.mocked(findGazetteSettings).mockResolvedValue(GAZETTE);
   vi.mocked(saveProcessSettings).mockResolvedValue(PROCESS);
   vi.mocked(saveGazetteSettings).mockResolvedValue(GAZETTE);
+  vi.mocked(findMasters).mockResolvedValue([
+    { id: "6f1c1d4e-2a5b-4c3d-8e9f-0a1b2c3d4e5f", name: "<Master Wren>", email: "wren@example.test", available: false, linked: true, revision: 3 },
+    { id: "7f1c1d4e-2a5b-4c3d-8e9f-0a1b2c3d4e5f", name: "Master Sullivan", email: "sullivan@example.test", available: true, linked: false, revision: 0 }
+  ]);
+  vi.mocked(findBankHolidays).mockResolvedValue([{ date: "2026-12-25", name: "<Christmas Day>" }]);
+  vi.mocked(saveNewMaster).mockResolvedValue({ id: "x", name: "n", email: "e", available: true, linked: false, revision: 0 });
+  vi.mocked(saveBankHoliday).mockResolvedValue({ date: "2029-01-01", name: "n" });
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
@@ -413,5 +430,142 @@ describe("service settings page", () => {
       expect(markup).not.toContain("Save referral process");
       expectSummaryLinksResolve(markup);
     });
+  });
+});
+
+describe("service settings page: Masters", () => {
+  function row(markup: string, text: string): string {
+    const at = markup.indexOf(text);
+    return markup.slice(markup.lastIndexOf("<tr", at), markup.indexOf("</tr>", at));
+  }
+
+  it("should list each Master with their availability, whether they have signed in and an escaped Change link", async () => {
+    const { markup } = await render(GET);
+
+    const wren = row(markup, "&lt;Master Wren&gt;");
+    expect(markup).toContain('<h2 class="govuk-heading-m">Masters</h2>');
+    expect(wren).toContain("wren@example.test");
+    expect(wren).toMatch(/<td[^>]*>No<\/td>\s*<td[^>]*>Yes<\/td>/);
+    expect(wren).toContain('href="/deed-polls/settings/masters/6f1c1d4e-2a5b-4c3d-8e9f-0a1b2c3d4e5f"');
+    expect(wren).toContain('Change<span class="govuk-visually-hidden"> &lt;Master Wren&gt;</span>');
+    expect(markup).not.toContain("<Master Wren>");
+    expect(row(markup, "Master Sullivan")).toMatch(/<td[^>]*>Yes<\/td>\s*<td[^>]*>No<\/td>/);
+    for (const heading of ["Name", "Email address", "Available", "Signed in"]) expect(markup).toContain(`>${heading}</th>`);
+  });
+
+  it("should draw the add form with no revision, posting to its own route", async () => {
+    const { markup } = await render(GET);
+
+    const add = form(markup, "/deed-polls/settings/masters");
+    expect(add).toContain('id="master-name"');
+    expect(add).toContain('id="master-email"');
+    expect(add).not.toContain('name="revision"');
+    expect(add).toContain("Add Master");
+  });
+
+  it("should say the list could not be loaded, and still offer the add form, when the read fails", async () => {
+    vi.mocked(findMasters).mockRejectedValue(new Error("down"));
+
+    const { markup } = await render(GET);
+
+    expect(markup).toContain("The Masters could not be loaded. Try again later.");
+    expect(form(markup, "/deed-polls/settings/masters")).toContain("Add Master");
+  });
+
+  it("should say there are none when the list is empty", async () => {
+    vi.mocked(findMasters).mockResolvedValue([]);
+
+    const { markup } = await render(GET);
+
+    expect(markup).toContain("No Masters have been added.");
+  });
+
+  it("should redraw a refused add with its typed values, its errors and summary links that resolve", async () => {
+    const { markup } = await render(postMaster, { body: { name: "<Wren>", email: "wren" } });
+
+    const add = form(markup, "/deed-polls/settings/masters");
+    expect(add).toMatch(/id="master-name"[^>]*value="&lt;Wren&gt;"/);
+    expect(add).toMatch(/id="master-email"[^>]*value="wren"/);
+    expect(add).toContain("Enter the Master’s email address, like name@example.com");
+    expectSummaryLinksResolve(markup);
+  });
+
+  it("should show api's duplicate email in the page's words", async () => {
+    vi.mocked(saveNewMaster).mockRejectedValue(new ConflictError("api prose", [{ field: "email", message: "api prose" }]));
+
+    const { markup } = await render(postMaster, { body: { name: "Master Wren", email: "wren@example.test" } });
+
+    expect(markup).toContain("Another Master already has this email address");
+    expect(markup).not.toContain("api prose");
+    expectSummaryLinksResolve(markup);
+  });
+
+  it.each([
+    ["master-added", "Master added."],
+    ["master-changed", "Master’s details saved."]
+  ])("should show the %s banner", async (saved, text) => {
+    const { markup } = await render(GET, { query: { saved } });
+
+    expect(markup).toContain("govuk-notification-banner--success");
+    expect(markup).toContain(text);
+  });
+});
+
+describe("service settings page: bank holidays", () => {
+  it("should list each day as dd-mm-yy with an escaped name and a Remove link to its confirmation", async () => {
+    const { markup } = await render(GET);
+
+    expect(markup).toContain('<h2 class="govuk-heading-m">Bank holidays</h2>');
+    expect(markup).toMatch(/<td[^>]*>25-12-26<\/td>\s*<td[^>]*>&lt;Christmas Day&gt;<\/td>/);
+    expect(markup).toContain('href="/deed-polls/settings/bank-holidays/2026-12-25/remove"');
+    expect(markup).toContain('Remove<span class="govuk-visually-hidden"> &lt;Christmas Day&gt; 25-12-26</span>');
+    expect(form(markup, "/deed-polls/settings/bank-holidays/2026-12-25/remove")).toBe("");
+  });
+
+  it("should draw the add form with a GOV.UK date input named for its three parts", async () => {
+    const { markup } = await render(GET);
+
+    const add = form(markup, "/deed-polls/settings/bank-holidays");
+    for (const part of ["day", "month", "year"])
+      expect(add).toMatch(new RegExp(`id="bank-holiday-date-${part}"[^>]*name="date-${part}"|name="date-${part}"[^>]*id="bank-holiday-date-${part}"`));
+    expect(add).toContain('id="bank-holiday-name"');
+    expect(add).toContain("Add bank holiday");
+  });
+
+  it("should say the list could not be loaded when the read fails", async () => {
+    vi.mocked(findBankHolidays).mockRejectedValue(new Error("down"));
+
+    const { markup } = await render(GET);
+
+    expect(markup).toContain("The bank holidays could not be loaded. Try again later.");
+  });
+
+  it("should redraw a refused add with the typed parts, the date marked in error and summary links that resolve", async () => {
+    const { markup } = await render(postBankHoliday, { body: { "date-day": "31", "date-month": "2", "date-year": "2029", name: "Odd day" } });
+
+    const add = form(markup, "/deed-polls/settings/bank-holidays");
+    expect(add).toContain("Enter the bank holiday’s date as a real date, like 25 12 2029");
+    expect(add).toMatch(/govuk-input--error[^>]*id="bank-holiday-date-day"[^>]*value="31"|id="bank-holiday-date-day"[^>]*value="31"/);
+    expect(add).toMatch(/id="bank-holiday-name"[^>]*value="Odd day"/);
+    expectSummaryLinksResolve(markup);
+  });
+
+  it("should show api's duplicate date in the page's words", async () => {
+    vi.mocked(saveBankHoliday).mockRejectedValue(new ConflictError("api prose"));
+
+    const { markup } = await render(postBankHoliday, { body: { "date-day": "25", "date-month": "12", "date-year": "2026", name: "Christmas" } });
+
+    expect(markup).toContain("This date is already a bank holiday");
+    expect(markup).not.toContain("api prose");
+    expectSummaryLinksResolve(markup);
+  });
+
+  it.each([
+    ["bank-holiday-added", "Bank holiday added."],
+    ["bank-holiday-removed", "Bank holiday removed."]
+  ])("should show the %s banner", async (saved, text) => {
+    const { markup } = await render(GET, { query: { saved } });
+
+    expect(markup).toContain(text);
   });
 });

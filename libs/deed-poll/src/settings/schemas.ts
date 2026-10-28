@@ -1,4 +1,4 @@
-import { PROCESS_SETTINGS_LIMITS, WINDOW_TIME_PATTERN } from "@hmcts/deed-poll-api-client";
+import { BANK_HOLIDAY_LIMITS, MASTER_LIMITS, PROCESS_SETTINGS_LIMITS, WINDOW_TIME_PATTERN } from "@hmcts/deed-poll-api-client";
 import { z } from "zod";
 import { settingsRevision } from "../schema-primitives.js";
 
@@ -7,6 +7,10 @@ import { settingsRevision } from "../schema-primitives.js";
 const DIGITS = /^\d{1,4}$/;
 const WINDOW_TIME = new RegExp(WINDOW_TIME_PATTERN);
 const MINUTES_PER_DAY = 1440;
+// api's `MasterEmail`: exactly one `@` with something either side, and no whitespace once trimmed.
+const MASTER_EMAIL = /^[^\s@]+@[^\s@]+$/;
+const DAY = /^\d{1,2}$/;
+const YEAR = /^\d{4}$/;
 
 /** api's processing window is whole minutes; the form asks for whole days of it. */
 export const PROCESSING_DAYS_LIMITS = {
@@ -47,6 +51,46 @@ export function processSettingsFormSchema(messages: ProcessSettingsFormMessages)
     });
 }
 
+/** Reads "Add a Master" into api's `CreateMasterRequest`. A new Master is available, which is api's default. */
+export function masterFormSchema(messages: MasterFormMessages) {
+  return z.object({ name: masterName(messages.name), email: masterEmail(messages.email) });
+}
+
+/**
+ * Reads a Master's "Change" page into api's `UpdateMasterRequest`. Every field is sent because the page draws every
+ * one; api treats an unchanged value as no change.
+ */
+export function masterChangeFormSchema(messages: MasterChangeFormMessages) {
+  return z.object({
+    name: masterName(messages.name),
+    email: masterEmail(messages.email),
+    available: z.enum(["true", "false"], { error: messages.available }).transform((value) => value === "true"),
+    revision: settingsRevision(messages.reload)
+  });
+}
+
+/**
+ * Reads "Add a bank holiday" into api's `CreateBankHolidayRequest`. The date comes from a GOV.UK date input's three
+ * parts, so every date issue is on `date`, the input's id.
+ */
+export function bankHolidayFormSchema(messages: BankHolidayFormMessages) {
+  return z
+    .object({
+      "date-day": z.unknown(),
+      "date-month": z.unknown(),
+      "date-year": z.unknown(),
+      name: z.string({ error: messages.name }).trim().min(1, messages.name).max(BANK_HOLIDAY_LIMITS.maxNameLength, messages.name)
+    })
+    .transform((input, context) => {
+      const date = calendarDate(input["date-day"], input["date-month"], input["date-year"]);
+      if (!date) {
+        context.addIssue({ code: "custom", path: ["date"], message: messages.date });
+        return z.NEVER;
+      }
+      return { date, name: input.name };
+    });
+}
+
 function wholeNumber(min: number, max: number, message: string) {
   return z
     .string({ error: message })
@@ -63,6 +107,28 @@ function windowTime(message: string) {
     .refine((value) => WINDOW_TIME.test(value), message);
 }
 
+function masterName(message: string) {
+  return z.string({ error: message }).trim().min(1, message).max(MASTER_LIMITS.maxNameLength, message);
+}
+
+function masterEmail(message: string) {
+  return z
+    .string({ error: message })
+    .trim()
+    .max(MASTER_LIMITS.maxEmailLength, message)
+    .refine((value) => MASTER_EMAIL.test(value), message);
+}
+
+/** `yyyy-MM-dd`, or null for anything that is not a real calendar day, a repeated or bracketed part included. */
+function calendarDate(...parts: unknown[]): string | null {
+  if (!parts.every((part) => typeof part === "string")) return null;
+  const [day, month, year] = (parts as string[]).map((part) => part.trim());
+  if (!DAY.test(day) || !DAY.test(month) || !YEAR.test(year)) return null;
+  const date = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  const parsed = new Date(`${date}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? date : null;
+}
+
 export interface ProcessSettingsFormMessages {
   processingDays: string;
   reminderIntervalHours: string;
@@ -75,4 +141,19 @@ export interface ProcessSettingsFormMessages {
   windowsOrder: string;
   afternoonOrder: string;
   reload: string;
+}
+
+export interface MasterFormMessages {
+  name: string;
+  email: string;
+}
+
+export interface MasterChangeFormMessages extends MasterFormMessages {
+  available: string;
+  reload: string;
+}
+
+export interface BankHolidayFormMessages {
+  date: string;
+  name: string;
 }

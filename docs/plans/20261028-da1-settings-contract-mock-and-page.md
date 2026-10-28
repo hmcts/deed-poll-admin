@@ -132,8 +132,8 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Implement the section, run the per-task checks, and record the results.
 
 ### Task 4: Settings: Masters and bank holidays
-- [ ] Add failing schema, handler and template tests for both sections and the remove confirmation.
-- [ ] Implement, run the per-task checks, and record the results.
+- [x] Add failing schema, handler and template tests for both sections and the remove confirmation.
+- [x] Implement, run the per-task checks, and record the results.
 
 ### Task 5: e2e, documentation and final verification
 - [ ] Extend the settings e2e journey and run `yarn test:gazette`; record the result.
@@ -225,3 +225,35 @@ the two plan commits since added none of the six.)
 - Tests were written alongside the code rather than run failing first.
 - Per-task checks: format and lint clean, `yarn build --force` 8/8. deed-poll 1,650 (+39), app 3,164 (+16), all
   passing, with Redis on 6379.
+
+**Task 4 (settings: Masters and bank holidays).**
+- The Masters and Bank holidays sections come after the Gazette section and before Staff and access. Each holds a
+  list that is always read (degrading on its own to a sentence) and an add form below it, posting to
+  `/deed-polls/settings/masters` and `/deed-polls/settings/bank-holidays`. Neither form carries a revision. Only a
+  refused add form is redrawn from the body. Both addresses answer a `GET` with a 302 back to their section, as
+  `gazette-recipient` does.
+- New routes, all under `src/pages/deed-polls/settings/`, so the existing gate covers them. `app.test.ts` now names
+  all four: `masters/[masterId]` (the Change page, `GET` and `POST`), `bank-holidays/[date]/remove` (the
+  confirmation `GET` and the removal `POST`), and the two add routes. The handlers are in `src/service-settings/`
+  (`page.ts`, `master-change.ts`, `bank-holiday-remove.ts`). Every save is a 303 through `savedRedirect`, to one of
+  six `?saved=` keys and its section's fragment.
+- **One change below the page.** api's duplicate-email 409 names `email`, and a stale revision names no field. The
+  adapter used to drop a 409's field errors, which left the two indistinguishable. A 409 now keeps `fieldErrors`
+  when api sends them (left out when there are none, so existing results are unchanged), and `ConflictError` carries
+  them as `errors`. The Change page reads `email` as "Another Master already has this email address" and anything
+  else as a reload. On the add form every 409 is the duplicate, because a new Master has no revision.
+- The Change page sends all three fields at the original revision. api has no single-Master read, so the `GET` finds
+  the Master on the list and answers 404 when it is not there. A refused save re-reads only `linked`, which decides
+  the warning that a signed-in Master must sign in again after an email change. If that read fails, the warning is
+  shown.
+- Bank holidays are shown as `dd-mm-yy`. The add form uses a GOV.UK date input (`date-day`, `date-month`,
+  `date-year`) read by `bankHolidayFormSchema` into a real calendar date, and every date issue is on `date`.
+  The Remove link goes to the confirmation page, whose one form posts the removal. A removal api answers 404 for
+  reads as removed.
+- New domain functions: `masterFormSchema`, `masterChangeFormSchema`, `bankHolidayFormSchema`, `findMasters`,
+  `saveNewMaster`, `saveMasterChange`, `findBankHolidays`, `saveBankHoliday`, `deleteBankHoliday`. The new copy is
+  in `src/service-settings/content.ts`, with its `cy` mirroring `en`.
+- Tests were written alongside the code rather than run failing first.
+- Per-task checks: format and lint clean, `yarn build --force` 8/8. api-client 1,314 (two new assertions, no new
+  cases), deed-poll 1,701 (+51), app 3,227 (+63), all passing, with Redis on 6379.
+

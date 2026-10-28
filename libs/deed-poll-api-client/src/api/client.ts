@@ -1413,7 +1413,9 @@ function classifyFailure(response: Response, payload: unknown): ApiError {
   if (status === 401) return { kind: "unauthorized", status, message };
   if (status === 403) return { kind: "forbidden", status, message };
   if (status === 404) return { kind: "not-found", status, message };
-  if (status === 409) return { kind: "conflict", status, message };
+  // A 409 can name a field too: a Master's email another Master holds is api's conflict on `email`, which a stale
+  // revision is not, and the field is the only structured way to tell the two apart.
+  if (status === 409) return { kind: "conflict", status, message, ...(fieldErrors.length > 0 ? { fieldErrors } : {}) };
 
   // api's abuse limiter, not an outage: the caseworker is told how long to wait rather than that the
   // service has broken.
@@ -1474,7 +1476,7 @@ export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError 
  * - `validation` — api rejected the content; `fieldErrors` map onto an error summary
  * - `not-found` — no such case, note or document
  * - `forbidden` / `unauthorized` — the caller's token is missing, expired, or lacks a role
- * - `conflict` — the record's state does not allow this
+ * - `conflict` — the record's state does not allow this; `fieldErrors` when api names the field
  * - `rate-limited` — api's abuse limiter refused this caller; `retryAfterSeconds` says for how long, or
  *   `null` when api did not say in a form this reads
  * - `unavailable` / `timeout` — nobody's fault; try again shortly

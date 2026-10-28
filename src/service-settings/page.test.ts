@@ -1,23 +1,31 @@
 import {
   ConflictError,
   ForbiddenError,
+  findBankHolidays,
   findGazetteSettings,
+  findMasters,
   findProcessSettings,
   InvalidInputError,
   MANAGE_PROCESS_CONFIG,
+  saveBankHoliday,
   saveGazetteSettings,
+  saveNewMaster,
   saveProcessSettings,
   UnauthorizedError
 } from "@hmcts/deed-poll";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pageRequest, pageResponse } from "../express-doubles.js";
-import { saveGazetteSection, saveProcessSection, showSettings } from "./page.js";
+import { addBankHolidaySection, addMasterSection, saveGazetteSection, saveProcessSection, showSettings } from "./page.js";
 
 vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@hmcts/deed-poll")>()),
+  findBankHolidays: vi.fn(),
   findGazetteSettings: vi.fn(),
+  findMasters: vi.fn(),
   findProcessSettings: vi.fn(),
+  saveBankHoliday: vi.fn(),
   saveGazetteSettings: vi.fn(),
+  saveNewMaster: vi.fn(),
   saveProcessSettings: vi.fn()
 }));
 
@@ -45,6 +53,10 @@ const STORED_VALUES = {
   revision: "4"
 };
 const GAZETTE = { recipientEmail: "lg@example.com", revision: 2, updatedBy: "Admin", updatedAt: new Date("2026-10-08T10:00:00Z") };
+const MASTER = { id: "6f1c1d4e-2a5b-4c3d-8e9f-0a1b2c3d4e5f", name: "Master Wren", email: "wren@example.test", available: false, linked: true, revision: 3 };
+const HOLIDAY = { date: "2026-12-25", name: "Christmas Day" };
+const EMPTY_MASTER_ADD = { values: { name: "", email: "" }, errors: {} };
+const EMPTY_HOLIDAY_ADD = { values: { day: "", month: "", year: "", name: "" }, errors: {} };
 const PROCESS_ONLY = { staff: true, judicial: false, capabilities: [MANAGE_PROCESS_CONFIG] };
 
 beforeEach(() => {
@@ -53,6 +65,10 @@ beforeEach(() => {
   vi.mocked(findGazetteSettings).mockResolvedValue(GAZETTE);
   vi.mocked(saveProcessSettings).mockResolvedValue(PROCESS);
   vi.mocked(saveGazetteSettings).mockResolvedValue(GAZETTE);
+  vi.mocked(findMasters).mockResolvedValue([MASTER]);
+  vi.mocked(findBankHolidays).mockResolvedValue([HOLIDAY]);
+  vi.mocked(saveNewMaster).mockResolvedValue(MASTER);
+  vi.mocked(saveBankHoliday).mockResolvedValue(HOLIDAY);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
@@ -418,5 +434,191 @@ describe("Gazette section POST", () => {
 
     expect(model(res).process).toEqual({ isAvailable: false });
     expect(model(res).errorList).toHaveLength(1);
+  });
+});
+
+describe("service settings: Masters and bank holidays lists", () => {
+  it("should read both lists with the caller's token, linking each row by an encoded path and showing dates as dd-mm-yy", async () => {
+    const res = pageResponse();
+
+    await showSettings(request(), res);
+
+    expect(findMasters).toHaveBeenCalledExactlyOnceWith(CALLER);
+    expect(findBankHolidays).toHaveBeenCalledExactlyOnceWith(CALLER);
+    expect(model(res).masters).toEqual({
+      isAvailable: true,
+      rows: [
+        {
+          changePath: "/deed-polls/settings/masters/6f1c1d4e-2a5b-4c3d-8e9f-0a1b2c3d4e5f",
+          name: "Master Wren",
+          email: "wren@example.test",
+          isAvailable: false,
+          isLinked: true
+        }
+      ]
+    });
+    expect(model(res).bankHolidays).toEqual({
+      isAvailable: true,
+      rows: [{ removePath: "/deed-polls/settings/bank-holidays/2026-12-25/remove", date: "25-12-26", name: "Christmas Day" }]
+    });
+    expect(model(res).masterAdd).toEqual(EMPTY_MASTER_ADD);
+    expect(model(res).holidayAdd).toEqual(EMPTY_HOLIDAY_ADD);
+  });
+
+  it("should degrade each list on its own to an unavailable state, keeping the rest of the page", async () => {
+    vi.mocked(findMasters).mockRejectedValue(new Error("api down"));
+    vi.mocked(findBankHolidays).mockRejectedValue(new Error("api down"));
+    const res = pageResponse();
+
+    await showSettings(request(), res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(model(res).masters).toEqual({ isAvailable: false });
+    expect(model(res).bankHolidays).toEqual({ isAvailable: false });
+    expect(model(res).process.isAvailable).toBe(true);
+    expect(console.error).toHaveBeenCalledWith("masters unavailable: api down");
+  });
+
+  it.each(["master-added", "master-changed", "bank-holiday-added", "bank-holiday-removed"])("should show the %s banner", async (saved) => {
+    const res = pageResponse();
+
+    await showSettings(request({ query: { saved } }), res);
+
+    expect(model(res).savedSection).toBe(saved);
+  });
+
+  it("should ignore a saved key the page did not send", async () => {
+    const res = pageResponse();
+
+    await showSettings(request({ query: { saved: "masters" } }), res);
+
+    expect(model(res).savedSection).toBeUndefined();
+  });
+});
+
+describe("service settings: add a Master", () => {
+  it("should add the trimmed name and email and redirect to the Masters section", async () => {
+    const res = pageResponse();
+
+    await addMasterSection(request({ body: { name: " Master Wren ", email: " wren@example.test " } }), res);
+
+    expect(saveNewMaster).toHaveBeenCalledExactlyOnceWith({ name: "Master Wren", email: "wren@example.test" }, CALLER);
+    expect(res.redirect).toHaveBeenCalledWith(303, "/deed-polls/settings?saved=master-added#masters");
+  });
+
+  it("should redraw the typed values with each control's error and write nothing when the form is refused", async () => {
+    const res = pageResponse();
+
+    await addMasterSection(request({ body: { name: " ", email: "wren" } }), res);
+
+    expect(saveNewMaster).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(model(res).masterAdd).toEqual({
+      values: { name: " ", email: "wren" },
+      errors: { name: "Enter the Master’s name, up to 200 characters", email: "Enter the Master’s email address, like name@example.com" }
+    });
+    expect(model(res).errorList).toEqual([
+      { text: "Enter the Master’s name, up to 200 characters", href: "#master-name" },
+      { text: "Enter the Master’s email address, like name@example.com", href: "#master-email" }
+    ]);
+    expect(findProcessSettings).toHaveBeenCalledOnce();
+    expect(findMasters).toHaveBeenCalledOnce();
+  });
+
+  it("should say another Master has the address when api answers 409", async () => {
+    vi.mocked(saveNewMaster).mockRejectedValue(new ConflictError("Another Master already has this email address.", [{ field: "email", message: "x" }]));
+    const res = pageResponse();
+
+    await addMasterSection(request({ body: { name: "Master Wren", email: "WREN@example.test" } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(model(res).masterAdd).toEqual({
+      values: { name: "Master Wren", email: "WREN@example.test" },
+      errors: { email: "Another Master already has this email address" }
+    });
+  });
+
+  it("should put api's 400 on the control it names, in this page's words", async () => {
+    vi.mocked(saveNewMaster).mockRejectedValue(new InvalidInputError("Enter the Master's email address", [{ field: "email", message: "api's words" }]));
+    const res = pageResponse();
+
+    await addMasterSection(request({ body: { name: "Master Wren", email: "wren@example.test" } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(model(res).masterAdd.errors).toEqual({ email: "Enter the Master’s email address, like name@example.com" });
+    expect(model(res).masterAdd.refusedText).toBeUndefined();
+  });
+
+  it("should refuse in general terms when api's 400 names no control", async () => {
+    vi.mocked(saveNewMaster).mockRejectedValue(new InvalidInputError("Only name, email and available", [{ field: "other", message: "x" }]));
+    const res = pageResponse();
+
+    await addMasterSection(request({ body: { name: "Master Wren", email: "wren@example.test" } }), res);
+
+    expect(model(res).masterAdd).toMatchObject({ errors: {}, refusedText: "The Master could not be saved. Reload the settings and try again." });
+  });
+
+  it("should let any other failure reach the error pages", async () => {
+    vi.mocked(saveNewMaster).mockRejectedValue(new ForbiddenError("nope"));
+
+    await expect(addMasterSection(request({ body: { name: "Master Wren", email: "wren@example.test" } }), pageResponse())).rejects.toBeInstanceOf(
+      ForbiddenError
+    );
+  });
+});
+
+describe("service settings: add a bank holiday", () => {
+  const BODY = { "date-day": "1", "date-month": "1", "date-year": "2029", name: "New Year’s Day" };
+
+  it("should add the date as api's yyyy-MM-dd and redirect to the bank holidays section", async () => {
+    const res = pageResponse();
+
+    await addBankHolidaySection(request({ body: BODY }), res);
+
+    expect(saveBankHoliday).toHaveBeenCalledExactlyOnceWith({ date: "2029-01-01", name: "New Year’s Day" }, CALLER);
+    expect(res.redirect).toHaveBeenCalledWith(303, "/deed-polls/settings?saved=bank-holiday-added#bank-holidays");
+  });
+
+  it("should redraw the typed parts with the date's error and write nothing for a day that does not exist", async () => {
+    const res = pageResponse();
+
+    await addBankHolidaySection(request({ body: { ...BODY, "date-day": "30", "date-month": "2" } }), res);
+
+    expect(saveBankHoliday).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(model(res).holidayAdd).toEqual({
+      values: { day: "30", month: "2", year: "2029", name: "New Year’s Day" },
+      errors: { date: "Enter the bank holiday’s date as a real date, like 25 12 2029" }
+    });
+    expect(model(res).errorList).toEqual([{ text: "Enter the bank holiday’s date as a real date, like 25 12 2029", href: "#bank-holiday-date-day" }]);
+  });
+
+  it("should say the date is already a bank holiday when api answers 409", async () => {
+    vi.mocked(saveBankHoliday).mockRejectedValue(new ConflictError("This date is already a bank holiday."));
+    const res = pageResponse();
+
+    await addBankHolidaySection(request({ body: BODY }), res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(model(res).holidayAdd.errors).toEqual({ date: "This date is already a bank holiday" });
+  });
+
+  it("should put api's 400 on the name when api names it", async () => {
+    vi.mocked(saveBankHoliday).mockRejectedValue(new InvalidInputError("name", [{ field: "name", message: "x" }]));
+    const res = pageResponse();
+
+    await addBankHolidaySection(request({ body: BODY }), res);
+
+    expect(model(res).holidayAdd.errors).toEqual({ name: "Enter the bank holiday’s name, up to 200 characters" });
+    expect(model(res).errorList).toEqual([{ text: "Enter the bank holiday’s name, up to 200 characters", href: "#bank-holiday-name" }]);
+  });
+
+  it("should refuse in general terms when api's 400 names no control", async () => {
+    vi.mocked(saveBankHoliday).mockRejectedValue(new InvalidInputError("unknown", [{ field: "other", message: "x" }]));
+    const res = pageResponse();
+
+    await addBankHolidaySection(request({ body: BODY }), res);
+
+    expect(model(res).holidayAdd).toMatchObject({ errors: {}, refusedText: "The bank holiday could not be saved. Reload the settings and try again." });
   });
 });

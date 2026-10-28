@@ -1,6 +1,6 @@
 import { PROCESS_SETTINGS_LIMITS } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
-import { PROCESSING_DAYS_LIMITS, processSettingsFormSchema } from "./schemas.js";
+import { bankHolidayFormSchema, masterChangeFormSchema, masterFormSchema, PROCESSING_DAYS_LIMITS, processSettingsFormSchema } from "./schemas.js";
 
 const MESSAGES = {
   processingDays: "days",
@@ -135,5 +135,110 @@ describe("processSettingsFormSchema", () => {
       "revision"
     ]);
     expect(result.referralClaimExpiryMinutes).toBe(10080);
+  });
+});
+
+describe("masterFormSchema", () => {
+  const masterSchema = masterFormSchema({ name: "name", email: "email" });
+
+  function masterIssues(body: Record<string, unknown>) {
+    const result = masterSchema.safeParse(body);
+    return result.success ? [] : result.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message }));
+  }
+
+  it("should read a trimmed name and email into api's request, leaving available to api's default", () => {
+    // Arrange
+    const body = { name: "  Master Wren ", email: " wren@example.test " };
+
+    // Act
+    const result = masterSchema.parse(body);
+
+    // Assert
+    expect(result).toEqual({ name: "Master Wren", email: "wren@example.test" });
+  });
+
+  it("should accept a name and an email at api's bounds", () => {
+    expect(masterIssues({ name: "n".repeat(200), email: `${"a".repeat(307)}@example.test` })).toEqual([]);
+  });
+
+  it.each(["", "   ", "n".repeat(201), ["Master"], undefined])("should refuse name %j as the name's error", (name) => {
+    expect(masterIssues({ name, email: "wren@example.test" })).toEqual([{ path: "name", message: "name" }]);
+  });
+
+  it.each([
+    "",
+    "wren",
+    "wren@",
+    "@example.test",
+    "wren@@example.test",
+    "wr en@example.test",
+    `${"a".repeat(308)}@example.test`,
+    ["wren@example.test"],
+    undefined
+  ])("should refuse email %j as the email's error", (email) => {
+    expect(masterIssues({ name: "Master Wren", email })).toEqual([{ path: "email", message: "email" }]);
+  });
+});
+
+describe("masterChangeFormSchema", () => {
+  const changeSchema = masterChangeFormSchema({ name: "name", email: "email", available: "available", reload: "reload" });
+  const CHANGE = { name: "Master Wren", email: "wren@example.test", available: "false", revision: "2" };
+
+  it("should read every field, available as a boolean and the revision as a number", () => {
+    expect(changeSchema.parse(CHANGE)).toEqual({ name: "Master Wren", email: "wren@example.test", available: false, revision: 2 });
+    expect(changeSchema.parse({ ...CHANGE, available: "true" }).available).toBe(true);
+  });
+
+  it.each(["", "on", "TRUE", ["true"], undefined])("should refuse available %j as its own error", (available) => {
+    const result = changeSchema.safeParse({ ...CHANGE, available });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map((issue) => [issue.path.join("."), issue.message])).toEqual([["available", "available"]]);
+  });
+
+  it.each(["", "-1", "01", "2.0", "2147483648", undefined])("should refuse revision %j as a reload", (revision) => {
+    const result = changeSchema.safeParse({ ...CHANGE, revision });
+
+    expect(result.error?.issues.map((issue) => [issue.path.join("."), issue.message])).toEqual([["revision", "reload"]]);
+  });
+});
+
+describe("bankHolidayFormSchema", () => {
+  const holidaySchema = bankHolidayFormSchema({ date: "date", name: "name" });
+  const HOLIDAY = { "date-day": "1", "date-month": "1", "date-year": "2029", name: "New Year's Day" };
+
+  function holidayIssues(body: Record<string, unknown>) {
+    const result = holidaySchema.safeParse(body);
+    return result.success ? [] : result.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message }));
+  }
+
+  it("should read the three date parts as api's yyyy-MM-dd and trim the name", () => {
+    expect(holidaySchema.parse({ ...HOLIDAY, "date-day": " 01 ", name: "  New Year's Day " })).toEqual({ date: "2029-01-01", name: "New Year's Day" });
+  });
+
+  it("should accept a leap day in a leap year", () => {
+    expect(holidaySchema.parse({ ...HOLIDAY, "date-day": "29", "date-month": "2", "date-year": "2028" }).date).toBe("2028-02-29");
+  });
+
+  it.each([
+    ["date-day", ""],
+    ["date-day", "32"],
+    ["date-day", "1.0"],
+    ["date-day", "١"],
+    ["date-month", "13"],
+    ["date-month", "0"],
+    ["date-year", "29"],
+    ["date-year", "20290"],
+    ["date-day", ["1"]]
+  ])("should refuse %s %j as the date's error", (part, value) => {
+    expect(holidayIssues({ ...HOLIDAY, [part]: value })).toEqual([{ path: "date", message: "date" }]);
+  });
+
+  it("should refuse a day the month does not have", () => {
+    expect(holidayIssues({ ...HOLIDAY, "date-day": "29", "date-month": "2", "date-year": "2029" })).toEqual([{ path: "date", message: "date" }]);
+  });
+
+  it.each(["", "  ", "n".repeat(201), undefined])("should refuse name %j as the name's error", (name) => {
+    expect(holidayIssues({ ...HOLIDAY, name })).toEqual([{ path: "name", message: "name" }]);
   });
 });
