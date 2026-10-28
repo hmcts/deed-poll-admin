@@ -1502,8 +1502,7 @@ export type JudicialReferralSummary = WireJudicialReferralSummary;
 export type JudicialReferralDetail = WireJudicialReferralDetail;
 export type JudicialApplicationView = WireJudicialApplicationView;
 export type JudicialDocument = WireJudicialDocument;
-/** The direction as this app sends it: the new Gazette name only, never api's deprecated `publishToGazette`. */
-export type JudicialDirection = Omit<WireJudicialDirection, "publishToGazette">;
+export type JudicialDirection = WireJudicialDirection;
 /**
  * The email types, which are one payload's parts rather than five endpoints' worth: `CaseEmails` is what the tab
  * reads and the other four are the shapes inside it.

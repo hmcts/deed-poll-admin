@@ -444,7 +444,7 @@ async function seedWaitingCases(
  * `daysAwaitingConfirmation` is a difference of UTC calendar days, `0` on the day the email went and never 1.
  */
 async function askApplicant(request: APIRequestContext, caseId: string, daysAgo: number): Promise<string> {
-  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor"] } });
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor", "MinorCourtOrder"] } });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
 

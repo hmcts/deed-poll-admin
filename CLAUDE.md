@@ -286,10 +286,9 @@ single file:
   in the Gazette?", then "Directions/Reasons", and the check page reads back in that order. Yes means do not publish,
   or publish only as the directions say (the last name only, for example), so `directionSchema` requires
   `directionsText` when the answer is Yes, as api does. The wire field is `changesToStandardPublication`; api#154
-  renamed its column and inverted every stored answer, and publishes the old `publishToGazette` (inverted, deprecated)
-  for one release. This app declares that name for the contract's set-equality and **never reads or sends it**
-  (`JudicialDirection` omits it), and the mock derives it rather than storing it. **Deploy order:** api#154 first,
-  then this app, then api's PR 3, which removes the alias, after which the spec refresh drops it here. The caseworker
+  renamed its column and inverted every stored answer. The old `publishToGazette` was published inverted and
+  deprecated for one release and removed by api#156; the spec refresh after it dropped it here, so it is gone from
+  the wire, the client and the mock. The caseworker
   pages relabel the row "Changes to the standard publications in the Gazette" but keep "Directions"; only the Master's
   own pages say "Directions/Reasons". The case's `publishToLondonGazette` (field rules, the Gazette ready list) is a
   different fact and is untouched.
@@ -299,8 +298,8 @@ single file:
   offers them as checkboxes revealed beneath "Applicant is a minor" (`idPrefix` `minorDetails`, `name` `reasons`, so
   they post as api's one field). `createReferralSchema` requires at least one when "Applicant is a minor" is ticked,
   refuses one without it (addressed to `reasons`, because the revealed group is hidden then) and refuses both halves
-  of a consent pair. api accepts `Minor` alone for one release, so this form is the only place the "at least one"
-  rule holds until api's contract step. Every page reads reasons through `referralReasonLabels`, which folds the
+  of a consent pair. Since api#156 api refuses `Minor` alone on a create too (and so does the mock, in api's words);
+  a referral raised before then keeps its bare `Minor`, which every page still reads. Every page reads reasons through `referralReasonLabels`, which folds the
   details into "Applicant is a minor: Transgender, Have parental consent". Since api#155 the case notes api writes use
   the same words (its `ReferralReason.label()`, semicolons between reasons), and the mock's `REASON_NOTE_LABEL`
   restates them; change a label here, in api and in the mock together. Older notes keep api's raw names.

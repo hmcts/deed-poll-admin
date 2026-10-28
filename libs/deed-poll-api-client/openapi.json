@@ -3477,7 +3477,7 @@
           },
           "reasons": {
             "type": "array",
-            "description": "Why the case is being referred. At least one, de-duplicated, and stored in the order they are sent. Other requires notes. The Minor* details (MinorTransgender and the rest) say what kind of minor's application it is: each is accepted only beside Minor, and the three consent pairs (parental, stepparent, a 16 or 17 year old's own) cannot both be named.",
+            "description": "Why the case is being referred. At least one, de-duplicated, and stored in the order they are sent. Other requires notes. The Minor* details (MinorTransgender and the rest) say what kind of minor's application it is: Minor requires at least one, each is accepted only beside it, and the three consent pairs (parental, stepparent, a 16 or 17 year old's own) cannot both be named.",
             "items": {
               "type": "string",
               "description": "Matched exactly, as the stored form is the wire form.",
@@ -4123,7 +4123,7 @@
         "properties": {
           "changesToStandardPublication": {
             "type": "boolean",
-            "description": "The Master's answer to \"Are there any changes to the standard publications in the Gazette?\": true for do not publish, or publish only as directionsText says; false for publish as standard. The judge's decision, never derived from a caseworker's referral reasons. A JSON boolean -- the string \"false\" is refused rather than coerced, because publication cannot be taken back. publishToGazette alone is accepted in its place for one release."
+            "description": "The Master's answer to \"Are there any changes to the standard publications in the Gazette?\": true for do not publish, or publish only as directionsText says; false for publish as standard. The judge's decision, never derived from a caseworker's referral reasons. A JSON boolean -- the string \"false\" is refused rather than coerced, because publication cannot be taken back."
           },
           "decision": {
             "type": "string",
@@ -4134,11 +4134,6 @@
             "type": "string",
             "description": "What the judge directed. Optional on a standard publication: an approval that needs no comment is a real answer. Required when changesToStandardPublication is true, to say whether to publish nothing or what to publish. Trimmed, and a whitespace-only value counts as none.",
             "maxLength": 4000
-          },
-          "publishToGazette": {
-            "type": "boolean",
-            "deprecated": true,
-            "description": "changesToStandardPublication inverted, under its name before 2026-10-27. Accepted for one release, and exempt from the directionsText requirement; sent beside changesToStandardPublication it must agree with it. Send changesToStandardPublication instead."
           }
         },
         "required": ["changesToStandardPublication", "decision"]
@@ -4272,11 +4267,6 @@
           },
           "notes": {
             "type": "string"
-          },
-          "publishToGazette": {
-            "type": ["boolean", "null"],
-            "deprecated": true,
-            "description": "changesToStandardPublication inverted, under the name it had before 2026-10-27. Kept for one release; read changesToStandardPublication."
           },
           "reasons": {
             "type": "array",
@@ -4502,11 +4492,6 @@
           },
           "notes": {
             "type": "string"
-          },
-          "publishToGazette": {
-            "type": ["boolean", "null"],
-            "deprecated": true,
-            "description": "changesToStandardPublication inverted, under the name it had before 2026-10-27. Kept for one release; read changesToStandardPublication."
           },
           "reasons": {
             "type": "array",

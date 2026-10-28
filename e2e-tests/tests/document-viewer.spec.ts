@@ -383,7 +383,12 @@ async function seedReferral(request: APIRequestContext): Promise<{ caseId: strin
   const caseId = await seedCase(request, `KBDP2026-J${String(Date.now()).slice(-5)}`);
   const raised = await request.post(`${MOCK}/caseworker/cases/${caseId}/referrals`, {
     headers: bearer(CASEWORKER_EMAIL),
-    data: { reasons: ["Minor"], notes: "Please consider the supporting documents.", urgency: "Urgent", urgencyReason: "Hearing listed on Friday." }
+    data: {
+      reasons: ["Minor", "MinorCourtOrder"],
+      notes: "Please consider the supporting documents.",
+      urgency: "Urgent",
+      urgencyReason: "Hearing listed on Friday."
+    }
   });
   expect(raised.status(), await raised.text()).toBe(201);
   return { caseId, referralId: (await raised.json()).id };

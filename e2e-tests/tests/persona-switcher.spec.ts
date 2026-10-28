@@ -304,7 +304,7 @@ async function seedCase(request: APIRequestContext, fields: Record<string, strin
 async function seedClaimedReferral(request: APIRequestContext, caseId: string, judge: string): Promise<string> {
   const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, {
     headers: bearer(CASEWORKER_EMAIL),
-    data: { reasons: ["Minor"] }
+    data: { reasons: ["Minor", "MinorCourtOrder"] }
   });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;

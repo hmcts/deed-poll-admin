@@ -586,7 +586,7 @@ async function caseWithDocument(mimeType: string, bytes: Buffer, name = "documen
 }
 
 async function referralOn(caseId: string): Promise<string> {
-  const created = await createReferral(caseId, { reasons: ["Minor"] }, config);
+  const created = await createReferral(caseId, { reasons: ["Minor", "MinorCourtOrder"] }, config);
   if (!created.ok) throw new Error(`referral was not created: ${created.error.message}`);
 
   return created.data.id;
