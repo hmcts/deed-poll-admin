@@ -296,7 +296,7 @@ async function seedCase(request: APIRequestContext, fields: Record<string, unkno
  * empty default (flag 7 on the plan).
  */
 async function refuseApplication(request: APIRequestContext, caseId: string, reason: string): Promise<void> {
-  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor"] } });
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor", "MinorCourtOrder"] } });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
 

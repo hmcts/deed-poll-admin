@@ -294,7 +294,7 @@ console.log(`${"Awaiting the applicant's reply".padEnd(36)} ${String(CONFIRMATIO
  * only symptom is a count that is quietly short.
  */
 async function refer(caseId, upTo, what) {
-  const referral = await step("POST", `/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor"] }, {}, `raise ${what}`);
+  const referral = await step("POST", `/caseworker/cases/${caseId}/referrals`, { reasons: ["Minor", "MinorParentalConsent"] }, {}, `raise ${what}`);
   if (upTo === "Open") return referral.id;
 
   const judge = { authorization: `Bearer x.${Buffer.from(JSON.stringify({ sub: SEED_JUDGE }), "utf8").toString("base64url")}.signature` };

@@ -1788,7 +1788,7 @@ async function expectWorklistTotalMatchesApi(page: Page, request: APIRequestCont
  * the way to the wire, the failure this whole feature's tests exist to tell apart.
  */
 async function referTo(request: APIRequestContext, caseId: string, upTo: "Claimed" | "Decided"): Promise<void> {
-  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor"] } });
+  const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${caseId}/referrals`, { data: { reasons: ["Minor", "MinorCourtOrder"] } });
   expect(raised.status(), await raised.text()).toBe(201);
   const referralId = (await raised.json()).id;
 

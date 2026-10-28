@@ -334,8 +334,7 @@ const documentSchema = z.object({
  * `changesToStandardPublication` is nullable where `migrated` is not: api boxes it deliberately, because a referral
  * with no direction has not been asked the question and absent is not false. It is the Master's answer to "Are there
  * any changes to the standard publications in the Gazette?" — true for do not publish, or publish only as
- * `directionsText` says. **`publishToGazette` is the same answer inverted under its pre-2026-10-27 name**, published
- * deprecated by api for one release: declared here because the contract is set-equal, and read by nothing.
+ * `directionsText` says.
  *
  * The four `confirmation*` fields are the applicant's answer to the *Request confirmation to proceed* email and
  * api's record of who transcribed it. All four are nullable and they move in pairs rather than independently:
@@ -357,8 +356,6 @@ const referralSchema = z.object({
   decision: z.enum(MASTER_DECISION).nullish(),
   directionsText: z.string().nullish(),
   changesToStandardPublication: z.boolean().nullish(),
-  // Deprecated by api: `changesToStandardPublication` inverted, for one release. Read by nothing here.
-  publishToGazette: z.boolean().nullish(),
   decisionDate: wireDateTime.nullish(),
   decidedBy: z.string().nullish(),
   // Set when the judge changes or withdraws their direction, and never cleared: the caseworker's cue that the
@@ -762,8 +759,6 @@ const judicialReferralDetailSchema = judicialReferralSummarySchema.extend({
   decision: z.enum(MASTER_DECISION).nullish(),
   directionsText: z.string().nullish(),
   changesToStandardPublication: z.boolean().nullish(),
-  // Deprecated by api: `changesToStandardPublication` inverted, for one release. Read by nothing here.
-  publishToGazette: z.boolean().nullish(),
   decisionDate: wireDateTime.nullish(),
   decidedBy: z.string().nullish(),
   // When the judge last changed or withdrew their direction; null while it stands as first given. Never
@@ -818,7 +813,6 @@ const judicialMyReferralsSchema = z.object({
  * `changesToStandardPublication` is a required JSON boolean and not a coerced string, which is api's own emphasis:
  * `"false"` is truthy in JavaScript, and publication cannot be taken back. Never derived from a
  * `NonPublication` referral reason — the caseworker's reason for referring is not the judge's decision.
- * `publishToGazette`, its deprecated inverted predecessor, is declared for set-equality and never sent.
  *
  * `directionsText` is optional on a standard publication, because an approval that needs no comment is a real
  * answer, and **required when there are changes** — api answers 400 on it otherwise. The state, the
@@ -827,7 +821,6 @@ const judicialMyReferralsSchema = z.object({
 const judicialDirectionSchema = z.object({
   decision: z.enum(MASTER_DECISION),
   changesToStandardPublication: z.boolean(),
-  publishToGazette: z.boolean().optional(),
   directionsText: z.string().max(4000).optional()
 });
 

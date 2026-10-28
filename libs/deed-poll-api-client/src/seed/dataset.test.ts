@@ -48,7 +48,7 @@ describe("seed dataset scenarios", () => {
     expect(rows[14].referral).toEqual({
       state: "Claimed",
       create: {
-        reasons: ["Minor"],
+        reasons: ["Minor", "MinorParentalConsent"],
         notes: "[SEED-dataset-test-15] Synthetic minor application for judicial consideration.",
         urgency: "Urgent",
         urgencyReason: "Synthetic urgent travel scenario."
