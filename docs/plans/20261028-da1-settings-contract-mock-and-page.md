@@ -136,9 +136,9 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Implement, run the per-task checks, and record the results.
 
 ### Task 5: e2e, documentation and final verification
-- [ ] Extend the settings e2e journey and run `yarn test:gazette`; record the result.
-- [ ] Update `CLAUDE.md`'s "Delivery Manager settings" section, the mock seed line and `SPEC-PROVENANCE.md`; regenerate the Welsh CSV with `yarn welsh:extract`.
-- [ ] Run all Validation Commands once more with `--force`, record the counts against the baseline, and confirm `git status` is clean apart from the task commits.
+- [x] Extend the settings e2e journey and run `yarn test:gazette`; record the result.
+- [x] Update `CLAUDE.md`'s "Delivery Manager settings" section, the mock seed line and `SPEC-PROVENANCE.md`; regenerate the Welsh CSV with `yarn welsh:extract`.
+- [x] Run all Validation Commands once more with `--force`, record the counts against the baseline, and confirm `git status` is clean apart from the task commits.
 
 ## Execution notes
 
@@ -257,3 +257,20 @@ the two plan commits since added none of the six.)
 - Per-task checks: format and lint clean, `yarn build --force` 8/8. api-client 1,314 (two new assertions, no new
   cases), deed-poll 1,701 (+51), app 3,227 (+63), all passing, with Redis on 6379.
 
+**Task 5 (e2e, documentation and final verification).**
+- `service-settings.spec.ts` gains a second journey: add a Master (then a duplicate email, refused with the page's
+  sentence), change it to unavailable on its Change page, add a 2029 bank holiday and remove it through the
+  confirmation page, with an axe check on the settings page after each save, the Change page and the confirmation.
+- `yarn test:gazette`: **10 passed**. Redis was not running on 6316, so I started a throwaway
+  `redis:8-alpine` container on it per the README (`--rm`, stopped afterwards); local IDAM answered on 5556. The
+  first run failed one assertion in the referral-process journey that Task 3 edited but never ran: an exact
+  `getByText` on the warning text, which GOV.UK prefixes with a visually hidden "Warning". It now asserts the
+  warning's text with `toContainText`. The second run passed all ten.
+- `CLAUDE.md`'s "Delivery Manager settings" now describes the referral process form, the Masters' 409 field errors,
+  the bank holiday removal and the mock's starting state and linking; the `mock:seed` line names the three Masters.
+  `SPEC-PROVENANCE.md` already had Task 1's complete row, so it is unchanged. `yarn welsh:extract` rewrote only
+  `src/service-settings/content.ts` rows (the claim window's gone, the new sections' added).
+- Final full set: format (one file fixed), lint clean, `yarn build --force` 8/8, suite 8/8 with Redis on 6379 (the
+  Redis suites ran). Against the baseline: app 3,227 (+79), deed-poll 1,701 (+89), api-client 1,314 (+98),
+  cloud-native-platform 156, express-govuk-starter 132, simple-router 45, express-session-postgres 85,
+  express-session-redis 7 (all unchanged). No failures. `git status` was clean apart from this task's files.

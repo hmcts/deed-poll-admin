@@ -27,8 +27,10 @@ yarn mock:api                   # The in-memory api the pages develop against, o
 yarn mock:seed                  # Seed the running mock: 57 cases across every tab plus nine referrals — four
                                 # Decided so the returned-for-action count is non-zero, two of those also
                                 # awaiting the applicant's confirmation (waiting 14 and 3 days) so the second
-                                # count, its tab and the Waiting column are non-empty too. Resets the store
-                                # unless given `--keep`, and exits non-zero on a mismatch
+                                # count, its tab and the Waiting column are non-empty too — and three Masters,
+                                # Master Wren unavailable and Master Judge on the judge persona's email, so it
+                                # links on that persona's first judicial request. Resets the store unless given
+                                # `--keep` (which skips Masters already listed), and exits non-zero on a mismatch
 ```
 
 The mock starts **empty**, so a page whose data comes from a list — the case list, its filter tabs, the
@@ -732,9 +734,10 @@ span several files:
 ## Delivery Manager settings
 
 `/deed-polls/settings` is where a Delivery Manager changes the service's process values while it runs (plan
-`docs/plans/20261026-dm-settings-page.md`). Phase 1 holds the referral claim window, the London Gazette recipient and
-a link to XUI staff administration. The other process values are later plans; add no field or placeholder for them.
-Facts that span several files:
+`docs/plans/20261026-dm-settings-page.md`, extended for item D by `docs/plans/20261028-da1-settings-contract-mock-and-page.md`).
+It holds, in order, the referral process, the London Gazette recipient, the Masters, the bank holidays and a link to
+XUI staff administration. Add no field or placeholder for a value api has not made a setting. Facts that span several
+files:
 
 - **The area is gated once, on `MANAGE_PROCESS_CONFIG`.** `src/app.ts` mounts
   `requireCapability(MANAGE_PROCESS_CONFIG)` on `/deed-polls/settings`, after `requireAuth`, beside the Gazette gate;
@@ -742,20 +745,43 @@ Facts that span several files:
   page. Only Delivery Managers hold it. The case list's "Service settings" link is drawn from the session's capability
   alone, with no api read. The capability arrives through `/me`, so an existing session gets the link within one token
   lifetime, or at once on signing in again: a missing link straight after a deploy is that, not a failed deployment.
-- **Two forms, two Saves, two revisions.** The process section posts to `/deed-polls/settings` and the Gazette section
-  to `/deed-polls/settings/gazette-recipient`, each with only its own revision, so a conflict in one never touches the
-  other's stored value. A browser submits only the form whose button was pressed, so unsaved edits in the other
+- **One form, one Save and (where api keeps one) one revision per section.** The process section posts to
+  `/deed-polls/settings` and the Gazette section to `/deed-polls/settings/gazette-recipient`, each with only its own
+  revision, so a conflict in one never touches the other's stored value. The Masters and Bank holidays add forms post
+  to `/deed-polls/settings/masters` and `/deed-polls/settings/bank-holidays` with no revision, since a new row has none. A browser submits only the form whose button was pressed, so unsaved edits in the other
   section are lost, and the intro says "Save each section before you change another". A refused Gazette save renders
   at `/deed-polls/settings/gazette-recipient`, so that address also answers a `GET` with a 302 back to the page's
-  `#gazette-recipient`; without it the language link and a reload were a 404. The handler code is in
+  `#gazette-recipient`; without it the language link and a reload were a 404. The two add addresses do the same for
+  `#masters` and `#bank-holidays`. The handler code is in
   `src/service-settings/` (every `.ts` under `src/pages` is a route). The submitted section is redrawn from the body
   with its **original** revision on a 400 or 409, never re-read; the other section is re-read and, if that read fails,
-  degrades to a sentence with no form. A success is a 303 to `?saved=<section>#<section>`, and the banner shows even if
-  the follow-up read fails.
-- **The claim window form is digits only and does not use `readNumericInput`.** `processSettingsFormSchema`
-  (`libs/deed-poll/src/settings/schemas.ts`) reads hours 0–24 and minutes 0–59 as trimmed `^\d{1,4}$` or blank, and
-  the total must sit within `PROCESS_SETTINGS_LIMITS` (30–1,440 minutes, pinned to `openapi.json`). Signs, decimals,
-  exponents and a missing control are refused. Do not swap in the case form's parser, which accepts `+2` and `2.0`.
+  degrades to a sentence with no form (the Masters and bank holiday lists degrade on their own, above a form that is
+  still drawn). A success is a 303 through `savedRedirect` to one of `SAVED`'s keys and its section's fragment
+  (`src/service-settings/page.ts`), and the banner shows even if the follow-up read fails.
+- **The referral process form is digits only and does not use `readNumericInput`.** `processSettingsFormSchema`
+  (`libs/deed-poll/src/settings/schemas.ts`) reads the processing window in whole **days** (`PROCESSING_DAYS_LIMITS`,
+  1–30; api stores minutes, days × 1,440, within `PROCESS_SETTINGS_LIMITS`' 1,440–43,200), the reminder interval in
+  hours (1–168) and the cap per Master per window (1–100), each as trimmed `^\d{1,4}$`, and the four window times
+  against `WINDOW_TIME_PATTERN` (`HH:mm` on the quarter hour). Signs, decimals, exponents and a missing control are
+  refused. Do not swap in the case form's parser, which accepts `+2` and `2.0`. Every save sends all seven fields.
+  The ordering rule (morning start < morning end < afternoon start < afternoon end) runs only when every control is
+  valid and is refused on the field api names, so a morning end not before the afternoon start is the **afternoon
+  start**'s error. A stored part-day window (only an old claim window could be one) is shown to two places, never
+  rounded, so the digits-only form refuses it rather than silently changing it. The bounds are api's and pinned to
+  `openapi.json` by `contract.test.ts`; do not restate them in a page.
+- **A 409's field errors are what tell a duplicate from a stale revision.** api's duplicate-email 409 on a Master
+  names `email` and a stale revision names no field, so the adapter keeps a 409's `fieldErrors` when api sends any and
+  `ConflictError` carries them as `errors`. The Change page (`masters/[masterId]`) reads `email` as the duplicate and
+  anything else as a reload; on the add form every 409 is the duplicate, because a new Master has no revision. The
+  Change page sends name, email and available at the original revision. api has no single-Master read, so its `GET`
+  finds the Master on the list and is a 404 when absent. A linked Master's page warns first that an email change means
+  signing in again before they see their referrals, and a refused save re-reads only `linked` for it (showing the
+  warning if that read fails). The IDAM subject is never in api's answer, so never on a page.
+- **A bank holiday is removed only by a POST from its confirmation page.** The list's Remove link goes to
+  `bank-holidays/[date]/remove`, whose `GET` confirms and whose one form posts the removal; never a state-changing
+  `GET`. A removal api answers 404 for reads as removed. Dates are shown as `dd-mm-yy` and kept as api's `yyyy-MM-dd`
+  string, never a `Date`; the add form is a GOV.UK date input (`date-day`/`-month`/`-year`) read into a real calendar
+  date, every date issue on `date`.
 - **The Gazette section needs `ACCESS_GAZETTE` as well.** The area gate admits every Delivery Manager, so the section
   is drawn and read only for holders, and its POST refuses anyone else with a `role` `ForbiddenError` before any read
   or write, because api checks the same capability.
@@ -764,8 +790,11 @@ Facts that span several files:
   the environment segment only for `prod`, and preview pins AAT's. A non-production environment must never name
   production XUI; `src/deployment-chart.test.ts` renders every environment through `helm template` to prove it, and
   **those render tests skip without `helm`**. XUI checks `staff-admin` itself, which the copy says.
-- **The mock starts the claim window at 120 minutes, revision 0, with no attribution**, and resets it with its other
-  fixtures. That is the state in which the section says the window has never been changed. Saving sends no email.
+- **The mock starts the referral process at api's seed** (10,080 minutes, 48 hours, 10, 07:00–10:30 and 14:00–14:30),
+  revision 0, with no attribution, no Masters, and api's V42 bank holidays (24 dates, 2026–2028), and resets all of it
+  with its other fixtures. That is the state in which the section says the process has never been changed. The mock
+  links a judge to an unlinked Master whose email matches their token's on their first `/judicial/` request
+  (`linkIfListed`, api's `MasterLinking`), and an email change unlinks. Saving sends no email.
 - **The page's Welsh is pending.** `src/service-settings` is on the extractor's `INCLUDE`; the new copy's `cy` mirrors
   its `en`, so it adds to `yarn welsh:check`'s identical count.
 
