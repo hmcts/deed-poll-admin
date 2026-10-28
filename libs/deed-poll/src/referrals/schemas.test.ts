@@ -1,11 +1,34 @@
 import { CONFIRMATION_OUTCOME, REFERRAL_REASON, URGENCY } from "@hmcts/deed-poll-api-client";
 import { describe, expect, it } from "vitest";
 import { zodErrorToFieldErrors } from "../errors.js";
-import { createReferralSchema, MAX_CONFIRMATION_NOTE, MAX_REFERRAL_NOTES, MAX_REFERRAL_URGENCY_REASON, recordConfirmationSchema } from "./schemas.js";
+import {
+  assignReferralSchema,
+  createReferralSchema,
+  MAX_CONFIRMATION_NOTE,
+  MAX_REFERRAL_NOTES,
+  MAX_REFERRAL_URGENCY_REASON,
+  recordConfirmationSchema
+} from "./schemas.js";
 
 const MASTER_ID = "3f0c8a52-1d6e-4b7a-9c1e-2a4b6d8f0e13";
 
 describe("referrals/schemas", () => {
+  describe("assignReferralSchema", () => {
+    it("should accept a Master's id", () => {
+      expect(assignReferralSchema.parse({ masterId: MASTER_ID })).toEqual({ masterId: MASTER_ID });
+    });
+
+    it.each([{}, { masterId: "" }, { masterId: "not-a-uuid" }, { masterId: [MASTER_ID, MASTER_ID] }])(
+      "should ask which Master when the answer is %o",
+      (body) => {
+        const result = assignReferralSchema.safeParse(body);
+
+        expect(result.success).toBe(false);
+        expect(zodErrorToFieldErrors(result.error!)).toEqual([{ field: "masterId", message: "Select which Master this referral should go to" }]);
+      }
+    );
+  });
+
   // Master Sullivan's feedback (Steve, 2026-10-27): what kind of minor's application this is, beneath "Applicant is a
   // minor" — several may apply, at least one must, and a contradictory pair may not.
   describe("createReferralSchema, a minor's details", () => {

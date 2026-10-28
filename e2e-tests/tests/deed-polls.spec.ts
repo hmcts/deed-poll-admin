@@ -419,7 +419,7 @@ test("caseworker refers a case to the judiciary, is refused a second referral, a
   await expect(referrals).toContainText("Other");
   await expect(referrals).toContainText("Standard");
   // The caseworker's status label rather than api's member: the tag says where the referral is.
-  await expect(referrals.locator(".govuk-tag")).toHaveText("Awaiting a Master");
+  await expect(referrals.locator(".govuk-tag")).toHaveText("Waiting for assignment");
   // The raise button is withheld while one is live, with the reason in its place rather than a button that
   // could only fail.
   await expect(page.getByRole("button", { name: "Refer this case to a Master" })).toHaveCount(0);
@@ -653,7 +653,7 @@ test("caseworker actions a returned direction, and the returned-direction count 
   await page.getByRole("button", { name: "Raise referral" }).click();
 
   await expect(page).toHaveURL(`${caseUrl}#referrals`);
-  await expect(referrals.locator(".govuk-tag")).toHaveText("Awaiting a Master");
+  await expect(referrals.locator(".govuk-tag")).toHaveText("Waiting for assignment");
 
   // The referral's id, read off the row that links to it: it is the mock's, and this is the only place the page
   // states it.

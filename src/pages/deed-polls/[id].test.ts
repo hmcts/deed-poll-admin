@@ -584,7 +584,7 @@ describe("case detail page", () => {
 
     const referrals = res.render.mock.calls[0][1].referrals;
     expect(referrals.count).toBe(1);
-    expect(referrals.rows[0]).toMatchObject({ id: "ref-1", state: "Awaiting a Master", reasons: ["Applicant is a minor"], urgency: "Standard" });
+    expect(referrals.rows[0]).toMatchObject({ id: "ref-1", state: "Waiting for assignment", reasons: ["Applicant is a minor"], urgency: "Standard" });
   });
 
   it("resolves the change notice for each referral whose direction the judge changed, keyed by its id", async () => {
@@ -641,7 +641,7 @@ describe("case detail page", () => {
     const closed = response();
     await GET(request(), closed);
 
-    expect(open.render.mock.calls[0][1].referrals.liveReferral).toMatchObject({ id: "ref-1", message: "withJudiciary" });
+    expect(open.render.mock.calls[0][1].referrals.liveReferral).toMatchObject({ id: "ref-1", message: "waitingForAssignment" });
     expect(closed.render.mock.calls[0][1].referrals.liveReferral).toBeNull();
   });
 
@@ -669,7 +669,7 @@ describe("case detail page", () => {
     }
     // One message per live state the view model can report — a missing one is a panel with no button and no
     // explanation, which reads as a case whose referral history has gone.
-    for (const key of ["withJudiciary", "directionReceived", "stateUnknown"]) {
+    for (const key of ["waitingForAssignment", "withJudiciary", "directionReceived", "stateUnknown"]) {
       expect(en.liveReferralMessages[key], key).toBeTruthy();
     }
   });

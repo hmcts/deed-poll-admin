@@ -307,11 +307,24 @@ describe("case detail template — the referrals tab", () => {
     expect(rendered).toContain('href="/deed-polls/case-1/referrals/new"');
   });
 
-  it.each(["Open", "Claimed"] as const)("should withhold the raise button while a %s referral is with the judiciary, and say why", async (state) => {
-    const rendered = await page([{ ...REFERRAL, state }]);
+  it("should withhold the raise button while a referral is with a Master, and say why", async () => {
+    const rendered = await page([{ ...REFERRAL, state: "Claimed" }]);
 
     expect(rendered).not.toContain('href="/deed-polls/case-1/referrals/new"');
     expect(rendered).toContain("Withdraw the open referral before raising another.");
+  });
+
+  it("should say a referral is waiting for assignment rather than with a Master, and offer the assign link on its row", async () => {
+    const rendered = await page([{ ...REFERRAL, state: "Open" }]);
+
+    expect(rendered).not.toContain('href="/deed-polls/case-1/referrals/new"');
+    expect(rendered).toContain("This case has a referral waiting to be assigned to a Master.");
+    expect(rendered).toMatch(/href="\/deed-polls\/case-1\/referrals\/ref-1\/assign">Assign to a Master<span class="govuk-visually-hidden">/);
+  });
+
+  it("should offer Assign to another Master on a Claimed row, and no assign link on a directed one", async () => {
+    expect(await page([{ ...REFERRAL, state: "Claimed" }])).toContain(">Assign to another Master<");
+    expect(await page([{ ...REFERRAL, state: "Decided" }])).not.toContain("/assign");
   });
 
   it("should tell a caseworker with a returned direction to action it, never to withdraw it", async () => {

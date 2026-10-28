@@ -18,6 +18,7 @@ import {
   countAwaitingConfirmation,
   countGazetteReadyCases,
   countReturnedForAction,
+  countWaitingForAssignment,
   findDeedPolls,
   findSavedQueries,
   InvalidInputError,
@@ -37,6 +38,7 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => {
     countAwaitingConfirmation: vi.fn(),
     countGazetteReadyCases: vi.fn(),
     countReturnedForAction: vi.fn(),
+    countWaitingForAssignment: vi.fn(),
     findDeedPolls: vi.fn(),
     findSavedQueries: vi.fn()
   };
@@ -92,6 +94,7 @@ describe("deed-polls list template", () => {
     vi.mocked(findDeedPolls).mockResolvedValue({ filter: "all", cases: [], page: 1, size: 25, total: 0, totalPages: 0 } as never);
     vi.mocked(findSavedQueries).mockResolvedValue([] as never);
     vi.mocked(countReturnedForAction).mockResolvedValue(0);
+    vi.mocked(countWaitingForAssignment).mockResolvedValue(0);
     vi.mocked(countAwaitingConfirmation).mockResolvedValue(0);
     vi.mocked(countGazetteReadyCases).mockResolvedValue(0);
   });
@@ -429,6 +432,27 @@ describe("deed-polls list template", () => {
       expect(markup).not.toContain("needing action");
       // And no warning either: a zero is an answer, so there is nothing to apologise for.
       expect(markup).not.toContain("govuk-warning-text");
+    });
+
+    it("states the waiting-for-assignment count in the same banner, with its own link", async () => {
+      vi.mocked(countWaitingForAssignment).mockResolvedValue(2);
+      vi.mocked(countReturnedForAction).mockResolvedValue(1);
+
+      const markup = await render();
+
+      expect(markup.match(/data-module="govuk-notification-banner"/g) ?? []).toHaveLength(1);
+      expect(markup).toContain("2 referrals are waiting to be assigned to a Master.");
+      expect(markup).toContain('href="/deed-polls?where=currentReferralState%3Ais%3AOpen">View referrals waiting for assignment</a>');
+    });
+
+    it("warns, without a banner, when the waiting-for-assignment count could not be read", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(countWaitingForAssignment).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      const markup = await render();
+      logged.mockRestore();
+
+      expect(markup).toContain("The number of referrals waiting to be assigned to a Master could not be loaded");
+      expect(markup).not.toContain("View referrals waiting for assignment");
     });
 
     describe("when the count could not be read", () => {

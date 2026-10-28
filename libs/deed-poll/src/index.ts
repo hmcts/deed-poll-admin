@@ -72,6 +72,7 @@ export * from "./referrals/referrals-view.js";
 export * from "./referrals/returned-for-action.js";
 export * from "./referrals/schemas.js";
 export * from "./referrals/service.js";
+export * from "./referrals/waiting-for-assignment.js";
 export * from "./saved-queries/schemas.js";
 export * from "./saved-queries/service.js";
 export * from "./saved-queries/view.js";

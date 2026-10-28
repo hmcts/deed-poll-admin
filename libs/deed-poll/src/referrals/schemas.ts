@@ -180,6 +180,14 @@ export const recordConfirmationSchema = z.object({
     .transform((value) => (value === undefined || value === "" ? undefined : value))
 });
 
+/**
+ * The assign page's one question (plan Db1): which Master. A uuid, as `createReferralSchema`'s `masterId` is, with the
+ * same message; whether that Master exists, is available or has room is api's 400 or 409.
+ */
+export const assignReferralSchema = z.object({
+  masterId: z.uuid({ error: SELECT_A_MASTER })
+});
+
 /** What a validated raise-a-referral form holds. The referral's state and author are api's, so neither is here. */
 export type CreateReferralInput = z.output<typeof createReferralSchema>;
 

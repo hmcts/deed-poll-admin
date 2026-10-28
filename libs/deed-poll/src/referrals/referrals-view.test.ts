@@ -39,6 +39,15 @@ const REFERRAL: Referral = {
   modifiedOn: new Date("2026-05-14T08:44:00Z")
 };
 
+/** Assigned to a Master and waiting for their direction (plan Db1). */
+const ASSIGNED: Referral = {
+  ...REFERRAL,
+  state: "Claimed",
+  assignedMaster: { id: "master-1", name: "Master Wren" },
+  assignedAt: new Date("2026-07-28T09:00:00Z"),
+  directionDueBy: new Date("2026-10-29T23:30:00Z")
+};
+
 /**
  * The same referral once the applicant has been asked whether they still want to proceed, and before they have
  * answered — the state the case is on the awaiting-confirmation worklist in.
@@ -240,6 +249,73 @@ describe("referrals/referrals-view", () => {
         state: "Direction received",
         stateMeaning: "Direction received — action needed"
       });
+    });
+
+    it("should call an Open referral waiting for assignment and tell the caseworker to assign it", () => {
+      expect(buildReferralDetail(REFERRAL)).toMatchObject({
+        state: "Waiting for assignment",
+        stateMeaning: "No Master has this referral. Assign it to a Master.",
+        assignAction: "assign",
+        assignment: null
+      });
+    });
+
+    it("should name the assigned Master and the due date on a Claimed referral, in London's dd-mm-yy", () => {
+      // 23:30 UTC on 29 October is still the 29th in London (GMT by then), and 23:30 UTC on 1 August is the 2nd (BST).
+      const view = buildReferralDetail({ ...ASSIGNED, directionDueBy: new Date("2026-08-01T23:30:00Z") });
+
+      expect(view).toMatchObject({
+        state: "With Master Wren",
+        stateMeaning: "Waiting for a direction from Master Wren, due by 02-08-26",
+        assignAction: "reassign",
+        assignment: { masterName: "Master Wren", assignedOn: "28 July 2026 at 10:00am", directionDueBy: "02-08-26" }
+      });
+    });
+
+    it("should read the processing window off api's two instants rather than restating it", () => {
+      const view = buildReferralDetail({ ...ASSIGNED, assignedAt: new Date("2026-10-20T09:00:00Z"), directionDueBy: new Date("2026-10-27T09:00:00Z") });
+
+      expect(view.assignment?.processingDays).toBe(7);
+    });
+
+    it("should say nothing about the window when the gap is not whole days or the due date is missing", () => {
+      expect(buildReferralDetail({ ...ASSIGNED, directionDueBy: new Date("2026-07-28T21:00:00Z") }).assignment?.processingDays).toBeNull();
+      expect(buildReferralDetail({ ...ASSIGNED, directionDueBy: null }).assignment?.processingDays).toBeNull();
+    });
+
+    it("should leave the due date out of the meaning when api sent none", () => {
+      const view = buildReferralDetail({ ...ASSIGNED, directionDueBy: null });
+
+      expect(view.stateMeaning).toBe("Waiting for a direction from Master Wren");
+      expect(view.assignment?.directionDueBy).toBeNull();
+    });
+
+    it("should fall back to With a Master for a claim made before assignment, which has a holder and no assignment", () => {
+      const view = buildReferralDetail({ ...REFERRAL, state: "Claimed", claimedBy: "A Judge", claimedAt: new Date("2026-05-15T08:44:00Z") });
+
+      expect(view).toMatchObject({ state: "With a Master", stateMeaning: "Waiting for a direction from a Master", assignment: null, assignAction: "reassign" });
+    });
+
+    it("should not say With a placeholder when api sent an assignment with no name", () => {
+      const view = buildReferralDetail({ ...ASSIGNED, assignedMaster: { id: "master-1", name: null }, directionDueBy: null });
+
+      expect(view.state).toBe("With a Master");
+      expect(view.stateMeaning).toBe("Waiting for a direction from a Master");
+    });
+
+    it.each(["Decided", "Closed", "Withdrawn"] as const)("should offer no assign link on a %s referral, which api would refuse", (state) => {
+      expect(buildReferralDetail({ ...ASSIGNED, state }).assignAction).toBeNull();
+    });
+
+    it("should keep the assigned Master on a directed referral but not rename its state", () => {
+      const view = buildReferralDetail({ ...ASSIGNED, state: "Decided", directionDueBy: null });
+
+      expect(view.state).toBe("Direction received");
+      expect(view.assignment).toMatchObject({ masterName: "Master Wren", directionDueBy: null });
+    });
+
+    it("should label the live referral the way its row does, so the panel and the table agree", () => {
+      expect(buildReferralsView([ASSIGNED]).liveReferral?.state).toBe("With Master Wren");
     });
 
     it("should tag the state so the lifecycle is scannable", () => {
@@ -470,7 +546,7 @@ describe("referrals/referrals-view", () => {
       // renders is already display text, not the wire's members.
       expect(view.rows[0]).toMatchObject({
         id: "ref-1",
-        state: "Awaiting a Master",
+        state: "Waiting for assignment",
         reasons: ["Applicant is a minor", "Other"],
         urgency: "Urgent",
         canWithdraw: true,
@@ -507,7 +583,7 @@ describe("referrals/referrals-view", () => {
     });
 
     it.each([
-      { state: "Open" as const, message: "withJudiciary" },
+      { state: "Open" as const, message: "waitingForAssignment" },
       { state: "Claimed" as const, message: "withJudiciary" },
       // The message the old `anyOpen` could not tell apart, and the whole reason this replaced it: a tab that
       // told a caseworker to withdraw the referral they were being asked to action.

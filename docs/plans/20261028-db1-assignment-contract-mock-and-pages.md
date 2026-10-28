@@ -178,8 +178,8 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Implement, run the per-task checks, and record the results.
 
 ### Task 2: Assign and reassign, and the caseworker's words
-- [ ] Add failing tests for the assign page (GET, POST success, the three refusals), the links, the state labels and meanings, and the waiting-for-assignment count.
-- [ ] Implement, run the per-task checks, and record the results.
+- [x] Add failing tests for the assign page (GET, POST success, the three refusals), the links, the state labels and meanings, and the waiting-for-assignment count.
+- [x] Implement, run the per-task checks, and record the results.
 
 ### Task 3: The Master's side
 - [ ] Add failing tests for the redirect, the landing, the removed claim, and the grouped My referrals (including the page-boundary case).
@@ -266,3 +266,39 @@ express-session-postgres 85, express-session-redis 7. (Da1's final note said app
 - The Welsh extractor reads all the new strings, the three-argument function included (checked with `--out`).
 - Per-task checks: format and lint clean, `yarn build --force` 8/8. deed-poll 1,711 (+10), app 3,257 (+18), all
   passing with Redis on 6379. api-client not touched.
+
+**Task 2 (assign and reassign, and the caseworker's words).**
+- `deed-polls/[id]/referrals/[referralId]/assign` (GET and POST, `referral-assign.njk`). The case and the referral are
+  fatal; the Masters list degrades as on the raise form (no question, no submit; 401 rethrown). A `GET` on a referral
+  that is not `Open`/`Claimed` redirects to the referral with `?assign=conflict` rather than drawing a form api would
+  refuse. POST: `assignReferralSchema` (uuid, the raise form's message), `assignReferral` (new, `PUT …/assignment`);
+  success is `?assigned=1`; a 409 naming `masterId` (the cap) and a 400 on `masterId` redraw beside the radios with the
+  posted choice kept; any other 409 is `?assign=conflict`; a 400 naming no control is logged through `forLog` and shows
+  the page's own sentence. Paths are built before any read or write.
+- The radios' item builder moved from `new.ts` into `src/master-radios.ts` (not under `src/pages`, where every `.ts` is
+  a route); each page keeps its own words in `en`/`cy`, so the extractor still reads them. **One addition:** the
+  current Master stays selectable when full, because choosing them again is api's no-op and a pre-selected disabled
+  radio would be unsubmittable.
+- The reassign page says who has the referral and since when, and "they will have N days from today", with N read off
+  `directionDueBy − assignedAt` (`processingDays`; null, and a sentence with no number, when either is missing or the
+  gap is not whole days).
+- `referrals-view.ts`: `Open` is "Waiting for assignment" / "No Master has this referral. Assign it to a Master."; an
+  assigned `Claimed` referral is "With {name}" / "Waiting for a direction from {name}, due by dd-mm-yy", falling back to
+  "With a Master" / "Waiting for a direction from a Master" for a pre-assignment claim or a nameless assignment. New
+  `assignment` (name, when, due date, processing days) and `assignAction` (`assign`/`reassign`/null). New
+  `formatShortDate` in `case-header.ts` (London's day, `dd-mm-yy`), which Task 3 can reuse.
+- Referral page: "Assigned to" and "Direction due by" rows replace the claim row when there is an assignment (the mock
+  also sets `claimedBy` on assignment, so both would say the same thing), the assign link, a "Referral assigned to
+  {name}" success banner from the fresh read, and three refusal sentences keyed on the fresh state (Decided; Closed or
+  Withdrawn; anything else).
+- Case page panel: each `Open`/`Claimed` row carries its assign link (visually hidden suffix naming the raised date).
+  **One addition:** the live-referral message for `Open` is now its own key, `waitingForAssignment`, because "This
+  case is with a Master" is untrue of a referral nobody has.
+- Case list: `countWaitingForAssignment` (`referrals/waiting-for-assignment.ts`, a `where` on
+  `currentReferralState:is:Open`), its own `worklistCount` read, three states, a paragraph in the existing banner with
+  a link to the worklist and its own warning on failure.
+- Old wording: unit and template tests updated; the two e2e tag assertions in `deed-polls.spec.ts` now expect
+  "Waiting for assignment". The mock's case note "claimed by a Master." and the e2e assertions on it are left for
+  Task 4.
+- Per-task checks: format and lint clean, `yarn build --force` 8/8. deed-poll 1,737 (+26), app 3,305 (+48), all
+  passing with Redis on 6379. api-client not touched. The extractor reads the new strings (checked with `--out`).

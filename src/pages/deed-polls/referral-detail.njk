@@ -39,13 +39,13 @@
       through one redirect or another and never two at once — the judicial referral page makes the same call for
       the same reason. Every sentence is chosen in the handler, against the referral api has just published.
     #}
-    {% set announced = directionActioned or confirmationRecorded %}
+    {% set announced = assigned or directionActioned or confirmationRecorded %}
     {% if announced %}
       {% set actionedHtml %}<p class="govuk-notification-banner__heading">{{ announced }}</p>{% endset %}
       {{ govukNotificationBanner({ type: "success", titleText: successTitle, html: actionedHtml }) }}
     {% endif %}
 
-    {% set refused = withdrawRefused or closeRefused or confirmationRefused %}
+    {% set refused = assignRefused or withdrawRefused or closeRefused or confirmationRefused %}
     {% if refused %}
       {{ govukErrorSummary({ titleText: errorSummaryTitle, errorList: [{ text: refused }] }) }}
     {% endif %}
@@ -95,12 +95,25 @@
     #}
     <h2 class="govuk-heading-m">{{ progressHeading }}</h2>
     {% set progressRows = [{ key: { text: createdLabel }, value: { text: referral.createdBy + ", " + referral.createdOn } }] %}
-    {% if referral.claim %}
+    {#
+      An assignment replaces the claim row (plan Db1): assigning also names the Master as the holder, and one fact
+      twice would read as two. A claim with no assignment is one made before assignment existed.
+    #}
+    {% if referral.assignment %}
+      {% set progressRows = (progressRows.push({ key: { text: assignedLabel }, value: { text: referral.assignment.masterName + ", " + referral.assignment.assignedOn } }), progressRows) %}
+      {% if referral.assignment.directionDueBy %}
+        {% set progressRows = (progressRows.push({ key: { text: directionDueLabel }, value: { text: referral.assignment.directionDueBy } }), progressRows) %}
+      {% endif %}
+    {% elif referral.claim %}
       {% set progressRows = (progressRows.push({ key: { text: claimedLabel }, value: { text: referral.claim.claimedBy + ", " + referral.claim.claimedOn } }), progressRows) %}
     {% endif %}
     {% set progressRows = (progressRows.push({ key: { text: modifiedLabel }, value: { text: referral.modifiedBy + ", " + referral.modifiedOn } }), progressRows) %}
 
     {{ govukSummaryList({ rows: progressRows }) }}
+
+    {% if assignLink %}
+      <p class="govuk-body"><a class="govuk-link" href="{{ assignHref }}">{{ assignLink }}</a></p>
+    {% endif %}
 
     {#
       The returned direction, in full (decision 4). Absent until there is one, rather than rendered empty: a

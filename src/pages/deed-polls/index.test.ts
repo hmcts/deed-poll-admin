@@ -2,6 +2,7 @@ import {
   countAwaitingConfirmation,
   countGazetteReadyCases,
   countReturnedForAction,
+  countWaitingForAssignment,
   findDeedPolls,
   findGazetteSettings,
   findProcessSettings,
@@ -24,6 +25,7 @@ vi.mock("@hmcts/deed-poll", async (importOriginal) => ({
   countAwaitingConfirmation: vi.fn(),
   countGazetteReadyCases: vi.fn(),
   countReturnedForAction: vi.fn(),
+  countWaitingForAssignment: vi.fn(),
   findDeedPolls: vi.fn(),
   findGazetteSettings: vi.fn(),
   findProcessSettings: vi.fn(),
@@ -78,6 +80,7 @@ describe("deed-polls list page", () => {
     vi.mocked(findDeedPolls).mockResolvedValue(page([]) as never);
     vi.mocked(findSavedQueries).mockResolvedValue([] as never);
     vi.mocked(countReturnedForAction).mockResolvedValue(0);
+    vi.mocked(countWaitingForAssignment).mockResolvedValue(0);
     vi.mocked(countAwaitingConfirmation).mockResolvedValue(0);
     vi.mocked(countGazetteReadyCases).mockResolvedValue(0);
   });
@@ -425,6 +428,58 @@ describe("deed-polls list page", () => {
    * page owns is that the number reaches the screen, that it is read as its own query rather than the one on
    * screen, and that it links to the worklist it counted.
    */
+  describe("the waiting-for-assignment count", () => {
+    const WORKLIST_HREF = "/deed-polls?where=currentReferralState%3Ais%3AOpen";
+
+    it("reads the count with the caseworker's own token and links to the Open worklist", async () => {
+      vi.mocked(countWaitingForAssignment).mockResolvedValue(2);
+      const res = pageResponse();
+
+      await GET(pageRequest({ accessToken: "caseworker-token" }), res);
+
+      expect(countWaitingForAssignment).toHaveBeenCalledWith({ accessToken: "caseworker-token" });
+      expect(res.render.mock.calls[0][1]).toMatchObject({
+        waitingForAssignment: "2 referrals are waiting to be assigned to a Master.",
+        waitingForAssignmentFailed: false,
+        waitingForAssignmentHref: WORKLIST_HREF
+      });
+    });
+
+    it("states one referral in the singular", async () => {
+      vi.mocked(countWaitingForAssignment).mockResolvedValue(1);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1].waitingForAssignment).toBe("1 referral is waiting to be assigned to a Master.");
+    });
+
+    it("says nothing at zero, and does not call a zero a failure", async () => {
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      expect(res.render.mock.calls[0][1]).toMatchObject({ waitingForAssignment: "", waitingForAssignmentFailed: false });
+    });
+
+    it("degrades to its own state and logs, leaving the list and the other counts alone", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(countWaitingForAssignment).mockRejectedValue(new Error("deed-poll-api call failed (unavailable)"));
+      vi.mocked(countReturnedForAction).mockResolvedValue(3);
+      vi.mocked(findDeedPolls).mockResolvedValue(page([record]) as never);
+      const res = pageResponse();
+
+      await GET(pageRequest(), res);
+
+      const model = res.render.mock.calls[0][1];
+      expect(model.cases).toHaveLength(1);
+      expect(model).toMatchObject({ waitingForAssignment: "", waitingForAssignmentFailed: true, returnedForActionFailed: false });
+      expect(model.returnedForAction).toBe("3 applications have a returned direction needing action");
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("waiting-for-assignment count unavailable"));
+      logged.mockRestore();
+    });
+  });
+
   describe("the returned-for-action count", () => {
     /** The worklist as the URL states it: the same condition the count is read with — decision 3. */
     const WORKLIST_HREF = "/deed-polls?where=currentReferralState%3Ais%3ADecided";

@@ -43,7 +43,6 @@ import {
   InvalidInputError,
   MAX_REFERRAL_NOTES,
   MAX_REFERRAL_URGENCY_REASON,
-  type MasterChoices,
   MINOR_DETAIL_CHOICES,
   REFERRAL_REASON_CHOICES,
   REFERRAL_URGENCY_CHOICES,
@@ -54,6 +53,7 @@ import type { Request, Response } from "express";
 import { callerFromRequest } from "../../../../auth/current-user.js";
 import { casePath } from "../../../../case-path.js";
 import { forLog } from "../../../../for-log.js";
+import { masterRadioItems } from "../../../../master-radios.js";
 import { pathSegment } from "../../../../path-segment.js";
 
 // The order the controls appear in, so the error summary reads down the page rather than in whatever order
@@ -272,7 +272,7 @@ async function render(req: Request, res: Response, values: Record<string, unknow
     reasonItems: REFERRAL_REASON_CHOICES.map((choice) => ({ ...choice, checked: chosen.includes(choice.value) })),
     minorDetailItems: MINOR_DETAIL_CHOICES.map((choice) => ({ ...choice, checked: chosen.includes(choice.value) })),
     urgencyItems: REFERRAL_URGENCY_CHOICES.map((choice) => ({ ...choice, checked: values.urgency === choice.value })),
-    masterItems: masters ? masterItems(masters, content) : [],
+    masterItems: masters ? masterRadioItems(masters, content) : [],
     // Two states that each take the submit away, kept apart because they need different sentences.
     isMastersUnavailable: masters === null,
     hasNoMasters: masters !== null && masters.choices.length === 0,
@@ -282,34 +282,6 @@ async function render(req: Request, res: Response, values: Record<string, unknow
     en,
     cy
   });
-}
-
-/** The radios, each Master's hint built from the page's own words for the window. */
-function masterItems(masters: MasterChoices, content: typeof en) {
-  const when = windowWords(masters.window, content);
-
-  return masters.choices.map((choice) => ({
-    value: choice.id,
-    text: choice.name,
-    checked: choice.isChecked,
-    disabled: choice.isFull,
-    hint: {
-      text: choice.isFull
-        ? when === null
-          ? content.masterFullUntimed
-          : content.masterFull(when)
-        : when === null
-          ? content.masterRoomUntimed(choice.held, choice.cap)
-          : content.masterRoom(choice.held, choice.cap, when)
-    }
-  }));
-}
-
-function windowWords(window: MasterChoices["window"], content: typeof en): string | null {
-  if (window === null) return null;
-  if (window.isToday) return window.slot === "AM" ? content.thisMorning : content.thisAfternoon;
-
-  return window.slot === "AM" ? content.morningOf(window.date) : content.afternoonOf(window.date);
 }
 
 /**
