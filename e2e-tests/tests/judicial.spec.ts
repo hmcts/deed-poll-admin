@@ -498,7 +498,8 @@ async function seedReferral(request: APIRequestContext, options: { reason: strin
   const raised = await request.post(`${MOCK_API_URL}/caseworker/cases/${seeded.caseId}/referrals`, {
     headers: bearer({ sub: CASEWORKER_EMAIL }),
     data: {
-      reasons: [options.reason],
+      // A minor's referral names what kind it is, as api refuses `Minor` alone since api#156.
+      reasons: options.reason === "Minor" ? ["Minor", "MinorCourtOrder"] : [options.reason],
       notes: "Please consider the applicant's circumstances.",
       masterId: options.masterId,
       ...(options.urgent ? { urgency: "Urgent", urgencyReason: "Hearing listed on Friday." } : { urgency: "Normal" })
