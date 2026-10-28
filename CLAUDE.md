@@ -326,7 +326,7 @@ single file:
   than a refusal; it is `referrals-admin-3`'s flagged open question, and the fix if the business confirms such a
   user is a conditional link on the case list, not a change to the landing.
 - **Referrals are assigned, never claimed (Master Sullivan's feedback, item D; plan
-  `docs/plans/20261028-db1-assignment-contract-mock-and-pages.md`).** **Deploy order:** api D2 on every replica first, because against D1 the
+  `docs/plans/completed/20261028-db1-assignment-contract-mock-and-pages.md`).** **Deploy order:** api D2 on every replica first, because against D1 the
   Masters read fails validation and no referral can be raised (`docs/DEPLOYMENT.md`). The raise form's last question is "Which Master
   should this go to?" (`masterId`, required here though api still accepts a raise without one for one release). The
   radios come from `GET /caseworker/masters`' envelope (`window`, `cap`, each Master's `assignedInWindow`) through
