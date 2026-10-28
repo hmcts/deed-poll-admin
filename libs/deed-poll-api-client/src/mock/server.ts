@@ -144,6 +144,7 @@ import type {
   WireWitness
 } from "../api/wire.js";
 import { REFERRAL_STATE, URGENCY, WIRE_SCHEMAS } from "../api/wire.js";
+import { createBankHolidays } from "./bank-holidays.js";
 import { callerAccess } from "./caller-access.js";
 import { buildDocumentPreview, type DocumentPreviewMode, PREVIEW_BUSY_RETRY_AFTER_SECONDS } from "./document-preview.js";
 import {
@@ -160,6 +161,7 @@ import {
   type MockScenario
 } from "./fixtures.js";
 import { createGazetteRequests } from "./gazette-requests.js";
+import { createMasters } from "./masters.js";
 import { createProcessSettings } from "./process-settings.js";
 
 /** Fixture-only batch input: full frozen membership, never a production send operation. */
@@ -325,6 +327,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   };
   const gazetteRequests = createGazetteRequests();
   const processSettings = createProcessSettings();
+  const masters = createMasters();
+  const bankHolidays = createBankHolidays();
   const gazetteBatches = new Map<string, z.infer<typeof SEEDABLE_GAZETTE_BATCH>>();
   const savedQueries = new Map<string, MockSavedQuery>();
   /**
@@ -477,6 +481,39 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
         };
       }
       return send(res, 200, gazetteSettings);
+    }
+
+    if (pathname === "/caseworker/masters" || pathname.startsWith("/caseworker/masters/")) {
+      const claims = await callerClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      const id = pathname === "/caseworker/masters" ? null : decodeURIComponent(pathname.slice("/caseworker/masters/".length));
+      if (id === null && method === "GET") {
+        if (!callerAccess(claims).staff) return send(res, 403, { error: "Deed poll staff role required" });
+        return send(res, 200, masters.list());
+      }
+      if (id?.includes("/")) return send(res, 404, { error: "Not found" });
+      if ((id === null && method !== "POST") || (id !== null && method !== "PATCH")) return send(res, 405, { error: "Method not allowed" });
+      if (!hasProcessConfigAccess(claims)) return send(res, 403, { error: "Delivery Manager role required" });
+      const result = id === null ? masters.create(await readJsonBody(req)) : masters.update(id, await readJsonBody(req));
+      return send(res, result.status, result.body);
+    }
+
+    if (pathname === "/caseworker/process-settings/bank-holidays" || pathname.startsWith("/caseworker/process-settings/bank-holidays/")) {
+      const claims = await callerClaims(req, options.userInfoUrl);
+      if (!claims) return send(res, 401, { error: "Authentication required" });
+      const date =
+        pathname === "/caseworker/process-settings/bank-holidays"
+          ? null
+          : decodeURIComponent(pathname.slice("/caseworker/process-settings/bank-holidays/".length));
+      if (date === null && method === "GET") {
+        if (!callerAccess(claims).staff) return send(res, 403, { error: "Deed poll staff role required" });
+        return send(res, 200, bankHolidays.list());
+      }
+      if ((date === null && method !== "POST") || (date !== null && method !== "DELETE")) return send(res, 405, { error: "Method not allowed" });
+      if (!hasProcessConfigAccess(claims)) return send(res, 403, { error: "Delivery Manager role required" });
+      if (date !== null) return bankHolidays.remove(date) ? sendNoContent(res) : send(res, 404, { error: "Bank holiday not found" });
+      const result = bankHolidays.add(await readJsonBody(req));
+      return send(res, result.status, result.body);
     }
 
     if (pathname === "/caseworker/process-settings") {
@@ -1685,6 +1722,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     gazetteBatches.clear();
     gazetteRequests.reset();
     processSettings.reset();
+    masters.reset();
+    bankHolidays.reset();
     gazetteSettings = { recipientEmail: null, revision: 0, updatedAt: null, updatedBy: null };
     serials.clear();
     savedQueries.clear();
@@ -3196,14 +3235,7 @@ function myReferralsOrder(left: MockReferral, right: MockReferral): number {
 function toWireReferral(referral: MockReferral): unknown {
   const { claimedById, decidedById, ...published } = referral;
 
-  return isoDates({ ...published, publishToGazette: legacyPublishToGazette(referral) });
-}
-
-/** api's deprecated `publishToGazette`: the new answer inverted, null staying null, for its one release. */
-function legacyPublishToGazette(referral: MockReferral): boolean | null {
-  const changes = referral.changesToStandardPublication;
-
-  return changes === null || changes === undefined ? null : !changes;
+  return isoDates(published);
 }
 
 /**
@@ -3242,7 +3274,6 @@ function toWireJudicialDetail(record: MockCase, referral: MockReferral): unknown
     decision: referral.decision ?? null,
     directionsText: referral.directionsText ?? null,
     changesToStandardPublication: referral.changesToStandardPublication ?? null,
-    publishToGazette: legacyPublishToGazette(referral),
     decisionDate: iso(referral.decisionDate),
     decidedBy: referral.decidedBy ?? null,
     directionChangedAt: iso(referral.directionChangedAt),
@@ -3454,16 +3485,7 @@ type CaseState = NonNullable<WireSavedCase["state"]>;
  */
 type MockReferral = Omit<
   WireReferral,
-  | "state"
-  | "claimedAt"
-  | "decisionDate"
-  | "directionChangedAt"
-  | "confirmationRequestedAt"
-  | "confirmationReceivedAt"
-  | "createdOn"
-  | "modifiedOn"
-  // api's deprecated alias is derived on the way out (`legacyPublishToGazette`), never stored, as api's column is gone.
-  | "publishToGazette"
+  "state" | "claimedAt" | "decisionDate" | "directionChangedAt" | "confirmationRequestedAt" | "confirmationReceivedAt" | "createdOn" | "modifiedOn"
 > & {
   state: ReferralState;
   claimedAt: Date | null;

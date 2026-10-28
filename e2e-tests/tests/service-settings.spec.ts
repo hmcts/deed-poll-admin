@@ -11,7 +11,7 @@ test("Delivery Manager opens the settings from the case list and changes the ref
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL("/deed-polls/settings");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Service settings");
-  await expect(page.getByLabel("Hours", { exact: true })).toHaveValue("2");
+  await expect(page.getByLabel("Hours", { exact: true })).toHaveValue("168");
   await expect(page.getByLabel("Minutes", { exact: true })).toHaveValue("0");
   await expect(page.getByText("Changes take effect immediately for every case.", { exact: false })).toBeVisible();
   const staffLink = page.getByRole("link", { name: "Manage staff in Manage Case (opens in new tab)", exact: true });
@@ -20,20 +20,20 @@ test("Delivery Manager opens the settings from the case list and changes the ref
   await expect(staffLink).toHaveAttribute("rel", "noopener noreferrer");
   await accessible(page);
 
-  await page.getByLabel("Hours", { exact: true }).fill("24");
-  await page.getByLabel("Minutes", { exact: true }).fill("1");
+  await page.getByLabel("Hours", { exact: true }).fill("23");
+  await page.getByLabel("Minutes", { exact: true }).fill("59");
   await page.getByRole("button", { name: "Save claim window", exact: true }).click();
-  await expect(page.getByRole("link", { name: "The claim window must be between 30 minutes and 24 hours", exact: true })).toBeVisible();
-  await expect(page.getByLabel("Hours", { exact: true })).toHaveValue("24");
-  await expect(page.getByLabel("Minutes", { exact: true })).toHaveValue("1");
+  await expect(page.getByRole("link", { name: "The claim window must be at least 24 hours", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Hours", { exact: true })).toHaveValue("23");
+  await expect(page.getByLabel("Minutes", { exact: true })).toHaveValue("59");
   await accessible(page);
 
-  await page.getByLabel("Hours", { exact: true }).fill("1");
+  await page.getByLabel("Hours", { exact: true }).fill("24");
   await page.getByLabel("Minutes", { exact: true }).fill("30");
   await page.getByRole("button", { name: "Save claim window", exact: true }).click();
   await expect(page).toHaveURL("/deed-polls/settings?saved=process-settings#process-settings");
   await expect(page.getByText("Claim window saved.", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("Hours", { exact: true })).toHaveValue("1");
+  await expect(page.getByLabel("Hours", { exact: true })).toHaveValue("24");
   await expect(page.getByLabel("Minutes", { exact: true })).toHaveValue("30");
   await expect(page.locator("#process-settings")).toContainText("Last changed");
   await accessible(page);

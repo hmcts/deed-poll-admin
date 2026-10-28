@@ -222,7 +222,7 @@ describe("service settings page", () => {
     });
 
     it("should mark both inputs and the fieldset for a total out of range, keeping the typed text", async () => {
-      const { markup } = await render(postProcess, { body: { claimWindowHours: "24", claimWindowMinutes: " 1 ", revision: "4" } });
+      const { markup } = await render(postProcess, { body: { claimWindowHours: "23", claimWindowMinutes: " 1 ", revision: "4" } });
 
       expect(markup).toContain('id="claim-window-error"');
       expect(markup).toMatch(/aria-describedby="claim-window-hint claim-window-error"/);
@@ -241,10 +241,10 @@ describe("service settings page", () => {
     ])("should keep the typed text and original revision on %s, offering only a reload", async (_name, arrange) => {
       arrange();
 
-      const { markup } = await render(postProcess, { body: { claimWindowHours: "5", claimWindowMinutes: "", revision: "4" } });
+      const { markup } = await render(postProcess, { body: { claimWindowHours: "24", claimWindowMinutes: "", revision: "4" } });
 
       const process = form(markup, "/deed-polls/settings");
-      expect(process).toMatch(/id="claimWindowHours"[^>]*value="5"/);
+      expect(process).toMatch(/id="claimWindowHours"[^>]*value="24"/);
       expect(process).toContain('name="revision" value="4"');
       expect(process).not.toContain("Save claim window");
       expect(markup).toContain('id="reload-process-settings"');
@@ -258,9 +258,9 @@ describe("service settings page", () => {
     it("should map api's 400 on the minutes to the fieldset", async () => {
       vi.mocked(saveProcessSettings).mockRejectedValue(new InvalidInputError("x", [{ field: "referralClaimExpiryMinutes", message: "x" }]));
 
-      const { markup } = await render(postProcess, { body: { claimWindowHours: "5", claimWindowMinutes: "", revision: "4" } });
+      const { markup } = await render(postProcess, { body: { claimWindowHours: "24", claimWindowMinutes: "", revision: "4" } });
 
-      expect(markup).toContain("The claim window must be between 30 minutes and 24 hours");
+      expect(markup).toContain("The claim window must be at least 24 hours");
       expect(markup).toContain("Save claim window");
       expectSummaryLinksResolve(markup);
     });

@@ -133,14 +133,14 @@ describe("service settings GET", () => {
 });
 
 describe("process section POST", () => {
-  const body = { claimWindowHours: " 3 ", claimWindowMinutes: "", revision: "4" };
+  const body = { claimWindowHours: " 24 ", claimWindowMinutes: "", revision: "4" };
 
   it("should save the total in minutes with the original revision and redirect to the saved section", async () => {
     const res = pageResponse();
 
     await saveProcessSection(request({ body: { ...body, updatedBy: "forged" } }), res);
 
-    expect(saveProcessSettings).toHaveBeenCalledExactlyOnceWith({ referralClaimExpiryMinutes: 180, revision: 4 }, CALLER);
+    expect(saveProcessSettings).toHaveBeenCalledExactlyOnceWith({ referralClaimExpiryMinutes: 1440, revision: 4 }, CALLER);
     expect(res.redirect).toHaveBeenCalledWith(303, "/deed-polls/settings?saved=process-settings#process-settings");
     expect(findProcessSettings).not.toHaveBeenCalled();
     expect(findGazetteSettings).not.toHaveBeenCalled();
@@ -149,12 +149,7 @@ describe("process section POST", () => {
   it.each([
     ["hours", { claimWindowHours: "+2", claimWindowMinutes: "0" }, { hoursError: "Enter hours as a whole number from 0 to 24" }, "#claimWindowHours"],
     ["minutes", { claimWindowHours: "1", claimWindowMinutes: "60" }, { minutesError: "Enter minutes as a whole number from 0 to 59" }, "#claimWindowMinutes"],
-    [
-      "range",
-      { claimWindowHours: "24", claimWindowMinutes: "1" },
-      { windowError: "The claim window must be between 30 minutes and 24 hours" },
-      "#claimWindowHours"
-    ],
+    ["range", { claimWindowHours: "23", claimWindowMinutes: "59" }, { windowError: "The claim window must be at least 24 hours" }, "#claimWindowHours"],
     [
       "both blank",
       { claimWindowHours: "", claimWindowMinutes: " " },
@@ -206,14 +201,14 @@ describe("process section POST", () => {
     await saveProcessSection(request({ body }), res);
 
     expect(res.status).toHaveBeenCalledWith(409);
-    expect(model(res).process).toMatchObject({ values: { hours: " 3 ", minutes: "", revision: "4" }, reloadText: expect.stringContaining("has changed") });
+    expect(model(res).process).toMatchObject({ values: { hours: " 24 ", minutes: "", revision: "4" }, reloadText: expect.stringContaining("has changed") });
     expect(findProcessSettings).not.toHaveBeenCalled();
     expect(saveProcessSettings).toHaveBeenCalledTimes(1);
     expect(res.redirect).not.toHaveBeenCalled();
   });
 
   it.each([
-    [[{ field: "referralClaimExpiryMinutes", message: "x" }], { windowError: "The claim window must be between 30 minutes and 24 hours" }],
+    [[{ field: "referralClaimExpiryMinutes", message: "x" }], { windowError: "The claim window must be at least 24 hours" }],
     [[{ field: "revision", message: "x" }], { reloadText: "Reload the settings before saving" }],
     [[], { reloadText: "The claim window could not be saved. Reload the settings and try again." }]
   ])("should map api's 400 naming %j to its control", async (errors, expected) => {
@@ -223,7 +218,7 @@ describe("process section POST", () => {
     await saveProcessSection(request({ body }), res);
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(model(res).process).toEqual({ isAvailable: true, values: { hours: " 3 ", minutes: "", revision: "4" }, ...expected });
+    expect(model(res).process).toEqual({ isAvailable: true, values: { hours: " 24 ", minutes: "", revision: "4" }, ...expected });
   });
 
   it.each([

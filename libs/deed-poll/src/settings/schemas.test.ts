@@ -11,15 +11,14 @@ function issuesFor(body: Record<string, unknown>) {
 
 describe("processSettingsFormSchema", () => {
   it.each([
-    ["0", "30", 30],
-    ["0", "29", null],
     ["24", "0", 1440],
-    ["24", "1", null],
-    ["2", "0", 120],
-    ["", "45", 45],
-    ["1", "", 60],
-    [" 2 ", "0", 120],
-    ["0024", "00", 1440]
+    ["24", "", 1440],
+    [" 24 ", "0", 1440],
+    ["0024", "00", 1440],
+    ["23", "59", null],
+    ["24", "1", 1441],
+    ["2", "0", null],
+    ["", "45", null]
   ])("should read %j hours and %j minutes as %j minutes", (hours, minutes, expected) => {
     // Arrange
     const body = { claimWindowHours: hours, claimWindowMinutes: minutes, revision: "3" };
@@ -36,9 +35,9 @@ describe("processSettingsFormSchema", () => {
     }
   });
 
-  it("should accept 1,440 minutes and refuse 1,441 as a total", () => {
-    expect(issuesFor({ claimWindowHours: "23", claimWindowMinutes: "59", revision: "0" })).toEqual([]);
-    expect(issuesFor({ claimWindowHours: "24", claimWindowMinutes: "1", revision: "0" })).toEqual([{ path: "claimWindow", message: "range" }]);
+  it("should accept 1,440 minutes and refuse 1,439 as a total", () => {
+    expect(issuesFor({ claimWindowHours: "24", claimWindowMinutes: "0", revision: "0" })).toEqual([]);
+    expect(issuesFor({ claimWindowHours: "23", claimWindowMinutes: "59", revision: "0" })).toEqual([{ path: "claimWindow", message: "range" }]);
   });
 
   it("should refuse both controls blank as the fieldset's error", () => {
@@ -71,8 +70,8 @@ describe("processSettingsFormSchema", () => {
   });
 
   it("should send only the total and the revision, whatever else is posted", () => {
-    const result = schema.parse({ claimWindowHours: "1", claimWindowMinutes: "30", revision: "7", referralClaimExpiryMinutes: "999", extra: "x" });
+    const result = schema.parse({ claimWindowHours: "24", claimWindowMinutes: "0", revision: "7", referralClaimExpiryMinutes: "999", extra: "x" });
 
-    expect(result).toEqual({ referralClaimExpiryMinutes: 90, revision: 7 });
+    expect(result).toEqual({ referralClaimExpiryMinutes: 1440, revision: 7 });
   });
 });

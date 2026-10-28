@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
-import { DOCUMENT_PREVIEW_LIMITS, PROCESS_SETTINGS_LIMITS } from "./client.js";
+import { BANK_HOLIDAY_LIMITS, DOCUMENT_PREVIEW_LIMITS, MASTER_LIMITS, PROCESS_SETTINGS_LIMITS, WINDOW_TIME_PATTERN } from "./client.js";
 import deferredContract from "./deferred-contract.json";
 import { CAPABILITY, DOCUMENT_PREVIEW_ERROR_CODE, GAZETTE_RECIPIENT_EMAIL_PATTERN, STRICT_RESPONSE_PROPERTIES, WIRE_SCHEMAS } from "./wire.js";
 
@@ -47,6 +47,12 @@ const IMPLEMENTED_OPERATIONS = [
   "PUT /caseworker/gazette-settings",
   "GET /caseworker/process-settings",
   "PUT /caseworker/process-settings",
+  "GET /caseworker/process-settings/bank-holidays",
+  "POST /caseworker/process-settings/bank-holidays",
+  "DELETE /caseworker/process-settings/bank-holidays/{date}",
+  "GET /caseworker/masters",
+  "POST /caseworker/masters",
+  "PATCH /caseworker/masters/{id}",
   "POST /caseworker/cases",
   "GET /caseworker/cases/field-rules",
   "GET /caseworker/cases/{id}",
@@ -142,33 +148,127 @@ describe("openapi.json and the wire schemas", () => {
     }
   });
 
-  it("should agree with the spec on the claim window's whole-minute bounds and the closed process settings write", () => {
+  it("should agree with the spec on every process setting's bounds and the closed process settings write", () => {
     const request = spec.components.schemas.UpdateProcessSettingsRequest;
     expect(request.properties?.referralClaimExpiryMinutes).toMatchObject({
       type: "integer",
-      minimum: PROCESS_SETTINGS_LIMITS.minClaimMinutes,
-      maximum: PROCESS_SETTINGS_LIMITS.maxClaimMinutes
+      minimum: PROCESS_SETTINGS_LIMITS.minProcessingMinutes,
+      maximum: PROCESS_SETTINGS_LIMITS.maxProcessingMinutes
     });
+    expect(request.properties?.reminderIntervalHours).toMatchObject({
+      type: "integer",
+      minimum: PROCESS_SETTINGS_LIMITS.minReminderHours,
+      maximum: PROCESS_SETTINGS_LIMITS.maxReminderHours
+    });
+    expect(request.properties?.masterWindowCap).toMatchObject({
+      type: "integer",
+      minimum: PROCESS_SETTINGS_LIMITS.minMasterWindowCap,
+      maximum: PROCESS_SETTINGS_LIMITS.maxMasterWindowCap
+    });
+    for (const name of ["morningWindowStart", "morningWindowEnd", "afternoonWindowStart", "afternoonWindowEnd"]) {
+      expect(request.properties?.[name]?.pattern, name).toBe(WINDOW_TIME_PATTERN);
+      expect(spec.components.schemas.ProcessSettingsResponse.properties?.[name]?.pattern, name).toBe(WINDOW_TIME_PATTERN);
+    }
     expect(request.properties?.revision).toMatchObject({ type: "integer", minimum: 0 });
+    // Only these two for one release: an absent setting keeps api's stored value.
     expect(request.required?.toSorted()).toEqual(["referralClaimExpiryMinutes", "revision"]);
     expect(request.additionalProperties).toBe(false);
     const write = WIRE_SCHEMAS.UpdateProcessSettingsRequest;
-    expect(write.safeParse({ referralClaimExpiryMinutes: 30, revision: 0 }).success).toBe(true);
-    expect(write.safeParse({ referralClaimExpiryMinutes: 1440, revision: 3 }).success).toBe(true);
-    for (const body of [
-      { referralClaimExpiryMinutes: 29, revision: 0 },
-      { referralClaimExpiryMinutes: 1441, revision: 0 },
-      { referralClaimExpiryMinutes: 90.5, revision: 0 },
-      { referralClaimExpiryMinutes: "90", revision: 0 },
-      { referralClaimExpiryMinutes: null, revision: 0 },
-      { referralClaimExpiryMinutes: 90, revision: -1 },
-      { referralClaimExpiryMinutes: 90 },
-      { referralClaimExpiryMinutes: 90, revision: 0, updatedBy: "forged" }
+    const full = {
+      referralClaimExpiryMinutes: 10080,
+      reminderIntervalHours: 48,
+      masterWindowCap: 10,
+      morningWindowStart: "07:00",
+      morningWindowEnd: "10:30",
+      afternoonWindowStart: "14:00",
+      afternoonWindowEnd: "14:30",
+      revision: 0
+    };
+    expect(write.safeParse(full).success).toBe(true);
+    expect(write.safeParse({ referralClaimExpiryMinutes: 1440, revision: 0 }).success).toBe(true);
+    expect(write.safeParse({ referralClaimExpiryMinutes: 43200, revision: 3 }).success).toBe(true);
+    expect(write.safeParse({ ...full, reminderIntervalHours: 1, masterWindowCap: 100, morningWindowStart: "00:00", afternoonWindowEnd: "23:45" }).success).toBe(
+      true
+    );
+    for (const change of [
+      { referralClaimExpiryMinutes: 1439 },
+      { referralClaimExpiryMinutes: 43201 },
+      { referralClaimExpiryMinutes: 1440.5 },
+      { referralClaimExpiryMinutes: "1440" },
+      { referralClaimExpiryMinutes: null },
+      { reminderIntervalHours: 0 },
+      { reminderIntervalHours: 169 },
+      { reminderIntervalHours: null },
+      { masterWindowCap: 0 },
+      { masterWindowCap: 101 },
+      { morningWindowStart: "07:10" },
+      { morningWindowStart: "7:00" },
+      { afternoonWindowEnd: "24:00" },
+      { afternoonWindowStart: null },
+      { revision: -1 },
+      { updatedBy: "forged" }
     ]) {
-      expect(write.safeParse(body).success, JSON.stringify(body)).toBe(false);
+      expect(write.safeParse({ ...full, ...change }).success, JSON.stringify(change)).toBe(false);
     }
+    expect(write.safeParse({ referralClaimExpiryMinutes: 1440 }).success).toBe(false);
     for (const operation of [spec.paths["/caseworker/process-settings"].get, spec.paths["/caseworker/process-settings"].put]) {
       expect(operation.responses).toMatchObject({ "200": { content: { "*/*": { schema: { $ref: "#/components/schemas/ProcessSettingsResponse" } } } } });
+    }
+  });
+
+  it("should agree with the spec on the Masters list's writes", () => {
+    const create = spec.components.schemas.CreateMasterRequest;
+    const update = spec.components.schemas.UpdateMasterRequest;
+    for (const body of [create, update]) {
+      expect(body.additionalProperties).toBe(false);
+      expect(body.properties?.name).toMatchObject({ minLength: 1, maxLength: MASTER_LIMITS.maxNameLength });
+      expect(body.properties?.email).toMatchObject({ maxLength: MASTER_LIMITS.maxEmailLength });
+    }
+    expect(create.required?.toSorted()).toEqual(["email", "name"]);
+    expect(update.required).toEqual(["revision"]);
+    expect(update.minProperties).toBe(2);
+    expect(update.properties?.revision).toMatchObject({ type: "integer", minimum: 0 });
+    // The linked IDAM account is api's alone: no response or write may carry it.
+    for (const name of ["MasterResponse", "CreateMasterRequest", "UpdateMasterRequest"]) {
+      for (const field of ["subject", "idamId", "userId", "linkedSubject"]) {
+        expect(Object.keys(spec.components.schemas[name].properties ?? {}), name).not.toContain(field);
+      }
+    }
+    expect(WIRE_SCHEMAS.CreateMasterRequest.safeParse({ name: "Master Sullivan", email: "sullivan@example.test" }).success).toBe(true);
+    expect(WIRE_SCHEMAS.CreateMasterRequest.safeParse({ name: "  ", email: "sullivan@example.test" }).success).toBe(false);
+    expect(WIRE_SCHEMAS.CreateMasterRequest.safeParse({ name: "x".repeat(201), email: "sullivan@example.test" }).success).toBe(false);
+    expect(WIRE_SCHEMAS.CreateMasterRequest.safeParse({ name: "M", email: "x".repeat(321) }).success).toBe(false);
+    expect(WIRE_SCHEMAS.CreateMasterRequest.safeParse({ name: "M", email: "m@example.test", linked: true }).success).toBe(false);
+    expect(WIRE_SCHEMAS.UpdateMasterRequest.safeParse({ available: false, revision: 0 }).success).toBe(true);
+    expect(WIRE_SCHEMAS.UpdateMasterRequest.safeParse({ revision: 0 }).success).toBe(false);
+    expect(WIRE_SCHEMAS.UpdateMasterRequest.safeParse({ available: false }).success).toBe(false);
+    expect(spec.paths["/caseworker/masters"].post.responses?.["201"]).toBeDefined();
+  });
+
+  it("should agree with the spec on the bank holidays' write and removal", () => {
+    const create = spec.components.schemas.CreateBankHolidayRequest;
+    expect(create.additionalProperties).toBe(false);
+    expect(create.required?.toSorted()).toEqual(["date", "name"]);
+    expect(create.properties?.date).toMatchObject({ type: "string", format: "date" });
+    expect(create.properties?.name).toMatchObject({ minLength: 1, maxLength: BANK_HOLIDAY_LIMITS.maxNameLength });
+    expect(spec.components.schemas.BankHolidayResponse.properties?.date).toMatchObject({ type: "string", format: "date" });
+    expect(WIRE_SCHEMAS.CreateBankHolidayRequest.safeParse({ date: "2026-12-25", name: "Christmas Day" }).success).toBe(true);
+    for (const body of [
+      { date: "25-12-2026", name: "Christmas Day" },
+      { date: "2026-02-30", name: "Not a day" },
+      { date: "2026-12-25", name: " " },
+      { date: "2026-12-25", name: "x".repeat(201) },
+      { date: "2026-12-25" }
+    ]) {
+      expect(WIRE_SCHEMAS.CreateBankHolidayRequest.safeParse(body).success, JSON.stringify(body)).toBe(false);
+    }
+    expect(spec.paths["/caseworker/process-settings/bank-holidays"].post.responses?.["201"]).toBeDefined();
+    expect(spec.paths["/caseworker/process-settings/bank-holidays/{date}"].delete.responses?.["204"]).toBeDefined();
+  });
+
+  it("should no longer declare api's retired publishToGazette alias on any referral schema", () => {
+    for (const name of ["ReferralResponse", "JudicialReferralDetail", "JudicialDirectionRequest"]) {
+      expect(Object.keys(spec.components.schemas[name].properties ?? {}), name).not.toContain("publishToGazette");
     }
   });
 
@@ -400,6 +500,9 @@ describe("openapi.json and the wire schemas", () => {
     const requests = [
       "UpdateGazetteSettingsRequest",
       "UpdateProcessSettingsRequest",
+      "CreateMasterRequest",
+      "UpdateMasterRequest",
+      "CreateBankHolidayRequest",
       "PreviewGazetteRequest",
       "SubmitGazetteRequest",
       "CreateCaseRequest",
@@ -687,6 +790,7 @@ interface OpenApiSchema {
    * `RecordConfirmationRequest`, where one is ignored, and absent everywhere else.
    */
   additionalProperties?: boolean | Record<string, unknown>;
+  minProperties?: number;
   properties?: Record<
     string,
     { enum?: (string | null)[]; pattern?: string; maxLength?: number; minLength?: number; items?: { $ref?: string; enum?: string[] } }

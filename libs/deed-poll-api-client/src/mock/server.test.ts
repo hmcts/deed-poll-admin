@@ -1671,7 +1671,7 @@ describe("the judicial referral routes", () => {
     expect((await response.json()).errors[0].field).toBe("directionsText");
   });
 
-  it("should publish api's deprecated publishToGazette as the answer inverted, on both surfaces", async () => {
+  it("should no longer publish api's retired publishToGazette alias on either surface", async () => {
     const { caseId, referralId } = await claimedReferral(JUDGE);
 
     const response = await post(
@@ -1680,8 +1680,12 @@ describe("the judicial referral routes", () => {
       as(JUDGE)
     );
 
-    expect(await response.json()).toMatchObject({ changesToStandardPublication: true, publishToGazette: false });
-    expect(await get(`/caseworker/cases/${caseId}/referrals/${referralId}`)).toMatchObject({ changesToStandardPublication: true, publishToGazette: false });
+    const judicial = await response.json();
+    const caseworker = await get(`/caseworker/cases/${caseId}/referrals/${referralId}`);
+    expect(judicial).toMatchObject({ changesToStandardPublication: true });
+    expect(caseworker).toMatchObject({ changesToStandardPublication: true });
+    expect(judicial).not.toHaveProperty("publishToGazette");
+    expect(caseworker).not.toHaveProperty("publishToGazette");
   });
 
   it.each([

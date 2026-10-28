@@ -30,46 +30,106 @@ function put(body: unknown, accessToken = DELIVERY_MANAGER) {
 }
 
 describe("process settings adapter and mock", () => {
-  it("should start at api's seeded two hours with revision 0 and no attribution", async () => {
+  it("should start at api's seeded seven days, 48 hours, ten per window and two windows, at revision 0 with no attribution", async () => {
     // Act
     const result = await getProcessSettings(config());
 
     // Assert
-    expect(result).toEqual({ ok: true, data: { referralClaimExpiryMinutes: 120, revision: 0, updatedAt: null, updatedBy: null } });
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        referralClaimExpiryMinutes: 10080,
+        reminderIntervalHours: 48,
+        masterWindowCap: 10,
+        morningWindowStart: "07:00",
+        morningWindowEnd: "10:30",
+        afternoonWindowStart: "14:00",
+        afternoonWindowEnd: "14:30",
+        revision: 0,
+        updatedAt: null,
+        updatedBy: null
+      }
+    });
   });
 
   it("should persist a change with a new revision and the caller's name", async () => {
     // Act
-    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 45, revision: 0 }, config());
+    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 2880, revision: 0 }, config());
 
     // Assert
-    expect(result).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 45, revision: 1, updatedBy: "Test manager" } });
+    expect(result).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 2880, revision: 1, updatedBy: "Test manager" } });
     if (!result.ok) throw new Error("Expected success");
     expect(result.data.updatedAt).toBeInstanceOf(Date);
     expect(await getProcessSettings(config())).toEqual(result);
   });
 
-  it("should treat the current value at the current revision as a no-op", async () => {
+  it("should send and persist every extended setting through the adapter", async () => {
+    // Arrange
+    const change = {
+      referralClaimExpiryMinutes: 4320,
+      reminderIntervalHours: 24,
+      masterWindowCap: 5,
+      morningWindowStart: "08:00",
+      morningWindowEnd: "11:15",
+      afternoonWindowStart: "13:30",
+      afternoonWindowEnd: "15:45",
+      revision: 0
+    };
+
     // Act
-    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 120, revision: 0 }, config());
+    const result = await updateProcessSettings(change, config());
 
     // Assert
-    expect(result).toEqual({ ok: true, data: { referralClaimExpiryMinutes: 120, revision: 0, updatedAt: null, updatedBy: null } });
+    expect(result).toMatchObject({ ok: true, data: { ...change, revision: 1 } });
+    expect(await getProcessSettings(config())).toEqual(result);
+  });
+
+  it("should keep a setting the adapter leaves out at its stored value", async () => {
+    // Act
+    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 2880, masterWindowCap: 3, revision: 0 }, config());
+
+    // Assert
+    expect(result).toMatchObject({
+      ok: true,
+      data: { referralClaimExpiryMinutes: 2880, masterWindowCap: 3, reminderIntervalHours: 48, morningWindowStart: "07:00", afternoonWindowEnd: "14:30" }
+    });
+  });
+
+  it("should treat the current value at the current revision as a no-op", async () => {
+    // Act
+    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 10080, revision: 0 }, config());
+
+    // Assert
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        referralClaimExpiryMinutes: 10080,
+        reminderIntervalHours: 48,
+        masterWindowCap: 10,
+        morningWindowStart: "07:00",
+        morningWindowEnd: "10:30",
+        afternoonWindowStart: "14:00",
+        afternoonWindowEnd: "14:30",
+        revision: 0,
+        updatedAt: null,
+        updatedBy: null
+      }
+    });
   });
 
   it("should refuse a stale revision with 409 even when the value already matches", async () => {
     // Arrange
-    await updateProcessSettings({ referralClaimExpiryMinutes: 60, revision: 0 }, config());
+    await updateProcessSettings({ referralClaimExpiryMinutes: 4320, revision: 0 }, config());
 
     // Act
-    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 60, revision: 0 }, config());
+    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 4320, revision: 0 }, config());
 
     // Assert
     expect(result).toMatchObject({ ok: false, error: { kind: "conflict", status: 409 } });
-    expect(await getProcessSettings(config())).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 60, revision: 1 } });
+    expect(await getProcessSettings(config())).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 4320, revision: 1 } });
   });
 
-  it.each([30, 1440])("should accept the boundary %i minutes", async (minutes) => {
+  it.each([1440, 43200])("should accept the boundary %i minutes", async (minutes) => {
     expect(await updateProcessSettings({ referralClaimExpiryMinutes: minutes, revision: 0 }, config())).toMatchObject({
       ok: true,
       data: { referralClaimExpiryMinutes: minutes, revision: 1 }
@@ -77,16 +137,16 @@ describe("process settings adapter and mock", () => {
   });
 
   it.each([
-    { body: { referralClaimExpiryMinutes: 29, revision: 0 }, field: "referralClaimExpiryMinutes" },
-    { body: { referralClaimExpiryMinutes: 1441, revision: 0 }, field: "referralClaimExpiryMinutes" },
-    { body: { referralClaimExpiryMinutes: 90.5, revision: 0 }, field: "referralClaimExpiryMinutes" },
-    { body: { referralClaimExpiryMinutes: "90", revision: 0 }, field: "referralClaimExpiryMinutes" },
+    { body: { referralClaimExpiryMinutes: 1439, revision: 0 }, field: "referralClaimExpiryMinutes" },
+    { body: { referralClaimExpiryMinutes: 43201, revision: 0 }, field: "referralClaimExpiryMinutes" },
+    { body: { referralClaimExpiryMinutes: 1440.5, revision: 0 }, field: "referralClaimExpiryMinutes" },
+    { body: { referralClaimExpiryMinutes: "1440", revision: 0 }, field: "referralClaimExpiryMinutes" },
     { body: { referralClaimExpiryMinutes: null, revision: 0 }, field: "referralClaimExpiryMinutes" },
     { body: { revision: 0 }, field: "referralClaimExpiryMinutes" },
-    { body: { referralClaimExpiryMinutes: 90, revision: -1 }, field: "revision" },
-    { body: { referralClaimExpiryMinutes: 90, revision: "0" }, field: "revision" },
-    { body: { referralClaimExpiryMinutes: 90 }, field: "revision" },
-    { body: { referralClaimExpiryMinutes: 90, revision: 0, updatedBy: "forged" }, field: "updatedBy" }
+    { body: { referralClaimExpiryMinutes: 2880, revision: -1 }, field: "revision" },
+    { body: { referralClaimExpiryMinutes: 2880, revision: "0" }, field: "revision" },
+    { body: { referralClaimExpiryMinutes: 2880 }, field: "revision" },
+    { body: { referralClaimExpiryMinutes: 2880, revision: 0, updatedBy: "forged" }, field: "updatedBy" }
   ])("should refuse $body with a 400 naming $field and change nothing", async ({ body, field }) => {
     // Act
     const response = await put(body);
@@ -94,10 +154,10 @@ describe("process settings adapter and mock", () => {
     // Assert
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ errors: [{ field }] });
-    expect(await getProcessSettings(config())).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 120, revision: 0 } });
+    expect(await getProcessSettings(config())).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 10080, revision: 0 } });
   });
 
-  it("should check the claim window before the revision, as api does", async () => {
+  it("should check the processing window before the revision, as api does", async () => {
     // Act
     const response = await put({ referralClaimExpiryMinutes: 10, revision: 7 });
 
@@ -119,7 +179,7 @@ describe("process settings adapter and mock", () => {
 
     // Act
     const read = await getProcessSettings(caller);
-    const write = await updateProcessSettings({ referralClaimExpiryMinutes: 60, revision: 0 }, caller);
+    const write = await updateProcessSettings({ referralClaimExpiryMinutes: 4320, revision: 0 }, caller);
 
     // Assert
     expect(read.ok).toBe(allowed);
@@ -132,7 +192,7 @@ describe("process settings adapter and mock", () => {
     const nameless = `x.${Buffer.from(JSON.stringify({ sub: "manager", roles: ["caseworker-deedpoll-delivery-manager"] })).toString("base64url")}.signature`;
 
     // Act
-    const response = await put({ referralClaimExpiryMinutes: 45, revision: 0 }, nameless);
+    const response = await put({ referralClaimExpiryMinutes: 2880, revision: 0 }, nameless);
 
     // Assert
     expect(response.status).toBe(200);
@@ -144,29 +204,32 @@ describe("process settings adapter and mock", () => {
     const response = await fetch(`${mock.url}/caseworker/process-settings`, {
       method: "POST",
       headers: { authorization: `Bearer ${DELIVERY_MANAGER}`, "content-type": "application/json" },
-      body: JSON.stringify({ referralClaimExpiryMinutes: 45, revision: 0 })
+      body: JSON.stringify({ referralClaimExpiryMinutes: 2880, revision: 0 })
     });
 
     // Assert
     expect(response.status).toBe(405);
-    expect(await getProcessSettings(config())).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 120, revision: 0 } });
+    expect(await getProcessSettings(config())).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 10080, revision: 0 } });
   });
 
   it("should reset to the seeded values with the mock's other fixtures", async () => {
     // Arrange
-    await updateProcessSettings({ referralClaimExpiryMinutes: 600, revision: 0 }, config());
+    await updateProcessSettings({ referralClaimExpiryMinutes: 20160, revision: 0 }, config());
 
     // Act
     mock.reset();
 
     // Assert
-    expect(await getProcessSettings(config())).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 120, revision: 0, updatedBy: null } });
+    expect(await getProcessSettings(config())).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 10080, revision: 0, updatedBy: null } });
   });
 
   it("should classify missing authentication and api outages", async () => {
     expect(await getProcessSettings({ baseUrl: mock.url })).toMatchObject({ ok: false, error: { kind: "unauthorized" } });
     mock.setScenario("api-unavailable");
     expect(await getProcessSettings(config())).toMatchObject({ ok: false, error: { kind: "unavailable" } });
-    expect(await updateProcessSettings({ referralClaimExpiryMinutes: 60, revision: 0 }, config())).toMatchObject({ ok: false, error: { kind: "unavailable" } });
+    expect(await updateProcessSettings({ referralClaimExpiryMinutes: 4320, revision: 0 }, config())).toMatchObject({
+      ok: false,
+      error: { kind: "unavailable" }
+    });
   });
 });

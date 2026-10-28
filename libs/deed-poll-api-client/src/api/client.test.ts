@@ -12,10 +12,12 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { type MockCase, type RunningMockApi, startMockApi } from "../mock/server.js";
 import {
   type ApiConfig,
+  addBankHoliday,
   checkApiReachable,
   claimJudicialReferral,
   closeReferral,
   createCase,
+  createMaster,
   createNote,
   createReferral,
   createSavedQuery,
@@ -40,8 +42,10 @@ import {
   getReferral,
   getSavedQuery,
   getWitness,
+  listBankHolidays,
   listCases,
   listDocumentTypes,
+  listMasters,
   listNotes,
   listReferrals,
   listSavedQueries,
@@ -53,10 +57,12 @@ import {
   previewGazetteNotice,
   type ReferralCreate,
   recordConfirmation,
+  removeBankHoliday,
   reviseDirection,
   selectSavedQuery,
   sendEmail,
   submitGazetteNotice,
+  updateMaster,
   updateWitness,
   uploadDocument,
   withdrawDirection,
@@ -238,6 +244,115 @@ describe("getGazetteNoticeHistory", () => {
     } finally {
       await answering.close();
     }
+  });
+});
+
+describe("the Masters list", () => {
+  const asManager = () => ({ ...config, accessToken: roleToken("manager-1", ["caseworker-deedpoll-delivery-manager"]) });
+  const caseworker = () => ({ ...config, accessToken: roleToken("cw-1", ["caseworker-deedpoll"]) });
+
+  it("should create a Master, trimmed and lower-cased, available by default and not yet linked", async () => {
+    // Act
+    const result = await createMaster({ name: "  Master Sullivan ", email: " Sullivan@Example.TEST" }, asManager());
+
+    // Assert
+    expect(result).toEqual({
+      ok: true,
+      data: { id: expect.any(String), name: "Master Sullivan", email: "sullivan@example.test", available: true, linked: false, revision: 0 }
+    });
+  });
+
+  it("should list every Master by name for any staff caller", async () => {
+    // Arrange
+    await createMaster({ name: "Master Wren", email: "wren@example.test", available: false }, asManager());
+    await createMaster({ name: "Master Adams", email: "adams@example.test" }, asManager());
+
+    // Act
+    const result = await listMasters(caseworker());
+
+    // Assert
+    expect(result.ok && result.data.map((master) => [master.name, master.available])).toEqual([
+      ["Master Adams", true],
+      ["Master Wren", false]
+    ]);
+  });
+
+  it("should patch a Master at its revision and refuse the same revision again with a conflict", async () => {
+    // Arrange
+    const created = await createMaster({ name: "Master Wren", email: "wren@example.test" }, asManager());
+    if (!created.ok) throw new Error("Expected a Master");
+
+    // Act
+    const updated = await updateMaster(created.data.id, { available: false, revision: 0 }, asManager());
+    const stale = await updateMaster(created.data.id, { name: "Master Renamed", revision: 0 }, asManager());
+
+    // Assert
+    expect(updated).toMatchObject({ ok: true, data: { available: false, revision: 1 } });
+    expect(stale).toMatchObject({ ok: false, error: { kind: "conflict", status: 409 } });
+  });
+
+  it("should classify a duplicate email in any case as a conflict", async () => {
+    // Arrange
+    await createMaster({ name: "Master Wren", email: "wren@example.test" }, asManager());
+
+    // Act
+    const result = await createMaster({ name: "Another Wren", email: "WREN@example.test" }, asManager());
+
+    // Assert
+    expect(result).toMatchObject({ ok: false, error: { kind: "conflict", status: 409 } });
+  });
+
+  it("should classify an unknown Master as not found and a caseworker's write as forbidden", async () => {
+    expect(await updateMaster("no-such-master", { available: false, revision: 0 }, asManager())).toMatchObject({ ok: false, error: { kind: "not-found" } });
+    expect(await createMaster({ name: "Master Wren", email: "wren@example.test" }, caseworker())).toMatchObject({ ok: false, error: { kind: "forbidden" } });
+  });
+
+  it("should refuse a dot-segment id without sending it", async () => {
+    expect(await updateMaster("..", { available: false, revision: 0 }, asManager())).toMatchObject({ ok: false, error: { kind: "not-found" } });
+  });
+});
+
+describe("the bank holidays", () => {
+  const asManager = () => ({ ...config, accessToken: roleToken("manager-1", ["caseworker-deedpoll-delivery-manager"]) });
+
+  it("should add bank holidays and list them earliest first", async () => {
+    // Arrange
+    await addBankHoliday({ date: "2026-12-28", name: "Boxing Day (substitute day)" }, asManager());
+
+    // Act
+    const added = await addBankHoliday({ date: "2026-12-25", name: "Christmas Day" }, asManager());
+    const listed = await listBankHolidays({ ...config, accessToken: roleToken("cw-1", ["caseworker-deedpoll"]) });
+
+    // Assert
+    expect(added).toEqual({ ok: true, data: { date: "2026-12-25", name: "Christmas Day" } });
+    if (!listed.ok) throw new Error("Expected the list");
+    const dates = listed.data.map((holiday) => holiday.date);
+    expect(dates).toEqual(dates.toSorted());
+    expect(dates).toEqual(expect.arrayContaining(["2026-12-25", "2026-12-28"]));
+  });
+
+  it("should classify a date already listed as a conflict", async () => {
+    // Arrange
+    await addBankHoliday({ date: "2026-12-25", name: "Christmas Day" }, asManager());
+
+    // Act
+    const result = await addBankHoliday({ date: "2026-12-25", name: "Christmas" }, asManager());
+
+    // Assert
+    expect(result).toMatchObject({ ok: false, error: { kind: "conflict", status: 409 } });
+  });
+
+  it("should remove a listed date with no content and call a second removal not found", async () => {
+    // Arrange
+    await addBankHoliday({ date: "2026-12-25", name: "Christmas Day" }, asManager());
+
+    // Act
+    const removed = await removeBankHoliday("2026-12-25", asManager());
+    const again = await removeBankHoliday("2026-12-25", asManager());
+
+    // Assert
+    expect(removed).toEqual({ ok: true, data: undefined });
+    expect(again).toMatchObject({ ok: false, error: { kind: "not-found", status: 404 } });
   });
 });
 
@@ -2635,4 +2750,9 @@ async function listen(server: Server): Promise<{ url: string; close: () => Promi
         server.close((error) => (error ? reject(error) : resolve()));
       })
   };
+}
+
+/** A token the mock reads roles from, as `getGazetteNoticeHistory`'s tests build one. */
+function roleToken(sub: string, roles: string[]): string {
+  return `x.${Buffer.from(JSON.stringify({ sub, roles })).toString("base64url")}.signature`;
 }

@@ -25,7 +25,7 @@ export function processSettingsFormSchema(messages: ProcessSettingsFormMessages)
         return z.NEVER;
       }
       const total = (claimWindowHours ?? 0) * 60 + (claimWindowMinutes ?? 0);
-      if (total < PROCESS_SETTINGS_LIMITS.minClaimMinutes || total > PROCESS_SETTINGS_LIMITS.maxClaimMinutes) {
+      if (total < PROCESS_SETTINGS_LIMITS.minProcessingMinutes || total > PROCESS_SETTINGS_LIMITS.maxProcessingMinutes) {
         context.addIssue({ code: "custom", path: ["claimWindow"], message: messages.range });
         return z.NEVER;
       }

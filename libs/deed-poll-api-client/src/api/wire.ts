@@ -334,8 +334,7 @@ const documentSchema = z.object({
  * `changesToStandardPublication` is nullable where `migrated` is not: api boxes it deliberately, because a referral
  * with no direction has not been asked the question and absent is not false. It is the Master's answer to "Are there
  * any changes to the standard publications in the Gazette?" — true for do not publish, or publish only as
- * `directionsText` says. **`publishToGazette` is the same answer inverted under its pre-2026-10-27 name**, published
- * deprecated by api for one release: declared here because the contract is set-equal, and read by nothing.
+ * `directionsText` says.
  *
  * The four `confirmation*` fields are the applicant's answer to the *Request confirmation to proceed* email and
  * api's record of who transcribed it. All four are nullable and they move in pairs rather than independently:
@@ -357,8 +356,6 @@ const referralSchema = z.object({
   decision: z.enum(MASTER_DECISION).nullish(),
   directionsText: z.string().nullish(),
   changesToStandardPublication: z.boolean().nullish(),
-  // Deprecated by api: `changesToStandardPublication` inverted, for one release. Read by nothing here.
-  publishToGazette: z.boolean().nullish(),
   decisionDate: wireDateTime.nullish(),
   decidedBy: z.string().nullish(),
   // Set when the judge changes or withdraws their direction, and never cleared: the caseworker's cue that the
@@ -762,8 +759,6 @@ const judicialReferralDetailSchema = judicialReferralSummarySchema.extend({
   decision: z.enum(MASTER_DECISION).nullish(),
   directionsText: z.string().nullish(),
   changesToStandardPublication: z.boolean().nullish(),
-  // Deprecated by api: `changesToStandardPublication` inverted, for one release. Read by nothing here.
-  publishToGazette: z.boolean().nullish(),
   decisionDate: wireDateTime.nullish(),
   decidedBy: z.string().nullish(),
   // When the judge last changed or withdrew their direction; null while it stands as first given. Never
@@ -818,7 +813,6 @@ const judicialMyReferralsSchema = z.object({
  * `changesToStandardPublication` is a required JSON boolean and not a coerced string, which is api's own emphasis:
  * `"false"` is truthy in JavaScript, and publication cannot be taken back. Never derived from a
  * `NonPublication` referral reason — the caseworker's reason for referring is not the judge's decision.
- * `publishToGazette`, its deprecated inverted predecessor, is declared for set-equality and never sent.
  *
  * `directionsText` is optional on a standard publication, because an approval that needs no comment is a real
  * answer, and **required when there are changes** — api answers 400 on it otherwise. The state, the
@@ -827,7 +821,6 @@ const judicialMyReferralsSchema = z.object({
 const judicialDirectionSchema = z.object({
   decision: z.enum(MASTER_DECISION),
   changesToStandardPublication: z.boolean(),
-  publishToGazette: z.boolean().optional(),
   directionsText: z.string().max(4000).optional()
 });
 
@@ -1032,26 +1025,118 @@ const updateGazetteSettingsSchema = z
   .strict();
 
 /**
- * The claim window api accepts, in whole minutes (30 minutes to 24 hours). `contract.test.ts` pins both to
+ * The process settings api accepts: the processing window in whole minutes (1 to 30 days), the reminder interval in
+ * hours and the cap per Master per referral window. `contract.test.ts` pins every bound to
  * `UpdateProcessSettingsRequest` in `openapi.json`, so the settings form can refuse early without restating them.
  */
-export const PROCESS_SETTINGS_LIMITS = { minClaimMinutes: 30, maxClaimMinutes: 1440 } as const;
+export const PROCESS_SETTINGS_LIMITS = {
+  minProcessingMinutes: 1440,
+  maxProcessingMinutes: 43200,
+  minReminderHours: 1,
+  maxReminderHours: 168,
+  minMasterWindowCap: 1,
+  maxMasterWindowCap: 100
+} as const;
+
+/** A referral window time, Europe/London, `HH:mm` on the quarter hour. Pinned to the spec's pattern. */
+export const WINDOW_TIME_PATTERN = "^([01][0-9]|2[0-3]):(00|15|30|45)$";
 
 /**
- * The Delivery Manager's process settings. Both ints are Java primitives on api's record, so neither arrives null.
- * The response's bounds are not restated: a read must not fail because api widened what it stores.
+ * The Delivery Manager's process settings. The ints are Java primitives on api's record, so none arrives null; the
+ * window times are strings and nullable by this file's convention. The response's bounds are not restated: a read
+ * must not fail because api widened what it stores.
  */
 const processSettingsSchema = z.object({
   referralClaimExpiryMinutes: z.number().int(),
+  reminderIntervalHours: z.number().int(),
+  masterWindowCap: z.number().int(),
+  morningWindowStart: z.string().nullish(),
+  morningWindowEnd: z.string().nullish(),
+  afternoonWindowStart: z.string().nullish(),
+  afternoonWindowEnd: z.string().nullish(),
   revision: z.number().int().nonnegative(),
   updatedAt: wireDateTime.nullish(),
   updatedBy: z.string().nullish()
 });
 
+const windowTime = z.string().regex(new RegExp(WINDOW_TIME_PATTERN));
+
+/**
+ * Only the processing window and the revision are required, for one release: an absent setting keeps api's stored
+ * value and an explicit null is refused, so the optional fields are `optional()` and never `nullish()`. The ordering
+ * rule (each window starts before it ends, the morning one ending before the afternoon one starts) is api's to apply
+ * to the merged row, so it is not restated here.
+ */
 const updateProcessSettingsSchema = z
   .object({
-    referralClaimExpiryMinutes: z.number().int().min(PROCESS_SETTINGS_LIMITS.minClaimMinutes).max(PROCESS_SETTINGS_LIMITS.maxClaimMinutes),
+    referralClaimExpiryMinutes: z.number().int().min(PROCESS_SETTINGS_LIMITS.minProcessingMinutes).max(PROCESS_SETTINGS_LIMITS.maxProcessingMinutes),
+    reminderIntervalHours: z.number().int().min(PROCESS_SETTINGS_LIMITS.minReminderHours).max(PROCESS_SETTINGS_LIMITS.maxReminderHours).optional(),
+    masterWindowCap: z.number().int().min(PROCESS_SETTINGS_LIMITS.minMasterWindowCap).max(PROCESS_SETTINGS_LIMITS.maxMasterWindowCap).optional(),
+    morningWindowStart: windowTime.optional(),
+    morningWindowEnd: windowTime.optional(),
+    afternoonWindowStart: windowTime.optional(),
+    afternoonWindowEnd: windowTime.optional(),
     revision: z.number().int().nonnegative()
+  })
+  .strict();
+
+/** The Masters list's bounds, pinned to `CreateMasterRequest` and `UpdateMasterRequest` by `contract.test.ts`. */
+export const MASTER_LIMITS = { maxNameLength: 200, maxEmailLength: 320 } as const;
+
+/**
+ * One entry on the Masters list. `linked` says whether the Master has signed in and been matched to an IDAM account
+ * by email; the account itself is never published, so nothing here can key on it. `available`, `linked` and
+ * `revision` are primitives on api's record, and `id` is strict by choice, as every other id here is.
+ */
+const masterSchema = z.object({
+  id: z.string(),
+  name: z.string().nullish(),
+  email: z.string().nullish(),
+  available: z.boolean(),
+  linked: z.boolean(),
+  revision: z.number().int().nonnegative()
+});
+
+// api trims and lower-cases the address and refuses one without exactly one `@` or with whitespace; that is
+// api's rule to apply, so only the published bounds are restated.
+const masterName = z.string().trim().min(1).max(MASTER_LIMITS.maxNameLength);
+const masterEmail = z.string().max(MASTER_LIMITS.maxEmailLength);
+
+const createMasterSchema = z
+  .object({
+    name: masterName,
+    email: masterEmail,
+    available: z.boolean().optional()
+  })
+  .strict();
+
+/** A keyed patch: the revision and at least one of the three (api's `minProperties: 2`). */
+const updateMasterSchema = z
+  .object({
+    name: masterName.optional(),
+    email: masterEmail.optional(),
+    available: z.boolean().optional(),
+    revision: z.number().int().nonnegative()
+  })
+  .strict()
+  .refine((patch) => patch.name !== undefined || patch.email !== undefined || patch.available !== undefined);
+
+/** The bank holiday name's bound, pinned to `CreateBankHolidayRequest` by `contract.test.ts`. */
+export const BANK_HOLIDAY_LIMITS = { maxNameLength: 200 } as const;
+
+/**
+ * One England and Wales bank holiday. `date` stays the `yyyy-MM-dd` string api sends rather than becoming a `Date`:
+ * it is a calendar day with no time zone, and it is the removal's path segment. Strict by choice, as an id is.
+ */
+const bankHolidaySchema = z.object({
+  date: z.iso.date(),
+  name: z.string().nullish()
+});
+
+const createBankHolidaySchema = z
+  .object({
+    date: z.iso.date(),
+    name: z.string().trim().min(1).max(BANK_HOLIDAY_LIMITS.maxNameLength)
   })
   .strict();
 
@@ -1193,6 +1278,11 @@ export const WIRE_SCHEMAS = {
   UpdateGazetteSettingsRequest: updateGazetteSettingsSchema,
   ProcessSettingsResponse: processSettingsSchema,
   UpdateProcessSettingsRequest: updateProcessSettingsSchema,
+  MasterResponse: masterSchema,
+  CreateMasterRequest: createMasterSchema,
+  UpdateMasterRequest: updateMasterSchema,
+  BankHolidayResponse: bankHolidaySchema,
+  CreateBankHolidayRequest: createBankHolidaySchema,
   GazetteNoticeBatchResponse: gazetteNoticeBatchSchema,
   GazetteNoticeHistoryResponse: gazetteNoticeHistorySchema,
   CaseListResponse: caseListSchema,
@@ -1269,7 +1359,10 @@ export const STRICT_RESPONSE_PROPERTIES: Readonly<Record<string, readonly string
   // Both are required in api's record and the code is an enum, so neither can arrive null.
   DocumentPreviewError: ["code", "error"],
   GazetteSettingsResponse: ["revision"],
-  ProcessSettingsResponse: ["referralClaimExpiryMinutes", "revision"],
+  ProcessSettingsResponse: ["referralClaimExpiryMinutes", "reminderIntervalHours", "masterWindowCap", "revision"],
+  MasterResponse: ["id", "available", "linked", "revision"],
+  // `date` is the row's key, and the removal's path segment, so it is strict for the reason an id is.
+  BankHolidayResponse: ["date"],
   GazetteNoticeBatchResponse: ["caseCount", "referenceNumbers", "referencesTruncated"],
   GazetteNoticeHistoryResponse: ["batches", "page", "size", "total", "totalPages"],
   // The four paging counts are `int`, `int`, `long` and `int` on api's record, so none can arrive null.
@@ -1386,6 +1479,11 @@ export type WireGazetteSettings = z.infer<typeof gazetteSettingsSchema>;
 export type WireUpdateGazetteSettings = z.infer<typeof updateGazetteSettingsSchema>;
 export type WireProcessSettings = z.infer<typeof processSettingsSchema>;
 export type WireUpdateProcessSettings = z.infer<typeof updateProcessSettingsSchema>;
+export type WireMaster = z.infer<typeof masterSchema>;
+export type WireMasterCreate = z.input<typeof createMasterSchema>;
+export type WireMasterUpdate = z.input<typeof updateMasterSchema>;
+export type WireBankHoliday = z.infer<typeof bankHolidaySchema>;
+export type WireBankHolidayCreate = z.input<typeof createBankHolidaySchema>;
 
 export type WireGazettePreview = z.infer<typeof gazettePreviewSchema>;
 export type WireGazetteStatus = z.infer<typeof gazetteStatusSchema>;

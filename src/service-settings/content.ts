@@ -14,7 +14,7 @@ export const en = {
   lastChanged: "Last changed",
   by: "by",
   processHeading: "Referral claim window",
-  processHint: "How long a Master can hold a claimed referral without working on it. Enter between 30 minutes and 24 hours.",
+  processHint: "How long a Master can hold a claimed referral without working on it. Enter at least 24 hours.",
   hoursLabel: "Hours",
   minutesLabel: "Minutes",
   processWarning:
@@ -27,7 +27,7 @@ export const en = {
   processHours: "Enter hours as a whole number from 0 to 24",
   processMinutes: "Enter minutes as a whole number from 0 to 59",
   processRequired: "Enter how long a Master can hold a claimed referral",
-  processRange: "The claim window must be between 30 minutes and 24 hours",
+  processRange: "The claim window must be at least 24 hours",
   processReload: "Reload the settings before saving",
   processConflict: "The claim window has changed since you opened this page. Reload the settings and check the current value before saving again.",
   processReloadLink: "Reload claim window settings",

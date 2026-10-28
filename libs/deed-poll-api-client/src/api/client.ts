@@ -19,6 +19,8 @@ import type { z } from "zod";
 import { assertApiBaseUrl } from "./transport.js";
 import {
   WIRE_SCHEMAS,
+  type WireBankHoliday,
+  type WireBankHolidayCreate,
   type WireCallerAccess,
   type WireCaseDetail,
   type WireCaseEmails,
@@ -50,6 +52,9 @@ import {
   type WireJudicialPool,
   type WireJudicialReferralDetail,
   type WireJudicialReferralSummary,
+  type WireMaster,
+  type WireMasterCreate,
+  type WireMasterUpdate,
   type WireNote,
   type WirePreviewGazette,
   type WireProcessSettings,
@@ -281,8 +286,59 @@ export function getProcessSettings(config: ApiConfig): Promise<ApiResult<Process
 export function updateProcessSettings(input: UpdateProcessSettings, config: ApiConfig): Promise<ApiResult<ProcessSettings>> {
   return request(config, "PUT", "/caseworker/process-settings", WIRE_SCHEMAS.ProcessSettingsResponse, {
     referralClaimExpiryMinutes: input.referralClaimExpiryMinutes,
+    reminderIntervalHours: input.reminderIntervalHours,
+    masterWindowCap: input.masterWindowCap,
+    morningWindowStart: input.morningWindowStart,
+    morningWindowEnd: input.morningWindowEnd,
+    afternoonWindowStart: input.afternoonWindowStart,
+    afternoonWindowEnd: input.afternoonWindowEnd,
     revision: input.revision
   });
+}
+
+/** Every Master, available or not, in api's order (name, then id). Any staff role may read it. */
+export function listMasters(config: ApiConfig): Promise<ApiResult<Master[]>> {
+  return request(config, "GET", "/caseworker/masters", WIRE_SCHEMAS.MasterResponse.array());
+}
+
+/** Delivery Manager only. An email another Master holds, in any case, is a 409. */
+export function createMaster(input: MasterCreate, config: ApiConfig): Promise<ApiResult<Master>> {
+  return request(config, "POST", "/caseworker/masters", WIRE_SCHEMAS.MasterResponse, {
+    name: input.name,
+    email: input.email,
+    available: input.available
+  });
+}
+
+/**
+ * A keyed patch with the revision the list returned: a stale one is a 409 with no change. Changing a linked Master's
+ * email unlinks them until the new address signs in.
+ */
+export function updateMaster(id: string, patch: MasterUpdate, config: ApiConfig): Promise<ApiResult<Master>> {
+  return request(config, "PATCH", `/caseworker/masters/${encodeURIComponent(id)}`, WIRE_SCHEMAS.MasterResponse, {
+    name: patch.name,
+    email: patch.email,
+    available: patch.available,
+    revision: patch.revision
+  });
+}
+
+/** Every listed England and Wales bank holiday, earliest first. Any staff role may read it. */
+export function listBankHolidays(config: ApiConfig): Promise<ApiResult<BankHoliday[]>> {
+  return request(config, "GET", "/caseworker/process-settings/bank-holidays", WIRE_SCHEMAS.BankHolidayResponse.array());
+}
+
+/** Delivery Manager only. A date already listed is a 409. */
+export function addBankHoliday(input: BankHolidayCreate, config: ApiConfig): Promise<ApiResult<BankHoliday>> {
+  return request(config, "POST", "/caseworker/process-settings/bank-holidays", WIRE_SCHEMAS.BankHolidayResponse, {
+    date: input.date,
+    name: input.name
+  });
+}
+
+/** Delivery Manager only. 204; a date that is not listed is `not-found`. */
+export function removeBankHoliday(date: string, config: ApiConfig): Promise<ApiResult<void>> {
+  return requestNoContent(config, "DELETE", `/caseworker/process-settings/bank-holidays/${encodeURIComponent(date)}`);
 }
 
 /** Admin-only audit history. Omitted paging stays omitted so api applies its own defaults. */
@@ -1502,8 +1558,7 @@ export type JudicialReferralSummary = WireJudicialReferralSummary;
 export type JudicialReferralDetail = WireJudicialReferralDetail;
 export type JudicialApplicationView = WireJudicialApplicationView;
 export type JudicialDocument = WireJudicialDocument;
-/** The direction as this app sends it: the new Gazette name only, never api's deprecated `publishToGazette`. */
-export type JudicialDirection = Omit<WireJudicialDirection, "publishToGazette">;
+export type JudicialDirection = WireJudicialDirection;
 /**
  * The email types, which are one payload's parts rather than five endpoints' worth: `CaseEmails` is what the tab
  * reads and the other four are the shapes inside it.
@@ -1703,9 +1758,14 @@ export type GazetteSettings = WireGazetteSettings;
 export type UpdateGazetteSettings = WireUpdateGazetteSettings;
 export type ProcessSettings = WireProcessSettings;
 export type UpdateProcessSettings = WireUpdateProcessSettings;
+export type Master = WireMaster;
+export type MasterCreate = WireMasterCreate;
+export type MasterUpdate = WireMasterUpdate;
+export type BankHoliday = WireBankHoliday;
+export type BankHolidayCreate = WireBankHolidayCreate;
 
 export { GAZETTE_RECIPIENT_EMAIL_PATTERN, validateGazetteRecipientEmail } from "./gazette-recipient-email.js";
-export { PROCESS_SETTINGS_LIMITS } from "./wire.js";
+export { BANK_HOLIDAY_LIMITS, MASTER_LIMITS, PROCESS_SETTINGS_LIMITS, WINDOW_TIME_PATTERN } from "./wire.js";
 
 export type GazettePreview = WireGazettePreview;
 export type GazetteStatus = WireGazetteStatus;

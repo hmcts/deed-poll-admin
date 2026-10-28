@@ -119,9 +119,9 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 ## Implementation Steps
 
 ### Task 1: Spec refresh and adapter
-- [ ] Record the execution baseline (commit, test counts) in the execution notes.
-- [ ] Copy the chain's D1 spec, record its provenance, and add the adapter functions and schemas with failing `client.test.ts` and `contract.test.ts` cases first.
-- [ ] Implement, run the per-task checks, and record the results.
+- [x] Record the execution baseline (commit, test counts) in the execution notes.
+- [x] Copy the chain's D1 spec, record its provenance, and add the adapter functions and schemas with failing `client.test.ts` and `contract.test.ts` cases first.
+- [x] Implement, run the per-task checks, and record the results.
 
 ### Task 2: The mock
 - [ ] Add failing mock tests for every rule in the Development Approach.
@@ -141,3 +141,39 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [ ] Run all Validation Commands once more with `--force`, record the counts against the baseline, and confirm `git status` is clean apart from the task commits.
 
 ## Execution notes
+
+**Baseline (2026-10-28, branch `feat/d-referral-assignment` at `54b64aa`, after `yarn install`).** Full set green:
+lint clean, `yarn build --force` 8/8, suite 8/8 tasks. app 3,148, deed-poll 1,612, api-client 1,216,
+cloud-native-platform 156, express-govuk-starter 132, simple-router 45, express-session-postgres 85,
+express-session-redis 7. Redis answered on 6379, so the Redis suites ran. (The plan's 3,142 for app was #369's head;
+the two plan commits since added none of the six.)
+
+**Task 1 (spec refresh and adapter).**
+- `/tmp/juniper-340/spec-d1.json` at api `504ce4b` copied, Biome-formatted and parsed equal to the raw file; its
+  SHA-256 matched `spec-d1.meta`. Delta: 6 operations and 5 schemas added, nothing removed; 65 operations, 46 paths,
+  66 schemas. New top row in `SPEC-PROVENANCE.md`, the old top row relabelled `Previous …`.
+- **Two parts of the delta reached beyond the plan's list.** (1) D1 also carries api's PR 3: `publishToGazette` is
+  gone from `ReferralResponse`, `JudicialReferralDetail` and `JudicialDirectionRequest`. The wire schemas, the
+  `JudicialDirection` type and the mock's derived alias are dropped with it (the mock test now pins its absence).
+  (2) The processing window's bounds moved from 30–1440 to **1440–43200** minutes, and api's seed is now 10080.
+  So `PROCESS_SETTINGS_LIMITS` is renamed (`min/maxProcessingMinutes`, plus reminder and cap bounds) and the mock's
+  process settings were updated now rather than in Task 2. They now take every new field and bound, keep an absent
+  field's stored value and use api's seed. That is needed because the response schema requires the new ints. The
+  ordering rule is still Task 2's.
+- The existing claim-window form (hours ≤ 24, minutes ≤ 59) now accepts only 24:00–24:59 under the new floor. Its
+  range copy, which said "between 30 minutes and 24 hours", now says "at least 24 hours". Its schema, handler,
+  template and e2e fixtures are moved onto values valid against the new bounds. Task 3 replaces the section. The
+  e2e was edited but not run; `yarn test:gazette` is Task 5's.
+- Adapter: `listMasters`, `createMaster`, `updateMaster`, `listBankHolidays`, `addBankHoliday`, `removeBankHoliday`,
+  and `updateProcessSettings` now sends the six optional fields (undefined ones are dropped by `JSON.stringify`, so an
+  old-shape body is still possible). New exported bounds `MASTER_LIMITS`, `BANK_HOLIDAY_LIMITS` and
+  `WINDOW_TIME_PATTERN`, all pinned in `contract.test.ts`. Strictness: `MasterResponse` id/available/linked/revision;
+  `BankHolidayResponse` date (its key and path segment); the process settings' three ints. A bank holiday's date
+  stays a `yyyy-MM-dd` string, not a `Date`.
+- `client.test.ts` round trips run against basic mock routes added now (`src/mock/masters.ts`,
+  `src/mock/bank-holidays.ts`): reads for any staff caller, writes `MANAGE_PROCESS_CONFIG` only, revision and
+  duplicate 409s, and a 404 for an unknown Master or an unlisted date. Task 2 still owns linking on a judge's first
+  request, the ordering rule, the V42 dates and the seed data, and the tests for every rule.
+- Per-task checks: format, lint clean, `yarn build --force` 8/8. api-client 1,242 (+26), deed-poll 1,611 (one
+  claim-window table row fewer), app 3,148 (the full app suite, run because the mock changed under it).
+
