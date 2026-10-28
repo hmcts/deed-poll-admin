@@ -52,13 +52,23 @@ describe("settings/service", () => {
     expect(getProcessSettings).toHaveBeenCalledWith(expect.objectContaining(CALLER));
   });
 
-  it("should send only the window and the revision, because api stamps the attribution from the token", async () => {
+  it("should pass every setting and the revision through, and no attribution, because api stamps it from the token", async () => {
     vi.mocked(updateProcessSettings).mockResolvedValue({ ok: true, data: SETTINGS });
+    const dto = {
+      referralClaimExpiryMinutes: 10080,
+      reminderIntervalHours: 48,
+      masterWindowCap: 10,
+      morningWindowStart: "07:00",
+      morningWindowEnd: "10:30",
+      afternoonWindowStart: "14:00",
+      afternoonWindowEnd: "14:30",
+      revision: 4
+    };
 
-    const result = await saveProcessSettings({ referralClaimExpiryMinutes: 90, revision: 4 }, CALLER);
+    const result = await saveProcessSettings(dto, CALLER);
 
     expect(result).toBe(SETTINGS);
-    expect(updateProcessSettings).toHaveBeenCalledWith({ referralClaimExpiryMinutes: 90, revision: 4 }, expect.objectContaining(CALLER));
+    expect(updateProcessSettings).toHaveBeenCalledWith(dto, expect.objectContaining(CALLER));
   });
 
   it("should throw ForbiddenError when api answers 403", async () => {

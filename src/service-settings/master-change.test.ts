@@ -144,6 +144,17 @@ describe("a Master's Change page POST", () => {
     expect(model(revision).master.reloadText).toBe("Reload the Master before saving");
   });
 
+  it.each([[[{ field: "other", message: "x" }]], [[]]])("should refuse in general terms when api's 400 names %j", async (fieldErrors) => {
+    vi.mocked(saveMasterChange).mockRejectedValue(new InvalidInputError("x", fieldErrors));
+    const res = pageResponse();
+
+    await saveMasterChangePage(request({ body: BODY }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(model(res).master).toMatchObject({ errors: {}, reloadText: "The Master could not be saved. Reload the settings and try again." });
+    expect(model(res).errorList).toContainEqual({ text: "The Master could not be saved. Reload the settings and try again.", href: "#reload-master" });
+  });
+
   it("should let a 404 for a Master no longer listed reach the not-found page", async () => {
     vi.mocked(saveMasterChange).mockRejectedValue(new NotFoundError("No such Master"));
 

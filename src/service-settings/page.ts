@@ -48,8 +48,6 @@ export const SAVED = {
   bankHolidayRemoved: { key: "bank-holiday-removed", section: "bank-holidays" }
 } as const;
 
-const PATH = SETTINGS_PATH;
-const GAZETTE = SAVED.gazette.key;
 const SAVED_KEYS: ReadonlySet<string> = new Set(Object.values(SAVED).map((each) => each.key));
 const PROCESS_CONTROLS = [
   "processingDays",
@@ -69,7 +67,7 @@ export async function showSettings(req: Request, res: Response) {
 
 /** Every redirect after a save goes through here, so a section's banner and its fragment cannot drift apart. */
 export function savedRedirect(res: Response, saved: (typeof SAVED)[keyof typeof SAVED]) {
-  res.redirect(303, `${PATH}?saved=${saved.key}#${saved.section}`);
+  res.redirect(303, `${SETTINGS_PATH}?saved=${saved.key}#${saved.section}`);
 }
 
 export async function saveProcessSection(req: Request, res: Response) {
@@ -285,7 +283,7 @@ async function render(
     masterAdd,
     bankHolidays,
     holidayAdd,
-    savedSection: saved === GAZETTE && !holdsGazette ? undefined : saved,
+    savedSection: saved === SAVED.gazette.key && !holdsGazette ? undefined : saved,
     // XUI checks staff-admin itself, so this is a link and never a permission. Per environment from the chart.
     xuiStaffAdminUrl: config.get<string>("externalLinks.xuiStaffAdmin"),
     errorList: errorList(process, gazette, masterAdd, holidayAdd)
@@ -298,9 +296,7 @@ async function storedProcess(caller: Caller, locale: string): Promise<ProcessSec
   return {
     isAvailable: true,
     values: {
-      // A window api holds in part-days (only an old claim window can be) is shown as it is, never rounded, so the
-      // digits-only form refuses it and a Save cannot silently change it.
-      processingDays: String(Number((settings.referralClaimExpiryMinutes / MINUTES_PER_DAY).toFixed(2))),
+      processingDays: shownDays(settings.referralClaimExpiryMinutes),
       reminderIntervalHours: String(settings.reminderIntervalHours),
       masterWindowCap: String(settings.masterWindowCap),
       morningWindowStart: settings.morningWindowStart ?? "",
@@ -326,13 +322,23 @@ async function storedGazette(caller: Caller, locale: string): Promise<GazetteSec
   };
 }
 
+/**
+ * A window api holds in part-days (only an old claim window can be) keeps its decimal point, even when two places
+ * round it to a whole number (1,439 minutes is "1.00"), so the digits-only form refuses it and a Save cannot
+ * silently change it.
+ */
+function shownDays(minutes: number): string {
+  const days = minutes / MINUTES_PER_DAY;
+  return Number.isInteger(days) ? String(days) : days.toFixed(2);
+}
+
 async function storedMasters(caller: Caller): Promise<ListSection<MasterRow>> {
   const masters = await degraded("masters", () => findMasters(caller));
   if (!masters) return { isAvailable: false };
   return {
     isAvailable: true,
     rows: masters.map((master) => ({
-      changePath: `${PATH}/masters/${pathSegment(master.id, "Master id")}`,
+      changePath: `${SETTINGS_PATH}/masters/${pathSegment(master.id, "Master id")}`,
       name: master.name ?? "",
       email: master.email ?? "",
       isAvailable: master.available,
@@ -347,7 +353,7 @@ async function storedBankHolidays(caller: Caller): Promise<ListSection<HolidayRo
   return {
     isAvailable: true,
     rows: holidays.map((holiday) => ({
-      removePath: `${PATH}/bank-holidays/${pathSegment(holiday.date, "Bank holiday date")}/remove`,
+      removePath: `${SETTINGS_PATH}/bank-holidays/${pathSegment(holiday.date, "Bank holiday date")}/remove`,
       date: shortDate(holiday.date),
       name: holiday.name ?? ""
     }))

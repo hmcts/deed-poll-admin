@@ -125,7 +125,9 @@ describe("service settings GET", () => {
   it.each([
     [1440, "1"],
     [43200, "30"],
-    [1470, "1.02"]
+    [1470, "1.02"],
+    [1439, "1.00"],
+    [1441, "1.00"]
   ])("should show a processing window of %i minutes as %j days, never rounding a part-day", async (minutes, days) => {
     vi.mocked(findProcessSettings).mockResolvedValue({ ...PROCESS, referralClaimExpiryMinutes: minutes });
     const res = pageResponse();
@@ -298,6 +300,15 @@ describe("process section POST", () => {
     [[{ field: "masterWindowCap", message: "x" }], { errors: { masterWindowCap: "Enter the referrals per Master as a whole number from 1 to 100" } }],
     [[{ field: "afternoonWindowStart", message: "x" }], { errors: { afternoonWindowStart: "The afternoon window must start after the morning window ends" } }],
     [[{ field: "morningWindowEnd", message: "x" }], { errors: { morningWindowEnd: "The morning window must end after it starts" } }],
+    [
+      [{ field: "reminderIntervalHours", message: "x" }],
+      { errors: { reminderIntervalHours: "Enter the reminder interval as a whole number of hours from 1 to 168" } }
+    ],
+    [
+      [{ field: "morningWindowStart", message: "x" }],
+      { errors: { morningWindowStart: "Enter the morning window’s start as a time like 07:00, on the hour or at 15, 30 or 45 minutes past" } }
+    ],
+    [[{ field: "afternoonWindowEnd", message: "x" }], { errors: { afternoonWindowEnd: "The afternoon window must end after it starts" } }],
     [[{ field: "revision", message: "x" }], { errors: {}, reloadText: "Reload the settings before saving" }],
     [[{ field: "constructor", message: "x" }], { errors: {}, reloadText: "The referral process could not be saved. Reload the settings and try again." }],
     [[], { errors: {}, reloadText: "The referral process could not be saved. Reload the settings and try again." }]
@@ -600,7 +611,21 @@ describe("service settings: add a bank holiday", () => {
     await addBankHolidaySection(request({ body: BODY }), res);
 
     expect(res.status).toHaveBeenCalledWith(409);
-    expect(model(res).holidayAdd.errors).toEqual({ date: "This date is already a bank holiday" });
+    expect(model(res).holidayAdd).toEqual({
+      values: { day: "1", month: "1", year: "2029", name: "New Year’s Day" },
+      errors: { date: "This date is already a bank holiday" }
+    });
+  });
+
+  it("should put api's 400 on the date when api names it", async () => {
+    vi.mocked(saveBankHoliday).mockRejectedValue(new InvalidInputError("date", [{ field: "date", message: "x" }]));
+    const res = pageResponse();
+
+    await addBankHolidaySection(request({ body: BODY }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(Object.keys(model(res).holidayAdd.errors)).toEqual(["date"]);
+    expect(model(res).errorList).toEqual([{ text: model(res).holidayAdd.errors.date, href: "#bank-holiday-date-day" }]);
   });
 
   it("should put api's 400 on the name when api names it", async () => {

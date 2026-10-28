@@ -83,7 +83,7 @@ pre-send phase that alone outlasts 30 s still ends on the gateway's page, having
 a 5 s floor nothing is sent: the confirm step or the recovery page re-renders with the same journey and key, saying
 nothing was sent or checked (`docs/plans/completed/20261021-r03b-gazette-send-deadline.md`).
 
-`yarn test:gazette` runs nine browser journeys, the settings page's included, against a fresh mock on 3216 and this app on 3316,
+`yarn test:gazette` runs ten browser journeys, the settings page's two included, against a fresh mock on 3216 and this app on 3316,
 using Redis on 6316/database 1 and local IDAM on 5556. It is separate from `yarn test:e2e` because its
 empty-state check must never reset a shared developer mock. See README for prerequisites.
 The standalone mock resolves missing token roles from local IDAM userinfo (override with
@@ -149,6 +149,9 @@ writing any query-shaped code:
 - **`libs/deed-poll-api-client` is the only thing that speaks HTTP to api**, and it never throws: it
   returns `ApiResult<T>`, a discriminated union, so an unreachable api is a state a page renders rather
   than a 500. Its wire types and its mock are deliberately not exported from the package index.
+  A 409 keeps api's `fieldErrors` when api sends any (otherwise none), and `ConflictError.errors` carries them. A
+  named field is the one sanctioned way to tell two 409s apart (the Master Change page: `email` is a duplicate, no
+  field a stale revision); api's prose still never is.
 - **`libs/deed-poll/src/api/deed-poll-api.ts` is the only place that knows where api is.** `callApi` turns
   a failed `ApiResult` into the domain errors `src/errors.ts` already renders. No page sees a base
   URL, and every service function takes a `Caller` — `{ accessToken }` — because api derives both the audit
@@ -288,10 +291,10 @@ single file:
   in the Gazette?", then "Directions/Reasons", and the check page reads back in that order. Yes means do not publish,
   or publish only as the directions say (the last name only, for example), so `directionSchema` requires
   `directionsText` when the answer is Yes, as api does. The wire field is `changesToStandardPublication`; api#154
-  renamed its column and inverted every stored answer, and publishes the old `publishToGazette` (inverted, deprecated)
-  for one release. This app declares that name for the contract's set-equality and **never reads or sends it**
-  (`JudicialDirection` omits it), and the mock derives it rather than storing it. **Deploy order:** api#154 first,
-  then this app, then api's PR 3, which removes the alias, after which the spec refresh drops it here. The caseworker
+  renamed its column and inverted every stored answer. Its deprecated `publishToGazette` alias is gone: api's PR 3
+  removed it, the D1 spec refresh (`SPEC-PROVENANCE.md`, 2026-10-28) dropped it from the wire types and the mock, and
+  `server.test.ts` pins that it is absent. The field rules' `publishToGazette` query parameter is a different thing
+  and stays. The caseworker
   pages relabel the row "Changes to the standard publications in the Gazette" but keep "Directions"; only the Master's
   own pages say "Directions/Reasons". The case's `publishToLondonGazette` (field rules, the Gazette ready list) is a
   different fact and is untouched.
@@ -736,7 +739,10 @@ span several files:
 `/deed-polls/settings` is where a Delivery Manager changes the service's process values while it runs (plan
 `docs/plans/20261026-dm-settings-page.md`, extended for item D by `docs/plans/20261028-da1-settings-contract-mock-and-page.md`).
 It holds, in order, the referral process, the London Gazette recipient, the Masters, the bank holidays and a link to
-XUI staff administration. Add no field or placeholder for a value api has not made a setting. Facts that span several
+XUI staff administration. Add no field or placeholder for a value api has not made a setting. **Deploy order:** api D1 (the
+Masters, the bank holidays and the extended process settings) on every replica first, then this app. Against an older
+api the Masters and bank holiday lists show their unavailable sentences and a referral-process save is refused, because
+every save sends seven fields and the window's minimum is now a day (`docs/DEPLOYMENT.md`). Facts that span several
 files:
 
 - **The area is gated once, on `MANAGE_PROCESS_CONFIG`.** `src/app.ts` mounts
