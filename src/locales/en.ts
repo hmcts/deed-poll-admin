@@ -30,6 +30,13 @@ export const content = {
     tryAgainInMinutes: "Try again in {minutes} minutes.",
     tryAgainLater: "Try again later."
   },
+  // The IDAM callback's two login refusals (OWASP plan 01 Task 6): api gave no area, or api could not be asked.
+  staffAccess: {
+    noAccess: "Your account does not have access to this service. Ask your manager to arrange access for you.",
+    unavailableHeading: "Sorry, we could not check your access",
+    unavailableBody: "This is a problem with the service, not with your account. Try signing in again in a few minutes.",
+    signInAgain: "Sign in again"
+  },
   navigation: {
     home: "Home",
     about: "About",

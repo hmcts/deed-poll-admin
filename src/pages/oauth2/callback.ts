@@ -5,6 +5,7 @@
  * and PKCE checks both happen inside `completeLogin`, against values read from this session — so a
  * code obtained in a different browser cannot be redeemed here.
  */
+import { staffAccess } from "@hmcts/deed-poll";
 import type { Request, Response } from "express";
 import { callbackUrl, completeLogin, describeIdamError } from "../../auth/idam.js";
 import { safeReturnTo } from "../../auth/return-to.js";
@@ -63,6 +64,20 @@ export const GET = async (req: Request, res: Response) => {
     console.error("IDAM authorization code exchange failed:", describeIdamError(error));
     securityEvent("auth.login.failed", req, { reason: "exchange_failed" });
     return res.status(403).render("errors/403");
+  }
+
+  // OWASP plan 01 Task 6: an identity api gives neither area to is refused here, before it holds a session,
+  // and a login api could not be asked about is refused differently, because the user should try again rather
+  // than ask for access. Not signed in, so the events name the subject themselves.
+  if (!signedIn.accessAnswered) {
+    securityEvent("auth.login.failed", req, { reason: "access_unavailable", subject: signedIn.subject });
+    return res.status(503).render("errors/access-unavailable");
+  }
+
+  const { staff, judicial } = staffAccess(signedIn.user);
+  if (!staff && !judicial) {
+    securityEvent("auth.login.failed", req, { reason: "no_access", subject: signedIn.subject });
+    return res.status(403).render("errors/403", { refusal: "no-access" });
   }
 
   await signIn(req, signedIn.user, signedIn.subject, signedIn.tokens);

@@ -36,6 +36,12 @@ export const content: Translations = {
     tryAgainInMinutes: "Rhowch gynnig arall arni ymhen {minutes} munud.",
     tryAgainLater: "Rhowch gynnig arall arni yn nes ymlaen."
   },
+  staffAccess: {
+    noAccess: "Nid oes gan eich cyfrif fynediad at y gwasanaeth hwn. Gofynnwch i’ch rheolwr drefnu mynediad i chi.",
+    unavailableHeading: "Mae’n ddrwg gennym, nid oeddem yn gallu gwirio eich mynediad",
+    unavailableBody: "Problem gyda’r gwasanaeth yw hon, nid gyda’ch cyfrif. Rhowch gynnig arall ar fewngofnodi ymhen ychydig funudau.",
+    signInAgain: "Mewngofnodi eto"
+  },
   navigation: {
     home: "Hafan",
     about: "Amdanom",

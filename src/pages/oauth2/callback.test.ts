@@ -52,6 +52,7 @@ describe("the IDAM callback", () => {
     vi.mocked(completeLogin).mockResolvedValue({
       user: currentUser({ staff: true, judicial: false, capabilities: [OVERRIDE_PRIVACY] }, "A Team leader"),
       subject: "idam-subject-1",
+      accessAnswered: true,
       tokens: {
         idToken: "an-id-token",
         accessToken: "an-access-token",
@@ -271,6 +272,91 @@ describe("the IDAM callback", () => {
 
       expect(res.render).toHaveBeenCalledWith("errors/403");
       expect(res.render.mock.calls[0][1]).toBeUndefined();
+    });
+  });
+
+  describe("when api says the user has no staff or judicial access", () => {
+    beforeEach(() => {
+      vi.mocked(completeLogin).mockResolvedValue({
+        user: currentUser({ staff: false, judicial: false, capabilities: [] }, "No Access"),
+        subject: "idam-subject-2",
+        accessAnswered: true,
+        tokens: { idToken: "an-id-token", accessToken: "an-access-token", refreshToken: "a-refresh-token", expiresAt: 0 }
+      });
+    });
+
+    it("renders the no-access 403 instead of signing them in", async () => {
+      const req = callback();
+      const res = pageResponse();
+
+      await GET(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.render).toHaveBeenCalledWith("errors/403", { refusal: "no-access" });
+      expect(req.session.deedPoll.user).toBeUndefined();
+      expect(req.session.regenerate).not.toHaveBeenCalled();
+    });
+
+    it("should emit auth.login.failed with reason no_access and the refused subject", async () => {
+      // Not signed in, so the session has no subject; the event names the one api refused.
+      await GET(callback(), pageResponse());
+
+      expect(events()).toEqual([
+        [
+          "auth.login.failed",
+          { subject: "idam-subject-2", sid: sid(PRE_LOGIN_SESSION_ID), env: "test", method: "GET", route: "/oauth2/callback", reason: "no_access" }
+        ]
+      ]);
+    });
+
+    it("admits a judge, who has judicial access and no staff access", async () => {
+      vi.mocked(completeLogin).mockResolvedValue({
+        user: currentUser({ staff: false, judicial: true, capabilities: [] }, "A Judge"),
+        subject: "idam-subject-3",
+        accessAnswered: true,
+        tokens: { idToken: "an-id-token", accessToken: "an-access-token", refreshToken: "a-refresh-token", expiresAt: 0 }
+      });
+      const req = callback();
+      const res = pageResponse();
+
+      await GET(req, res);
+
+      expect(req.session.deedPoll.user).toMatchObject({ judicial: true });
+      expect(res.redirect).toHaveBeenCalledWith("/deed-polls/case-1");
+    });
+  });
+
+  describe("when api could not be asked what the user may do", () => {
+    beforeEach(() => {
+      vi.mocked(completeLogin).mockResolvedValue({
+        user: currentUser(undefined, "Unknown Access"),
+        subject: "idam-subject-4",
+        accessAnswered: false,
+        tokens: { idToken: "an-id-token", accessToken: "an-access-token", refreshToken: "a-refresh-token", expiresAt: 0 }
+      });
+    });
+
+    it("renders the try-again page with a 503, not the no-access 403", async () => {
+      // "We could not check" and "you have no access" send the user to different people.
+      const req = callback();
+      const res = pageResponse();
+
+      await GET(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.render).toHaveBeenCalledWith("errors/access-unavailable");
+      expect(req.session.deedPoll.user).toBeUndefined();
+    });
+
+    it("should emit auth.login.failed with reason access_unavailable", async () => {
+      await GET(callback(), pageResponse());
+
+      expect(events()).toEqual([
+        [
+          "auth.login.failed",
+          { subject: "idam-subject-4", sid: sid(PRE_LOGIN_SESSION_ID), env: "test", method: "GET", route: "/oauth2/callback", reason: "access_unavailable" }
+        ]
+      ]);
     });
   });
 

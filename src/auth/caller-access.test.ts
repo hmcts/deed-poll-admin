@@ -24,7 +24,7 @@ describe("fetchCallerAccess", () => {
   });
 
   it.each([
-    ["sign-in", "no access until its next refresh"],
+    ["sign-in", "this sign-in gives the user no access"],
     ["refresh", "keeps its previous answer"],
     ["backfill", "the next will ask again"]
   ] as const)("should answer undefined and warn once, naming what %s does next, when api gives no answer", async (occasion, consequence) => {
