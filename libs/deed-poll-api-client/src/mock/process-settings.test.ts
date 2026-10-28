@@ -167,6 +167,137 @@ describe("process settings adapter and mock", () => {
   });
 
   it.each([
+    { key: "reminderIntervalHours", value: 1 },
+    { key: "reminderIntervalHours", value: 168 },
+    { key: "masterWindowCap", value: 1 },
+    { key: "masterWindowCap", value: 100 },
+    { key: "morningWindowStart", value: "00:00" },
+    { key: "afternoonWindowEnd", value: "23:45" }
+  ])("should accept $key at its bound $value", async ({ key, value }) => {
+    // Act
+    const response = await put({ referralClaimExpiryMinutes: 10080, [key]: value, revision: 0 });
+
+    // Assert
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ [key]: value, revision: 1 });
+  });
+
+  it.each([
+    { key: "reminderIntervalHours", value: 0 },
+    { key: "reminderIntervalHours", value: 169 },
+    { key: "reminderIntervalHours", value: null },
+    { key: "masterWindowCap", value: 0 },
+    { key: "masterWindowCap", value: 101 },
+    { key: "masterWindowCap", value: 2.5 },
+    { key: "morningWindowStart", value: "07:10" },
+    { key: "morningWindowStart", value: "7:00" },
+    { key: "afternoonWindowEnd", value: "24:00" },
+    { key: "morningWindowEnd", value: null }
+  ])("should refuse $key at $value with a 400 naming it and change nothing", async ({ key, value }) => {
+    // Act
+    const response = await put({ referralClaimExpiryMinutes: 2880, [key]: value, revision: 0 });
+
+    // Assert
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ errors: [{ field: key }] });
+    expect(await getProcessSettings(config())).toMatchObject({ ok: true, data: { referralClaimExpiryMinutes: 10080, revision: 0 } });
+  });
+
+  it("should give api's quarter-hour sentence for a time off the quarter hour", async () => {
+    // Act
+    const response = await put({ referralClaimExpiryMinutes: 10080, morningWindowStart: "07:05", revision: 0 });
+
+    // Assert
+    expect(await response.json()).toMatchObject({
+      errors: [{ field: "morningWindowStart", message: "Enter a time from 00:00 to 23:45 as HH:mm, on the quarter hour (00, 15, 30 or 45)." }]
+    });
+  });
+
+  it.each([
+    { change: { morningWindowStart: "10:30" }, field: "morningWindowEnd", message: "The morning window must end after it starts." },
+    { change: { morningWindowEnd: "06:45" }, field: "morningWindowEnd", message: "The morning window must end after it starts." },
+    // Equal is refused: the morning window must end strictly before the afternoon one starts.
+    { change: { afternoonWindowStart: "10:30" }, field: "afternoonWindowStart", message: "The afternoon window must start after the morning window ends." },
+    { change: { morningWindowEnd: "14:15" }, field: "afternoonWindowStart", message: "The afternoon window must start after the morning window ends." },
+    { change: { afternoonWindowEnd: "14:00" }, field: "afternoonWindowEnd", message: "The afternoon window must end after it starts." }
+  ])("should refuse $change against the stored times with api's sentence on $field", async ({ change, field, message }) => {
+    // Act
+    const response = await put({ referralClaimExpiryMinutes: 10080, ...change, revision: 0 });
+
+    // Assert
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ errors: [{ field, message }] });
+    expect(await getProcessSettings(config())).toMatchObject({ ok: true, data: { revision: 0, morningWindowEnd: "10:30" } });
+  });
+
+  it("should accept moving both windows at once when the merged row is in order", async () => {
+    // Act
+    const result = await updateProcessSettings(
+      {
+        referralClaimExpiryMinutes: 10080,
+        morningWindowStart: "11:00",
+        morningWindowEnd: "12:00",
+        afternoonWindowStart: "15:00",
+        afternoonWindowEnd: "16:00",
+        revision: 0
+      },
+      config()
+    );
+
+    // Assert
+    expect(result).toMatchObject({ ok: true, data: { morningWindowStart: "11:00", afternoonWindowEnd: "16:00", revision: 1 } });
+  });
+
+  it("should check the revision before the ordering rule, as api does", async () => {
+    // Act
+    const response = await put({ referralClaimExpiryMinutes: 10080, afternoonWindowStart: "09:00", revision: 4 });
+
+    // Assert
+    expect(response.status).toBe(409);
+  });
+
+  it("should take today's admin's old-shape body, changing only the processing window", async () => {
+    // Arrange
+    await updateProcessSettings({ referralClaimExpiryMinutes: 10080, reminderIntervalHours: 24, masterWindowCap: 4, revision: 0 }, config());
+
+    // Act
+    const response = await put({ referralClaimExpiryMinutes: 2880, revision: 1 });
+
+    // Assert
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      referralClaimExpiryMinutes: 2880,
+      reminderIntervalHours: 24,
+      masterWindowCap: 4,
+      morningWindowStart: "07:00",
+      afternoonWindowEnd: "14:30",
+      revision: 2
+    });
+  });
+
+  it("should refuse a stale revision even when an extended setting already matches", async () => {
+    // Arrange
+    await updateProcessSettings({ referralClaimExpiryMinutes: 10080, masterWindowCap: 4, revision: 0 }, config());
+
+    // Act
+    const result = await updateProcessSettings({ referralClaimExpiryMinutes: 10080, masterWindowCap: 4, revision: 0 }, config());
+
+    // Assert
+    expect(result).toMatchObject({ ok: false, error: { kind: "conflict", status: 409 } });
+  });
+
+  it("should treat extended settings equal to the stored ones as a no-op with no new revision", async () => {
+    // Act
+    const result = await updateProcessSettings(
+      { referralClaimExpiryMinutes: 10080, reminderIntervalHours: 48, morningWindowStart: "07:00", revision: 0 },
+      config()
+    );
+
+    // Assert
+    expect(result).toMatchObject({ ok: true, data: { revision: 0, updatedBy: null } });
+  });
+
+  it.each([
     { roles: [], allowed: false },
     { roles: ["caseworker-deedpoll"], allowed: false },
     { roles: ["caseworker-deedpoll-team-leader"], allowed: false },

@@ -317,26 +317,26 @@ describe("the bank holidays", () => {
 
   it("should add bank holidays and list them earliest first", async () => {
     // Arrange
-    await addBankHoliday({ date: "2026-12-28", name: "Boxing Day (substitute day)" }, asManager());
+    await addBankHoliday({ date: "2029-12-28", name: "Boxing Day (substitute day)" }, asManager());
 
     // Act
-    const added = await addBankHoliday({ date: "2026-12-25", name: "Christmas Day" }, asManager());
+    const added = await addBankHoliday({ date: "2029-12-25", name: "Christmas Day" }, asManager());
     const listed = await listBankHolidays({ ...config, accessToken: roleToken("cw-1", ["caseworker-deedpoll"]) });
 
     // Assert
-    expect(added).toEqual({ ok: true, data: { date: "2026-12-25", name: "Christmas Day" } });
+    expect(added).toEqual({ ok: true, data: { date: "2029-12-25", name: "Christmas Day" } });
     if (!listed.ok) throw new Error("Expected the list");
     const dates = listed.data.map((holiday) => holiday.date);
     expect(dates).toEqual(dates.toSorted());
-    expect(dates).toEqual(expect.arrayContaining(["2026-12-25", "2026-12-28"]));
+    expect(dates).toEqual(expect.arrayContaining(["2029-12-25", "2029-12-28"]));
   });
 
   it("should classify a date already listed as a conflict", async () => {
     // Arrange
-    await addBankHoliday({ date: "2026-12-25", name: "Christmas Day" }, asManager());
+    await addBankHoliday({ date: "2029-12-25", name: "Christmas Day" }, asManager());
 
     // Act
-    const result = await addBankHoliday({ date: "2026-12-25", name: "Christmas" }, asManager());
+    const result = await addBankHoliday({ date: "2029-12-25", name: "Christmas" }, asManager());
 
     // Assert
     expect(result).toMatchObject({ ok: false, error: { kind: "conflict", status: 409 } });
@@ -344,11 +344,11 @@ describe("the bank holidays", () => {
 
   it("should remove a listed date with no content and call a second removal not found", async () => {
     // Arrange
-    await addBankHoliday({ date: "2026-12-25", name: "Christmas Day" }, asManager());
+    await addBankHoliday({ date: "2029-12-25", name: "Christmas Day" }, asManager());
 
     // Act
-    const removed = await removeBankHoliday("2026-12-25", asManager());
-    const again = await removeBankHoliday("2026-12-25", asManager());
+    const removed = await removeBankHoliday("2029-12-25", asManager());
+    const again = await removeBankHoliday("2029-12-25", asManager());
 
     // Assert
     expect(removed).toEqual({ ok: true, data: undefined });

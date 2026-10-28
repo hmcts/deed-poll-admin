@@ -124,8 +124,8 @@ session, and the next one builds over it, wiping the results. Never move `dist` 
 - [x] Implement, run the per-task checks, and record the results.
 
 ### Task 2: The mock
-- [ ] Add failing mock tests for every rule in the Development Approach.
-- [ ] Implement the mock rules and the seed data, run the seeder against a private-port mock, run the per-task checks, and record the results.
+- [x] Add failing mock tests for every rule in the Development Approach.
+- [x] Implement the mock rules and the seed data, run the seeder against a private-port mock, run the per-task checks, and record the results.
 
 ### Task 3: Settings: referral process
 - [ ] Add failing schema, handler and template tests.
@@ -177,3 +177,26 @@ the two plan commits since added none of the six.)
 - Per-task checks: format, lint clean, `yarn build --force` 8/8. api-client 1,242 (+26), deed-poll 1,611 (one
   claim-window table row fewer), app 3,148 (the full app suite, run because the mock changed under it).
 
+**Task 2 (the mock).**
+- Masters (`masters.ts`) now use api's `MasterService` sentences and checking order: unknown key, name, email,
+  available, revision, then the id (not a UUID is the same 404, "No such Master"), stale before the no-op, and the
+  duplicate check only when the email actually changes. A duplicate is a 409 with api's field error on `email` and
+  never the address. An email change unlinks the entry.
+- Linking: `linkIfListed` runs on every `/judicial/` path before the request is answered (api's `MasterLinking`
+  interceptor). It reads the caller through `callerClaims`, so a local IDAM token's email comes from userinfo. It
+  needs the judicial role, a subject and an email with an `@`. It never creates or moves an entry. api's two fixed
+  WARN sentences are `console.warn`ed and name nobody. The subject is never in a response.
+- Process settings: api's ordering rule after the stale check, against stored values for absent times, refused on
+  `morningWindowEnd`, `afternoonWindowStart` or `afternoonWindowEnd` in api's words. Also api's unknown-key and
+  quarter-hour sentences.
+- Bank holidays: api's V42 24 dates (2026–2028) seeded and restored on reset, plus api's sentences and a 409 field
+  error on `date`. `client.test.ts`'s bank-holiday cases moved to 2029 dates, because 2026-12-25 is now seeded.
+- New tests: `masters.test.ts` and `bank-holidays.test.ts` (over HTTP) and 25 new `process-settings.test.ts` cases.
+- Seed: `yarn mock:seed` adds Master Judge (`judge@example.com`, the local judge persona from `seed-idam-users.mjs`),
+  Master Sullivan and Master Wren (unavailable), all through `POST /caseworker/masters` as the Delivery Manager. The
+  read-back fails on a mismatch. `--keep` skips addresses already listed.
+- I ran the seeder against a private mock on 3241: exit 0, 57 cases, 3 Masters with 1 unavailable, and every
+  existing read-back true. A judicial request with `Judge@example.com` then linked Master Judge. A `--keep` re-run
+  added no duplicate.
+- Per-task checks: format and lint clean, `yarn build --force` 8/8. api-client 1,314 (+72). I ran the app suite
+  too, because the mock changed under it: 3,148, green. deed-poll was not touched.

@@ -78,10 +78,15 @@
  *  14. Document previews on both surfaces (api PR #129), scoped and visible exactly as `/file` is: a real PDF
  *      per format, or api's refusal for the same input — see `document-preview.ts`, whose fixtures are all
  *      synthetic. The `preview-converter-unavailable` and `preview-busy` scenarios reach api's 503 and 429.
+ *  15. api D1's Masters list, bank holidays and extended process settings (`masters.ts`, `bank-holidays.ts`,
+ *      `process-settings.ts`), in api's words: the Delivery Manager's writes, a revision and a stale-beats-no-op
+ *      check on each, the window ordering rule, api's V42 holiday seed, and a judge linked to the unlinked entry
+ *      holding their IDAM email on their first judicial request. Reads admit any staff caller; the subject a
+ *      Master is linked to is never published.
  *
  * They are restatements, and the authority is api's `DeedPollService`, `CaseStates`, `DeedPollValidation`,
  * `ReferenceNumbers`, `CaseQuery`, `ReferralService`, `ReferralNotes`, `JudicialReferralService`,
- * `CaseEmailService`, `GazetteNoticeHistory`, `DocumentPreviewService`, `RoleCapabilities`, `StaffArea` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
+ * `CaseEmailService`, `GazetteNoticeHistory`, `DocumentPreviewService`, `MasterService`, `BankHolidays`, `ProcessSettingsService`, `RoleCapabilities`, `StaffArea` and `IdamAuthenticationConverter` — not this file. Everything else api does (the
  * privacy lock, the minor and Gazette write gates, create-time defaults, the saved-query permission rules —
  * see `savedQuery`) is deliberately NOT modelled: no
  * page's behaviour depends on it, and a half-copy would be a second opinion to keep in step. If a page
@@ -511,7 +516,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       }
       if ((date === null && method !== "POST") || (date !== null && method !== "DELETE")) return send(res, 405, { error: "Method not allowed" });
       if (!hasProcessConfigAccess(claims)) return send(res, 403, { error: "Delivery Manager role required" });
-      if (date !== null) return bankHolidays.remove(date) ? sendNoContent(res) : send(res, 404, { error: "Bank holiday not found" });
+      if (date !== null) return bankHolidays.remove(date) ? sendNoContent(res) : send(res, 404, { error: "No such bank holiday" });
       const result = bankHolidays.add(await readJsonBody(req));
       return send(res, result.status, result.body);
     }
@@ -602,6 +607,9 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     // A sibling namespace to `/caseworker`, not a section of it, so its own branch rather than a widening of
     // the case-scoped pattern below: a judicial path carries no case id, because api resolves the case from
     // the referral precisely so a judge cannot name an application.
+    // api's `MasterLinking` interceptor, on every judicial path before the request is answered.
+    if (pathname.startsWith("/judicial/")) await linkJudicialCaller(req);
+
     if (pathname === "/judicial/referrals") {
       if (method === "GET") return judicialPool(res, searchParams);
       return send(res, 405, { error: `no such route: ${method} ${pathname}` });
@@ -1717,6 +1725,22 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     return record;
   }
 
+  /**
+   * The caller api would link: the judicial role, the subject and IDAM's email, trimmed and lower-cased and
+   * ignored without an `@`, as api's `CurrentUser` reads it. Best effort, as api's interceptor is: nothing here can
+   * refuse the request.
+   */
+  async function linkJudicialCaller(req: IncomingMessage): Promise<void> {
+    const claims = await callerClaims(req, options.userInfoUrl);
+    if (!claims) return;
+    const email = typeof claims.email === "string" ? claims.email.trim().toLowerCase() : "";
+    masters.linkIfListed({
+      isJudicial: callerAccess(claims).judicial,
+      subject: typeof claims.sub === "string" && claims.sub.length > 0 ? claims.sub : null,
+      email: email.includes("@") ? email : null
+    });
+  }
+
   function reset(): void {
     cases.clear();
     gazetteBatches.clear();
@@ -1845,7 +1869,7 @@ function callerSubject(req: IncomingMessage): string {
 
 // Local IDAM puts roles in userinfo, not its access token. Fixture tokens still carry roles directly. Shared by
 // `GET /me` and the Gazette gate so the two read the same roles for one token.
-async function callerClaims(req: IncomingMessage, userInfoUrl?: string): Promise<{ sub?: unknown; roles?: unknown; name?: unknown } | null> {
+async function callerClaims(req: IncomingMessage, userInfoUrl?: string): Promise<{ sub?: unknown; roles?: unknown; name?: unknown; email?: unknown } | null> {
   const claims = tokenClaims(req);
   if (!claims || claims.roles !== undefined || !userInfoUrl) return claims;
   try {
@@ -1868,13 +1892,13 @@ async function callerClaims(req: IncomingMessage, userInfoUrl?: string): Promise
  * page depends on. Anything undecodable is `null` rather than an error, so a hand-rolled `curl` against the mock
  * still works.
  */
-function tokenClaims(req: IncomingMessage): { sub?: unknown; name?: unknown; roles?: unknown } | null {
+function tokenClaims(req: IncomingMessage): { sub?: unknown; name?: unknown; roles?: unknown; email?: unknown } | null {
   const bearer = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? "");
   const payload = bearer?.[1].split(".")[1];
   if (payload === undefined) return null;
 
   try {
-    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: unknown; name?: unknown; roles?: unknown };
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: unknown; name?: unknown; roles?: unknown; email?: unknown };
   } catch {
     return null;
   }

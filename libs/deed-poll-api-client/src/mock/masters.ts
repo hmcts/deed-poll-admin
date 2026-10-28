@@ -3,12 +3,20 @@ import { MASTER_LIMITS, type WireMaster } from "../api/wire.js";
 
 const CREATE_KEYS = new Set(["name", "email", "available"]);
 const UPDATE_KEYS = new Set(["name", "email", "available", "revision"]);
-const DUPLICATE_EMAIL = "Another Master already has that email address.";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DUPLICATE_EMAIL = "Another Master already has this email address.";
+const UNKNOWN_KEY = "Only name, email, available and, on a change, revision may be supplied.";
+const NAME_MESSAGE = `Enter the Master's name, at most ${MASTER_LIMITS.maxNameLength} characters.`;
+const EMAIL_MESSAGE = "Enter the Master's email address, like name@example.com.";
+const AVAILABLE_MESSAGE = "Say whether the Master is available, as true or false.";
+const LINKED_ELSEWHERE = "A judicial caller's email matches a Master already linked to another account";
+const ALREADY_LINKED = "A judicial caller already linked to one Master has the email of another";
 
 /**
- * api's Masters list (`MasterService`), restated: names trimmed, emails trimmed and lower-cased so a duplicate is
- * one in any case, a keyed patch at a revision, and no delete. The linked IDAM subject is held here and never
- * published, as api's column is not.
+ * api's Masters list (`MasterService`), restated in its words and its checking order: names trimmed, emails trimmed
+ * and lower-cased so a duplicate is one in any case, a keyed patch at a revision whose stale check comes before the
+ * no-op, and no delete. A changed email unlinks the entry. The linked IDAM subject is held here and never published,
+ * as api's column is not, and a refusal never echoes the address.
  */
 export function createMasters() {
   const masters = new Map<string, MockMaster>();
@@ -23,13 +31,13 @@ export function createMasters() {
     create(body: unknown): Reply {
       const fields = asObject(body);
       const unknownKey = Object.keys(fields).find((key) => !CREATE_KEYS.has(key));
-      if (unknownKey) return invalid(unknownKey, `${unknownKey} cannot be supplied.`);
+      if (unknownKey) return invalid(unknownKey, UNKNOWN_KEY);
       const name = readName(fields.name);
-      if (name === null) return invalid("name", nameMessage());
+      if (name === null) return invalid("name", NAME_MESSAGE);
       const email = readEmail(fields.email);
-      if (email === null) return invalid("email", emailMessage());
-      if (fields.available !== undefined && typeof fields.available !== "boolean") return invalid("available", "available must be true or false.");
-      if (holder(email) !== undefined) return conflict(DUPLICATE_EMAIL);
+      if (email === null) return invalid("email", EMAIL_MESSAGE);
+      if (fields.available !== undefined && typeof fields.available !== "boolean") return invalid("available", AVAILABLE_MESSAGE);
+      if (holder(email) !== undefined) return duplicateEmail();
 
       const master: MockMaster = { id: randomUUID(), name, email, available: fields.available ?? true, revision: 0, subject: null };
       masters.set(master.id, master);
@@ -38,36 +46,58 @@ export function createMasters() {
     update(id: string, body: unknown): Reply {
       const fields = asObject(body);
       const unknownKey = Object.keys(fields).find((key) => !UPDATE_KEYS.has(key));
-      if (unknownKey) return invalid(unknownKey, `${unknownKey} cannot be supplied.`);
-      if (fields.name === undefined && fields.email === undefined && fields.available === undefined) {
-        return invalid("name", "Supply a name, an email or availability to change.");
+      if (unknownKey) return invalid(unknownKey, UNKNOWN_KEY);
+      if (!("name" in fields) && !("email" in fields) && !("available" in fields)) {
+        return invalid("name", "Supply at least one of name, email and available.");
       }
-      const name = fields.name === undefined ? undefined : readName(fields.name);
-      if (name === null) return invalid("name", nameMessage());
-      const email = fields.email === undefined ? undefined : readEmail(fields.email);
-      if (email === null) return invalid("email", emailMessage());
-      if (fields.available !== undefined && typeof fields.available !== "boolean") return invalid("available", "available must be true or false.");
+      const name = "name" in fields ? readName(fields.name) : undefined;
+      if (name === null) return invalid("name", NAME_MESSAGE);
+      const email = "email" in fields ? readEmail(fields.email) : undefined;
+      if (email === null) return invalid("email", EMAIL_MESSAGE);
+      if ("available" in fields && typeof fields.available !== "boolean") return invalid("available", AVAILABLE_MESSAGE);
       const revision = fields.revision;
       if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0) return invalid("revision", "Reload the Masters list before saving.");
 
-      const master = masters.get(id);
-      if (!master) return { status: 404, body: { error: "Master not found" } };
+      // api parses the id as a UUID, so anything else is the same 404 as an unknown one.
+      const master = UUID.test(id) ? masters.get(id.toLowerCase()) : undefined;
+      if (!master) return { status: 404, body: { error: "No such Master" } };
+      // Before the no-op, so an out-of-date form holding the values the row now has is never told it saved.
       if (revision !== master.revision) return conflict("This Master has changed. Reload the Masters list before saving.");
-      const other = email === undefined ? undefined : holder(email);
-      if (other !== undefined && other.id !== master.id) return conflict(DUPLICATE_EMAIL);
 
-      const next: MockMaster = {
-        ...master,
+      const next = {
         name: name ?? master.name,
         email: email ?? master.email,
         available: (fields.available as boolean | undefined) ?? master.available
       };
-      if (next.name === master.name && next.email === master.email && next.available === master.available) {
+      const emailChanged = next.email !== master.email;
+      if (next.name === master.name && !emailChanged && next.available === master.available) {
         return { status: 200, body: toWire(master) };
       }
-      const updated = { ...next, revision: master.revision + 1, subject: next.email === master.email ? master.subject : null };
-      masters.set(id, updated);
+      const other = emailChanged ? holder(next.email) : undefined;
+      if (other !== undefined && other.id !== master.id) return duplicateEmail();
+
+      const updated: MockMaster = { ...master, ...next, revision: master.revision + 1, subject: emailChanged ? null : master.subject };
+      masters.set(master.id, updated);
       return { status: 200, body: toWire(updated) };
+    },
+    /**
+     * api's `linkIfListed`, run once per judicial request: links the caller to the unlinked entry holding their
+     * IDAM email. It never creates or moves an entry, and the two cases it leaves alone warn in api's fixed
+     * sentences, which name neither the address nor the subject.
+     */
+    linkIfListed(caller: { isJudicial: boolean; subject: string | null; email: string | null }): void {
+      if (!caller.isJudicial || caller.subject === null || caller.email === null) return;
+      const entry = holder(caller.email);
+      if (entry === undefined || entry.subject === caller.subject) return;
+      if (entry.subject !== null) {
+        console.warn(LINKED_ELSEWHERE);
+        return;
+      }
+      if ([...masters.values()].some((master) => master.subject === caller.subject)) {
+        console.warn(ALREADY_LINKED);
+        return;
+      }
+      masters.set(entry.id, { ...entry, subject: caller.subject });
     }
   };
 
@@ -96,14 +126,6 @@ function readEmail(value: unknown): string | null {
   return at > 0 && at === email.lastIndexOf("@") && at < email.length - 1 ? email : null;
 }
 
-function nameMessage(): string {
-  return `Enter a name of 1 to ${MASTER_LIMITS.maxNameLength} characters.`;
-}
-
-function emailMessage(): string {
-  return "Enter an email address with exactly one @ and no spaces.";
-}
-
 function byNameThenId(left: MockMaster, right: MockMaster): number {
   return left.name.localeCompare(right.name) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
 }
@@ -118,6 +140,10 @@ function invalid(field: string, message: string): Reply {
 
 function conflict(error: string): Reply {
   return { status: 409, body: { error } };
+}
+
+function duplicateEmail(): Reply {
+  return { status: 409, body: { error: DUPLICATE_EMAIL, errors: [{ field: "email", message: DUPLICATE_EMAIL }] } };
 }
 
 interface MockMaster {

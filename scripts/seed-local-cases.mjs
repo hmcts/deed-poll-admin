@@ -177,6 +177,17 @@ const EXPECTED_RETURNED_FOR_ACTION = REFERRAL_PLAN.find((phase) => phase.upTo ==
  */
 const CONFIRMATION_WAIT_DAYS = [14, 3];
 
+/**
+ * The Masters list a Delivery Manager would keep: one unavailable, and one holding the local judge persona's email
+ * (`scripts/seed-idam-users.mjs`), so that judge links to it on their first judicial request. Assigning the seeded
+ * referrals to them is plan Db1's.
+ */
+const MASTERS = [
+  { name: "Master Judge", email: "judge@example.com" },
+  { name: "Master Sullivan", email: "master.sullivan@example.com" },
+  { name: "Master Wren", email: "master.wren@example.com", available: false }
+];
+
 /** The judge a claim and a direction are attributed to. The mock reads a subject out of the token, no roles. */
 const SEED_JUDGE = "seed.judge@example.com";
 
@@ -342,6 +353,16 @@ for (let n = 1; n <= GAZETTE_BATCHES; n++) {
   );
 }
 
+// Through the contract's own create, as the Delivery Manager, so the list holds what api's rules allow. `--keep`
+// skips an address already listed, because a second create of it is api's 409.
+const listedEmails = new Set((await step("GET", "/caseworker/masters", undefined, DELIVERY_MANAGER_HEADERS, "read the Masters list")).map((m) => m.email));
+for (const master of MASTERS) {
+  if (listedEmails.has(master.email)) continue;
+  await step("POST", "/caseworker/masters", master, DELIVERY_MANAGER_HEADERS, `add ${master.name}`);
+}
+const masters = await step("GET", "/caseworker/masters", undefined, DELIVERY_MANAGER_HEADERS, "read the Masters list back");
+console.log(`Masters: ${masters.length}, of which ${masters.filter((m) => !m.available).length} unavailable.`);
+
 const ready = await step("GET", "/caseworker/cases?filter=readyForPublication&size=100", undefined, DELIVERY_MANAGER_HEADERS, "read Gazette-ready cases");
 const history = await step("GET", "/caseworker/gazette-notices", undefined, DELIVERY_MANAGER_HEADERS, "read Gazette history");
 const historyTail = await step("GET", "/caseworker/gazette-notices?page=2", undefined, DELIVERY_MANAGER_HEADERS, "read Gazette history page 2");
@@ -394,6 +415,11 @@ const mismatches = [
     preview.referenceNumbers[99] === "KBDP2026-B26-100")
     ? null
     : "Gazette history did not return the sorted, truncated frozen preview.",
+  KEEP ||
+  (masters.length === MASTERS.length &&
+    MASTERS.every((seed) => masters.some((m) => m.email === seed.email && m.available === (seed.available ?? true) && !m.linked)))
+    ? null
+    : "the Masters list differs from the seed.",
   worklist.ok ? null : `the filtered read-back was refused with ${worklist.status} — has \`currentReferralState\` stopped being queryable?`,
   awaiting.ok ? null : `the awaiting-confirmation read-back was refused with ${awaiting.status} — is \`awaitingConfirmation\` still a published filter key?`,
   KEEP || total === seeded ? null : `seeded ${seeded} but the list reports ${total}.`,

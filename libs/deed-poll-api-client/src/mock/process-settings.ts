@@ -37,7 +37,7 @@ export function createProcessSettings() {
     update(body: unknown, name: string): Reply {
       const fields = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
       const unknownKey = Object.keys(fields).find((key) => !KEYS.has(key));
-      if (unknownKey) return invalid(unknownKey, `${unknownKey} is not a process setting.`);
+      if (unknownKey) return invalid(unknownKey, "Only the process settings and revision may be supplied.");
 
       const minutes = fields[PROCESSING_WINDOW];
       if (!isWholeNumber(minutes) || minutes < PROCESS_SETTINGS_LIMITS.minProcessingMinutes || minutes > PROCESS_SETTINGS_LIMITS.maxProcessingMinutes) {
@@ -51,13 +51,17 @@ export function createProcessSettings() {
       for (const key of WINDOW_TIMES) {
         if (!(key in fields)) continue;
         const value = fields[key];
-        if (typeof value !== "string" || !WINDOW_TIME.test(value)) return invalid(key, "Enter a time as HH:mm on the quarter hour.");
+        if (typeof value !== "string" || !WINDOW_TIME.test(value))
+          return invalid(key, "Enter a time from 00:00 to 23:45 as HH:mm, on the quarter hour (00, 15, 30 or 45).");
       }
       const revision = fields[REVISION];
       if (!isWholeNumber(revision) || revision < 0) return invalid(REVISION, "Reload the process settings before saving.");
 
       if (revision !== settings.revision) return { status: 409, body: { error: "The process settings have changed. Reload them before saving." } };
       const merged = { ...settings, ...(fields as Partial<WireProcessSettings>), revision: settings.revision };
+      // After the stale check, against the stored value of any time left out, as api's `requireOrdered` runs.
+      const disordered = outOfOrder(merged);
+      if (disordered) return invalid(disordered.field, disordered.message);
       if (changed(settings, merged)) {
         settings = { ...merged, revision: revision + 1, updatedAt: new Date(), updatedBy: name };
       }
@@ -80,6 +84,16 @@ function seeded(): WireProcessSettings {
     updatedAt: null,
     updatedBy: null
   };
+}
+
+// `HH:mm` compares as text in time order, so no parsing is needed once the pattern has held. The mock's row always
+// holds all four times; the wire type is only nullable by convention.
+function outOfOrder(settings: WireProcessSettings): { field: string; message: string } | null {
+  const [morningStart, morningEnd, afternoonStart, afternoonEnd] = WINDOW_TIMES.map((key) => settings[key] ?? "");
+  if (morningStart >= morningEnd) return { field: "morningWindowEnd", message: "The morning window must end after it starts." };
+  if (morningEnd >= afternoonStart) return { field: "afternoonWindowStart", message: "The afternoon window must start after the morning window ends." };
+  if (afternoonStart >= afternoonEnd) return { field: "afternoonWindowEnd", message: "The afternoon window must end after it starts." };
+  return null;
 }
 
 function changed(stored: WireProcessSettings, merged: WireProcessSettings): boolean {
